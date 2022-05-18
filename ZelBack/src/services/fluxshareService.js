@@ -8,19 +8,25 @@ const archiver = require('archiver');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
 const serviceHelper = require('./serviceHelper');
+const messageHelper = require('./messageHelper');
+const dbHelper = require('./dbHelper');
 const verificationHelper = require('./verificationHelper');
 const generalService = require('./generalService');
 const log = require('../lib/log');
 
-// FluxShare specific
+/**
+ * Delete a specific FluxShare file.
+ * @param {string} file Name of file to be deleted.
+ * @returns {boolean} Returns true unless an error is caught.
+ */
 async function fluxShareDatabaseFileDelete(file) {
   try {
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const databaseFluxShare = dbopen.db(config.database.fluxshare.database);
     const sharedCollection = config.database.fluxshare.collections.shared;
     const queryFluxShare = { name: file };
     const projectionFluxShare = { projection: { _id: 0, name: 1, token: 1 } };
-    await serviceHelper.findOneAndDeleteInDatabase(databaseFluxShare, sharedCollection, queryFluxShare, projectionFluxShare);
+    await dbHelper.findOneAndDeleteInDatabase(databaseFluxShare, sharedCollection, queryFluxShare, projectionFluxShare);
     return true;
   } catch (error) {
     log.error(error);
@@ -28,14 +34,18 @@ async function fluxShareDatabaseFileDelete(file) {
   }
 }
 
-// removes documents that starts with the path queried
+/**
+ * Delete all FluxShare files that start with a specified path.
+ * @param {string} pathstart Path of files to be deleted.
+ * @returns {boolean} Returns true unless an error is caught.
+ */
 async function fluxShareDatabaseFileDeleteMultiple(pathstart) {
   try {
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const databaseFluxShare = dbopen.db(config.database.fluxshare.database);
     const sharedCollection = config.database.fluxshare.collections.shared;
     const queryFluxShare = { name: new RegExp(`^${pathstart}`) }; // has to start with this path
-    await serviceHelper.removeDocumentsFromCollection(databaseFluxShare, sharedCollection, queryFluxShare);
+    await dbHelper.removeDocumentsFromCollection(databaseFluxShare, sharedCollection, queryFluxShare);
     return true;
   } catch (error) {
     log.error(error);
@@ -43,6 +53,12 @@ async function fluxShareDatabaseFileDeleteMultiple(pathstart) {
   }
 }
 
+/**
+ * To add all files within a directory into an array of file paths/names.
+ * @param {string} dirPath Directory path.
+ * @param {string[]} arrayOfFiles Existing array of file paths/names or empty array.
+ * @returns {string[]} Updated array of file paths/names.
+ */
 function getAllFiles(dirPath, arrayOfFiles) {
   const files = fs.readdirSync(dirPath);
 
@@ -66,6 +82,10 @@ function getAllFiles(dirPath, arrayOfFiles) {
   return arrayOfFiles;
 }
 
+/**
+ * To get total size (GB) for all files within a directory.
+ * @returns {number} Total file size (GB).
+ */
 function getFluxShareSize() {
   const dirpath = path.join(__dirname, '../../../');
   const directoryPath = `${dirpath}ZelApps/ZelShare`;
@@ -84,6 +104,11 @@ function getFluxShareSize() {
   return (totalSize / 1e9); // in 'GB'
 }
 
+/**
+ * To get total size (Bytes) for a specific folder.
+ * @param {string} folder Directory path for folder.
+ * @returns {number} Folder size (Bytes).
+ */
 function getFluxShareSpecificFolderSize(folder) {
   const arrayOfFiles = getAllFiles(folder);
 
@@ -99,14 +124,19 @@ function getFluxShareSpecificFolderSize(folder) {
   return (totalSize); // in 'B'
 }
 
+/**
+ * To get a file from database or insert it into database if it doesn't already exist.
+ * @param {string} file File name.
+ * @returns {object} File detail (name and token).
+ */
 async function fluxShareDatabaseShareFile(file) {
   try {
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const databaseFluxShare = dbopen.db(config.database.fluxshare.database);
     const sharedCollection = config.database.fluxshare.collections.shared;
     const queryFluxShare = { name: file };
     const projectionFluxShare = { projection: { _id: 0, name: 1, token: 1 } };
-    const result = await serviceHelper.findOneInDatabase(databaseFluxShare, sharedCollection, queryFluxShare, projectionFluxShare);
+    const result = await dbHelper.findOneInDatabase(databaseFluxShare, sharedCollection, queryFluxShare, projectionFluxShare);
     if (result) {
       return result;
     }
@@ -116,7 +146,7 @@ async function fluxShareDatabaseShareFile(file) {
       name: file,
       token: crypto.createHash('sha256').update(string).digest('hex'),
     };
-    await serviceHelper.insertOneToDatabase(databaseFluxShare, sharedCollection, fileDetail);
+    await dbHelper.insertOneToDatabase(databaseFluxShare, sharedCollection, fileDetail);
     return fileDetail;
   } catch (error) {
     log.error(error);
@@ -124,14 +154,18 @@ async function fluxShareDatabaseShareFile(file) {
   }
 }
 
+/**
+ * To search for shared files.
+ * @returns {object[]} Array of shared files.
+ */
 async function fluxShareSharedFiles() {
   try {
-    const dbopen = serviceHelper.databaseConnection();
+    const dbopen = dbHelper.databaseConnection();
     const databaseFluxShare = dbopen.db(config.database.fluxshare.database);
     const sharedCollection = config.database.fluxshare.collections.shared;
     const queryFluxShare = {};
     const projectionFluxShare = { projection: { _id: 0, name: 1, token: 1 } };
-    const results = await serviceHelper.findInDatabase(databaseFluxShare, sharedCollection, queryFluxShare, projectionFluxShare);
+    const results = await dbHelper.findInDatabase(databaseFluxShare, sharedCollection, queryFluxShare, projectionFluxShare);
     return results;
   } catch (error) {
     log.error(error);
@@ -139,20 +173,25 @@ async function fluxShareSharedFiles() {
   }
 }
 
+/**
+ * To get shared files. Only accessible by admins.
+ * @param {object} req Requet.
+ * @param {object} res Response.
+ */
 async function fluxShareGetSharedFiles(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized) {
       const files = await fluxShareSharedFiles();
-      const resultsResponse = serviceHelper.createDataMessage(files);
+      const resultsResponse = messageHelper.createDataMessage(files);
       res.json(resultsResponse);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -166,6 +205,11 @@ async function fluxShareGetSharedFiles(req, res) {
   }
 }
 
+/**
+ * To unshare a file. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function fluxShareUnshareFile(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -174,15 +218,15 @@ async function fluxShareUnshareFile(req, res) {
       file = file || req.query.file;
       file = encodeURIComponent(file);
       await fluxShareDatabaseFileDelete(file);
-      const resultsResponse = serviceHelper.createSuccessMessage('File sharing disabled');
+      const resultsResponse = messageHelper.createSuccessMessage('File sharing disabled');
       res.json(resultsResponse);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -196,6 +240,11 @@ async function fluxShareUnshareFile(req, res) {
   }
 }
 
+/**
+ * To share a file. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function fluxShareShareFile(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -204,15 +253,15 @@ async function fluxShareShareFile(req, res) {
       file = file || req.query.file;
       file = encodeURIComponent(file);
       const fileDetails = await fluxShareDatabaseShareFile(file);
-      const resultsResponse = serviceHelper.createDataMessage(fileDetails);
+      const resultsResponse = messageHelper.createDataMessage(fileDetails);
       res.json(resultsResponse);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -226,6 +275,13 @@ async function fluxShareShareFile(req, res) {
   }
 }
 
+/**
+ * To download a zip folder for a specified directory. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @param {boolean} authorized False until verified as an admin.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
 async function fluxShareDownloadFolder(req, res, authorized = false) {
   try {
     let auth = authorized;
@@ -238,7 +294,7 @@ async function fluxShareDownloadFolder(req, res, authorized = false) {
       folder = folder || req.query.folder;
 
       if (!folder) {
-        const errorResponse = serviceHelper.createErrorMessage('No folder specified');
+        const errorResponse = messageHelper.createErrorMessage('No folder specified');
         res.json(errorResponse);
         return;
       }
@@ -265,13 +321,13 @@ async function fluxShareDownloadFolder(req, res, authorized = false) {
       zip.glob('**/*', { cwd: folderpath });
       zip.finalize();
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
       return;
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -285,6 +341,12 @@ async function fluxShareDownloadFolder(req, res, authorized = false) {
   }
 }
 
+/**
+ * To download a specified file. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
 async function fluxShareDownloadFile(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -293,7 +355,7 @@ async function fluxShareDownloadFile(req, res) {
       file = file || req.query.file;
 
       if (!file) {
-        const errorResponse = serviceHelper.createErrorMessage('No file specified');
+        const errorResponse = messageHelper.createErrorMessage('No file specified');
         res.json(errorResponse);
         return;
       }
@@ -312,19 +374,19 @@ async function fluxShareDownloadFile(req, res) {
       let { token } = req.params;
       token = token || req.query.token;
       if (!file || !token) {
-        const errMessage = serviceHelper.errUnauthorizedMessage();
+        const errMessage = messageHelper.errUnauthorizedMessage();
         res.json(errMessage);
         return;
       }
       const fileURI = encodeURIComponent(file);
-      const dbopen = serviceHelper.databaseConnection();
+      const dbopen = dbHelper.databaseConnection();
       const databaseFluxShare = dbopen.db(config.database.fluxshare.database);
       const sharedCollection = config.database.fluxshare.collections.shared;
       const queryFluxShare = { name: fileURI, token };
       const projectionFluxShare = { projection: { _id: 0, name: 1, token: 1 } };
-      const result = await serviceHelper.findOneInDatabase(databaseFluxShare, sharedCollection, queryFluxShare, projectionFluxShare);
+      const result = await dbHelper.findOneInDatabase(databaseFluxShare, sharedCollection, queryFluxShare, projectionFluxShare);
       if (!result) {
-        const errMessage = serviceHelper.errUnauthorizedMessage();
+        const errMessage = messageHelper.errUnauthorizedMessage();
         res.json(errMessage);
         return;
       }
@@ -350,7 +412,7 @@ async function fluxShareDownloadFile(req, res) {
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -364,7 +426,11 @@ async function fluxShareDownloadFile(req, res) {
   }
 }
 
-// oldpath is relative path to default fluxshare directory; newname is just a new name of folder/file
+/**
+ * To rename a file or folder. Oldpath is relative path to default fluxshare directory; newname is just a new name of folder/file. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function fluxShareRename(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -380,7 +446,7 @@ async function fluxShareRename(req, res) {
         throw new Error('No new name specified');
       }
       if (newname.includes('/')) {
-        throw new Error('No new name is invalid');
+        throw new Error('New name is invalid');
       }
       // stop sharing of ALL files that start with the path
       const fileURI = encodeURIComponent(oldpath);
@@ -397,15 +463,15 @@ async function fluxShareRename(req, res) {
       }
       await fs.promises.rename(oldfullpath, newfullpath);
 
-      const response = serviceHelper.createSuccessMessage('Rename successful');
+      const response = messageHelper.createSuccessMessage('Rename successful');
       res.json(response);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -419,6 +485,11 @@ async function fluxShareRename(req, res) {
   }
 }
 
+/**
+ * To remove a specified shared file. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function fluxShareRemoveFile(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -437,15 +508,15 @@ async function fluxShareRemoveFile(req, res) {
       const filepath = `${dirpath}ZelApps/ZelShare/${file}`;
       await fs.promises.unlink(filepath);
 
-      const response = serviceHelper.createSuccessMessage('File Removed');
+      const response = messageHelper.createSuccessMessage('File Removed');
       res.json(response);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -459,6 +530,11 @@ async function fluxShareRemoveFile(req, res) {
   }
 }
 
+/**
+ * To remove a specified shared folder. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function fluxShareRemoveFolder(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -473,15 +549,15 @@ async function fluxShareRemoveFolder(req, res) {
       const filepath = `${dirpath}ZelApps/ZelShare/${folder}`;
       await fs.promises.rmdir(filepath);
 
-      const response = serviceHelper.createSuccessMessage('Folder Removed');
+      const response = messageHelper.createSuccessMessage('Folder Removed');
       res.json(response);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -495,6 +571,11 @@ async function fluxShareRemoveFolder(req, res) {
   }
 }
 
+/**
+ * To get a list of files with their details for all files within a shared folder. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function fluxShareGetFolder(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -548,19 +629,24 @@ async function fluxShareGetFolder(req, res) {
         };
         filesWithDetails.push(detailedFile);
       }
-      const resultsResponse = serviceHelper.createDataMessage(filesWithDetails);
+      const resultsResponse = messageHelper.createDataMessage(filesWithDetails);
       res.json(resultsResponse);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
 
+/**
+ * To create a folder. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function fluxShareCreateFolder(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -573,19 +659,24 @@ async function fluxShareCreateFolder(req, res) {
 
       await fs.promises.mkdir(filepath);
 
-      const resultsResponse = serviceHelper.createSuccessMessage('Folder Created');
+      const resultsResponse = messageHelper.createSuccessMessage('Folder Created');
       res.json(resultsResponse);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
 
+/**
+ * To check if a file exists. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function fluxShareFileExists(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -597,22 +688,22 @@ async function fluxShareFileExists(req, res) {
       const filepath = `${dirpath}ZelApps/ZelShare/${file}`;
       let fileExists = true;
       try {
-        await fs.promises.access(filepath, fs.constants.F_OK); // check folder exists and write ability
+        await fs.promises.access(filepath, fs.constants.F_OK); // check file exists and write ability
       } catch (error) {
         fileExists = false;
       }
       const data = {
         fileExists,
       };
-      const resultsResponse = serviceHelper.createDataMessage(data);
+      const resultsResponse = messageHelper.createDataMessage(data);
       res.json(resultsResponse);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = serviceHelper.createErrorMessage(
+    const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -626,6 +717,10 @@ async function fluxShareFileExists(req, res) {
   }
 }
 
+/**
+ * To check the quantity of space (GB) available for FluxShare. This is the space available after space already reserved for the FluxNode.
+ * @returns {number} The quantity of space available (GB).
+ */
 async function getSpaceAvailableForFluxShare() {
   const dfAsync = util.promisify(df);
   // we want whole numbers in GB
@@ -651,7 +746,7 @@ async function getSpaceAvailableForFluxShare() {
     totalSpace += serviceHelper.ensureNumber(volume.size);
   });
   // space that is further reserved for flux os and that will be later substracted from available space. Max 30.
-  const tier = await generalService.nodeTier();
+  const tier = await generalService.getNewNodeTier();
   const lockedSpaceOnNode = config.fluxSpecifics.hdd[tier];
 
   const extraSpaceOnNode = totalSpace - lockedSpaceOnNode > 0 ? totalSpace - lockedSpaceOnNode : 0; // shall always be above 0. Put precaution to place anyway
@@ -660,6 +755,11 @@ async function getSpaceAvailableForFluxShare() {
   return spaceAvailableForFluxShare;
 }
 
+/**
+ * To show FluxShare storage stats (GB available, GB used and GB total). Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function fluxShareStorageStats(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -672,19 +772,24 @@ async function fluxShareStorageStats(req, res) {
         used: spaceUsedByFluxShare,
         total: spaceAvailableForFluxShare,
       };
-      const resultsResponse = serviceHelper.createDataMessage(data);
+      const resultsResponse = messageHelper.createDataMessage(data);
       res.json(resultsResponse);
     } else {
-      const errMessage = serviceHelper.errUnauthorizedMessage();
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
 }
 
+/**
+ * To upload a specified folder to FluxShare. Checks that there is enough space available. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function fluxShareUpload(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -753,7 +858,7 @@ async function fluxShareUpload(req, res) {
       })
       .on('error', (error) => {
         log.error(error);
-        const errorResponse = serviceHelper.createErrorMessage(
+        const errorResponse = messageHelper.createErrorMessage(
           error.message || error,
           error.name,
           error.code,

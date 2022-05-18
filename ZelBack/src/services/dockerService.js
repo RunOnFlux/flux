@@ -9,13 +9,26 @@ const appsFolder = `${fluxDirPath}ZelApps/`;
 
 const docker = new Docker();
 
+/**
+ * Creates a docker container object with a given ID.
+ *
+ * @param {string} id
+ *
+ * @returns {object} docker container object
+ */
 function getDockerContainer(id) {
   const dockerContainer = docker.getContainer(id);
   return dockerContainer;
 }
 
+/**
+ * Generates an app identifier based on app name.
+ *
+ * @param {string} appName
+ * @returns {string} app identifier
+ */
 function getAppIdentifier(appName) {
-  // this id is used for volumes, docker names so we know it reall belongs to flux
+  // this id is used for volumes, docker names so we know it really belongs to flux
   if (appName.startsWith('zel')) {
     return appName;
   }
@@ -28,6 +41,12 @@ function getAppIdentifier(appName) {
   return `flux${appName}`;
 }
 
+/**
+ * Generates an app docker name based on app name
+ *
+ * @param {string} appName
+ * @returns {string} app docker name id
+ */
 function getAppDockerNameIdentifier(appName) {
   // this id is used for volumes, docker names so we know it reall belongs to flux
   const name = getAppIdentifier(appName);
@@ -37,21 +56,63 @@ function getAppDockerNameIdentifier(appName) {
   return `/${name}`;
 }
 
+/**
+ * Creates a docker network object.
+ *
+ * @param {object} options:
+ *      Name: string;
+        CheckDuplicate?: boolean | undefined;
+        Driver?: string | undefined;
+        Internal?: boolean | undefined;
+        Attachable?: boolean | undefined;
+        Ingress?: boolean | undefined;
+        IPAM?: IPAM | undefined;
+        EnableIPv6?: boolean | undefined;
+        Options?: { [option: string]: string } | undefined;
+        Labels?: { [label: string]: string } | undefined;
+
+        abortSignal?: AbortSignal;
+ * @returns {object} Network
+ */
 async function dockerCreateNetwork(options) {
   const network = await docker.createNetwork(options);
   return network;
 }
 
+/**
+ * Removes docker network.
+ *
+ * @param {object} netw - Network object
+ *
+ * @returns {Buffer}
+ */
 async function dockerRemoveNetwork(netw) {
   const network = await netw.remove();
   return network;
 }
 
+/**
+ * Returns inspect network object.
+ *
+ * @param {object} netw - Network object
+ *
+ * @returns {object} ispect network object
+ */
 async function dockerNetworkInspect(netw) {
   const network = await netw.inspect();
   return network;
 }
 
+/**
+ * Returns a list of containers.
+ *
+ * @param {bool} [all] - defaults to false; By default only running containers are shown
+ * @param {number} [limit] - Return this number of most recently created containers, including non-running ones.
+ * @param {bool} [size] - Return the size of container as fields SizeRw and SizeRootFs.
+ * @param {string} [filter] Filters to process on the container list, encoded as JSON
+
+ * @returns {array} containers list
+ */
 async function dockerListContainers(all, limit, size, filter) {
   const options = {
     all,
@@ -63,25 +124,52 @@ async function dockerListContainers(all, limit, size, filter) {
   return containers;
 }
 
+/**
+ * Returns a list of images on the server.
+ *
+ * @returns {array} images list
+ */
 async function dockerListImages() {
   const containers = await docker.listImages();
   return containers;
 }
 
-async function dockerContainerInspect(idOrName) {
-  // container ID or name
+/**
+ * Returns a docker container found by name or ID
+ *
+ * @param {string} idOrName
+ * @returns {object} dockerContainer
+ */
+async function getDockerContainerByIdOrName(idOrName) {
   const containers = await dockerListContainers(true);
   const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
   const dockerContainer = docker.getContainer(myContainer.Id);
+  return dockerContainer;
+}
+/**
+ * Returns low-level information about a container.
+ *
+ * @param {string} idOrName
+ * @returns {object}
+ */
+async function dockerContainerInspect(idOrName) {
+  // container ID or name
+  const dockerContainer = await getDockerContainerByIdOrName(idOrName);
+
   const response = await dockerContainer.inspect();
   return response;
 }
 
+/**
+ * Returns a sample of container’s resource usage statistics.
+ *
+ * @param {string} idOrName
+ * @returns docker container statistics
+ */
 async function dockerContainerStats(idOrName) {
   // container ID or name
-  const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
-  const dockerContainer = docker.getContainer(myContainer.Id);
+  const dockerContainer = await getDockerContainerByIdOrName(idOrName);
+
   const options = {
     stream: false,
   };
@@ -89,13 +177,18 @@ async function dockerContainerStats(idOrName) {
   return response;
 }
 
+/**
+ * Returns changes on a container’s filesystem.
+ *
+ * @param {string} idOrName
+ * @returns {string}
+ */
 async function dockerContainerChanges(idOrName) {
   // container ID or name
-  const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
-  const dockerContainer = docker.getContainer(myContainer.Id);
+  const dockerContainer = await getDockerContainerByIdOrName(idOrName);
+
   const response = await dockerContainer.changes();
-  return response.toString();
+  return serviceHelper.ensureString(response);
 }
 
 function dockerPullStream(repoTag, res, callback) {
@@ -121,6 +214,15 @@ function dockerPullStream(repoTag, res, callback) {
   });
 }
 
+/**
+ * Runs a command inside a running container.
+ *
+ * @param {object} container Docker container object
+ * @param {string} cmd Command to execute
+ * @param {array} env Environment variables
+ * @param {object} res response object
+ * @param {function} callback
+ */
 async function dockerContainerExec(container, cmd, env, res, callback) {
   try {
     const options = {
@@ -149,6 +251,13 @@ async function dockerContainerExec(container, cmd, env, res, callback) {
   }
 }
 
+/**
+ * Subscribes to logs stream.
+ *
+ * @param {string} idOrName
+ * @param {object} res
+ * @param {function} callback
+ */
 async function dockerContainerLogsStream(idOrName, res, callback) {
   try {
     // container ID or name
@@ -191,11 +300,17 @@ async function dockerContainerLogsStream(idOrName, res, callback) {
   }
 }
 
+/**
+ * Returns requested number of lines of logs from the container.
+ *
+ * @param {string} idOrName
+ * @param {number} lines
+ *
+ * @returns {string}
+ */
 async function dockerContainerLogs(idOrName, lines) {
   // container ID or name
-  const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
-  const dockerContainer = docker.getContainer(myContainer.Id);
+  const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
   const options = {
     follow: false,
@@ -207,6 +322,14 @@ async function dockerContainerLogs(idOrName, lines) {
   return logs.toString();
 }
 
+/**
+ * Creates an app container.
+ *
+ * @param {object} appSpecifications
+ * @param {string} appName
+ * @param {bool} isComponent
+ * @returns {object}
+ */
 async function appDockerCreate(appSpecifications, appName, isComponent) {
   const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
   let exposedPorts = {};
@@ -295,94 +418,136 @@ async function appDockerCreate(appSpecifications, appName, isComponent) {
   return app;
 }
 
+/**
+ * Starts app's docker.
+ *
+ * @param {string} idOrName
+ * @returns {string} message
+ */
 async function appDockerStart(idOrName) {
   // container ID or name
-  const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
-  const dockerContainer = docker.getContainer(myContainer.Id);
+  const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
   await dockerContainer.start(); // may throw
   return `Flux App ${idOrName} successfully started.`;
 }
 
+/**
+ * Stops app's docker.
+ *
+ * @param {string} idOrName
+ * @returns {string} message
+ */
 async function appDockerStop(idOrName) {
   // container ID or name
-  const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
-  const dockerContainer = docker.getContainer(myContainer.Id);
+  const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
   await dockerContainer.stop();
   return `Flux App ${idOrName} successfully stopped.`;
 }
 
+/**
+ * Restarts app's docker.
+ *
+ * @param {string} idOrName
+ * @returns {string} message
+ */
 async function appDockerRestart(idOrName) {
   // container ID or name
-  const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
-  const dockerContainer = docker.getContainer(myContainer.Id);
+  const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
   await dockerContainer.restart();
   return `Flux App ${idOrName} successfully restarted.`;
 }
 
+/**
+ * Kills app's docker.
+ *
+ * @param {string} idOrName
+ * @returns {string} message
+ */
 async function appDockerKill(idOrName) {
   // container ID or name
-  const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
-  const dockerContainer = docker.getContainer(myContainer.Id);
+  const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
   await dockerContainer.kill();
   return `Flux App ${idOrName} successfully killed.`;
 }
 
+/**
+ * Removes app's docker.
+ *
+ * @param {string} idOrName
+ * @returns {string} message
+ */
 async function appDockerRemove(idOrName) {
   // container ID or name
-  const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
-  const dockerContainer = docker.getContainer(myContainer.Id);
+  const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
   await dockerContainer.remove();
   return `Flux App ${idOrName} successfully removed.`;
 }
 
+/**
+ * Removes app's docker image.
+ *
+ * @param {string} idOrName
+ * @returns {string} message
+ */
 async function appDockerImageRemove(idOrName) {
   // container ID or name
   const dockerImage = docker.getImage(idOrName);
-
   await dockerImage.remove();
   return `Flux App ${idOrName} image successfully removed.`;
 }
 
+/**
+ * Pauses app's docker.
+ *
+ * @param {string} idOrName
+ * @returns {string} message
+ */
 async function appDockerPause(idOrName) {
   // container ID or name
-  const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
-  const dockerContainer = docker.getContainer(myContainer.Id);
+  const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
   await dockerContainer.pause();
   return `Flux App ${idOrName} successfully paused.`;
 }
 
-async function appDockerUnpase(idOrName) {
+/**
+ * Unpauses app's docker.
+ *
+ * @param {string} idOrName
+ * @returns {string} message
+ */
+async function appDockerUnpause(idOrName) {
   // container ID or name
-  const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
-  const dockerContainer = docker.getContainer(myContainer.Id);
+  const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
   await dockerContainer.unpause();
   return `Flux App ${idOrName} successfully unpaused.`;
 }
 
+/**
+ * Returns app's docker's active processes.
+ *
+ * @param {string} idOrName
+ * @returns {string} message
+ */
 async function appDockerTop(idOrName) {
   // container ID or name
-  const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
-  const dockerContainer = docker.getContainer(myContainer.Id);
+  const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
   const processes = await dockerContainer.top();
   return processes;
 }
 
+/**
+ * Creates flux docker network if doesn't exist
+ *
+ * @returns {object} response
+ */
 async function createFluxDockerNetwork() {
   // check if fluxDockerNetwork exists
   const fluxNetworkOptions = {
@@ -433,7 +598,8 @@ module.exports = {
   appDockerRemove,
   appDockerImageRemove,
   appDockerPause,
-  appDockerUnpase,
+  appDockerUnpause,
   appDockerTop,
   createFluxDockerNetwork,
+  getDockerContainerByIdOrName,
 };

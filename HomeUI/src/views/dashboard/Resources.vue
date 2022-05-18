@@ -97,7 +97,7 @@
                 />
               </b-avatar>
               <h2 class="mt-1">
-                Total SSD: {{ beautifyValue(totalSSD / 1000, 2) }} TB
+                Total SSD: {{ beautifyValue(totalSSD / 1000000, 2) }} PB
               </h2>
               <vue-apex-charts
                 type="bar"
@@ -711,32 +711,32 @@ export default {
       const fluxTierBenchList = fluxTierBench.data.data;
       fluxTierBenchList.forEach((node) => {
         if (node.tier === 'CUMULUS' && node.benchmark && node.benchmark.bench) {
-          this.cumulusCpuValue += node.benchmark.bench.cores === 0 ? 2 : node.benchmark.bench.cores;
-          this.cumulusRamValue += node.benchmark.bench.ram < 4 ? 4 : Math.round(node.benchmark.bench.ram);
+          this.cumulusCpuValue += node.benchmark.bench.cores === 0 ? 4 : node.benchmark.bench.cores;
+          this.cumulusRamValue += node.benchmark.bench.ram < 8 ? 8 : Math.round(node.benchmark.bench.ram);
           this.cumulusSSDStorageValue += node.benchmark.bench.ssd;
           this.cumulusHDDStorageValue += node.benchmark.bench.hdd;
         } else if (node.tier === 'CUMULUS') {
-          this.cumulusCpuValue += 2;
-          this.cumulusRamValue += 4;
-          this.cumulusHDDStorageValue += 50;
+          this.cumulusCpuValue += 4;
+          this.cumulusRamValue += 8;
+          this.cumulusHDDStorageValue += 220;
         } else if (node.tier === 'NIMBUS' && node.benchmark && node.benchmark.bench) {
-          this.nimbusCpuValue += node.benchmark.bench.cores === 0 ? 4 : node.benchmark.bench.cores;
-          this.nimbusRamValue += node.benchmark.bench.ram < 8 ? 8 : Math.round(node.benchmark.bench.ram);
+          this.nimbusCpuValue += node.benchmark.bench.cores === 0 ? 8 : node.benchmark.bench.cores;
+          this.nimbusRamValue += node.benchmark.bench.ram < 32 ? 32 : Math.round(node.benchmark.bench.ram);
           this.nimbusSSDStorageValue += node.benchmark.bench.ssd;
           this.nimbusHDDStorageValue += node.benchmark.bench.hdd;
         } else if (node.tier === 'NIMBUS') {
-          this.nimbusCpuValue += 4;
-          this.nimbusRamValue += 8;
-          this.nimbusSSDStorageValue += 150;
+          this.nimbusCpuValue += 8;
+          this.nimbusRamValue += 32;
+          this.nimbusSSDStorageValue += 440;
         } else if (node.tier === 'STRATUS' && node.benchmark && node.benchmark.bench) {
-          this.stratusCpuValue += node.benchmark.bench.cores === 0 ? 8 : node.benchmark.bench.cores;
-          this.stratusRamValue += node.benchmark.bench.ram < 32 ? 32 : Math.round(node.benchmark.bench.ram);
+          this.stratusCpuValue += node.benchmark.bench.cores === 0 ? 16 : node.benchmark.bench.cores;
+          this.stratusRamValue += node.benchmark.bench.ram < 64 ? 64 : Math.round(node.benchmark.bench.ram);
           this.stratusSSDStorageValue += node.benchmark.bench.ssd;
           this.stratusHDDStorageValue += node.benchmark.bench.hdd;
         } else if (node.tier === 'STRATUS') {
-          this.stratusCpuValue += 8;
-          this.stratusRamValue += 32;
-          this.stratusSSDStorageValue += 600;
+          this.stratusCpuValue += 16;
+          this.stratusRamValue += 64;
+          this.stratusSSDStorageValue += 880;
         }
       });
 
@@ -779,24 +779,36 @@ export default {
       }
     },
     generateCPUHistory() {
-      this.cpuHistoryData.series = this.generateHistory(2, 4, 8);
+      this.cpuHistoryData.series = this.generateHistory(2, 4, 4, 8, 8, 16);
     },
     generateRAMHistory() {
-      this.ramHistoryData.series = this.generateHistory(4, 8, 32);
+      this.ramHistoryData.series = this.generateHistory(4, 8, 8, 32, 32, 64);
     },
     generateSSDHistory() {
-      this.ssdHistoryData.series = this.generateHistory(40, 150, 600);
+      this.ssdHistoryData.series = this.generateHistory(40, 220, 150, 440, 600, 880);
     },
-    generateHistory(cumulus, nimbus, stratus) {
+    generateHistory(cumulus, halvedCumulus, nimbus, halvedNimbus, stratus, halvedStratus) {
       const cumulusData = [];
       const nimbusData = [];
       const stratusData = [];
 
       const timePoints = Object.keys(this.fluxHistoryStats);
       timePoints.forEach((time) => {
-        cumulusData.push([Number(time), (this.fluxHistoryStats[time].cumulus) * cumulus]);
-        nimbusData.push([Number(time), (this.fluxHistoryStats[time].nimbus) * nimbus]);
-        stratusData.push([Number(time), (this.fluxHistoryStats[time].stratus) * stratus]);
+        if (time < 1647197215000) { // block 1076532
+          cumulusData.push([Number(time), (this.fluxHistoryStats[time].cumulus) * cumulus]);
+        } else {
+          cumulusData.push([Number(time), (this.fluxHistoryStats[time].cumulus) * halvedCumulus]);
+        }
+        if (time < 1647831196000) { // edit this after block 1081572
+          nimbusData.push([Number(time), (this.fluxHistoryStats[time].nimbus) * nimbus]);
+        } else {
+          nimbusData.push([Number(time), (this.fluxHistoryStats[time].nimbus) * halvedNimbus]);
+        }
+        if (time < 2000000000000) { // edit this after block 1087332
+          stratusData.push([Number(time), (this.fluxHistoryStats[time].stratus) * stratus]);
+        } else {
+          stratusData.push([Number(time), (this.fluxHistoryStats[time].stratus) * halvedStratus]);
+        }
       });
       return [
         {

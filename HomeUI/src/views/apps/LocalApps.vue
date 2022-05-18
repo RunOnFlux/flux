@@ -1736,11 +1736,15 @@ export default {
     this.appsGetAvailableApps();
     this.appsGetListRunningApps();
     this.appsGetInstalledApps();
-    const { hostname } = window.location;
+    const { hostname, port } = window.location;
     const regex = /[A-Za-z]/g;
     if (!hostname.match(regex)) {
       if (typeof hostname === 'string') {
         this.$store.commit('flux/setUserIp', hostname);
+      }
+      if (+port > 16100) {
+        const apiPort = +port + 1;
+        this.$store.commit('flux/setFluxPort', apiPort);
       }
     }
   },
@@ -1775,7 +1779,7 @@ export default {
         const runningAppsSpecifics = [];
         apps.forEach((app) => {
           // get application specification IF it is composed app
-          const appName = app.Names[0].startsWith('/flux') ? app.Names[0].substr(5, app.Names[0].length) : app.Names[0].substr(4, app.Names[0].length);
+          const appName = app.Names[0].startsWith('/flux') ? app.Names[0].slice(5) : app.Names[0].slice(4);
           if (appName.includes('_')) {
             runningAppsNames.push(appName.split('_')[1]);
           } else {
@@ -1925,9 +1929,20 @@ export default {
       }
     },
     async removeApp(app) {
+      const appName = this.getAppName(app);
+      const okAppsForAdmin = [
+        'FoldingAtHomeB',
+        'KadenaChainWebNode',
+        'KadenaChainWebData',
+        'FoldingAtHomeArm64',
+      ];
+      if (!okAppsForAdmin.includes(appName) && this.privilege === 'admin') { // node owner but app is a global app
+        this.showToast('danger', `This application ${appName} cannot be removed by node owner`);
+        return;
+      }
       const self = this;
       this.output = '';
-      this.showToast('warning', `Removing ${this.getAppName(app)}`);
+      this.showToast('warning', `Removing ${appName}`);
       const zelidauth = localStorage.getItem('zelidauth');
       const axiosConfig = {
         headers: {
@@ -1956,12 +1971,16 @@ export default {
       }
     },
     async installTemporaryLocalApp(app) { // todo rewrite to installApp later
-      const appName = app;
+      const appName = this.getAppName(app);
       const self = this;
       this.output = [];
       this.downloadOutput = {};
       this.downloading = true;
-      this.showToast('warning', `Installing ${this.getAppName(app)}`);
+      this.showToast('warning', `Installing ${appName}`);
+      if (appName === 'KadenaChainWebNode' || appName === 'KadenaChainWebData') {
+        this.showToast('danger', 'Kadena application is now a Global applicaiton. Local installation is no longer possible');
+        return;
+      }
       const zelidauth = localStorage.getItem('zelidauth');
       // const response = await AppsService.installTemporaryLocalApp(zelidauth, app);
       const axiosConfig = {
@@ -1973,7 +1992,7 @@ export default {
           self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
         },
       };
-      const response = await AppsService.justAPI().get(`/apps/installtemporarylocalapp/${appName}`, axiosConfig);
+      const response = await AppsService.justAPI().get(`/apps/installtemporarylocalapp/${app}`, axiosConfig);
       if (response.data.status === 'error') {
         this.showToast('danger', response.data.data.message || response.data.data);
       } else {
@@ -2001,10 +2020,10 @@ export default {
     getAppName(appName) {
       // this id is used for volumes, docker names so we know it reall belongs to flux
       if (appName && appName.startsWith('zel')) {
-        return appName.substr(3, appName.length);
+        return appName.slice(3);
       }
       if (appName && appName.startsWith('flux')) {
-        return appName.substr(4, appName.length);
+        return appName.slice(4);
       }
       return appName;
     },
@@ -2037,8 +2056,19 @@ export default {
         this.appLocationOptions.totalRows = this.appLocations.length;
       }
     },
-    openAppManagement(appName) {
-      this.managedApplication = appName;
+    openAppManagement(app) {
+      const appName = this.getAppName(app);
+      const okAppsForAdmin = [
+        'FoldingAtHomeB',
+        'KadenaChainWebNode',
+        'KadenaChainWebData',
+        'FoldingAtHomeArm64',
+      ];
+      if (!okAppsForAdmin.includes(appName) && this.privilege === 'admin') { // node owner but app is a global app
+        this.showToast('danger', `This application ${appName} cannot be managed by node owner`);
+      } else {
+        this.managedApplication = appName;
+      }
     },
     clearManagedApplication() {
       this.managedApplication = '';

@@ -33,6 +33,9 @@ export default {
     setUserIp(state, externalip) {
       state.userconfig.externalip = externalip;
     },
+    setFluxPort(state, port) {
+      state.config.apiPort = port;
+    },
     setXDAOOpen(state, open) {
       state.xdaoOpen = open;
     },

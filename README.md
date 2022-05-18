@@ -2,17 +2,22 @@
 
 ![Flux.png](flux_banner.png)
 
-[![DeepScan grade](https://deepscan.io/api/teams/6436/projects/8442/branches/100920/badge/grade.svg)](https://deepscan.io/dashboard#view=project&tid=6436&pid=8442&bid=100920) [![CodeFactor](https://www.codefactor.io/repository/github/runonflux/flux/badge)](https://www.codefactor.io/repository/github/runonflux/flux)[![Language grade: JavaScript](https://img.shields.io/lgtm/grade/javascript/g/runonflux/flux.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/runonflux/flux/context:javascript)
+[![DeepScan grade](https://deepscan.io/api/teams/6436/projects/8442/branches/100920/badge/grade.svg)](https://deepscan.io/dashboard#view=project&tid=6436&pid=8442&bid=100920)[![CodeFactor](https://www.codefactor.io/repository/github/runonflux/flux/badge)](https://www.codefactor.io/repository/github/runonflux/flux)[![Total alerts](https://img.shields.io/lgtm/alerts/g/RunOnFlux/flux.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/RunOnFlux/flux/alerts/)[![Language grade: JavaScript](https://img.shields.io/lgtm/grade/javascript/g/RunOnFlux/flux.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/RunOnFlux/flux/context:javascript)[![codecov](https://codecov.io/gh/RunOnFlux/flux/branch/development/graph/badge.svg?token=N31OUPUWZJ)](https://codecov.io/gh/RunOnFlux/flux)
 
 Flux is available on domains, load balancing the entire Flux network. You can access both UI and API on following main domain
 
 [Flux](https://home.runonflux.io)
+
 
 [API](https://api.runonflux.io)
 
 ## API Documentation
 
 [API documentation](https://docs.runonflux.io)
+
+## Source code Documentation
+
+[Source Code documentation](https://source.runonflux.io)
 
 ## The gateway to the Flux Network
 

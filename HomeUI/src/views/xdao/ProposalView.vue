@@ -530,7 +530,7 @@ export default {
     };
 
     const callbackValueSign = () => {
-      const { protocol, hostname } = window.location;
+      const { protocol, hostname, port } = window.location;
       let mybackend = '';
       mybackend += protocol;
       mybackend += '//';
@@ -542,6 +542,10 @@ export default {
       } else {
         if (typeof hostname === 'string') {
           ctx.root.$store.commit('flux/setUserIp', hostname);
+        }
+        if (+port > 16100) {
+          const apiPort = +port + 1;
+          ctx.root.$store.commit('flux/setFluxPort', apiPort);
         }
         mybackend += hostname;
         mybackend += ':';
@@ -572,7 +576,7 @@ export default {
     };
 
     const initiateSignWS = () => {
-      const { protocol, hostname } = window.location;
+      const { protocol, hostname, port } = window.location;
       let mybackend = '';
       mybackend += protocol;
       mybackend += '//';
@@ -585,6 +589,10 @@ export default {
         if (typeof hostname === 'string') {
           ctx.root.$store.commit('flux/setUserIp', hostname);
         }
+        if (+port > 16100) {
+          const apiPort = +port + 1;
+          ctx.root.$store.commit('flux/setFluxPort', apiPort);
+        }
         mybackend += hostname;
         mybackend += ':';
         mybackend += config.value.apiPort;
@@ -592,7 +600,7 @@ export default {
       let backendURL = store.get('backendURL') || mybackend;
       backendURL = backendURL.replace('https://', 'wss://');
       backendURL = backendURL.replace('http://', 'ws://');
-      const signatureMessage = userZelid.value + dataToSign.value.substr(dataToSign.value.length - 13);
+      const signatureMessage = userZelid.value + dataToSign.value.slice(-13);
       const wsuri = `${backendURL}/ws/sign/${signatureMessage}`;
       const websocket = new WebSocket(wsuri);
       // const websocket = websocket

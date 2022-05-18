@@ -105,9 +105,23 @@ export default {
     document.documentElement.setAttribute('dir', isRTL ? 'rtl' : 'ltr');
   },
   created() {
+    this.adjustHostnameAndPort();
     this.getZelIdLoginPhrase();
   },
   methods: {
+    adjustHostnameAndPort() {
+      const { hostname, port } = window.location;
+      const regex = /[A-Za-z]/g;
+      if (!hostname.match(regex)) {
+        if (typeof hostname === 'string') {
+          this.$store.commit('flux/setUserIp', hostname);
+        }
+        if (+port > 16100) {
+          const apiPort = +port + 1;
+          this.$store.commit('flux/setFluxPort', apiPort);
+        }
+      }
+    },
     getZelIdLoginPhrase() {
       IDService.loginPhrase()
         .then((response) => {
