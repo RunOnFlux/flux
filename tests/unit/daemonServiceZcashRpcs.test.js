@@ -4758,7 +4758,7 @@ describe('daemonServiceZcashRpcs tests', () => {
     });
   });
 
-  describe('zcSampleJoinSplit tests', () => {
+  describe('getNewAddress tests', () => {
     let daemonServiceUtilsStub;
     let verifyPrivilegeStub;
 
@@ -4790,7 +4790,7 @@ describe('daemonServiceZcashRpcs tests', () => {
         status: 'error',
       };
 
-      const result = await daemonServiceZcashRpcs.zcSampleJoinSplit(req);
+      const result = await daemonServiceZcashRpcs.getNewAddress(req);
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.notCalled(daemonServiceUtilsStub);
@@ -4816,7 +4816,7 @@ describe('daemonServiceZcashRpcs tests', () => {
         status: 'error',
       };
 
-      const result = await daemonServiceZcashRpcs.zcSampleJoinSplit(req, res);
+      const result = await daemonServiceZcashRpcs.getNewAddress(req, res);
 
       expect(result).to.equal(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
@@ -4836,10 +4836,10 @@ describe('daemonServiceZcashRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZcashRpcs.zcSampleJoinSplit(req);
+      const result = await daemonServiceZcashRpcs.getNewAddress(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcsamplejoinsplit');
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getNewAddress');
     });
 
     it('should trigger rpc, no params, response passed', async () => {
@@ -4856,11 +4856,11 @@ describe('daemonServiceZcashRpcs tests', () => {
       const expectedResponse = 'success';
       const res = generateResponse();
 
-      const result = await daemonServiceZcashRpcs.zcSampleJoinSplit(req, res);
+      const result = await daemonServiceZcashRpcs.getNewAddress(req, res);
 
       expect(result).to.equal(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zcsamplejoinsplit');
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getNewAddress');
     });
   });
 });
