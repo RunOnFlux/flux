@@ -207,9 +207,8 @@ async function getReceivedByAddress(req, res) {
  * @returns {object} Message.
  */
 async function getTransaction(req, res) {
-  let { txid } = req.params;
+  let { txid, includewatchonly } = req.params;
   txid = txid || req.query.txid;
-  let { includewatchonly } = req.params;
   includewatchonly = includewatchonly ?? req.query.includewatchonly ?? false;
 
   const rpccall = 'getTransaction';
@@ -231,12 +230,12 @@ async function getTransaction(req, res) {
  */
 async function getUnconfirmedBalance(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized === true) {
-    const rpccall = 'getUnconfirmedBalance';
-    response = await daemonServiceUtils.executeCall(rpccall);
-  } else {
+  if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
   }
+  const rpccall = 'getUnconfirmedBalance';
+  response = await daemonServiceUtils.executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -249,12 +248,12 @@ async function getUnconfirmedBalance(req, res) {
  */
 async function getWalletInfo(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized === true) {
-    const rpccall = 'getWalletInfo';
-    response = await daemonServiceUtils.executeCall(rpccall);
-  } else {
+  if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
   }
+  const rpccall = 'getWalletInfo';
+  response = await daemonServiceUtils.executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -266,25 +265,23 @@ async function getWalletInfo(req, res) {
  * @returns {object} Message.
  */
 async function importAddress(req, res) {
-  let { address } = req.params;
+  let { address, label, rescan } = req.params;
   address = address || req.query.address;
-  let { label } = req.params;
   label = label || req.query.label || '';
-  let { rescan } = req.params;
   rescan = rescan ?? req.query.rescan ?? true;
 
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized === true) {
-    const rpccall = 'importAddress';
-    let rpcparameters = [];
-    if (address) {
-      rescan = serviceHelper.ensureBoolean(rescan);
-      rpcparameters = [address, label, rescan];
-    }
-    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-  } else {
+  if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
   }
+  const rpccall = 'importAddress';
+  let rpcparameters = [];
+  if (address) {
+    rescan = serviceHelper.ensureBoolean(rescan);
+    rpcparameters = [address, label, rescan];
+  }
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -296,24 +293,22 @@ async function importAddress(req, res) {
  * @returns {object} Message.
  */
 async function importPrivKey(req, res) {
-  let { zelcashprivkey } = req.params;
+  let { zelcashprivkey, label, rescan } = req.params;
   zelcashprivkey = zelcashprivkey || req.query.zelcashprivkey;
-  let { label } = req.params;
   label = label || req.query.label || '';
-  let { rescan } = req.params;
   rescan = rescan ?? req.query.rescan ?? true;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized === true) {
-    const rpccall = 'importPrivKey';
-    let rpcparameters = [];
-    if (zelcashprivkey) {
-      rescan = serviceHelper.ensureBoolean(rescan);
-      rpcparameters = [zelcashprivkey, label, rescan];
-    }
-    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-  } else {
+  if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
   }
+  const rpccall = 'importPrivKey';
+  let rpcparameters = [];
+  if (zelcashprivkey) {
+    rescan = serviceHelper.ensureBoolean(rescan);
+    rpcparameters = [zelcashprivkey, label, rescan];
+  }
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -328,16 +323,16 @@ async function importWallet(req, res) {
   let { filename } = req.params;
   filename = filename || req.query.filename;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized === true) {
-    const rpccall = 'importWallet';
-    let rpcparameters = [];
-    if (filename) {
-      rpcparameters = [filename];
-    }
-    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-  } else {
+  if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
   }
+  const rpccall = 'importWallet';
+  let rpcparameters = [];
+  if (filename) {
+    rpcparameters = [filename];
+  }
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -352,14 +347,14 @@ async function keyPoolRefill(req, res) {
   let { newsize } = req.params;
   newsize = newsize || req.query.newsize || 100;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized === true) {
-    const rpccall = 'keyPoolRefill';
-    newsize = serviceHelper.ensureNumber(newsize);
-    const rpcparameters = [newsize];
-    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-  } else {
+  if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
   }
+  const rpccall = 'keyPoolRefill';
+  newsize = serviceHelper.ensureNumber(newsize);
+  const rpcparameters = [newsize];
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -372,12 +367,12 @@ async function keyPoolRefill(req, res) {
  */
 async function listAddressGroupings(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized === true) {
-    const rpccall = 'listAddressGroupings';
-    response = await daemonServiceUtils.executeCall(rpccall);
-  } else {
+  if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
   }
+  const rpccall = 'listAddressGroupings';
+  response = await daemonServiceUtils.executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -390,12 +385,12 @@ async function listAddressGroupings(req, res) {
  */
 async function listLockUnspent(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized === true) {
-    const rpccall = 'listLockUnspent';
-    response = await daemonServiceUtils.executeCall(rpccall);
-  } else {
+  if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
   }
+  const rpccall = 'listLockUnspent';
+  response = await daemonServiceUtils.executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -410,14 +405,14 @@ async function rescanBlockchain(req, res) {
   let { startheight } = req.params;
   startheight = startheight || req.query.startheight || 0;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized === true) {
-    startheight = serviceHelper.ensureNumber(startheight);
-    const rpccall = 'rescanblockchain';
-    const rpcparameters = [startheight];
-    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-  } else {
+  if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
   }
+  startheight = serviceHelper.ensureNumber(startheight);
+  const rpccall = 'rescanblockchain';
+  const rpcparameters = [startheight];
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -429,23 +424,21 @@ async function rescanBlockchain(req, res) {
  * @returns {object} Message.
  */
 async function listReceivedByAddress(req, res) {
-  let { minconf } = req.params;
+  let { minconf, includeempty, includewatchonly } = req.params;
   minconf = minconf || req.query.minconf || 1;
-  let { includeempty } = req.params;
   includeempty = includeempty ?? req.query.includeempty ?? false;
-  let { includewatchonly } = req.params;
   includewatchonly = includewatchonly ?? req.query.includewatchonly ?? false;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized === true) {
-    minconf = serviceHelper.ensureNumber(minconf);
-    includeempty = serviceHelper.ensureBoolean(includeempty);
-    includewatchonly = serviceHelper.ensureBoolean(includewatchonly);
-    const rpccall = 'listReceivedByAddress';
-    const rpcparameters = [minconf, includeempty, includewatchonly];
-    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-  } else {
+  if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
   }
+  minconf = serviceHelper.ensureNumber(minconf);
+  includeempty = serviceHelper.ensureBoolean(includeempty);
+  includewatchonly = serviceHelper.ensureBoolean(includewatchonly);
+  const rpccall = 'listReceivedByAddress';
+  const rpcparameters = [minconf, includeempty, includewatchonly];
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -457,22 +450,20 @@ async function listReceivedByAddress(req, res) {
  * @returns {object} Message.
  */
 async function listSinceBlock(req, res) {
-  let { blockhash } = req.params;
+  let { blockhash, targetconfirmations, includewatchonly } = req.params;
   blockhash = blockhash || req.query.blockhash || '';
-  let { targetconfirmations } = req.params;
   targetconfirmations = targetconfirmations || req.query.targetconfirmations || 1;
-  let { includewatchonly } = req.params;
   includewatchonly = includewatchonly ?? req.query.includewatchonly ?? false;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized === true) {
-    targetconfirmations = serviceHelper.ensureNumber(targetconfirmations);
-    includewatchonly = serviceHelper.ensureBoolean(includewatchonly);
-    const rpccall = 'listSinceBlock';
-    const rpcparameters = [blockhash, targetconfirmations, includewatchonly];
-    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-  } else {
+  if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
   }
+  targetconfirmations = serviceHelper.ensureNumber(targetconfirmations);
+  includewatchonly = serviceHelper.ensureBoolean(includewatchonly);
+  const rpccall = 'listSinceBlock';
+  const rpcparameters = [blockhash, targetconfirmations, includewatchonly];
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -485,23 +476,21 @@ async function listSinceBlock(req, res) {
  */
 async function listTransactions(req, res) {
   const account = '*';
-  let { count } = req.params;
+  let { count, from, includewatchonly } = req.params;
   count = count || req.query.count || 10;
-  let { from } = req.params;
   from = from || req.query.from || 0;
-  let { includewatchonly } = req.params;
   includewatchonly = includewatchonly ?? req.query.includewatchonly ?? false;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized === true) {
-    count = serviceHelper.ensureNumber(count);
-    from = serviceHelper.ensureNumber(from);
-    includewatchonly = serviceHelper.ensureBoolean(includewatchonly);
-    const rpccall = 'listTransactions';
-    const rpcparameters = [account, count, from, includewatchonly];
-    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-  } else {
+  if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
   }
+  count = serviceHelper.ensureNumber(count);
+  from = serviceHelper.ensureNumber(from);
+  includewatchonly = serviceHelper.ensureBoolean(includewatchonly);
+  const rpccall = 'listTransactions';
+  const rpcparameters = [account, count, from, includewatchonly];
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -513,27 +502,25 @@ async function listTransactions(req, res) {
  * @returns {object} Message.
  */
 async function listUnspent(req, res) {
-  let { minconf } = req.params;
+  let { minconf, maxconf, addresses } = req.params;
   minconf = minconf || req.query.minconf || 1;
-  let { maxconf } = req.params;
   maxconf = maxconf || req.query.maxconf || 9999999;
-  let { addresses } = req.params;
   addresses = addresses || req.query.addresses;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized === true) {
-    minconf = serviceHelper.ensureNumber(minconf);
-    maxconf = serviceHelper.ensureNumber(maxconf);
-    const rpccall = 'listUnspent';
-    const rpcparameters = [minconf, maxconf];
-    if (addresses) {
-      addresses = serviceHelper.ensureObject(addresses);
-      rpcparameters.push(addresses);
-    }
-
-    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-  } else {
+  if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
   }
+  minconf = serviceHelper.ensureNumber(minconf);
+  maxconf = serviceHelper.ensureNumber(maxconf);
+  const rpccall = 'listUnspent';
+  const rpcparameters = [minconf, maxconf];
+  if (addresses) {
+    addresses = serviceHelper.ensureObject(addresses);
+    rpcparameters.push(addresses);
+  }
+
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -545,24 +532,23 @@ async function listUnspent(req, res) {
  * @returns {object} Message.
  */
 async function lockUnspent(req, res) {
-  let { unlock } = req.params;
+  let { unlock, transactions } = req.params;
   unlock = unlock ?? req.query.unlock;
-  let { transactions } = req.params;
   transactions = transactions || req.query.transactions;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized === true) {
-    const rpccall = 'lockUnspent';
-    let rpcparameters = [];
-    if (unlock && transactions) {
-      unlock = serviceHelper.ensureBoolean(unlock);
-      transactions = serviceHelper.ensureObject(transactions);
-      rpcparameters = [unlock, transactions];
-    }
-
-    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-  } else {
+  if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
   }
+  const rpccall = 'lockUnspent';
+  let rpcparameters = [];
+  if (unlock != null && transactions) {
+    unlock = serviceHelper.ensureBoolean(unlock);
+    transactions = serviceHelper.ensureObject(transactions);
+    rpcparameters = [unlock, transactions];
+  }
+
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -575,30 +561,28 @@ async function lockUnspent(req, res) {
  */
 async function sendFrom(req, res) {
   const account = '';
-  let { tozelcashaddress } = req.params;
+  let {
+    tozelcashaddress, amount, minconf, comment, commentto,
+  } = req.params;
   tozelcashaddress = tozelcashaddress || req.query.tozelcashaddress;
-  let { amount } = req.params;
   amount = amount || req.query.amount;
-  let { minconf } = req.params;
   minconf = minconf || req.query.minconf || 1;
-  let { comment } = req.params;
   comment = comment || req.query.comment || '';
-  let { commentto } = req.params;
   commentto = commentto || req.query.commentto || '';
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized === true) {
-    const rpccall = 'sendFrom';
-    let rpcparameters = [];
-    if (tozelcashaddress && amount) {
-      amount = serviceHelper.ensureNumber(amount);
-      minconf = serviceHelper.ensureNumber(minconf);
-      rpcparameters = [account, tozelcashaddress, amount, minconf, comment, commentto];
-    }
-
-    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-  } else {
+  if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
   }
+  const rpccall = 'sendFrom';
+  let rpcparameters = [];
+  if (tozelcashaddress && amount) {
+    amount = serviceHelper.ensureNumber(amount);
+    minconf = serviceHelper.ensureNumber(minconf);
+    rpcparameters = [account, tozelcashaddress, amount, minconf, comment, commentto];
+  }
+
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -617,28 +601,27 @@ async function sendFromPost(req, res) {
   req.on('end', async () => {
     const processedBody = serviceHelper.ensureObject(body);
     const { tozelcashaddress } = processedBody;
-    let { amount } = processedBody;
-    let { minconf } = processedBody;
-    let { comment } = processedBody;
-    let { commentto } = processedBody;
+    let {
+      amount, minconf, comment, commentto,
+    } = processedBody;
     const account = '';
     minconf = minconf || 1;
     comment = comment || '';
     commentto = commentto || '';
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    if (authorized === true) {
-      const rpccall = 'sendFrom';
-      let rpcparameters = [];
-      if (tozelcashaddress && amount) {
-        amount = serviceHelper.ensureNumber(amount);
-        minconf = serviceHelper.ensureNumber(minconf);
-        rpcparameters = [account, tozelcashaddress, amount, minconf, comment, commentto];
-      }
-
-      response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-    } else {
+    if (authorized !== true) {
       response = messageHelper.errUnauthorizedMessage();
+      return res.json(response);
     }
+    const rpccall = 'sendFrom';
+    let rpcparameters = [];
+    if (tozelcashaddress && amount) {
+      amount = serviceHelper.ensureNumber(amount);
+      minconf = serviceHelper.ensureNumber(minconf);
+      rpcparameters = [account, tozelcashaddress, amount, minconf, comment, commentto];
+    }
+
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
     return res.json(response);
   });
@@ -652,32 +635,31 @@ async function sendFromPost(req, res) {
  */
 async function sendMany(req, res) {
   const fromaccount = '';
-  let { amounts } = req.params;
+  let {
+    amounts, minconf, comment, substractfeefromamount,
+  } = req.params;
   amounts = amounts || req.query.amounts;
-  let { minconf } = req.params;
   minconf = minconf || req.query.minconf || 1;
-  let { comment } = req.params;
   comment = comment || req.query.comment || '';
-  let { substractfeefromamount } = req.params;
   substractfeefromamount = substractfeefromamount || req.query.substractfeefromamount;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized === true) {
-    const rpccall = 'sendMany';
-    let rpcparameters = [];
-    if (amounts) {
-      amounts = serviceHelper.ensureObject(amounts);
-      minconf = serviceHelper.ensureNumber(minconf);
-      rpcparameters = [fromaccount, amounts, minconf, comment];
-      if (substractfeefromamount) {
-        substractfeefromamount = serviceHelper.ensureObject(substractfeefromamount);
-        rpcparameters.push(substractfeefromamount);
-      }
-    }
-
-    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-  } else {
+  if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
   }
+  const rpccall = 'sendMany';
+  let rpcparameters = [];
+  if (amounts) {
+    amounts = serviceHelper.ensureObject(amounts);
+    minconf = serviceHelper.ensureNumber(minconf);
+    rpcparameters = [fromaccount, amounts, minconf, comment];
+    if (substractfeefromamount) {
+      substractfeefromamount = serviceHelper.ensureObject(substractfeefromamount);
+      rpcparameters.push(substractfeefromamount);
+    }
+  }
+
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
