@@ -12,6 +12,7 @@ const messageHelper = require('./messageHelper');
 const daemonService = require('./daemonService');
 const daemonServiceZelnodeRpcs = require('./daemonServiceZelnodeRpcs');
 const daemonServiceBenchmarkRpcs = require('./daemonServiceBenchmarkRpcs');
+const daemonServiceWalletRpcs = require('./daemonServiceWalletRpcs');
 const benchmarkService = require('./benchmarkService');
 const verificationHelper = require('./verificationHelper');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
@@ -395,7 +396,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
       if (benchMyIP && benchMyIP !== myIP) {
         log.info('New public Ip detected, updating the FluxNode info in the network');
         myIP = benchMyIP;
-        daemonService.createConfirmationTransaction();
+        daemonServiceWalletRpcs.createConfirmationTransaction();
         await serviceHelper.delay(4 * 60 * 1000); // lets wait 2 blocks time for the transaction to be mined
         return true;
       } if (benchMyIP && benchMyIP === myIP) {

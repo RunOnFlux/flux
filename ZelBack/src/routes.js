@@ -8,6 +8,7 @@ const daemonServiceBenchmarkRpcs = require('./services/daemonServiceBenchmarkRpc
 const daemonServiceMiningRpcs = require('./services/daemonServiceMiningRpcs');
 const daemonServiceNetworkRpcs = require('./services/daemonServiceNetworkRpcs');
 const daemonServiceZelnodeRpcs = require('./services/daemonServiceZelnodeRpcs');
+const daemonServiceWalletRpcs = require('./services/daemonServiceWalletRpcs');
 const daemonServiceUtilityRpcs = require('./services/daemonServiceUtilityRpcs');
 const daemonServiceZcashRpcs = require('./services/daemonServiceZcashRpcs');
 const benchmarkService = require('./services/benchmarkService');
@@ -201,7 +202,7 @@ module.exports = (app, expressWs) => {
     daemonServiceUtilityRpcs.verifyMessage(req, res);
   });
   app.get('/daemon/gettransaction/:txid?/:includewatchonly?', cache('30 seconds'), (req, res) => {
-    daemonService.getTransaction(req, res);
+    daemonServiceWalletRpcs.getTransaction(req, res);
   });
   app.get('/daemon/zvalidateaddress/:zaddr?', cache('30 seconds'), (req, res) => {
     daemonServiceUtilityRpcs.zValidateAddress(req, res);
@@ -461,82 +462,82 @@ module.exports = (app, expressWs) => {
     daemonServiceTransactionRpcs.signRawTransaction(req, res);
   });
   app.get('/daemon/addmultisigaddress/:n?/:keysobject?', (req, res) => {
-    daemonService.addMultiSigAddress(req, res);
+    daemonServiceWalletRpcs.addMultiSigAddress(req, res);
   });
   app.get('/daemon/backupwallet/:destination?', (req, res) => {
-    daemonService.backupWallet(req, res);
+    daemonServiceWalletRpcs.backupWallet(req, res);
   });
   app.get('/daemon/dumpprivkey/:taddr?', (req, res) => {
-    daemonService.dumpPrivKey(req, res);
+    daemonServiceWalletRpcs.dumpPrivKey(req, res);
   });
   app.get('/daemon/getbalance/:minconf?/:includewatchonly?', (req, res) => {
-    daemonService.getBalance(req, res);
+    daemonServiceWalletRpcs.getBalance(req, res);
   });
   app.get('/daemon/getnewaddress', (req, res) => {
-    daemonService.getNewAddress(req, res);
+    daemonServiceWalletRpcs.getNewAddress(req, res);
   });
   app.get('/daemon/getrawchangeaddress', (req, res) => {
-    daemonService.getRawChangeAddress(req, res);
+    daemonServiceWalletRpcs.getRawChangeAddress(req, res);
   });
   app.get('/daemon/getreceivedbyaddress/:zelcashaddress?/:minconf?', (req, res) => {
-    daemonService.getReceivedByAddress(req, res);
+    daemonServiceWalletRpcs.getReceivedByAddress(req, res);
   });
   app.get('/daemon/getunconfirmedbalance', (req, res) => {
-    daemonService.getUnconfirmedBalance(req, res);
+    daemonServiceWalletRpcs.getUnconfirmedBalance(req, res);
   });
   app.get('/daemon/getwalletinfo', (req, res) => {
-    daemonService.getWalletInfo(req, res);
+    daemonServiceWalletRpcs.getWalletInfo(req, res);
   });
   app.get('/daemon/importaddress/:address?/:label?/:rescan?', (req, res) => {
-    daemonService.importAddress(req, res);
+    daemonServiceWalletRpcs.importAddress(req, res);
   });
   app.get('/daemon/importprivkey/:zelcashprivkey?/:label?/:rescan?', (req, res) => {
-    daemonService.importPrivKey(req, res);
+    daemonServiceWalletRpcs.importPrivKey(req, res);
   });
   app.get('/daemon/importwallet/:filename?', (req, res) => {
-    daemonService.importWallet(req, res);
+    daemonServiceWalletRpcs.importWallet(req, res);
   });
   app.get('/daemon/keypoolrefill/:newsize?', (req, res) => {
-    daemonService.keyPoolRefill(req, res);
+    daemonServiceWalletRpcs.keyPoolRefill(req, res);
   });
   app.get('/daemon/listaddressgroupings', (req, res) => {
-    daemonService.listAddressGroupings(req, res);
+    daemonServiceWalletRpcs.listAddressGroupings(req, res);
   });
   app.get('/daemon/listlockunspent', (req, res) => {
-    daemonService.listLockUnspent(req, res);
+    daemonServiceWalletRpcs.listLockUnspent(req, res);
   });
   app.get('/daemon/listreceivedbyaddress/:minconf?/:includeempty?/:includewatchonly?', (req, res) => {
-    daemonService.listReceivedByAddress(req, res);
+    daemonServiceWalletRpcs.listReceivedByAddress(req, res);
   });
   app.get('/daemon/listsinceblock/:blockhash?/:targetconfirmations?/:includewatchonly?', (req, res) => {
-    daemonService.listSinceBlock(req, res);
+    daemonServiceWalletRpcs.listSinceBlock(req, res);
   });
   app.get('/daemon/listtransactions/:count?/:from?/:includewatchonly?', (req, res) => {
-    daemonService.listTransactions(req, res);
+    daemonServiceWalletRpcs.listTransactions(req, res);
   });
   app.get('/daemon/listunspent/:minconf?/:maxconf?/:addresses?', (req, res) => {
-    daemonService.listUnspent(req, res);
+    daemonServiceWalletRpcs.listUnspent(req, res);
   });
   app.get('/daemon/lockunspent/:unlock?/:transactions?', (req, res) => {
-    daemonService.lockUnspent(req, res);
+    daemonServiceWalletRpcs.lockUnspent(req, res);
   });
   app.get('/daemon/rescanblockchain/:startheight?', (req, res) => {
-    daemonService.rescanBlockchain(req, res);
+    daemonServiceWalletRpcs.rescanBlockchain(req, res);
   });
   app.get('/daemon/sendfrom/:tozelcashaddress?/:amount?/:minconf?/:comment?/:commentto?', (req, res) => {
-    daemonService.sendFrom(req, res);
+    daemonServiceWalletRpcs.sendFrom(req, res);
   });
   app.get('/daemon/sendmany/:amounts?/:minconf?/:comment?/:substractfeefromamount?', (req, res) => {
-    daemonService.sendMany(req, res);
+    daemonServiceWalletRpcs.sendMany(req, res);
   });
   app.get('/daemon/sendtoaddress/:zelcashaddress?/:amount?/:comment?/:commentto?/:substractfeefromamount?', (req, res) => {
-    daemonService.sendToAddress(req, res);
+    daemonServiceWalletRpcs.sendToAddress(req, res);
   });
   app.get('/daemon/settxfee/:amount?', (req, res) => {
-    daemonService.setTxFee(req, res);
+    daemonServiceWalletRpcs.setTxFee(req, res);
   });
   app.get('/daemon/signmessage/:taddr?/:message?', (req, res) => {
-    daemonService.signMessage(req, res);
+    daemonServiceWalletRpcs.signMessage(req, res);
   });
   app.get('/daemon/zexportkey/:zaddr?', (req, res) => {
     daemonServiceZcashRpcs.zExportKey(req, res);
@@ -963,19 +964,19 @@ module.exports = (app, expressWs) => {
     daemonServiceTransactionRpcs.signRawTransactionPost(req, res);
   });
   app.post('/daemon/addmultisigaddress', (req, res) => {
-    daemonService.addMultiSigAddressPost(req, res);
+    daemonServiceWalletRpcs.addMultiSigAddressPost(req, res);
   });
   app.post('/daemon/sendfrom', (req, res) => {
-    daemonService.sendFromPost(req, res);
+    daemonServiceWalletRpcs.sendFromPost(req, res);
   });
   app.post('/daemon/sendmany', (req, res) => {
-    daemonService.sendManyPost(req, res);
+    daemonServiceWalletRpcs.sendManyPost(req, res);
   });
   app.post('/daemon/sendtoaddress', (req, res) => {
-    daemonService.sendToAddressPost(req, res);
+    daemonServiceWalletRpcs.sendToAddressPost(req, res);
   });
   app.post('/daemon/signmessage', (req, res) => {
-    daemonService.signMessagePost(req, res);
+    daemonServiceWalletRpcs.signMessagePost(req, res);
   });
   app.post('/daemon/zsendmany', (req, res) => {
     daemonServiceZcashRpcs.zSendManyPost(req, res);

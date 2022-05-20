@@ -11,6 +11,7 @@ const log = require('../../ZelBack/src/lib/log');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const daemonService = require('../../ZelBack/src/services/daemonService');
 const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonServiceBenchmarkRpcs');
+const daemonServiceWalletRpcs = require('../../ZelBack/src/services/daemonServiceWalletRpcs');
 const daemonServiceZelnodeRpcs = require('../../ZelBack/src/services/daemonServiceZelnodeRpcs');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
@@ -1048,7 +1049,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       ];
       sinon.stub(fluxCommunicationUtils, 'deterministicFluxList').returns(deterministicZelnodeListResponse);
-      sinon.stub(daemonService, 'createConfirmationTransaction').returns(true);
+      sinon.stub(daemonServiceWalletRpcs, 'createConfirmationTransaction').returns(true);
       sinon.stub(serviceHelper, 'delay').returns(true);
     });
 
@@ -1279,7 +1280,7 @@ describe('fluxNetworkHelper tests', () => {
     beforeEach(() => {
       fluxNetworkHelper.setStoredFluxBenchAllowed(400);
       fluxNetworkHelper.setMyFluxIp('129.3.3.3');
-      sinon.stub(daemonService, 'createConfirmationTransaction').returns(true);
+      sinon.stub(daemonServiceWalletRpcs, 'createConfirmationTransaction').returns(true);
       sinon.stub(serviceHelper, 'delay').returns(true);
       deterministicZelnodeListResponse = [
         {
