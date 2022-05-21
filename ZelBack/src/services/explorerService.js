@@ -9,6 +9,7 @@ const messageHelper = require('./messageHelper');
 const daemonService = require('./daemonService');
 const daemonServiceAddressRpcs = require('./daemonServiceAddressRpcs');
 const daemonServiceTransactionRpcs = require('./daemonServiceTransactionRpcs');
+const daemonServiceControlRpcs = require('./daemonServiceControlRpcs');
 const daemonServiceBlockchainRpcs = require('./daemonServiceBlockchainRpcs');
 const appsService = require('./appsService');
 
@@ -641,7 +642,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
       if (blockDataVerbose.confirmations > 1) {
         processBlock(blockDataVerbose.height + 1, isInsightExplorer);
       } else {
-        const daemonGetInfo = await daemonService.getInfo();
+        const daemonGetInfo = await daemonServiceControlRpcs.getInfo();
         let daemonHeight = 0;
         if (daemonGetInfo.status === 'success') {
           daemonHeight = daemonGetInfo.data.blocks;
@@ -748,7 +749,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
     if (currentHeight && currentHeight.generalScannedHeight) {
       scannedBlockHeight = currentHeight.generalScannedHeight;
     }
-    const daemonGetInfo = await daemonService.getInfo();
+    const daemonGetInfo = await daemonServiceControlRpcs.getInfo();
     let daemonHeight = 0;
     if (daemonGetInfo.status === 'success') {
       daemonHeight = daemonGetInfo.data.blocks;

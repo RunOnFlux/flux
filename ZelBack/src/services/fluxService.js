@@ -15,6 +15,7 @@ const messageHelper = require('./messageHelper');
 const daemonService = require('./daemonService');
 const daemonServiceZelnodeRpcs = require('./daemonServiceZelnodeRpcs');
 const daemonServiceBenchmarkRpcs = require('./daemonServiceBenchmarkRpcs');
+const daemonServiceControlRpcs = require('./daemonServiceControlRpcs');
 const benchmarkService = require('./benchmarkService');
 const appsService = require('./appsService');
 const generalService = require('./generalService');
@@ -782,7 +783,7 @@ async function getFluxInfo(req, res) {
     }
     info.flux.dos = dosResult.data;
 
-    const daemonInfoRes = await daemonService.getInfo();
+    const daemonInfoRes = await daemonServiceControlRpcs.getInfo();
     if (daemonInfoRes.status === 'error') {
       throw daemonInfoRes.data;
     }

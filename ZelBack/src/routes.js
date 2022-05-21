@@ -1,6 +1,5 @@
 const apicache = require('apicache');
 
-const daemonService = require('./services/daemonService');
 const daemonServiceAddressRpcs = require('./services/daemonServiceAddressRpcs');
 const daemonServiceTransactionRpcs = require('./services/daemonServiceTransactionRpcs');
 const daemonServiceBlockchainRpcs = require('./services/daemonServiceBlockchainRpcs');
@@ -11,6 +10,7 @@ const daemonServiceZelnodeRpcs = require('./services/daemonServiceZelnodeRpcs');
 const daemonServiceWalletRpcs = require('./services/daemonServiceWalletRpcs');
 const daemonServiceUtilityRpcs = require('./services/daemonServiceUtilityRpcs');
 const daemonServiceZcashRpcs = require('./services/daemonServiceZcashRpcs');
+const daemonServiceControlRpcs = require('./services/daemonServiceControlRpcs');
 const benchmarkService = require('./services/benchmarkService');
 const idService = require('./services/idService');
 const fluxService = require('./services/fluxService');
@@ -34,10 +34,10 @@ const cache = apicache.middleware;
 module.exports = (app, expressWs) => {
   // GET PUBLIC methods
   app.get('/daemon/help/:command?', cache('1 hour'), (req, res) => { // accept both help/command and ?command=getinfo. If ommited, default help will be displayed. Other calls works in similar way
-    daemonService.help(req, res);
+    daemonServiceControlRpcs.help(req, res);
   });
   app.get('/daemon/getinfo', cache('30 seconds'), (req, res) => {
-    daemonService.getInfo(req, res);
+    daemonServiceControlRpcs.getInfo(req, res);
   });
   app.get('/daemon/getzelnodestatus', cache('30 seconds'), (req, res) => {
     daemonServiceZelnodeRpcs.getZelNodeStatus(req, res);
@@ -417,7 +417,7 @@ module.exports = (app, expressWs) => {
 
   // GET PROTECTED API - ZelNode Owner
   app.get('/daemon/stop', (req, res) => {
-    daemonService.stop(req, res);
+    daemonServiceControlRpcs.stop(req, res);
   });
   app.get('/daemon/reindex', (req, res) => {
     fluxService.reindexDaemon(req, res);
