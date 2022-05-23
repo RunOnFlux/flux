@@ -4100,6 +4100,9 @@ async function assignedPortsGlobalApps(appNames) {
   return apps;
 }
 
+/**
+ * Restores FluxOS firewall, UPNP rules
+ */
 async function restoreFluxPortsSupport() {
   try {
     const isUPNP = upnpService.isUPNP();
@@ -4121,6 +4124,9 @@ async function restoreFluxPortsSupport() {
   }
 }
 
+/**
+ * Restores applications firewall, UPNP rules
+ */
 async function restoreAppsPortsSupport() {
   try {
     const currentAppsPorts = await assignedPortsInstalledApps();
@@ -4153,6 +4159,9 @@ async function restoreAppsPortsSupport() {
   }
 }
 
+/**
+ * Restores FluxOS and applications firewall, UPNP rules
+ */
 async function restorePortsSupport() {
   try {
     await restoreFluxPortsSupport();
