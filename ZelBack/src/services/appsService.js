@@ -2015,7 +2015,7 @@ function totalAppHWRequirements(appSpecifications, myNodeTier) {
 }
 
 /**
- * To check app requirements of geolocation restrictions
+ * To check app requirements of geolocation restrictions for a node
  * @param {object} appSpecs App specifications.
  * @returns {boolean} True if all checks passed.
  */
@@ -2042,16 +2042,16 @@ function checkAppGeolocationRequirements(appSpecs) {
       }
     }
   }
+
   return true;
 }
 
 /**
- * To check app requirements to include HDD space, CPU power and RAM.
- * To check app requirements of geolocation restrictions
+ * To check app requirements of HW for a node
  * @param {object} appSpecs App specifications.
  * @returns {boolean} True if all checks passed.
  */
-async function checkAppRequirements(appSpecs) {
+async function checkAppHWRequirements(appSpecs) {
   // appSpecs has hdd, cpu and ram assigned to correct tier
   const tier = await generalService.nodeTier();
   const resourcesLocked = await appsResources();
@@ -2090,7 +2090,19 @@ async function checkAppRequirements(appSpecs) {
     throw new Error('Insufficient RAM on Flux Node to spawn an application');
   }
 
+  return true;
+}
+
+/**
+ * To check app requirements to include HDD space, CPU power, RAM and GEO for a node
+ * @param {object} appSpecs App specifications.
+ * @returns {boolean} True if all checks passed.
+ */
+async function checkAppRequirements(appSpecs) {
+  // appSpecs has hdd, cpu and ram assigned to correct tier
+  await checkAppHWRequirements(appSpecs);
   // check geolocation
+
   checkAppGeolocationRequirements(appSpecs);
 
   return true;
