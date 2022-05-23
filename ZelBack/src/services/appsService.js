@@ -1856,7 +1856,7 @@ function totalAppHWRequirements(appSpecifications, myNodeTier) {
   };
 }
 
-async function checkAppRequirements(appSpecs) {
+function checkAppGeolocationRequirements(appSpecs) {
   // check geolocation
   if (appSpecs.version >= 5) {
     const nodeGeo = fluxService.getNodeGeolocation();
@@ -1879,7 +1879,9 @@ async function checkAppRequirements(appSpecs) {
       }
     }
   }
+}
 
+async function checkAppRequirements(appSpecs) {
   // appSpecs has hdd, cpu and ram assigned to correct tier
   const tier = await generalService.nodeTier();
   const resourcesLocked = await appsResources();
@@ -1917,6 +1919,10 @@ async function checkAppRequirements(appSpecs) {
   if (appHWrequirements.ram > availableRamForApps) {
     throw new Error('Insufficient RAM on Flux Node to spawn an application');
   }
+
+  // check geolocation
+  checkAppGeolocationRequirements(appSpecs);
+
   return true;
 }
 
