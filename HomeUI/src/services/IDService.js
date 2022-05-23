@@ -74,10 +74,11 @@ export default {
       },
     });
   },
-  checkUserLogged(zelid, signature) {
+  checkUserLogged(zelid, signature, loginPhrase) {
     const data = {
       zelid,
       signature,
+      loginPhrase,
     };
     return Api().post('/id/checkprivilege', qs.stringify(data));
   },

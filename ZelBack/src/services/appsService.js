@@ -8,7 +8,11 @@ const LRU = require('lru-cache');
 const systemcrontab = require('crontab');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
-const fluxCommunication = require('./fluxCommunication');
+const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
+const fluxNetworkHelper = require('./fluxNetworkHelper');
+const {
+  outgoingPeers, incomingPeers,
+} = require('./utils/establishedConnections');
 const serviceHelper = require('./serviceHelper');
 const dbHelper = require('./dbHelper');
 const verificationHelper = require('./verificationHelper');
@@ -60,11 +64,17 @@ const nodeSpecs = {
   ssdStorage: 0,
 };
 
+/**
+ * To list running apps.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function listRunningApps(req, res) {
   try {
     let apps = await dockerService.dockerListContainers(false);
     if (apps.length > 0) {
-      apps = apps.filter((app) => (app.Names[0].substr(1, 3) === 'zel' || app.Names[0].substr(1, 4) === 'flux'));
+      apps = apps.filter((app) => (app.Names[0].slice(1, 4) === 'zel' || app.Names[0].slice(1, 5) === 'flux'));
     }
     const modifiedApps = [];
     apps.forEach((app) => {
@@ -89,12 +99,17 @@ async function listRunningApps(req, res) {
   }
 }
 
-// shall be identical to installedApps. But this is docker response
+/**
+ * To list all apps. Shall be identical to installedApps but this is the Docker response.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function listAllApps(req, res) {
   try {
     let apps = await dockerService.dockerListContainers(true);
     if (apps.length > 0) {
-      apps = apps.filter((app) => (app.Names[0].substr(1, 3) === 'zel' || app.Names[0].substr(1, 4) === 'flux'));
+      apps = apps.filter((app) => (app.Names[0].slice(1, 4) === 'zel' || app.Names[0].slice(1, 5) === 'flux'));
     }
     const modifiedApps = [];
     apps.forEach((app) => {
@@ -119,6 +134,12 @@ async function listAllApps(req, res) {
   }
 }
 
+/**
+ * To list Docker images for apps.
+ * @param {object} req Request.
+ * @param {object} res Repsonse.
+ * @returns {object} Message.
+ */
 async function listAppsImages(req, res) {
   try {
     const apps = await dockerService.dockerListImages();
@@ -135,6 +156,12 @@ async function listAppsImages(req, res) {
   }
 }
 
+/**
+ * To start an app. Starts each component if the app is using Docker Compose. Only accessible by app owner, admins and flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function appStart(req, res) {
   try {
     let { appname } = req.params;
@@ -189,6 +216,12 @@ async function appStart(req, res) {
   }
 }
 
+/**
+ * To stop an app. Stops each component if the app is using Docker Compose. Only accessible by app owner, admins and flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function appStop(req, res) {
   try {
     let { appname } = req.params;
@@ -206,13 +239,13 @@ async function appStop(req, res) {
       return res ? res.json(errMessage) : errMessage;
     }
 
-    const isComponent = appname.includes('_'); // it is a component start. Proceed with starting just component
+    const isComponent = appname.includes('_'); // it is a component stop. Proceed with stopping just component
 
     let appRes;
     if (isComponent) {
       appRes = await dockerService.appDockerStop(appname);
     } else {
-      // ask for starting entire composed application
+      // ask for stopping entire composed application
       // eslint-disable-next-line no-use-before-define
       const appSpecs = await getApplicationSpecifications(mainAppName);
       if (!appSpecs) {
@@ -243,6 +276,12 @@ async function appStop(req, res) {
   }
 }
 
+/**
+ * To restart an app. Restarts each component if the app is using Docker Compose. Only accessible by app owner, admins and flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function appRestart(req, res) {
   try {
     let { appname } = req.params;
@@ -260,13 +299,13 @@ async function appRestart(req, res) {
       return res ? res.json(errMessage) : errMessage;
     }
 
-    const isComponent = appname.includes('_'); // it is a component start. Proceed with starting just component
+    const isComponent = appname.includes('_'); // it is a component restart. Proceed with restarting just component
 
     let appRes;
     if (isComponent) {
       appRes = await dockerService.appDockerRestart(appname);
     } else {
-      // ask for starting entire composed application
+      // ask for restarting entire composed application
       // eslint-disable-next-line no-use-before-define
       const appSpecs = await getApplicationSpecifications(mainAppName);
       if (!appSpecs) {
@@ -297,6 +336,12 @@ async function appRestart(req, res) {
   }
 }
 
+/**
+ * To kill an app. Kills each component if the app is using Docker Compose. Only accessible by app owner, admins and flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function appKill(req, res) {
   try {
     let { appname } = req.params;
@@ -314,13 +359,13 @@ async function appKill(req, res) {
       return res ? res.json(errMessage) : errMessage;
     }
 
-    const isComponent = appname.includes('_'); // it is a component start. Proceed with starting just component
+    const isComponent = appname.includes('_'); // it is a component kill. Proceed with killing just component
 
     let appRes;
     if (isComponent) {
       appRes = await dockerService.appDockerKill(appname);
     } else {
-      // ask for starting entire composed application
+      // ask for killing entire composed application
       // eslint-disable-next-line no-use-before-define
       const appSpecs = await getApplicationSpecifications(mainAppName);
       if (!appSpecs) {
@@ -351,6 +396,12 @@ async function appKill(req, res) {
   }
 }
 
+/**
+ * To pause an app. Pauses each component if the app is using Docker Compose. Only accessible by app owner, admins and flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function appPause(req, res) {
   try {
     let { appname } = req.params;
@@ -368,13 +419,13 @@ async function appPause(req, res) {
       return res ? res.json(errMessage) : errMessage;
     }
 
-    const isComponent = appname.includes('_'); // it is a component start. Proceed with starting just component
+    const isComponent = appname.includes('_'); // it is a component pause. Proceed with pausing just component
 
     let appRes;
     if (isComponent) {
       appRes = await dockerService.appDockerPause(appname);
     } else {
-      // ask for starting entire composed application
+      // ask for pausing entire composed application
       // eslint-disable-next-line no-use-before-define
       const appSpecs = await getApplicationSpecifications(mainAppName);
       if (!appSpecs) {
@@ -405,6 +456,12 @@ async function appPause(req, res) {
   }
 }
 
+/**
+ * To unpause an app. Unpauses each component if the app is using Docker Compose. Only accessible by app owner, admins and flux team members.
+ * @param {object} req Request.
+ * @param {object} res Restart.
+ * @returns {object} Message.
+ */
 async function appUnpause(req, res) {
   try {
     let { appname } = req.params;
@@ -422,13 +479,13 @@ async function appUnpause(req, res) {
       return res ? res.json(errMessage) : errMessage;
     }
 
-    const isComponent = appname.includes('_'); // it is a component start. Proceed with starting just component
+    const isComponent = appname.includes('_'); // it is a component unpause. Proceed with unpausing just component
 
     let appRes;
     if (isComponent) {
       appRes = await dockerService.appDockerUnpause(appname);
     } else {
-      // ask for starting entire composed application
+      // ask for unpausing entire composed application
       // eslint-disable-next-line no-use-before-define
       const appSpecs = await getApplicationSpecifications(mainAppName);
       if (!appSpecs) {
@@ -459,6 +516,12 @@ async function appUnpause(req, res) {
   }
 }
 
+/**
+ * To show an app's active Docker container processes. Only accessible by app owner, admins and flux team members.
+ * @param {object} req Requst.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function appTop(req, res) {
   try {
     // List processes running inside a container
@@ -492,6 +555,11 @@ async function appTop(req, res) {
   }
 }
 
+/**
+ * To show an app's Docker container logs. Only accessible by app owner, admins and flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function appLog(req, res) {
   try {
     let { appname } = req.params;
@@ -526,6 +594,11 @@ async function appLog(req, res) {
   }
 }
 
+/**
+ * To show an app's Docker container log stream. Only accessible by app owner, admins and flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function appLogStream(req, res) {
   try {
     let { appname } = req.params;
@@ -569,6 +642,11 @@ async function appLogStream(req, res) {
   }
 }
 
+/**
+ * To inspect an app's Docker container and show low-level information about it. Only accessible by app owner, admins and flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function appInspect(req, res) {
   try {
     let { appname } = req.params;
@@ -600,6 +678,11 @@ async function appInspect(req, res) {
   }
 }
 
+/**
+ * To show resource usage statistics for an app's Docker container. Only accessible by app owner, admins and flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function appStats(req, res) {
   try {
     let { appname } = req.params;
@@ -631,6 +714,11 @@ async function appStats(req, res) {
   }
 }
 
+/**
+ * To show filesystem changes for an app's Docker container. Only accessible by app owner, admins and flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function appChanges(req, res) {
   try {
     let { appname } = req.params;
@@ -662,6 +750,11 @@ async function appChanges(req, res) {
   }
 }
 
+/**
+ * To run a command inside an app's running Docker container. Only accessible by app owner.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function appExec(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -725,6 +818,12 @@ async function appExec(req, res) {
   });
 }
 
+/**
+ * To create Flux Docker network API. Only accessible by admins and flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function createFluxNetworkAPI(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -746,6 +845,12 @@ async function createFluxNetworkAPI(req, res) {
   }
 }
 
+/**
+ * To show average Flux CPU usage.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function fluxUsage(req, res) {
   try {
     const dbopen = dbHelper.databaseConnection();
@@ -834,6 +939,12 @@ async function fluxUsage(req, res) {
   }
 }
 
+/**
+ * To show app resources locked (CPUs, RAM and HDD).
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function appsResources(req, res) {
   log.info('Checking appsResources');
   try {
@@ -861,15 +972,18 @@ async function appsResources(req, res) {
             appsRamLocked += serviceHelper.ensureNumber(component.ram) || 0;
             appsHddLocked += serviceHelper.ensureNumber(component.hdd) || 0;
           }
+          appsHddLocked += 2; // 2gb per image
         });
       } else if (app.tiered && tier) {
         appsCpusLocked += serviceHelper.ensureNumber(app[cpuTier] || app.cpu) || 0;
         appsRamLocked += serviceHelper.ensureNumber(app[ramTier] || app.ram) || 0;
         appsHddLocked += serviceHelper.ensureNumber(app[hddTier] || app.hdd) || 0;
+        appsHddLocked += 2; // 2gb per image
       } else {
         appsCpusLocked += serviceHelper.ensureNumber(app.cpu) || 0;
         appsRamLocked += serviceHelper.ensureNumber(app.ram) || 0;
         appsHddLocked += serviceHelper.ensureNumber(app.hdd) || 0;
+        appsHddLocked += 2; // 2gb per image
       }
     });
     const appsUsage = {
@@ -890,6 +1004,9 @@ async function appsResources(req, res) {
   }
 }
 
+/**
+ * To get node specifications (CPUs, RAM and SSD).
+ */
 async function getNodeSpecs() {
   try {
     if (nodeSpecs.cpuCores === 0) {
@@ -914,6 +1031,14 @@ async function getNodeSpecs() {
   }
 }
 
+/**
+ * To create an app volume. First checks for availability of disk space and chooses an available volume that meets the app specifications. Then creates the necessary file systems and mounts the volume. Finally, sets up cron job.
+ * @param {object} appSpecifications App specifications.
+ * @param {string} appName App name.
+ * @param {boolean} isComponent True if a Docker Compose component.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function createAppVolume(appSpecifications, appName, isComponent, res) {
   const dfAsync = util.promisify(df);
   const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
@@ -987,7 +1112,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     throw new Error('Insufficient space on Flux Node. No useable volume found.');
   }
 
-  // now we know there is a space and we have a volum we can operate with. Let's do volume magic
+  // now we know there is a space and we have a volume we can operate with. Let's do volume magic
   const searchSpace2 = {
     status: 'Space found',
   };
@@ -1145,6 +1270,14 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
   }
 }
 
+/**
+ * To hard uninstall an app including any components. Removes container/s, removes image/s, denies all app/component ports, unmounts volumes and removes cron job.
+ * @param {string} appName App name.
+ * @param {string} appId App ID.
+ * @param {object} appSpecifications App specifications.
+ * @param {boolean} isComponent True if a Docker Compose component.
+ * @param {object} res Response.
+ */
 async function appUninstallHard(appName, appId, appSpecifications, isComponent, res) {
   const stopStatus = {
     status: isComponent ? `Stopping Flux App Component ${appSpecifications.name}...` : `Stopping Flux App ${appName}...`,
@@ -1231,12 +1364,12 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     res.write(serviceHelper.ensureString(portStatus));
   }
   if (appSpecifications.ports) {
-    const firewallActive = await fluxCommunication.isFirewallActive();
+    const firewallActive = await fluxNetworkHelper.isFirewallActive();
     if (firewallActive) {
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
-        await fluxCommunication.denyPort(serviceHelper.ensureNumber(port));
+        await fluxNetworkHelper.denyPort(serviceHelper.ensureNumber(port));
       }
     }
     const isUPNP = upnpService.isUPNP();
@@ -1244,18 +1377,18 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
-        await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(port));
+        await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${appName}`);
       }
     }
     // v1 compatibility
   } else if (appSpecifications.port) {
-    const firewallActive = await fluxCommunication.isFirewallActive();
+    const firewallActive = await fluxNetworkHelper.isFirewallActive();
     if (firewallActive) {
-      await fluxCommunication.denyPort(serviceHelper.ensureNumber(appSpecifications.port));
+      await fluxNetworkHelper.denyPort(serviceHelper.ensureNumber(appSpecifications.port));
     }
     const isUPNP = upnpService.isUPNP();
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
-      await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port));
+      await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`);
     }
   }
   const portStatus2 = {
@@ -1428,7 +1561,14 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   }
 }
 
-// force determines if some a check for app not found is skipped. Works for both entire app or app component
+/**
+ * To remove an app locally including any components. First finds app specifications in database and then deletes the app from database.
+ * @param {string} app App name and app component (if applicable). A component name follows the app name after an underscore `_`.
+ * @param {object} res Response.
+ * @param {boolean} force Defaults to false. Force determines if a check for app not found is skipped.
+ * @param {boolean} endResponse Defaults to true.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
 async function removeAppLocally(app, res, force = false, endResponse = true) {
   try {
     // remove app from local machine.
@@ -1514,7 +1654,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
       throw new Error('Flux App not found');
     }
 
-    let appId = dockerService.getAppIdentifier(app); // get app or component app identifier
+    let appId = dockerService.getAppIdentifier(app); // get app or app component identifier
 
     if (appSpecifications.version === 4 && !isComponent) {
       // it is a composed application
@@ -1579,6 +1719,9 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
   }
 }
 
+/**
+ * To soft uninstall an app including any components. Removes container/s, removes image/s and denies all app/component ports.
+ */
 async function appUninstallSoft(appName, appId, appSpecifications, isComponent, res) {
   const stopStatus = {
     status: isComponent ? `Stopping Flux App Component ${appSpecifications.name}...` : `Stopping Flux App ${appName}...`,
@@ -1650,12 +1793,12 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
     res.write(serviceHelper.ensureString(portStatus));
   }
   if (appSpecifications.ports) {
-    const firewallActive = await fluxCommunication.isFirewallActive();
+    const firewallActive = await fluxNetworkHelper.isFirewallActive();
     if (firewallActive) {
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
-        await fluxCommunication.denyPort(serviceHelper.ensureNumber(port));
+        await fluxNetworkHelper.denyPort(serviceHelper.ensureNumber(port));
       }
     }
     const isUPNP = upnpService.isUPNP();
@@ -1663,18 +1806,18 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
-        await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(port));
+        await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${appName}`);
       }
     }
     // v1 compatibility
   } else if (appSpecifications.port) {
-    const firewallActive = await fluxCommunication.isFirewallActive();
+    const firewallActive = await fluxNetworkHelper.isFirewallActive();
     if (firewallActive) {
-      await fluxCommunication.denyPort(serviceHelper.ensureNumber(appSpecifications.port));
+      await fluxNetworkHelper.denyPort(serviceHelper.ensureNumber(appSpecifications.port));
     }
     const isUPNP = upnpService.isUPNP();
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
-      await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port));
+      await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`);
     }
   }
   const portStatus2 = {
@@ -1694,7 +1837,11 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   }
 }
 
-// removal WITHOUT storage deletion and catches. For app reload. Only for internal useage. We throwing in functinos using this
+/**
+ * To remove an app locally (including any components) without storage and cache deletion (keeps mounted volumes and cron job). First finds app specifications in database and then deletes the app from database. For app reload. Only for internal usage. We are throwing in functions using this.
+ * @param {string} app App name.
+ * @param {object} res Response.
+ */
 async function softRemoveAppLocally(app, res) {
   // remove app from local machine.
   // find in database, stop app, remove container, close port, remove from database
@@ -1777,6 +1924,11 @@ async function softRemoveAppLocally(app, res) {
   removalInProgress = false;
 }
 
+/**
+ * To remove app locally via API call. Cannot be performed for individual components. Force defaults to false. Only accessible by app owner, admins and flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function removeAppLocallyApi(req, res) {
   try {
     let { appname } = req.params;
@@ -1816,6 +1968,12 @@ async function removeAppLocallyApi(req, res) {
   }
 }
 
+/**
+ * To return total app hardware requirements (CPU, RAM and HDD).
+ * @param {object} appSpecifications App specifications.
+ * @param {string} myNodeTier Node tier.
+ * @returns {object} Values for CPU, RAM and HDD.
+ */
 function totalAppHWRequirements(appSpecifications, myNodeTier) {
   let cpu = 0;
   let ram = 0;
@@ -1856,6 +2014,11 @@ function totalAppHWRequirements(appSpecifications, myNodeTier) {
   };
 }
 
+/**
+ * To check app requirements of geolocation restrictions
+ * @param {object} appSpecs App specifications.
+ * @returns {boolean} True if all checks passed.
+ */
 function checkAppGeolocationRequirements(appSpecs) {
   // check geolocation
   if (appSpecs.version >= 5) {
@@ -1879,8 +2042,15 @@ function checkAppGeolocationRequirements(appSpecs) {
       }
     }
   }
+  return true;
 }
 
+/**
+ * To check app requirements to include HDD space, CPU power and RAM.
+ * To check app requirements of geolocation restrictions
+ * @param {object} appSpecs App specifications.
+ * @returns {boolean} True if all checks passed.
+ */
 async function checkAppRequirements(appSpecs) {
   // appSpecs has hdd, cpu and ram assigned to correct tier
   const tier = await generalService.nodeTier();
@@ -1926,8 +2096,16 @@ async function checkAppRequirements(appSpecs) {
   return true;
 }
 
+/**
+ * To hard install an app. Pulls image/s, creates data volumes, creates components/app, assigns ports to components/app and starts all containers.
+ * @param {object} appSpecifications App specifications.
+ * @param {string} appName App name.
+ * @param {boolean} isComponent True if a Docker Compose component.
+ * @param {object} res Response.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
 async function installApplicationHard(appSpecifications, appName, isComponent, res) {
-  // pull image // todo pull to be promise
+  // pull image
   // eslint-disable-next-line no-unused-vars
   await dockerPullStreamPromise(appSpecifications.repotag, res);
   const pullStatus = {
@@ -1957,12 +2135,12 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
     res.write(serviceHelper.ensureString(portStatusInitial));
   }
   if (appSpecifications.ports) {
-    const firewallActive = await fluxCommunication.isFirewallActive();
+    const firewallActive = await fluxNetworkHelper.isFirewallActive();
     if (firewallActive) {
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
-        const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(port));
+        const portResponse = await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(port));
         if (portResponse.status === true) {
           const portStatus = {
             status: `Port ${port} OK`,
@@ -1984,7 +2162,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
-        const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port));
+        const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${appName}`);
         if (portResponse === true) {
           const portStatus = {
             status: `Port ${port} mapped OK`,
@@ -2000,9 +2178,9 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
     }
   } else if (appSpecifications.port) {
     // v1 compatibility
-    const firewallActive = await fluxCommunication.isFirewallActive();
+    const firewallActive = await fluxNetworkHelper.isFirewallActive();
     if (firewallActive) {
-      const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
+      const portResponse = await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
       if (portResponse.status === true) {
         const portStatus = {
           status: `Port ${appSpecifications.port} OK`,
@@ -2020,7 +2198,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
     const isUPNP = upnpService.isUPNP();
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       log.info('Custom port specified, mapping ports');
-      const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port));
+      const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`);
       if (portResponse === true) {
         const portStatus = {
           status: `Port ${appSpecifications.port} mapped OK`,
@@ -2054,9 +2232,16 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   }
 }
 
+/**
+ * To register an app locally. Performs pre-installation checks - database in place, Flux Docker network in place and if app already installed. Then registers app in database and performs hard install. If registration fails, the app is removed locally.
+ * @param {object} appSpecs App specifications.
+ * @param {object} componentSpecs Component specifications.
+ * @param {object} res Response.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
 async function registerAppLocally(appSpecs, componentSpecs, res) {
   // cpu, ram, hdd were assigned to correct tiered specs.
-  // get applications specifics from aapp messages database
+  // get applications specifics from app messages database
   // check if hash is in blockchain
   // register and launch according to specifications in message
   try {
@@ -2214,8 +2399,16 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
   }
 }
 
+/**
+ * To soft install app. Pulls image/s, creates components/app, assigns ports to components/app and starts all containers. Does not create data volumes.
+ * @param {object} appSpecifications App specifications.
+ * @param {string} appName App name.
+ * @param {boolean} isComponent True if a Docker Compose component.
+ * @param {object} res Response.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
 async function installApplicationSoft(appSpecifications, appName, isComponent, res) {
-  // pull image // todo pull to be promise
+  // pull image
   // eslint-disable-next-line no-unused-vars
   await dockerPullStreamPromise(appSpecifications.repotag, res);
   const pullStatus = {
@@ -2243,12 +2436,12 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
     res.write(serviceHelper.ensureString(portStatusInitial));
   }
   if (appSpecifications.ports) {
-    const firewallActive = await fluxCommunication.isFirewallActive();
+    const firewallActive = await fluxNetworkHelper.isFirewallActive();
     if (firewallActive) {
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
-        const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(port));
+        const portResponse = await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(port));
         if (portResponse.status === true) {
           const portStatus = {
             status: `Port ${port} OK`,
@@ -2270,7 +2463,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
-        const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port));
+        const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${appName}`);
         if (portResponse === true) {
           const portStatus = {
             status: `Port ${port} mapped OK`,
@@ -2285,10 +2478,10 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
       }
     }
   } else if (appSpecifications.port) {
-    const firewallActive = await fluxCommunication.isFirewallActive();
+    const firewallActive = await fluxNetworkHelper.isFirewallActive();
     if (firewallActive) {
       // v1 compatibility
-      const portResponse = await fluxCommunication.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
+      const portResponse = await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
       if (portResponse.status === true) {
         const portStatus = {
           status: 'Port OK',
@@ -2306,7 +2499,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
     const isUPNP = upnpService.isUPNP();
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       log.info('Custom port specified, mapping ports');
-      const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port));
+      const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`);
       if (portResponse === true) {
         const portStatus = {
           status: `Port ${appSpecifications.port} mapped OK`,
@@ -2340,7 +2533,13 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   }
 }
 
-// register app with volume already existing
+/**
+ * To soft register an app locally (with data volume already in existence). Performs pre-installation checks - database in place, Flux Docker network in place and if app already installed. Then registers app in database and performs soft install. If registration fails, the app is removed locally.
+ * @param {object} appSpecs App specifications.
+ * @param {object} componentSpecs Component specifications.
+ * @param {object} res Response.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
 async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
   // cpu, ram, hdd were assigned to correct tiered specs.
   // get applications specifics from app messages database
@@ -2501,6 +2700,12 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
   }
 }
 
+/**
+ * To return the monthly app hosting price.
+ * @param {string} dataForAppRegistration App registration date.
+ * @param {number} height Block height.
+ * @returns {number} App price.
+ */
 function appPricePerMonth(dataForAppRegistration, height) {
   if (!dataForAppRegistration) {
     return new Error('Application specification not provided');
@@ -2579,6 +2784,11 @@ function appPricePerMonth(dataForAppRegistration, height) {
   return appPrice;
 }
 
+/**
+ * To check if a node's hardware is suitable for running the assigned app.
+ * @param {object} appSpecs App specifications.
+ * @returns {boolean} True if no errors are thrown.
+ */
 function checkHWParameters(appSpecs) {
   // check specs parameters. JS precision
   if ((appSpecs.cpu * 10) % 1 !== 0 || (appSpecs.cpu * 10) > (config.fluxSpecifics.cpu.stratus - config.lockedSystemResources.cpu) || appSpecs.cpu < 0.1) {
@@ -2622,6 +2832,11 @@ function checkHWParameters(appSpecs) {
   return true;
 }
 
+/**
+ * To check if a node's hardware is suitable for running the assigned Docker Compose app. Advises if too much resources being assigned to an app.
+ * @param {object} appSpecsComposed App specifications composed.
+ * @returns {boolean} True if no errors are thrown.
+ */
 function checkComposeHWParameters(appSpecsComposed) {
   // calculate total HW assigned
   let totalCpu = 0;
@@ -2696,6 +2911,11 @@ function checkComposeHWParameters(appSpecsComposed) {
   return true;
 }
 
+/**
+ * To get temporary hash messages for global apps.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function getAppsTemporaryMessages(req, res) {
   try {
     const db = dbHelper.databaseConnection();
@@ -2722,6 +2942,11 @@ async function getAppsTemporaryMessages(req, res) {
   }
 }
 
+/**
+ * To get permanent hash messages for global apps.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function getAppsPermanentMessages(req, res) {
   try {
     const db = dbHelper.databaseConnection();
@@ -2748,6 +2973,11 @@ async function getAppsPermanentMessages(req, res) {
   }
 }
 
+/**
+ * To get specifications for global apps.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function getGlobalAppsSpecifications(req, res) {
   try {
     const db = dbHelper.databaseConnection();
@@ -2764,6 +2994,12 @@ async function getGlobalAppsSpecifications(req, res) {
   }
 }
 
+/**
+ * To return available apps.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {(object|object[])} Returns a response or an array of app objects.
+ */
 async function availableApps(req, res) {
   // calls to global mongo db
   // simulate a similar response
@@ -2871,6 +3107,11 @@ async function availableApps(req, res) {
   return res ? res.json(dataResponse) : apps;
 }
 
+/**
+ * To verify an app hash message.
+ * @param {object} message Message.
+ * @returns {boolean} True if no error is thrown.
+ */
 async function verifyAppHash(message) {
   /* message object
   * @param type string
@@ -2888,6 +3129,15 @@ async function verifyAppHash(message) {
   return true;
 }
 
+/**
+ * To verify an app message signature.
+ * @param {string} type Type.
+ * @param {number} version Version.
+ * @param {object} appSpec App specifications.
+ * @param {number} timestamp Time stamp.
+ * @param {string} signature Signature.
+ * @returns {boolean} True if no error is thrown.
+ */
 async function verifyAppMessageSignature(type, version, appSpec, timestamp, signature) {
   if (!appSpec || typeof appSpec !== 'object' || Array.isArray(appSpec) || typeof timestamp !== 'number' || typeof signature !== 'string' || typeof version !== 'number' || typeof type !== 'string') {
     throw new Error('Invalid Flux App message specifications');
@@ -2901,6 +3151,16 @@ async function verifyAppMessageSignature(type, version, appSpec, timestamp, sign
   return true;
 }
 
+/**
+ * To verify an app message signature update.
+ * @param {string} type Type.
+ * @param {number} version Version.
+ * @param {object} appSpec App specifications.
+ * @param {number} timestamp Time stamp.
+ * @param {string} signature Signature.
+ * @param {string} appOwner App owner.
+ * @returns {boolean} True if no errors are thrown.
+ */
 async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp, signature, appOwner) {
   if (!appSpec || typeof appSpec !== 'object' || Array.isArray(appSpec) || typeof timestamp !== 'number' || typeof signature !== 'string' || typeof version !== 'number' || typeof type !== 'string') {
     throw new Error('Invalid Flux App message specifications');
@@ -2914,6 +3174,11 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
   return true;
 }
 
+/**
+ * To verfiy a Docker Hub repository.
+ * @param {string} repotag Docker Hub repository tag.
+ * @returns {boolean} True if no errors are thrown.
+ */
 async function verifyRepository(repotag) {
   if (typeof repotag !== 'string') {
     throw new Error('Invalid repotag');
@@ -2954,6 +3219,11 @@ async function verifyRepository(repotag) {
   return true;
 }
 
+/**
+ * To check compliance of app images (including images for each component if a Docker Compose app). Checks Flux OS's GitHub repository for list of blocked Docker Hub repositories.
+ * @param {object} appSpecs App specifications.
+ * @returns {boolean} True if no errors are thrown.
+ */
 async function checkApplicationImagesComplience(appSpecs) {
   const resBlockedRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/blockedrepositories.json');
 
@@ -2963,25 +3233,35 @@ async function checkApplicationImagesComplience(appSpecs) {
 
   const repos = resBlockedRepo.data;
 
+  const pureImagesRepos = [];
+  repos.forEach((repo) => {
+    pureImagesRepos.push(repo.split(':')[0]);
+  });
+
   const images = [];
   if (appSpecs.version <= 3) {
-    images.push(appSpecs.repotag);
+    images.push(appSpecs.repotag.split(':')[0]);
   } else {
     appSpecs.compose.forEach((component) => {
-      images.push(component.repotag);
+      images.push(component.repotag.split(':')[0]);
     });
   }
 
   images.forEach((image) => {
-    if (repos.includes(image)) {
-      throw new Error(`Repository ${image} is blocked. Application ${appSpecs.name} connot be spawned.`);
+    if (pureImagesRepos.includes(image)) {
+      throw new Error(`Image ${image} is blocked. Application ${appSpecs.name} connot be spawned.`);
     }
   });
 
   return true;
 }
 
-function verifyTypeCorrectnessOfApp(appSpecification) {
+/**
+ * To verify correctness of attribute values within an app specification object. Checks for types and that required attributes exist.
+ * @param {object} appSpecification App specifications.
+ * @returns {boolean} True if no errors are thrown.
+ */
+function verifyCorrectnessOfApp(appSpecification) {
   const { version } = appSpecification;
   const { name } = appSpecification;
   const { description } = appSpecification;
@@ -3684,6 +3964,10 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
   }
 }
 
+/**
+ * To create a list of ports assigned to each local app.
+ * @returns {object[]} Array of app specs objects.
+ */
 async function assignedPortsInstalledApps() {
   // construct object ob app name and ports array
   const db = dbHelper.databaseConnection();
@@ -3723,6 +4007,11 @@ async function assignedPortsInstalledApps() {
   return apps;
 }
 
+/**
+ * To create a list of ports assigned to each global app.
+ * @param {string[]} appNames App names.
+ * @returns {object[]} Array of app specs objects.
+ */
 async function assignedPortsGlobalApps(appNames) {
   // construct object ob app name and ports array
   const db = dbHelper.databaseConnection();
@@ -3773,6 +4062,74 @@ async function assignedPortsGlobalApps(appNames) {
   return apps;
 }
 
+async function restoreFluxPortsSupport() {
+  try {
+    const isUPNP = upnpService.isUPNP();
+
+    const apiPort = userconfig.initial.apiport || config.server.apiport;
+    const homePort = +apiPort - 1;
+
+    // setup UFW if active
+    await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(apiPort));
+    await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(homePort));
+
+    // UPNP
+    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+      // map our Flux API and UI port
+      await upnpService.setupUPNP(apiPort);
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+async function restoreAppsPortsSupport() {
+  try {
+    const currentAppsPorts = await assignedPortsInstalledApps();
+    const isUPNP = upnpService.isUPNP();
+
+    // setup UFW for apps
+    // eslint-disable-next-line no-restricted-syntax
+    for (const application of currentAppsPorts) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of application.ports) {
+        // eslint-disable-next-line no-await-in-loop
+        await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(port));
+      }
+    }
+
+    // UPNP
+    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+      // map application ports
+      // eslint-disable-next-line no-restricted-syntax
+      for (const application of currentAppsPorts) {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const port of application.ports) {
+          // eslint-disable-next-line no-await-in-loop
+          await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`);
+        }
+      }
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+async function restorePortsSupport() {
+  try {
+    await restoreFluxPortsSupport();
+    await restoreAppsPortsSupport();
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
+ * To ensure application ports are not already in use by another appliaction.
+ * @param {object} appSpecFormatted App specifications.
+ * @param {string[]} globalCheckedApps Names of global checked apps.
+ * @returns {boolean} True if no errors are thrown.
+ */
 async function ensureApplicationPortsNotUsed(appSpecFormatted, globalCheckedApps) {
   let currentAppsPorts = await assignedPortsInstalledApps();
   if (globalCheckedApps && globalCheckedApps.length) {
@@ -3807,6 +4164,11 @@ async function ensureApplicationPortsNotUsed(appSpecFormatted, globalCheckedApps
   return true;
 }
 
+/**
+ * To get Docker image architectures.
+ * @param {string} repotag Docker Hub repository tag.
+ * @returns {string[]} List of Docker image architectures.
+ */
 async function repositoryArchitectures(repotag) {
   if (typeof repotag !== 'string') {
     throw new Error('Invalid repotag');
@@ -3842,6 +4204,10 @@ async function repositoryArchitectures(repotag) {
   throw new Error(`Repository ${repotag} is not in valid format namespace/repository:tag`);
 }
 
+/**
+ * To get system architecture type (ARM64 or AMD64).
+ * @returns {string} Architecture type (ARM64 or AMD64).
+ */
 async function systemArchitecture() {
   // get benchmark architecture - valid are arm64, amd64
   const benchmarkBenchRes = await benchmarkService.getBenchmarks();
@@ -3851,6 +4217,11 @@ async function systemArchitecture() {
   return benchmarkBenchRes.data.architecture;
 }
 
+/**
+ * To ensure that all app images are of a consistent architecture type. Architecture must be either ARM64 or AMD64.
+ * @param {object} appSpecFormatted App specifications.
+ * @returns {boolean} True if all apps have the same system architecture.
+ */
 async function ensureApplicationImagesExistsForPlatform(appSpecFormatted) {
   const architecture = await systemArchitecture();
   if (architecture !== 'arm64' && architecture !== 'amd64') {
@@ -3879,6 +4250,11 @@ async function ensureApplicationImagesExistsForPlatform(appSpecFormatted) {
   return true; // all images have my system architecture
 }
 
+/**
+ * To check if app name already registered. App names must be unique.
+ * @param {object} appSpecFormatted App specifications.
+ * @returns {boolean} True if no errors are thrown.
+ */
 async function checkApplicationRegistrationNameConflicts(appSpecFormatted) {
   // check if name is not yet registered
   const dbopen = dbHelper.databaseConnection();
@@ -3908,6 +4284,12 @@ async function checkApplicationRegistrationNameConflicts(appSpecFormatted) {
   return true;
 }
 
+/**
+ * To check for any conflicts with the latest permenent app registration message and any app update messages.
+ * @param {object} specifications App specifications.
+ * @param {number} verificationTimestamp Verifiaction time stamp.
+ * @returns {boolean} True if no errors are thrown.
+ */
 async function checkApplicationUpdateNameRepositoryConflicts(specifications, verificationTimestamp) {
   // we may not have the application in global apps. This can happen when we receive the message after the app has already expired AND we need to get message right before our message. Thus using messages system that is accurate
   const db = dbHelper.databaseConnection();
@@ -3930,7 +4312,7 @@ async function checkApplicationUpdateNameRepositoryConflicts(specifications, ver
         if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= verificationTimestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
           latestPermanentRegistrationMessage = foundMessage;
         }
-      } else if (foundMessage.timestamp <= verificationTimestamp) { // we dont have any message or our message is newer. foundMessage has to have lower timestamp than our new message
+      } else if (foundMessage.timestamp <= verificationTimestamp) { // we don't have any message or our message is newer. foundMessage has to have lower timestamp than our new message
         latestPermanentRegistrationMessage = foundMessage;
       }
     }
@@ -3947,7 +4329,7 @@ async function checkApplicationUpdateNameRepositoryConflicts(specifications, ver
         if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= verificationTimestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
           latestPermanentRegistrationMessage = foundMessage;
         }
-      } else if (foundMessage.timestamp <= verificationTimestamp) { // we dont have any message or our message is newer. foundMessage has to have lower timestamp than our new message
+      } else if (foundMessage.timestamp <= verificationTimestamp) { // we don't have any message or our message is newer. foundMessage has to have lower timestamp than our new message
         latestPermanentRegistrationMessage = foundMessage;
       }
     }
@@ -3988,6 +4370,12 @@ async function checkApplicationUpdateNameRepositoryConflicts(specifications, ver
   return true;
 }
 
+/**
+ * To get previous app specifications.
+ * @param {object} specifications App sepcifications.
+ * @param {object} message Message.
+ * @returns {object} App specifications.
+ */
 async function getPreviousAppSpecifications(specifications, message) {
   // we may not have the application in global apps. This can happen when we receive the message after the app has already expired AND we need to get message right before our message. Thus using messages system that is accurate
   const db = dbHelper.databaseConnection();
@@ -4010,7 +4398,7 @@ async function getPreviousAppSpecifications(specifications, message) {
         if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= message.timestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
           latestPermanentRegistrationMessage = foundMessage;
         }
-      } else if (foundMessage.timestamp <= message.timestamp) { // we dont have any message or our message is newer. foundMessage has to have lower timestamp than our new message
+      } else if (foundMessage.timestamp <= message.timestamp) { // we don't have any message or our message is newer. foundMessage has to have lower timestamp than our new message
         latestPermanentRegistrationMessage = foundMessage;
       }
     }
@@ -4027,7 +4415,7 @@ async function getPreviousAppSpecifications(specifications, message) {
         if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= message.timestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
           latestPermanentRegistrationMessage = foundMessage;
         }
-      } else if (foundMessage.timestamp <= message.timestamp) { // we dont have any message or our message is newer. foundMessage has to have lower timestamp than our new message
+      } else if (foundMessage.timestamp <= message.timestamp) { // we don't have any message or our message is newer. foundMessage has to have lower timestamp than our new message
         latestPermanentRegistrationMessage = foundMessage;
       }
     }
@@ -4039,6 +4427,11 @@ async function getPreviousAppSpecifications(specifications, message) {
   return appSpecs;
 }
 
+/**
+ * To check if an app message hash exists.
+ * @param {string} hash Message hash.
+ * @returns {(object|boolean)} Returns document object if it exists in the database. Otherwise returns false.
+ */
 async function checkAppMessageExistence(hash) {
   const dbopen = dbHelper.databaseConnection();
   const appsDatabase = dbopen.db(config.database.appsglobal.database);
@@ -4064,6 +4457,11 @@ async function checkAppMessageExistence(hash) {
   return false;
 }
 
+/**
+ * To check if an app temporary message hash exists.
+ * @param {string} hash Message hash.
+ * @returns {(object|boolean)} Returns document object if it exists in the database. Otherwise returns false.
+ */
 async function checkAppTemporaryMessageExistence(hash) {
   const dbopen = dbHelper.databaseConnection();
   const appsDatabase = dbopen.db(config.database.appsglobal.database);
@@ -4087,6 +4485,12 @@ async function checkAppTemporaryMessageExistence(hash) {
   return false;
 }
 
+/**
+ * To store a temporary message for an app.
+ * @param {object} message Message.
+ * @param {boolean} furtherVerification Defaults to false.
+ * @returns {boolean} True if message is successfully stored and rebroadcasted. Returns false if message is already in cache or has already been broadcast. Otherwise an error is thrown.
+ */
 async function storeAppTemporaryMessage(message, furtherVerification = false) {
   /* message object
   * @param type string
@@ -4174,6 +4578,11 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   return true;
 }
 
+/**
+ * To store a message for a running app.
+ * @param {object} message Message.
+ * @returns {boolean} True if message is successfully stored and rebroadcasted. Returns false if message is already in cache, is already stored or is old. Throws an error if invalid.
+ */
 async function storeAppRunningMessage(message) {
   /* message object
   * @param type string
@@ -4233,6 +4642,10 @@ async function storeAppRunningMessage(message) {
   return true;
 }
 
+/**
+ * To request app message.
+ * @param {string} hash Message hash.
+ */
 async function requestAppMessage(hash) {
   // some message type request app message, message hash
   // peer responds with data from permanent database or temporary database. If does not have it requests further
@@ -4242,11 +4655,16 @@ async function requestAppMessage(hash) {
     version: 1,
     hash,
   };
-  await fluxCommunication.broadcastMessageToOutgoing(message);
+  await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(message);
   await serviceHelper.delay(100);
-  await fluxCommunication.broadcastMessageToIncoming(message);
+  await fluxCommunicationMessagesSender.broadcastMessageToIncoming(message);
 }
 
+/**
+ * To format app specification object. Checks that all parameters exist and are correct.
+ * @param {object} appSpecification App specification.
+ * @returns {object} Returns formatted app specification to be stored in global database. Otherwise throws error.
+ */
 function specificationFormatter(appSpecification) {
   let { version } = appSpecification;
   let { name } = appSpecification;
@@ -4572,6 +4990,12 @@ function specificationFormatter(appSpecification) {
   return appSpecFormatted;
 }
 
+/**
+ * To register an app globally via API. Performs various checks before the app can be registered. Only accessible by users.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
 async function registerAppGlobalyApi(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -4585,24 +5009,24 @@ async function registerAppGlobalyApi(req, res) {
         res.json(errMessage);
         return;
       }
-      // first  check if this node is available for application registration
-      if (fluxCommunication.outgoingPeers.length < config.fluxapps.minOutgoing) {
+      // first check if this node is available for application registration
+      if (outgoingPeers.length < config.fluxapps.minOutgoing) {
         throw new Error('Sorry, This Flux does not have enough outgoing peers for safe application registration');
       }
-      if (fluxCommunication.incomingPeers.length < config.fluxapps.minIncoming) {
+      if (incomingPeers.length < config.fluxapps.minIncoming) {
         throw new Error('Sorry, This Flux does not have enough incoming peers for safe application registration');
       }
       const processedBody = serviceHelper.ensureObject(body);
       // Note. Actually signature, timestamp is not needed. But we require it only to verify that user indeed has access to the private key of the owner zelid.
-      // name and port HAVE to be unique for application. Check if they dont exist in global database
-      // first lets check if all fields are present and have propper format excpet tiered and teired specifications and those can be ommited
+      // name and port HAVE to be unique for application. Check if they don't exist in global database
+      // first let's check if all fields are present and have proper format except tiered and tiered specifications and those can be omitted
       let { appSpecification } = processedBody;
       let { timestamp } = processedBody;
       let { signature } = processedBody;
       let messageType = processedBody.type; // determines how data is treated in the future
       let typeVersion = processedBody.version; // further determines how data is treated in the future
       if (!appSpecification || !timestamp || !signature || !messageType || !typeVersion) {
-        throw new Error('Incomplete message received. Check if appSpecification, type, version, timestamp and siganture are provided.');
+        throw new Error('Incomplete message received. Check if appSpecification, type, version, timestamp and signature are provided.');
       }
       if (messageType !== 'zelappregister' && messageType !== 'fluxappregister') {
         throw new Error('Invalid type of message');
@@ -4635,7 +5059,7 @@ async function registerAppGlobalyApi(req, res) {
       await verifyAppMessageSignature(messageType, typeVersion, appSpecFormatted, timestamp, signature);
 
       // if all ok, then sha256 hash of entire message = message + timestamp + signature. We are hashing all to have always unique value.
-      // If hashing just specificiations, if application goes back to previous specifications, it may possess some issues if we have indeed correct state
+      // If hashing just specificiations, if application goes back to previous specifications, it may pose some issues if we have indeed correct state
       // We respond with a hash that is supposed to go to transaction.
       const message = messageType + typeVersion + JSON.stringify(appSpecFormatted) + timestamp + signature;
       const messageHASH = await generalService.messageHash(message);
@@ -4648,7 +5072,7 @@ async function registerAppGlobalyApi(req, res) {
         timestamp,
         signature,
       };
-      await fluxCommunication.broadcastTemporaryAppMessage(temporaryAppMessage);
+      await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
       // above takes 2-3 seconds
       await serviceHelper.delay(1200); // it takes receiving node at least 1 second to process the message. Add 1200 ms mas for processing
       // this operations takes 2.5-3.5 seconds and is heavy, message gets verified again.
@@ -4683,7 +5107,12 @@ async function registerAppGlobalyApi(req, res) {
   });
 }
 
-// price handled in UI and available in API
+/**
+ * To update an app globally via API. Performs various checks before the app can be updated. Price handled in UI and available in API. Only accessible by users.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
 async function updateAppGlobalyApi(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -4697,24 +5126,24 @@ async function updateAppGlobalyApi(req, res) {
         res.json(errMessage);
         return;
       }
-      // first  check if this node is available for application update
-      if (fluxCommunication.outgoingPeers.length < config.fluxapps.minOutgoing) {
+      // first check if this node is available for application update
+      if (outgoingPeers.length < config.fluxapps.minOutgoing) {
         throw new Error('Sorry, This Flux does not have enough outgoing peers for safe application update');
       }
-      if (fluxCommunication.incomingPeers.length < config.fluxapps.minIncoming) {
+      if (incomingPeers.length < config.fluxapps.minIncoming) {
         throw new Error('Sorry, This Flux does not have enough incoming peers for safe application update');
       }
       const processedBody = serviceHelper.ensureObject(body);
       // Note. Actually signature, timestamp is not needed. But we require it only to verify that user indeed has access to the private key of the owner zelid.
-      // name and ports HAVE to be unique for application. Check if they dont exist in global database
-      // first lets check if all fields are present and have propper format excpet tiered and teired specifications and those can be ommited
+      // name and ports HAVE to be unique for application. Check if they don't exist in global database
+      // first let's check if all fields are present and have proper format except tiered and tiered specifications and those can be omitted
       let { appSpecification } = processedBody;
       let { timestamp } = processedBody;
       let { signature } = processedBody;
       let messageType = processedBody.type; // determines how data is treated in the future
       let typeVersion = processedBody.version; // further determines how data is treated in the future
       if (!appSpecification || !timestamp || !signature || !messageType || !typeVersion) {
-        throw new Error('Incomplete message received. Check if appSpecification, timestamp, type, version and siganture are provided.');
+        throw new Error('Incomplete message received. Check if appSpecification, timestamp, type, version and signature are provided.');
       }
       if (messageType !== 'zelappupdate' && messageType !== 'fluxappupdate') {
         throw new Error('Invalid type of message');
@@ -4751,7 +5180,7 @@ async function updateAppGlobalyApi(req, res) {
       };
       const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
       if (!appInfo) {
-        throw new Error('Flux App update received but application to update does not exists!');
+        throw new Error('Flux App update received but application to update does not exist!');
       }
       if (appInfo.repotag !== appSpecFormatted.repotag) { // this is OK. <= v3 cannot change, v4 can but does not have this in specifications as its compose
         throw new Error('Flux App update of repotag is not allowed');
@@ -4761,7 +5190,7 @@ async function updateAppGlobalyApi(req, res) {
       await verifyAppMessageUpdateSignature(messageType, typeVersion, appSpecFormatted, timestamp, signature, appOwner);
 
       // if all ok, then sha256 hash of entire message = message + timestamp + signature. We are hashing all to have always unique value.
-      // If hashing just specificiations, if application goes back to previous specifications, it may possess some issues if we have indeed correct state
+      // If hashing just specificiations, if application goes back to previous specifications, it may pose some issues if we have indeed correct state
       // We respond with a hash that is supposed to go to transaction.
       const message = messageType + typeVersion + JSON.stringify(appSpecFormatted) + timestamp + signature;
       const messageHASH = await generalService.messageHash(message);
@@ -4776,7 +5205,7 @@ async function updateAppGlobalyApi(req, res) {
       };
       // verify that app exists, does not change repotag (for v1-v3), does not change name and does not change component names
       await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, temporaryAppMessage.timestamp);
-      await fluxCommunication.broadcastTemporaryAppMessage(temporaryAppMessage);
+      await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
       // above takes 2-3 seconds
       await serviceHelper.delay(1200); // it takes receiving node at least 1 second to process the message. Add 1200 ms mas for processing
       // this operations takes 2.5-3.5 seconds and is heavy, message gets verified again.
@@ -4810,8 +5239,12 @@ async function updateAppGlobalyApi(req, res) {
   });
 }
 
-// where req can be equal to appname
-// shall be identical to listAllApps. But this is database response
+/**
+ * To get a list of installed apps. Where req can be equal to appname. Shall be identical to listAllApps but this is a database response.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function installedApps(req, res) {
   try {
     const dbopen = dbHelper.databaseConnection();
@@ -4851,6 +5284,11 @@ async function installedApps(req, res) {
   }
 }
 
+/**
+ * To install temporary local app. Checks that the app is installable on the machine (i.e. the machine has a suitable node tier status and any required dependency apps are installed). Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function installTemporaryLocalApplication(req, res) {
   try {
     let { appname } = req.params;
@@ -4904,6 +5342,11 @@ async function installTemporaryLocalApplication(req, res) {
   }
 }
 
+/**
+ * To store a permanent message for an app.
+ * @param {object} message Message.
+ * @returns True if no error is thrown.
+ */
 async function storeAppPermanentMessage(message) {
   /* message object
   * @param type string
@@ -4930,6 +5373,10 @@ async function storeAppPermanentMessage(message) {
   return true;
 }
 
+/**
+ * To update app specifications.
+ * @param {object} appSpecs App specifications.
+ */
 async function updateAppSpecifications(appSpecs) {
   try {
     // appSpecs: {
@@ -5023,6 +5470,11 @@ async function updateAppSpecifications(appSpecs) {
   }
 }
 
+/**
+ * To update app specifications for rescan/reindex.
+ * @param {object} appSpecs App specifications.
+ * @returns {boolean} True.
+ */
 async function updateAppSpecsForRescanReindex(appSpecs) {
   // appSpecs: {
   //   version: 3,
@@ -5077,6 +5529,11 @@ async function updateAppSpecsForRescanReindex(appSpecs) {
   return true;
 }
 
+/**
+ * To update the database that an app hash has a message.
+ * @param {object} hash Hash object containing app information.
+ * @returns {boolean} True.
+ */
 async function appHashHasMessage(hash) {
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.daemon.database);
@@ -5087,8 +5544,15 @@ async function appHashHasMessage(hash) {
   return true;
 }
 
-// hash of app information, txid it was in, height of blockchain containing the txid
-// handles fluxappregister type and fluxappupdate type.
+/**
+ * To check and request an app. Handles fluxappregister type and fluxappupdate type.
+ * @param {object} hash Hash object containing app information.
+ * @param {string} txid Transaction ID.
+ * @param {number} height Block height.
+ * @param {number} valueSat Satoshi denomination (100 millionth of 1 Flux).
+ * @param {number} i Defaults to value of 0.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
 async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
   try {
     if (height < config.fluxapps.epochstart) { // do not request testing apps
@@ -5158,7 +5622,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
                 if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= tempMessage.timestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
                   latestPermanentRegistrationMessage = foundMessage;
                 }
-              } else if (foundMessage.timestamp <= tempMessage.timestamp) { // we dont have any message or our message is newer. foundMessage has to have lower timestamp than our new message
+              } else if (foundMessage.timestamp <= tempMessage.timestamp) { // we don't have any message or our message is newer. foundMessage has to have lower timestamp than our new message
                 latestPermanentRegistrationMessage = foundMessage;
               }
             }
@@ -5175,7 +5639,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
                 if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= tempMessage.timestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
                   latestPermanentRegistrationMessage = foundMessage;
                 }
-              } else if (foundMessage.timestamp <= tempMessage.timestamp) { // we dont have any message or our message is newer. foundMessage has to have lower timestamp than our new message
+              } else if (foundMessage.timestamp <= tempMessage.timestamp) { // we don't have any message or our message is newer. foundMessage has to have lower timestamp than our new message
                 latestPermanentRegistrationMessage = foundMessage;
               }
             }
@@ -5209,7 +5673,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
         // request the message and broadcast the message further to our connected peers.
         await requestAppMessage(hash);
         // rerun this after 1 min delay
-        // stop this loop after 7 mins, as it might be a scammy message or simply this message is nowhere on the network, we dont have connections etc. We also have continous checkup for it every 8 min
+        // stop this loop after 7 mins, as it might be a scammy message or simply this message is nowhere on the network, we don't have connections etc. We also have continous checkup for it every 8 min
         if (i < 7) {
           await serviceHelper.delay(60 * 1000);
           checkAndRequestApp(hash, txid, height, valueSat, i + 1);
@@ -5225,6 +5689,12 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
   }
 }
 
+/**
+ * To check Docker accessibility. Only accessible by users.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function checkDockerAccessibility(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -5259,6 +5729,11 @@ async function checkDockerAccessibility(req, res) {
   });
 }
 
+/**
+ * To get registration information (Flux apps).
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 function registrationInformation(req, res) {
   try {
     const data = config.fluxapps;
@@ -5275,7 +5750,10 @@ function registrationInformation(req, res) {
   }
 }
 
-// function that drops global apps information and goes over all global apps messages and reconsturcts the global apps information. Further creates database indexes
+/**
+ * To drop global apps information and iterate over all global apps messages and reconstruct the global apps information. Further creates database indexes.
+ * @returns {boolean} True or thorws an error.
+ */
 async function reindexGlobalAppsInformation() {
   try {
     const db = dbHelper.databaseConnection();
@@ -5310,7 +5788,10 @@ async function reindexGlobalAppsInformation() {
   }
 }
 
-// function that drops information about running apps and rebuilds indexes
+/**
+ * To drop information about running apps and rebuild indexes.
+ * @returns {boolean} True or thorws an error.
+ */
 async function reindexGlobalAppsLocation() {
   try {
     const db = dbHelper.databaseConnection();
@@ -5332,7 +5813,12 @@ async function reindexGlobalAppsLocation() {
   }
 }
 
-// function goes over all global apps messages and updates global apps infromation database
+/**
+ * To iterate over all global apps messages and update global apps information database.
+ * @param {number} height Defaults to value of 0.
+ * @param {boolean} removeLastInformation Defaults to false.
+ * @returns {boolean} True or thorws an error.
+ */
 async function rescanGlobalAppsInformation(height = 0, removeLastInformation = false) {
   try {
     const db = dbHelper.databaseConnection();
@@ -5367,6 +5853,11 @@ async function rescanGlobalAppsInformation(height = 0, removeLastInformation = f
   }
 }
 
+/**
+ * To reindex global apps location via API. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function reindexGlobalAppsLocationAPI(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -5389,6 +5880,11 @@ async function reindexGlobalAppsLocationAPI(req, res) {
   }
 }
 
+/**
+ * To reindex global apps information via API. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function reindexGlobalAppsInformationAPI(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -5411,6 +5907,11 @@ async function reindexGlobalAppsInformationAPI(req, res) {
   }
 }
 
+/**
+ * To rescan global apps information via API. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function rescanGlobalAppsInformationAPI(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -5462,6 +5963,9 @@ async function rescanGlobalAppsInformationAPI(req, res) {
   }
 }
 
+/**
+ * To perform continuous checks for Flux app hashes that don't have a message.
+ */
 async function continuousFluxAppHashesCheck() {
   try {
     const knownWrongTxids = ['e56e08a8dbe9523ad10ca328fca84ee1da775ea5f466abed06ec357daa192940'];
@@ -5494,6 +5998,11 @@ async function continuousFluxAppHashesCheck() {
   }
 }
 
+/**
+ * To get app hashes.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function getAppHashes(req, res) {
   try {
     const dbopen = dbHelper.databaseConnection();
@@ -5523,6 +6032,11 @@ async function getAppHashes(req, res) {
   }
 }
 
+/**
+ * To get app locations.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function getAppsLocations(req, res) {
   try {
     const dbopen = dbHelper.databaseConnection();
@@ -5552,6 +6066,11 @@ async function getAppsLocations(req, res) {
   }
 }
 
+/**
+ * To get a specific app's location.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function getAppsLocation(req, res) {
   try {
     let { appname } = req.params;
@@ -5586,6 +6105,10 @@ async function getAppsLocation(req, res) {
   }
 }
 
+/**
+ * To get all global app names.
+ * @returns {string[]} Array of app names or an empty array if an error is caught.
+ */
 async function getAllGlobalApplicationsNames() {
   try {
     const db = dbHelper.databaseConnection();
@@ -5601,6 +6124,11 @@ async function getAllGlobalApplicationsNames() {
   }
 }
 
+/**
+ * To get a list of running apps for a specific IP address.
+ * @param {string} ip IP address.
+ * @returns {object[]} Array of running apps.
+ */
 async function getRunningAppIpList(ip) { // returns all apps running on this ip
   const dbopen = dbHelper.databaseConnection();
   const database = dbopen.db(config.database.appsglobal.database);
@@ -5619,6 +6147,11 @@ async function getRunningAppIpList(ip) { // returns all apps running on this ip
   return results;
 }
 
+/**
+ * To get a list of running instances of a specific app.
+ * @param {string} appName App name.
+ * @returns {object[]} Array of running apps.
+ */
 async function getRunningAppList(appName) {
   const dbopen = dbHelper.databaseConnection();
   const database = dbopen.db(config.database.appsglobal.database);
@@ -5637,6 +6170,11 @@ async function getRunningAppList(appName) {
   return results;
 }
 
+/**
+ * To get app specifications for a specific global app.
+ * @param {string} appName App name.
+ * @returns {object} Document with app info.
+ */
 async function getApplicationGlobalSpecifications(appName) {
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
@@ -5651,12 +6189,22 @@ async function getApplicationGlobalSpecifications(appName) {
   return appInfo;
 }
 
+/**
+ * To get app specifications for a specific local app.
+ * @param {string} appName App name.
+ * @returns {object} Document with app info.
+ */
 async function getApplicationLocalSpecifications(appName) {
   const allApps = await availableApps();
   const appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
   return appInfo;
 }
 
+/**
+ * To get app specifications for a specific app if global/local status is unkown. First searches global apps and if not found then searches local apps.
+ * @param {string} appName App name.
+ * @returns {object} Document with app info.
+ */
 async function getApplicationSpecifications(appName) {
   // appSpecs: {
   //   version: 2,
@@ -5703,7 +6251,11 @@ async function getApplicationSpecifications(appName) {
   return appInfo;
 }
 
-// case sensitive
+/**
+ * To get app specifications for a specific app (case sensitive) if global/local status is unkown. First searches global apps and if not found then searches local apps.
+ * @param {string} appName App name.
+ * @returns {object} Document with app info.
+ */
 async function getStrictApplicationSpecifications(appName) {
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
@@ -5722,6 +6274,11 @@ async function getStrictApplicationSpecifications(appName) {
   return appInfo;
 }
 
+/**
+ * To get app specifications for a specific app (global or local) via API.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function getApplicationSpecificationAPI(req, res) {
   try {
     let { appname } = req.params;
@@ -5746,6 +6303,11 @@ async function getApplicationSpecificationAPI(req, res) {
   }
 }
 
+/**
+ * To get app owner for a specific app (global or local) via API.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function getApplicationOwnerAPI(req, res) {
   try {
     let { appname } = req.params;
@@ -5770,9 +6332,14 @@ async function getApplicationOwnerAPI(req, res) {
   }
 }
 
+/**
+ * To try spawning a global application. Performs various checks before the app is spawned. Checks that app is not already running on the FluxNode/IP address.
+ * Checks if app already has the required number of instances deployed. Checks that application image is not blacklisted. Checks that ports not already in use.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
 async function trySpawningGlobalApplication() {
   try {
-    // how do we continue with this function function?
+    // how do we continue with this function?
     // we have globalapplication specifics list
     // check if we are synced
     const synced = await generalService.checkSynced();
@@ -5848,7 +6415,7 @@ async function trySpawningGlobalApplication() {
     if (runningApps.status !== 'success') {
       throw new Error('Unable to check running apps on this Flux');
     }
-    if (runningApps.data.find((app) => app.Names[0].substr(5, app.Names[0].length) === randomApp)) {
+    if (runningApps.data.find((app) => app.Names[0].slice(5) === randomApp)) {
       log.info(`${randomApp} application is already running on this Flux`);
       await serviceHelper.delay(adjustedDelay);
       trySpawningGlobalAppCache.set(randomApp, randomApp);
@@ -5951,11 +6518,18 @@ async function trySpawningGlobalApplication() {
     });
 
     // ensure images exists for platform
-    await ensureApplicationImagesExistsForPlatform(appSpecifications).catch((error) => {
+    const imagesArchitectureMatches = await ensureApplicationImagesExistsForPlatform(appSpecifications).catch((error) => {
       log.error(error);
       trySpawningGlobalAppCache.set(randomApp, randomApp);
       throw error;
     });
+    if (imagesArchitectureMatches !== true) {
+      log.info(`Application ${randomApp} does not support our node architecture, installation aborted.`);
+      trySpawningGlobalAppCache.set(randomApp, randomApp);
+      await serviceHelper.delay(adjustedDelay);
+      trySpawningGlobalApplication();
+      return;
+    }
 
     // if all ok Check hashes comparison if its out turn to start the app. 1% probability.
     const randomNumber = Math.floor((Math.random() * (config.fluxapps.installation.probability / probLn))); // higher probability for more apps on network
@@ -5979,6 +6553,9 @@ async function trySpawningGlobalApplication() {
   }
 }
 
+/**
+ * To check and notify peers of running apps. Checks if apps are installed, stopped or running.
+ */
 async function checkAndNotifyPeersOfRunningApps() {
   try {
     // get my external IP and check that it is longer than 5 in length.
@@ -6019,9 +6596,9 @@ async function checkAndNotifyPeersOfRunningApps() {
     // kadena and folding is old naming scheme having /zel.  all global application start with /flux
     const runningAppsNames = runningApps.map((app) => {
       if (app.Names[0].startsWith('/zel')) {
-        return app.Names[0].substr(4, app.Names[0].length);
+        return app.Names[0].slice(4);
       }
-      return app.Names[0].substr(5, app.Names[0].length);
+      return app.Names[0].slice(5);
     });
     // installed always is bigger array than running
     const runningSet = new Set(runningAppsNames);
@@ -6031,21 +6608,21 @@ async function checkAndNotifyPeersOfRunningApps() {
       // eslint-disable-next-line no-restricted-syntax
       for (const stoppedApp of stoppedApps) { // will uninstall app if some component is missing
         try {
-          // proceed ONLY if its global App
+          // proceed ONLY if it's a global App
           const mainAppName = stoppedApp.split('_')[1] || stoppedApp;
           // eslint-disable-next-line no-await-in-loop
           const appDetails = await getApplicationGlobalSpecifications(mainAppName);
           if (appDetails) {
-            log.warn(`${stoppedApp} is stopped but shall be running. Starting...`);
+            log.warn(`${stoppedApp} is stopped but should be running. Starting...`);
             // it is a stopped global app. Try to run it.
             const appId = dockerService.getAppIdentifier(stoppedApp);
-            // check if some removal is in progress as if it is dont start it!
+            // check if some removal is in progress and if it is don't start it!
             if (!removalInProgress && !installationInProgress && !reinstallationOfOldAppsInProgress) {
               log.warn(`${appId} is stopped, starting`);
               // eslint-disable-next-line no-await-in-loop
               await dockerService.appDockerStart(appId);
             } else {
-              log.warn(`Not starting ${stoppedApp} as of application removal or installation in progress`);
+              log.warn(`Not starting ${stoppedApp} as application removal or installation is in progress`);
             }
           }
         } catch (err) {
@@ -6097,11 +6674,11 @@ async function checkAndNotifyPeersOfRunningApps() {
         // eslint-disable-next-line no-await-in-loop
         await storeAppRunningMessage(newAppRunningMessage);
         // eslint-disable-next-line no-await-in-loop
-        await fluxCommunication.broadcastMessageToOutgoing(newAppRunningMessage);
+        await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessage);
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(500);
         // eslint-disable-next-line no-await-in-loop
-        await fluxCommunication.broadcastMessageToIncoming(newAppRunningMessage);
+        await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessage);
         // broadcast messages about running apps to all peers
       } catch (err) {
         log.error(err);
@@ -6114,8 +6691,11 @@ async function checkAndNotifyPeersOfRunningApps() {
   }
 }
 
+/**
+ * To find and remove expired global applications. Finds applications that are lower than blocksLasting and deletes them from global database.
+ */
 async function expireGlobalApplications() {
-  // function to expire global applications. Find applications that are lower than blocks lasting
+  // check if synced
   try {
     // get current height
     const dbopen = dbHelper.databaseConnection();
@@ -6163,16 +6743,19 @@ async function expireGlobalApplications() {
       // eslint-disable-next-line no-await-in-loop
       await removeAppLocally(appName);
       // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(6 * 60 * 1000); // wait for 6 mins so we dont have more removals at the same time
+      await serviceHelper.delay(6 * 60 * 1000); // wait for 6 mins so we don't have more removals at the same time
     }
   } catch (error) {
     log.error(error);
   }
 }
 
-// check if more than allowed instances of application are running
+/**
+ * To find and remove apps that are spawned more than maximum number of instances allowed locally.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
 async function checkAndRemoveApplicationInstance() {
-  // function to remove global applications on this local node. Find applications that are spawned more than maximum number of instances allowed
+  // To check if more than allowed instances of application are running
   // check if synced
   try {
     const synced = await generalService.checkSynced();
@@ -6204,7 +6787,7 @@ async function checkAndRemoveApplicationInstance() {
             await removeAppLocally(installedApp.name);
             log.warn(`Application ${installedApp.name} locally removed`);
             // eslint-disable-next-line no-await-in-loop
-            await serviceHelper.delay(config.fluxapps.removal.delay * 1000); // wait for 6 mins so we dont have more removals at the same time
+            await serviceHelper.delay(config.fluxapps.removal.delay * 1000); // wait for 6 mins so we don't have more removals at the same time
           } else {
             log.info(`Other Fluxes are evaluating application ${installedApp.name} removal.`);
           }
@@ -6216,6 +6799,12 @@ async function checkAndRemoveApplicationInstance() {
   }
 }
 
+/**
+ * To soft redeploy. Checks if any other installations/uninstallations are in progress and if not, removes and reinstalls app locally.
+ * @param {object} appSpecs App specifications.
+ * @param {object} res Response.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
 async function softRedeploy(appSpecs, res) {
   try {
     if (removalInProgress) {
@@ -6258,6 +6847,11 @@ async function softRedeploy(appSpecs, res) {
   }
 }
 
+/**
+ * To hard redeploy. Removes and reinstalls app locally.
+ * @param {object} appSpecs App specifications.
+ * @param {object} res Response.
+ */
 async function hardRedeploy(appSpecs, res) {
   try {
     await removeAppLocally(appSpecs.name, res, false, false);
@@ -6278,6 +6872,10 @@ async function hardRedeploy(appSpecs, res) {
   }
 }
 
+/**
+ * To reinstall old apps. Tries soft and hard reinstalls of app (and any components).
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
 async function reinstallOldApplications() {
   try {
     const synced = await generalService.checkSynced();
@@ -6343,7 +6941,7 @@ async function reinstallOldApplications() {
                   throw error;
                 }
                 // eslint-disable-next-line no-await-in-loop
-                await serviceHelper.delay(config.fluxapps.redeploy.delay * 1000); // wait for delay mins so we dont have more removals at the same time
+                await serviceHelper.delay(config.fluxapps.redeploy.delay * 1000); // wait for delay mins so we don't have more removals at the same time
                 // eslint-disable-next-line no-await-in-loop
                 await checkAppRequirements(appSpecifications);
                 // install the app
@@ -6361,7 +6959,7 @@ async function reinstallOldApplications() {
                 await removeAppLocally(installedApp.name);
                 log.warn('Application removed. Awaiting installation...');
                 // eslint-disable-next-line no-await-in-loop
-                await serviceHelper.delay(config.fluxapps.redeploy.delay * 1000); // wait for delay mins so we dont have more removals at the same time
+                await serviceHelper.delay(config.fluxapps.redeploy.delay * 1000); // wait for delay mins so we don't have more removals at the same time
                 // eslint-disable-next-line no-await-in-loop
                 await checkAppRequirements(appSpecifications);
 
@@ -6485,6 +7083,12 @@ async function reinstallOldApplications() {
   }
 }
 
+/**
+ * To get app price.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getAppPrice(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -6546,6 +7150,12 @@ async function getAppPrice(req, res) {
   });
 }
 
+/**
+ * To redeploy via API. Cannot be performed for individual components. Force defaults to false. Only accessible by app owner, admins and flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function redeployAPI(req, res) {
   try {
     let { appname } = req.params;
@@ -6593,6 +7203,12 @@ async function redeployAPI(req, res) {
   }
 }
 
+/**
+ * To verify app registration parameters. Checks for correct format, specs and non-duplication of values/resources.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function verifyAppRegistrationParameters(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -6634,6 +7250,12 @@ async function verifyAppRegistrationParameters(req, res) {
   });
 }
 
+/**
+ * To verify app update parameters. Checks for correct format, specs and non-duplication of values/resources.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function verifyAppUpdateParameters(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -6676,6 +7298,11 @@ async function verifyAppUpdateParameters(req, res) {
   });
 }
 
+/**
+ * To get price and specification information required for deployment.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function deploymentInformation(req, res) {
   try {
     // respond with information needed for application deployment regarding specification limitation and prices
@@ -6702,8 +7329,12 @@ async function deploymentInformation(req, res) {
   }
 }
 
+/**
+ * To reconstruct app messages hash collection. Checks if globalAppsMessages has the message or not.
+ * @returns {string} Reconstruct success message.
+ */
 async function reconstructAppMessagesHashCollection() {
-  // go through our appsHashesCollection and check if globalAppsMessages trully has the message or not
+  // go through our appsHashesCollection and check if globalAppsMessages truly has the message or not
   const db = dbHelper.databaseConnection();
   const databaseApps = db.db(config.database.appsglobal.database);
   const databaseDaemon = db.db(config.database.daemon.database);
@@ -6734,6 +7365,11 @@ async function reconstructAppMessagesHashCollection() {
   return 'Reconstruct success';
 }
 
+/**
+ * To reconstruct app messages hash collection via API. Checks if globalAppsMessages has the message or not. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function reconstructAppMessagesHashCollectionAPI(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -6756,11 +7392,14 @@ async function reconstructAppMessagesHashCollectionAPI(req, res) {
   }
 }
 
+/**
+ * To stop all non Flux running apps. Executes continuously at regular intervals.
+ */
 async function stopAllNonFluxRunningApps() {
   try {
     log.info('Running non Flux apps check...');
     let apps = await dockerService.dockerListContainers(false);
-    apps = apps.filter((app) => (app.Names[0].substr(1, 3) !== 'zel' && app.Names[0].substr(1, 4) !== 'flux'));
+    apps = apps.filter((app) => (app.Names[0].slice(1, 4) !== 'zel' && app.Names[0].slice(1, 5) !== 'flux'));
     if (apps.length > 0) {
       log.info(`Found ${apps.length} apps to be stopped...`);
       // eslint-disable-next-line no-restricted-syntax
@@ -6865,4 +7504,7 @@ module.exports = {
   reconstructAppMessagesHashCollection,
   reconstructAppMessagesHashCollectionAPI,
   stopAllNonFluxRunningApps,
+  restorePortsSupport,
+  restoreFluxPortsSupport,
+  restoreAppsPortsSupport,
 };

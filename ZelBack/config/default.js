@@ -98,7 +98,7 @@ module.exports = {
     publicepochstart: 705000,
     portMin: 31000, // ports 30000 - 30999 are reserved for local applications
     portMax: 39999,
-    maxImageSize: 500000000, // 500mb possibly increase later
+    maxImageSize: 2000000000, // 2000mb
     minimumInstances: 3,
     maximumInstances: 100,
     maximumAdditionalInstances: 1, // max instances above subscribed amount. In case of min instances, this is minimumInstances + maximumAdditionalInstances
@@ -121,6 +121,7 @@ module.exports = {
     expireFluxAppsPeriod: 100, // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago
     updateFluxAppsPeriod: 9, // every 9 blocks we check for reinstalling of old application versions
     removeFluxAppsPeriod: 11, // every 11 blocks we check for more than maximum number of instances of an application
+    restorePortsSupportPeriod: 25, // every 25 blocks we try to setup ufw and upnp
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core

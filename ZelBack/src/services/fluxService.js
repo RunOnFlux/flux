@@ -17,7 +17,7 @@ const daemonService = require('./daemonService');
 const benchmarkService = require('./benchmarkService');
 const appsService = require('./appsService');
 const generalService = require('./generalService');
-const fluxCommunication = require('./fluxCommunication');
+const fluxNetworkHelper = require('./fluxNetworkHelper');
 const userconfig = require('../../../config/userconfig');
 
 let storedGeolocation = null;
@@ -779,7 +779,7 @@ async function getFluxInfo(req, res) {
       throw timeResult.data;
     }
     info.flux.timezone = timeResult.data;
-    const dosResult = await fluxCommunication.getDOSState();
+    const dosResult = await fluxNetworkHelper.getDOSState();
     if (dosResult.status === 'error') {
       throw dosResult.data;
     }

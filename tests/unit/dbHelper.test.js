@@ -10,22 +10,22 @@ const testInsert = [{
   _id: ObjectId('5f99562a09aef91cd19fbb93'),
   name: 'App1',
   description: 'Test',
-  owner: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9t',
+  owner: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6W',
 }, {
   _id: ObjectId('5fa25bf73ba9312a4d83712d'),
   name: 'App1',
   description: 'Test',
-  owner: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9u',
+  owner: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6d',
 }, {
   _id: ObjectId('5fb48e724b82682e2bd22269'),
   name: 'App2',
   description: 'Test3',
-  owner: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9w',
+  owner: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6h',
 }, {
   _id: ObjectId('5fec239ec4ef4d416e70ac61'),
   name: 'App3',
   description: 'Test3',
-  owner: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9x',
+  owner: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6w',
 }];
 
 describe('dbHelper tests', () => {
@@ -124,13 +124,13 @@ describe('dbHelper tests', () => {
           _id: new ObjectId('5f99562a09aef91cd19fbb93'),
           name: 'App1',
           description: 'Test',
-          owner: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9t',
+          owner: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6W',
         },
         {
           _id: new ObjectId('5fa25bf73ba9312a4d83712d'),
           name: 'App1',
           description: 'Test',
-          owner: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9u',
+          owner: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6d',
         },
       ];
 
@@ -151,11 +151,11 @@ describe('dbHelper tests', () => {
       const expectedResult = [
         {
           name: 'App1',
-          owner: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9t',
+          owner: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6W',
         },
         {
           name: 'App1',
-          owner: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9u',
+          owner: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6d',
         },
       ];
 
@@ -195,7 +195,7 @@ describe('dbHelper tests', () => {
         _id: ObjectId('5f99562a09aef91cd19fbb93'),
         name: 'App1',
         description: 'Test',
-        owner: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9t',
+        owner: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6W',
       };
 
       const findOneInDatabaseResult = await dbHelper.findOneInDatabase(database, collection, query);
@@ -214,7 +214,7 @@ describe('dbHelper tests', () => {
       };
       const expectedResult = {
         name: 'App1',
-        owner: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9t',
+        owner: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6W',
       };
 
       const findOneInDatabaseResult = await dbHelper.findOneInDatabase(database, collection, query, queryProjection);
@@ -330,7 +330,7 @@ describe('dbHelper tests', () => {
       expect(getOneFromDatabase).to.eql(documentToInsert);
     });
 
-    it('should return error if key exists', async () => {
+    it('should return undefined if the key already exists', async () => {
       const documentToInsert = {
         _id: ObjectId('5fa25bf73ba9312a4d83712d'),
         name: 'App5',
@@ -338,7 +338,7 @@ describe('dbHelper tests', () => {
         owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLdoKNSi9e',
       };
 
-      expect(async () => { await dbHelper.insertOneToDatabase(database, collection, documentToInsert); }).to.throw;
+      expect(await dbHelper.insertOneToDatabase(database, collection, documentToInsert)).to.be.undefined;
     });
   });
 
@@ -455,7 +455,7 @@ describe('dbHelper tests', () => {
       expect(findInDatabaseResult).to.eql(expectedResult);
     });
 
-    it('should return error if there are duplicate keys', async () => {
+    it('should return undefined if there are duplicate keys', async () => {
       const documentsToInsert = [{
         _id: ObjectId('4f99562a09aef92cd1afbe93'),
         name: 'App5',
@@ -468,7 +468,7 @@ describe('dbHelper tests', () => {
         owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLsoKNSi6e',
       }];
 
-      expect(async () => { await dbHelper.insertManyToDatabase(database, collection, documentsToInsert); }).to.throw;
+      expect(await dbHelper.insertManyToDatabase(database, collection, documentsToInsert)).to.be.undefined;
     });
   });
 
@@ -602,7 +602,7 @@ describe('dbHelper tests', () => {
         _id: ObjectId('5f99562a09aef91cd19fbb93'),
         name: 'App1',
         description: 'Test',
-        owner: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9t',
+        owner: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6W',
       };
 
       const findOneAndDeleteInDatabaseResponse = await dbHelper.findOneAndDeleteInDatabase(database, collection, query);
@@ -617,7 +617,7 @@ describe('dbHelper tests', () => {
       const query = { _id: ObjectId('5f99562a09aef91cd19fbb93') };
       const expectedResult = {
         name: 'App1',
-        owner: '1LZe3AUYQC4aT5YWLhgEcH1nLLdoKNBi9t',
+        owner: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6W',
       };
       const queryProjection = {
         projection: {

@@ -39,7 +39,17 @@ describe('benchmarkService tests', () => {
     });
 
     it('should throw error if called function does not exist', async () => {
-      expect(async () => { await benchmarkService.executeCall('testing123'); }).to.throw;
+      const expectedErrorMessage = {
+        status: 'error',
+        data: {
+          code: undefined,
+          message: 'client[rpc] is not a function',
+          name: 'TypeError',
+        },
+      };
+      const executeCallRes = await benchmarkService.executeCall('testing123');
+
+      expect(executeCallRes).to.eql(expectedErrorMessage);
     });
 
     it('should throw error if parameter is not an iterable', async () => {
@@ -47,7 +57,17 @@ describe('benchmarkService tests', () => {
         test: 'test1',
         test2: 'test3',
       };
-      expect(async () => { await benchmarkService.executeCall('getstatus', params); }).to.throw;
+      const expectedErrorMessage = {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'TypeError',
+          message: 'Found non-callable @@iterator',
+        },
+      };
+      const executeCallRes = await benchmarkService.executeCall('getstatus', params);
+
+      expect(executeCallRes).to.eql(expectedErrorMessage);
     });
   });
 
@@ -108,6 +128,7 @@ describe('benchmarkService tests', () => {
         headers: {
           zelidauth: {
             zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+            loginPhrase: '16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9',
             signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc=',
           },
         },
@@ -127,6 +148,7 @@ describe('benchmarkService tests', () => {
         headers: {
           zelidauth: {
             zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+            loginPhrase: '16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9',
             signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc=',
           },
         },
@@ -153,6 +175,7 @@ describe('benchmarkService tests', () => {
         headers: {
           zelidauth: {
             zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uV',
+            loginPhrase: '16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9',
             signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBx=',
           },
         },
@@ -185,6 +208,7 @@ describe('benchmarkService tests', () => {
         headers: {
           zelidauth: {
             zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+            loginPhrase: '16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9',
             signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc=',
           },
         },
@@ -208,6 +232,7 @@ describe('benchmarkService tests', () => {
         headers: {
           zelidauth: {
             zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uZ',
+            loginPhrase: '16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9',
             signature: 'IH9d68fk/dYQtuMlNx7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc=',
           },
         },
@@ -238,6 +263,7 @@ describe('benchmarkService tests', () => {
         headers: {
           zelidauth: {
             zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+            loginPhrase: '16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9',
             signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc=',
           },
         },
@@ -276,6 +302,7 @@ describe('benchmarkService tests', () => {
         headers: {
           zelidauth: {
             zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+            loginPhrase: '16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9',
             signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc=',
           },
         },
@@ -419,6 +446,7 @@ describe('benchmarkService tests', () => {
         headers: {
           zelidauth: {
             zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+            loginPhrase: '16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9',
             signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc=',
           },
         },
@@ -439,6 +467,7 @@ describe('benchmarkService tests', () => {
         headers: {
           zelidauth: {
             zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uZ',
+            loginPhrase: '16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9',
             signature: 'IH9d68fk/dYQtuMlNx7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc=',
           },
         },
@@ -465,6 +494,7 @@ describe('benchmarkService tests', () => {
         headers: {
           zelidauth: {
             zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+            loginPhrase: '16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9',
             signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc=',
           },
         },
