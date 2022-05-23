@@ -4399,35 +4399,6 @@ function specificationFormatter(appSpecification) {
       appSpecFormatted.hddbamf = hddbamf;
     }
   } else { // v4+
-    if (version >= 5) {
-      if (!contacts || !geolocation) {
-        throw new Error('Missing Flux App specification parameter');
-      }
-      contacts = serviceHelper.ensureObject(contacts);
-      const contactsCorrect = [];
-      if (Array.isArray(contacts)) {
-        contacts.forEach((parameter) => {
-          const param = serviceHelper.ensureString(parameter); // string
-          contactsCorrect.push(param);
-        });
-      } else {
-        throw new Error('Contacts for Flux App are invalid');
-      }
-      appSpecFormatted.contacts = contactsCorrect;
-
-      geolocation = serviceHelper.ensureObject(geolocation);
-      const geolocationCorrect = [];
-      if (Array.isArray(geolocation)) {
-        geolocation.forEach((parameter) => {
-          const param = serviceHelper.ensureString(parameter); // string
-          geolocationCorrect.push(param);
-        });
-      } else {
-        throw new Error('Geolocation for Flux App are invalid');
-      }
-      appSpecFormatted.geolocation = geolocationCorrect;
-    }
-
     if (!compose) {
       throw new Error('Missing Flux App specification parameter');
     }
@@ -4561,6 +4532,35 @@ function specificationFormatter(appSpecification) {
       throw new Error(`Maximum number of instances is ${config.fluxapps.maximumInstances}`);
     }
     appSpecFormatted.instances = instances;
+  }
+
+  if (version >= 5) {
+    if (!contacts || !geolocation) { // can be empty array for no contact or no geolocation requirements
+      throw new Error('Missing Flux App specification parameter');
+    }
+    contacts = serviceHelper.ensureObject(contacts);
+    const contactsCorrect = [];
+    if (Array.isArray(contacts)) {
+      contacts.forEach((parameter) => {
+        const param = serviceHelper.ensureString(parameter); // string
+        contactsCorrect.push(param);
+      });
+    } else {
+      throw new Error('Contacts for Flux App are invalid');
+    }
+    appSpecFormatted.contacts = contactsCorrect;
+
+    geolocation = serviceHelper.ensureObject(geolocation);
+    const geolocationCorrect = [];
+    if (Array.isArray(geolocation)) {
+      geolocation.forEach((parameter) => {
+        const param = serviceHelper.ensureString(parameter); // string
+        geolocationCorrect.push(param);
+      });
+    } else {
+      throw new Error('Geolocation for Flux App is invalid');
+    }
+    appSpecFormatted.geolocation = geolocationCorrect;
   }
 
   return appSpecFormatted;
