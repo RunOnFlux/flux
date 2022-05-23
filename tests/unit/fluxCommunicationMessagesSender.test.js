@@ -7,7 +7,7 @@ const LRU = require('lru-cache');
 const { PassThrough } = require('stream');
 const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
-const daemonService = require('../../ZelBack/src/services/daemonService');
+const daemonServiceUtils = require('../../ZelBack/src/services/daemonServiceUtils');
 const appsService = require('../../ZelBack/src/services/appsService');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const generalService = require('../../ZelBack/src/services/generalService');
@@ -354,7 +354,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     it('Should properly return signature if private key is taken from config', async () => {
       const mockedPrivKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
       const message = 'testing1234';
-      const daemonStub = sinon.stub(daemonService, 'getConfigValue').resolves(mockedPrivKey);
+      const daemonStub = sinon.stub(daemonServiceUtils, 'getConfigValue').resolves(mockedPrivKey);
 
       const signature = await fluxCommunicationMessagesSender.getFluxMessageSignature(message);
 

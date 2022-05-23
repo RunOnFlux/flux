@@ -1,7 +1,10 @@
+const fullnode = require('fullnode');
 const LRU = require('lru-cache');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
 const client = require('./utils/daemonrpcClient').default;
+
+const fnconfig = new fullnode.Config();
 
 // default cache
 const LRUoptions = {
@@ -161,8 +164,19 @@ function getBlockCache(key) {
   return blockCache.get(key);
 }
 
+/**
+ * To get a value for a specified key from the configuration file.
+ * @param {string} parameter Config key.
+ * @returns {string} Config value.
+ */
+function getConfigValue(parameter) {
+  const value = fnconfig.get(parameter);
+  return value;
+}
+
 module.exports = {
   executeCall,
+  getConfigValue,
 
   // exports for testing purposes
   setStandardCache,

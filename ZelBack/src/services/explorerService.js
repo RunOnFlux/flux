@@ -6,7 +6,7 @@ const serviceHelper = require('./serviceHelper');
 const dbHelper = require('./dbHelper');
 const verificationHelper = require('./verificationHelper');
 const messageHelper = require('./messageHelper');
-const daemonService = require('./daemonService');
+const daemonServiceMiscRpcs = require('./daemonServiceMiscRpcs');
 const daemonServiceAddressRpcs = require('./daemonServiceAddressRpcs');
 const daemonServiceTransactionRpcs = require('./daemonServiceTransactionRpcs');
 const daemonServiceControlRpcs = require('./daemonServiceControlRpcs');
@@ -571,7 +571,7 @@ async function processStandard(blockDataVerbose, database) {
  */
 async function processBlock(blockHeight, isInsightExplorer) {
   try {
-    const syncStatus = daemonService.isDaemonSynced();
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     if (!syncStatus.data.synced) {
       setTimeout(() => {
         processBlock(blockHeight, isInsightExplorer);
@@ -724,7 +724,7 @@ async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = fals
 // use reindexGlobalApps with caution!!!
 async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps) {
   try {
-    const syncStatus = daemonService.isDaemonSynced();
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     if (!syncStatus.data.synced) {
       setTimeout(() => {
         initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps);
@@ -915,7 +915,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
         }
       }
       isInInitiationOfBP = false;
-      const isInsightExplorer = daemonService.isInsightExplorer();
+      const isInsightExplorer = daemonServiceMiscRpcs.isInsightExplorer();
       if (isInsightExplorer) {
         // if node is insight explorer based, we are only processing flux app messages
         if (scannedBlockHeight < config.deterministicNodesStart - 1) {
@@ -945,7 +945,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
  */
 async function getAllUtxos(req, res) {
   try {
-    const isInsightExplorer = daemonService.isInsightExplorer();
+    const isInsightExplorer = daemonServiceMiscRpcs.isInsightExplorer();
     if (isInsightExplorer) {
       throw new Error('Data unavailable. Deprecated');
     }
@@ -981,7 +981,7 @@ async function getAllUtxos(req, res) {
  */
 async function getAllFusionCoinbase(req, res) {
   try {
-    const isInsightExplorer = daemonService.isInsightExplorer();
+    const isInsightExplorer = daemonServiceMiscRpcs.isInsightExplorer();
     if (isInsightExplorer) {
       throw new Error('Data unavailable. Deprecated');
     }
@@ -1054,7 +1054,7 @@ async function getAllFluxTransactions(req, res) {
 async function getAllAddressesWithTransactions(req, res) {
   try {
     // FIXME outputs all documents in the collection. We shall group same addresses. But this call is disabled and for testing purposes anyway
-    const isInsightExplorer = daemonService.isInsightExplorer();
+    const isInsightExplorer = daemonServiceMiscRpcs.isInsightExplorer();
     if (isInsightExplorer) {
       throw new Error('Data unavailable. Deprecated');
     }
@@ -1087,7 +1087,7 @@ async function getAllAddressesWithTransactions(req, res) {
 async function getAllAddresses(req, res) {
   try {
     // FIXME outputs all documents in the collection. We shall group same addresses. But this call is disabled and for testing purposes anyway
-    const isInsightExplorer = daemonService.isInsightExplorer();
+    const isInsightExplorer = daemonServiceMiscRpcs.isInsightExplorer();
     if (isInsightExplorer) {
       throw new Error('Data unavailable. Deprecated');
     }
@@ -1116,7 +1116,7 @@ async function getAddressUtxos(req, res) {
     if (!address) {
       throw new Error('No address provided');
     }
-    const isInsightExplorer = daemonService.isInsightExplorer();
+    const isInsightExplorer = daemonServiceMiscRpcs.isInsightExplorer();
     if (isInsightExplorer) {
       const daemonRequest = {
         params: {
@@ -1125,7 +1125,7 @@ async function getAddressUtxos(req, res) {
         query: {},
       };
       const insightResult = await daemonServiceAddressRpcs.getSingleAddressUtxos(daemonRequest);
-      const syncStatus = daemonService.isDaemonSynced();
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       const curHeight = syncStatus.data.height;
       const utxos = [];
       insightResult.data.forEach((utxo) => {
@@ -1176,7 +1176,7 @@ async function getAddressUtxos(req, res) {
  */
 async function getAddressFusionCoinbase(req, res) {
   try {
-    const isInsightExplorer = daemonService.isInsightExplorer();
+    const isInsightExplorer = daemonServiceMiscRpcs.isInsightExplorer();
     if (isInsightExplorer) {
       throw new Error('Data unavailable. Deprecated');
     }
@@ -1275,7 +1275,7 @@ async function getAddressTransactions(req, res) {
     if (!address) {
       throw new Error('No address provided');
     }
-    const isInsightExplorer = daemonService.isInsightExplorer();
+    const isInsightExplorer = daemonServiceMiscRpcs.isInsightExplorer();
     if (isInsightExplorer) {
       const daemonRequest = {
         params: {
@@ -1538,7 +1538,7 @@ async function getAddressBalance(req, res) {
     if (!address) {
       throw new Error('No address provided');
     }
-    const isInsightExplorer = daemonService.isInsightExplorer();
+    const isInsightExplorer = daemonServiceMiscRpcs.isInsightExplorer();
     if (isInsightExplorer) {
       const daemonRequest = {
         params: {

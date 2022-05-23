@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const log = require('../lib/log');
 
 const serviceHelper = require('./serviceHelper');
-const daemonService = require('./daemonService');
+const daemonServiceMiscRpcs = require('./daemonServiceMiscRpcs');
 const daemonServiceZelnodeRpcs = require('./daemonServiceZelnodeRpcs');
 const daemonServiceTransactionRpcs = require('./daemonServiceTransactionRpcs');
 const messageHelper = require('./messageHelper');
@@ -194,7 +194,7 @@ async function isNodeStatusConfirmed() {
 async function checkSynced() {
   try {
     // check if flux database is synced with daemon database (equal or -1 inheight)
-    const syncStatus = daemonService.isDaemonSynced();
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     if (!syncStatus.data.synced) {
       throw new Error('Daemon not yet synced.');
     }

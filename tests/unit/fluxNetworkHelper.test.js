@@ -9,7 +9,8 @@ const fs = require('fs').promises;
 const util = require('util');
 const log = require('../../ZelBack/src/lib/log');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
-const daemonService = require('../../ZelBack/src/services/daemonService');
+const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonServiceMiscRpcs');
+const daemonServiceUtils = require('../../ZelBack/src/services/daemonServiceUtils');
 const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonServiceBenchmarkRpcs');
 const daemonServiceWalletRpcs = require('../../ZelBack/src/services/daemonServiceWalletRpcs');
 const daemonServiceZelnodeRpcs = require('../../ZelBack/src/services/daemonServiceZelnodeRpcs');
@@ -324,7 +325,7 @@ describe('fluxNetworkHelper tests', () => {
     let daemonStub;
 
     beforeEach(() => {
-      daemonStub = sinon.stub(daemonService, 'getConfigValue');
+      daemonStub = sinon.stub(daemonServiceUtils, 'getConfigValue');
     });
 
     afterEach(() => {
@@ -368,7 +369,7 @@ describe('fluxNetworkHelper tests', () => {
     it('Should properly return publicKey if private key is taken from config', async () => {
       const mockedPrivKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
       const expectedPublicKey = '0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab';
-      const daemonStub = sinon.stub(daemonService, 'getConfigValue').resolves(mockedPrivKey);
+      const daemonStub = sinon.stub(daemonServiceUtils, 'getConfigValue').resolves(mockedPrivKey);
 
       const publicKey = await fluxNetworkHelper.getFluxNodePublicKey();
 
@@ -1302,7 +1303,7 @@ describe('fluxNetworkHelper tests', () => {
           rank: 0,
         }];
       getBenchmarksStub = sinon.stub(daemonServiceBenchmarkRpcs, 'getBenchmarks');
-      isDaemonSyncedStub = sinon.stub(daemonService, 'isDaemonSynced');
+      isDaemonSyncedStub = sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced');
       deterministicFluxListStub = sinon.stub(fluxCommunicationUtils, 'deterministicFluxList');
       getZelNodeStatusStub = sinon.stub(daemonServiceZelnodeRpcs, 'getZelNodeStatus');
       fluxNetworkHelper.setDosMessage(null);

@@ -10,7 +10,7 @@ const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper'
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
-const daemonService = require('../../ZelBack/src/services/daemonService');
+const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonServiceMiscRpcs');
 const appsService = require('../../ZelBack/src/services/appsService');
 const generalService = require('../../ZelBack/src/services/generalService');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
@@ -1271,7 +1271,7 @@ describe('fluxCommunication tests', () => {
     let daemonServiceStub;
     beforeEach(() => {
       logSpy = sinon.spy(log, 'warn');
-      daemonServiceStub = sinon.stub(daemonService, 'isDaemonSynced');
+      daemonServiceStub = sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced');
     });
 
     afterEach(() => {

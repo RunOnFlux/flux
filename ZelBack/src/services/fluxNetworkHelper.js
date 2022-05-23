@@ -9,7 +9,8 @@ const util = require('util');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
-const daemonService = require('./daemonService');
+const daemonServiceMiscRpcs = require('./daemonServiceMiscRpcs');
+const daemonServiceUtils = require('./daemonServiceUtils');
 const daemonServiceZelnodeRpcs = require('./daemonServiceZelnodeRpcs');
 const daemonServiceBenchmarkRpcs = require('./daemonServiceBenchmarkRpcs');
 const daemonServiceWalletRpcs = require('./daemonServiceWalletRpcs');
@@ -173,7 +174,7 @@ async function getMyFluxIPandPort() {
 }
 
 async function getFluxNodePrivateKey(privatekey) {
-  const privKey = privatekey || daemonService.getConfigValue('zelnodeprivkey');
+  const privKey = privatekey || daemonServiceUtils.getConfigValue('zelnodeprivkey');
   return privKey;
 }
 
@@ -467,7 +468,7 @@ async function checkDeterministicNodesCollisions() {
     // another precatuion might be comparing node list on multiple nodes. evaulate in the future
     const myIP = await getMyFluxIPandPort();
     if (myIP) {
-      const syncStatus = daemonService.isDaemonSynced();
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       if (!syncStatus.data.synced) {
         setTimeout(() => {
           checkDeterministicNodesCollisions();

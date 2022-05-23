@@ -12,7 +12,7 @@ const packageJson = require('../../../package.json');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
 const messageHelper = require('./messageHelper');
-const daemonService = require('./daemonService');
+const daemonServiceMiscRpcs = require('./daemonServiceMiscRpcs');
 const daemonServiceZelnodeRpcs = require('./daemonServiceZelnodeRpcs');
 const daemonServiceBenchmarkRpcs = require('./daemonServiceBenchmarkRpcs');
 const daemonServiceControlRpcs = require('./daemonServiceControlRpcs');
@@ -436,7 +436,7 @@ async function daemonDebug(req, res) {
   }
   // check daemon datadir
   const defaultDir = new fullnode.Config().defaultFolder();
-  const datadir = daemonService.getConfigValue('datadir') || defaultDir;
+  const datadir = daemonServiceMiscRpcs.getConfigValue('datadir') || defaultDir;
   const filepath = `${datadir}/debug.log`;
 
   return res.download(filepath, 'debug.log');
@@ -474,7 +474,7 @@ async function tailDaemonDebug(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const defaultDir = new fullnode.Config().defaultFolder();
-    const datadir = daemonService.getConfigValue('datadir') || defaultDir;
+    const datadir = daemonServiceMiscRpcs.getConfigValue('datadir') || defaultDir;
     const filepath = `${datadir}/debug.log`;
     const exec = `tail -n 100 ${filepath}`;
     cmd.get(exec, (err, data) => {
