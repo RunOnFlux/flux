@@ -2975,7 +2975,7 @@ async function checkApplicationImagesComplience(appSpecs) {
   return true;
 }
 
-function verifyCorrectnessOfApp(appSpecification) {
+function verifyTypeCorrectnessOfApp(appSpecification) {
   const { version } = appSpecification;
   const { name } = appSpecification;
   const { description } = appSpecification;
@@ -2995,6 +2995,8 @@ function verifyCorrectnessOfApp(appSpecification) {
   const { ram } = appSpecification;
   const { hdd } = appSpecification;
   const { tiered } = appSpecification;
+  const { contacts } = appSpecification;
+  const { geolocation } = appSpecification;
 
   if (!version) {
     throw new Error('Missing Flux App specification parameter');
@@ -3111,6 +3113,12 @@ function verifyCorrectnessOfApp(appSpecification) {
     if (!compose) {
       throw new Error('Missing Flux App specification parameter');
     }
+    if (typeof compose !== 'object') {
+      throw new Error('Invalid Flux App Specifications');
+    }
+    if (!Array.isArray(compose)) {
+      throw new Error('Invalid Flux App Specifications');
+    }
     if (compose.length < 1) {
       throw new Error('Flux App does not contain any components');
     }
@@ -3118,6 +3126,9 @@ function verifyCorrectnessOfApp(appSpecification) {
       throw new Error('Flux App has too many components');
     }
     compose.forEach((appComponent) => {
+      if (Array.isArray(appComponent)) {
+        throw new Error('Invalid Flux App Specifications');
+      }
       if (typeof appComponent.name !== 'string') {
         throw new Error('Invalid Flux App component name');
       }
@@ -3207,65 +3218,35 @@ function verifyCorrectnessOfApp(appSpecification) {
     if (Number.isInteger(instances) !== true) {
       throw new Error('Invalid instances specified');
     }
-    if (instances < config.fluxapps.minimumInstances) {
-      throw new Error(`Minimum number of instances is ${config.fluxapps.minimumInstances}`);
-    }
-    if (instances > config.fluxapps.maximumInstances) {
-      throw new Error(`Maximum number of instances is ${config.fluxapps.maximumInstances}`);
-    }
   }
 
-  return true;
-}
-
-function appPortsUnique(portsArray) {
-  return (new Set(portsArray)).size === portsArray.length;
-}
-
-function ensureAppUniquePorts(appSpecFormatted) {
-  if (appSpecFormatted.version === 1) {
-    return true;
-  }
-  if (appSpecFormatted.version <= 3) {
-    const portsUnique = appPortsUnique(appSpecFormatted.ports);
-    if (!portsUnique) {
-      throw new Error(`Flux App ${appSpecFormatted.name} must have unique ports specified`);
-    }
-  } else {
-    const allPorts = [];
-    appSpecFormatted.compose.forEach((component) => {
-      component.ports.forEach((port) => {
-        allPorts.push(port);
+  if (version >= 5) {
+    if (Array.isArray(contacts)) {
+      contacts.forEach((parameter) => {
+        if (typeof parameter !== 'string') {
+          throw new Error('Contacts for Flux App are invalid');
+        }
       });
-    });
-    const portsUnique = appPortsUnique(allPorts);
-    if (!portsUnique) {
-      throw new Error(`Flux App ${appSpecFormatted.name} must have unique ports specified accross all composition`);
+    } else {
+      throw new Error('Contacts for Flux App are invalid');
+    }
+    if (Array.isArray(geolocation)) {
+      geolocation.forEach((parameter) => {
+        if (typeof parameter !== 'string') {
+          throw new Error('Geolocation for Flux App are invalid');
+        }
+      });
+    } else {
+      throw new Error('Geolocation for Flux App are invalid');
     }
   }
+
   return true;
 }
 
-async function verifyAppSpecifications(appSpecifications, height, checkDockerAndWhitelist = false) {
-  if (!appSpecifications) {
-    throw new Error('Invalid Flux App Specifications');
-  }
-  if (typeof appSpecifications !== 'object') {
-    throw new Error('Invalid Flux App Specifications');
-  }
-  if (Array.isArray(appSpecifications)) {
-    throw new Error('Invalid Flux App Specifications');
-  }
-  const typeCheckVerification = verifyCorrectnessOfApp(appSpecifications); // throw if wrong
-  if (typeCheckVerification !== true) {
-    const errorMessage = typeCheckVerification;
-    throw new Error(errorMessage);
-  }
+function verifyRestrictionCorrectnessOfApp(appSpecifications) {
   if (appSpecifications.version !== 1 && appSpecifications.version !== 2 && appSpecifications.version !== 3 && appSpecifications.version !== 4 && appSpecifications.version !== 5) {
     throw new Error('Flux App message version specification is invalid');
-  }
-  if (height < config.fluxapps.appSpecsEnforcementHeights[appSpecifications.version]) {
-    throw new Error(`Flux apps specifications of version ${appSpecifications.version} not yet supported`);
   }
   if (appSpecifications.name.length > 32) {
     throw new Error('Flux App name is too long');
@@ -3289,11 +3270,32 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
     if (appSpecifications.port < config.fluxapps.portMin || appSpecifications.port > config.fluxapps.portMax) {
       throw new Error(`Assigned port ${appSpecifications.port} is not within Flux Apps range ${config.fluxapps.portMin}-${config.fluxapps.portMax}`);
     }
-
-    // check if containerPort makes sense{
+    // check if containerPort makes sense
     if (appSpecifications.containerPort < 0 || appSpecifications.containerPort > 65535) {
       throw new Error(`Container Port ${appSpecifications.containerPort} is not within system limits 0-65535`);
     }
+    if (appSpecifications.repotag.length > 100) {
+      throw new Error('Flux App Repository is too long. Maximum of 100 characters is allowed.');
+    }
+    if (appSpecifications.containerData.length > 100) {
+      throw new Error('Flux App Container Data is too long. Maximum of 100 characters is allowed');
+    }
+    if (appSpecifications.enviromentParameters.length > 10) {
+      throw new Error(`App ${appSpecifications.name} environment invalid. Maximum of 10 environment variables allowed.`);
+    }
+    appSpecifications.enviromentParameters.forEach((env) => {
+      if (env.length > 50) {
+        throw new Error(`App ${appSpecifications.name} environment ${env} is too long. Maximum of 50 characters is allowed`);
+      }
+    });
+    if (appSpecifications.commands.length > 10) {
+      throw new Error(`App ${appSpecifications.name} commands invalid. Maximum of 10 commands allowed.`);
+    }
+    appSpecifications.commands.forEach((com) => {
+      if (com.length > 50) {
+        throw new Error(`App ${appSpecifications.name} command ${com} is too long. Maximum of 50 characters is allowed`);
+      }
+    });
   } else if (appSpecifications.version <= 3) {
     // check port is within range
     appSpecifications.ports.forEach((port) => {
@@ -3301,76 +3303,61 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
         throw new Error(`Assigned port ${port} is not within Flux Apps range ${config.fluxapps.portMin}-${config.fluxapps.portMax}`);
       }
     });
-
     // check if containerPort makes sense
     appSpecifications.containerPorts.forEach((port) => {
       if (port < 0 || port > 65535) {
         throw new Error(`Container Port ${port} is not within system limits 0-65535`);
       }
     });
-
     if (appSpecifications.containerPorts.length !== appSpecifications.ports.length) {
       throw new Error('Ports specifications do not match');
     }
-
     if (appSpecifications.domains.length !== appSpecifications.ports.length) {
       throw new Error('Domains specifications do not match available ports');
     }
-
     if (appSpecifications.ports.length > 5) {
       throw new Error('Too many ports defined. Maximum of 5 allowed.');
     }
+    if (appSpecifications.repotag.length > 100) {
+      throw new Error('Flux App Repository is too long. Maximum of 100 characters is allowed.');
+    }
+    if (appSpecifications.containerData.length > 100) {
+      throw new Error('Flux App Container Data is too long. Maximum of 100 characters is allowed');
+    }
+    if (appSpecifications.enviromentParameters.length > 10) {
+      throw new Error(`App ${appSpecifications.name} environment invalid. Maximum of 10 environment variables allowed.`);
+    }
+    appSpecifications.enviromentParameters.forEach((env) => {
+      if (env.length > 50) {
+        throw new Error(`App ${appSpecifications.name} environment ${env} is too long. Maximum of 50 characters is allowed`);
+      }
+    });
+    if (appSpecifications.commands.length > 10) {
+      throw new Error(`App ${appSpecifications.name} commands invalid. Maximum of 10 commands allowed.`);
+    }
+    appSpecifications.commands.forEach((com) => {
+      if (com.length > 50) {
+        throw new Error(`App ${appSpecifications.name} command ${com} is too long. Maximum of 50 characters is allowed`);
+      }
+    });
+    appSpecifications.domains.forEach((dom) => {
+      if (dom.length > 50) {
+        throw new Error(`App ${appSpecifications.name} domain ${dom} is too long. Maximum of 50 characters is allowed`);
+      }
+    });
   }
 
   if (appSpecifications.version <= 3) {
-    checkHWParameters(appSpecifications);
-
     // check wheter shared Folder is not root
     if (appSpecifications.containerData.length < 2) {
       throw new Error('Flux App container data folder not specified. If no data folder is whished, use /tmp');
     }
-
-    if (checkDockerAndWhitelist) {
-      // check repository whitelisted
-      await generalService.checkWhitelistedRepository(appSpecifications.repotag);
-
-      // check repotag if available for download
-      await verifyRepository(appSpecifications.repotag);
-    }
   } else {
-    console.log(appSpecifications);
-    if (appSpecifications.version > 4) {
-      if (!Array.isArray(appSpecifications.contacts)) {
-        throw new Error('Invalid Flux App Specifications.');
-      }
-      if (appSpecifications.contacts.length > 5) {
-        throw new Error('Too many contacts defined. Maximum of 5 allowed.');
-      }
-      appSpecifications.contacts.forEach((contact) => {
-        if (contact.length > 75) {
-          throw new Error(`Contact ${contact} is too long. Maximum of 75 characters is allowed.`);
-        }
-        if (contact.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
-          throw new Error(`Contact ${contact} is not a valid email address.`);
-        }
-      });
-      if (!Array.isArray(appSpecifications.geolocation)) {
-        throw new Error('Invalid Flux App Specifications.');
-      }
-      if (appSpecifications.geolocation.length > 2) {
-        throw new Error('Invalid geolocation submited.'); // for now we are only accepting continent and country.
-      }
-      appSpecifications.geolocation.forEach((geo) => {
-        if (!geo.startsWith('a') && !geo.startsWith('b')) {
-          throw new Error(`Geolocation ${geo} is not valid.`); // a for continent and b for country (codes)
-        }
-        if (geo.length > 3) {
-          throw new Error(`Geolocation ${geo} is not valid.`); // firt letter for what represents and next two for the code
-        }
-      });
+    if (appSpecifications.instances < config.fluxapps.minimumInstances) {
+      throw new Error(`Minimum number of instances is ${config.fluxapps.minimumInstances}`);
     }
-    if (!Array.isArray(appSpecifications.compose)) {
-      throw new Error('Invalid Flux App Specifications');
+    if (appSpecifications.instances > config.fluxapps.maximumInstances) {
+      throw new Error(`Maximum number of instances is ${config.fluxapps.maximumInstances}`);
     }
     if (appSpecifications.compose.length < 1) {
       throw new Error('Flux App does not contain any composition');
@@ -3386,9 +3373,6 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
         throw new Error('Invalid Flux App Specifications');
       }
       if (typeof appComponent !== 'object') {
-        throw new Error('Invalid Flux App Specifications');
-      }
-      if (Array.isArray(appComponent)) {
         throw new Error('Invalid Flux App Specifications');
       }
       if (appComponent.name.length > 32) {
@@ -3422,21 +3406,15 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
       if (appComponent.containerData.length > 100) {
         throw new Error('Flux App Container Data is too long. Maximum of 100 characters is allowed');
       }
-      if (!Array.isArray(appComponent.enviromentParameters)) {
-        throw new Error('Invalid Flux App Specifications.');
-      }
-      if (appComponent.enviromentParameters.length > 10) {
+      if (appComponent.environmentParameters.length > 10) {
         throw new Error(`App component ${appComponent.name} environment invalid. Maximum of 10 environment variables allowed.`);
       }
-      appComponent.enviromentParameters.forEach((env) => {
+      appComponent.environmentParameters.forEach((env) => {
         if (env.length > 50) {
           throw new Error(`App component ${appComponent.name} environment ${env} is too long. Maximum of 50 characters is allowed`);
         }
       });
-      if (!Array.isArray(appComponent.commands)) {
-        throw new Error('Invalid Flux App Specifications.');
-      }
-      if (appComponent.commands.length > 5) {
+      if (appComponent.commands.length > 10) {
         throw new Error(`App component ${appComponent.name} commands invalid. Maximum of 10 commands allowed.`);
       }
       appComponent.commands.forEach((com) => {
@@ -3444,15 +3422,6 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
           throw new Error(`App component ${appComponent.name} command ${com} is too long. Maximum of 50 characters is allowed`);
         }
       });
-      if (!Array.isArray(appComponent.containerPorts)) {
-        throw new Error('Invalid Flux App Specifications.');
-      }
-      if (!Array.isArray(appComponent.ports)) {
-        throw new Error('Invalid Flux App Specifications.');
-      }
-      if (!Array.isArray(appComponent.domains)) {
-        throw new Error('Invalid Flux App Specifications.');
-      }
       appComponent.domains.forEach((dom) => {
         if (dom.length > 50) {
           throw new Error(`App component ${appComponent.name} domain ${dom} is too long. Maximum of 50 characters is allowed`);
@@ -3464,62 +3433,49 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
           throw new Error(`Container Port ${port} in in ${appComponent.name} is not within system limits 0-65535`);
         }
       });
-
       if (appComponent.containerPorts.length !== appComponent.ports.length) {
         throw new Error(`Ports specifications in ${appComponent.name} do not match`);
       }
-
       if (appComponent.domains.length !== appComponent.ports.length) {
         throw new Error(`Domains specifications in ${appComponent.name} do not match available ports`);
       }
-
       if (appComponent.ports.length > 5) {
         throw new Error(`Too many ports defined in ${appComponent.name}. Maximum of 5 allowed.`);
       }
-
       // check wheter shared Folder is not root
       if (appComponent.containerData.length < 2) {
         throw new Error(`Flux App container data folder not specified in in ${appComponent.name}. If no data folder is whished, use /tmp`);
       }
+    }
+  }
 
-      checkHWParameters(appComponent);
-
-      checkComposeHWParameters(appSpecifications);
-
-      if (checkDockerAndWhitelist) {
-        // check repository whitelisted
-        // eslint-disable-next-line no-await-in-loop
-        await generalService.checkWhitelistedRepository(appComponent.repotag);
-
-        // check repotag if available for download
-        // eslint-disable-next-line no-await-in-loop
-        await verifyRepository(appComponent.repotag);
+  if (appSpecifications.version >= 5) {
+    if (appSpecifications.contacts.length > 5) {
+      throw new Error('Too many contacts defined. Maximum of 5 allowed.');
+    }
+    appSpecifications.contacts.forEach((contact) => {
+      if (contact.length > 75) {
+        throw new Error(`Contact ${contact} is too long. Maximum of 75 characters is allowed.`);
       }
+      if (contact.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
+        throw new Error(`Contact ${contact} is not a valid email address.`);
+      }
+    });
+    if (appSpecifications.geolocation.length > 2) {
+      throw new Error('Invalid geolocation submited.'); // for now we are only accepting continent and country.
     }
+    appSpecifications.geolocation.forEach((geo) => {
+      if (!geo.startsWith('a') && !geo.startsWith('b')) {
+        throw new Error(`Geolocation ${geo} is not valid.`); // a for continent and b for country (codes)
+      }
+      if (geo.length > 3) {
+        throw new Error(`Geolocation ${geo} is not valid.`); // firt letter for what represents and next two for the code
+      }
+    });
   }
+}
 
-  if (appSpecifications.version >= 3) {
-    if (typeof appSpecifications.instances !== 'number') {
-      throw new Error('Instances is not a number');
-    }
-    if (Number.isInteger(appSpecifications.instances) !== true) {
-      throw new Error('Instances is not an integer');
-    }
-    if (appSpecifications.instances < config.fluxapps.minimumInstances) {
-      throw new Error(`Minimum number of instances is ${config.fluxapps.minimumInstances}`);
-    }
-    if (appSpecifications.instances > config.fluxapps.maximumInstances) {
-      throw new Error(`Maximum number of instances is ${config.fluxapps.maximumInstances}`);
-    }
-  }
-
-  // verify ports are unique accross app
-  const portsAreUnique = ensureAppUniquePorts(appSpecifications);
-  if (portsAreUnique !== true) {
-    throw new Error('Application ports are not unique');
-  }
-
-  // check for Object.keys in applications. App can have only the fields that are in the version specification.
+function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
   if (appSpecifications.version === 1) {
     // appSpecs: {
     //   version: 2,
@@ -3626,9 +3582,99 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
       });
     });
   }
+}
 
+function appPortsUnique(portsArray) {
+  return (new Set(portsArray)).size === portsArray.length;
+}
+
+function ensureAppUniquePorts(appSpecFormatted) {
+  if (appSpecFormatted.version === 1) {
+    return true;
+  }
+  if (appSpecFormatted.version <= 3) {
+    const portsUnique = appPortsUnique(appSpecFormatted.ports);
+    if (!portsUnique) {
+      throw new Error(`Flux App ${appSpecFormatted.name} must have unique ports specified`);
+    }
+  } else {
+    const allPorts = [];
+    appSpecFormatted.compose.forEach((component) => {
+      component.ports.forEach((port) => {
+        allPorts.push(port);
+      });
+    });
+    const portsUnique = appPortsUnique(allPorts);
+    if (!portsUnique) {
+      throw new Error(`Flux App ${appSpecFormatted.name} must have unique ports specified accross all composition`);
+    }
+  }
+  return true;
+}
+
+async function verifyAppSpecifications(appSpecifications, height, checkDockerAndWhitelist = false) {
+  if (!appSpecifications) {
+    throw new Error('Invalid Flux App Specifications');
+  }
+  if (typeof appSpecifications !== 'object') {
+    throw new Error('Invalid Flux App Specifications');
+  }
+  if (Array.isArray(appSpecifications)) {
+    throw new Error('Invalid Flux App Specifications');
+  }
+
+  // TYPE CHECKS
+  verifyTypeCorrectnessOfApp(appSpecifications);
+
+  // RESTRICTION CHECKS
+  verifyRestrictionCorrectnessOfApp(appSpecifications);
+
+  // SPECS VALIDIT TIME
+  if (height < config.fluxapps.appSpecsEnforcementHeights[appSpecifications.version]) {
+    throw new Error(`Flux apps specifications of version ${appSpecifications.version} not yet supported`);
+  }
+
+  // OBJECT KEY CHECKS
+  // check for Object.keys in applications. App can have only the fields that are in the version specification.
+  verifyObjectKeysCorrectnessOfApp(appSpecifications);
+
+  // PORTS UNIQUE CHECKS
+  // verify ports are unique accross app
+  ensureAppUniquePorts(appSpecifications);
+
+  // HW Checks
+  if (appSpecifications.version <= 3) {
+    checkHWParameters(appSpecifications);
+  } else {
+    checkComposeHWParameters(appSpecifications);
+    // eslint-disable-next-line no-restricted-syntax
+    for (const appComponent of appSpecifications.compose) {
+      checkHWParameters(appComponent);
+    }
+  }
+
+  // Whitelist, repository checks
   if (checkDockerAndWhitelist) {
-    await checkApplicationImagesComplience(appSpecifications); // check blacklist
+    if (appSpecifications.version <= 3) {
+      // check repository whitelisted
+      await generalService.checkWhitelistedRepository(appSpecifications.repotag);
+
+      // check repotag if available for download
+      await verifyRepository(appSpecifications.repotag);
+    } else {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const appComponent of appSpecifications.compose) {
+        // check repository whitelisted
+        // eslint-disable-next-line no-await-in-loop
+        await generalService.checkWhitelistedRepository(appComponent.repotag);
+
+        // check repotag if available for download
+        // eslint-disable-next-line no-await-in-loop
+        await verifyRepository(appComponent.repotag);
+      }
+    }
+    // check blacklist
+    await checkApplicationImagesComplience(appSpecifications);
   }
 }
 
