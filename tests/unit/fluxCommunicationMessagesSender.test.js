@@ -324,6 +324,8 @@ describe('fluxCommunicationMessagesSender tests', () => {
     });
 
     it('should fall back to zelnode private key config if empty', async () => {
+      const mockedPrivKey = '5J2Hf3T8LpjKEkY46qhPLFF8DjQfCSBh6aWRfeDwQSMJKomvHFa';
+      sinon.stub(daemonServiceUtils, 'getConfigValue').resolves(mockedPrivKey);
       const privateKey = ''; // falls back to 5J2Hf3T8LpjKEkY46qhPLFF8DjQfCSBh6aWRfeDwQSMJKomvHFa as thats in sample config.
       const data = '';
 
