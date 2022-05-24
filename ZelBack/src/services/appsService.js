@@ -2029,13 +2029,13 @@ function checkAppGeolocationRequirements(appSpecs) {
     if (appSpecs.geolocation && appSpecs.geolocation.length > 0) {
       const appContinent = appSpecs.geolocation.find((x) => x.startsWith('a'));
       if (appContinent) {
-        if (appContinent.substr(1) !== nodeGeo.continentCode) {
+        if (appContinent.slice(1) !== nodeGeo.continentCode) {
           throw new Error('App specs with continents geolocation set not matching node geolocation. Aborting.');
         }
 
         const appCountry = appSpecs.geolocation.find((x) => x.startsWith('b'));
         if (appCountry) {
-          if (appCountry.substr(1) !== nodeGeo.countryCode) {
+          if (appCountry.slice(1) !== nodeGeo.countryCode) {
             throw new Error('App specs with countries geolocation set not matching node geolocation. Aborting.');
           }
         }
