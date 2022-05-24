@@ -1,5 +1,4 @@
 const cmd = require('node-cmd');
-const axios = require('axios');
 const path = require('path');
 const config = require('config');
 const fullnode = require('fullnode');
@@ -992,57 +991,42 @@ async function InstallFluxWatchTower() {
  */
 async function setNodeGeolocation() {
   try {
-    const myIP = await fluxCommunication.getMyFluxIPandPort();
-    if (myIP) {
-      if (storedGeolocation && myIP === storedIp) {
-        setTimeout(() => { // executes again in 12h
-          setNodeGeolocation();
-        }, 12 * 60 * 60 * 1000);
-        return;
-      }
-      storedIp = myIP;
-      const { CancelToken } = axios;
-      const source = CancelToken.source();
-      let isResolved = false;
-      setTimeout(() => {
-        if (!isResolved) {
-          source.cancel('Operation canceled by the user.');
-        }
-      }, 10 * 1000);
-      const ipApiUrl = `http://ip-api.com/json/${myIP.split(':')[0]}?fields=status,continent,continentCode,country,countryCode,region,regionName,lat,lon,query,org`;
-      const ipRes = await axios.get(ipApiUrl);
-      isResolved = true;
-      if (ipRes.data.status === 'success') {
-        storedGeolocation = {
-          ip: ipRes.data.query,
-          continent: ipRes.data.continent,
-          continentCode: ipRes.data.continentCode,
-          country: ipRes.data.country,
-          countryCode: ipRes.data.countryCode,
-          region: ipRes.data.region,
-          regionName: ipRes.data.regionName,
-          lat: ipRes.data.lat,
-          lon: ipRes.data.lon,
-          org: ipRes.data.org,
-        };
-        log.info(`Geolocation of Node ${myIP} is ${storedGeolocation.stringify()}`);
-        setTimeout(() => { // executes again in 12h
-          setNodeGeolocation();
-        }, 12 * 60 * 60 * 1000);
-        return;
-      }
-      log.warn(`Geolocation of IP ${myIP} is unavailable`);
-      setTimeout(() => { // waits two minutes and trys again
-        setNodeGeolocation();
-      }, 2 * 60 * 1000);
-      return;
+    const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+    if (!myIP) {
+      throw new Error('Flux IP not detected. Flux geolocation service is awaiting');
     }
-    throw new Error('Flux IP not detected. Flux discovery is awaiting.');
-  } catch (e) {
-    log.error(`Failed to get Geolocation of Node error ${e}`);
-    setTimeout(() => { // waits two minutes and trys again
+    if (!storedGeolocation || myIP !== storedIp) {
+      log.info(`Checking geolocation of ${myIP}`);
+      storedIp = myIP;
+      // consider another service failover or stats db
+      const ipApiUrl = `http://ip-api.com/json/${myIP.split(':')[0]}?fields=status,continent,continentCode,country,countryCode,region,regionName,lat,lon,query,org`;
+      const ipRes = await serviceHelper.axiosGet(ipApiUrl);
+      if (ipRes.data.status !== 'success') {
+        throw new Error(`Geolocation of IP ${myIP} is unavailable`);
+      }
+      storedGeolocation = {
+        ip: ipRes.data.query,
+        continent: ipRes.data.continent,
+        continentCode: ipRes.data.continentCode,
+        country: ipRes.data.country,
+        countryCode: ipRes.data.countryCode,
+        region: ipRes.data.region,
+        regionName: ipRes.data.regionName,
+        lat: ipRes.data.lat,
+        lon: ipRes.data.lon,
+        org: ipRes.data.org,
+      };
+    }
+    log.info(`Geolocation of ${myIP} is ${JSON.stringify(storedGeolocation)}`);
+    setTimeout(() => { // executes again in 12h
       setNodeGeolocation();
-    }, 2 * 60 * 1000);
+    }, 12 * 60 * 60 * 1000);
+  } catch (error) {
+    log.error(`Failed to get Geolocation with ${error}`);
+    log.error(error);
+    setTimeout(() => {
+      setNodeGeolocation();
+    }, 5 * 60 * 1000);
   }
 }
 
