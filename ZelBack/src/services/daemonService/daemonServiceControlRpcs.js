@@ -34,14 +34,14 @@ async function getInfo(req, res) {
   response = await daemonServiceUtils.executeCall(rpccall);
   if (!res) {
     delete response.data.balance;
-    return res ? res.json(response) : response;
+    return response;
   }
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized !== true) {
     delete response.data.balance;
   }
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
