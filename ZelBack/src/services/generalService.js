@@ -241,36 +241,18 @@ async function checkWhitelistedRepository(repotag) {
       throw new Error('Unable to communicate with Flux Services! Try again later.');
     }
 
-    const repos = resWhitelistRepo.data;
-    const whitelisted = repos.includes(repotag);
-    if (!whitelisted) {
+    const imageTags = resWhitelistRepo.data;
+    const pureImages = [];
+    imageTags.forEach((imageTag) => {
+      const pureImage = imageTag.split(':')[0];
+      pureImages.push(pureImage);
+    });
+    const whitelisted = pureImages.includes(splittedRepo[0]);
+    if (!whitelisted) { // not exact match and general image not whitelisted either
       throw new Error('Repository is not whitelisted. Please contact Flux Team.');
     }
   } else {
     throw new Error(`Repository ${repotag} is not in valid format namespace/repository:tag`);
-  }
-  return true;
-}
-
-/**
- * To check if a user's ZelID is whitelisted and able to be run on FluxOS.
- * @param {string} zelid ZelID created by Zelcore.
- * @returns {boolean} True or an error is thrown.
- */
-async function checkWhitelistedZelID(zelid) {
-  if (typeof zelid !== 'string') {
-    throw new Error('Invalid Owner ZelID');
-  }
-  const resZelIDs = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/zelids.json');
-
-  if (!resZelIDs) {
-    throw new Error('Unable to communicate with Flux Services! Try again later.');
-  }
-
-  const zelids = resZelIDs.data;
-  const whitelisted = zelids.includes(zelid);
-  if (!whitelisted) {
-    throw new Error('Owner ZelID is not whitelisted. Please contact Flux Team.');
   }
   return true;
 }
@@ -283,23 +265,6 @@ async function checkWhitelistedZelID(zelid) {
 async function whitelistedRepositories(req, res) {
   try {
     const whitelisted = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/repositories.json');
-    const resultsResponse = messageHelper.createDataMessage(whitelisted.data);
-    res.json(resultsResponse);
-  } catch (error) {
-    log.error(error);
-    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-  }
-}
-
-/**
- * To create a JSON response showing a list of whitelisted ZelIDs.
- * @param {object} req Request.
- * @param {object} res Response.
- */
-async function whitelistedZelIDs(req, res) {
-  try {
-    const whitelisted = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/zelids.json');
     const resultsResponse = messageHelper.createDataMessage(whitelisted.data);
     res.json(resultsResponse);
   } catch (error) {
@@ -328,9 +293,7 @@ module.exports = {
   isNodeStatusConfirmed,
   checkSynced,
   checkWhitelistedRepository,
-  checkWhitelistedZelID,
   whitelistedRepositories,
-  whitelistedZelIDs,
   messageHash,
   nodeCollateral,
 };

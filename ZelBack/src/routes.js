@@ -327,9 +327,6 @@ module.exports = (app, expressWs) => {
   app.get('/apps/whitelistedrepositories', cache('30 seconds'), (req, res) => {
     generalService.whitelistedRepositories(req, res);
   });
-  app.get('/apps/whitelistedzelids', cache('30 seconds'), (req, res) => {
-    generalService.whitelistedZelIDs(req, res);
-  });
   app.post('/apps/verifyappregistrationspecifications', (req, res) => { // returns formatted app specifications
     appsService.verifyAppRegistrationParameters(req, res);
   });

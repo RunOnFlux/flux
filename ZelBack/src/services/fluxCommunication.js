@@ -25,6 +25,11 @@ let numberOfFluxNodes = 0;
 
 const blockedPubKeysCache = new LRU(LRUoptions);
 
+/**
+ * To handle temporary app messages.
+ * @param {object} message Message.
+ * @param {string} fromIP Sender's IP address.
+ */
 async function handleAppMessages(message, fromIP) {
   try {
     // check if we have it in database and if not add
@@ -46,6 +51,11 @@ async function handleAppMessages(message, fromIP) {
   }
 }
 
+/**
+ * To handle running app messages.
+ * @param {object} message Message.
+ * @param {string} fromIP Sender's IP address.
+ */
 async function handleAppRunningMessage(message, fromIP) {
   try {
     // check if we have it exactly like that in database and if not, update
@@ -67,6 +77,13 @@ async function handleAppRunningMessage(message, fromIP) {
   }
 }
 
+/**
+ * To handle incoming connection. Several types of verification are performed.
+ * @param {object} ws Web socket.
+ * @param {object} req Request.
+ * @param {object} expressWS Express web socket.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
 // eslint-disable-next-line no-unused-vars
 function handleIncomingConnection(ws, req, expressWS) {
   // now we are in connections state. push the websocket to our incomingconnections
@@ -178,6 +195,11 @@ function handleIncomingConnection(ws, req, expressWS) {
   });
 }
 
+/**
+ * To get IP addresses for all outgoing connected peers.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 function connectedPeers(req, res) {
   const connections = [];
   outgoingConnections.forEach((client) => {
@@ -188,6 +210,11 @@ function connectedPeers(req, res) {
   res.json(response);
 }
 
+/**
+ * To get info (IP address, latency and lastPingTime) for all outgoing connected peers.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 function connectedPeersInfo(req, res) {
   const connections = outgoingPeers;
   const message = messageHelper.createDataMessage(connections);
@@ -195,6 +222,9 @@ function connectedPeersInfo(req, res) {
   res.json(response);
 }
 
+/**
+ * To keep connections alive by pinging all outgoing and incoming peers.
+ */
 function keepConnectionsAlive() {
   setInterval(() => {
     fluxCommunicationMessagesSender.sendToAllPeers(); // perform ping
@@ -202,6 +232,12 @@ function keepConnectionsAlive() {
   }, 30 * 1000);
 }
 
+/**
+ * To remove an outgoing peer by specifying the IP address. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function removePeer(req, res) {
   let { ip } = req.params;
   ip = ip || req.query.ip;
@@ -220,6 +256,13 @@ async function removePeer(req, res) {
   return res.json(response);
 }
 
+/**
+ * To remove an incoming peer by specifying the IP address. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @param {object} expressWS Express web socket.
+ * @returns {object} Message.
+ */
 async function removeIncomingPeer(req, res, expressWS) {
   let { ip } = req.params;
   ip = ip || req.query.ip;
@@ -238,6 +281,11 @@ async function removeIncomingPeer(req, res, expressWS) {
   return res.json(response);
 }
 
+/**
+ * To check if sufficient communication is established. Minimum number of outgoing and incoming peers must be met.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 function isCommunicationEstablished(req, res) {
   let message;
   if (outgoingPeers.length < config.fluxapps.minOutgoing || incomingPeers.length < config.fluxapps.minIncoming) {
@@ -248,6 +296,10 @@ function isCommunicationEstablished(req, res) {
   res.json(message);
 }
 
+/**
+ * To initiate and handle a connection. Opens a web socket and handles various events during connection.
+ * @param {string} connection IP address (and port if applicable).
+ */
 async function initiateAndHandleConnection(connection) {
   let ip = connection;
   let port = config.server.apiport;
@@ -366,6 +418,12 @@ async function initiateAndHandleConnection(connection) {
   };
 }
 
+/**
+ * To add a peer by specifying the IP address. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function addPeer(req, res) {
   let { ip } = req.params;
   ip = ip || req.query.ip;
@@ -390,6 +448,9 @@ async function addPeer(req, res) {
   return res.json(message);
 }
 
+/**
+ * To discover and connect to other randomly selected FluxNodes. Maintains connections with 1-2% of nodes on the Flux network. Ensures that FluxNode connections are not duplicated.
+ */
 async function fluxDiscovery() {
   try {
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();

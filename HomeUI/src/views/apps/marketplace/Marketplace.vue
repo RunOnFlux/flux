@@ -76,9 +76,7 @@
         :settings="perfectScrollbarSettings"
         class="marketplace-app-list scroll-area"
       >
-        <ul
-          class="marketplace-media-list"
-        >
+        <ul class="marketplace-media-list">
           <b-media
             v-for="singleApp in filteredApps"
             :key="singleApp.hash"
@@ -90,7 +88,9 @@
               <div class="app-title-wrapper">
                 <div class="app-title-area">
                   <div class="title-wrapper">
-                    <span class="app-title"><h4>{{ singleApp.name }}</h4></span>
+                    <span class="app-title">
+                      <h4>{{ singleApp.name }}</h4>
+                    </span>
                   </div>
                 </div>
                 <div class="app-item-action">
@@ -160,12 +160,24 @@
       @close-app-view="isAppViewActive = false"
     />
 
+    <shared-nodes-view
+      v-if="validSharedNodeZelID"
+      :class="{'show': isSharedNodesViewActive}"
+      :app-data="app"
+      :zelid="zelid"
+      :tier="tier"
+      @close-sharednode-view="isSharedNodesViewActive = false"
+    />
+
     <!-- Sidebar -->
     <portal to="content-renderer-sidebar-left">
       <category-sidebar
         :class="{'show': showDetailSidebar}"
+        :zelid="zelid"
+        :sharednodezelids="sharedNodeZelIDs"
         @close-left-sidebar="showDetailSidebar = false"
-        @close-app-view="isAppViewActive = false"
+        @close-app-view="isAppViewActive = false; isSharedNodesViewActive = false;"
+        @open-shared-nodes="isSharedNodesViewActive = true"
       />
     </portal>
   </div>
@@ -200,6 +212,7 @@ import VuePerfectScrollbar from 'vue-perfect-scrollbar';
 import DaemonService from '@/services/DaemonService';
 
 import AppView from './AppView.vue';
+import SharedNodesView from './SharedNodesView.vue';
 import CategorySidebar from './CategorySidebar.vue';
 import { categories, defaultCategory } from '../../../libs/marketplaceCategories';
 
@@ -220,6 +233,7 @@ export default {
     BAvatar,
 
     AppView,
+    SharedNodesView,
     CategorySidebar,
 
     VuePerfectScrollbar,
@@ -234,6 +248,29 @@ export default {
     const zelid = ref(null);
     const tier = ref('');
 
+    const sharedNodeZelIDs = ref(
+      [
+        '1CYcLWeUHqgbHefa78M9TYzQou2peRnmiF',
+        '12Wat1DgnKJTconMw6sqnZDDhWhmeX1DL2',
+        '1N54T5rnmagTk93giHGpsLPZacHAK3WLLN',
+        '1CQwTrsqAp2JyjsV2xBLzcb7LZDTux1Ezo',
+        '1CYByzee6xgKLAMFBKS9y2LqZq2zLGyoUE',
+        '1AZKSb3jeGa99Uaoi1pwDAA6pYdQ4SDHtR',
+        '1BeXmrAVprWxzcK72i2DoMLWXhR9KazJhN',
+        '1NT9VL5yeBUGZfNaoZExZ6hf7vwbVqkZVP',
+        '1BKh6A6tAddDdVkP6BA63nopiTDJcPvRS9',
+        '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+        '12hbuDGzfnndXP4NbrS3xdVXUcC6L7N2ag',
+        '196GJWyLxzAw3MirTT7Bqs2iGpUQio29GH',
+      ],
+    );
+
+    const validSharedNodeZelID = () => sharedNodeZelIDs.value.includes(zelid.value);
+
+    const { route, router } = useRouter();
+    const isAppViewActive = ref(false);
+    const isSharedNodesViewActive = ref(false);
+
     // Use toast
     const toast = useToast();
 
@@ -241,6 +278,7 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
       zelid.value = auth.zelid;
+      isSharedNodesViewActive.value = validSharedNodeZelID() && route.value.path === '/apps/shared-nodes';
     });
 
     const resolveCpu = (app) => app.compose.reduce((total, component) => total + component.cpu, 0);
@@ -250,7 +288,6 @@ export default {
     const resolveHdd = (app) => app.compose.reduce((total, component) => total + component.hdd, 0);
 
     const { showDetailSidebar } = useResponsiveAppLeftSidebarVisibility();
-    const { route, router } = useRouter();
     const routeSortBy = computed(() => route.value.query.sort);
     const routeQuery = computed(() => route.value.query.q);
     const routeParams = computed(() => route.value.params);
@@ -278,7 +315,7 @@ export default {
 
       delete currentRouteQuery.sort;
 
-      router.replace({ name: route.name, query: currentRouteQuery }).catch(() => {});
+      router.replace({ name: route.name, query: currentRouteQuery }).catch(() => { });
     };
 
     const app = ref({});
@@ -401,8 +438,6 @@ export default {
     };
     getZelNodeStatus();
 
-    const isAppViewActive = ref(false);
-
     const handleAppClick = (appData) => {
       app.value = appData;
       isAppViewActive.value = true;
@@ -415,6 +450,8 @@ export default {
     return {
       zelid,
       tier,
+      sharedNodeZelIDs,
+      validSharedNodeZelID,
       appListRef,
       timeoptions,
       app,
@@ -430,6 +467,7 @@ export default {
       resolveAvatarIcon,
       avatarText,
       isAppViewActive,
+      isSharedNodesViewActive,
       showDetailSidebar,
       resolveHdd,
       resolveCpu,

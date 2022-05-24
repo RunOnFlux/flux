@@ -4,8 +4,6 @@ const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
 const daemonServiceZelnodeRpcs = require('./daemonService/daemonServiceZelnodeRpcs');
-const { outgoingConnections } = require('./utils/establishedConnections');
-
 // default cache
 const LRUoptions = {
   max: 2000, // currently 750 nodes lets put a value expecting increase in the numbers.
@@ -132,7 +130,6 @@ async function verifyOriginalFluxBroadcast(data, obtainedFluxNodeList, currentTi
 module.exports = {
   verifyTimestampInFluxBroadcast,
   verifyOriginalFluxBroadcast,
-  outgoingConnections,
   deterministicFluxList,
   verifyFluxBroadcast,
 };
