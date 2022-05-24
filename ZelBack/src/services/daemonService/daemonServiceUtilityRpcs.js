@@ -119,7 +119,7 @@ async function validateAddress(req, res) {
     delete response.data.ismine;
     delete response.data.iswatchonly;
 
-    return res ? res.json(response) : response;
+    return response;
   }
 
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -128,7 +128,7 @@ async function validateAddress(req, res) {
     delete response.data.iswatchonly;
   }
 
-  return res ? res.json(response) : response;
+  return res.json(response);
 }
 
 /**
