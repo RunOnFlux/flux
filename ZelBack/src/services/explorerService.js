@@ -6,11 +6,11 @@ const serviceHelper = require('./serviceHelper');
 const dbHelper = require('./dbHelper');
 const verificationHelper = require('./verificationHelper');
 const messageHelper = require('./messageHelper');
-const daemonServiceMiscRpcs = require('./daemonServiceMiscRpcs');
-const daemonServiceAddressRpcs = require('./daemonServiceAddressRpcs');
-const daemonServiceTransactionRpcs = require('./daemonServiceTransactionRpcs');
-const daemonServiceControlRpcs = require('./daemonServiceControlRpcs');
-const daemonServiceBlockchainRpcs = require('./daemonServiceBlockchainRpcs');
+const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
+const daemonServiceAddressRpcs = require('./daemonService/daemonServiceAddressRpcs');
+const daemonServiceTransactionRpcs = require('./daemonService/daemonServiceTransactionRpcs');
+const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRpcs');
+const daemonServiceBlockchainRpcs = require('./daemonService/daemonServiceBlockchainRpcs');
 const appsService = require('./appsService');
 
 const coinbaseFusionIndexCollection = config.database.daemon.collections.coinbaseFusionIndex; // fusion

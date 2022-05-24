@@ -3,7 +3,7 @@ const LRU = require('lru-cache');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
-const daemonServiceZelnodeRpcs = require('./daemonServiceZelnodeRpcs');
+const daemonServiceZelnodeRpcs = require('./daemonService/daemonServiceZelnodeRpcs');
 const { outgoingConnections } = require('./utils/establishedConnections');
 
 // default cache

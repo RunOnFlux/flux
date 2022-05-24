@@ -1,8 +1,8 @@
-const serviceHelper = require('./serviceHelper');
-const messageHelper = require('./messageHelper');
+const serviceHelper = require('../serviceHelper');
+const messageHelper = require('../messageHelper');
 const daemonServiceUtils = require('./daemonServiceUtils');
-const verificationHelper = require('./verificationHelper');
-const client = require('./utils/daemonrpcClient').default;
+const verificationHelper = require('../verificationHelper');
+const client = require('../utils/daemonrpcClient').default;
 
 let response = messageHelper.createErrorMessage();
 

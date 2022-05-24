@@ -1,8 +1,8 @@
 const sinon = require('sinon');
 const { expect } = require('chai');
-const daemonServiceUtils = require('../../ZelBack/src/services/daemonServiceUtils');
+const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
-const daemonServiceNetworkRpcs = require('../../ZelBack/src/services/daemonServiceNetworkRpcs');
+const daemonServiceNetworkRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceNetworkRpcs');
 
 const generateResponse = () => {
   const res = { test: 'testing' };

@@ -1,8 +1,8 @@
 const fullnode = require('fullnode');
 const LRU = require('lru-cache');
-const serviceHelper = require('./serviceHelper');
-const messageHelper = require('./messageHelper');
-const client = require('./utils/daemonrpcClient').default;
+const serviceHelper = require('../serviceHelper');
+const messageHelper = require('../messageHelper');
+const client = require('../utils/daemonrpcClient').default;
 
 const fnconfig = new fullnode.Config();
 

@@ -1,7 +1,7 @@
-const serviceHelper = require('./serviceHelper');
-const messageHelper = require('./messageHelper');
+const serviceHelper = require('../serviceHelper');
+const messageHelper = require('../messageHelper');
 const daemonServiceUtils = require('./daemonServiceUtils');
-const verificationHelper = require('./verificationHelper');
+const verificationHelper = require('../verificationHelper');
 
 let response = messageHelper.createErrorMessage();
 

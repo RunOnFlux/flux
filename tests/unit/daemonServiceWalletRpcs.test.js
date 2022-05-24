@@ -1,8 +1,8 @@
 const sinon = require('sinon');
 const { PassThrough } = require('stream');
 const { expect } = require('chai');
-const daemonServiceUtils = require('../../ZelBack/src/services/daemonServiceUtils');
-const daemonServiceWalletRpcs = require('../../ZelBack/src/services/daemonServiceWalletRpcs');
+const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
+const daemonServiceWalletRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceWalletRpcs');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 

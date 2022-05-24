@@ -1,10 +1,10 @@
 const sinon = require('sinon');
 const { PassThrough } = require('stream');
 const { expect } = require('chai');
-const daemonServiceUtils = require('../../ZelBack/src/services/daemonServiceUtils');
+const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
-const daemonServiceMiningRpcs = require('../../ZelBack/src/services/daemonServiceMiningRpcs');
+const daemonServiceMiningRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiningRpcs');
 
 const generateResponse = () => {
   const res = { test: 'testing' };

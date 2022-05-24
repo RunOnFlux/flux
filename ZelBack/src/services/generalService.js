@@ -4,9 +4,9 @@ const crypto = require('crypto');
 const log = require('../lib/log');
 
 const serviceHelper = require('./serviceHelper');
-const daemonServiceMiscRpcs = require('./daemonServiceMiscRpcs');
-const daemonServiceZelnodeRpcs = require('./daemonServiceZelnodeRpcs');
-const daemonServiceTransactionRpcs = require('./daemonServiceTransactionRpcs');
+const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
+const daemonServiceZelnodeRpcs = require('./daemonService/daemonServiceZelnodeRpcs');
+const daemonServiceTransactionRpcs = require('./daemonService/daemonServiceTransactionRpcs');
 const messageHelper = require('./messageHelper');
 const dbHelper = require('./dbHelper');
 

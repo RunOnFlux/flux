@@ -1,7 +1,7 @@
 const chai = require('chai');
 const sinon = require('sinon');
 const LRU = require('lru-cache');
-const daemonServiceUtils = require('../../ZelBack/src/services/daemonServiceUtils');
+const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const client = require('../../ZelBack/src/services/utils/daemonrpcClient').default;
 
 const { expect } = chai;
