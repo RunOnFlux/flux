@@ -91,18 +91,17 @@ async function startFluxFunctions() {
       explorerService.initiateBlockProcessor(true, true);
       log.info('Flux Block Processing Service started');
     }, 2 * 60 * 1000);
-    setInterval(() => { // every 4 mins (2 blocks)
+    setInterval(() => { // every 19 mins (~10 blocks)
       appsService.checkAndNotifyPeersOfRunningApps();
-    }, 4 * 60 * 1000);
-    setInterval(() => { // every 8 mins (4 blocks)
+    }, 19 * 60 * 1000);
+    setInterval(() => { // every 12 mins (6 blocks)
       appsService.continuousFluxAppHashesCheck();
-    }, 8 * 60 * 1000);
+    }, 12 * 60 * 1000);
     setTimeout(() => {
-      // after 14 minutes of running ok.
-      // is stopped on basics
+      // after 20 minutes of running ok.
       log.info('Starting to spawn applications');
       appsService.trySpawningGlobalApplication();
-    }, 14 * 60 * 1000);
+    }, 20 * 60 * 1000);
     setTimeout(() => {
       appsService.stopAllNonFluxRunningApps();
       appsService.restoreAppsPortsSupport();
