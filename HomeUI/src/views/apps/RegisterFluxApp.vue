@@ -1433,6 +1433,9 @@ export default {
           component.ports = ports;
         });
       }
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      this.appRegistrationSpecification.owner = auth.zelid;
     },
 
     initiateSignWS() {
