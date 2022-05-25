@@ -68,7 +68,7 @@ async function handleAppRunningMessage(message, fromIP) {
       const messageString = serviceHelper.ensureString(message);
       const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
       fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
-      await serviceHelper.delay(100);
+      await serviceHelper.delay(500);
       const wsList = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIP);
       fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
     }
