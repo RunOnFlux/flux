@@ -3760,18 +3760,12 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications) {
       if (contact.length > 75) {
         throw new Error(`Contact ${contact} is too long. Maximum of 75 characters is allowed.`);
       }
-      if (contact.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
-        throw new Error(`Contact ${contact} is not a valid email address.`);
-      }
     });
-    if (appSpecifications.geolocation.length > 2) {
+    if (appSpecifications.geolocation.length > 10) { // we only expect 2
       throw new Error('Invalid geolocation submited.'); // for now we are only accepting continent and country.
     }
     appSpecifications.geolocation.forEach((geo) => {
-      if (!geo.startsWith('a') && !geo.startsWith('b')) {
-        throw new Error(`Geolocation ${geo} is not valid.`); // a for continent and b for country (codes)
-      }
-      if (geo.length > 3) {
+      if (geo.length > 5) { // for now we only treat aXX and bXX as continent and country specs.
         throw new Error(`Geolocation ${geo} is not valid.`); // firt letter for what represents and next two for the code
       }
     });
