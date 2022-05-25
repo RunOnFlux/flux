@@ -93,9 +93,12 @@ async function startFluxFunctions() {
       explorerService.initiateBlockProcessor(true, true);
       log.info('Flux Block Processing Service started');
     }, 2 * 60 * 1000);
-    setInterval(() => { // every 19 mins (~10 blocks)
-      appsService.checkAndNotifyPeersOfRunningApps();
-    }, 19 * 60 * 1000);
+    setTimeout(() => {
+      appsService.checkAndNotifyPeersOfRunningApps(); // first broadcast after 4m of starting fluxos
+      setInterval(() => { // every 20 mins (~10 blocks) messages stay on db for 65m
+        appsService.checkAndNotifyPeersOfRunningApps();
+      }, 20 * 60 * 1000);
+    }, 4 * 60 * 1000);
     setInterval(() => { // every 12 mins (6 blocks)
       appsService.continuousFluxAppHashesCheck();
     }, 12 * 60 * 1000);
