@@ -52,6 +52,16 @@
                         title="Hash"
                         :data="row.item.hash"
                       />
+                      <div v-if="row.item.version >= 5">
+                        <list-entry
+                          title="Continent"
+                          :data="row.item.geolocation.length > 0 ? getContinent(row.item.geolocation) : 'All'"
+                        />
+                        <list-entry
+                          title="Country"
+                          :data="row.item.geolocation.length > 0 ? getCountry(getrow.item.geolocation) : 'All'"
+                        />
+                      </div>
                       <list-entry
                         v-if="row.item.instances"
                         title="Instances"
@@ -687,6 +697,84 @@ export default {
         },
       },
       allApps: [],
+      continentsOptions: [{
+        value: null, text: 'All',
+      },
+      {
+        value: 'AS', nodeTier: 'Cumulus', maxInstances: 5, text: 'Asia',
+      },
+      {
+        value: 'EU', nodeTier: 'Stratus', maxInstances: 20, text: 'Europe',
+      },
+      {
+        value: 'NA', nodeTier: 'Stratus', maxInstances: 20, text: 'North America',
+      },
+      {
+        value: 'OC', nodeTier: 'Cumulus', maxInstances: 3, text: 'Oceania',
+      }],
+      countriesOptions: [{
+        value: null, text: 'All', continentCode: 'AS',
+      },
+      {
+        value: 'SG', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'AS', text: 'Singapore',
+      },
+      {
+        value: 'TW', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'AS', text: 'Taiwan',
+      },
+      {
+        value: 'TH', nodeTier: 'Cumulus', maxInstances: 5, continentCode: 'AS', text: 'Thailand',
+      },
+      {
+        value: null, text: 'All', continentCode: 'EU',
+      },
+      {
+        value: 'BE', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Belgium',
+      },
+      {
+        value: 'CZ', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Czechia',
+      },
+      {
+        value: 'FI', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'EU', text: 'Finland',
+      },
+      {
+        value: 'FR', nodeTier: 'Stratus', maxInstances: 5, continentCode: 'EU', text: 'France',
+      },
+      {
+        value: 'DE', nodeTier: 'Stratus', maxInstances: 15, continentCode: 'EU', text: 'Germany',
+      },
+      {
+        value: 'LT', nodeTier: 'Cumulus', maxInstances: 5, continentCode: 'EU', text: 'Lithuania',
+      },
+      {
+        value: 'NL', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Netherlands',
+      },
+      {
+        value: 'PL', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'EU', text: 'Poland',
+      },
+      {
+        value: 'RU', nodeTier: 'Nimbus', maxInstances: 5, continentCode: 'EU', text: 'Russia',
+      },
+      {
+        value: 'SI', nodeTier: 'Stratus', maxInstances: 3, continentCode: 'EU', text: 'Slovenia',
+      },
+      {
+        value: 'ES', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Spain',
+      },
+      {
+        value: 'GB', nodeTier: 'Stratus', maxInstances: 3, continentCode: 'EU', text: 'United Kingdom',
+      },
+      {
+        value: null, text: 'All', continentCode: 'NA',
+      },
+      {
+        value: 'US', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'NA', text: 'United States',
+      },
+      {
+        value: 'CA', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'NA', text: 'Canada',
+      },
+      {
+        value: null, text: 'All', continentCode: 'OC',
+      }],
     };
   },
   computed: {
@@ -841,6 +929,28 @@ export default {
         return `${name.substring(0, name.length - 13)} - ${new Date(possibleDate).toLocaleString()}`;
       }
       return name;
+    },
+    getContinent(item) {
+      const appContinent = item.find((x) => x.startsWith('a'));
+      if (appContinent) {
+        const appContinentAux = this.continentsOptions.find((x) => x.value === appContinent);
+        if (appContinentAux) {
+          return appContinentAux.text;
+        }
+        return 'All';
+      }
+      return 'All';
+    },
+    getCountry(item) {
+      const appCountry = item.find((x) => x.startsWith('b'));
+      if (appCountry) {
+        const appCountryAux = this.countriesOptions.find((x) => x.value === appCountry);
+        if (appCountryAux) {
+          return appCountryAux.text;
+        }
+        return 'All';
+      }
+      return 'All';
     },
   },
 };

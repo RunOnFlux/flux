@@ -87,6 +87,14 @@ async function startFluxFunctions() {
     } catch (error) {
       log.error(error);
     }
+    setTimeout(() => {
+      appsService.stopAllNonFluxRunningApps();
+      appsService.restoreAppsPortsSupport();
+    }, 1 * 60 * 1000);
+    setTimeout(() => {
+      log.info('Starting setting Node Geolocation');
+      fluxService.setNodeGeolocation();
+    }, 90 * 1000);
     setTimeout(() => { // wait as of restarts due to ui building
       explorerService.initiateBlockProcessor(true, true);
       log.info('Flux Block Processing Service started');
@@ -105,10 +113,6 @@ async function startFluxFunctions() {
       log.info('Starting to spawn applications');
       appsService.trySpawningGlobalApplication();
     }, 20 * 60 * 1000);
-    setTimeout(() => {
-      appsService.stopAllNonFluxRunningApps();
-      appsService.restoreAppsPortsSupport();
-    }, 1 * 60 * 1000);
   } catch (e) {
     log.error(e);
     setTimeout(() => {
