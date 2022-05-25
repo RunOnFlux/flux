@@ -3166,9 +3166,9 @@ export default {
         if (appSpecification.version >= 5) {
           if (this.selectedContinent) {
             appSpecification.geolocation = [];
-            appSpecification.continents.push(`a${this.selectedContinent}`);
+            appSpecification.geolocation.push(`a${this.selectedContinent}`);
             if (this.selectedCountry) {
-              appSpecification.countries.push(`b${this.selectedCountry}`);
+              appSpecification.geolocation.push(`b${this.selectedCountry}`);
             }
           }
         }
