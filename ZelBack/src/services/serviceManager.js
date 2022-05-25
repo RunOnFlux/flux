@@ -69,6 +69,8 @@ async function startFluxFunctions() {
     log.info('Preparing Flux Apps locations');
     // more than 1 hour. Meaning we have not received status message for a long time. So that node is no longer on a network or app is down.
     await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 3900 });
+    await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ hash: 1, ip: 1 }, { name: 'query for getting app based on ip and hash' });
+    await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ hash: 1, ip: 1, broadcastedAt: 1 }, { name: 'query for getting app to ensure we possess a message' });
     log.info('Flux Apps locations prepared');
     fluxNetworkHelper.adjustFirewall();
     log.info('Firewalls checked');
