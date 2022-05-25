@@ -4456,6 +4456,7 @@ async function storeAppRunningMessage(message) {
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   const newAppRunningMessage = {
+    name: message.name,
     hash: message.hash, // hash of application specifics that are running
     ip: message.ip,
     broadcastedAt: new Date(message.broadcastedAt),
@@ -4463,7 +4464,7 @@ async function storeAppRunningMessage(message) {
   };
 
   // indexes over name, hash, ip. Then name + ip and name + ip + broadcastedAt.
-  const queryFind = { hash: newAppRunningMessage.hash, ip: newAppRunningMessage.ip, broadcastedAt: { $gte: newAppRunningMessage.broadcastedAt } };
+  const queryFind = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip, broadcastedAt: { $gte: newAppRunningMessage.broadcastedAt } };
   const projection = { _id: 0 };
   // we already have the exact same data
   const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
@@ -4471,7 +4472,7 @@ async function storeAppRunningMessage(message) {
     // it is already stored
     return false;
   }
-  const queryUpdate = { hash: message.hash, ip: newAppRunningMessage.ip };
+  const queryUpdate = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
   const update = { $set: newAppRunningMessage };
   const options = {
     upsert: true,
@@ -5609,10 +5610,11 @@ async function reindexGlobalAppsLocation() {
         throw error;
       }
     });
+    await database.collection(globalAppsLocations).createIndex({ name: 1 }, { name: 'query for getting zelapp location based on zelapp specs name' });
     await database.collection(globalAppsLocations).createIndex({ hash: 1 }, { name: 'query for getting zelapp location based on zelapp hash' });
     await database.collection(globalAppsLocations).createIndex({ ip: 1 }, { name: 'query for getting zelapp location based on ip' });
-    await database.collection(globalAppsLocations).createIndex({ hash: 1, ip: 1 }, { name: 'query for getting app based on ip and hash' });
-    await database.collection(globalAppsLocations).createIndex({ hash: 1, ip: 1, broadcastedAt: 1 }, { name: 'query for getting app to ensure we possess a message' });
+    await database.collection(globalAppsLocations).createIndex({ name: 1, ip: 1 }, { name: 'query for getting app based on ip and name' });
+    await database.collection(globalAppsLocations).createIndex({ name: 1, ip: 1, broadcastedAt: 1 }, { name: 'query for getting app to ensure we possess a message' });
     return true;
   } catch (error) {
     log.error(error);
@@ -6486,6 +6488,7 @@ async function checkAndNotifyPeersOfRunningApps() {
         const newAppRunningMessage = {
           type: 'fluxapprunning',
           version: 1,
+          name: application.name,
           hash: application.hash, // hash of application specifics that are running
           ip: myIP,
           broadcastedAt,
