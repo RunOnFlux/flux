@@ -79,7 +79,7 @@
                 <label class="col-1 col-form-label">
                   Contacts
                   <v-icon
-                    v-b-tooltip.hover.top="'Array of strings of emails Contacts to get notifications in future, ex. app about to expire.'"
+                    v-b-tooltip.hover.top="'Array of strings of emails Contacts to get notifications ex. app about to expire, app spawns. Contacts are also PUBLIC information.'"
                     name="info-circle"
                     class="mr-1"
                   />
@@ -1359,8 +1359,8 @@ export default {
       deep: true,
     },
   },
-  beforeMount() { // TODO - revert to v4
-    this.appRegistrationSpecification = this.appRegistrationSpecificationv5template;
+  beforeMount() {
+    this.appRegistrationSpecification = this.appRegistrationSpecificationv4template;
   },
   mounted() {
     this.getDaemonInfo();
@@ -1416,9 +1416,9 @@ export default {
         this.appRegistrationSpecification = this.appRegistrationSpecificationv3template;
         const ports = this.getRandomPort();
         this.appRegistrationSpecification.ports = ports;
-      } else if (this.currentHeight < 1110000) { // TODO - define fork height for spec v5
+      } else if (this.currentHeight < 1142000) {
         this.specificationVersion = 4;
-        this.appRegistrationSpecification = this.appRegistrationSpecificationv5template; // TODO - revert to v4
+        this.appRegistrationSpecification = this.appRegistrationSpecificationv4template;
         this.appRegistrationSpecification.compose.forEach((component) => {
           const ports = this.getRandomPort();
           // eslint-disable-next-line no-param-reassign

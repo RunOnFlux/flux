@@ -91,7 +91,7 @@ module.exports = {
       2: 0, // blockheight
       3: 983000, // blockheight. Since this blockheight specification of type 3 is active. User can still submit v1 or v2. UI allows only v2, v3
       4: 1004000, // v4 available, composition
-      5: 1150000, // v5 available adding contacts, geolocation
+      5: 1142000, // v5 available adding contacts, geolocation
     },
     address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
     epochstart: 694000,

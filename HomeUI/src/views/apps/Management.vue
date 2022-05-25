@@ -67,7 +67,6 @@
                 :data="callResponse.data.geolocation.length > 0 ? getContinent(callResponse.data.geolocation) : 'All'"
               />
               <list-entry
-                v-if="callResponse.data.geolocation.length > 0"
                 title="Country"
                 :data="callResponse.data.geolocation.length > 0 ? getCountry(getcallResponse.data.geolocation) : 'All'"
               />
