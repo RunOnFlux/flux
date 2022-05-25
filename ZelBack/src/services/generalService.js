@@ -123,9 +123,9 @@ async function nodeCollateral() {
     storedCollateral = 10000;
     return storedCollateral;
   }
-  if (value === 25000) {
-    storedTier = 'super';
-    storedCollateral = 25000;
+  if (value === 1000) {
+    storedTier = 'basic';
+    storedCollateral = 1000;
     return storedCollateral;
   }
   if (value === 100000) {
@@ -133,19 +133,19 @@ async function nodeCollateral() {
     storedCollateral = 100000;
     return storedCollateral;
   }
-  if (value === 1000) {
-    storedTier = 'basic';
-    storedCollateral = 1000;
+  if (value === 40000) {
+    storedTier = 'bamf';
+    storedCollateral = 40000;
+    return storedCollateral;
+  }
+  if (value === 25000) {
+    storedTier = 'super';
+    storedCollateral = 25000;
     return storedCollateral;
   }
   if (value === 12500) {
     storedTier = 'super';
     storedCollateral = 12500;
-    return storedCollateral;
-  }
-  if (value === 40000) {
-    storedTier = 'bamf';
-    storedCollateral = 40000;
     return storedCollateral;
   }
   throw new Error('Unrecognised Flux Node Collateral');
@@ -278,6 +278,10 @@ function setStoredTier(newValue) {
   storedTier = newValue;
 }
 
+function getStoredTier() {
+  return storedTier;
+}
+
 /**
  * Set storedCollateral - created for testing purposes
  */
@@ -305,4 +309,5 @@ module.exports = {
   setStoredTier,
   setStoredCollateral,
   getStoredCollateral,
+  getStoredTier,
 };
