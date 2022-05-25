@@ -23,8 +23,7 @@ let storedCollateral = null;
  * @property {number} txindex Transaction index.
  */
 function getCollateralInfo(collateralOutpoint) {
-  const a = collateralOutpoint;
-  const b = a.split(', ');
+  const b = collateralOutpoint.split(', ');
   const txhash = b[0].slice(10);
   const txindex = serviceHelper.ensureNumber(b[1].split(')')[0]);
   return { txhash, txindex };
@@ -58,34 +57,19 @@ async function nodeTier() {
   }
   // get collateralInformation.txindex vout
   const { value } = txInformation.data.vout[collateralInformation.txindex];
-  if (value === 10000) {
+  if (value === 10000 || value === 1000) {
     storedTier = 'basic';
-    storedCollateral = 10000;
+    storedCollateral = value;
     return storedTier;
   }
-  if (value === 25000) {
+  if (value === 25000 || value === 12500) {
     storedTier = 'super';
-    storedCollateral = 25000;
+    storedCollateral = value;
     return storedTier;
   }
-  if (value === 100000) {
+  if (value === 100000 || value === 40000) {
     storedTier = 'bamf';
-    storedCollateral = 100000;
-    return storedTier;
-  }
-  if (value === 1000) {
-    storedTier = 'basic';
-    storedCollateral = 1000;
-    return storedTier;
-  }
-  if (value === 12500) {
-    storedTier = 'super';
-    storedCollateral = 12500;
-    return storedTier;
-  }
-  if (value === 40000) {
-    storedTier = 'bamf';
-    storedCollateral = 40000;
+    storedCollateral = value;
     return storedTier;
   }
   throw new Error('Unrecognised Flux Node tier');
@@ -286,6 +270,26 @@ async function messageHash(message) {
   return crypto.createHash('sha256').update(message).digest('hex');
 }
 
+/**
+ * Set nodeTier - created for testing purposes
+ */
+
+function setStoredTier(newValue) {
+  storedTier = newValue;
+}
+
+/**
+ * Set storedCollateral - created for testing purposes
+ */
+
+function setStoredCollateral(newValue) {
+  storedCollateral = newValue;
+}
+
+function getStoredCollateral() {
+  return storedCollateral;
+}
+
 module.exports = {
   getCollateralInfo,
   nodeTier,
@@ -296,4 +300,9 @@ module.exports = {
   whitelistedRepositories,
   messageHash,
   nodeCollateral,
+
+  // exported for testing purposes
+  setStoredTier,
+  setStoredCollateral,
+  getStoredCollateral,
 };
