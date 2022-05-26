@@ -4697,7 +4697,7 @@ async function requestAppMessage(hash) {
     hash,
   };
   await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(message);
-  await serviceHelper.delay(100);
+  await serviceHelper.delay(500);
   await fluxCommunicationMessagesSender.broadcastMessageToIncoming(message);
 }
 
@@ -6583,6 +6583,21 @@ async function trySpawningGlobalApplication() {
     // an application was selected and checked that it can run on this node. try to install and run it locally
     // install the app
     await registerAppLocally(appSpecifications); // can throw
+
+    const broadcastedAt = new Date().getTime();
+    const newAppRunningMessage = {
+      type: 'fluxapprunning',
+      version: 1,
+      hash: appSpecifications.hash, // hash of application specifics that are running
+      ip: myIP,
+      broadcastedAt,
+    };
+
+    // broadcast messages about running apps to all peers
+    await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessage);
+    await serviceHelper.delay(100);
+    await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessage);
+    // broadcast messages about running apps to all peers
 
     await serviceHelper.delay(10 * config.fluxapps.installation.delay * 1000);
     log.info('Reinitiating possible app installation');
