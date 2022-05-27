@@ -203,12 +203,12 @@ async function getRandomConnection() { // returns ip:port or just ip if default
 
 async function closeConnection(ip) {
   if (!ip) return messageHelper.createWarningMessage('To close a connection please provide a proper IP number.');
-  const wsObj = await outgoingConnections.find((client) => client._socket.remoteAddress === ip);
+  const wsObj = outgoingConnections.find((client) => client._socket.remoteAddress === ip);
   if (!wsObj) {
     return messageHelper.createWarningMessage(`Connection to ${ip} does not exists.`);
   }
   const ocIndex = outgoingConnections.indexOf(wsObj);
-  const foundPeer = await outgoingPeers.find((peer) => peer.ip === ip);
+  const foundPeer = outgoingPeers.find((peer) => peer.ip === ip);
   if (ocIndex === -1) {
     return messageHelper.createErrorMessage(`Unable to close connection ${ip}. Try again later.`);
   }
@@ -237,7 +237,7 @@ async function closeIncomingConnection(ip, expressWS, clientToClose) {
     return messageHelper.createWarningMessage(`Connection from ${ip} does not exists.`);
   }
   const ocIndex = incomingConnections.indexOf(wsObj);
-  const foundPeer = await incomingPeers.find((peer) => peer.ip === ip);
+  const foundPeer = incomingPeers.find((peer) => peer.ip === ip);
   if (ocIndex === -1) {
     return messageHelper.createErrorMessage(`Unable to close incoming connection ${ip}. Try again later.`);
   }

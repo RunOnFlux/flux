@@ -59,7 +59,7 @@
                         />
                         <list-entry
                           title="Country"
-                          :data="row.item.geolocation.length > 0 ? getCountry(getrow.item.geolocation) : 'All'"
+                          :data="row.item.geolocation.length > 0 ? getCountry(row.item.geolocation) : 'All'"
                         />
                       </div>
                       <list-entry
