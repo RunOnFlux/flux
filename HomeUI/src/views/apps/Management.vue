@@ -68,7 +68,7 @@
               />
               <list-entry
                 title="Country"
-                :data="callResponse.data.geolocation.length > 0 ? getCountry(getcallResponse.data.geolocation) : 'All'"
+                :data="callResponse.data.geolocation.length > 0 ? getCountry(callResponse.data.geolocation) : 'All'"
               />
             </div>
             <list-entry
@@ -1570,12 +1570,12 @@
                     placeholder="ZelID of Application Owner"
                   />
                 </b-form-group>
-                <div v-if="specificationVersion >= 5">
+                <div v-if="appUpdateSpecification.version >= 5">
                   <div class="form-row form-group">
                     <label class="col-1 col-form-label">
                       Contacts
                       <v-icon
-                        v-b-tooltip.hover.top="'Array of strings of emails Contacts to get notifications in future, ex. app about to expire.'"
+                        v-b-tooltip.hover.top="'Array of strings of emails Contacts to get notifications ex. app about to expire, app spawns. Contacts are also PUBLIC information.'"
                         name="info-circle"
                         class="mr-1"
                       />
@@ -3094,18 +3094,24 @@ export default {
           this.appUpdateSpecification.commands = this.ensureString(specs.commands);
           this.appUpdateSpecification.containerPorts = specs.containerPort || this.ensureString(specs.containerPorts); // v1 compatibility
         } else {
+          this.selectedContinent = null;
+          this.selectedCountry = null;
+          // todo v4 to v5 after fork happened
+          // this.appUpdateSpecification = 5;
+          // this.appUpdateSpecification.contacts = '[]';
+          // this.appUpdateSpecification.geolocation = '[]';
           if (this.appUpdateSpecification.version >= 5) {
-            this.appUpdateSpecification.contacts = this.ensureString(specs.contacs);
-            this.selectedContinent = null;
-            this.selectedCountry = null;
+            this.appUpdateSpecification.contacts = this.ensureString(specs.contacts);
             if (specs.geolocation && specs.geolocation.length > 0) {
               const appContinent = specs.geolocation.find((x) => x.startsWith('a'));
               if (appContinent) {
-                this.selectedContinent = this.continentsOptions.find((x) => x.value === appContinent) || null;
+                const continentFound = this.continentsOptions.find((x) => x.value === appContinent.slice(1));
+                this.selectedContinent = continentFound ? continentFound.value : null;
               }
               const appCountry = specs.geolocation.find((x) => x.startsWith('b'));
               if (appCountry) {
-                this.selectedCountry = this.countriesOptions.find((x) => x.value === appCountry) || null;
+                const countryFound = this.countriesOptions.find((x) => x.value === appCountry.slice(1));
+                this.selectedCountry = countryFound ? countryFound.value : null;
               }
             }
             this.appUpdateSpecification.geolocation = this.ensureString(specs.geolocation);
@@ -3691,9 +3697,10 @@ export default {
       return '';
     },
     getContinent(item) {
-      const appContinent = item.find((x) => x.startsWith('a'));
+      const objItem = this.ensureObject(item);
+      const appContinent = objItem.find((x) => x.startsWith('a'));
       if (appContinent) {
-        const appContinentAux = this.continentsOptions.find((x) => x.value === appContinent);
+        const appContinentAux = this.continentsOptions.find((x) => x.value === appContinent.slice(1));
         if (appContinentAux) {
           return appContinentAux.text;
         }
@@ -3702,9 +3709,10 @@ export default {
       return 'All';
     },
     getCountry(item) {
-      const appCountry = item.find((x) => x.startsWith('b'));
+      const objItem = this.ensureObject(item);
+      const appCountry = objItem.find((x) => x.startsWith('b'));
       if (appCountry) {
-        const appCountryAux = this.countriesOptions.find((x) => x.value === appCountry);
+        const appCountryAux = this.countriesOptions.find((x) => x.value === appCountry.slice(1));
         if (appCountryAux) {
           return appCountryAux.text;
         }
