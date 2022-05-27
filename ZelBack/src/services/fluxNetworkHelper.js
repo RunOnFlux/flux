@@ -281,7 +281,7 @@ function getIncomingConnectionsInfo(req, res) {
   const connections = incomingPeers;
   const message = messageHelper.createDataMessage(connections);
   response = message;
-  res.json(response);
+  return res ? res.json(response) : response;
 }
 
 /**

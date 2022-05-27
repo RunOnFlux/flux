@@ -207,7 +207,7 @@ function connectedPeers(req, res) {
   });
   const message = messageHelper.createDataMessage(connections);
   response = message;
-  res.json(response);
+  return res ? res.json(response) : response;
 }
 
 /**
@@ -219,7 +219,7 @@ function connectedPeersInfo(req, res) {
   const connections = outgoingPeers;
   const message = messageHelper.createDataMessage(connections);
   response = message;
-  res.json(response);
+  return res ? res.json(response) : response;
 }
 
 /**

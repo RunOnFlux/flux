@@ -16,6 +16,8 @@ const daemonService = require('./daemonService');
 const benchmarkService = require('./benchmarkService');
 const appsService = require('./appsService');
 const generalService = require('./generalService');
+const explorerService = require('./explorerService');
+const fluxCommunication = require('./fluxCommunication');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const userconfig = require('../../../config/userconfig');
 
@@ -827,6 +829,26 @@ async function getFluxInfo(req, res) {
       throw appsResources.data;
     }
     info.apps.resources = appsResources.data;
+    const appHashes = await appsService.getAppHashes();
+    if (appHashes.status === 'error') {
+      throw appHashes.data;
+    }
+    info.apps.hashes = appHashes.data;
+    const explorerScannedHeight = await explorerService.getScannedHeight();
+    if (explorerScannedHeight.status === 'error') {
+      throw explorerScannedHeight.data;
+    }
+    info.flux.explorerScannedHeigth = explorerScannedHeight.data;
+    const connectionsOut = fluxCommunication.connectedPeersInfo();
+    if (connectionsOut.status === 'error') {
+      throw connectionsOut.data;
+    }
+    info.flux.connectionsOut = connectionsOut.data;
+    const connectionsIn = fluxNetworkHelper.getIncomingConnectionsInfo();
+    if (connectionsIn.status === 'error') {
+      throw connectionsIn.data;
+    }
+    info.flux.connectionsIn = connectionsIn.data;
 
     const response = messageHelper.createDataMessage(info);
     return res ? res.json(response) : response;

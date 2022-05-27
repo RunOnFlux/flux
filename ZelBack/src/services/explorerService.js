@@ -1328,11 +1328,11 @@ async function getScannedHeight(req, res) {
       throw new Error('Scanning not initiated');
     }
     const resMessage = messageHelper.createDataMessage(result);
-    res.json(resMessage);
+    return res ? res.json(resMessage) : resMessage;
   } catch (error) {
     log.error(error);
     const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
+    return res ? res.json(errMessage) : errMessage;
   }
 }
 

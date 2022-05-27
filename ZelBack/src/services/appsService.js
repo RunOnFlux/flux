@@ -6061,7 +6061,7 @@ async function getAppHashes(req, res) {
     };
     const results = await dbHelper.findInDatabase(database, appsHashesCollection, query, projection);
     const resultsResponse = messageHelper.createDataMessage(results);
-    res.json(resultsResponse);
+    return res ? res.json(resultsResponse) : resultsResponse;
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
@@ -6069,7 +6069,7 @@ async function getAppHashes(req, res) {
       error.name,
       error.code,
     );
-    res.json(errorResponse);
+    return res ? res.json(errorResponse) : errorResponse;
   }
 }
 
