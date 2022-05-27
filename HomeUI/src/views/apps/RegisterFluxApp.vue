@@ -1416,7 +1416,7 @@ export default {
         this.appRegistrationSpecification = this.appRegistrationSpecificationv3template;
         const ports = this.getRandomPort();
         this.appRegistrationSpecification.ports = ports;
-      } else if (this.currentHeight < 142000) {
+      } else if (this.currentHeight < 1142000) {
         this.specificationVersion = 4;
         this.appRegistrationSpecification = this.appRegistrationSpecificationv4template;
         this.appRegistrationSpecification.compose.forEach((component) => {

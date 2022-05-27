@@ -3096,10 +3096,12 @@ export default {
         } else {
           this.selectedContinent = null;
           this.selectedCountry = null;
-          // todo v4 to v5 after fork happened
-          // this.appUpdateSpecification = 5;
-          // this.appUpdateSpecification.contacts = '[]';
-          // this.appUpdateSpecification.geolocation = '[]';
+          // todo v4 to v5 after fork happened for all heights.
+          if (specs.height > 1142000) {
+            this.appUpdateSpecification = 5;
+            this.appUpdateSpecification.contacts = '[]';
+            this.appUpdateSpecification.geolocation = '[]';
+          }
           if (this.appUpdateSpecification.version >= 5) {
             this.appUpdateSpecification.contacts = this.ensureString(specs.contacts);
             if (specs.geolocation && specs.geolocation.length > 0) {
