@@ -1458,6 +1458,12 @@ export default {
         // eslint-disable-next-line no-param-reassign
         lockup.apr = calcAPR(lockup);
       });
+      if (response.data.minStake > 0) {
+        minStakeAmount.value = response.data.minStake;
+      }
+      if (response.data.maxStake > 0) {
+        maxStakeAmount.value = response.data.maxStake;
+      }
       getSharedNodeList();
       getStats();
       getMyStakes();
