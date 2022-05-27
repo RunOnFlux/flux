@@ -1690,6 +1690,7 @@ export default {
 
     const calcMonthlyReward = (stake) => {
       const lockup = titanConfig.value.lockups.find((aLockup) => aLockup.fee === stake.fee);
+      if (!lockup) return 0;
       return ((stake.collateral) * lockup.apr) / 12;
     };
 
@@ -1744,6 +1745,7 @@ export default {
       timestamp,
 
       getMyStakes,
+      getMyPayments,
 
       calcAPR,
       calcMonthlyReward,
