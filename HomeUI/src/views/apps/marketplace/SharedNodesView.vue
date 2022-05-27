@@ -332,6 +332,7 @@
                 >
                   <ul
                     class="marketplace-media-list"
+                    @click="showActiveStakeInfoDialog()"
                   >
                     <b-media
                       v-for="stake in myStakes"
@@ -490,13 +491,19 @@
                               Pending: {{ toFixedLocaleString(stake.reward, 2) }} Flux
                             </h5>
                           </div>
-                          <!--<div class="d-flex flex-column seat-column col">
+                          <div class="d-flex">
                             <b-button
                               v-if="stake.state !== 5"
+                              class="float-right mt-1 mb-1"
+                              variant="danger"
+                              size="sm"
+                              pill
+                              style="width: 100px"
+                              @click="showReinvestDialog()"
                             >
                               Reinvest
                             </b-button>
-                          </div>-->
+                          </div>
                         </div>
                       </b-media-body>
                     </b-media>
@@ -890,6 +897,28 @@
       <h4 class="text-center">
         Close the Titan Staking dialog?
       </h4>
+    </b-modal>
+
+    <b-modal
+      v-model="reinvestModalShowing"
+      title="Reinvest Expired Stake"
+      size="sm"
+      centered
+      button-size="sm"
+      ok-title="Reinvest"
+      cancel-title="Cancel"
+      @ok="reinvestModalShowing = false;"
+    >
+    </b-modal>
+
+    <b-modal
+      v-model="activeStakeInfoModalShowing"
+      title="Active Stake Details"
+      size="sm"
+      centered
+      button-size="sm"
+      cancel-title="Close"
+    >
     </b-modal>
 
     <b-modal
@@ -1323,6 +1352,8 @@ export default {
     const nodeModalShowing = ref(false);
     const aprModalShowing = ref(false);
     const redeemModalShowing = ref(false);
+    const reinvestModalShowing = ref(false);
+    const activeStakeInfoModalShowing = ref(false);
 
     const perfectScrollbarSettings = {
       maxScrollbarLength: 150,
@@ -1494,6 +1525,14 @@ export default {
     const confirmStakeDialogCancel = (modalEvt) => {
       modalEvt.preventDefault();
       confirmStakeDialogCloseShowing.value = true;
+    };
+
+    const showActiveStakeInfoDialog = () => {
+      activeStakeInfoModalShowing.value = true;
+    };
+
+    const showReinvestDialog = () => {
+      reinvestModalShowing.value = true;
     };
 
     const selectLockup = (lockupIndex) => {
@@ -1713,6 +1752,12 @@ export default {
       confirmStakeDialogCloseShowing,
       confirmStakeDialogFinish,
       confirmStakeDialogFinishShowing,
+
+      showActiveStakeInfoDialog,
+      activeStakeInfoModalShowing,
+
+      showReinvestDialog,
+      reinvestModalShowing,
 
       showPaymentDetailsDialog,
       paymentDetailsDialogShowing,
