@@ -1,7 +1,7 @@
 /* eslint-disable no-underscore-dangle */
 const config = require('config');
-const bitcoinjs = require('bitcoinjs-lib');
-const cmd = require('node-cmd');
+const zeltrezjs = require('zeltrezjs');
+const nodecmd = require('node-cmd');
 const fs = require('fs').promises;
 const path = require('path');
 // eslint-disable-next-line import/no-extraneous-dependencies
@@ -176,9 +176,9 @@ async function getFluxNodePrivateKey(privatekey) {
 
 async function getFluxNodePublicKey(privatekey) {
   try {
-    const privKey = await getFluxNodePrivateKey(privatekey);
-    const keyPair = bitcoinjs.ECPair.fromWIF(privKey);
-    const pubKey = keyPair.publicKey.toString('hex');
+    const pkWIF = await getFluxNodePrivateKey(privatekey);
+    const privateKey = zeltrezjs.address.WIFToPrivKey(pkWIF);
+    const pubKey = zeltrezjs.address.privKeyToPubKey(privateKey, false);
     return pubKey;
   } catch (error) {
     return error;
@@ -533,7 +533,7 @@ async function getDOSState(req, res) {
 
 async function allowPort(port) {
   const exec = `sudo ufw allow ${port} && sudo ufw allow out ${port}`;
-  const cmdAsync = util.promisify(cmd.get);
+  const cmdAsync = util.promisify(nodecmd.get);
 
   const cmdres = await cmdAsync(exec);
   console.log(cmdres);
@@ -552,7 +552,7 @@ async function allowPort(port) {
 
 async function denyPort(port) {
   const exec = `sudo ufw deny ${port} && sudo ufw deny out ${port}`;
-  const cmdAsync = util.promisify(cmd.get);
+  const cmdAsync = util.promisify(nodecmd.get);
 
   const cmdres = await cmdAsync(exec);
   console.log(cmdres);
@@ -595,7 +595,7 @@ async function allowPortApi(req, res) {
 
 async function isFirewallActive() {
   try {
-    const cmdAsync = util.promisify(cmd.get);
+    const cmdAsync = util.promisify(nodecmd.get);
     const execA = 'sudo ufw status | grep Status';
     const cmdresA = await cmdAsync(execA);
     if (serviceHelper.ensureString(cmdresA).includes('Status: active')) {
@@ -611,7 +611,7 @@ async function isFirewallActive() {
 
 async function adjustFirewall() {
   try {
-    const cmdAsync = util.promisify(cmd.get);
+    const cmdAsync = util.promisify(nodecmd.get);
     const apiPort = userconfig.initial.apiport || config.server.apiport;
     const homePort = +apiPort - 1;
     let ports = [apiPort, homePort, 80, 443, 16125];

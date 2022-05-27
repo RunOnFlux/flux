@@ -1,4 +1,4 @@
-const cmd = require('node-cmd');
+const nodecmd = require('node-cmd');
 const path = require('path');
 const config = require('config');
 const fullnode = require('fullnode');
@@ -47,7 +47,7 @@ async function updateFlux(req, res) {
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../');
     const exec = `cd ${nodedpath} && npm run updateflux`;
-    cmd.get(exec, (err) => {
+    nodecmd.get(exec, (err) => {
       if (err) {
         const errMessage = messageHelper.createErrorMessage(`Error updating Flux: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
@@ -73,7 +73,7 @@ async function softUpdateFlux(req, res) {
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../');
     const exec = `cd ${nodedpath} && npm run softupdate`;
-    cmd.get(exec, (err) => {
+    nodecmd.get(exec, (err) => {
       if (err) {
         const errMessage = messageHelper.createErrorMessage(`Error softly updating Flux: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
@@ -99,7 +99,7 @@ async function softUpdateFluxInstall(req, res) {
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../');
     const exec = `cd ${nodedpath} && npm run softupdateinstall`;
-    cmd.get(exec, (err) => {
+    nodecmd.get(exec, (err) => {
       if (err) {
         const errMessage = messageHelper.createErrorMessage(`Error softly updating Flux with installation: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
@@ -125,7 +125,7 @@ async function hardUpdateFlux(req, res) {
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../');
     const exec = `cd ${nodedpath} && npm run hardupdateflux`;
-    cmd.get(exec, (err) => {
+    nodecmd.get(exec, (err) => {
       if (err) {
         const errMessage = messageHelper.createErrorMessage(`Error hardupdating Flux: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
@@ -151,7 +151,7 @@ async function rebuildHome(req, res) {
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../');
     const exec = `cd ${nodedpath} && npm run homebuild`;
-    cmd.get(exec, (err) => {
+    nodecmd.get(exec, (err) => {
       if (err) {
         const errMessage = messageHelper.createErrorMessage(`Error rebuilding Flux: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
@@ -177,7 +177,7 @@ async function updateDaemon(req, res) {
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../helpers');
     const exec = `cd ${nodedpath} && bash updateDaemon.sh`;
-    cmd.get(exec, (err) => {
+    nodecmd.get(exec, (err) => {
       if (err) {
         const errMessage = messageHelper.createErrorMessage(`Error updating Daemon: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
@@ -203,7 +203,7 @@ async function updateBenchmark(req, res) {
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../helpers');
     const exec = `cd ${nodedpath} && bash updateBenchmark.sh`;
-    cmd.get(exec, (err) => {
+    nodecmd.get(exec, (err) => {
       if (err) {
         const errMessage = messageHelper.createErrorMessage(`Error updating Benchmark: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
@@ -231,7 +231,7 @@ async function startBenchmark(req, res) {
     if (fs.existsSync('/usr/local/bin/fluxbenchd')) {
       exec = 'fluxbenchd -daemon';
     }
-    cmd.get(exec, (err, data) => {
+    nodecmd.get(exec, (err, data) => {
       if (err) {
         const errMessage = messageHelper.createErrorMessage(`Error starting Benchmark: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
@@ -258,7 +258,7 @@ async function restartBenchmark(req, res) {
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../helpers');
     const exec = `cd ${nodedpath} && bash restartBenchmark.sh`;
-    cmd.get(exec, (err) => {
+    nodecmd.get(exec, (err) => {
       if (err) {
         const errMessage = messageHelper.createErrorMessage(`Error restarting Benchmark: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
@@ -287,7 +287,7 @@ async function startDaemon(req, res) {
     if (fs.existsSync('/usr/local/bin/fluxd')) {
       exec = 'fluxd';
     }
-    cmd.get(exec, (err, data) => {
+    nodecmd.get(exec, (err, data) => {
       if (err) {
         const errMessage = messageHelper.createErrorMessage(`Error starting Daemon: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
@@ -314,7 +314,7 @@ async function restartDaemon(req, res) {
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../helpers');
     const exec = `cd ${nodedpath} && bash restartDaemon.sh`;
-    cmd.get(exec, (err) => {
+    nodecmd.get(exec, (err) => {
       if (err) {
         const errMessage = messageHelper.createErrorMessage(`Error restarting Daemon: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
@@ -341,7 +341,7 @@ async function reindexDaemon(req, res) {
   if (authorized === true) {
     const nodedpath = path.join(__dirname, '../../../helpers');
     const exec = `cd ${nodedpath} && bash reindexDaemon.sh`;
-    cmd.get(exec, (err) => {
+    nodecmd.get(exec, (err) => {
       if (err) {
         const errMessage = messageHelper.createErrorMessage(`Error reindexing Daemon: ${err.message}`, err.name, err.code);
         return res.json(errMessage);
@@ -477,7 +477,7 @@ async function tailDaemonDebug(req, res) {
     const datadir = daemonService.getConfigValue('datadir') || defaultDir;
     const filepath = `${datadir}/debug.log`;
     const exec = `tail -n 100 ${filepath}`;
-    cmd.get(exec, (err, data) => {
+    nodecmd.get(exec, (err, data) => {
       if (err) {
         const errMessage = messageHelper.createErrorMessage(`Error obtaining Daemon debug file: ${err.message}`, err.name, err.code);
         res.json(errMessage);
@@ -508,7 +508,7 @@ async function tailBenchmarkDebug(req, res) {
     }
     const filepath = `${datadir}/debug.log`;
     const exec = `tail -n 100 ${filepath}`;
-    cmd.get(exec, (err, data) => {
+    nodecmd.get(exec, (err, data) => {
       if (err) {
         const errMessage = messageHelper.createErrorMessage(`Error obtaining Benchmark debug file: ${err.message}`, err.name, err.code);
         res.json(errMessage);
@@ -628,7 +628,7 @@ async function tailFluxLog(req, res, logfile) {
     const homeDirPath = path.join(__dirname, '../../../');
     const filepath = `${homeDirPath}${logfile}.log`;
     const exec = `tail -n 100 ${filepath}`;
-    cmd.get(exec, (err, data) => {
+    nodecmd.get(exec, (err, data) => {
       if (err) {
         const errMessage = messageHelper.createErrorMessage(`Error obtaining Flux ${logfile} file: ${err.message}`, err.name, err.code);
         res.json(errMessage);
@@ -978,7 +978,7 @@ async function InstallFluxWatchTower() {
   try {
     const nodedpath = path.join(__dirname, '../../../helpers');
     const exec = `cd ${nodedpath} && bash fluxwatchtower.sh`;
-    const cmdAsync = util.promisify(cmd.get);
+    const cmdAsync = util.promisify(nodecmd.get);
     const cmdres = await cmdAsync(exec);
     log.info(cmdres);
   } catch (error) {
