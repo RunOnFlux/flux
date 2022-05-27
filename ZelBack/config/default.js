@@ -93,7 +93,7 @@ module.exports = {
       4: 1004000, // v4 available, composition
       5: 1142000, // v5 available adding contacts, geolocation
     },
-    address: 't1NnHwTwTyr7oTMBSmGfeS3ih7ZpyvU8Sat',
+    address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
     epochstart: 694000,
     publicepochstart: 705000,
     portMin: 31000, // ports 30000 - 30999 are reserved for local applications
