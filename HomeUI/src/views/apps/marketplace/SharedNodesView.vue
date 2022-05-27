@@ -1358,14 +1358,14 @@ export default {
     const getRegistrationMessage = async () => {
       const response = await axios.get(`${apiURL}/registermessage`);
       dataToSign.value = response.data;
-      timestamp.value = response.data.substring(0, 13);
+      timestamp.value = response.data.substring(response.data.length - 13);
       // console.log(dataToSign.value);
     };
 
     const getRedeemMessage = async () => {
       const response = await axios.get(`${apiURL}/redeemmessage`);
       dataToSign.value = response.data;
-      timestamp.value = response.data.substring(0, 13);
+      timestamp.value = response.data.substring(response.data.length - 13);
     };
 
     const checkRedeemAddress = async () => {
