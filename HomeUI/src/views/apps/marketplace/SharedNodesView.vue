@@ -332,13 +332,13 @@
                 >
                   <ul
                     class="marketplace-media-list"
-                    @click="showActiveStakeInfoDialog()"
                   >
                     <b-media
                       v-for="stake in myStakes"
                       :key="stake.uuid"
                       tag="li"
                       no-body
+                      @click="showActiveStakeInfoDialog(stake)"
                     >
                       <b-media-body
                         class="app-media-body"
@@ -919,6 +919,17 @@
       button-size="sm"
       cancel-title="Close"
     >
+      <b-card v-if="selectedStake">
+        <div class="d-flex">
+          <b-form-checkbox
+            v-model="selectedStake.autoreinvest"
+            class="ml-auto mr-auto"
+            style="float: left;"
+          >
+            Auto-reinvest this stake after expiry
+          </b-form-checkbox>
+        </div>
+      </b-card>
     </b-modal>
 
     <b-modal
@@ -1000,6 +1011,15 @@
                   {{ lockup.name }} - ~{{ (lockup.apr*100).toFixed(2) }}%
                 </b-button>
               </div>
+            </div>
+            <div class="d-flex">
+              <b-form-checkbox
+                v-model="autoReinvestStake"
+                class="ml-auto mr-auto"
+                style="float: left;"
+              >
+                Auto-reinvest this stake after expiry
+              </b-form-checkbox>
             </div>
           </b-card>
         </tab-content>
@@ -1128,6 +1148,7 @@ import {
   BCardText,
   BCardTitle,
   BCol,
+  BFormCheckbox,
   BFormInput,
   BFormSelect,
   BFormSelectOption,
@@ -1178,6 +1199,7 @@ export default {
     BCardText,
     BCardTitle,
     BCol,
+    BFormCheckbox,
     BFormInput,
     BFormSelect,
     BFormSelectOption,
@@ -1249,6 +1271,7 @@ export default {
     const registeringStake = ref(false);
     const config = computed(() => ctx.root.$store.state.flux.config);
     const selectedStake = ref(null);
+    const autoReinvestStake = ref(true);
 
     const redeemAmount = ref(0);
     const redeemAddress = ref(null);
@@ -1527,7 +1550,8 @@ export default {
       confirmStakeDialogCloseShowing.value = true;
     };
 
-    const showActiveStakeInfoDialog = () => {
+    const showActiveStakeInfoDialog = (stake) => {
+      selectedStake.value = stake;
       activeStakeInfoModalShowing.value = true;
     };
 
@@ -1595,6 +1619,7 @@ export default {
         timestamp: timestamp.value,
         signature: signature.value,
         data: dataToSign.value,
+        autoreinvest: autoReinvestStake.value,
       };
       showToast('info', 'Registering Stake with Titan...');
 
@@ -1743,6 +1768,7 @@ export default {
       stakeRegisterFailed,
       selectedLockupIndex,
       selectLockup,
+      autoReinvestStake,
       registeringStake,
       registerStake,
       checkDuration,
