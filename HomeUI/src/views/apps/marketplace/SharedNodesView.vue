@@ -1695,7 +1695,7 @@ export default {
 
     const calculatePaidRewards = () => {
       let paid = myStakes.value ? myStakes.value.reduce((total, stake) => total + stake.paid, 0) : 0;
-      paid += myExpiredStakes.value ? myExpiredStakes.value.reduce((total, stake) => total + stake.paid - (stake.state === 5 ? stake.collateral : 0), 0) : 0;
+      paid += myExpiredStakes.value ? myExpiredStakes.value.reduce((total, stake) => total + stake.paid - (stake.fee ?? 0) - (stake.state === 5 ? stake.collateral : 0), 0) : 0;
       return toFixedLocaleString(paid, 2);
     };
 
