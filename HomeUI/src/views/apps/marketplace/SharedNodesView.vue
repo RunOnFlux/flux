@@ -1602,6 +1602,8 @@ export default {
 
     const confirmRedeemDialogFinish = () => {
       redeemModalShowing.value = false;
+      getMyStakes(true);
+      getMyPayments(true);
     };
 
     const showPaymentDetailsDialog = (stake) => {
