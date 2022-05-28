@@ -68,7 +68,7 @@ async function handleAppRunningMessage(message, fromIP) {
       const messageString = serviceHelper.ensureString(message);
       const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
       fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
-      await serviceHelper.delay(2345);
+      await serviceHelper.delay(500);
       const wsList = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIP);
       fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
     }
@@ -165,7 +165,7 @@ function handleIncomingConnection(ws, req, expressWS) {
     const ip = ws._socket.remoteAddress;
     log.warn(`Incoming connection error ${ip}`);
     const ocIndex = incomingConnections.findIndex((incomingCon) => ws._socket.remoteAddress === incomingCon._socket.remoteAddress);
-    const foundPeer = await incomingPeers.find((mypeer) => mypeer.ip === ip);
+    const foundPeer = incomingPeers.find((mypeer) => mypeer.ip === ip);
     if (ocIndex > -1) {
       incomingConnections.splice(ocIndex, 1);
     }
@@ -181,7 +181,7 @@ function handleIncomingConnection(ws, req, expressWS) {
     const ip = ws._socket.remoteAddress;
     log.warn(`Incoming connection close ${ip}`);
     const ocIndex = incomingConnections.findIndex((incomingCon) => ws._socket.remoteAddress === incomingCon._socket.remoteAddress);
-    const foundPeer = await incomingPeers.find((mypeer) => mypeer.ip === ip);
+    const foundPeer = incomingPeers.find((mypeer) => mypeer.ip === ip);
     if (ocIndex > -1) {
       incomingConnections.splice(ocIndex, 1);
     }
@@ -207,7 +207,7 @@ function connectedPeers(req, res) {
   });
   const message = messageHelper.createDataMessage(connections);
   response = message;
-  res.json(response);
+  return res ? res.json(response) : response;
 }
 
 /**
@@ -219,7 +219,7 @@ function connectedPeersInfo(req, res) {
   const connections = outgoingPeers;
   const message = messageHelper.createDataMessage(connections);
   response = message;
-  res.json(response);
+  return res ? res.json(response) : response;
 }
 
 /**
@@ -432,7 +432,7 @@ async function addPeer(req, res) {
     return res.json(errMessage);
   }
   const justIP = ip.split(':')[0];
-  const wsObj = await outgoingConnections.find((client) => client._socket.remoteAddress === justIP);
+  const wsObj = outgoingConnections.find((client) => client._socket.remoteAddress === justIP);
   if (wsObj) {
     const errMessage = messageHelper.createErrorMessage(`Already connected to ${justIP}`);
     return res.json(errMessage);
