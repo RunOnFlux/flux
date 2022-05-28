@@ -49,21 +49,21 @@ async function fluxBackendFolder(req, res) {
 // eslint-disable-next-line consistent-return
 async function updateFlux(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized === true) {
-    const nodedpath = path.join(__dirname, '../../../');
-    const exec = `cd ${nodedpath} && npm run updateflux`;
-    nodecmd.get(exec, (err) => {
-      if (err) {
-        const errMessage = messageHelper.createErrorMessage(`Error updating Flux: ${err.message}`, err.name, err.code);
-        return res.json(errMessage);
-      }
-      const message = messageHelper.createSuccessMessage('Flux successfully updated');
-      return res.json(message);
-    });
-  } else {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
+  const nodedpath = path.join(__dirname, '../../../');
+  const exec = `cd ${nodedpath} && npm run updateflux`;
+  nodecmd.get(exec, (err) => {
+    if (err) {
+      console.log(err);
+      const errMessage = messageHelper.createErrorMessage(`Error updating Flux: ${err.message}`, err.name, err.code);
+      return res.json(errMessage);
+    }
+    const message = messageHelper.createSuccessMessage('Flux successfully updated');
+    return res.json(message);
+  });
 }
 
 /**
