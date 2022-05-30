@@ -3577,28 +3577,6 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications) {
     if (appSpecifications.containerPort < 0 || appSpecifications.containerPort > 65535) {
       throw new Error(`Container Port ${appSpecifications.containerPort} is not within system limits 0-65535`);
     }
-    if (appSpecifications.repotag.length > 100) {
-      throw new Error('Flux App Repository is too long. Maximum of 100 characters is allowed.');
-    }
-    if (appSpecifications.containerData.length > 100) {
-      throw new Error('Flux App Container Data is too long. Maximum of 100 characters is allowed');
-    }
-    if (appSpecifications.enviromentParameters.length > 10) {
-      throw new Error(`App ${appSpecifications.name} environment invalid. Maximum of 10 environment variables allowed.`);
-    }
-    appSpecifications.enviromentParameters.forEach((env) => {
-      if (env.length > 50) {
-        throw new Error(`App ${appSpecifications.name} environment ${env} is too long. Maximum of 50 characters is allowed`);
-      }
-    });
-    if (appSpecifications.commands.length > 10) {
-      throw new Error(`App ${appSpecifications.name} commands invalid. Maximum of 10 commands allowed.`);
-    }
-    appSpecifications.commands.forEach((com) => {
-      if (com.length > 50) {
-        throw new Error(`App ${appSpecifications.name} command ${com} is too long. Maximum of 50 characters is allowed`);
-      }
-    });
   } else if (appSpecifications.version <= 3) {
     // check port is within range
     appSpecifications.ports.forEach((port) => {
@@ -3621,31 +3599,9 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications) {
     if (appSpecifications.ports.length > 5) {
       throw new Error('Too many ports defined. Maximum of 5 allowed.');
     }
-    if (appSpecifications.repotag.length > 100) {
-      throw new Error('Flux App Repository is too long. Maximum of 100 characters is allowed.');
-    }
-    if (appSpecifications.containerData.length > 100) {
-      throw new Error('Flux App Container Data is too long. Maximum of 100 characters is allowed');
-    }
-    if (appSpecifications.enviromentParameters.length > 10) {
-      throw new Error(`App ${appSpecifications.name} environment invalid. Maximum of 10 environment variables allowed.`);
-    }
-    appSpecifications.enviromentParameters.forEach((env) => {
-      if (env.length > 50) {
-        throw new Error(`App ${appSpecifications.name} environment ${env} is too long. Maximum of 50 characters is allowed`);
-      }
-    });
-    if (appSpecifications.commands.length > 10) {
-      throw new Error(`App ${appSpecifications.name} commands invalid. Maximum of 10 commands allowed.`);
-    }
-    appSpecifications.commands.forEach((com) => {
-      if (com.length > 50) {
-        throw new Error(`App ${appSpecifications.name} command ${com} is too long. Maximum of 50 characters is allowed`);
-      }
-    });
     appSpecifications.domains.forEach((dom) => {
-      if (dom.length > 50) {
-        throw new Error(`App ${appSpecifications.name} domain ${dom} is too long. Maximum of 50 characters is allowed`);
+      if (dom.length > 253) {
+        throw new Error(`App ${appSpecifications.name} domain ${dom} is too long. Maximum of 253 characters is allowed`);
       }
     });
   }
@@ -3655,13 +3611,29 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications) {
     if (appSpecifications.containerData.length < 2) {
       throw new Error('Flux App container data folder not specified. If no data folder is whished, use /tmp');
     }
+    if (appSpecifications.containerData.length > 200) {
+      throw new Error('Flux App Container Data is too long. Maximum of 200 characters is allowed');
+    }
+    if (appSpecifications.repotag.length > 200) {
+      throw new Error('Flux App Repository is too long. Maximum of 200 characters is allowed.');
+    }
+    if (appSpecifications.enviromentParameters.length > 20) {
+      throw new Error(`App ${appSpecifications.name} environment invalid. Maximum of 20 environment variables allowed.`);
+    }
+    appSpecifications.enviromentParameters.forEach((env) => {
+      if (env.length > 400) {
+        throw new Error(`App ${appSpecifications.name} environment ${env} is too long. Maximum of 400 characters is allowed`);
+      }
+    });
+    if (appSpecifications.commands.length > 20) {
+      throw new Error(`App ${appSpecifications.name} commands invalid. Maximum of 20 commands allowed.`);
+    }
+    appSpecifications.commands.forEach((com) => {
+      if (com.length > 400) {
+        throw new Error(`App ${appSpecifications.name} command ${com} is too long. Maximum of 400 characters is allowed`);
+      }
+    });
   } else {
-    if (appSpecifications.instances < config.fluxapps.minimumInstances) {
-      throw new Error(`Minimum number of instances is ${config.fluxapps.minimumInstances}`);
-    }
-    if (appSpecifications.instances > config.fluxapps.maximumInstances) {
-      throw new Error(`Maximum number of instances is ${config.fluxapps.maximumInstances}`);
-    }
     if (appSpecifications.compose.length < 1) {
       throw new Error('Flux App does not contain any composition');
     }
@@ -3703,31 +3675,31 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications) {
           throw new Error(`Assigned port ${port} is not within Flux Apps range ${config.fluxapps.portMin}-${config.fluxapps.portMax}`);
         }
       });
-      if (appComponent.repotag.length > 100) {
-        throw new Error('Flux App Repository is too long. Maximum of 100 characters is allowed.');
+      if (appComponent.repotag.length > 200) {
+        throw new Error('Flux App Repository is too long. Maximum of 200 characters is allowed.');
       }
-      if (appComponent.containerData.length > 100) {
-        throw new Error('Flux App Container Data is too long. Maximum of 100 characters is allowed');
+      if (appComponent.containerData.length > 200) {
+        throw new Error('Flux App Container Data is too long. Maximum of 200 characters is allowed');
       }
-      if (appComponent.environmentParameters.length > 10) {
-        throw new Error(`App component ${appComponent.name} environment invalid. Maximum of 10 environment variables allowed.`);
+      if (appComponent.environmentParameters.length > 20) {
+        throw new Error(`App component ${appComponent.name} environment invalid. Maximum of 20 environment variables allowed.`);
       }
       appComponent.environmentParameters.forEach((env) => {
-        if (env.length > 50) {
-          throw new Error(`App component ${appComponent.name} environment ${env} is too long. Maximum of 50 characters is allowed`);
+        if (env.length > 400) {
+          throw new Error(`App component ${appComponent.name} environment ${env} is too long. Maximum of 400 characters is allowed`);
         }
       });
-      if (appComponent.commands.length > 10) {
-        throw new Error(`App component ${appComponent.name} commands invalid. Maximum of 10 commands allowed.`);
+      if (appComponent.commands.length > 20) {
+        throw new Error(`App component ${appComponent.name} commands invalid. Maximum of 20 commands allowed.`);
       }
       appComponent.commands.forEach((com) => {
-        if (com.length > 50) {
-          throw new Error(`App component ${appComponent.name} command ${com} is too long. Maximum of 50 characters is allowed`);
+        if (com.length > 400) {
+          throw new Error(`App component ${appComponent.name} command ${com} is too long. Maximum of 400 characters is allowed`);
         }
       });
       appComponent.domains.forEach((dom) => {
-        if (dom.length > 50) {
-          throw new Error(`App component ${appComponent.name} domain ${dom} is too long. Maximum of 50 characters is allowed`);
+        if (dom.length > 253) {
+          throw new Error(`App component ${appComponent.name} domain ${dom} is too long. Maximum of 253 characters is allowed`);
         }
       });
       // check if containerPort makes sense
@@ -3749,6 +3721,15 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications) {
       if (appComponent.containerData.length < 2) {
         throw new Error(`Flux App container data folder not specified in in ${appComponent.name}. If no data folder is whished, use /tmp`);
       }
+    }
+  }
+
+  if (appSpecifications.version >= 3) {
+    if (appSpecifications.instances < config.fluxapps.minimumInstances) {
+      throw new Error(`Minimum number of instances is ${config.fluxapps.minimumInstances}`);
+    }
+    if (appSpecifications.instances > config.fluxapps.maximumInstances) {
+      throw new Error(`Maximum number of instances is ${config.fluxapps.maximumInstances}`);
     }
   }
 
