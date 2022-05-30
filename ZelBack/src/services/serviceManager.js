@@ -87,26 +87,32 @@ async function startFluxFunctions() {
     } catch (error) {
       log.error(error);
     }
-    setTimeout(() => { // wait as of restarts due to ui building
-      explorerService.initiateBlockProcessor(true, true);
-      log.info('Flux Block Processing Service started');
-    }, 2 * 60 * 1000);
-    setInterval(() => { // every 4 mins (2 blocks)
-      appsService.checkAndNotifyPeersOfRunningApps();
-    }, 4 * 60 * 1000);
-    setInterval(() => { // every 8 mins (4 blocks)
-      appsService.continuousFluxAppHashesCheck();
-    }, 8 * 60 * 1000);
-    setTimeout(() => {
-      // after 14 minutes of running ok.
-      // is stopped on basics
-      log.info('Starting to spawn applications');
-      appsService.trySpawningGlobalApplication();
-    }, 14 * 60 * 1000);
     setTimeout(() => {
       appsService.stopAllNonFluxRunningApps();
       appsService.restoreAppsPortsSupport();
     }, 1 * 60 * 1000);
+    setTimeout(() => {
+      log.info('Starting setting Node Geolocation');
+      fluxService.setNodeGeolocation();
+    }, 90 * 1000);
+    setTimeout(() => { // wait as of restarts due to ui building
+      explorerService.initiateBlockProcessor(true, true);
+      log.info('Flux Block Processing Service started');
+    }, 2 * 60 * 1000);
+    setTimeout(() => {
+      appsService.checkAndNotifyPeersOfRunningApps(); // first broadcast after 4m of starting fluxos
+      setInterval(() => { // every 20 mins (~10 blocks) messages stay on db for 65m
+        appsService.checkAndNotifyPeersOfRunningApps();
+      }, 20 * 60 * 1000);
+    }, 4 * 60 * 1000);
+    setInterval(() => { // every 12 mins (6 blocks)
+      appsService.continuousFluxAppHashesCheck();
+    }, 12 * 60 * 1000);
+    setTimeout(() => {
+      // after 20 minutes of running ok.
+      log.info('Starting to spawn applications');
+      appsService.trySpawningGlobalApplication();
+    }, 20 * 60 * 1000);
   } catch (e) {
     log.error(e);
     setTimeout(() => {

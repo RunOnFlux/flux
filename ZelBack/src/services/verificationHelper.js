@@ -1,6 +1,5 @@
 const zeltrezjs = require('zeltrezjs');
 const bitcoinMessage = require('bitcoinjs-message');
-const bitcoinjs = require('bitcoinjs-lib');
 const { randomBytes } = require('crypto');
 
 const log = require('../lib/log');
@@ -94,9 +93,6 @@ function verifyMessage(message, address, signature, strMessageMagic, checkSegwit
     if (address.length > 36) {
       const btcPubKeyHash = '00';
       const sigAddress = zeltrezjs.address.pubKeyToAddr(address, btcPubKeyHash);
-      // const publicKeyBuffer = Buffer.from(address, 'hex');
-      // const publicKey = bitcoinjs.ECPair.fromPublicKeyBuffer(publicKeyBuffer);
-      // const sigAddress = bitcoinjs.payments.p2pkh({ pubkey: publicKeyBuffer }).address);
       signingAddress = sigAddress;
     }
     isValid = bitcoinMessage.verify(message, signingAddress, signature, strMessageMagic, checkSegwitAlways);
@@ -118,12 +114,9 @@ function verifyMessage(message, address, signature, strMessageMagic, checkSegwit
 function signMessage(message, pk) {
   let signature;
   try {
-    const keyPair = bitcoinjs.ECPair.fromWIF(pk);
-    const { privateKey } = keyPair;
-    // console.log(keyPair.privateKey.toString('hex'));
-    // console.log(keyPair.publicKey.toString('hex'));
+    const privateKey = zeltrezjs.address.WIFToPrivKey(pk);
 
-    signature = bitcoinMessage.sign(message, privateKey, keyPair.compressed, { extraEntropy: randomBytes(32) });
+    signature = bitcoinMessage.sign(message, Buffer.from(privateKey, 'hex'), false, { extraEntropy: randomBytes(32) });
     signature = signature.toString('base64');
     // => different (but valid) signature each time
   } catch (e) {
