@@ -10,7 +10,7 @@ const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('./utils/establishedConnections');
 
-const myMessageCache = new LRU(250);
+const myMessageCache = new LRU(1000);
 
 let response = messageHelper.createErrorMessage();
 

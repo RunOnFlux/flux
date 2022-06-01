@@ -883,7 +883,6 @@ async function createConfirmationTransaction(req, res) {
 }
 
 module.exports = {
-
   addMultiSigAddress,
   addMultiSigAddressPost,
   backupWallet,
@@ -926,5 +925,4 @@ module.exports = {
   signMessage,
   signMessagePost,
   createConfirmationTransaction,
-
 };

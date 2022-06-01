@@ -1202,8 +1202,7 @@ export default {
     const userZelid = ref('');
     userZelid.value = props.zelid;
 
-    // const apiURL = 'http://192.168.68.144:1234';
-    const apiURL = 'https://titantest.runonflux.io:54978';
+    const apiURL = 'https://titantest.runonflux.io';
 
     const totalReward = ref(0);
     const stakeAmount = ref(50);
@@ -1358,14 +1357,14 @@ export default {
     const getRegistrationMessage = async () => {
       const response = await axios.get(`${apiURL}/registermessage`);
       dataToSign.value = response.data;
-      timestamp.value = response.data.substr(response.data.length - 13);
+      timestamp.value = response.data.substring(response.data.length - 13);
       // console.log(dataToSign.value);
     };
 
     const getRedeemMessage = async () => {
       const response = await axios.get(`${apiURL}/redeemmessage`);
       dataToSign.value = response.data;
-      timestamp.value = response.data.substr(response.data.length - 13);
+      timestamp.value = response.data.substring(response.data.length - 13);
     };
 
     const checkRedeemAddress = async () => {
