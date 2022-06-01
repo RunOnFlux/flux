@@ -75,21 +75,20 @@ async function updateFlux(req, res) {
 // eslint-disable-next-line consistent-return
 async function softUpdateFlux(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized === true) {
-    const nodedpath = path.join(__dirname, '../../../');
-    const exec = `cd ${nodedpath} && npm run softupdate`;
-    nodecmd.get(exec, (err) => {
-      if (err) {
-        const errMessage = messageHelper.createErrorMessage(`Error softly updating Flux: ${err.message}`, err.name, err.code);
-        return res.json(errMessage);
-      }
-      const message = messageHelper.createSuccessMessage('Flux successfully updated using soft method');
-      return res.json(message);
-    });
-  } else {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
+  const nodedpath = path.join(__dirname, '../../../');
+  const exec = `cd ${nodedpath} && npm run softupdate`;
+  nodecmd.get(exec, (err) => {
+    if (err) {
+      const errMessage = messageHelper.createErrorMessage(`Error softly updating Flux: ${err.message}`, err.name, err.code);
+      return res.json(errMessage);
+    }
+    const message = messageHelper.createSuccessMessage('Flux successfully updated using soft method');
+    return res.json(message);
+  });
 }
 
 /**
@@ -101,21 +100,20 @@ async function softUpdateFlux(req, res) {
 // eslint-disable-next-line consistent-return
 async function softUpdateFluxInstall(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized === true) {
-    const nodedpath = path.join(__dirname, '../../../');
-    const exec = `cd ${nodedpath} && npm run softupdateinstall`;
-    nodecmd.get(exec, (err) => {
-      if (err) {
-        const errMessage = messageHelper.createErrorMessage(`Error softly updating Flux with installation: ${err.message}`, err.name, err.code);
-        return res.json(errMessage);
-      }
-      const message = messageHelper.createSuccessMessage('Flux successfully updated softly with installation');
-      return res.json(message);
-    });
-  } else {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
+  const nodedpath = path.join(__dirname, '../../../');
+  const exec = `cd ${nodedpath} && npm run softupdateinstall`;
+  nodecmd.get(exec, (err) => {
+    if (err) {
+      const errMessage = messageHelper.createErrorMessage(`Error softly updating Flux with installation: ${err.message}`, err.name, err.code);
+      return res.json(errMessage);
+    }
+    const message = messageHelper.createSuccessMessage('Flux successfully updated softly with installation');
+    return res.json(message);
+  });
 }
 
 /**
@@ -127,21 +125,20 @@ async function softUpdateFluxInstall(req, res) {
 // eslint-disable-next-line consistent-return
 async function hardUpdateFlux(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized === true) {
-    const nodedpath = path.join(__dirname, '../../../');
-    const exec = `cd ${nodedpath} && npm run hardupdateflux`;
-    nodecmd.get(exec, (err) => {
-      if (err) {
-        const errMessage = messageHelper.createErrorMessage(`Error hardupdating Flux: ${err.message}`, err.name, err.code);
-        return res.json(errMessage);
-      }
-      const message = messageHelper.createSuccessMessage('Flux successfully updating');
-      return res.json(message);
-    });
-  } else {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
+  const nodedpath = path.join(__dirname, '../../../');
+  const exec = `cd ${nodedpath} && npm run hardupdateflux`;
+  nodecmd.get(exec, (err) => {
+    if (err) {
+      const errMessage = messageHelper.createErrorMessage(`Error hardupdating Flux: ${err.message}`, err.name, err.code);
+      return res.json(errMessage);
+    }
+    const message = messageHelper.createSuccessMessage('Flux successfully updating');
+    return res.json(message);
+  });
 }
 
 /**
@@ -153,21 +150,20 @@ async function hardUpdateFlux(req, res) {
 // eslint-disable-next-line consistent-return
 async function rebuildHome(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized === true) {
-    const nodedpath = path.join(__dirname, '../../../');
-    const exec = `cd ${nodedpath} && npm run homebuild`;
-    nodecmd.get(exec, (err) => {
-      if (err) {
-        const errMessage = messageHelper.createErrorMessage(`Error rebuilding Flux: ${err.message}`, err.name, err.code);
-        return res.json(errMessage);
-      }
-      const message = messageHelper.createSuccessMessage('Flux successfully rebuilt');
-      return res.json(message);
-    });
-  } else {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
+  const nodedpath = path.join(__dirname, '../../../');
+  const exec = `cd ${nodedpath} && npm run homebuild`;
+  nodecmd.get(exec, (err) => {
+    if (err) {
+      const errMessage = messageHelper.createErrorMessage(`Error rebuilding Flux: ${err.message}`, err.name, err.code);
+      return res.json(errMessage);
+    }
+    const message = messageHelper.createSuccessMessage('Flux successfully rebuilt');
+    return res.json(message);
+  });
 }
 
 /**
