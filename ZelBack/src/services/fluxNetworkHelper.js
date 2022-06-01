@@ -1,7 +1,7 @@
 /* eslint-disable no-underscore-dangle */
 const config = require('config');
-const bitcoinjs = require('bitcoinjs-lib');
-const cmd = require('node-cmd');
+const zeltrezjs = require('zeltrezjs');
+const nodecmd = require('node-cmd');
 const fs = require('fs').promises;
 const path = require('path');
 // eslint-disable-next-line import/no-extraneous-dependencies
@@ -180,9 +180,9 @@ async function getFluxNodePrivateKey(privatekey) {
 
 async function getFluxNodePublicKey(privatekey) {
   try {
-    const privKey = await getFluxNodePrivateKey(privatekey);
-    const keyPair = bitcoinjs.ECPair.fromWIF(privKey);
-    const pubKey = keyPair.publicKey.toString('hex');
+    const pkWIF = await getFluxNodePrivateKey(privatekey);
+    const privateKey = zeltrezjs.address.WIFToPrivKey(pkWIF);
+    const pubKey = zeltrezjs.address.privKeyToPubKey(privateKey, false);
     return pubKey;
   } catch (error) {
     return error;
@@ -207,12 +207,12 @@ async function getRandomConnection() { // returns ip:port or just ip if default
 
 async function closeConnection(ip) {
   if (!ip) return messageHelper.createWarningMessage('To close a connection please provide a proper IP number.');
-  const wsObj = await outgoingConnections.find((client) => client._socket.remoteAddress === ip);
+  const wsObj = outgoingConnections.find((client) => client._socket.remoteAddress === ip);
   if (!wsObj) {
     return messageHelper.createWarningMessage(`Connection to ${ip} does not exists.`);
   }
   const ocIndex = outgoingConnections.indexOf(wsObj);
-  const foundPeer = await outgoingPeers.find((peer) => peer.ip === ip);
+  const foundPeer = outgoingPeers.find((peer) => peer.ip === ip);
   if (ocIndex === -1) {
     return messageHelper.createErrorMessage(`Unable to close connection ${ip}. Try again later.`);
   }
@@ -241,7 +241,7 @@ async function closeIncomingConnection(ip, expressWS, clientToClose) {
     return messageHelper.createWarningMessage(`Connection from ${ip} does not exists.`);
   }
   const ocIndex = incomingConnections.indexOf(wsObj);
-  const foundPeer = await incomingPeers.find((peer) => peer.ip === ip);
+  const foundPeer = incomingPeers.find((peer) => peer.ip === ip);
   if (ocIndex === -1) {
     return messageHelper.createErrorMessage(`Unable to close incoming connection ${ip}. Try again later.`);
   }
@@ -285,7 +285,7 @@ function getIncomingConnectionsInfo(req, res) {
   const connections = incomingPeers;
   const message = messageHelper.createDataMessage(connections);
   response = message;
-  res.json(response);
+  return res ? res.json(response) : response;
 }
 
 /**
@@ -537,7 +537,7 @@ async function getDOSState(req, res) {
 
 async function allowPort(port) {
   const exec = `sudo ufw allow ${port} && sudo ufw allow out ${port}`;
-  const cmdAsync = util.promisify(cmd.get);
+  const cmdAsync = util.promisify(nodecmd.get);
 
   const cmdres = await cmdAsync(exec);
   console.log(cmdres);
@@ -556,7 +556,7 @@ async function allowPort(port) {
 
 async function denyPort(port) {
   const exec = `sudo ufw deny ${port} && sudo ufw deny out ${port}`;
-  const cmdAsync = util.promisify(cmd.get);
+  const cmdAsync = util.promisify(nodecmd.get);
 
   const cmdres = await cmdAsync(exec);
   console.log(cmdres);
@@ -599,7 +599,7 @@ async function allowPortApi(req, res) {
 
 async function isFirewallActive() {
   try {
-    const cmdAsync = util.promisify(cmd.get);
+    const cmdAsync = util.promisify(nodecmd.get);
     const execA = 'sudo ufw status | grep Status';
     const cmdresA = await cmdAsync(execA);
     if (serviceHelper.ensureString(cmdresA).includes('Status: active')) {
@@ -615,7 +615,7 @@ async function isFirewallActive() {
 
 async function adjustFirewall() {
   try {
-    const cmdAsync = util.promisify(cmd.get);
+    const cmdAsync = util.promisify(nodecmd.get);
     const apiPort = userconfig.initial.apiport || config.server.apiport;
     const homePort = +apiPort - 1;
     let ports = [apiPort, homePort, 80, 443, 16125];
