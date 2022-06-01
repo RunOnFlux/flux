@@ -7,7 +7,7 @@ const LRU = require('lru-cache');
 const { PassThrough } = require('stream');
 const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
-const daemonService = require('../../ZelBack/src/services/daemonService');
+const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const appsService = require('../../ZelBack/src/services/appsService');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const generalService = require('../../ZelBack/src/services/generalService');
@@ -323,17 +323,19 @@ describe('fluxCommunicationMessagesSender tests', () => {
       expect(JSON.parse(signedData).data).to.eql(data);
     });
 
-    it('should return serialised empty message without signature when no public key is provided', async () => {
-      const privateKey = '';
+    it('should fall back to zelnode private key config if empty', async () => {
+      const mockedPrivKey = '5J2Hf3T8LpjKEkY46qhPLFF8DjQfCSBh6aWRfeDwQSMJKomvHFa';
+      sinon.stub(daemonServiceUtils, 'getConfigValue').resolves(mockedPrivKey);
+      const privateKey = ''; // falls back to 5J2Hf3T8LpjKEkY46qhPLFF8DjQfCSBh6aWRfeDwQSMJKomvHFa as thats in sample config.
       const data = '';
 
       const signedData = await fluxCommunicationMessagesSender.serialiseAndSignFluxBroadcast(data, privateKey);
 
       expect(signedData).to.be.a('string');
-      expect(JSON.parse(signedData).signature).to.be.empty;
+      expect(JSON.parse(signedData).signature).to.be.a('string');
       expect(JSON.parse(signedData).version).to.eql(1);
       expect(JSON.parse(signedData).data).to.eql(data);
-      expect(JSON.parse(signedData).pubKey).to.eql({});
+      expect(JSON.parse(signedData).pubKey).to.eql('04e3f3c95621419fac3ffaaf4545b686469c6535b015c843ad6df9fc862df62b0cc55ce6e7be31dbd07d359626df860145789732fc2dc318afdd7605482da0549f');
     });
   });
 
@@ -354,7 +356,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     it('Should properly return signature if private key is taken from config', async () => {
       const mockedPrivKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
       const message = 'testing1234';
-      const daemonStub = sinon.stub(daemonService, 'getConfigValue').resolves(mockedPrivKey);
+      const daemonStub = sinon.stub(daemonServiceUtils, 'getConfigValue').resolves(mockedPrivKey);
 
       const signature = await fluxCommunicationMessagesSender.getFluxMessageSignature(message);
 

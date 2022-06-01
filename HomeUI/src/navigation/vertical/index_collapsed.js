@@ -3,6 +3,7 @@ import collapsedDaemon from './daemon_collapsed';
 import collapsedBenchmark from './benchmark_collapsed';
 import collapsedFlux from './flux_collapsed';
 import collapsedApps from './apps_collapsed';
+import collapsedMarketplace from './marketplace_collapsed';
 import collapsedFluxadmin from './fluxadmin_collapsed';
 import collapsedXdao from './xdao_collapsed';
 
@@ -22,6 +23,7 @@ export default [
   ...collapsedBenchmark,
   ...collapsedFlux,
   ...collapsedApps,
+  ...collapsedMarketplace,
   ...collapsedFluxadmin,
   ...collapsedXdao,
 ];

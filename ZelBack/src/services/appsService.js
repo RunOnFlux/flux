@@ -8,18 +8,22 @@ const LRU = require('lru-cache');
 const systemcrontab = require('crontab');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
-const fluxCommunication = require('./fluxCommunication');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
+const {
+  outgoingPeers, incomingPeers,
+} = require('./utils/establishedConnections');
 const serviceHelper = require('./serviceHelper');
 const dbHelper = require('./dbHelper');
 const verificationHelper = require('./verificationHelper');
 const messageHelper = require('./messageHelper');
-const daemonService = require('./daemonService');
+const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
+const daemonServiceBenchmarkRpcs = require('./daemonService/daemonServiceBenchmarkRpcs');
 const benchmarkService = require('./benchmarkService');
 const dockerService = require('./dockerService');
 const generalService = require('./generalService');
 const upnpService = require('./upnpService');
+const fluxService = require('./fluxService');
 const log = require('../lib/log');
 const userconfig = require('../../../config/userconfig');
 
@@ -155,7 +159,7 @@ async function listAppsImages(req, res) {
 
 /**
  * To start an app. Starts each component if the app is using Docker Compose. Only accessible by app owner, admins and flux team members.
- * @param {object} req Request. 
+ * @param {object} req Request.
  * @param {object} res Response.
  * @returns {object} Message.
  */
@@ -867,7 +871,7 @@ async function fluxUsage(req, res) {
     if (result) {
       explorerHeight = serviceHelper.ensureNumber(result.generalScannedHeight) || 999999999;
     }
-    const syncStatus = daemonService.isDaemonSynced();
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     const daemonHeight = syncStatus.data.height;
     let cpuCores = 0;
     const cpus = os.cpus();
@@ -969,15 +973,18 @@ async function appsResources(req, res) {
             appsRamLocked += serviceHelper.ensureNumber(component.ram) || 0;
             appsHddLocked += serviceHelper.ensureNumber(component.hdd) || 0;
           }
+          appsHddLocked += 2; // 2gb per image
         });
       } else if (app.tiered && tier) {
         appsCpusLocked += serviceHelper.ensureNumber(app[cpuTier] || app.cpu) || 0;
         appsRamLocked += serviceHelper.ensureNumber(app[ramTier] || app.ram) || 0;
         appsHddLocked += serviceHelper.ensureNumber(app[hddTier] || app.hdd) || 0;
+        appsHddLocked += 2; // 2gb per image
       } else {
         appsCpusLocked += serviceHelper.ensureNumber(app.cpu) || 0;
         appsRamLocked += serviceHelper.ensureNumber(app.ram) || 0;
         appsHddLocked += serviceHelper.ensureNumber(app.hdd) || 0;
+        appsHddLocked += 2; // 2gb per image
       }
     });
     const appsUsage = {
@@ -1011,7 +1018,7 @@ async function getNodeSpecs() {
     }
     if (nodeSpecs.ssdStorage === 0) {
       // get my external IP and check that it is longer than 5 in length.
-      const benchmarkResponse = await daemonService.getBenchmarks();
+      const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
       if (benchmarkResponse.status === 'success') {
         const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
         log.info(`Gathered ssdstorage ${benchmarkResponseData.ssd}`);
@@ -2009,11 +2016,43 @@ function totalAppHWRequirements(appSpecifications, myNodeTier) {
 }
 
 /**
- * To check app requirements to include HDD space, CPU power and RAM.
+ * To check app requirements of geolocation restrictions for a node
  * @param {object} appSpecs App specifications.
  * @returns {boolean} True if all checks passed.
  */
-async function checkAppRequirements(appSpecs) {
+function checkAppGeolocationRequirements(appSpecs) {
+  // check geolocation
+  if (appSpecs.version >= 5) {
+    const nodeGeo = fluxService.getNodeGeolocation();
+    if (!nodeGeo) {
+      throw new Error('Node Geolocation not set. Aborting.');
+    }
+    if (appSpecs.geolocation && appSpecs.geolocation.length > 0) {
+      const appContinent = appSpecs.geolocation.find((x) => x.startsWith('a'));
+      if (appContinent) {
+        if (appContinent.slice(1) !== nodeGeo.continentCode) {
+          throw new Error('App specs with continents geolocation set not matching node geolocation. Aborting.');
+        }
+
+        const appCountry = appSpecs.geolocation.find((x) => x.startsWith('b'));
+        if (appCountry) {
+          if (appCountry.slice(1) !== nodeGeo.countryCode) {
+            throw new Error('App specs with countries geolocation set not matching node geolocation. Aborting.');
+          }
+        }
+      }
+    }
+  }
+
+  return true;
+}
+
+/**
+ * To check app requirements of HW for a node
+ * @param {object} appSpecs App specifications.
+ * @returns {boolean} True if all checks passed.
+ */
+async function checkAppHWRequirements(appSpecs) {
   // appSpecs has hdd, cpu and ram assigned to correct tier
   const tier = await generalService.nodeTier();
   const resourcesLocked = await appsResources();
@@ -2051,6 +2090,22 @@ async function checkAppRequirements(appSpecs) {
   if (appHWrequirements.ram > availableRamForApps) {
     throw new Error('Insufficient RAM on Flux Node to spawn an application');
   }
+
+  return true;
+}
+
+/**
+ * To check app requirements to include HDD space, CPU power, RAM and GEO for a node
+ * @param {object} appSpecs App specifications.
+ * @returns {boolean} True if all checks passed.
+ */
+async function checkAppRequirements(appSpecs) {
+  // appSpecs has hdd, cpu and ram assigned to correct tier
+  await checkAppHWRequirements(appSpecs);
+  // check geolocation
+
+  checkAppGeolocationRequirements(appSpecs);
+
   return true;
 }
 
@@ -2438,7 +2493,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   } else if (appSpecifications.port) {
     const firewallActive = await fluxNetworkHelper.isFirewallActive();
     if (firewallActive) {
-    // v1 compatibility
+      // v1 compatibility
       const portResponse = await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
       if (portResponse.status === true) {
         const portStatus = {
@@ -2493,7 +2548,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
 
 /**
  * To soft register an app locally (with data volume already in existence). Performs pre-installation checks - database in place, Flux Docker network in place and if app already installed. Then registers app in database and performs soft install. If registration fails, the app is removed locally.
- * @param {object} appSpecs App specifications. 
+ * @param {object} appSpecs App specifications.
  * @param {object} componentSpecs Component specifications.
  * @param {object} res Response.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
@@ -3191,18 +3246,23 @@ async function checkApplicationImagesComplience(appSpecs) {
 
   const repos = resBlockedRepo.data;
 
+  const pureImagesRepos = [];
+  repos.forEach((repo) => {
+    pureImagesRepos.push(repo.split(':')[0]);
+  });
+
   const images = [];
   if (appSpecs.version <= 3) {
-    images.push(appSpecs.repotag);
+    images.push(appSpecs.repotag.split(':')[0]);
   } else {
     appSpecs.compose.forEach((component) => {
-      images.push(component.repotag);
+      images.push(component.repotag.split(':')[0]);
     });
   }
 
   images.forEach((image) => {
-    if (repos.includes(image)) {
-      throw new Error(`Repository ${image} is blocked. Application ${appSpecs.name} connot be spawned.`);
+    if (pureImagesRepos.includes(image)) {
+      throw new Error(`Image ${image} is blocked. Application ${appSpecs.name} connot be spawned.`);
     }
   });
 
@@ -3214,7 +3274,7 @@ async function checkApplicationImagesComplience(appSpecs) {
  * @param {object} appSpecification App specifications.
  * @returns {boolean} True if no errors are thrown.
  */
-function verifyCorrectnessOfApp(appSpecification) {
+function verifyTypeCorrectnessOfApp(appSpecification) {
   const { version } = appSpecification;
   const { name } = appSpecification;
   const { description } = appSpecification;
@@ -3234,6 +3294,8 @@ function verifyCorrectnessOfApp(appSpecification) {
   const { ram } = appSpecification;
   const { hdd } = appSpecification;
   const { tiered } = appSpecification;
+  const { contacts } = appSpecification;
+  const { geolocation } = appSpecification;
 
   if (!version) {
     throw new Error('Missing Flux App specification parameter');
@@ -3350,6 +3412,12 @@ function verifyCorrectnessOfApp(appSpecification) {
     if (!compose) {
       throw new Error('Missing Flux App specification parameter');
     }
+    if (typeof compose !== 'object') {
+      throw new Error('Invalid Flux App Specifications');
+    }
+    if (!Array.isArray(compose)) {
+      throw new Error('Invalid Flux App Specifications');
+    }
     if (compose.length < 1) {
       throw new Error('Flux App does not contain any components');
     }
@@ -3357,6 +3425,9 @@ function verifyCorrectnessOfApp(appSpecification) {
       throw new Error('Flux App has too many components');
     }
     compose.forEach((appComponent) => {
+      if (Array.isArray(appComponent)) {
+        throw new Error('Invalid Flux App Specifications');
+      }
       if (typeof appComponent.name !== 'string') {
         throw new Error('Invalid Flux App component name');
       }
@@ -3446,81 +3517,40 @@ function verifyCorrectnessOfApp(appSpecification) {
     if (Number.isInteger(instances) !== true) {
       throw new Error('Invalid instances specified');
     }
-    if (instances < config.fluxapps.minimumInstances) {
-      throw new Error(`Minimum number of instances is ${config.fluxapps.minimumInstances}`);
-    }
-    if (instances > config.fluxapps.maximumInstances) {
-      throw new Error(`Maximum number of instances is ${config.fluxapps.maximumInstances}`);
-    }
   }
 
-  return true;
-}
-
-/**
- * To convert an array of ports to a set object containing a list of unique ports.
- * @param {number[]} portsArray Array of ports.
- * @returns {object} Set object.
- */
-function appPortsUnique(portsArray) {
-  return (new Set(portsArray)).size === portsArray.length;
-}
-
-/**
- * To ensure that the app ports are unique.
- * @param {object} appSpecFormatted App specifications.
- * @returns True if Docker version 1. If Docker version 2 to 3, returns true if no errors are thrown.
- */
-function ensureAppUniquePorts(appSpecFormatted) {
-  if (appSpecFormatted.version === 1) {
-    return true;
-  }
-  if (appSpecFormatted.version <= 3) {
-    const portsUnique = appPortsUnique(appSpecFormatted.ports);
-    if (!portsUnique) {
-      throw new Error(`Flux App ${appSpecFormatted.name} must have unique ports specified`);
-    }
-  } else {
-    const allPorts = [];
-    appSpecFormatted.compose.forEach((component) => {
-      component.ports.forEach((port) => {
-        allPorts.push(port);
+  if (version >= 5) {
+    if (Array.isArray(contacts)) {
+      contacts.forEach((parameter) => {
+        if (typeof parameter !== 'string') {
+          throw new Error('Contacts for Flux App are invalid');
+        }
       });
-    });
-    const portsUnique = appPortsUnique(allPorts);
-    if (!portsUnique) {
-      throw new Error(`Flux App ${appSpecFormatted.name} must have unique ports specified accross all composition`);
+    } else {
+      throw new Error('Contacts for Flux App are invalid');
+    }
+    if (Array.isArray(geolocation)) {
+      geolocation.forEach((parameter) => {
+        if (typeof parameter !== 'string') {
+          throw new Error('Geolocation for Flux App are invalid');
+        }
+      });
+    } else {
+      throw new Error('Geolocation for Flux App are invalid');
     }
   }
+
   return true;
 }
 
 /**
- * To verify app specifications. Checks the attribute values of the appSpecifications object.
- * @param {object} appSpecifications App specifications.
- * @param {number} height Block height.
- * @param {boolean} checkDockerAndWhitelist Defaults to false.
+ * To verify correctness of attribute values within an app specification object. Checks for if restrictions of specs are valid.
+ * @param {object} appSpecification App specifications.
+ * @returns {boolean} True if no errors are thrown.
  */
-async function verifyAppSpecifications(appSpecifications, height, checkDockerAndWhitelist = false) {
-  if (!appSpecifications) {
-    throw new Error('Invalid Flux App Specifications');
-  }
-  if (typeof appSpecifications !== 'object') {
-    throw new Error('Invalid Flux App Specifications');
-  }
-  if (Array.isArray(appSpecifications)) {
-    throw new Error('Invalid Flux App Specifications');
-  }
-  const typeCheckVerification = verifyCorrectnessOfApp(appSpecifications); // throw if wrong
-  if (typeCheckVerification !== true) {
-    const errorMessage = typeCheckVerification;
-    throw new Error(errorMessage);
-  }
-  if (appSpecifications.version !== 1 && appSpecifications.version !== 2 && appSpecifications.version !== 3 && appSpecifications.version !== 4) {
+function verifyRestrictionCorrectnessOfApp(appSpecifications) {
+  if (appSpecifications.version !== 1 && appSpecifications.version !== 2 && appSpecifications.version !== 3 && appSpecifications.version !== 4 && appSpecifications.version !== 5) {
     throw new Error('Flux App message version specification is invalid');
-  }
-  if (height < config.fluxapps.appSpecsEnforcementHeights[appSpecifications.version]) {
-    throw new Error(`Flux apps specifications of version ${appSpecifications.version} not yet supported`);
   }
   if (appSpecifications.name.length > 32) {
     throw new Error('Flux App name is too long');
@@ -3544,8 +3574,7 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
     if (appSpecifications.port < config.fluxapps.portMin || appSpecifications.port > config.fluxapps.portMax) {
       throw new Error(`Assigned port ${appSpecifications.port} is not within Flux Apps range ${config.fluxapps.portMin}-${config.fluxapps.portMax}`);
     }
-
-    // check if containerPort makes sense{
+    // check if containerPort makes sense
     if (appSpecifications.containerPort < 0 || appSpecifications.containerPort > 65535) {
       throw new Error(`Container Port ${appSpecifications.containerPort} is not within system limits 0-65535`);
     }
@@ -3556,47 +3585,56 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
         throw new Error(`Assigned port ${port} is not within Flux Apps range ${config.fluxapps.portMin}-${config.fluxapps.portMax}`);
       }
     });
-
     // check if containerPort makes sense
     appSpecifications.containerPorts.forEach((port) => {
       if (port < 0 || port > 65535) {
         throw new Error(`Container Port ${port} is not within system limits 0-65535`);
       }
     });
-
     if (appSpecifications.containerPorts.length !== appSpecifications.ports.length) {
       throw new Error('Ports specifications do not match');
     }
-
     if (appSpecifications.domains.length !== appSpecifications.ports.length) {
       throw new Error('Domains specifications do not match available ports');
     }
-
     if (appSpecifications.ports.length > 5) {
       throw new Error('Too many ports defined. Maximum of 5 allowed.');
     }
+    appSpecifications.domains.forEach((dom) => {
+      if (dom.length > 253) {
+        throw new Error(`App ${appSpecifications.name} domain ${dom} is too long. Maximum of 253 characters is allowed`);
+      }
+    });
   }
 
   if (appSpecifications.version <= 3) {
-    checkHWParameters(appSpecifications);
-
     // check wheter shared Folder is not root
     if (appSpecifications.containerData.length < 2) {
       throw new Error('Flux App container data folder not specified. If no data folder is whished, use /tmp');
     }
-
-    if (checkDockerAndWhitelist) {
-      // check repository whitelisted
-      await generalService.checkWhitelistedRepository(appSpecifications.repotag);
-
-      // check repotag if available for download
-      await verifyRepository(appSpecifications.repotag);
+    if (appSpecifications.containerData.length > 200) {
+      throw new Error('Flux App Container Data is too long. Maximum of 200 characters is allowed');
     }
+    if (appSpecifications.repotag.length > 200) {
+      throw new Error('Flux App Repository is too long. Maximum of 200 characters is allowed.');
+    }
+    if (appSpecifications.enviromentParameters.length > 20) {
+      throw new Error(`App ${appSpecifications.name} environment invalid. Maximum of 20 environment variables allowed.`);
+    }
+    appSpecifications.enviromentParameters.forEach((env) => {
+      if (env.length > 400) {
+        throw new Error(`App ${appSpecifications.name} environment ${env} is too long. Maximum of 400 characters is allowed`);
+      }
+    });
+    if (appSpecifications.commands.length > 20) {
+      throw new Error(`App ${appSpecifications.name} commands invalid. Maximum of 20 commands allowed.`);
+    }
+    appSpecifications.commands.forEach((com) => {
+      if (com.length > 400) {
+        throw new Error(`App ${appSpecifications.name} command ${com} is too long. Maximum of 400 characters is allowed`);
+      }
+    });
   } else {
-    console.log(appSpecifications);
-    if (!Array.isArray(appSpecifications.compose)) {
-      throw new Error('Invalid Flux App Specifications');
-    }
     if (appSpecifications.compose.length < 1) {
       throw new Error('Flux App does not contain any composition');
     }
@@ -3611,9 +3649,6 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
         throw new Error('Invalid Flux App Specifications');
       }
       if (typeof appComponent !== 'object') {
-        throw new Error('Invalid Flux App Specifications');
-      }
-      if (Array.isArray(appComponent)) {
         throw new Error('Invalid Flux App Specifications');
       }
       if (appComponent.name.length > 32) {
@@ -3634,61 +3669,63 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
       }
       usedNames.push(appComponent.name);
       if (appComponent.description.length > 256) {
-        throw new Error('Description is too long. Maximum of 256 characters is allowed');
+        throw new Error('Description is too long. Maximum of 256 characters is allowed.');
       }
       appComponent.ports.forEach((port) => {
         if (port < config.fluxapps.portMin || port > config.fluxapps.portMax) {
           throw new Error(`Assigned port ${port} is not within Flux Apps range ${config.fluxapps.portMin}-${config.fluxapps.portMax}`);
         }
       });
-
+      if (appComponent.repotag.length > 200) {
+        throw new Error('Flux App Repository is too long. Maximum of 200 characters is allowed.');
+      }
+      if (appComponent.containerData.length > 200) {
+        throw new Error('Flux App Container Data is too long. Maximum of 200 characters is allowed');
+      }
+      if (appComponent.environmentParameters.length > 20) {
+        throw new Error(`App component ${appComponent.name} environment invalid. Maximum of 20 environment variables allowed.`);
+      }
+      appComponent.environmentParameters.forEach((env) => {
+        if (env.length > 400) {
+          throw new Error(`App component ${appComponent.name} environment ${env} is too long. Maximum of 400 characters is allowed`);
+        }
+      });
+      if (appComponent.commands.length > 20) {
+        throw new Error(`App component ${appComponent.name} commands invalid. Maximum of 20 commands allowed.`);
+      }
+      appComponent.commands.forEach((com) => {
+        if (com.length > 400) {
+          throw new Error(`App component ${appComponent.name} command ${com} is too long. Maximum of 400 characters is allowed`);
+        }
+      });
+      appComponent.domains.forEach((dom) => {
+        if (dom.length > 253) {
+          throw new Error(`App component ${appComponent.name} domain ${dom} is too long. Maximum of 253 characters is allowed`);
+        }
+      });
       // check if containerPort makes sense
       appComponent.containerPorts.forEach((port) => {
         if (port < 0 || port > 65535) {
           throw new Error(`Container Port ${port} in in ${appComponent.name} is not within system limits 0-65535`);
         }
       });
-
       if (appComponent.containerPorts.length !== appComponent.ports.length) {
         throw new Error(`Ports specifications in ${appComponent.name} do not match`);
       }
-
       if (appComponent.domains.length !== appComponent.ports.length) {
         throw new Error(`Domains specifications in ${appComponent.name} do not match available ports`);
       }
-
       if (appComponent.ports.length > 5) {
         throw new Error(`Too many ports defined in ${appComponent.name}. Maximum of 5 allowed.`);
       }
-
       // check wheter shared Folder is not root
       if (appComponent.containerData.length < 2) {
         throw new Error(`Flux App container data folder not specified in in ${appComponent.name}. If no data folder is whished, use /tmp`);
-      }
-
-      checkHWParameters(appComponent);
-
-      checkComposeHWParameters(appSpecifications);
-
-      if (checkDockerAndWhitelist) {
-        // check repository whitelisted
-        // eslint-disable-next-line no-await-in-loop
-        await generalService.checkWhitelistedRepository(appComponent.repotag);
-
-        // check repotag if available for download
-        // eslint-disable-next-line no-await-in-loop
-        await verifyRepository(appComponent.repotag);
       }
     }
   }
 
   if (appSpecifications.version >= 3) {
-    if (typeof appSpecifications.instances !== 'number') {
-      throw new Error('Instances is not a number');
-    }
-    if (Number.isInteger(appSpecifications.instances) !== true) {
-      throw new Error('Instances is not an integer');
-    }
     if (appSpecifications.instances < config.fluxapps.minimumInstances) {
       throw new Error(`Minimum number of instances is ${config.fluxapps.minimumInstances}`);
     }
@@ -3697,13 +3734,32 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
     }
   }
 
-  // verify ports are unique accross app
-  const portsAreUnique = ensureAppUniquePorts(appSpecifications);
-  if (portsAreUnique !== true) {
-    throw new Error('Application ports are not unique');
+  if (appSpecifications.version >= 5) {
+    if (appSpecifications.contacts.length > 5) {
+      throw new Error('Too many contacts defined. Maximum of 5 allowed.');
+    }
+    appSpecifications.contacts.forEach((contact) => {
+      if (contact.length > 75) {
+        throw new Error(`Contact ${contact} is too long. Maximum of 75 characters is allowed.`);
+      }
+    });
+    if (appSpecifications.geolocation.length > 10) { // we only expect 2
+      throw new Error('Invalid geolocation submited.'); // for now we are only accepting continent and country.
+    }
+    appSpecifications.geolocation.forEach((geo) => {
+      if (geo.length > 5) { // for now we only treat aXX and bXX as continent and country specs.
+        throw new Error(`Geolocation ${geo} is not valid.`); // firt letter for what represents and next two for the code
+      }
+    });
   }
+}
 
-  // check for Object.keys in applications. App can have only the fields that are in the version specification.
+/**
+ * To verify correctness of attribute values within an app specification object. Checks if all object keys are assigned and no excess present
+ * @param {object} appSpecification App specifications.
+ * @returns {boolean} True if no errors are thrown.
+ */
+function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
   if (appSpecifications.version === 1) {
     // appSpecs: {
     //   version: 2,
@@ -3765,7 +3821,7 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
         throw new Error('Unsupported parameter for v3 app specifications');
       }
     });
-  } else {
+  } else if (appSpecifications.version === 4) {
     const specifications = [
       'version', 'name', 'description', 'owner', 'compose', 'instances',
     ];
@@ -3787,10 +3843,138 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
         }
       });
     });
+  } else {
+    const specifications = [
+      'version', 'name', 'description', 'owner', 'compose', 'instances', 'contacts', 'geolocation',
+    ];
+    const componentSpecifications = [
+      'name', 'description', 'repotag', 'ports', 'containerPorts', 'environmentParameters', 'commands', 'containerData', 'domains',
+      'cpu', 'ram', 'hdd', 'tiered', 'cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
+    ];
+    const specsKeys = Object.keys(appSpecifications);
+    specsKeys.forEach((sKey) => {
+      if (!specifications.includes((sKey))) {
+        throw new Error('Unsupported parameter for v5 app specifications');
+      }
+    });
+    appSpecifications.compose.forEach((appComponent) => {
+      const specsKeysComponent = Object.keys(appComponent);
+      specsKeysComponent.forEach((sKey) => {
+        if (!componentSpecifications.includes((sKey))) {
+          throw new Error('Unsupported parameter for v5 app specifications');
+        }
+      });
+    });
+  }
+}
+
+/**
+ * To convert an array of ports to a set object containing a list of unique ports.
+ * @param {number[]} portsArray Array of ports.
+ * @returns {object} Set object.
+ */
+function appPortsUnique(portsArray) {
+  return (new Set(portsArray)).size === portsArray.length;
+}
+
+/**
+ * To ensure that the app ports are unique.
+ * @param {object} appSpecFormatted App specifications.
+ * @returns True if Docker version 1. If Docker version 2 to 3, returns true if no errors are thrown.
+ */
+function ensureAppUniquePorts(appSpecFormatted) {
+  if (appSpecFormatted.version === 1) {
+    return true;
+  }
+  if (appSpecFormatted.version <= 3) {
+    const portsUnique = appPortsUnique(appSpecFormatted.ports);
+    if (!portsUnique) {
+      throw new Error(`Flux App ${appSpecFormatted.name} must have unique ports specified`);
+    }
+  } else {
+    const allPorts = [];
+    appSpecFormatted.compose.forEach((component) => {
+      component.ports.forEach((port) => {
+        allPorts.push(port);
+      });
+    });
+    const portsUnique = appPortsUnique(allPorts);
+    if (!portsUnique) {
+      throw new Error(`Flux App ${appSpecFormatted.name} must have unique ports specified accross all composition`);
+    }
+  }
+  return true;
+}
+
+/**
+ * To verify app specifications. Checks the attribute values of the appSpecifications object.
+ * @param {object} appSpecifications App specifications.
+ * @param {number} height Block height.
+ * @param {boolean} checkDockerAndWhitelist Defaults to false.
+ */
+async function verifyAppSpecifications(appSpecifications, height, checkDockerAndWhitelist = false) {
+  if (!appSpecifications) {
+    throw new Error('Invalid Flux App Specifications');
+  }
+  if (typeof appSpecifications !== 'object') {
+    throw new Error('Invalid Flux App Specifications');
+  }
+  if (Array.isArray(appSpecifications)) {
+    throw new Error('Invalid Flux App Specifications');
   }
 
+  // TYPE CHECKS
+  verifyTypeCorrectnessOfApp(appSpecifications);
+
+  // RESTRICTION CHECKS
+  verifyRestrictionCorrectnessOfApp(appSpecifications);
+
+  // SPECS VALIDIT TIME
+  if (height < config.fluxapps.appSpecsEnforcementHeights[appSpecifications.version]) {
+    throw new Error(`Flux apps specifications of version ${appSpecifications.version} not yet supported`);
+  }
+
+  // OBJECT KEY CHECKS
+  // check for Object.keys in applications. App can have only the fields that are in the version specification.
+  verifyObjectKeysCorrectnessOfApp(appSpecifications);
+
+  // PORTS UNIQUE CHECKS
+  // verify ports are unique accross app
+  ensureAppUniquePorts(appSpecifications);
+
+  // HW Checks
+  if (appSpecifications.version <= 3) {
+    checkHWParameters(appSpecifications);
+  } else {
+    checkComposeHWParameters(appSpecifications);
+    // eslint-disable-next-line no-restricted-syntax
+    for (const appComponent of appSpecifications.compose) {
+      checkHWParameters(appComponent);
+    }
+  }
+
+  // Whitelist, repository checks
   if (checkDockerAndWhitelist) {
-    await checkApplicationImagesComplience(appSpecifications); // check blacklist
+    if (appSpecifications.version <= 3) {
+      // check repository whitelisted
+      await generalService.checkWhitelistedRepository(appSpecifications.repotag);
+
+      // check repotag if available for download
+      await verifyRepository(appSpecifications.repotag);
+    } else {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const appComponent of appSpecifications.compose) {
+        // check repository whitelisted
+        // eslint-disable-next-line no-await-in-loop
+        await generalService.checkWhitelistedRepository(appComponent.repotag);
+
+        // check repotag if available for download
+        // eslint-disable-next-line no-await-in-loop
+        await verifyRepository(appComponent.repotag);
+      }
+    }
+    // check blacklist
+    await checkApplicationImagesComplience(appSpecifications);
   }
 }
 
@@ -3893,7 +4077,7 @@ async function assignedPortsGlobalApps(appNames) {
 }
 
 /**
- * To restore UPnP support for Flux ports.
+ * Restores FluxOS firewall, UPNP rules
  */
 async function restoreFluxPortsSupport() {
   try {
@@ -3903,8 +4087,8 @@ async function restoreFluxPortsSupport() {
     const homePort = +apiPort - 1;
 
     // setup UFW if active
-    await fluxCommunication.allowPort(serviceHelper.ensureNumber(apiPort));
-    await fluxCommunication.allowPort(serviceHelper.ensureNumber(homePort));
+    await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(apiPort));
+    await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(homePort));
 
     // UPNP
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
@@ -3917,7 +4101,7 @@ async function restoreFluxPortsSupport() {
 }
 
 /**
- * To restore UPnP support for Apps ports.
+ * Restores applications firewall, UPNP rules
  */
 async function restoreAppsPortsSupport() {
   try {
@@ -3930,7 +4114,7 @@ async function restoreAppsPortsSupport() {
       // eslint-disable-next-line no-restricted-syntax
       for (const port of application.ports) {
         // eslint-disable-next-line no-await-in-loop
-        await fluxCommunication.allowPort(serviceHelper.ensureNumber(port));
+        await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(port));
       }
     }
 
@@ -3952,7 +4136,7 @@ async function restoreAppsPortsSupport() {
 }
 
 /**
- * To restore UPnP support for Flux ports and Apps ports.
+ * Restores FluxOS and applications firewall, UPNP rules
  */
 async function restorePortsSupport() {
   try {
@@ -4371,14 +4555,14 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   // this takes roughly at least 1 second
   if (furtherVerification) {
     if (message.type === 'zelappregister' || message.type === 'fluxappregister') {
-      const syncStatus = daemonService.isDaemonSynced();
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       const daemonHeight = syncStatus.data.height;
       await verifyAppSpecifications(specifications, daemonHeight);
       await verifyAppHash(message);
       await checkApplicationRegistrationNameConflicts(specifications);
       await verifyAppMessageSignature(message.type, message.version, specifications, message.timestamp, message.signature);
     } else if (message.type === 'zelappupdate' || message.type === 'fluxappupdate') {
-      const syncStatus = daemonService.isDaemonSynced();
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       const daemonHeight = syncStatus.data.height;
       // stadard verifications
       await verifyAppSpecifications(specifications, daemonHeight);
@@ -4483,7 +4667,7 @@ async function storeAppRunningMessage(message) {
 
 /**
  * To request app message.
- * @param {string} hash Message hash. 
+ * @param {string} hash Message hash.
  */
 async function requestAppMessage(hash) {
   // some message type request app message, message hash
@@ -4495,7 +4679,7 @@ async function requestAppMessage(hash) {
     hash,
   };
   await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(message);
-  await serviceHelper.delay(100);
+  await serviceHelper.delay(500);
   await fluxCommunicationMessagesSender.broadcastMessageToIncoming(message);
 }
 
@@ -4522,6 +4706,8 @@ function specificationFormatter(appSpecification) {
   let { ram } = appSpecification;
   let { hdd } = appSpecification;
   const { tiered } = appSpecification;
+  let { contacts } = appSpecification;
+  let { geolocation } = appSpecification;
 
   if (!version) {
     throw new Error('Missing Flux App specification parameter');
@@ -4795,6 +4981,35 @@ function specificationFormatter(appSpecification) {
     appSpecFormatted.instances = instances;
   }
 
+  if (version >= 5) {
+    if (!contacts || !geolocation) { // can be empty array for no contact or no geolocation requirements
+      throw new Error('Missing Flux App specification parameter');
+    }
+    contacts = serviceHelper.ensureObject(contacts);
+    const contactsCorrect = [];
+    if (Array.isArray(contacts)) {
+      contacts.forEach((parameter) => {
+        const param = serviceHelper.ensureString(parameter); // string
+        contactsCorrect.push(param);
+      });
+    } else {
+      throw new Error('Contacts for Flux App are invalid');
+    }
+    appSpecFormatted.contacts = contactsCorrect;
+
+    geolocation = serviceHelper.ensureObject(geolocation);
+    const geolocationCorrect = [];
+    if (Array.isArray(geolocation)) {
+      geolocation.forEach((parameter) => {
+        const param = serviceHelper.ensureString(parameter); // string
+        geolocationCorrect.push(param);
+      });
+    } else {
+      throw new Error('Geolocation for Flux App is invalid');
+    }
+    appSpecFormatted.geolocation = geolocationCorrect;
+  }
+
   return appSpecFormatted;
 }
 
@@ -4818,10 +5033,10 @@ async function registerAppGlobalyApi(req, res) {
         return;
       }
       // first check if this node is available for application registration
-      if (fluxCommunication.outgoingPeers.length < config.fluxapps.minOutgoing) {
+      if (outgoingPeers.length < config.fluxapps.minOutgoing) {
         throw new Error('Sorry, This Flux does not have enough outgoing peers for safe application registration');
       }
-      if (fluxCommunication.incomingPeers.length < config.fluxapps.minIncoming) {
+      if (incomingPeers.length < config.fluxapps.minIncoming) {
         throw new Error('Sorry, This Flux does not have enough incoming peers for safe application registration');
       }
       const processedBody = serviceHelper.ensureObject(body);
@@ -4850,7 +5065,7 @@ async function registerAppGlobalyApi(req, res) {
 
       const appSpecFormatted = specificationFormatter(appSpecification);
 
-      const syncStatus = daemonService.isDaemonSynced();
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       if (!syncStatus.data.synced) {
         throw new Error('Daemon not yet synced.');
       }
@@ -4935,10 +5150,10 @@ async function updateAppGlobalyApi(req, res) {
         return;
       }
       // first check if this node is available for application update
-      if (fluxCommunication.outgoingPeers.length < config.fluxapps.minOutgoing) {
+      if (outgoingPeers.length < config.fluxapps.minOutgoing) {
         throw new Error('Sorry, This Flux does not have enough outgoing peers for safe application update');
       }
-      if (fluxCommunication.incomingPeers.length < config.fluxapps.minIncoming) {
+      if (incomingPeers.length < config.fluxapps.minIncoming) {
         throw new Error('Sorry, This Flux does not have enough incoming peers for safe application update');
       }
       const processedBody = serviceHelper.ensureObject(body);
@@ -4967,7 +5182,7 @@ async function updateAppGlobalyApi(req, res) {
 
       const appSpecFormatted = specificationFormatter(appSpecification);
 
-      const syncStatus = daemonService.isDaemonSynced();
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       if (!syncStatus.data.synced) {
         throw new Error('Daemon not yet synced.');
       }
@@ -5828,7 +6043,7 @@ async function getAppHashes(req, res) {
     };
     const results = await dbHelper.findInDatabase(database, appsHashesCollection, query, projection);
     const resultsResponse = messageHelper.createDataMessage(results);
-    res.json(resultsResponse);
+    return res ? res.json(resultsResponse) : resultsResponse;
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
@@ -5836,7 +6051,7 @@ async function getAppHashes(req, res) {
       error.name,
       error.code,
     );
-    res.json(errorResponse);
+    return res ? res.json(errorResponse) : errorResponse;
   }
 }
 
@@ -6141,7 +6356,8 @@ async function getApplicationOwnerAPI(req, res) {
 }
 
 /**
- * To try spawning a global application. Performs various checks before the app is spawned. Checks that app is not already running on the FluxNode/IP address. Checks if app already has the required number of instances deployed. Checks that application image is not blacklisted. Checks that ports not already in use.
+ * To try spawning a global application. Performs various checks before the app is spawned. Checks that app is not already running on the FluxNode/IP address.
+ * Checks if app already has the required number of instances deployed. Checks that application image is not blacklisted. Checks that ports not already in use.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function trySpawningGlobalApplication() {
@@ -6196,7 +6412,7 @@ async function trySpawningGlobalApplication() {
     const adjustedDelay = delay / probLn;
 
     // get my external IP and check that it is longer than 5 in length.
-    const benchmarkResponse = await daemonService.getBenchmarks();
+    const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
     let myIP = null;
     if (benchmarkResponse.status === 'success') {
       const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
@@ -6325,11 +6541,18 @@ async function trySpawningGlobalApplication() {
     });
 
     // ensure images exists for platform
-    await ensureApplicationImagesExistsForPlatform(appSpecifications).catch((error) => {
+    const imagesArchitectureMatches = await ensureApplicationImagesExistsForPlatform(appSpecifications).catch((error) => {
       log.error(error);
       trySpawningGlobalAppCache.set(randomApp, randomApp);
       throw error;
     });
+    if (imagesArchitectureMatches !== true) {
+      log.info(`Application ${randomApp} does not support our node architecture, installation aborted.`);
+      trySpawningGlobalAppCache.set(randomApp, randomApp);
+      await serviceHelper.delay(adjustedDelay);
+      trySpawningGlobalApplication();
+      return;
+    }
 
     // if all ok Check hashes comparison if its out turn to start the app. 1% probability.
     const randomNumber = Math.floor((Math.random() * (config.fluxapps.installation.probability / probLn))); // higher probability for more apps on network
@@ -6342,6 +6565,21 @@ async function trySpawningGlobalApplication() {
     // an application was selected and checked that it can run on this node. try to install and run it locally
     // install the app
     await registerAppLocally(appSpecifications); // can throw
+
+    const broadcastedAt = new Date().getTime();
+    const newAppRunningMessage = {
+      type: 'fluxapprunning',
+      version: 1,
+      hash: appSpecifications.hash, // hash of application specifics that are running
+      ip: myIP,
+      broadcastedAt,
+    };
+
+    // broadcast messages about running apps to all peers
+    await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessage);
+    await serviceHelper.delay(100);
+    await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessage);
+    // broadcast messages about running apps to all peers
 
     await serviceHelper.delay(10 * config.fluxapps.installation.delay * 1000);
     log.info('Reinitiating possible app installation');
@@ -6359,7 +6597,7 @@ async function trySpawningGlobalApplication() {
 async function checkAndNotifyPeersOfRunningApps() {
   try {
     // get my external IP and check that it is longer than 5 in length.
-    const benchmarkResponse = await daemonService.getBenchmarks();
+    const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
     let myIP = null;
     if (benchmarkResponse.status === 'success') {
       const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
@@ -6914,7 +7152,7 @@ async function getAppPrice(req, res) {
           _id: 0,
         },
       };
-      const syncStatus = daemonService.isDaemonSynced();
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       if (!syncStatus.data.synced) {
         throw new Error('Daemon not yet synced.');
       }
@@ -7022,7 +7260,7 @@ async function verifyAppRegistrationParameters(req, res) {
       appSpecification = serviceHelper.ensureObject(appSpecification);
       const appSpecFormatted = specificationFormatter(appSpecification);
 
-      const syncStatus = daemonService.isDaemonSynced();
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       if (!syncStatus.data.synced) {
         throw new Error('Daemon not yet synced.');
       }
@@ -7069,7 +7307,7 @@ async function verifyAppUpdateParameters(req, res) {
       appSpecification = serviceHelper.ensureObject(appSpecification);
       const appSpecFormatted = specificationFormatter(appSpecification);
 
-      const syncStatus = daemonService.isDaemonSynced();
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       if (!syncStatus.data.synced) {
         throw new Error('Daemon not yet synced.');
       }

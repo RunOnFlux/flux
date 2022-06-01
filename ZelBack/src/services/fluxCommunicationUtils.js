@@ -3,12 +3,10 @@ const LRU = require('lru-cache');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
-const daemonService = require('./daemonService');
-const { outgoingConnections } = require('./utils/establishedConnections');
-
+const daemonServiceZelnodeRpcs = require('./daemonService/daemonServiceZelnodeRpcs');
 // default cache
 const LRUoptions = {
-  max: 2000, // currently 750 nodes lets put a value expecting increase in the numbers.
+  max: 12000, // currently 12000 nodes
   maxAge: 1000 * 150, // 150 seconds slightly over average blocktime. Allowing 1 block expired too.
 };
 
@@ -42,7 +40,7 @@ async function deterministicFluxList(filter) {
           params: {},
           query: {},
         };
-        const daemonFluxNodesList = await daemonService.viewDeterministicZelNodeList(request);
+        const daemonFluxNodesList = await daemonServiceZelnodeRpcs.viewDeterministicZelNodeList(request);
         if (daemonFluxNodesList.status === 'success') {
           generalFluxList = daemonFluxNodesList.data || [];
           myCache.set('fluxList', generalFluxList);
@@ -153,7 +151,6 @@ async function verifyOriginalFluxBroadcast(data, obtainedFluxNodeList, currentTi
 module.exports = {
   verifyTimestampInFluxBroadcast,
   verifyOriginalFluxBroadcast,
-  outgoingConnections,
   deterministicFluxList,
   verifyFluxBroadcast,
 };
