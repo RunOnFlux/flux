@@ -9,7 +9,11 @@ const util = require('util');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
-const daemonService = require('./daemonService');
+const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
+const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
+const daemonServiceZelnodeRpcs = require('./daemonService/daemonServiceZelnodeRpcs');
+const daemonServiceBenchmarkRpcs = require('./daemonService/daemonServiceBenchmarkRpcs');
+const daemonServiceWalletRpcs = require('./daemonService/daemonServiceWalletRpcs');
 const benchmarkService = require('./benchmarkService');
 const verificationHelper = require('./verificationHelper');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
@@ -157,7 +161,7 @@ function getDosStateValue() {
 }
 
 async function getMyFluxIPandPort() {
-  const benchmarkResponse = await daemonService.getBenchmarks();
+  const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
   let myIP = null;
   if (benchmarkResponse.status === 'success') {
     const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
@@ -170,7 +174,7 @@ async function getMyFluxIPandPort() {
 }
 
 async function getFluxNodePrivateKey(privatekey) {
-  const privKey = privatekey || daemonService.getConfigValue('zelnodeprivkey');
+  const privKey = privatekey || daemonServiceUtils.getConfigValue('zelnodeprivkey');
   return privKey;
 }
 
@@ -393,7 +397,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
       if (benchMyIP && benchMyIP !== myIP) {
         log.info('New public Ip detected, updating the FluxNode info in the network');
         myIP = benchMyIP;
-        daemonService.createConfirmationTransaction();
+        daemonServiceWalletRpcs.createConfirmationTransaction();
         await serviceHelper.delay(4 * 60 * 1000); // lets wait 2 blocks time for the transaction to be mined
         return true;
       } if (benchMyIP && benchMyIP === myIP) {
@@ -464,7 +468,7 @@ async function checkDeterministicNodesCollisions() {
     // another precatuion might be comparing node list on multiple nodes. evaulate in the future
     const myIP = await getMyFluxIPandPort();
     if (myIP) {
-      const syncStatus = daemonService.isDaemonSynced();
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       if (!syncStatus.data.synced) {
         setTimeout(() => {
           checkDeterministicNodesCollisions();
@@ -473,7 +477,7 @@ async function checkDeterministicNodesCollisions() {
       }
       const nodeList = await fluxCommunicationUtils.deterministicFluxList();
       const result = nodeList.filter((node) => node.ip === myIP);
-      const nodeStatus = await daemonService.getZelNodeStatus();
+      const nodeStatus = await daemonServiceZelnodeRpcs.getZelNodeStatus();
       if (nodeStatus.status === 'success') { // different scenario is caught elsewhere
         const myCollateral = nodeStatus.data.collateral;
         const myNode = result.find((node) => node.collateral === myCollateral);

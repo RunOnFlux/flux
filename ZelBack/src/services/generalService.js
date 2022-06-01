@@ -4,7 +4,9 @@ const crypto = require('crypto');
 const log = require('../lib/log');
 
 const serviceHelper = require('./serviceHelper');
-const daemonService = require('./daemonService');
+const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
+const daemonServiceZelnodeRpcs = require('./daemonService/daemonServiceZelnodeRpcs');
+const daemonServiceTransactionRpcs = require('./daemonService/daemonServiceTransactionRpcs');
 const messageHelper = require('./messageHelper');
 const dbHelper = require('./dbHelper');
 
@@ -38,7 +40,7 @@ async function nodeTier() {
   }
   // get our collateral information to decide if app specifications are basic, super, bamf
   // getzlenodestatus.collateral
-  const nodeStatus = await daemonService.getZelNodeStatus();
+  const nodeStatus = await daemonServiceZelnodeRpcs.getZelNodeStatus();
   if (nodeStatus.status === 'error') {
     throw nodeStatus.data;
   }
@@ -50,7 +52,7 @@ async function nodeTier() {
       verbose: 1,
     },
   };
-  const txInformation = await daemonService.getRawTransaction(request);
+  const txInformation = await daemonServiceTransactionRpcs.getRawTransaction(request);
   if (txInformation.status === 'error') {
     throw txInformation.data;
   }
@@ -114,7 +116,7 @@ async function nodeCollateral() {
   }
   // get our collateral information to decide if app specifications are basic, super, bamf
   // getzlenodestatus.collateral
-  const nodeStatus = await daemonService.getZelNodeStatus();
+  const nodeStatus = await daemonServiceZelnodeRpcs.getZelNodeStatus();
   if (nodeStatus.status === 'error') {
     throw nodeStatus.data;
   }
@@ -126,7 +128,7 @@ async function nodeCollateral() {
       verbose: 1,
     },
   };
-  const txInformation = await daemonService.getRawTransaction(request);
+  const txInformation = await daemonServiceTransactionRpcs.getRawTransaction(request);
   if (txInformation.status === 'error') {
     throw txInformation.data;
   }
@@ -171,7 +173,7 @@ async function nodeCollateral() {
  */
 async function isNodeStatusConfirmed() {
   try {
-    const response = await daemonService.getZelNodeStatus();
+    const response = await daemonServiceZelnodeRpcs.getZelNodeStatus();
     if (response.status === 'error') {
       throw response.data;
     }
@@ -192,7 +194,7 @@ async function isNodeStatusConfirmed() {
 async function checkSynced() {
   try {
     // check if flux database is synced with daemon database (equal or -1 inheight)
-    const syncStatus = daemonService.isDaemonSynced();
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     if (!syncStatus.data.synced) {
       throw new Error('Daemon not yet synced.');
     }
