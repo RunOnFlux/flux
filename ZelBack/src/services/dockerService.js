@@ -192,7 +192,7 @@ async function dockerContainerChanges(idOrName) {
 }
 
 /**
- * 
+ * To pull a Docker Hub image and follow progress of the stream.
  * @param {string} repoTag Docker Hub repo/image tag.
  * @param {object} res Response.
  * @param {function} callback Callback.
