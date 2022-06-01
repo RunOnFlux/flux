@@ -3892,6 +3892,9 @@ async function assignedPortsGlobalApps(appNames) {
   return apps;
 }
 
+/**
+ * To restore UPnP support for Flux ports.
+ */
 async function restoreFluxPortsSupport() {
   try {
     const isUPNP = upnpService.isUPNP();
@@ -3913,6 +3916,9 @@ async function restoreFluxPortsSupport() {
   }
 }
 
+/**
+ * To restore UPnP support for Apps ports.
+ */
 async function restoreAppsPortsSupport() {
   try {
     const currentAppsPorts = await assignedPortsInstalledApps();
@@ -3945,6 +3951,9 @@ async function restoreAppsPortsSupport() {
   }
 }
 
+/**
+ * To restore UPnP support for Flux ports and Apps ports.
+ */
 async function restorePortsSupport() {
   try {
     await restoreFluxPortsSupport();
