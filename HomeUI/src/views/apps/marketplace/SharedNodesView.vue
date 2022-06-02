@@ -1504,24 +1504,28 @@ export default {
     };
 
     const fetchData = async () => {
-      nodeCount.value = await getNodeCount();
-      const response = await axios.get(`${apiURL}/config`);
-      titanConfig.value = response.data;
-      titanConfig.value.lockups.sort((a, b) => a.blocks - b.blocks);
-      titanConfig.value.lockups.forEach((lockup) => {
-        // eslint-disable-next-line no-param-reassign
-        lockup.apr = calcAPR(lockup);
-      });
-      if (response.data.minStake > 0) {
-        minStakeAmount.value = response.data.minStake;
+      try {
+        nodeCount.value = await getNodeCount();
+        const response = await axios.get(`${apiURL}/config`);
+        titanConfig.value = response.data;
+        titanConfig.value.lockups.sort((a, b) => a.blocks - b.blocks);
+        titanConfig.value.lockups.forEach((lockup) => {
+          // eslint-disable-next-line no-param-reassign
+          lockup.apr = calcAPR(lockup);
+        });
+        if (response.data.minStake > 0) {
+          minStakeAmount.value = response.data.minStake;
+        }
+        if (response.data.maxStake > 0) {
+          maxStakeAmount.value = response.data.maxStake;
+        }
+        getSharedNodeList();
+        getStats();
+        getMyStakes();
+        getMyPayments();
+      } catch (error) {
+        showToast('danger', error.message || error);
       }
-      if (response.data.maxStake > 0) {
-        maxStakeAmount.value = response.data.maxStake;
-      }
-      getSharedNodeList();
-      getStats();
-      getMyStakes();
-      getMyPayments();
     };
     fetchData();
 
