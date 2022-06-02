@@ -23,8 +23,7 @@ let storedCollateral = null;
  * @property {number} txindex Transaction index.
  */
 function getCollateralInfo(collateralOutpoint) {
-  const a = collateralOutpoint;
-  const b = a.split(', ');
+  const b = collateralOutpoint.split(', ');
   const txhash = b[0].slice(10);
   const txindex = serviceHelper.ensureNumber(b[1].split(')')[0]);
   return { txhash, txindex };
@@ -58,34 +57,19 @@ async function nodeTier() {
   }
   // get collateralInformation.txindex vout
   const { value } = txInformation.data.vout[collateralInformation.txindex];
-  if (value === 10000) {
+  if (value === 10000 || value === 1000) {
     storedTier = 'basic';
-    storedCollateral = 10000;
+    storedCollateral = value;
     return storedTier;
   }
-  if (value === 25000) {
+  if (value === 25000 || value === 12500) {
     storedTier = 'super';
-    storedCollateral = 25000;
+    storedCollateral = value;
     return storedTier;
   }
-  if (value === 100000) {
+  if (value === 100000 || value === 40000) {
     storedTier = 'bamf';
-    storedCollateral = 100000;
-    return storedTier;
-  }
-  if (value === 1000) {
-    storedTier = 'basic';
-    storedCollateral = 1000;
-    return storedTier;
-  }
-  if (value === 12500) {
-    storedTier = 'super';
-    storedCollateral = 12500;
-    return storedTier;
-  }
-  if (value === 40000) {
-    storedTier = 'bamf';
-    storedCollateral = 40000;
+    storedCollateral = value;
     return storedTier;
   }
   throw new Error('Unrecognised Flux Node tier');
@@ -134,34 +118,19 @@ async function nodeCollateral() {
   }
   // get collateralInformation.txindex vout
   const { value } = txInformation.data.vout[collateralInformation.txindex];
-  if (value === 10000) {
+  if (value === 10000 || value === 1000) {
     storedTier = 'basic';
-    storedCollateral = 10000;
+    storedCollateral = value;
     return storedCollateral;
   }
-  if (value === 25000) {
-    storedTier = 'super';
-    storedCollateral = 25000;
-    return storedCollateral;
-  }
-  if (value === 100000) {
+  if (value === 100000 || value === 40000) {
     storedTier = 'bamf';
-    storedCollateral = 100000;
+    storedCollateral = value;
     return storedCollateral;
   }
-  if (value === 1000) {
-    storedTier = 'basic';
-    storedCollateral = 1000;
-    return storedCollateral;
-  }
-  if (value === 12500) {
+  if (value === 25000 || value === 12500) {
     storedTier = 'super';
-    storedCollateral = 12500;
-    return storedCollateral;
-  }
-  if (value === 40000) {
-    storedTier = 'bamf';
-    storedCollateral = 40000;
+    storedCollateral = value;
     return storedCollateral;
   }
   throw new Error('Unrecognised Flux Node Collateral');
@@ -234,26 +203,26 @@ async function checkWhitelistedRepository(repotag) {
     throw new Error('Invalid repotag');
   }
   const splittedRepo = repotag.split(':');
-  if (splittedRepo[0] && splittedRepo[1] && !splittedRepo[2]) {
-    const resWhitelistRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/repositories.json');
-
-    if (!resWhitelistRepo) {
-      throw new Error('Unable to communicate with Flux Services! Try again later.');
-    }
-
-    const imageTags = resWhitelistRepo.data;
-    const pureImages = [];
-    imageTags.forEach((imageTag) => {
-      const pureImage = imageTag.split(':')[0];
-      pureImages.push(pureImage);
-    });
-    const whitelisted = pureImages.includes(splittedRepo[0]);
-    if (!whitelisted) { // not exact match and general image not whitelisted either
-      throw new Error('Repository is not whitelisted. Please contact Flux Team.');
-    }
-  } else {
+  if (!splittedRepo[0] || !splittedRepo[1] || splittedRepo[2]) {
     throw new Error(`Repository ${repotag} is not in valid format namespace/repository:tag`);
   }
+  const resWhitelistRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/repositories.json');
+
+  if (!resWhitelistRepo) {
+    throw new Error('Unable to communicate with Flux Services! Try again later.');
+  }
+
+  const imageTags = resWhitelistRepo.data;
+  const pureImages = [];
+  imageTags.forEach((imageTag) => {
+    const pureImage = imageTag.split(':')[0];
+    pureImages.push(pureImage);
+  });
+  const whitelisted = pureImages.includes(splittedRepo[0]);
+  if (!whitelisted) { // not exact match and general image not whitelisted either
+    throw new Error('Repository is not whitelisted. Please contact Flux Team.');
+  }
+
   return true;
 }
 
@@ -286,6 +255,36 @@ async function messageHash(message) {
   return crypto.createHash('sha256').update(message).digest('hex');
 }
 
+/**
+ * Set nodeTier - created for testing purposes
+ */
+function setStoredTier(newValue) {
+  storedTier = newValue;
+}
+
+/**
+ * Returns storedTier - created for testing purposes
+ * @returns {string} storedTier
+ */
+function getStoredTier() {
+  return storedTier;
+}
+
+/**
+ * Set storedCollateral - created for testing purposes
+ */
+function setStoredCollateral(newValue) {
+  storedCollateral = newValue;
+}
+
+/**
+ * Returns storedCollateral - created for testing purposes
+ * @returns {number} storedTier
+ */
+function getStoredCollateral() {
+  return storedCollateral;
+}
+
 module.exports = {
   getCollateralInfo,
   nodeTier,
@@ -296,4 +295,10 @@ module.exports = {
   whitelistedRepositories,
   messageHash,
   nodeCollateral,
+
+  // exported for testing purposes
+  setStoredTier,
+  setStoredCollateral,
+  getStoredCollateral,
+  getStoredTier,
 };
