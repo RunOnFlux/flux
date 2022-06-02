@@ -258,7 +258,6 @@ async function messageHash(message) {
 /**
  * Set nodeTier - created for testing purposes
  */
-
 function setStoredTier(newValue) {
   storedTier = newValue;
 }
@@ -274,7 +273,6 @@ function getStoredTier() {
 /**
  * Set storedCollateral - created for testing purposes
  */
-
 function setStoredCollateral(newValue) {
   storedCollateral = newValue;
 }
