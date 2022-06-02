@@ -69,9 +69,9 @@ async function deterministicFluxList(filter) {
 
 /**
  * To verify Flux broadcast.
- * @param {object} data Data containing public key, timestamp, signature and version. 
+ * @param {object} data Data containing public key, timestamp, signature and version.
  * @param {object[]} obtainedFluxNodesList List of FluxNodes.
- * @param {number} currentTimeStamp Current timestamp. 
+ * @param {number} currentTimeStamp Current timestamp.
  * @returns {boolean} False unless message is successfully verified.
  */
 async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp) {
@@ -138,7 +138,7 @@ async function verifyTimestampInFluxBroadcast(data, currentTimeStamp) {
  * To verify original Flux broadcast. Extends verifyFluxBroadcast by not allowing request older than 5 mins.
  * @param {object} data Data.
  * @param {object[]} obtainedFluxNodeList List of FluxNodes.
- * @param {number} currentTimeStamp Current timestamp. 
+ * @param {number} currentTimeStamp Current timestamp.
  * @returns {boolean} False unless message is successfully verified.
  */
 async function verifyOriginalFluxBroadcast(data, obtainedFluxNodeList, currentTimeStamp) {
