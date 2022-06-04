@@ -836,7 +836,7 @@ async function getFluxInfo(req, res) {
     if (appHashes.status === 'error') {
       throw appHashes.data;
     }
-    info.apps.hashes = appHashes.data;
+    info.apps.numberOfHashes = appHashes.data.length;
     const explorerScannedHeight = await explorerService.getScannedHeight();
     if (explorerScannedHeight.status === 'error') {
       throw explorerScannedHeight.data;
@@ -846,12 +846,12 @@ async function getFluxInfo(req, res) {
     if (connectionsOut.status === 'error') {
       throw connectionsOut.data;
     }
-    info.flux.connectionsOut = connectionsOut.data;
+    info.flux.numberOfConnectionsOut = connectionsOut.data.length;
     const connectionsIn = fluxNetworkHelper.getIncomingConnectionsInfo();
     if (connectionsIn.status === 'error') {
       throw connectionsIn.data;
     }
-    info.flux.connectionsIn = connectionsIn.data;
+    info.flux.numberOfConnectionsIn = connectionsIn.data.length;
 
     const response = messageHelper.createDataMessage(info);
     return res ? res.json(response) : response;
