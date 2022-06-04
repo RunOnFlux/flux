@@ -836,7 +836,10 @@ async function getFluxInfo(req, res) {
     if (appHashes.status === 'error') {
       throw appHashes.data;
     }
-    info.apps.numberOfHashes = appHashes.data.length;
+    const hashesOk = appHashes.data.filter((data) => data.height >= 694000);
+    info.appsHashesTotal = hashesOk.length;
+    const mesOK = hashesOk.filter((mes) => mes.message === true);
+    info.hashesPresent = mesOK.length;
     const explorerScannedHeight = await explorerService.getScannedHeight();
     if (explorerScannedHeight.status === 'error') {
       throw explorerScannedHeight.data;
