@@ -8,7 +8,7 @@ const userconfig = require('../../../../config/userconfig');
 const isTestnet = userconfig.initial.testnet;
 
 let currentDaemonHeight = 0;
-let currentDaemonHeader = isTestnet === true ? 249187 : 1102828;
+let currentDaemonHeader = isTestnet === true ? 377006 : 1136836;
 let isDaemonInsightExplorer = null;
 
 /**
