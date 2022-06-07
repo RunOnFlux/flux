@@ -962,10 +962,10 @@
           >
             <div>
               <h3 class="float-left">
-                {{ minStakeAmount }}
+                {{ toFixedLocaleString(minStakeAmount) }}
               </h3>
               <h3 class="float-right">
-                {{ maxStakeAmount }}
+                {{ toFixedLocaleString(maxStakeAmount) }}
               </h3>
             </div>
             <b-form-input
