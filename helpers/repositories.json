@@ -263,5 +263,6 @@
    "rocketchat/rocket.chat:latest",
    "nextcloud",
    "scooby1715/crypto-backend",
-   "saramandaia/demonix:latest"
+   "saramandaia/demonix:latest",
+   "alihmahdavi/fluxdb"
 ]
