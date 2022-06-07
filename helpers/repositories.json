@@ -264,5 +264,7 @@
    "nextcloud",
    "scooby1715/crypto-backend",
    "saramandaia/demonix:latest",
-   "alihmahdavi/fluxdb"
+   "alihmahdavi/fluxdb",
+   "slashapps/noderank:latest",
+   "dopsimulation/ot-umami-gui:latest"
 ]
