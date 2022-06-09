@@ -266,5 +266,6 @@
    "saramandaia/demonix:latest",
    "alihmahdavi/fluxdb",
    "slashapps/noderank:latest",
-   "dopsimulation/ot-umami-gui:latest"
+   "dopsimulation/ot-umami-gui:latest",
+   "louisdussoulier/dapp:latest"
 ]
