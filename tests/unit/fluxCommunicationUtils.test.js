@@ -6,7 +6,7 @@ const proxyquire = require('proxyquire');
 const { expect } = chai;
 let fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
-const daemonService = require('../../ZelBack/src/services/daemonService');
+const daemonServiceZelnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceZelnodeRpcs');
 const fluxList = require('./data/listfluxnodes.json');
 
 describe('fluxCommunicationUtils tests', () => {
@@ -72,7 +72,7 @@ describe('fluxCommunicationUtils tests', () => {
     let daemonStub;
 
     beforeEach(() => {
-      daemonStub = sinon.stub(daemonService, 'viewDeterministicZelNodeList');
+      daemonStub = sinon.stub(daemonServiceZelnodeRpcs, 'viewDeterministicZelNodeList');
     });
 
     afterEach(() => {
@@ -384,7 +384,7 @@ describe('fluxCommunicationUtils tests', () => {
           },
         ],
       };
-      sinon.stub(daemonService, 'viewDeterministicZelNodeList').resolves(deterministicZelnodeListResponse);
+      sinon.stub(daemonServiceZelnodeRpcs, 'viewDeterministicZelNodeList').resolves(deterministicZelnodeListResponse);
       const timeStamp = Date.now();
       const version = 1;
       const messageToSign = version + message + timeStamp;

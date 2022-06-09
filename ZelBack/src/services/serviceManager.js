@@ -6,7 +6,7 @@ const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const appsService = require('./appsService');
-const daemonService = require('./daemonService');
+const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const fluxService = require('./fluxService');
 const upnpService = require('./upnpService');
 const userconfig = require('../../../config/userconfig');
@@ -74,7 +74,7 @@ async function startFluxFunctions() {
     log.info('Firewalls checked');
     fluxCommunication.keepConnectionsAlive();
     log.info('Connections polling prepared');
-    daemonService.daemonBlockchainInfoService();
+    daemonServiceMiscRpcs.daemonBlockchainInfoService();
     log.info('Flux Daemon Info Service Started');
     fluxService.InstallFluxWatchTower();
     fluxNetworkHelper.checkDeterministicNodesCollisions();

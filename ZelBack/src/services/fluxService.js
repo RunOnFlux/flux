@@ -12,7 +12,10 @@ const packageJson = require('../../../package.json');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
 const messageHelper = require('./messageHelper');
-const daemonService = require('./daemonService');
+const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
+const daemonServiceZelnodeRpcs = require('./daemonService/daemonServiceZelnodeRpcs');
+const daemonServiceBenchmarkRpcs = require('./daemonService/daemonServiceBenchmarkRpcs');
+const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRpcs');
 const benchmarkService = require('./benchmarkService');
 const appsService = require('./appsService');
 const generalService = require('./generalService');
@@ -376,7 +379,7 @@ function getFluxVersion(req, res) {
  * @returns {object} Message.
  */
 async function getFluxIP(req, res) {
-  const benchmarkResponse = await daemonService.getBenchmarks();
+  const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
   let myIP = null;
   if (benchmarkResponse.status === 'success') {
     const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
@@ -438,7 +441,7 @@ async function daemonDebug(req, res) {
   }
   // check daemon datadir
   const defaultDir = new fullnode.Config().defaultFolder();
-  const datadir = daemonService.getConfigValue('datadir') || defaultDir;
+  const datadir = daemonServiceMiscRpcs.getConfigValue('datadir') || defaultDir;
   const filepath = `${datadir}/debug.log`;
 
   return res.download(filepath, 'debug.log');
@@ -476,7 +479,7 @@ async function tailDaemonDebug(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const defaultDir = new fullnode.Config().defaultFolder();
-    const datadir = daemonService.getConfigValue('datadir') || defaultDir;
+    const datadir = daemonServiceMiscRpcs.getConfigValue('datadir') || defaultDir;
     const filepath = `${datadir}/debug.log`;
     const exec = `tail -n 100 ${filepath}`;
     nodecmd.get(exec, (err, data) => {
@@ -786,13 +789,13 @@ async function getFluxInfo(req, res) {
     }
     info.flux.dos = dosResult.data;
 
-    const daemonInfoRes = await daemonService.getInfo();
+    const daemonInfoRes = await daemonServiceControlRpcs.getInfo();
     if (daemonInfoRes.status === 'error') {
       throw daemonInfoRes.data;
     }
     info.daemon.info = daemonInfoRes.data;
 
-    const daemonNodeStatusRes = await daemonService.getZelNodeStatus();
+    const daemonNodeStatusRes = await daemonServiceZelnodeRpcs.getZelNodeStatus();
     if (daemonNodeStatusRes.status === 'error') {
       throw daemonNodeStatusRes.data;
     }
@@ -833,7 +836,10 @@ async function getFluxInfo(req, res) {
     if (appHashes.status === 'error') {
       throw appHashes.data;
     }
-    info.apps.hashes = appHashes.data;
+    const hashesOk = appHashes.data.filter((data) => data.height >= 694000);
+    info.appsHashesTotal = hashesOk.length;
+    const mesOK = hashesOk.filter((mes) => mes.message === true);
+    info.hashesPresent = mesOK.length;
     const explorerScannedHeight = await explorerService.getScannedHeight();
     if (explorerScannedHeight.status === 'error') {
       throw explorerScannedHeight.data;
@@ -843,12 +849,12 @@ async function getFluxInfo(req, res) {
     if (connectionsOut.status === 'error') {
       throw connectionsOut.data;
     }
-    info.flux.connectionsOut = connectionsOut.data;
+    info.flux.numberOfConnectionsOut = connectionsOut.data.length;
     const connectionsIn = fluxNetworkHelper.getIncomingConnectionsInfo();
     if (connectionsIn.status === 'error') {
       throw connectionsIn.data;
     }
-    info.flux.connectionsIn = connectionsIn.data;
+    info.flux.numberOfConnectionsIn = connectionsIn.data.length;
 
     const response = messageHelper.createDataMessage(info);
     return res ? res.json(response) : response;

@@ -10,7 +10,7 @@ const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper'
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
-const daemonService = require('../../ZelBack/src/services/daemonService');
+const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const appsService = require('../../ZelBack/src/services/appsService');
 const generalService = require('../../ZelBack/src/services/generalService');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
@@ -302,11 +302,17 @@ describe('fluxCommunication tests', () => {
       const wsuri2 = 'wss://api.runonflux.io/ws/flux2/';
 
       const wsOutgoing = await connectWs(wsuri);
-      wsOutgoing._socket = { remoteAddress: '127.8.8.1' };
+      wsOutgoing._socket = {
+        remoteAddress: '127.8.8.1',
+        end: sinon.fake(() => true),
+      };
       outgoingConnections.push(wsOutgoing);
 
       const wsIncoming = await connectWs(wsuri2);
-      wsIncoming._socket = { remoteAddress: '::ffff:127.8.8.1' };
+      wsIncoming._socket = {
+        remoteAddress: '::ffff:127.8.8.1',
+        end: sinon.fake(() => true),
+      };
       incomingConnections.push(wsIncoming);
 
       await fluxCommunication.handleAppRunningMessage(message, fromIp);
@@ -1265,7 +1271,7 @@ describe('fluxCommunication tests', () => {
     let daemonServiceStub;
     beforeEach(() => {
       logSpy = sinon.spy(log, 'warn');
-      daemonServiceStub = sinon.stub(daemonService, 'isDaemonSynced');
+      daemonServiceStub = sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced');
     });
 
     afterEach(() => {
