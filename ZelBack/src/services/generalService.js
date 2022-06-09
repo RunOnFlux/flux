@@ -4,7 +4,9 @@ const crypto = require('crypto');
 const log = require('../lib/log');
 
 const serviceHelper = require('./serviceHelper');
-const daemonService = require('./daemonService');
+const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
+const daemonServiceZelnodeRpcs = require('./daemonService/daemonServiceZelnodeRpcs');
+const daemonServiceTransactionRpcs = require('./daemonService/daemonServiceTransactionRpcs');
 const messageHelper = require('./messageHelper');
 const dbHelper = require('./dbHelper');
 
@@ -21,8 +23,7 @@ let storedCollateral = null;
  * @property {number} txindex Transaction index.
  */
 function getCollateralInfo(collateralOutpoint) {
-  const a = collateralOutpoint;
-  const b = a.split(', ');
+  const b = collateralOutpoint.split(', ');
   const txhash = b[0].slice(10);
   const txindex = serviceHelper.ensureNumber(b[1].split(')')[0]);
   return { txhash, txindex };
@@ -38,7 +39,7 @@ async function nodeTier() {
   }
   // get our collateral information to decide if app specifications are basic, super, bamf
   // getzlenodestatus.collateral
-  const nodeStatus = await daemonService.getZelNodeStatus();
+  const nodeStatus = await daemonServiceZelnodeRpcs.getZelNodeStatus();
   if (nodeStatus.status === 'error') {
     throw nodeStatus.data;
   }
@@ -50,40 +51,25 @@ async function nodeTier() {
       verbose: 1,
     },
   };
-  const txInformation = await daemonService.getRawTransaction(request);
+  const txInformation = await daemonServiceTransactionRpcs.getRawTransaction(request);
   if (txInformation.status === 'error') {
     throw txInformation.data;
   }
   // get collateralInformation.txindex vout
   const { value } = txInformation.data.vout[collateralInformation.txindex];
-  if (value === 10000) {
+  if (value === 10000 || value === 1000) {
     storedTier = 'basic';
-    storedCollateral = 10000;
+    storedCollateral = value;
     return storedTier;
   }
-  if (value === 25000) {
+  if (value === 25000 || value === 12500) {
     storedTier = 'super';
-    storedCollateral = 25000;
+    storedCollateral = value;
     return storedTier;
   }
-  if (value === 100000) {
+  if (value === 100000 || value === 40000) {
     storedTier = 'bamf';
-    storedCollateral = 100000;
-    return storedTier;
-  }
-  if (value === 1000) {
-    storedTier = 'basic';
-    storedCollateral = 1000;
-    return storedTier;
-  }
-  if (value === 12500) {
-    storedTier = 'super';
-    storedCollateral = 12500;
-    return storedTier;
-  }
-  if (value === 40000) {
-    storedTier = 'bamf';
-    storedCollateral = 40000;
+    storedCollateral = value;
     return storedTier;
   }
   throw new Error('Unrecognised Flux Node tier');
@@ -114,7 +100,7 @@ async function nodeCollateral() {
   }
   // get our collateral information to decide if app specifications are basic, super, bamf
   // getzlenodestatus.collateral
-  const nodeStatus = await daemonService.getZelNodeStatus();
+  const nodeStatus = await daemonServiceZelnodeRpcs.getZelNodeStatus();
   if (nodeStatus.status === 'error') {
     throw nodeStatus.data;
   }
@@ -126,40 +112,25 @@ async function nodeCollateral() {
       verbose: 1,
     },
   };
-  const txInformation = await daemonService.getRawTransaction(request);
+  const txInformation = await daemonServiceTransactionRpcs.getRawTransaction(request);
   if (txInformation.status === 'error') {
     throw txInformation.data;
   }
   // get collateralInformation.txindex vout
   const { value } = txInformation.data.vout[collateralInformation.txindex];
-  if (value === 10000) {
+  if (value === 10000 || value === 1000) {
     storedTier = 'basic';
-    storedCollateral = 10000;
+    storedCollateral = value;
     return storedCollateral;
   }
-  if (value === 25000) {
-    storedTier = 'super';
-    storedCollateral = 25000;
-    return storedCollateral;
-  }
-  if (value === 100000) {
+  if (value === 100000 || value === 40000) {
     storedTier = 'bamf';
-    storedCollateral = 100000;
+    storedCollateral = value;
     return storedCollateral;
   }
-  if (value === 1000) {
-    storedTier = 'basic';
-    storedCollateral = 1000;
-    return storedCollateral;
-  }
-  if (value === 12500) {
+  if (value === 25000 || value === 12500) {
     storedTier = 'super';
-    storedCollateral = 12500;
-    return storedCollateral;
-  }
-  if (value === 40000) {
-    storedTier = 'bamf';
-    storedCollateral = 40000;
+    storedCollateral = value;
     return storedCollateral;
   }
   throw new Error('Unrecognised Flux Node Collateral');
@@ -171,7 +142,7 @@ async function nodeCollateral() {
  */
 async function isNodeStatusConfirmed() {
   try {
-    const response = await daemonService.getZelNodeStatus();
+    const response = await daemonServiceZelnodeRpcs.getZelNodeStatus();
     if (response.status === 'error') {
       throw response.data;
     }
@@ -192,7 +163,7 @@ async function isNodeStatusConfirmed() {
 async function checkSynced() {
   try {
     // check if flux database is synced with daemon database (equal or -1 inheight)
-    const syncStatus = daemonService.isDaemonSynced();
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     if (!syncStatus.data.synced) {
       throw new Error('Daemon not yet synced.');
     }
@@ -232,26 +203,26 @@ async function checkWhitelistedRepository(repotag) {
     throw new Error('Invalid repotag');
   }
   const splittedRepo = repotag.split(':');
-  if (splittedRepo[0] && splittedRepo[1] && !splittedRepo[2]) {
-    const resWhitelistRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/repositories.json');
-
-    if (!resWhitelistRepo) {
-      throw new Error('Unable to communicate with Flux Services! Try again later.');
-    }
-
-    const imageTags = resWhitelistRepo.data;
-    const pureImages = [];
-    imageTags.forEach((imageTag) => {
-      const pureImage = imageTag.split(':')[0];
-      pureImages.push(pureImage);
-    });
-    const whitelisted = pureImages.includes(splittedRepo[0]);
-    if (!whitelisted) { // not exact match and general image not whitelisted either
-      throw new Error('Repository is not whitelisted. Please contact Flux Team.');
-    }
-  } else {
+  if (!splittedRepo[0] || !splittedRepo[1] || splittedRepo[2]) {
     throw new Error(`Repository ${repotag} is not in valid format namespace/repository:tag`);
   }
+  const resWhitelistRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/repositories.json');
+
+  if (!resWhitelistRepo) {
+    throw new Error('Unable to communicate with Flux Services! Try again later.');
+  }
+
+  const imageTags = resWhitelistRepo.data;
+  const pureImages = [];
+  imageTags.forEach((imageTag) => {
+    const pureImage = imageTag.split(':')[0];
+    pureImages.push(pureImage);
+  });
+  const whitelisted = pureImages.includes(splittedRepo[0]);
+  if (!whitelisted) { // not exact match and general image not whitelisted either
+    throw new Error('Repository is not whitelisted. Please contact Flux Team.');
+  }
+
   return true;
 }
 
@@ -284,6 +255,36 @@ async function messageHash(message) {
   return crypto.createHash('sha256').update(message).digest('hex');
 }
 
+/**
+ * Set nodeTier - created for testing purposes
+ */
+function setStoredTier(newValue) {
+  storedTier = newValue;
+}
+
+/**
+ * Returns storedTier - created for testing purposes
+ * @returns {string} storedTier
+ */
+function getStoredTier() {
+  return storedTier;
+}
+
+/**
+ * Set storedCollateral - created for testing purposes
+ */
+function setStoredCollateral(newValue) {
+  storedCollateral = newValue;
+}
+
+/**
+ * Returns storedCollateral - created for testing purposes
+ * @returns {number} storedTier
+ */
+function getStoredCollateral() {
+  return storedCollateral;
+}
+
 module.exports = {
   getCollateralInfo,
   nodeTier,
@@ -294,4 +295,10 @@ module.exports = {
   whitelistedRepositories,
   messageHash,
   nodeCollateral,
+
+  // exported for testing purposes
+  setStoredTier,
+  setStoredCollateral,
+  getStoredCollateral,
+  getStoredTier,
 };

@@ -7,7 +7,7 @@ const LRU = require('lru-cache');
 const { PassThrough } = require('stream');
 const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
-const daemonService = require('../../ZelBack/src/services/daemonService');
+const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const appsService = require('../../ZelBack/src/services/appsService');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const generalService = require('../../ZelBack/src/services/generalService');
@@ -324,6 +324,8 @@ describe('fluxCommunicationMessagesSender tests', () => {
     });
 
     it('should fall back to zelnode private key config if empty', async () => {
+      const mockedPrivKey = '5J2Hf3T8LpjKEkY46qhPLFF8DjQfCSBh6aWRfeDwQSMJKomvHFa';
+      sinon.stub(daemonServiceUtils, 'getConfigValue').resolves(mockedPrivKey);
       const privateKey = ''; // falls back to 5J2Hf3T8LpjKEkY46qhPLFF8DjQfCSBh6aWRfeDwQSMJKomvHFa as thats in sample config.
       const data = '';
 
@@ -354,7 +356,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     it('Should properly return signature if private key is taken from config', async () => {
       const mockedPrivKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
       const message = 'testing1234';
-      const daemonStub = sinon.stub(daemonService, 'getConfigValue').resolves(mockedPrivKey);
+      const daemonStub = sinon.stub(daemonServiceUtils, 'getConfigValue').resolves(mockedPrivKey);
 
       const signature = await fluxCommunicationMessagesSender.getFluxMessageSignature(message);
 
