@@ -1,6 +1,0 @@
-{
-  "events": {
-    "crash": "npm install --production"
-  },
-  "watch": ["package-lock.json", "yarn.lock", "package.json", "ZelBack/", "app.js", "apiServer.js", "config/", "helpers/", "lib/"]
-}
