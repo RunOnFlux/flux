@@ -267,5 +267,6 @@
    "alihmahdavi/fluxdb",
    "slashapps/noderank:latest",
    "dopsimulation/ot-umami-gui:latest",
-   "louisdussoulier/dapp:latest"
+   "louisdussoulier/dapp:latest",
+   "smartico/aave:latest"
 ]
