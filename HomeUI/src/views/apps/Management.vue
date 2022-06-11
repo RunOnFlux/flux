@@ -61,6 +61,16 @@
               title="Hash"
               :data="callResponse.data.hash"
             />
+            <div v-if="callResponse.data.version >= 5">
+              <list-entry
+                title="Continent"
+                :data="callResponse.data.geolocation.length > 0 ? getContinent(callResponse.data.geolocation) : 'All'"
+              />
+              <list-entry
+                title="Country"
+                :data="callResponse.data.geolocation.length > 0 ? getCountry(callResponse.data.geolocation) : 'All'"
+              />
+            </div>
             <list-entry
               v-if="callResponse.data.instances"
               title="Instances"
@@ -299,6 +309,16 @@
               title="Hash"
               :data="callBResponse.data.hash"
             />
+            <div v-if="callBResponse.data.version >= 5">
+              <list-entry
+                title="Continent"
+                :data="callBResponse.data.geolocation.length > 0 ? getContinent(callBResponse.data.geolocation) : 'All'"
+              />
+              <list-entry
+                title="Country"
+                :data="callBResponse.data.geolocation.length > 0 ? getCountry(callBResponse.data.geolocation) : 'All'"
+              />
+            </div>
             <list-entry
               v-if="callBResponse.data.instances"
               title="Instances"
@@ -1130,6 +1150,20 @@
               title="Hash"
               :data="callBResponse.data.hash"
             />
+            <div v-if="callBResponse.data.version >= 5">
+              <list-entry
+                title="Contacts"
+                :data="callBResponse.data.contacts.toString() || 'none'"
+              />
+              <list-entry
+                title="Continent"
+                :data="callBResponse.data.geolocation.length > 0 ? getContinent(callBResponse.data.geolocation) : 'All'"
+              />
+              <list-entry
+                title="Country"
+                :data="callBResponse.data.geolocation.length > 0 ? getCountry(callBResponse.data.geolocation) : 'All'"
+              />
+            </div>
             <list-entry
               v-if="callBResponse.data.instances"
               title="Instances"
@@ -1536,6 +1570,51 @@
                     placeholder="ZelID of Application Owner"
                   />
                 </b-form-group>
+                <div v-if="appUpdateSpecification.version >= 5">
+                  <div class="form-row form-group">
+                    <label class="col-1 col-form-label">
+                      Contacts
+                      <v-icon
+                        v-b-tooltip.hover.top="'Array of strings of emails Contacts to get notifications ex. app about to expire, app spawns. Contacts are also PUBLIC information.'"
+                        name="info-circle"
+                        class="mr-1"
+                      />
+                    </label>
+                    <div class="col">
+                      <b-form-input
+                        id="contacs"
+                        v-model="appUpdateSpecification.contacts"
+                      />
+                    </div>
+                  </div>
+                  <b-form-group
+                    label-cols="2"
+                    label-cols-lg="1"
+                    label="Continent"
+                    label-for="Continent"
+                  >
+                    <b-form-select
+                      id="continent"
+                      v-model="selectedContinent"
+                      :options="continentsOptions"
+                      @change="continentChanged"
+                    />
+                  </b-form-group>
+                  <b-form-group
+                    v-if="selectedContinent"
+                    label-cols="2"
+                    label-cols-lg="1"
+                    label="Country"
+                    label-for="Country"
+                  >
+                    <b-form-select
+                      id="country"
+                      v-model="selectedCountry"
+                      :options="countriesOptions.filter((x)=> x.continentCode === selectedContinent)"
+                      @change="countryChanged"
+                    />
+                  </b-form-group>
+                </div>
                 <br>
                 <b-form-group
                   v-if="appUpdateSpecification.version >= 3"
@@ -1553,7 +1632,7 @@
                     placeholder="Minimum number of application instances to be spawned"
                     type="range"
                     min="3"
-                    max="100"
+                    :max="maxInstances"
                     step="1"
                   />
                 </b-form-group>
@@ -2612,6 +2691,87 @@ export default {
       abortToken: {},
       deploymentAddress: '',
       appPricePerMonthForUpdate: 0,
+      maxInstances: 100,
+      continentsOptions: [{
+        value: null, text: 'All',
+      },
+      {
+        value: 'AS', nodeTier: 'Cumulus', maxInstances: 5, text: 'Asia',
+      },
+      {
+        value: 'EU', nodeTier: 'Stratus', maxInstances: 20, text: 'Europe',
+      },
+      {
+        value: 'NA', nodeTier: 'Stratus', maxInstances: 20, text: 'North America',
+      },
+      {
+        value: 'OC', nodeTier: 'Cumulus', maxInstances: 3, text: 'Oceania',
+      }],
+      countriesOptions: [{
+        value: null, text: 'All', continentCode: 'AS',
+      },
+      {
+        value: 'SG', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'AS', text: 'Singapore',
+      },
+      {
+        value: 'TW', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'AS', text: 'Taiwan',
+      },
+      {
+        value: 'TH', nodeTier: 'Cumulus', maxInstances: 5, continentCode: 'AS', text: 'Thailand',
+      },
+      {
+        value: null, text: 'All', continentCode: 'EU',
+      },
+      {
+        value: 'BE', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Belgium',
+      },
+      {
+        value: 'CZ', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Czechia',
+      },
+      {
+        value: 'FI', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'EU', text: 'Finland',
+      },
+      {
+        value: 'FR', nodeTier: 'Stratus', maxInstances: 5, continentCode: 'EU', text: 'France',
+      },
+      {
+        value: 'DE', nodeTier: 'Stratus', maxInstances: 15, continentCode: 'EU', text: 'Germany',
+      },
+      {
+        value: 'LT', nodeTier: 'Cumulus', maxInstances: 5, continentCode: 'EU', text: 'Lithuania',
+      },
+      {
+        value: 'NL', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Netherlands',
+      },
+      {
+        value: 'PL', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'EU', text: 'Poland',
+      },
+      {
+        value: 'RU', nodeTier: 'Nimbus', maxInstances: 5, continentCode: 'EU', text: 'Russia',
+      },
+      {
+        value: 'SI', nodeTier: 'Stratus', maxInstances: 3, continentCode: 'EU', text: 'Slovenia',
+      },
+      {
+        value: 'ES', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Spain',
+      },
+      {
+        value: 'GB', nodeTier: 'Stratus', maxInstances: 3, continentCode: 'EU', text: 'United Kingdom',
+      },
+      {
+        value: null, text: 'All', continentCode: 'NA',
+      },
+      {
+        value: 'US', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'NA', text: 'United States',
+      },
+      {
+        value: 'CA', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'NA', text: 'Canada',
+      },
+      {
+        value: null, text: 'All', continentCode: 'OC',
+      }],
+      selectedContinent: null,
+      selectedCountry: null,
     };
   },
   computed: {
@@ -2934,6 +3094,30 @@ export default {
           this.appUpdateSpecification.commands = this.ensureString(specs.commands);
           this.appUpdateSpecification.containerPorts = specs.containerPort || this.ensureString(specs.containerPorts); // v1 compatibility
         } else {
+          this.selectedContinent = null;
+          this.selectedCountry = null;
+          // todo v4 to v5 after fork happened for all heights.
+          if (specs.height > 1142000) {
+            this.appUpdateSpecification = 5;
+            this.appUpdateSpecification.contacts = '[]';
+            this.appUpdateSpecification.geolocation = '[]';
+          }
+          if (this.appUpdateSpecification.version >= 5) {
+            this.appUpdateSpecification.contacts = this.ensureString(specs.contacts);
+            if (specs.geolocation && specs.geolocation.length > 0) {
+              const appContinent = specs.geolocation.find((x) => x.startsWith('a'));
+              if (appContinent) {
+                const continentFound = this.continentsOptions.find((x) => x.value === appContinent.slice(1));
+                this.selectedContinent = continentFound ? continentFound.value : null;
+              }
+              const appCountry = specs.geolocation.find((x) => x.startsWith('b'));
+              if (appCountry) {
+                const countryFound = this.countriesOptions.find((x) => x.value === appCountry.slice(1));
+                this.selectedCountry = countryFound ? countryFound.value : null;
+              }
+            }
+            this.appUpdateSpecification.geolocation = this.ensureString(specs.geolocation);
+          }
           this.appUpdateSpecification.compose.forEach((component) => {
             // eslint-disable-next-line no-param-reassign
             component.ports = this.ensureString(component.ports);
@@ -2987,6 +3171,15 @@ export default {
     async checkFluxUpdateSpecificationsAndFormatMessage() {
       try {
         const appSpecification = this.appUpdateSpecification;
+        if (appSpecification.version >= 5) {
+          if (this.selectedContinent) {
+            appSpecification.geolocation = [];
+            appSpecification.geolocation.push(`a${this.selectedContinent}`);
+            if (this.selectedCountry) {
+              appSpecification.geolocation.push(`b${this.selectedCountry}`);
+            }
+          }
+        }
         // call api for verification of app registration specifications that returns formatted specs
         const responseAppSpecs = await AppsService.appUpdateVerification(appSpecification);
         if (responseAppSpecs.data.status === 'error') {
@@ -3504,6 +3697,61 @@ export default {
         return data.replace(/[^\x20-\x7E\t\r\n\v\f]/g, '');
       }
       return '';
+    },
+    getContinent(item) {
+      const objItem = this.ensureObject(item);
+      const appContinent = objItem.find((x) => x.startsWith('a'));
+      if (appContinent) {
+        const appContinentAux = this.continentsOptions.find((x) => x.value === appContinent.slice(1));
+        if (appContinentAux) {
+          return appContinentAux.text;
+        }
+        return 'All';
+      }
+      return 'All';
+    },
+    getCountry(item) {
+      const objItem = this.ensureObject(item);
+      const appCountry = objItem.find((x) => x.startsWith('b'));
+      if (appCountry) {
+        const appCountryAux = this.countriesOptions.find((x) => x.value === appCountry.slice(1));
+        if (appCountryAux) {
+          return appCountryAux.text;
+        }
+        return 'All';
+      }
+      return 'All';
+    },
+    continentChanged() {
+      this.selectedCountry = null;
+      if (this.selectedContinent) {
+        const continent = this.continentsOptions.find((x) => x.value === this.selectedContinent);
+        this.maxInstances = continent.maxInstances;
+        if (this.appUpdateSpecification.instances > this.maxInstances) {
+          this.appUpdateSpecification.instances = this.maxInstances;
+        }
+        this.showToast('warning', `The node type may fluctuate based upon system requirements for your application. For better results in ${continent.text}, please consider specifications more suited to ${continent.nodeTier} hardware.`);
+      } else {
+        this.maxInstances = this.appUpdateSpecificationv5template.maxInstances;
+        this.showToast('info', 'No geolocation set you can define up to maximum of 100 instances and up to the maximum hardware specs available on Flux network to your app.');
+      }
+    },
+    countryChanged() {
+      if (this.selectedCountry) {
+        const country = this.countriesOptions.find((x) => x.value === this.selectedCountry);
+        this.maxInstances = country.maxInstances;
+        if (this.appUpdateSpecification.instances > this.maxInstances) {
+          this.appUpdateSpecification.instances = this.maxInstances;
+        }
+        this.showToast('warning', `The node type may fluctuate based upon system requirements for your application. For better results in ${country.text}, please consider specifications more suited to ${country.nodeTier} hardware.`);
+      } else {
+        const continent = this.continentsOptions.find((x) => x.value === this.selectedContinent);
+        this.maxInstances = continent.maxInstances;
+        if (this.appUpdateSpecification.instances > this.maxInstances) {
+          this.appUpdateSpecification.instances = this.maxInstances;
+        }
+        this.showToast('warning', `The node type may fluctuate based upon system requirements for your application. For better results in ${continent.text}, please consider specifications more suited to ${continent.nodeTier} hardware.`);
+      }
     },
   },
 };

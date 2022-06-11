@@ -9,7 +9,11 @@ const fs = require('fs').promises;
 const util = require('util');
 const log = require('../../ZelBack/src/lib/log');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
-const daemonService = require('../../ZelBack/src/services/daemonService');
+const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
+const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
+const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBenchmarkRpcs');
+const daemonServiceWalletRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceWalletRpcs');
+const daemonServiceZelnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceZelnodeRpcs');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
@@ -183,7 +187,7 @@ describe('fluxNetworkHelper tests', () => {
     let daemonStub;
 
     beforeEach(() => {
-      daemonStub = sinon.stub(daemonService, 'getBenchmarks');
+      daemonStub = sinon.stub(daemonServiceBenchmarkRpcs, 'getBenchmarks');
     });
 
     afterEach(() => {
@@ -321,7 +325,7 @@ describe('fluxNetworkHelper tests', () => {
     let daemonStub;
 
     beforeEach(() => {
-      daemonStub = sinon.stub(daemonService, 'getConfigValue');
+      daemonStub = sinon.stub(daemonServiceUtils, 'getConfigValue');
     });
 
     afterEach(() => {
@@ -365,7 +369,7 @@ describe('fluxNetworkHelper tests', () => {
     it('Should properly return publicKey if private key is taken from config', async () => {
       const mockedPrivKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
       const expectedPublicKey = '0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab';
-      const daemonStub = sinon.stub(daemonService, 'getConfigValue').resolves(mockedPrivKey);
+      const daemonStub = sinon.stub(daemonServiceUtils, 'getConfigValue').resolves(mockedPrivKey);
 
       const publicKey = await fluxNetworkHelper.getFluxNodePublicKey();
 
@@ -1046,7 +1050,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       ];
       sinon.stub(fluxCommunicationUtils, 'deterministicFluxList').returns(deterministicZelnodeListResponse);
-      sinon.stub(daemonService, 'createConfirmationTransaction').returns(true);
+      sinon.stub(daemonServiceWalletRpcs, 'createConfirmationTransaction').returns(true);
       sinon.stub(serviceHelper, 'delay').returns(true);
     });
 
@@ -1277,7 +1281,7 @@ describe('fluxNetworkHelper tests', () => {
     beforeEach(() => {
       fluxNetworkHelper.setStoredFluxBenchAllowed(400);
       fluxNetworkHelper.setMyFluxIp('129.3.3.3');
-      sinon.stub(daemonService, 'createConfirmationTransaction').returns(true);
+      sinon.stub(daemonServiceWalletRpcs, 'createConfirmationTransaction').returns(true);
       sinon.stub(serviceHelper, 'delay').returns(true);
       deterministicZelnodeListResponse = [
         {
@@ -1298,10 +1302,10 @@ describe('fluxNetworkHelper tests', () => {
           amount: '1000.00',
           rank: 0,
         }];
-      getBenchmarksStub = sinon.stub(daemonService, 'getBenchmarks');
-      isDaemonSyncedStub = sinon.stub(daemonService, 'isDaemonSynced');
+      getBenchmarksStub = sinon.stub(daemonServiceBenchmarkRpcs, 'getBenchmarks');
+      isDaemonSyncedStub = sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced');
       deterministicFluxListStub = sinon.stub(fluxCommunicationUtils, 'deterministicFluxList');
-      getZelNodeStatusStub = sinon.stub(daemonService, 'getZelNodeStatus');
+      getZelNodeStatusStub = sinon.stub(daemonServiceZelnodeRpcs, 'getZelNodeStatus');
       fluxNetworkHelper.setDosMessage(null);
       fluxNetworkHelper.setDosStateValue(0);
     });
