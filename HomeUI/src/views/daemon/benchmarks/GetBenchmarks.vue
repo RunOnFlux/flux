@@ -49,6 +49,21 @@
       :data="`${callResponse.data.eps} eps`"
     />
     <list-entry
+      v-if="callResponse.data.download_speed"
+      title="Download Speed"
+      :data="`${callResponse.data.download_speed.toFixed(2)} Mb/s`"
+    />
+    <list-entry
+      v-if="callResponse.data.upload_speed"
+      title="Upload Speed"
+      :data="`${callResponse.data.upload_speed.toFixed(2)} Mb/s`"
+    />
+    <list-entry
+      v-if="callResponse.data.ping"
+      title="Ping"
+      :data="`${callResponse.data.ping.toFixed(2)} ms`"
+    />
+    <list-entry
       v-if="callResponse.data.errors"
       title="Error"
       :data="callResponse.data.errors"

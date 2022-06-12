@@ -4,8 +4,9 @@ const log = require('../lib/log');
 const dbHelper = require('./dbHelper');
 const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
+const fluxNetworkHelper = require('./fluxNetworkHelper');
 const appsService = require('./appsService');
-const daemonService = require('./daemonService');
+const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const fluxService = require('./fluxService');
 const upnpService = require('./upnpService');
 const userconfig = require('../../../config/userconfig');
@@ -21,8 +22,8 @@ async function startFluxFunctions() {
       log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
       process.exit();
     }
+    const verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
     if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
-      const verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
       if (verifyUpnp !== true) {
         log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to verify support. Shutting down.`);
         process.exit();
@@ -41,6 +42,11 @@ async function startFluxFunctions() {
     log.info('Preparing local database...');
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.local.database);
+    await dbHelper.dropCollection(database, config.database.local.collections.loggedUsers).catch((error) => { // drop currently logged users
+      if (error.message !== 'ns not found') {
+        log.error(error);
+      }
+    });
     await dbHelper.dropCollection(database, config.database.local.collections.activeLoginPhrases).catch((error) => {
       if (error.message !== 'ns not found') {
         log.error(error);
@@ -51,6 +57,7 @@ async function startFluxFunctions() {
         log.error(error);
       }
     });
+    await database.collection(config.database.local.collections.loggedUsers).createIndex({ createdAt: 1 }, { expireAfterSeconds: 14 * 24 * 60 * 60 }); // 2days
     await database.collection(config.database.local.collections.activeLoginPhrases).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
     await database.collection(config.database.local.collections.activeSignatures).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
     log.info('Local database prepared');
@@ -63,14 +70,14 @@ async function startFluxFunctions() {
     // more than 1 hour. Meaning we have not received status message for a long time. So that node is no longer on a network or app is down.
     await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 3900 });
     log.info('Flux Apps locations prepared');
-    fluxCommunication.adjustFirewall();
+    fluxNetworkHelper.adjustFirewall();
     log.info('Firewalls checked');
     fluxCommunication.keepConnectionsAlive();
     log.info('Connections polling prepared');
-    daemonService.daemonBlockchainInfoService();
+    daemonServiceMiscRpcs.daemonBlockchainInfoService();
     log.info('Flux Daemon Info Service Started');
     fluxService.InstallFluxWatchTower();
-    fluxCommunication.checkDeterministicNodesCollisions();
+    fluxNetworkHelper.checkDeterministicNodesCollisions();
     log.info('Flux checks operational');
     fluxCommunication.fluxDiscovery();
     log.info('Flux Discovery started');
@@ -80,25 +87,32 @@ async function startFluxFunctions() {
     } catch (error) {
       log.error(error);
     }
+    setTimeout(() => {
+      appsService.stopAllNonFluxRunningApps();
+      appsService.restoreAppsPortsSupport();
+    }, 1 * 60 * 1000);
+    setTimeout(() => {
+      log.info('Starting setting Node Geolocation');
+      fluxService.setNodeGeolocation();
+    }, 90 * 1000);
     setTimeout(() => { // wait as of restarts due to ui building
       explorerService.initiateBlockProcessor(true, true);
       log.info('Flux Block Processing Service started');
     }, 2 * 60 * 1000);
-    setInterval(() => { // every 4 mins (2 blocks)
-      appsService.checkAndNotifyPeersOfRunningApps();
-    }, 4 * 60 * 1000);
-    setInterval(() => { // every 8 mins (4 blocks)
-      appsService.continuousFluxAppHashesCheck();
-    }, 8 * 60 * 1000);
     setTimeout(() => {
-      // after 14 minutes of running ok.
-      // is stopped on basics
+      appsService.checkAndNotifyPeersOfRunningApps(); // first broadcast after 4m of starting fluxos
+      setInterval(() => { // every 20 mins (~10 blocks) messages stay on db for 65m
+        appsService.checkAndNotifyPeersOfRunningApps();
+      }, 20 * 60 * 1000);
+    }, 4 * 60 * 1000);
+    setInterval(() => { // every 12 mins (6 blocks)
+      appsService.continuousFluxAppHashesCheck();
+    }, 12 * 60 * 1000);
+    setTimeout(() => {
+      // after 20 minutes of running ok.
       log.info('Starting to spawn applications');
       appsService.trySpawningGlobalApplication();
-    }, 14 * 60 * 1000);
-    setTimeout(() => {
-      appsService.stopAllNonFluxRunningApps();
-    }, 1 * 60 * 1000);
+    }, 20 * 60 * 1000);
   } catch (e) {
     log.error(e);
     setTimeout(() => {

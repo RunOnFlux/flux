@@ -1,6 +1,7 @@
 module.exports = {
   server: {
     apiport: 16127, // homeport is -1, ssl port is +1
+    allowedPorts: [11, 13],
   },
   database: {
     url: '127.0.0.1',
@@ -96,7 +97,7 @@ module.exports = {
     publicepochstart: 705000,
     portMin: 31000, // ports 30000 - 30999 are reserved for local applications
     portMax: 39999,
-    maxImageSize: 500000000, // 500mb possibly increase later
+    maxImageSize: 2000000000, // 2000mb
     minimumInstances: 3,
     maximumInstances: 100,
     maximumAdditionalInstances: 1, // max instances above subscribed amount. In case of min instances, this is minimumInstances + maximumAdditionalInstances
@@ -119,32 +120,36 @@ module.exports = {
     expireFluxAppsPeriod: 100, // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago
     updateFluxAppsPeriod: 9, // every 9 blocks we check for reinstalling of old application versions
     removeFluxAppsPeriod: 11, // every 11 blocks we check for more than maximum number of instances of an application
+    restorePortsSupportPeriod: 25, // every 25 blocks we try to setup ufw and upnp
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
     ram: 2000, // 2000mb
-    hdd: 30, // 30gb // this value is likely to rise
+    hdd: 40, // 40gb // this value is likely to rise
   },
   fluxSpecifics: { // tbd during forks
     cpu: {
-      basic: 20, // 10 available for apps
-      super: 40, // 30 available for apps
-      bamf: 80, // 70 available for apps
+      cumulus: 40, // 30 available for apps
+      nimbus: 80, // 70 available for apps
+      stratus: 160, // 150 available for apps
     },
     ram: {
-      basic: 3000, // 1000 available for apps
-      super: 7000, // 5000 available for apps
-      bamf: 30000, // available 28000 for apps
+      cumulus: 7000, // 5000 available for apps
+      nimbus: 30000, // 28000 available for apps
+      stratus: 61000, // available 59000 for apps
     },
     hdd: {
-      basic: 50, // 20 for apps
-      super: 150, // 120 for apps
-      bamf: 600, // 570 for apps
+      cumulus: 220, // 180 for apps
+      nimbus: 440, // 400 for apps
+      stratus: 880, // 840 for apps
     },
     collateral: { // tbd during forks
-      basic: 10000,
-      super: 25000,
-      bamf: 100000,
+      cumulusold: 10000,
+      nimbusold: 25000,
+      stratusold: 100000,
+      cumulus: 1000,
+      nimbus: 12500,
+      stratus: 40000,
     },
   },
 };

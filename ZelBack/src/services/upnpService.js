@@ -46,6 +46,7 @@ async function verifyUPNPsupport(apiport = config.apiport) {
       public: +apiport + 1,
       private: +apiport + 1,
       ttl: 0,
+      description: 'Flux_OS_reserved_port',
     });
   } catch (error) {
     log.error(error);
@@ -87,11 +88,13 @@ async function setupUPNP(apiport = config.apiport) { // todo evaluate adding ssl
       public: +apiport,
       private: +apiport,
       ttl: 0,
+      description: 'Flux_Backend_API',
     });
     await client.createMapping({
       public: +apiport - 1,
       private: +apiport - 1,
       ttl: 0,
+      description: 'Flux_Home_UI',
     });
     return true;
   } catch (error) {
@@ -103,21 +106,24 @@ async function setupUPNP(apiport = config.apiport) { // todo evaluate adding ssl
 /**
  * To create mappings for UPnP (Universal Plug and Play) port.
  * @param {number} port Port number.
+ * @param {string} description Port description.
  * @returns {boolean} True if port mappings can be created for both TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) protocols. Otherwise false.
  */
-async function mapUpnpPort(port) {
+async function mapUpnpPort(port, description) {
   try {
     await client.createMapping({
       public: port,
       private: port,
       ttl: 0,
       protocol: 'TCP',
+      description,
     });
     await client.createMapping({
       public: port,
       private: port,
       ttl: 0,
       protocol: 'UDP',
+      description,
     });
     return true;
   } catch (error) {
@@ -168,12 +174,14 @@ async function mapPortApi(req, res) {
         private: port,
         ttl: 0,
         protocol: 'TCP',
+        description: 'Flux_manual_entry',
       });
       await client.createMapping({
         public: port,
         private: port,
         ttl: 0,
         protocol: 'UDP',
+        description: 'Flux_manual_entry',
       });
       const message = messageHelper.createSuccessMessage('Port mapped');
       res.json(message);

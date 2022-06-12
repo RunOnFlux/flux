@@ -6,6 +6,13 @@ const shortDate = {
   minute: '2-digit',
 };
 
+const date = {
+  year: 'numeric',
+  month: 'short',
+  day: 'numeric',
+};
+
 export default {
   shortDate,
+  date,
 };

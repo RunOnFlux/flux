@@ -5,6 +5,7 @@ import flux from './flux';
 import apps from './apps';
 import fluxadmin from './fluxadmin';
 import xdao from './xdao';
+import marketplace from './marketplace';
 
 export default [
   {
@@ -22,6 +23,7 @@ export default [
   ...benchmark,
   ...flux,
   ...apps,
+  ...marketplace,
   ...fluxadmin,
   ...xdao,
 ];

@@ -74,6 +74,51 @@
                 placeholder="ZelID of Application Owner"
               />
             </b-form-group>
+            <div v-if="specificationVersion >= 5">
+              <div class="form-row form-group">
+                <label class="col-1 col-form-label">
+                  Contacts
+                  <v-icon
+                    v-b-tooltip.hover.top="'Array of strings of emails Contacts to get notifications ex. app about to expire, app spawns. Contacts are also PUBLIC information.'"
+                    name="info-circle"
+                    class="mr-1"
+                  />
+                </label>
+                <div class="col">
+                  <b-form-input
+                    id="contacs"
+                    v-model="appRegistrationSpecification.contacts"
+                  />
+                </div>
+              </div>
+              <b-form-group
+                label-cols="2"
+                label-cols-lg="1"
+                label="Continent"
+                label-for="Continent"
+              >
+                <b-form-select
+                  id="continent"
+                  v-model="selectedContinent"
+                  :options="continentsOptions"
+                  @change="continentChanged"
+                />
+              </b-form-group>
+              <b-form-group
+                v-if="selectedContinent"
+                label-cols="2"
+                label-cols-lg="1"
+                label="Country"
+                label-for="Country"
+              >
+                <b-form-select
+                  id="country"
+                  v-model="selectedCountry"
+                  :options="countriesOptions.filter((x)=> x.continentCode === selectedContinent)"
+                  @change="countryChanged"
+                />
+              </b-form-group>
+            </div>
             <br>
             <b-form-group
               v-if="appRegistrationSpecification.version >= 3"
@@ -314,7 +359,7 @@
                   placeholder="CPU cores to use by default"
                   type="range"
                   min="0.1"
-                  max="7"
+                  max="15"
                   step="0.1"
                 />
               </b-form-group>
@@ -334,7 +379,7 @@
                   placeholder="RAM in MB value to use by default"
                   type="range"
                   min="100"
-                  max="28000"
+                  max="59000"
                   step="100"
                 />
               </b-form-group>
@@ -354,7 +399,7 @@
                   placeholder="SSD in GB value to use by default"
                   type="range"
                   min="1"
-                  max="565"
+                  max="840"
                   step="1"
                 />
               </b-form-group>
@@ -375,7 +420,7 @@
                 v-model="component.cpubasic"
                 type="range"
                 min="0.1"
-                max="1"
+                max="3"
                 step="0.1"
               />
               <div>
@@ -385,7 +430,7 @@
                 v-model="component.rambasic"
                 type="range"
                 min="100"
-                max="1000"
+                max="5000"
                 step="100"
               />
               <div>
@@ -395,7 +440,7 @@
                 v-model="component.hddbasic"
                 type="range"
                 min="1"
-                max="15"
+                max="180"
                 step="1"
               />
             </b-card>
@@ -413,7 +458,7 @@
                 v-model="component.cpusuper"
                 type="range"
                 min="0.1"
-                max="3"
+                max="7"
                 step="0.1"
               />
               <div>
@@ -423,7 +468,7 @@
                 v-model="component.ramsuper"
                 type="range"
                 min="100"
-                max="5000"
+                max="28000"
                 step="100"
               />
               <div>
@@ -433,7 +478,7 @@
                 v-model="component.hddsuper"
                 type="range"
                 min="1"
-                max="115"
+                max="400"
                 step="1"
               />
             </b-card>
@@ -450,7 +495,7 @@
                 v-model="component.cpubamf"
                 type="range"
                 min="0.1"
-                max="7"
+                max="15"
                 step="0.1"
               />
               <div>
@@ -459,8 +504,8 @@
               <b-form-input
                 v-model="component.rambamf"
                 type="range"
-                min="1000"
-                max="28000"
+                min="100"
+                max="59000"
                 step="100"
               />
               <div>
@@ -470,7 +515,7 @@
                 v-model="component.hddbamf"
                 type="range"
                 min="1"
-                max="565"
+                max="840"
                 step="1"
               />
             </b-card>
@@ -698,7 +743,7 @@
                 placeholder="CPU cores to use by default"
                 type="range"
                 min="0.1"
-                max="7"
+                max="15"
                 step="0.1"
               />
             </b-form-group>
@@ -718,7 +763,7 @@
                 placeholder="RAM in MB value to use by default"
                 type="range"
                 min="100"
-                max="28000"
+                max="59000"
                 step="100"
               />
             </b-form-group>
@@ -738,7 +783,7 @@
                 placeholder="SSD in GB value to use by default"
                 type="range"
                 min="1"
-                max="565"
+                max="840"
                 step="1"
               />
             </b-form-group>
@@ -759,7 +804,7 @@
               v-model="appRegistrationSpecification.cpubasic"
               type="range"
               min="0.1"
-              max="1"
+              max="3"
               step="0.1"
             />
             <div>
@@ -769,7 +814,7 @@
               v-model="appRegistrationSpecification.rambasic"
               type="range"
               min="100"
-              max="1000"
+              max="5000"
               step="100"
             />
             <div>
@@ -779,7 +824,7 @@
               v-model="appRegistrationSpecification.hddbasic"
               type="range"
               min="1"
-              max="15"
+              max="180"
               step="1"
             />
           </b-card>
@@ -797,7 +842,7 @@
               v-model="appRegistrationSpecification.cpusuper"
               type="range"
               min="0.1"
-              max="3"
+              max="7"
               step="0.1"
             />
             <div>
@@ -807,7 +852,7 @@
               v-model="appRegistrationSpecification.ramsuper"
               type="range"
               min="100"
-              max="5000"
+              max="28000"
               step="100"
             />
             <div>
@@ -817,7 +862,7 @@
               v-model="appRegistrationSpecification.hddsuper"
               type="range"
               min="1"
-              max="115"
+              max="400"
               step="1"
             />
           </b-card>
@@ -834,7 +879,7 @@
               v-model="appRegistrationSpecification.cpubamf"
               type="range"
               min="0.1"
-              max="7"
+              max="15"
               step="0.1"
             />
             <div>
@@ -844,7 +889,7 @@
               v-model="appRegistrationSpecification.rambamf"
               type="range"
               min="1000"
-              max="28000"
+              max="59000"
               step="100"
             />
             <div>
@@ -854,7 +899,7 @@
               v-model="appRegistrationSpecification.hddbamf"
               type="range"
               min="1"
-              max="565"
+              max="840"
               step="1"
             />
           </b-card>
@@ -1003,6 +1048,7 @@ import {
   BFormCheckbox,
   BFormGroup,
   BFormInput,
+  BFormSelect,
   BFormTextarea,
   BLink,
   VBTooltip,
@@ -1028,6 +1074,7 @@ export default {
     BFormCheckbox,
     BFormGroup,
     BFormInput,
+    BFormSelect,
     BFormTextarea,
     BLink,
     // eslint-disable-next-line vue/no-unused-components
@@ -1110,6 +1157,41 @@ export default {
           },
         ],
       },
+      appRegistrationSpecificationv5template: {
+        version: 5,
+        name: '',
+        description: '',
+        owner: '',
+        instances: 3,
+        contacts: '[]',
+        geolocation: [],
+        compose: [
+          {
+            name: '',
+            description: '',
+            repotag: '',
+            ports: '[]',
+            domains: '[]',
+            environmentParameters: '[]',
+            commands: '[]',
+            containerPorts: '[]',
+            containerData: '',
+            cpu: 0.5,
+            ram: 2000,
+            hdd: 40,
+            tiered: false,
+            cpubasic: 0.5,
+            rambasic: 500,
+            hddbasic: 10,
+            cpusuper: 1.5,
+            ramsuper: 2500,
+            hddsuper: 60,
+            cpubamf: 3.5,
+            rambamf: 14000,
+            hddbamf: 285,
+          },
+        ],
+      },
       composeTemplate: {
         name: '',
         description: '',
@@ -1139,6 +1221,86 @@ export default {
       deploymentAddress: '',
       minInstances: 3,
       maxInstances: 100,
+      continentsOptions: [{
+        value: null, text: 'All',
+      },
+      {
+        value: 'AS', nodeTier: 'Cumulus', maxInstances: 5, text: 'Asia',
+      },
+      {
+        value: 'EU', nodeTier: 'Stratus', maxInstances: 20, text: 'Europe',
+      },
+      {
+        value: 'NA', nodeTier: 'Stratus', maxInstances: 20, text: 'North America',
+      },
+      {
+        value: 'OC', nodeTier: 'Cumulus', maxInstances: 3, text: 'Oceania',
+      }],
+      countriesOptions: [{
+        value: null, text: 'All', continentCode: 'AS',
+      },
+      {
+        value: 'SG', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'AS', text: 'Singapore',
+      },
+      {
+        value: 'TW', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'AS', text: 'Taiwan',
+      },
+      {
+        value: 'TH', nodeTier: 'Cumulus', maxInstances: 5, continentCode: 'AS', text: 'Thailand',
+      },
+      {
+        value: null, text: 'All', continentCode: 'EU',
+      },
+      {
+        value: 'BE', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Belgium',
+      },
+      {
+        value: 'CZ', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Czechia',
+      },
+      {
+        value: 'FI', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'EU', text: 'Finland',
+      },
+      {
+        value: 'FR', nodeTier: 'Stratus', maxInstances: 5, continentCode: 'EU', text: 'France',
+      },
+      {
+        value: 'DE', nodeTier: 'Stratus', maxInstances: 15, continentCode: 'EU', text: 'Germany',
+      },
+      {
+        value: 'LT', nodeTier: 'Cumulus', maxInstances: 5, continentCode: 'EU', text: 'Lithuania',
+      },
+      {
+        value: 'NL', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Netherlands',
+      },
+      {
+        value: 'PL', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'EU', text: 'Poland',
+      },
+      {
+        value: 'RU', nodeTier: 'Nimbus', maxInstances: 5, continentCode: 'EU', text: 'Russia',
+      },
+      {
+        value: 'SI', nodeTier: 'Stratus', maxInstances: 3, continentCode: 'EU', text: 'Slovenia',
+      },
+      {
+        value: 'ES', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Spain',
+      },
+      {
+        value: 'GB', nodeTier: 'Stratus', maxInstances: 3, continentCode: 'EU', text: 'United Kingdom',
+      },
+      {
+        value: null, text: 'All', continentCode: 'NA',
+      },
+      {
+        value: 'US', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'NA', text: 'United States',
+      },
+      {
+        value: 'CA', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'NA', text: 'Canada',
+      },
+      {
+        value: null, text: 'All', continentCode: 'OC',
+      }],
+      selectedContinent: null,
+      selectedCountry: null,
     };
   },
   computed: {
@@ -1212,6 +1374,15 @@ export default {
       try {
         // formation, pre verificaiton
         const appSpecification = this.appRegistrationSpecification;
+        if (appSpecification.version >= 5) {
+          if (this.selectedContinent) {
+            appSpecification.geolocation = [];
+            appSpecification.geolocation.push(`a${this.selectedContinent}`);
+            if (this.selectedCountry) {
+              appSpecification.geolocation.push(`b${this.selectedCountry}`);
+            }
+          }
+        }
         // call api for verification of app registration specifications that returns formatted specs
         const responseAppSpecs = await AppsService.appRegistrationVerificaiton(appSpecification);
         if (responseAppSpecs.data.status === 'error') {
@@ -1245,7 +1416,7 @@ export default {
         this.appRegistrationSpecification = this.appRegistrationSpecificationv3template;
         const ports = this.getRandomPort();
         this.appRegistrationSpecification.ports = ports;
-      } else {
+      } else if (this.currentHeight < 1142000) {
         this.specificationVersion = 4;
         this.appRegistrationSpecification = this.appRegistrationSpecificationv4template;
         this.appRegistrationSpecification.compose.forEach((component) => {
@@ -1253,7 +1424,18 @@ export default {
           // eslint-disable-next-line no-param-reassign
           component.ports = ports;
         });
+      } else {
+        this.specificationVersion = 5;
+        this.appRegistrationSpecification = this.appRegistrationSpecificationv5template;
+        this.appRegistrationSpecification.compose.forEach((component) => {
+          const ports = this.getRandomPort();
+          // eslint-disable-next-line no-param-reassign
+          component.ports = ports;
+        });
       }
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      this.appRegistrationSpecification.owner = auth.zelid;
     },
 
     initiateSignWS() {
@@ -1403,6 +1585,39 @@ export default {
           variant,
         },
       });
+    },
+
+    continentChanged() {
+      this.selectedCountry = null;
+      if (this.selectedContinent) {
+        const continent = this.continentsOptions.filter((x) => x.value === this.selectedContinent)[0];
+        this.maxInstances = continent.maxInstances;
+        if (this.appRegistrationSpecification.instances > this.maxInstances) {
+          this.appRegistrationSpecification.instances = this.maxInstances;
+        }
+        this.showToast('warning', `The node type may fluctuate based upon system requirements for your application. For better results in ${continent.text}, please consider specifications more suited to ${continent.nodeTier} hardware.`);
+      } else {
+        this.maxInstances = this.appRegistrationSpecificationv5template.maxInstances;
+        this.showToast('info', 'No geolocation set you can define up to maximum of 100 instances and up to the maximum hardware specs available on Flux network to your app.');
+      }
+    },
+
+    countryChanged() {
+      if (this.selectedCountry) {
+        const country = this.countriesOptions.filter((x) => x.value === this.selectedCountry)[0];
+        this.maxInstances = country.maxInstances;
+        if (this.appRegistrationSpecification.instances > this.maxInstances) {
+          this.appRegistrationSpecification.instances = this.maxInstances;
+        }
+        this.showToast('warning', `The node type may fluctuate based upon system requirements for your application. For better results in ${country.text}, please consider specifications more suited to ${country.nodeTier} hardware.`);
+      } else {
+        const continent = this.continentsOptions.filter((x) => x.value === this.selectedContinent)[0];
+        this.maxInstances = continent.maxInstances;
+        if (this.appRegistrationSpecification.instances > this.maxInstances) {
+          this.appRegistrationSpecification.instances = this.maxInstances;
+        }
+        this.showToast('warning', `The node type may fluctuate based upon system requirements for your application. For better results in ${continent.text}, please consider specifications more suited to ${continent.nodeTier} hardware.`);
+      }
     },
   },
 };

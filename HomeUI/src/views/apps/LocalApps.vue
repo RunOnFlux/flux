@@ -50,6 +50,16 @@
                           title="Hash"
                           :data="row.item.hash"
                         />
+                        <div v-if="row.item.version >= 5">
+                          <list-entry
+                            title="Continent"
+                            :data="row.item.geolocation.length > 0 ? getContinent(row.item.geolocation) : 'All'"
+                          />
+                          <list-entry
+                            title="Country"
+                            :data="row.item.geolocation.length > 0 ? getCountry(row.item.geolocation) : 'All'"
+                          />
+                        </div>
                         <list-entry
                           v-if="row.item.instances"
                           title="Instances"
@@ -333,6 +343,16 @@
                           title="Hash"
                           :data="row.item.hash"
                         />
+                        <div v-if="row.item.version >= 5">
+                          <list-entry
+                            title="Continent"
+                            :data="row.item.geolocation.length > 0 ? getContinent(row.item.geolocation) : 'All'"
+                          />
+                          <list-entry
+                            title="Country"
+                            :data="row.item.geolocation.length > 0 ? getCountry(row.item.geolocation) : 'All'"
+                          />
+                        </div>
                         <list-entry
                           v-if="row.item.instances"
                           title="Instances"
@@ -729,6 +749,20 @@
                           title="Hash"
                           :data="row.item.hash"
                         />
+                        <div v-if="row.item.version >= 5">
+                          <list-entry
+                            title="Continent"
+                            :data="row.item.geolocation.length > 0 ? getContinent(row.item.geolocation) : 'All'"
+                          />
+                          <list-entry
+                            title="Country"
+                            :data="row.item.geolocation.length > 0 ? getCountry(row.item.geolocation) : 'All'"
+                          />
+                          <list-entry
+                            title="Contacts"
+                            :data="JSON.stringify(row.item.contacts)"
+                          />
+                        </div>
                         <list-entry
                           v-if="row.item.instances"
                           title="Instances"
@@ -1138,6 +1172,20 @@
                           title="Hash"
                           :data="row.item.hash"
                         />
+                        <div v-if="row.item.version >= 5">
+                          <list-entry
+                            title="Continent"
+                            :data="row.item.geolocation.length > 0 ? getContinent(row.item.geolocation) : 'All'"
+                          />
+                          <list-entry
+                            title="Country"
+                            :data="row.item.geolocation.length > 0 ? getCountry(row.item.geolocation) : 'All'"
+                          />
+                          <list-entry
+                            title="Contacts"
+                            :data="JSON.stringify(row.item.contacts)"
+                          />
+                        </div>
                         <list-entry
                           v-if="row.item.instances"
                           title="Instances"
@@ -1712,6 +1760,84 @@ export default {
         status: '',
         data: '',
       },
+      continentsOptions: [{
+        value: null, text: 'All',
+      },
+      {
+        value: 'AS', nodeTier: 'Cumulus', maxInstances: 5, text: 'Asia',
+      },
+      {
+        value: 'EU', nodeTier: 'Stratus', maxInstances: 20, text: 'Europe',
+      },
+      {
+        value: 'NA', nodeTier: 'Stratus', maxInstances: 20, text: 'North America',
+      },
+      {
+        value: 'OC', nodeTier: 'Cumulus', maxInstances: 3, text: 'Oceania',
+      }],
+      countriesOptions: [{
+        value: null, text: 'All', continentCode: 'AS',
+      },
+      {
+        value: 'SG', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'AS', text: 'Singapore',
+      },
+      {
+        value: 'TW', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'AS', text: 'Taiwan',
+      },
+      {
+        value: 'TH', nodeTier: 'Cumulus', maxInstances: 5, continentCode: 'AS', text: 'Thailand',
+      },
+      {
+        value: null, text: 'All', continentCode: 'EU',
+      },
+      {
+        value: 'BE', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Belgium',
+      },
+      {
+        value: 'CZ', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Czechia',
+      },
+      {
+        value: 'FI', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'EU', text: 'Finland',
+      },
+      {
+        value: 'FR', nodeTier: 'Stratus', maxInstances: 5, continentCode: 'EU', text: 'France',
+      },
+      {
+        value: 'DE', nodeTier: 'Stratus', maxInstances: 15, continentCode: 'EU', text: 'Germany',
+      },
+      {
+        value: 'LT', nodeTier: 'Cumulus', maxInstances: 5, continentCode: 'EU', text: 'Lithuania',
+      },
+      {
+        value: 'NL', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Netherlands',
+      },
+      {
+        value: 'PL', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'EU', text: 'Poland',
+      },
+      {
+        value: 'RU', nodeTier: 'Nimbus', maxInstances: 5, continentCode: 'EU', text: 'Russia',
+      },
+      {
+        value: 'SI', nodeTier: 'Stratus', maxInstances: 3, continentCode: 'EU', text: 'Slovenia',
+      },
+      {
+        value: 'ES', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Spain',
+      },
+      {
+        value: 'GB', nodeTier: 'Stratus', maxInstances: 3, continentCode: 'EU', text: 'United Kingdom',
+      },
+      {
+        value: null, text: 'All', continentCode: 'NA',
+      },
+      {
+        value: 'US', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'NA', text: 'United States',
+      },
+      {
+        value: 'CA', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'NA', text: 'Canada',
+      },
+      {
+        value: null, text: 'All', continentCode: 'OC',
+      }],
     };
   },
   computed: {
@@ -1779,7 +1905,7 @@ export default {
         const runningAppsSpecifics = [];
         apps.forEach((app) => {
           // get application specification IF it is composed app
-          const appName = app.Names[0].startsWith('/flux') ? app.Names[0].substr(5, app.Names[0].length) : app.Names[0].substr(4, app.Names[0].length);
+          const appName = app.Names[0].startsWith('/flux') ? app.Names[0].slice(5) : app.Names[0].slice(4);
           if (appName.includes('_')) {
             runningAppsNames.push(appName.split('_')[1]);
           } else {
@@ -2020,10 +2146,10 @@ export default {
     getAppName(appName) {
       // this id is used for volumes, docker names so we know it reall belongs to flux
       if (appName && appName.startsWith('zel')) {
-        return appName.substr(3, appName.length);
+        return appName.slice(3);
       }
       if (appName && appName.startsWith('flux')) {
-        return appName.substr(4, appName.length);
+        return appName.slice(4);
       }
       return appName;
     },
@@ -2150,6 +2276,42 @@ export default {
         domains.push(portDomain);
       }
       return domains;
+    },
+    ensureObject(parameter) {
+      if (typeof parameter === 'object') {
+        return parameter;
+      }
+      let param;
+      try {
+        param = JSON.parse(parameter);
+      } catch (e) {
+        param = qs.parse(parameter);
+      }
+      return param;
+    },
+    getContinent(item) {
+      const objItem = this.ensureObject(item);
+      const appContinent = objItem.find((x) => x.startsWith('a'));
+      if (appContinent) {
+        const appContinentAux = this.continentsOptions.find((x) => x.value === appContinent.slice(1));
+        if (appContinentAux) {
+          return appContinentAux.text;
+        }
+        return 'All';
+      }
+      return 'All';
+    },
+    getCountry(item) {
+      const objItem = this.ensureObject(item);
+      const appCountry = objItem.find((x) => x.startsWith('b'));
+      if (appCountry) {
+        const appCountryAux = this.countriesOptions.find((x) => x.value === appCountry.slice(1));
+        if (appCountryAux) {
+          return appCountryAux.text;
+        }
+        return 'All';
+      }
+      return 'All';
     },
   },
 };
