@@ -175,21 +175,20 @@ async function rebuildHome(req, res) {
 // eslint-disable-next-line consistent-return
 async function updateDaemon(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized === true) {
-    const nodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${nodedpath} && bash updateDaemon.sh`;
-    nodecmd.get(exec, (err) => {
-      if (err) {
-        const errMessage = messageHelper.createErrorMessage(`Error updating Daemon: ${err.message}`, err.name, err.code);
-        return res.json(errMessage);
-      }
-      const message = messageHelper.createSuccessMessage('Daemon successfully updated');
-      return res.json(message);
-    });
-  } else {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
+  const nodedpath = path.join(__dirname, '../../../helpers');
+  const exec = `cd ${nodedpath} && bash updateDaemon.sh`;
+  nodecmd.get(exec, (err) => {
+    if (err) {
+      const errMessage = messageHelper.createErrorMessage(`Error updating Daemon: ${err.message}`, err.name, err.code);
+      return res.json(errMessage);
+    }
+    const message = messageHelper.createSuccessMessage('Daemon successfully updated');
+    return res.json(message);
+  });
 }
 
 /**
@@ -201,21 +200,20 @@ async function updateDaemon(req, res) {
 // eslint-disable-next-line consistent-return
 async function updateBenchmark(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized === true) {
-    const nodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${nodedpath} && bash updateBenchmark.sh`;
-    nodecmd.get(exec, (err) => {
-      if (err) {
-        const errMessage = messageHelper.createErrorMessage(`Error updating Benchmark: ${err.message}`, err.name, err.code);
-        return res.json(errMessage);
-      }
-      const message = messageHelper.createSuccessMessage('Benchmark successfully updated');
-      return res.json(message);
-    });
-  } else {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
+  const nodedpath = path.join(__dirname, '../../../helpers');
+  const exec = `cd ${nodedpath} && bash updateBenchmark.sh`;
+  nodecmd.get(exec, (err) => {
+    if (err) {
+      const errMessage = messageHelper.createErrorMessage(`Error updating Benchmark: ${err.message}`, err.name, err.code);
+      return res.json(errMessage);
+    }
+    const message = messageHelper.createSuccessMessage('Benchmark successfully updated');
+    return res.json(message);
+  });
 }
 
 /**
@@ -227,24 +225,23 @@ async function updateBenchmark(req, res) {
 // eslint-disable-next-line consistent-return
 async function startBenchmark(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized === true) {
-    let exec = 'zelbenchd -daemon';
-    if (fs.existsSync('/usr/local/bin/fluxbenchd')) {
-      exec = 'fluxbenchd -daemon';
-    }
-    nodecmd.get(exec, (err, data) => {
-      if (err) {
-        const errMessage = messageHelper.createErrorMessage(`Error starting Benchmark: ${err.message}`, err.name, err.code);
-        return res.json(errMessage);
-      }
-      console.log(data);
-      const message = messageHelper.createSuccessMessage('Benchamrk successfully started');
-      return res.json(message);
-    });
-  } else {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
+  let exec = 'zelbenchd -daemon';
+  if (fs.existsSync('/usr/local/bin/fluxbenchd')) {
+    exec = 'fluxbenchd -daemon';
+  }
+  nodecmd.get(exec, (err, data) => {
+    if (err) {
+      const errMessage = messageHelper.createErrorMessage(`Error starting Benchmark: ${err.message}`, err.name, err.code);
+      return res.json(errMessage);
+    }
+    console.log(data);
+    const message = messageHelper.createSuccessMessage('Benchmark successfully started');
+    return res.json(message);
+  });
 }
 
 /**
@@ -256,22 +253,21 @@ async function startBenchmark(req, res) {
 // eslint-disable-next-line consistent-return
 async function restartBenchmark(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized === true) {
-    const nodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${nodedpath} && bash restartBenchmark.sh`;
-    nodecmd.get(exec, (err) => {
-      if (err) {
-        const errMessage = messageHelper.createErrorMessage(`Error restarting Benchmark: ${err.message}`, err.name, err.code);
-        return res.json(errMessage);
-      }
-      const message = messageHelper.createSuccessMessage('Benchmark successfully restarted');
-      return res.json(message);
-    });
-  } else {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     console.log(errMessage);
     return res.json(errMessage);
   }
+  const nodedpath = path.join(__dirname, '../../../helpers');
+  const exec = `cd ${nodedpath} && bash restartBenchmark.sh`;
+  nodecmd.get(exec, (err) => {
+    if (err) {
+      const errMessage = messageHelper.createErrorMessage(`Error restarting Benchmark: ${err.message}`, err.name, err.code);
+      return res.json(errMessage);
+    }
+    const message = messageHelper.createSuccessMessage('Benchmark successfully restarted');
+    return res.json(message);
+  });
 }
 
 /**
@@ -283,24 +279,23 @@ async function restartBenchmark(req, res) {
 // eslint-disable-next-line consistent-return
 async function startDaemon(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized === true) {
-    let exec = 'zelcashd';
-    if (fs.existsSync('/usr/local/bin/fluxd')) {
-      exec = 'fluxd';
-    }
-    nodecmd.get(exec, (err, data) => {
-      if (err) {
-        const errMessage = messageHelper.createErrorMessage(`Error starting Daemon: ${err.message}`, err.name, err.code);
-        return res.json(errMessage);
-      }
-      console.log(data);
-      const message = messageHelper.createSuccessMessage('Daemon successfully started');
-      return res.json(message);
-    });
-  } else {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
+  let exec = 'zelcashd';
+  if (fs.existsSync('/usr/local/bin/fluxd')) {
+    exec = 'fluxd';
+  }
+  nodecmd.get(exec, (err, data) => {
+    if (err) {
+      const errMessage = messageHelper.createErrorMessage(`Error starting Daemon: ${err.message}`, err.name, err.code);
+      return res.json(errMessage);
+    }
+    console.log(data);
+    const message = messageHelper.createSuccessMessage('Daemon successfully started');
+    return res.json(message);
+  });
 }
 
 /**
@@ -312,22 +307,21 @@ async function startDaemon(req, res) {
 // eslint-disable-next-line consistent-return
 async function restartDaemon(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized === true) {
-    const nodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${nodedpath} && bash restartDaemon.sh`;
-    nodecmd.get(exec, (err) => {
-      if (err) {
-        const errMessage = messageHelper.createErrorMessage(`Error restarting Daemon: ${err.message}`, err.name, err.code);
-        return res.json(errMessage);
-      }
-      const message = messageHelper.createSuccessMessage('Daemon successfully restarted');
-      return res.json(message);
-    });
-  } else {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     console.log(errMessage);
     return res.json(errMessage);
   }
+  const nodedpath = path.join(__dirname, '../../../helpers');
+  const exec = `cd ${nodedpath} && bash restartDaemon.sh`;
+  nodecmd.get(exec, (err) => {
+    if (err) {
+      const errMessage = messageHelper.createErrorMessage(`Error restarting Daemon: ${err.message}`, err.name, err.code);
+      return res.json(errMessage);
+    }
+    const message = messageHelper.createSuccessMessage('Daemon successfully restarted');
+    return res.json(message);
+  });
 }
 
 /**
@@ -339,21 +333,20 @@ async function restartDaemon(req, res) {
 // eslint-disable-next-line consistent-return
 async function reindexDaemon(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized === true) {
-    const nodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${nodedpath} && bash reindexDaemon.sh`;
-    nodecmd.get(exec, (err) => {
-      if (err) {
-        const errMessage = messageHelper.createErrorMessage(`Error reindexing Daemon: ${err.message}`, err.name, err.code);
-        return res.json(errMessage);
-      }
-      const message = messageHelper.createSuccessMessage('Daemon successfully reindexing');
-      return res.json(message);
-    });
-  } else {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
+  const nodedpath = path.join(__dirname, '../../../helpers');
+  const exec = `cd ${nodedpath} && bash reindexDaemon.sh`;
+  nodecmd.get(exec, (err) => {
+    if (err) {
+      const errMessage = messageHelper.createErrorMessage(`Error reindexing Daemon: ${err.message}`, err.name, err.code);
+      return res.json(errMessage);
+    }
+    const message = messageHelper.createSuccessMessage('Daemon successfully reindexing');
+    return res.json(message);
+  });
 }
 
 /**

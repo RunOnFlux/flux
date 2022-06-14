@@ -437,4 +437,560 @@ describe.only('fluxService tests', () => {
       sinon.assert.calledWithMatch(nodeCmdStub, `cd ${nodedpath} && npm run homebuild`);
     });
   });
+
+  describe('updateDaemon tests', () => {
+    let verifyPrivilegeStub;
+    let nodeCmdStub;
+
+    beforeEach(() => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+      nodeCmdStub = sinon.stub(nodecmd, 'get');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw error if user is not an admin or flux team', async () => {
+      verifyPrivilegeStub.returns(false);
+      const res = generateResponse();
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      const response = await fluxService.updateDaemon(undefined, res);
+
+      expect(response).to.eql(`Response: ${expectedResponse}`);
+      sinon.assert.calledWithExactly(res.json, expectedResponse);
+    });
+
+    it('should return success message if cmd exec does not return error', async () => {
+      verifyPrivilegeStub.returns(true);
+      nodeCmdStub.yields(null);
+      const nodedpath = path.join(__dirname, '../../helpers');
+
+      const expectedResponse = {
+        data: {
+          code: undefined,
+          message: 'Daemon successfully updated',
+          name: undefined,
+        },
+        status: 'success',
+      };
+      const res = generateResponse();
+
+      await fluxService.updateDaemon(undefined, res);
+      await serviceHelper.delay(200);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledWithMatch(nodeCmdStub, `cd ${nodedpath} && bash updateDaemon.sh`);
+    });
+
+    it('should return error if cmd exec throws error ', async () => {
+      verifyPrivilegeStub.returns(true);
+      nodeCmdStub.yields({
+        message: 'This is an error',
+        code: 403,
+        name: 'testing error',
+      });
+      const nodedpath = path.join(__dirname, '../../helpers');
+
+      const expectedResponse = {
+        data: {
+          code: 403,
+          message: 'Error updating Daemon: This is an error',
+          name: 'testing error',
+        },
+        status: 'error',
+      };
+      const res = generateResponse();
+
+      await fluxService.updateDaemon(undefined, res);
+      await serviceHelper.delay(200);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledWithMatch(nodeCmdStub, `cd ${nodedpath} && bash updateDaemon.sh`);
+    });
+  });
+
+  describe('updateBenchmark tests', () => {
+    let verifyPrivilegeStub;
+    let nodeCmdStub;
+
+    beforeEach(() => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+      nodeCmdStub = sinon.stub(nodecmd, 'get');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw error if user is not an admin or flux team', async () => {
+      verifyPrivilegeStub.returns(false);
+      const res = generateResponse();
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      const response = await fluxService.updateBenchmark(undefined, res);
+
+      expect(response).to.eql(`Response: ${expectedResponse}`);
+      sinon.assert.calledWithExactly(res.json, expectedResponse);
+    });
+
+    it('should return success message if cmd exec does not return error', async () => {
+      verifyPrivilegeStub.returns(true);
+      nodeCmdStub.yields(null);
+      const nodedpath = path.join(__dirname, '../../helpers');
+
+      const expectedResponse = {
+        data: {
+          code: undefined,
+          message: 'Benchmark successfully updated',
+          name: undefined,
+        },
+        status: 'success',
+      };
+      const res = generateResponse();
+
+      await fluxService.updateBenchmark(undefined, res);
+      await serviceHelper.delay(200);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledWithMatch(nodeCmdStub, `cd ${nodedpath} && bash updateBenchmark.sh`);
+    });
+
+    it('should return error if cmd exec throws error ', async () => {
+      verifyPrivilegeStub.returns(true);
+      nodeCmdStub.yields({
+        message: 'This is an error',
+        code: 403,
+        name: 'testing error',
+      });
+      const nodedpath = path.join(__dirname, '../../helpers');
+
+      const expectedResponse = {
+        data: {
+          code: 403,
+          message: 'Error updating Benchmark: This is an error',
+          name: 'testing error',
+        },
+        status: 'error',
+      };
+      const res = generateResponse();
+
+      await fluxService.updateBenchmark(undefined, res);
+      await serviceHelper.delay(200);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledWithMatch(nodeCmdStub, `cd ${nodedpath} && bash updateBenchmark.sh`);
+    });
+  });
+
+  describe('startBenchmark tests', () => {
+    let verifyPrivilegeStub;
+    let nodeCmdStub;
+
+    beforeEach(() => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+      nodeCmdStub = sinon.stub(nodecmd, 'get');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw error if user is not an admin or flux team', async () => {
+      verifyPrivilegeStub.returns(false);
+      const res = generateResponse();
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      const response = await fluxService.startBenchmark(undefined, res);
+
+      expect(response).to.eql(`Response: ${expectedResponse}`);
+      sinon.assert.calledWithExactly(res.json, expectedResponse);
+    });
+
+    it('should return success message if cmd exec does not return error', async () => {
+      verifyPrivilegeStub.returns(true);
+      nodeCmdStub.yields(null);
+
+      const expectedResponse = {
+        data: {
+          code: undefined,
+          message: 'Benchmark successfully started',
+          name: undefined,
+        },
+        status: 'success',
+      };
+      const res = generateResponse();
+
+      await fluxService.startBenchmark(undefined, res);
+      await serviceHelper.delay(200);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledWithMatch(nodeCmdStub, 'fluxbenchd -daemon');
+    });
+
+    it('should return error if cmd exec throws error ', async () => {
+      verifyPrivilegeStub.returns(true);
+      nodeCmdStub.yields({
+        message: 'This is an error',
+        code: 403,
+        name: 'testing error',
+      });
+
+      const expectedResponse = {
+        data: {
+          code: 403,
+          message: 'Error starting Benchmark: This is an error',
+          name: 'testing error',
+        },
+        status: 'error',
+      };
+      const res = generateResponse();
+
+      await fluxService.startBenchmark(undefined, res);
+      await serviceHelper.delay(200);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledWithMatch(nodeCmdStub, 'fluxbenchd -daemon');
+    });
+  });
+
+  describe('restartBenchmark tests', () => {
+    let verifyPrivilegeStub;
+    let nodeCmdStub;
+
+    beforeEach(() => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+      nodeCmdStub = sinon.stub(nodecmd, 'get');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw error if user is not an admin or flux team', async () => {
+      verifyPrivilegeStub.returns(false);
+      const res = generateResponse();
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      const response = await fluxService.restartBenchmark(undefined, res);
+
+      expect(response).to.eql(`Response: ${expectedResponse}`);
+      sinon.assert.calledWithExactly(res.json, expectedResponse);
+    });
+
+    it('should return success message if cmd exec does not return error', async () => {
+      verifyPrivilegeStub.returns(true);
+      nodeCmdStub.yields(null);
+      const nodedpath = path.join(__dirname, '../../helpers');
+
+      const expectedResponse = {
+        data: {
+          code: undefined,
+          message: 'Benchmark successfully restarted',
+          name: undefined,
+        },
+        status: 'success',
+      };
+      const res = generateResponse();
+
+      await fluxService.restartBenchmark(undefined, res);
+      await serviceHelper.delay(200);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledWithMatch(nodeCmdStub, `cd ${nodedpath} && bash restartBenchmark.sh`);
+    });
+
+    it('should return error if cmd exec throws error ', async () => {
+      verifyPrivilegeStub.returns(true);
+      nodeCmdStub.yields({
+        message: 'This is an error',
+        code: 403,
+        name: 'testing error',
+      });
+      const nodedpath = path.join(__dirname, '../../helpers');
+
+      const expectedResponse = {
+        data: {
+          code: 403,
+          message: 'Error restarting Benchmark: This is an error',
+          name: 'testing error',
+        },
+        status: 'error',
+      };
+      const res = generateResponse();
+
+      await fluxService.restartBenchmark(undefined, res);
+      await serviceHelper.delay(200);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledWithMatch(nodeCmdStub, `cd ${nodedpath} && bash restartBenchmark.sh`);
+    });
+  });
+
+  describe('startDaemon tests', () => {
+    let verifyPrivilegeStub;
+    let nodeCmdStub;
+
+    beforeEach(() => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+      nodeCmdStub = sinon.stub(nodecmd, 'get');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw error if user is not an admin or flux team', async () => {
+      verifyPrivilegeStub.returns(false);
+      const res = generateResponse();
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      const response = await fluxService.startDaemon(undefined, res);
+
+      expect(response).to.eql(`Response: ${expectedResponse}`);
+      sinon.assert.calledWithExactly(res.json, expectedResponse);
+    });
+
+    it('should return success message if cmd exec does not return error', async () => {
+      verifyPrivilegeStub.returns(true);
+      nodeCmdStub.yields(null);
+
+      const expectedResponse = {
+        data: {
+          code: undefined,
+          message: 'Daemon successfully started',
+          name: undefined,
+        },
+        status: 'success',
+      };
+      const res = generateResponse();
+
+      await fluxService.startDaemon(undefined, res);
+      await serviceHelper.delay(200);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledWithMatch(nodeCmdStub, 'fluxd');
+    });
+
+    it('should return error if cmd exec throws error ', async () => {
+      verifyPrivilegeStub.returns(true);
+      nodeCmdStub.yields({
+        message: 'This is an error',
+        code: 403,
+        name: 'testing error',
+      });
+
+      const expectedResponse = {
+        data: {
+          code: 403,
+          message: 'Error starting Daemon: This is an error',
+          name: 'testing error',
+        },
+        status: 'error',
+      };
+      const res = generateResponse();
+
+      await fluxService.startDaemon(undefined, res);
+      await serviceHelper.delay(200);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledWithMatch(nodeCmdStub, 'fluxd');
+    });
+  });
+
+  describe('restartDaemon tests', () => {
+    let verifyPrivilegeStub;
+    let nodeCmdStub;
+
+    beforeEach(() => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+      nodeCmdStub = sinon.stub(nodecmd, 'get');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw error if user is not an admin or flux team', async () => {
+      verifyPrivilegeStub.returns(false);
+      const res = generateResponse();
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      const response = await fluxService.restartDaemon(undefined, res);
+
+      expect(response).to.eql(`Response: ${expectedResponse}`);
+      sinon.assert.calledWithExactly(res.json, expectedResponse);
+    });
+
+    it('should return success message if cmd exec does not return error', async () => {
+      verifyPrivilegeStub.returns(true);
+      nodeCmdStub.yields(null);
+      const nodedpath = path.join(__dirname, '../../helpers');
+
+      const expectedResponse = {
+        data: {
+          code: undefined,
+          message: 'Daemon successfully restarted',
+          name: undefined,
+        },
+        status: 'success',
+      };
+      const res = generateResponse();
+
+      await fluxService.restartDaemon(undefined, res);
+      await serviceHelper.delay(200);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledWithMatch(nodeCmdStub, `cd ${nodedpath} && bash restartDaemon.sh`);
+    });
+
+    it('should return error if cmd exec throws error ', async () => {
+      verifyPrivilegeStub.returns(true);
+      nodeCmdStub.yields({
+        message: 'This is an error',
+        code: 403,
+        name: 'testing error',
+      });
+      const nodedpath = path.join(__dirname, '../../helpers');
+
+      const expectedResponse = {
+        data: {
+          code: 403,
+          message: 'Error restarting Daemon: This is an error',
+          name: 'testing error',
+        },
+        status: 'error',
+      };
+      const res = generateResponse();
+
+      await fluxService.restartDaemon(undefined, res);
+      await serviceHelper.delay(200);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledWithMatch(nodeCmdStub, `cd ${nodedpath} && bash restartDaemon.sh`);
+    });
+  });
+
+  describe('reindexDaemon tests', () => {
+    let verifyPrivilegeStub;
+    let nodeCmdStub;
+
+    beforeEach(() => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+      nodeCmdStub = sinon.stub(nodecmd, 'get');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw error if user is not an admin or flux team', async () => {
+      verifyPrivilegeStub.returns(false);
+      const res = generateResponse();
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      const response = await fluxService.reindexDaemon(undefined, res);
+
+      expect(response).to.eql(`Response: ${expectedResponse}`);
+      sinon.assert.calledWithExactly(res.json, expectedResponse);
+    });
+
+    it('should return success message if cmd exec does not return error', async () => {
+      verifyPrivilegeStub.returns(true);
+      nodeCmdStub.yields(null);
+      const nodedpath = path.join(__dirname, '../../helpers');
+
+      const expectedResponse = {
+        data: {
+          code: undefined,
+          message: 'Daemon successfully reindexing',
+          name: undefined,
+        },
+        status: 'success',
+      };
+      const res = generateResponse();
+
+      await fluxService.reindexDaemon(undefined, res);
+      await serviceHelper.delay(200);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledWithMatch(nodeCmdStub, `cd ${nodedpath} && bash reindexDaemon.sh`);
+    });
+
+    it('should return error if cmd exec throws error ', async () => {
+      verifyPrivilegeStub.returns(true);
+      nodeCmdStub.yields({
+        message: 'This is an error',
+        code: 403,
+        name: 'testing error',
+      });
+      const nodedpath = path.join(__dirname, '../../helpers');
+
+      const expectedResponse = {
+        data: {
+          code: 403,
+          message: 'Error reindexing Daemon: This is an error',
+          name: 'testing error',
+        },
+        status: 'error',
+      };
+      const res = generateResponse();
+
+      await fluxService.reindexDaemon(undefined, res);
+      await serviceHelper.delay(200);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledWithMatch(nodeCmdStub, `cd ${nodedpath} && bash reindexDaemon.sh`);
+    });
+  });
 });
