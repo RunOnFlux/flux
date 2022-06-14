@@ -23,7 +23,7 @@ const benchmarkService = require('./benchmarkService');
 const dockerService = require('./dockerService');
 const generalService = require('./generalService');
 const upnpService = require('./upnpService');
-const fluxService = require('./fluxService');
+const geolocationService = require('./geolocationService');
 const log = require('../lib/log');
 const userconfig = require('../../../config/userconfig');
 
@@ -2023,22 +2023,22 @@ function totalAppHWRequirements(appSpecifications, myNodeTier) {
 function checkAppGeolocationRequirements(appSpecs) {
   // check geolocation
   if (appSpecs.version >= 5) {
-    const nodeGeo = fluxService.getNodeGeolocation();
+    const nodeGeo = geolocationService.getNodeGeolocation();
     if (!nodeGeo) {
       throw new Error('Node Geolocation not set. Aborting.');
     }
     if (appSpecs.geolocation && appSpecs.geolocation.length > 0) {
       const appContinent = appSpecs.geolocation.find((x) => x.startsWith('a'));
+      const appCountry = appSpecs.geolocation.find((x) => x.startsWith('b'));
       if (appContinent) {
         if (appContinent.slice(1) !== nodeGeo.continentCode) {
           throw new Error('App specs with continents geolocation set not matching node geolocation. Aborting.');
         }
+      }
 
-        const appCountry = appSpecs.geolocation.find((x) => x.startsWith('b'));
-        if (appCountry) {
-          if (appCountry.slice(1) !== nodeGeo.countryCode) {
-            throw new Error('App specs with countries geolocation set not matching node geolocation. Aborting.');
-          }
+      if (appCountry) {
+        if (appCountry.slice(1) !== nodeGeo.countryCode) {
+          throw new Error('App specs with countries geolocation set not matching node geolocation. Aborting.');
         }
       }
     }
@@ -6398,6 +6398,8 @@ async function trySpawningGlobalApplication() {
       log.info(`App ${randomApp} was already evaluated in the last 30m.`);
       if (numberOfGlobalApps < 20) {
         await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
+      } else {
+        await serviceHelper.delay(config.fluxapps.installation.delay * 1000 * 0.1);
       }
       trySpawningGlobalApplication();
       return;
