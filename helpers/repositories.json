@@ -268,5 +268,6 @@
    "slashapps/noderank:latest",
    "dopsimulation/ot-umami-gui:latest",
    "louisdussoulier/dapp:latest",
-   "smartico/aave:latest"
+   "smartico/aave:latest",
+   "runonflux/raven-insight-explorer:latest"
 ]
