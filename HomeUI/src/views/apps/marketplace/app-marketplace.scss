@@ -7,6 +7,7 @@ $app_details_header_height: 5rem;
 .marketplace-application {
   // Content area wrapper border
   .content-area-wrapper {
+    min-height: calc(100vh - 155px);
     border: 1px solid $border-color;
     border-radius: $card-border-radius;
 

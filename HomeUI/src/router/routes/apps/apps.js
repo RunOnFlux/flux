@@ -77,6 +77,16 @@ export default [
     },
   },
   {
+    path: '/apps/shared-nodes',
+    name: 'apps-marketplace-sharednodes',
+    component: () => import('@/views/apps/marketplace/Marketplace.vue'),
+    meta: {
+      contentRenderer: 'sidebar-left',
+      contentClass: 'marketplace-application',
+      navActiveLink: 'apps-marketplace',
+    },
+  },
+  {
     path: '/apps/fluxsharestorage',
     name: 'apps-fluxsharestorage',
     component: () => import('@/views/apps/MyFluxShare.vue'),

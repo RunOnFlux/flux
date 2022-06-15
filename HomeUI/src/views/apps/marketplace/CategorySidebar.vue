@@ -26,6 +26,24 @@
                 <span class="line-height-2">{{ filter.title }}</span>
               </b-list-group-item>
             </b-list-group>
+            <hr>
+            <b-list-group class="list-group-filters">
+              <b-list-group-item
+                v-for="action in nodeActions"
+                :key="action.title + $route.path"
+                :to="action.route"
+                :active="isDynamicRouteActive(action.route)"
+                @click="$emit('close-app-view'); $emit('close-left-sidebar'); $emit(action.event)"
+              >
+                <v-icon
+                  :name="action.icon"
+                  scale="1.55"
+                  class="mr-75 icon-spacing"
+                />
+
+                <span class="line-height-2">{{ action.title }}</span>
+              </b-list-group-item>
+            </b-list-group>
           </vue-perfect-scrollbar>
         </div>
       </div>
@@ -38,6 +56,11 @@ import VuePerfectScrollbar from 'vue-perfect-scrollbar';
 import { BListGroup, BListGroupItem } from 'bootstrap-vue';
 import { isDynamicRouteActive } from '@core/utils/utils';
 import Ripple from 'vue-ripple-directive';
+
+import {
+  ref,
+} from '@vue/composition-api';
+
 import { categories } from '../../../libs/marketplaceCategories';
 
 export default {
@@ -50,11 +73,23 @@ export default {
     VuePerfectScrollbar,
   },
   props: {
+    zelid: {
+      type: String,
+      required: false,
+      default: '',
+    },
+    sharednodezelids: {
+      type: Array,
+      required: true,
+    },
   },
-  setup() {
+  setup(props) {
     const perfectScrollbarSettings = {
       maxScrollbarLength: 60,
     };
+
+    const userZelid = ref('');
+    userZelid.value = props.zelid;
 
     const taskFilters = [
       { title: 'All Categories', icon: 'inbox', route: { name: 'apps-marketplace' } },
@@ -73,9 +108,21 @@ export default {
       });
     });
 
+    const canViewSharedNodes = () => props.sharednodezelids.includes(userZelid.value);
+
+    const nodeActions = canViewSharedNodes() ? [
+      {
+        title: 'Shared Nodes',
+        icon: 'inbox',
+        event: 'open-shared-nodes',
+        route: { name: 'apps-marketplace-sharednodes' },
+      },
+    ] : [];
+
     return {
       perfectScrollbarSettings,
       taskFilters,
+      nodeActions,
       isDynamicRouteActive,
     };
   },

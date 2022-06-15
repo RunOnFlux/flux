@@ -6,6 +6,9 @@ const proxyquire = require('proxyquire');
 const { expect } = chai;
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 
+const rndZelid = '1PQWN5vgV3P9KexYmhF133zDft34YhKB3L';
+const rndPrivKey = 'KyL927pfsyZnJhFq5gQGy5eWq9tRYuAppRGiLjvBJGMvMwCqWYmv';
+
 const adminConfig = {
   initial: {
     ipaddress: '83.51.212.243',
@@ -15,6 +18,8 @@ const adminConfig = {
 };
 const verificationHelperUtils = proxyquire('../../ZelBack/src/services/verificationHelperUtils',
   { '../../../config/userconfig': adminConfig });
+
+const { signMessage } = require('../../ZelBack/src/services/verificationHelper');
 
 const insertUsers = [
   {
@@ -213,6 +218,40 @@ describe('verificationHelperUtils tests', () => {
           zelid: '',
           loginPhrase: '',
           signature: '',
+        },
+      };
+
+      const isLoggedUser = await verificationHelperUtils.verifyUserSession(headers);
+
+      expect(isLoggedUser).to.be.false;
+    });
+
+    it('should return true if signature is not older than 16 hours', async () => {
+      const headers = {
+        zelidauth: {
+          zelid: rndZelid,
+          loginPhrase: '',
+          signature: '',
+        },
+      };
+
+      const rndDate = new Date().getTime() - (3 * 60 * 60 * 1000);
+      headers.zelidauth.loginPhrase = `${rndDate}cl4joxxaevbx93gwhegqj1fqsubhb9tsg9s3hjkbuk8`;
+
+      const rndSignature = signMessage(headers.zelidauth.loginPhrase, rndPrivKey);
+      headers.zelidauth.signature = rndSignature;
+
+      const isLoggedUser = await verificationHelperUtils.verifyUserSession(headers);
+
+      expect(isLoggedUser).to.be.true;
+    });
+
+    it('should return false if signature is older than 16 hours', async () => {
+      const headers = {
+        zelidauth: {
+          zelid: rndZelid,
+          loginPhrase: '1652757506000cl4joxxaevbx93gwhegqj1fqsubhb9tsg9s3hjkbuk8',
+          signature: 'H0uECFYOXysQVHah5cOTqrlxrZkutl6eaqwc7agovYKcIoqAD8OQWM3uRntl7vIshznPH4toA5jOfI2Lib5Bh+M=',
         },
       };
 

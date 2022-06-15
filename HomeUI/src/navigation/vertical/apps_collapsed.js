@@ -20,11 +20,6 @@ export default [
         route: 'apps-registerapp',
       },
       {
-        title: 'Marketplace',
-        icon: 'shopping-basket',
-        route: 'apps-marketplace',
-      },
-      {
         title: 'My FluxShare',
         icon: 'regular/hdd',
         route: 'apps-fluxsharestorage',
