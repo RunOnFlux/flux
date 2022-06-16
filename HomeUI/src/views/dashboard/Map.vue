@@ -93,6 +93,7 @@ export default {
     return {
       fluxListLoading: true,
       fluxList: [],
+      fluxNodeCount: 0,
       self: this,
       mapData: {
         url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
@@ -151,17 +152,10 @@ export default {
     async getFluxList() {
       try {
         this.fluxListLoading = true;
-        const resLoc = await axios.get('https://stats.runonflux.io/fluxlocations');
-        const locations = resLoc.data.data;
-        const resList = await DashboardService.listZelNodes();
-        const fluxList = resList.data.data;
-        const adjustedFluxList = [];
-        fluxList.forEach((node) => {
-          const adjustedNode = node;
-          adjustedNode.location = locations.find((location) => location.ip === adjustedNode.ip.split(':')[0]);
-          adjustedFluxList.push(adjustedNode);
-        });
-        this.fluxList = adjustedFluxList.filter((node) => node.ip);
+        const resLoc = await axios.get('https://stats.runonflux.io/fluxinfo?projection=geolocation,ip,tier');
+        this.fluxList = resLoc.data.data;
+        const resList = await DashboardService.zelnodeCount();
+        this.fluxNodeCount = resList.data.data.total;
         this.fluxListLoading = false;
         await this.generateMap();
         await this.generateGeographicPie();
@@ -173,22 +167,20 @@ export default {
     async generateMap() {
       const nodeData = [];
       this.fluxList.forEach((flux) => {
-        if (flux.location) {
-          const existingPoint = nodeData.find((node) => (node.latitude === flux.location.lat && node.longitude === flux.location.lon));
-          if (existingPoint) {
-            if (existingPoint.title.split(['-']).length % 6) {
-              existingPoint.title += `   ${flux.ip} - ${flux.tier}   `;
-            } else {
-              existingPoint.title += `   ${flux.ip} - ${flux.tier}   \n`;
-            }
+        const existingPoint = nodeData.find((node) => (node.latitude === flux.geolocation.lat && node.longitude === flux.geolocation.lon));
+        if (existingPoint) {
+          if (existingPoint.title.split(['-']).length % 6) {
+            existingPoint.title += `   ${flux.ip} - ${flux.tier}   `;
           } else {
-            const point = {
-              latitude: flux.location.lat,
-              longitude: flux.location.lon,
-              title: `   ${flux.ip} - ${flux.tier}   `,
-            };
-            nodeData.push(point);
+            existingPoint.title += `   ${flux.ip} - ${flux.tier}   \n`;
           }
+        } else {
+          const point = {
+            latitude: flux.geolocation.lat,
+            longitude: flux.geolocation.lon,
+            title: `   ${flux.ip} - ${flux.tier}   `,
+          };
+          nodeData.push(point);
         }
       });
       this.mapData.markers = [];
@@ -205,13 +197,13 @@ export default {
       const data = [];
       const nodeData = [];
       this.fluxList.forEach((flux) => {
-        if (flux.location) {
-          const existingPoint = nodeData.find((node) => (node.country === flux.location.country));
+        if (flux.geolocation && flux.geolocation.country) {
+          const existingPoint = nodeData.find((node) => (node.country === flux.geolocation.country));
           if (existingPoint) {
             existingPoint.amount += 1;
           } else {
             const point = {
-              country: flux.location.country || 'Unknown',
+              country: flux.geolocation.country || 'Unknown',
               amount: 1,
             };
             nodeData.push(point);
@@ -229,6 +221,19 @@ export default {
           }
         }
       });
+
+      for (let i = 0; i < this.fluxNodeCount - this.fluxList.length; i += 1) {
+        const existingPoint = nodeData.find((node) => (node.country === 'Unknown'));
+        if (existingPoint) {
+          existingPoint.amount += 1;
+        } else {
+          const point = {
+            country: 'Unknown',
+            amount: 1,
+          };
+          nodeData.push(point);
+        }
+      }
 
       nodeData.sort((a, b) => b.amount - a.amount);
       this.geographicData.series = [];
@@ -257,13 +262,13 @@ export default {
       const data = [];
       const nodeData = [];
       this.fluxList.forEach((flux) => {
-        if (flux.location) {
-          const existingPoint = nodeData.find((node) => (node.org === flux.location.org));
+        if (flux.geolocation && flux.geolocation.org) {
+          const existingPoint = nodeData.find((node) => (node.org === flux.geolocation.org));
           if (existingPoint) {
             existingPoint.amount += 1;
-          } else if (flux.location.org) {
+          } else if (flux.geolocation.org) {
             const point = {
-              org: flux.location.org,
+              org: flux.geolocation.org,
               amount: 1,
             };
             nodeData.push(point);
@@ -292,6 +297,19 @@ export default {
           }
         }
       });
+
+      for (let i = 0; i < this.fluxNodeCount - this.fluxList.length; i += 1) {
+        const existingPoint = nodeData.find((node) => (node.org === 'Unknown'));
+        if (existingPoint) {
+          existingPoint.amount += 1;
+        } else {
+          const point = {
+            org: 'Unknown',
+            amount: 1,
+          };
+          nodeData.push(point);
+        }
+      }
 
       nodeData.sort((a, b) => b.amount - a.amount);
       this.providerData.series = [];
