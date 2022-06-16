@@ -262,7 +262,7 @@ export default {
       const data = [];
       const nodeData = [];
       this.fluxList.forEach((flux) => {
-        if (flux.geolocation && flux.geolocation.country) {
+        if (flux.geolocation && flux.geolocation.org) {
           const existingPoint = nodeData.find((node) => (node.org === flux.geolocation.org));
           if (existingPoint) {
             existingPoint.amount += 1;
