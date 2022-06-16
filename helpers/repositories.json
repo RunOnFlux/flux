@@ -270,5 +270,6 @@
    "louisdussoulier/dapp:latest",
    "smartico/aave:latest",
    "mauricio503/nodetest:latest",
-   "runonflux/raven-insight-explorer:latest"
+   "runonflux/raven-insight-explorer:latest",
+   "saramandaia/hotcafe:latest"
 ]
