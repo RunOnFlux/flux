@@ -3085,9 +3085,10 @@ export default {
         this.callBResponse.data = response.data.data;
         const specs = response.data.data;
         console.log(specs);
-        this.appUpdateSpecification = specs;
+        this.appUpdateSpecification = JSON.parse(JSON.stringify(specs));
         this.appUpdateSpecification.instances = specs.instances || 3;
         if (this.appUpdateSpecification.version <= 3) {
+          this.appUpdateSpecification.version = 3; // enforce specs version 3
           this.appUpdateSpecification.ports = specs.port || this.ensureString(specs.ports); // v1 compatibility
           this.appUpdateSpecification.domains = this.ensureString(specs.domains);
           this.appUpdateSpecification.enviromentParameters = this.ensureString(specs.enviromentParameters);
@@ -3096,14 +3097,11 @@ export default {
         } else {
           this.selectedContinent = null;
           this.selectedCountry = null;
-          // todo v4 to v5 after fork happened for all heights.
-          if (specs.height > 1142000) {
-            this.appUpdateSpecification = 5;
-            this.appUpdateSpecification.contacts = '[]';
-            this.appUpdateSpecification.geolocation = '[]';
-          }
+          this.appUpdateSpecification.version = 5; // enforce specs v5
+          this.appUpdateSpecification.contacts = this.ensureString([]);
+          this.appUpdateSpecification.geolocation = this.ensureString([]);
           if (this.appUpdateSpecification.version >= 5) {
-            this.appUpdateSpecification.contacts = this.ensureString(specs.contacts);
+            this.appUpdateSpecification.contacts = this.ensureString(specs.contacts || []);
             if (specs.geolocation && specs.geolocation.length > 0) {
               const appContinent = specs.geolocation.find((x) => x.startsWith('a'));
               if (appContinent) {
@@ -3116,7 +3114,7 @@ export default {
                 this.selectedCountry = countryFound ? countryFound.value : null;
               }
             }
-            this.appUpdateSpecification.geolocation = this.ensureString(specs.geolocation);
+            this.appUpdateSpecification.geolocation = this.ensureString(specs.geolocation || []);
           }
           this.appUpdateSpecification.compose.forEach((component) => {
             // eslint-disable-next-line no-param-reassign
@@ -3130,9 +3128,6 @@ export default {
             // eslint-disable-next-line no-param-reassign
             component.containerPorts = this.ensureString(component.containerPorts);
           });
-        }
-        if (this.appUpdateSpecification.version <= 3) { // fork height for spec v3
-          this.appUpdateSpecification.version = 3; // enforce specs version 3
         }
       }
     },
