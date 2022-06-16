@@ -269,6 +269,6 @@
    "dopsimulation/ot-umami-gui:latest",
    "louisdussoulier/dapp:latest",
    "smartico/aave:latest",
-   "runonflux/raven-insight-explorer:latest"
+   "runonflux/raven-insight-explorer:latest",
    "saramandaia/hotcafe:latest"
 ]
