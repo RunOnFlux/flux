@@ -270,5 +270,6 @@
    "louisdussoulier/dapp:latest",
    "smartico/aave:latest",
    "runonflux/raven-insight-explorer:latest",
-   "saramandaia/hotcafe:latest"
+   "saramandaia/hotcafe:latest",
+   "megachips/flux_looking_glass:latest"
 ]
