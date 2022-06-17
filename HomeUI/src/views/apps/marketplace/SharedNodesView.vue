@@ -106,7 +106,7 @@
                       v-if="userZelid"
                       class="flex-grow-1 .btn-relief-primary"
                       variant="gradient-primary"
-                      @click="showStakeDialog"
+                      @click="showStakeDialog(false)"
                     >
                       Stake Flux
                     </b-button>
@@ -411,17 +411,17 @@
                           <div class="d-flex flex-column seat-column col">
                             <h4 class="mr-auto ml-auto">
                               Monthly Rewards
-                              <v-icon
-                                v-if="stake.autoreinvest"
-                                v-b-tooltip.hover.top="'Stake will auto-reinvest'"
-                                name="sync"
-                              />
                             </h4>
                             <h5
                               v-if="titanConfig"
                               class="mr-auto ml-auto"
                             >
                               ~{{ toFixedLocaleString(calcMonthlyReward(stake), 2) }} Flux
+                              <v-icon
+                                v-if="stake.autoreinvest"
+                                v-b-tooltip.hover.top="'Stake will auto-reinvest'"
+                                name="sync"
+                              />
                             </h5>
                             <h5
                               v-else
@@ -500,14 +500,14 @@
                           <div class="d-flex">
                             <b-button
                               class="float-right mt-1 mb-1"
-                              :variant="stake.state === 5 ? 'outline-secondary' : 'danger'"
+                              :variant="stake.state >= 5 ? 'outline-secondary' : 'danger'"
                               size="sm"
-                              :disabled="stake.state === 5"
+                              :disabled="stake.state >= 5"
                               pill
                               style="width: 100px"
                               @click="showReinvestDialog(stake)"
                             >
-                              {{ stake.state === 5 ? 'Complete' : 'Reinvest' }}
+                              {{ stake.state >= 5 ? 'Complete' : 'Reinvest' }}
                             </b-button>
                           </div>
                         </div>
@@ -598,6 +598,16 @@
                 class="float-right"
                 style="display: inline-block;"
               >
+                <b-button
+                  v-if="totalReward > minStakeAmount"
+                  class="mt-2 mr-1"
+                  variant="danger"
+                  size="sm"
+                  pill
+                  @click="showStakeDialog(true)"
+                >
+                  Re-invest Funds
+                </b-button>
                 <b-button
                   id="redeemButton"
                   class="float-right mt-2"
@@ -1198,6 +1208,25 @@
           title="Stake Amount"
         >
           <b-card
+            v-if="reinvestingNewStake"
+            title="Re-investing Funds"
+            class="text-center wizard-card"
+          >
+            <div>
+              <h5
+                class="mt-3"
+              >
+                A new stake will be created using your available rewards:
+              </h5>
+              <h2
+                class="mt-3"
+              >
+                {{ toFixedLocaleString(totalReward, 2) }} Flux
+              </h2>
+            </div>
+          </b-card>
+          <b-card
+            v-else
             title="Choose Stake Amount"
             class="text-center wizard-card"
           >
@@ -1245,7 +1274,7 @@
             >
               <div class="ml-auto mr-auto">
                 <b-button
-                  :class="index === selectedLockupIndex ? 'selectedLockupButton' : 'unselectedLockupButton'"
+                  :class="(index === selectedLockupIndex ? 'selectedLockupButton' : 'unselectedLockupButton') + (reinvestingNewStake ? 'Small' : '')"
                   :style="`background-color: ${indexedTierColors[index]} !important;`"
                   @click="selectLockup(index)"
                 >
@@ -1329,6 +1358,7 @@
           </b-card>
         </tab-content>
         <tab-content
+          v-if="!reinvestingNewStake"
           title="Send Funds"
         >
           <div
@@ -1514,6 +1544,7 @@ export default {
     const config = computed(() => ctx.root.$store.state.flux.config);
     const selectedStake = ref(null);
     const autoReinvestStake = ref(true);
+    const reinvestingNewStake = ref(false);
 
     const redeemAmount = ref(0);
     const redeemAddress = ref(null);
@@ -1782,7 +1813,8 @@ export default {
       fetchData();
     }, 2 * 60 * 1000);
 
-    const showStakeDialog = () => {
+    const showStakeDialog = (reinvesting = false) => {
+      reinvestingNewStake.value = reinvesting;
       stakeModalShowing.value = true;
       stakeRegistered.value = false;
       stakeRegisterFailed.value = false;
@@ -1794,7 +1826,12 @@ export default {
     };
 
     const confirmStakeDialogFinish = () => {
-      confirmStakeDialogFinishShowing.value = true;
+      if (reinvestingNewStake.value) {
+        // if this is a re-investment, no need to show the payment details reminder dialog
+        stakeModalShowing.value = false;
+      } else {
+        confirmStakeDialogFinishShowing.value = true;
+      }
       getMyStakes(true);
     };
 
@@ -1964,12 +2001,13 @@ export default {
       registeringStake.value = true;
       const zelidauthHeader = localStorage.getItem('zelidauth');
       const data = {
-        amount: stakeAmount.value,
+        amount: reinvestingNewStake.value ? 0 : stakeAmount.value,
         lockup: titanConfig.value.lockups[selectedLockupIndex.value],
         timestamp: timestamp.value,
         signature: signature.value,
         data: dataToSign.value,
         autoreinvest: autoReinvestStake.value,
+        stakefromrewards: reinvestingNewStake.value,
       };
       showToast('info', 'Registering Stake with Titan...');
 
@@ -2115,6 +2153,7 @@ export default {
 
       stakeModalShowing,
       showStakeDialog,
+      reinvestingNewStake,
       stakeAmount,
       minStakeAmount,
       maxStakeAmount,
@@ -2226,6 +2265,22 @@ a:hover img {
   border-color: red !important;
   border: 5px solid;
   height: 60px;
+  width: 300px;
+  font-size: 20px;
+}
+
+.unselectedLockupButtonSmall {
+  border-color: transparent;
+  border: 0px solid;
+  height: 50px;
+  width: 300px;
+  font-size: 20px;
+}
+
+.selectedLockupButtonSmall {
+  border-color: red !important;
+  border: 5px solid;
+  height: 50px;
   width: 300px;
   font-size: 20px;
 }
