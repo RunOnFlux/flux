@@ -3,9 +3,23 @@ const sinon = require('sinon');
 const chaiAsPromised = require('chai-as-promised');
 const path = require('path');
 const nodecmd = require('node-cmd');
-const fluxService = require('../../ZelBack/src/services/fluxService');
+const proxyquire = require('proxyquire');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+const packageJson = require('../../package.json');
+
+const adminConfig = {
+  initial: {
+    ipaddress: '83.51.212.243',
+    zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+    kadena: '1234kadena',
+    cruxid: '12345678',
+    testnet: true,
+  },
+};
+
+const fluxService = proxyquire('../../ZelBack/src/services/fluxService',
+  { '../../../config/userconfig': adminConfig });
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
@@ -991,6 +1005,115 @@ describe.only('fluxService tests', () => {
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledWithMatch(nodeCmdStub, `cd ${nodedpath} && bash reindexDaemon.sh`);
+    });
+  });
+
+  describe('getFluxVersion tests', () => {
+    const { version } = packageJson;
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should trigger rpc, no response passed', async () => {
+      const result = await fluxService.getFluxVersion();
+
+      expect(result.status).to.equal('success');
+      expect(result.data).to.be.a('string');
+      expect(result.data).to.equal(version);
+    });
+
+    it('should trigger rpc, response passed', async () => {
+      const res = generateResponse();
+      const expectedResponse = {
+        status: 'success',
+        data: version,
+      };
+
+      const result = await fluxService.getFluxVersion(undefined, res);
+
+      expect(result).to.equal(`Response: ${expectedResponse}`);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+    });
+  });
+
+  describe('getFluxZelID tests', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should trigger rpc, no response passed', async () => {
+      const result = await fluxService.getFluxZelID();
+
+      expect(result.status).to.equal('success');
+      expect(result.data).to.be.a('string');
+      expect(result.data).to.equal(adminConfig.initial.zelid);
+    });
+
+    it('should trigger rpc, response passed', async () => {
+      const res = generateResponse();
+      const expectedResponse = {
+        status: 'success',
+        data: adminConfig.initial.zelid,
+      };
+
+      const result = await fluxService.getFluxZelID(undefined, res);
+
+      expect(result).to.equal(`Response: ${expectedResponse}`);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+    });
+  });
+
+  describe('getFluxCruxID tests', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should trigger rpc, no response passed', async () => {
+      const result = await fluxService.getFluxCruxID();
+
+      expect(result.status).to.equal('success');
+      expect(result.data).to.be.a('string');
+      expect(result.data).to.equal(adminConfig.initial.cruxid);
+    });
+
+    it('should trigger rpc, response passed', async () => {
+      const res = generateResponse();
+      const expectedResponse = {
+        status: 'success',
+        data: adminConfig.initial.cruxid,
+      };
+
+      const result = await fluxService.getFluxCruxID(undefined, res);
+
+      expect(result).to.equal(`Response: ${expectedResponse}`);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+    });
+  });
+
+  describe('getFluxKadena tests', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should trigger rpc, no response passed', async () => {
+      const result = await fluxService.getFluxKadena();
+
+      expect(result.status).to.equal('success');
+      expect(result.data).to.be.a('string');
+      expect(result.data).to.equal(adminConfig.initial.kadena);
+    });
+
+    it('should trigger rpc, response passed', async () => {
+      const res = generateResponse();
+      const expectedResponse = {
+        status: 'success',
+        data: adminConfig.initial.kadena,
+      };
+
+      const result = await fluxService.getFluxKadena(undefined, res);
+
+      expect(result).to.equal(`Response: ${expectedResponse}`);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
     });
   });
 });
