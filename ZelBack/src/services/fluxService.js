@@ -13,6 +13,7 @@ const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
 const messageHelper = require('./messageHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
+const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 const daemonServiceZelnodeRpcs = require('./daemonService/daemonServiceZelnodeRpcs');
 const daemonServiceBenchmarkRpcs = require('./daemonService/daemonServiceBenchmarkRpcs');
 const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRpcs');
@@ -430,7 +431,7 @@ async function daemonDebug(req, res) {
   }
   // check daemon datadir
   const defaultDir = new fullnode.Config().defaultFolder();
-  const datadir = daemonServiceMiscRpcs.getConfigValue('datadir') || defaultDir;
+  const datadir = daemonServiceUtils.getConfigValue('datadir') || defaultDir;
   const filepath = `${datadir}/debug.log`;
 
   return res.download(filepath, 'debug.log');

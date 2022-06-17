@@ -5,6 +5,7 @@ const path = require('path');
 const nodecmd = require('node-cmd');
 const proxyquire = require('proxyquire');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBenchmarkRpcs');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const packageJson = require('../../package.json');
 
@@ -28,6 +29,7 @@ const generateResponse = () => {
   const res = { test: 'testing' };
   res.status = sinon.stub().returns(res);
   res.json = sinon.fake((param) => `Response: ${param}`);
+  res.download = sinon.fake(() => 'File downloaded');
   return res;
 };
 
@@ -1114,6 +1116,211 @@ describe.only('fluxService tests', () => {
 
       expect(result).to.equal(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+    });
+  });
+
+  describe('getFluxIP tests', () => {
+    let daemonStub;
+
+    beforeEach(() => {
+      daemonStub = sinon.stub(daemonServiceBenchmarkRpcs, 'getBenchmarks');
+    });
+
+    afterEach(() => {
+      daemonStub.restore();
+    });
+
+    it('should return IP and Port if benchmark response is correct, no response passed', async () => {
+      const ip = '127.0.0.1:5050';
+      const getBenchmarkResponseData = {
+        status: 'success',
+        data: JSON.stringify({ ipaddress: ip }),
+      };
+      daemonStub.resolves(getBenchmarkResponseData);
+      const expectedResponse = {
+        status: 'success',
+        data: ip,
+      };
+
+      const getIpResult = await fluxService.getFluxIP();
+
+      expect(getIpResult).to.eql(expectedResponse);
+      sinon.assert.calledOnce(daemonStub);
+    });
+
+    it('should return IP and Port if benchmark response is correct, response passed', async () => {
+      const ip = '127.0.0.1:5050';
+      const getBenchmarkResponseData = {
+        status: 'success',
+        data: JSON.stringify({ ipaddress: ip }),
+      };
+      daemonStub.resolves(getBenchmarkResponseData);
+      const expectedResponse = {
+        status: 'success',
+        data: ip,
+      };
+      const res = generateResponse();
+
+      const getIpResult = await fluxService.getFluxIP(undefined, res);
+
+      expect(getIpResult).to.eql(`Response: ${expectedResponse}`);
+      sinon.assert.calledOnce(daemonStub);
+    });
+
+    it('should return null if daemon\'s response is invalid', async () => {
+      const getBenchmarkResponseData = {
+        status: 'error',
+      };
+      daemonStub.resolves(getBenchmarkResponseData);
+      const expectedResponse = {
+        status: 'success',
+        data: null,
+      };
+
+      const getIpResult = await fluxService.getFluxIP();
+
+      expect(getIpResult).to.be.eql(expectedResponse);
+      sinon.assert.calledOnce(daemonStub);
+    });
+
+    it('should return null if daemon\'s response IP is too short', async () => {
+      const ip = '12734';
+      const getBenchmarkResponseData = {
+        status: 'success',
+        data: JSON.stringify({ ipaddress: ip }),
+      };
+      daemonStub.resolves(getBenchmarkResponseData);
+      const expectedResponse = {
+        status: 'success',
+        data: null,
+      };
+
+      const getIpResult = await fluxService.getFluxIP();
+
+      expect(getIpResult).to.be.eql(expectedResponse);
+      sinon.assert.calledOnce(daemonStub);
+    });
+  });
+
+  describe('daemonDebug tests', () => {
+    let verifyPrivilegeStub;
+
+    beforeEach(() => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return unauthorized message if the user is not an admin', async () => {
+      verifyPrivilegeStub.returns(false);
+      const res = generateResponse();
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      const result = await fluxService.daemonDebug(undefined, res);
+
+      expect(result).to.eql(`Response: ${expectedResponse}`);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+    });
+
+    it('should return debug log file if the user is an admin', async () => {
+      verifyPrivilegeStub.returns(true);
+      const res = generateResponse();
+      const expectedResponse = 'File downloaded';
+
+      const result = await fluxService.daemonDebug(undefined, res);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledWithMatch(res.download, 'debug.log');
+    });
+  });
+
+  describe('benchmarkDebug tests', () => {
+    let verifyPrivilegeStub;
+
+    beforeEach(() => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return unauthorized message if the user is not an admin', async () => {
+      verifyPrivilegeStub.returns(false);
+      const res = generateResponse();
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      const result = await fluxService.benchmarkDebug(undefined, res);
+
+      expect(result).to.eql(`Response: ${expectedResponse}`);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+    });
+
+    it('should return debug log file if the user is an admin', async () => {
+      verifyPrivilegeStub.returns(true);
+      const res = generateResponse();
+      const expectedResponse = 'File downloaded';
+
+      const result = await fluxService.benchmarkDebug(undefined, res);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledWithMatch(res.download, 'debug.log');
+    });
+  });
+
+  describe('tailDaemonDebug tests', () => {
+    let verifyPrivilegeStub;
+
+    beforeEach(() => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return unauthorized message if the user is not an admin', async () => {
+      verifyPrivilegeStub.returns(false);
+      const res = generateResponse();
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+
+      await fluxService.tailDaemonDebug(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+    });
+
+    it('should return debug log file if the user is an admin', async () => {
+      verifyPrivilegeStub.returns(true);
+      const res = generateResponse();
+      const expectedResponse = 'File downloaded';
+
+      const result = await fluxService.benchmarkDebug(undefined, res);
+
+      expect(result).to.eql(expectedResponse);
+      sinon.assert.calledWithMatch(res.download, 'debug.log');
     });
   });
 });
