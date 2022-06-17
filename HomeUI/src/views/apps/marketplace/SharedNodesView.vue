@@ -1703,7 +1703,7 @@ export default {
     };
 
     const checkRedeemAddress = async () => {
-      if (!redeemAddress) return false;
+      if (!redeemAddress.value) return false;
       await getRedeemMessage();
       return true;
     };
