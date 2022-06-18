@@ -1317,10 +1317,36 @@ describe.only('fluxService tests', () => {
       const res = generateResponse();
       const expectedResponse = 'File downloaded';
 
-      const result = await fluxService.benchmarkDebug(undefined, res);
+      const result = await fluxService.tailDaemonDebug(undefined, res);
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.calledWithMatch(res.download, 'debug.log');
+    });
+
+    it('should return error if cmd exec throws error ', async () => {
+      verifyPrivilegeStub.returns(true);
+      const nodeCmdStub = sinon.stub(nodecmd, 'get').yields({
+        message: 'This is an error',
+        code: 403,
+        name: 'testing error',
+      });
+      const nodedpath = path.join(__dirname, '../../');
+
+      const expectedResponse = {
+        data: {
+          code: 403,
+          message: 'Error updating Flux: This is an error',
+          name: 'testing error',
+        },
+        status: 'error',
+      };
+      const res = generateResponse();
+
+      await fluxService.tailDaemonDebug(undefined, res);
+      await serviceHelper.delay(200);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledWithMatch(nodeCmdStub, `cd ${nodedpath} && npm run updateflux`);
     });
   });
 });
