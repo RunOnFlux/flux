@@ -270,5 +270,7 @@
    "louisdussoulier/dapp:latest",
    "smartico/aave:latest",
    "runonflux/raven-insight-explorer:latest",
-   "saramandaia/hotcafe:latest"
+   "saramandaia/hotcafe:latest",
+   "kalilinux/kali-rolling:latest",
+   "mcr.microsoft.com/windows/servercore:ltsc2022"
 ]
