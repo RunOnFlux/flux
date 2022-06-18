@@ -704,6 +704,8 @@
       centered
       button-size="sm"
       ok-only
+      no-close-on-backdrop
+      no-close-on-esc
       ok-title="Cancel"
       @ok="redeemModalShowing = false; getMyPayments(true);"
     >
