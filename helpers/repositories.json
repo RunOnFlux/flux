@@ -271,5 +271,7 @@
    "smartico/aave:latest",
    "mauricio503/nodetest:latest",
    "runonflux/raven-insight-explorer:latest",
-   "saramandaia/hotcafe:latest"
+   "saramandaia/hotcafe:latest",
+   "spacepumpkin/flux-api-playground:latest",
+   "megachips/flux_looking_glass:latest"
 ]
