@@ -12,7 +12,6 @@ const packageJson = require('../../../package.json');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
 const messageHelper = require('./messageHelper');
-const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 const daemonServiceZelnodeRpcs = require('./daemonService/daemonServiceZelnodeRpcs');
 const daemonServiceBenchmarkRpcs = require('./daemonService/daemonServiceBenchmarkRpcs');
@@ -469,7 +468,7 @@ async function tailDaemonDebug(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const defaultDir = new fullnode.Config().defaultFolder();
-    const datadir = daemonServiceMiscRpcs.getConfigValue('datadir') || defaultDir;
+    const datadir = daemonServiceUtils.getConfigValue('datadir') || defaultDir;
     const filepath = `${datadir}/debug.log`;
     const exec = `tail -n 100 ${filepath}`;
     nodecmd.get(exec, (err, data) => {
@@ -527,7 +526,7 @@ async function tailBenchmarkDebug(req, res) {
 async function fluxLog(res, filelog) {
   const homeDirPath = path.join(__dirname, '../../../');
   const filepath = `${homeDirPath}${filelog}.log`;
-
+  console.log('test');
   return res.download(filepath, `${filelog}.log`);
 }
 
@@ -1091,4 +1090,5 @@ module.exports = {
   InstallFluxWatchTower,
   setNodeGeolocation,
   getNodeGeolocation,
+  fluxLog,
 };
