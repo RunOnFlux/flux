@@ -10,10 +10,15 @@ const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('./utils/establishedConnections');
 
-const myMessageCache = new LRU(250);
+const myMessageCache = new LRU(1000);
 
 let response = messageHelper.createErrorMessage();
 
+/**
+ * To send to all peers.
+ * @param {object} data Data.
+ * @param {object[]} wsList Web socket list.
+ */
 async function sendToAllPeers(data, wsList) {
   try {
     const removals = [];
@@ -70,6 +75,11 @@ async function sendToAllPeers(data, wsList) {
   }
 }
 
+/**
+ * To send to all incoming connections.
+ * @param {object} data Data.
+ * @param {object[]} wsList Web socket list.
+ */
 async function sendToAllIncomingConnections(data, wsList) {
   try {
     const removals = [];
@@ -120,12 +130,24 @@ async function sendToAllIncomingConnections(data, wsList) {
   }
 }
 
+/**
+ * To get Flux message signature.
+ * @param {object} message Message.
+ * @param {string} privatekey Private key.
+ * @returns {string} Signature.
+ */
 async function getFluxMessageSignature(message, privatekey) {
   const privKey = await fluxNetworkHelper.getFluxNodePrivateKey(privatekey);
   const signature = await verificationHelper.signMessage(message, privKey);
   return signature;
 }
 
+/**
+ * To serialise and sign a Flux broadcast.
+ * @param {object} dataToBroadcast Data to broadcast. Contains version, timestamp, pubKey, signature and data.
+ * @param {string} privatekey Private key.
+ * @returns {string} Data string (serialised data object).
+ */
 async function serialiseAndSignFluxBroadcast(dataToBroadcast, privatekey) {
   const version = 1;
   const timestamp = Date.now();
@@ -148,6 +170,11 @@ async function serialiseAndSignFluxBroadcast(dataToBroadcast, privatekey) {
   return dataString;
 }
 
+/**
+ * To sign and send message to web socket.
+ * @param {object} message Message.
+ * @param {object} ws Web Socket.
+ */
 async function sendMessageToWS(message, ws) {
   try {
     const messageSigned = await serialiseAndSignFluxBroadcast(message);
@@ -161,6 +188,12 @@ async function sendMessageToWS(message, ws) {
   }
 }
 
+/**
+ * To respond with app message.
+ * @param {object} message Message.
+ * @param {object} ws Web socket.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
 async function respondWithAppMessage(message, ws) {
   try {
     // check if we have it database of permanent appMessages
@@ -213,16 +246,29 @@ async function respondWithAppMessage(message, ws) {
   }
 }
 
+/**
+ * To broadcast message to outgoing peers. Data is serialised and sent to outgoing peers.
+ * @param {object} dataToBroadcast Data to broadcast.
+ */
 async function broadcastMessageToOutgoing(dataToBroadcast) {
   const serialisedData = await serialiseAndSignFluxBroadcast(dataToBroadcast);
   await sendToAllPeers(serialisedData);
 }
 
+/**
+ * To broadcast message to incoming peers. Data is serialised and sent to incoming peers.
+ * @param {object} dataToBroadcast Data to broadcast.
+ */
 async function broadcastMessageToIncoming(dataToBroadcast) {
   const serialisedData = await serialiseAndSignFluxBroadcast(dataToBroadcast);
   await sendToAllIncomingConnections(serialisedData);
 }
 
+/**
+ * To broadcast message from user to outgoing peers. Data is serialised and sent to outgoing peers. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function broadcastMessageToOutgoingFromUser(req, res) {
   try {
     let { data } = req.params;
@@ -250,6 +296,11 @@ async function broadcastMessageToOutgoingFromUser(req, res) {
   }
 }
 
+/**
+ * To broadcast message from user to outgoing peers after data is processed. Processed data is serialised and sent to outgoing peers. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function broadcastMessageToOutgoingFromUserPost(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -282,6 +333,11 @@ async function broadcastMessageToOutgoingFromUserPost(req, res) {
   });
 }
 
+/**
+ * To broadcast message from user to incoming peers. Data is serialised and sent to incoming peers. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function broadcastMessageToIncomingFromUser(req, res) {
   try {
     let { data } = req.params;
@@ -310,6 +366,11 @@ async function broadcastMessageToIncomingFromUser(req, res) {
   }
 }
 
+/**
+ * To broadcast message from user to incoming peers after data is processed. Processed data is serialised and sent to incoming peers. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function broadcastMessageToIncomingFromUserPost(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -342,6 +403,11 @@ async function broadcastMessageToIncomingFromUserPost(req, res) {
   });
 }
 
+/**
+ * To broadcast message from user. Handles messages to outgoing and incoming peers. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function broadcastMessageFromUser(req, res) {
   try {
     let { data } = req.params;
@@ -371,6 +437,11 @@ async function broadcastMessageFromUser(req, res) {
   }
 }
 
+/**
+ * To broadcast message from user after data is processed. Handles messages to outgoing and incoming peers. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
 async function broadcastMessageFromUserPost(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -405,6 +476,10 @@ async function broadcastMessageFromUserPost(req, res) {
 }
 
 // how long can this take?
+/**
+ * To broadcast temporary app message.
+ * @param {object} message Message.
+ */
 async function broadcastTemporaryAppMessage(message) {
   /* message object
   * @param type string

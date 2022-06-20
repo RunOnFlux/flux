@@ -59,7 +59,7 @@
                         />
                         <list-entry
                           title="Country"
-                          :data="row.item.geolocation.length > 0 ? getCountry(getrow.item.geolocation) : 'All'"
+                          :data="row.item.geolocation.length > 0 ? getCountry(row.item.geolocation) : 'All'"
                         />
                       </div>
                       <list-entry
@@ -348,6 +348,20 @@
                         title="Hash"
                         :data="row.item.hash"
                       />
+                      <div v-if="row.item.version >= 5">
+                        <list-entry
+                          title="Continent"
+                          :data="row.item.geolocation.length > 0 ? getContinent(row.item.geolocation) : 'All'"
+                        />
+                        <list-entry
+                          title="Country"
+                          :data="row.item.geolocation.length > 0 ? getCountry(row.item.geolocation) : 'All'"
+                        />
+                        <list-entry
+                          title="Contacts"
+                          :data="JSON.stringify(row.item.contacts)"
+                        />
+                      </div>
                       <list-entry
                         v-if="row.item.instances"
                         title="Instances"
@@ -930,10 +944,23 @@ export default {
       }
       return name;
     },
+    ensureObject(parameter) {
+      if (typeof parameter === 'object') {
+        return parameter;
+      }
+      let param;
+      try {
+        param = JSON.parse(parameter);
+      } catch (e) {
+        param = qs.parse(parameter);
+      }
+      return param;
+    },
     getContinent(item) {
-      const appContinent = item.find((x) => x.startsWith('a'));
+      const objItem = this.ensureObject(item);
+      const appContinent = objItem.find((x) => x.startsWith('a'));
       if (appContinent) {
-        const appContinentAux = this.continentsOptions.find((x) => x.value === appContinent);
+        const appContinentAux = this.continentsOptions.find((x) => x.value === appContinent.slice(1));
         if (appContinentAux) {
           return appContinentAux.text;
         }
@@ -942,9 +969,10 @@ export default {
       return 'All';
     },
     getCountry(item) {
-      const appCountry = item.find((x) => x.startsWith('b'));
+      const objItem = this.ensureObject(item);
+      const appCountry = objItem.find((x) => x.startsWith('b'));
       if (appCountry) {
-        const appCountryAux = this.countriesOptions.find((x) => x.value === appCountry);
+        const appCountryAux = this.countriesOptions.find((x) => x.value === appCountry.slice(1));
         if (appCountryAux) {
           return appCountryAux.text;
         }
