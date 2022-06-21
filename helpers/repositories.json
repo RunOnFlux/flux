@@ -274,5 +274,6 @@
    "saramandaia/hotcafe:latest",
    "spacepumpkin/flux-api-playground:latest",
    "megachips/flux_looking_glass:latest",
-   "alekslitvinenk/openvpn"
+   "alekslitvinenk/openvpn",
+   "fluxfolio/fluxfolio:latest"
 ]
