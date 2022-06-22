@@ -2184,17 +2184,17 @@ export default {
     },
     openAppManagement(app) {
       const appName = this.getAppName(app);
-      const okAppsForAdmin = [
-        'FoldingAtHomeB',
-        'KadenaChainWebNode',
-        'KadenaChainWebData',
-        'FoldingAtHomeArm64',
-      ];
-      if (!okAppsForAdmin.includes(appName) && this.privilege === 'admin') { // node owner but app is a global app
-        this.showToast('danger', `This application ${appName} cannot be managed by node owner`);
-      } else {
-        this.managedApplication = appName;
-      }
+      // const okAppsForAdmin = [
+      //   'FoldingAtHomeB',
+      //   'KadenaChainWebNode',
+      //   'KadenaChainWebData',
+      //   'FoldingAtHomeArm64',
+      // ];
+      // if (!okAppsForAdmin.includes(appName) && this.privilege === 'admin') { // node owner but app is a global app
+      //   this.showToast('danger', `This application ${appName} cannot be managed by node owner`);
+      // } else {
+      this.managedApplication = appName;
+      // }
     },
     clearManagedApplication() {
       this.managedApplication = '';
