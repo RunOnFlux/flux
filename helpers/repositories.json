@@ -275,5 +275,6 @@
    "spacepumpkin/flux-api-playground:latest",
    "megachips/flux_looking_glass:latest",
    "alekslitvinenk/openvpn",
-   "fluxfolio/fluxfolio:latest"
+   "fluxfolio/fluxfolio:latest",
+   "minestrong/minestrongco_web:firsttry"
 ]
