@@ -784,7 +784,7 @@
                 <confirm-dialog
                   target="stop-app"
                   confirm-button="Stop App"
-                  @confirm="stopAll(appName)"
+                  @confirm="stopApp(appName)"
                 />
                 <b-button
                   id="restart-app"
@@ -845,7 +845,7 @@
           <b-col xs="6">
             <b-card title="Redeploy">
               <b-card-text class="mb-2">
-                The Pause command suspends all processes in the specified App.
+                Redeployes your application. Hard redeploy removes persistant data storage.
               </b-card-text>
               <div class="text-center">
                 <b-button
@@ -946,7 +946,7 @@
                   <confirm-dialog
                     :target="`stop-app-${component.name}_${appSpecification.name}`"
                     confirm-button="Stop App"
-                    @confirm="stopAll(`${component.name}_${appSpecification.name}`)"
+                    @confirm="stopApp(`${component.name}_${appSpecification.name}`)"
                   />
                   <b-button
                     :id="`restart-app-${component.name}_${appSpecification.name}`"
@@ -1379,6 +1379,165 @@
           Global Specifications loading...
         </div>
       </b-tab>
+      <b-tab title="Global Control">
+        <div v-if="globalZelidAutohrized">
+          <b-row class="match-height">
+            <b-col xs="6">
+              <b-card title="Control">
+                <b-card-text class="mb-2">
+                  General options to control ALL instances of your application
+                </b-card-text>
+                <div class="text-center">
+                  <b-button
+                    id="start-app-global"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Start App"
+                    class="mx-1 my-1"
+                  >
+                    Start App
+                  </b-button>
+                  <confirm-dialog
+                    target="start-app-global"
+                    confirm-button="Start App"
+                    @confirm="startAppGlobally(appName)"
+                  />
+                  <b-button
+                    id="stop-app-global"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Stop App"
+                    class="mx-1 my-1"
+                  >
+                    Stop App
+                  </b-button>
+                  <confirm-dialog
+                    target="stop-app-global"
+                    confirm-button="Stop App"
+                    @confirm="stopAppGlobally(appName)"
+                  />
+                  <b-button
+                    id="restart-app-global"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Restart App"
+                    class="mx-1 my-1"
+                  >
+                    Restart App
+                  </b-button>
+                  <confirm-dialog
+                    target="restart-app-global"
+                    confirm-button="Restart App"
+                    @confirm="restartAppGlobally(appName)"
+                  />
+                </div>
+              </b-card>
+            </b-col>
+            <b-col xs="6">
+              <b-card title="Pause">
+                <b-card-text class="mb-2">
+                  The Pause command suspends all processes of all instances of your app
+                </b-card-text>
+                <div class="text-center">
+                  <b-button
+                    id="pause-app-global"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Pause App"
+                    class="mx-1 my-1"
+                  >
+                    Pause App
+                  </b-button>
+                  <confirm-dialog
+                    target="pause-app-global"
+                    confirm-button="Pause App"
+                    @confirm="pauseAppGlobally(appName)"
+                  />
+                  <b-button
+                    id="unpause-app-global"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Unpause App"
+                    class="mx-1 my-1"
+                  >
+                    Unpause App
+                  </b-button>
+                  <confirm-dialog
+                    target="unpause-app-global"
+                    confirm-button="Unpause App"
+                    @confirm="unpauseAppGlobally(appName)"
+                  />
+                </div>
+              </b-card>
+            </b-col>
+          </b-row>
+          <b-row class="match-height">
+            <b-col xs="6">
+              <b-card title="Redeploy">
+                <b-card-text class="mb-2">
+                  Redeployes all instances of your application. Hard redeploy removes persistant data storage.
+                </b-card-text>
+                <div class="text-center">
+                  <b-button
+                    id="redeploy-app-soft-global"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Soft Redeploy App"
+                    class="mx-1 my-1"
+                  >
+                    Soft Redeploy App
+                  </b-button>
+                  <confirm-dialog
+                    target="redeploy-app-soft-global"
+                    confirm-button="Redeploy"
+                    @confirm="redeployAppSoftGlobally(appName)"
+                  />
+                  <b-button
+                    id="redeploy-app-hard-global"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Hard Redeploy App"
+                    class="mx-1 my-1"
+                  >
+                    Hard Redeploy App
+                  </b-button>
+                  <confirm-dialog
+                    target="redeploy-app-hard-global"
+                    confirm-button="Redeploy"
+                    @confirm="redeployAppHardGlobally(appName)"
+                  />
+                </div>
+              </b-card>
+            </b-col>
+            <b-col xs="6">
+              <b-card title="Reinstall">
+                <b-card-text class="mb-2">
+                  Removes all instances of your App forcing an installation on different nodes.
+                </b-card-text>
+                <div class="text-center">
+                  <b-button
+                    id="remove-app-global"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Reinstall App"
+                    class="mx-1 my-1"
+                  >
+                    Reinstall App
+                  </b-button>
+                  <confirm-dialog
+                    target="remove-app-global"
+                    confirm-button="Reinstall App"
+                    @confirm="removeAppGlobally(appName)"
+                  />
+                </div>
+              </b-card>
+            </b-col>
+          </b-row>
+        </div>
+        <div v-else>
+          Global management session expired. Please log out and back into FluxOS.
+        </div>
+      </b-tab>
       <b-tab title="Running Instances">
         <b-row>
           <b-col
@@ -1476,7 +1635,7 @@
                   size="sm"
                   class="mr-1"
                   variant="danger"
-                  @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], row.item.port || (row.item.ports ? row.item.ports[0] : row.item.compose[0].ports[0]))"
+                  @click="openApp(locationRow.item.name, locationRow.item.ip.split(':')[0], appUpdateSpecification.port || (appUpdateSpecification.ports ? JSON.parse(appUpdateSpecification.ports)[0] : JSON.parse(appUpdateSpecification.compose[0]).ports[0]))"
                 >
                   Visit App
                 </b-button>
@@ -2562,6 +2721,7 @@ import ListEntry from '@/views/components/ListEntry.vue';
 import AppsService from '@/services/AppsService';
 import DaemonService from '@/services/DaemonService';
 
+const axios = require('axios');
 const qs = require('qs');
 const store = require('store');
 const timeoptions = require('@/libs/dateFormat');
@@ -2772,6 +2932,7 @@ export default {
       }],
       selectedContinent: null,
       selectedCountry: null,
+      globalZelidAutohrized: false,
     };
   },
   computed: {
@@ -2990,9 +3151,12 @@ export default {
           this.getGlobalApplicationSpecifics();
           break;
         case 11:
-          this.getApplicationLocations();
+          this.getZelidAuthority();
           break;
         case 12:
+          this.getApplicationLocations();
+          break;
+        case 13:
           this.getGlobalApplicationSpecifics();
           break;
         default:
@@ -3483,11 +3647,11 @@ export default {
       this.selectedAppOwner = response.data.data;
     },
 
-    async stopAll(app) {
+    async stopApp(app) {
       this.output = '';
       this.showToast('warning', `Stopping ${app}`);
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await AppsService.stopAll(zelidauth, app);
+      const response = await AppsService.stopApp(zelidauth, app);
       if (response.data.status === 'success') {
         this.showToast('success', response.data.data.message || response.data.data);
       } else {
@@ -3608,6 +3772,80 @@ export default {
           self.managedApplication = '';
         }, 5000);
       }
+    },
+    getZelidAuthority() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      this.globalZelidAutohrized = false;
+      const auth = qs.parse(zelidauth);
+      const timestamp = new Date().getTime();
+      const maxHours = 1.5 * 60 * 60 * 1000;
+      const mesTime = auth.loginPhrase.substring(0, 13);
+      if (+mesTime < (timestamp - maxHours)) {
+        this.globalZelidAutohrized = false;
+      } else {
+        this.globalZelidAutohrized = true;
+      }
+    },
+    async delay(ms) {
+      return new Promise((resolve) => setTimeout(resolve, ms));
+    },
+    async executeCommand(app, command, textA, textB, parameter) {
+      try {
+        const zelidauth = localStorage.getItem('zelidauth');
+        const axiosConfig = {
+          headers: {
+            zelidauth,
+          },
+        };
+        this.getZelidAuthority();
+        if (!this.globalZelidAutohrized) {
+          throw new Error('Session expired. Please log into FluxOS again');
+        }
+
+        // get app instances
+        const response = await AppsService.getAppLocation(this.appName);
+        const instData = response.data.data;
+        this.showToast('warning', textA);
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appInstance of instData) {
+          const ip = appInstance.ip.split(':')[0];
+          const port = appInstance.ip.split(':')[1] || 16127;
+          let url = `http://${ip}:${port}/apps/${command}/${app}`;
+          if (parameter) {
+            url += `/${parameter}`;
+          }
+          axios.get(url, axiosConfig); // do not wait
+          // eslint-disable-next-line no-await-in-loop
+          await this.delay(500);
+        }
+        this.showToast('success', textB);
+      } catch (error) {
+        this.showToast('danger', error.message || error);
+      }
+    },
+    async stopAppGlobally(app) {
+      this.executeCommand(app, 'appstop', `Stopping ${app} globally. This will take a while...`, 'Application stopped globally');
+    },
+    async startAppGlobally(app) {
+      this.executeCommand(app, 'appstart', `Starting ${app} globally. This will take a while...`, 'Application started globally');
+    },
+    async restartAppGlobally(app) {
+      this.executeCommand(app, 'apprestart', `Restarting ${app} globally. This will take a while...`, 'Application restarted globally');
+    },
+    async pauseAppGlobally(app) {
+      this.executeCommand(app, 'apppause', `Pausing ${app} globally. This will take a while...`, 'Application paused globally');
+    },
+    async unpauseAppGlobally(app) {
+      this.executeCommand(app, 'appunpause', `Unpausing ${app} globally. This will take a while...`, 'Application unpaused globally');
+    },
+    async redeployAppSoftGlobally(app) {
+      this.executeCommand(app, 'redeploy', `Soft redeploying ${app} globally. This will take a while...`, 'Application soft redeployment initiated', 'false');
+    },
+    async redeployAppHardGlobally(app) {
+      this.executeCommand(app, 'redeploy', `Hard redeploying ${app} globally. This will take a while...`, 'Application hard redeployment initiated', 'true');
+    },
+    async removeAppGlobally(app) {
+      this.executeCommand(app, 'appremove', `Reinstalling ${app} globally. This will take a while...`, 'Application reinstallation initiated');
     },
     openApp(name, _ip, _port) {
       console.log(name, _ip, _port);
