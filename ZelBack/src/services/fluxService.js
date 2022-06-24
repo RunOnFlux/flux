@@ -526,7 +526,7 @@ async function tailBenchmarkDebug(req, res) {
 async function fluxLog(res, filelog) {
   const homeDirPath = path.join(__dirname, '../../../');
   const filepath = `${homeDirPath}${filelog}.log`;
-  console.log('test');
+
   return res.download(filepath, `${filelog}.log`);
 }
 
@@ -1090,5 +1090,8 @@ module.exports = {
   InstallFluxWatchTower,
   setNodeGeolocation,
   getNodeGeolocation,
+
+  // Exports for testing purposes
   fluxLog,
+  tailFluxLog,
 };
