@@ -106,7 +106,7 @@
                       v-if="userZelid"
                       class="flex-grow-1 .btn-relief-primary"
                       variant="gradient-primary"
-                      @click="showStakeDialog"
+                      @click="showStakeDialog(false)"
                     >
                       Stake Flux
                     </b-button>
@@ -252,7 +252,7 @@
                           v-if="userZelid"
                           class="flex-grow-1 .btn-relief-primary"
                           variant="gradient-primary"
-                          @click="showStakeDialog"
+                          @click="showStakeDialog(false)"
                         >
                           Stake Flux
                         </b-button>
@@ -338,6 +338,7 @@
                       :key="stake.uuid"
                       tag="li"
                       no-body
+                      @click="showActiveStakeInfoDialog(stake)"
                     >
                       <b-media-body
                         class="app-media-body"
@@ -351,6 +352,7 @@
                             class="node-status mt-auto mb-auto"
                             button
                             @click="showPaymentDetailsDialog(stake)"
+                            @click.stop="doThis"
                           >
                             <v-icon
                               scale="1.75"
@@ -415,6 +417,11 @@
                               class="mr-auto ml-auto"
                             >
                               ~{{ toFixedLocaleString(calcMonthlyReward(stake), 2) }} Flux
+                              <v-icon
+                                v-if="stake.autoreinvest"
+                                v-b-tooltip.hover.top="'Stake will auto-reinvest'"
+                                name="sync"
+                              />
                             </h5>
                             <h5
                               v-else
@@ -490,13 +497,19 @@
                               Pending: {{ toFixedLocaleString(stake.reward, 2) }} Flux
                             </h5>
                           </div>
-                          <!--<div class="d-flex flex-column seat-column col">
+                          <div class="d-flex">
                             <b-button
-                              v-if="stake.state !== 5"
+                              class="float-right mt-1 mb-1"
+                              :variant="stake.state >= 5 ? 'outline-secondary' : 'danger'"
+                              size="sm"
+                              :disabled="stake.state >= 5"
+                              pill
+                              style="width: 100px"
+                              @click="showReinvestDialog(stake)"
                             >
-                              Reinvest
+                              {{ stake.state >= 5 ? 'Complete' : 'Reinvest' }}
                             </b-button>
-                          </div>-->
+                          </div>
                         </div>
                       </b-media-body>
                     </b-media>
@@ -585,6 +598,16 @@
                 class="float-right"
                 style="display: inline-block;"
               >
+                <b-button
+                  v-if="totalReward > minStakeAmount"
+                  class="mt-2 mr-1"
+                  variant="danger"
+                  size="sm"
+                  pill
+                  @click="showStakeDialog(true)"
+                >
+                  Re-invest Funds
+                </b-button>
                 <b-button
                   id="redeemButton"
                   class="float-right mt-2"
@@ -681,6 +704,8 @@
       centered
       button-size="sm"
       ok-only
+      no-close-on-backdrop
+      no-close-on-esc
       ok-title="Cancel"
       @ok="redeemModalShowing = false; getMyPayments(true);"
     >
@@ -893,6 +918,274 @@
     </b-modal>
 
     <b-modal
+      v-model="reinvestModalShowing"
+      title="Re-invest Expired Stake"
+      size="lg"
+      centered
+      no-close-on-backdrop
+      no-close-on-esc
+      button-size="sm"
+      ok-only
+      ok-title="Cancel"
+      @ok="reinvestModalShowing = false;"
+    >
+      <form-wizard
+        :color="tierColors.cumulus"
+        :title="null"
+        :subtitle="null"
+        layout="vertical"
+        back-button-text="Previous"
+        class="wizard-vertical mb-3"
+        @on-complete="reinvestDialogFinish()"
+      >
+        <tab-content
+          title="Update Stake"
+        >
+          <b-card
+            title="Update Stake"
+            class="text-center wizard-card"
+          >
+            <div
+              v-if="selectedStake"
+              class="d-flex"
+            >
+              <b-form-checkbox
+                v-model="selectedStake.autoreinvest"
+                class="ml-auto mr-auto"
+                style="float: left;"
+              >
+                Auto-reinvest this stake after expiry
+              </b-form-checkbox>
+            </div>
+          </b-card>
+        </tab-content>
+        <tab-content
+          title="Choose Duration"
+          :before-change="() => checkReinvestDuration()"
+        >
+          <b-card
+            v-if="titanConfig"
+            title="Select Lockup Period"
+            class="text-center wizard-card"
+          >
+            <div
+              v-for="(lockup, index) in titanConfig.lockups"
+              :key="lockup.time"
+              class="mb-1"
+            >
+              <div class="ml-auto mr-auto">
+                <b-button
+                  :class="index === selectedLockupIndex ? 'selectedLockupButton' : 'unselectedLockupButton'"
+                  :style="`background-color: ${indexedTierColors[index]} !important;`"
+                  @click="selectLockup(index)"
+                >
+                  {{ lockup.name }} - ~{{ (lockup.apr*100).toFixed(2) }}%
+                </b-button>
+              </div>
+            </div>
+          </b-card>
+        </tab-content>
+        <tab-content
+          title="Sign Stake"
+          :before-change="() => signature !== null"
+        >
+          <b-card
+            title="Sign Stake with Zelcore"
+            class="text-center wizard-card"
+          >
+            <a
+              :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
+              @click="initiateSignWS"
+            >
+              <img
+                class="zelidLogin mb-2"
+                src="@/assets/images/zelID.svg"
+                alt="Zel ID"
+                height="100%"
+                width="100%"
+              >
+            </a>
+            <b-form-input
+              id="data"
+              v-model="dataToSign"
+              :disabled="true"
+              class="mb-1"
+            />
+            <b-form-input
+              id="signature"
+              v-model="signature"
+            />
+          </b-card>
+        </tab-content>
+        <tab-content
+          title="Re-invest Stake"
+          :before-change="() => stakeRegistered === true"
+        >
+          <b-card
+            title="Re-invest Stake with Titan"
+            class="text-center wizard-card"
+          >
+            <div class="mt-3 mb-auto ">
+              <b-button
+                size="lg"
+                :disabled="registeringStake || stakeRegistered"
+                variant="success"
+                @click="reinvestStake"
+              >
+                Re-invest Stake
+              </b-button>
+              <h4
+                v-if="stakeRegistered"
+                class="mt-3 text-success"
+              >
+                Registration received
+              </h4>
+              <h4
+                v-if="stakeRegisterFailed"
+                class="mt-3 text-danger"
+              >
+                Registration failed
+              </h4>
+            </div>
+          </b-card>
+        </tab-content>
+      </form-wizard>
+    </b-modal>
+
+    <b-modal
+      v-model="activeStakeInfoModalShowing"
+      title="Active Stake Details"
+      size="sm"
+      centered
+      button-size="sm"
+      cancel-title="Close"
+      ok-title="Edit"
+      @ok="editActiveStake"
+    >
+      <b-card v-if="selectedStake">
+        <div class="d-flex">
+          <b-form-checkbox
+            v-model="selectedStake.autoreinvest"
+            disabled
+            class="ml-auto mr-auto"
+            style="float: left;"
+          >
+            Auto-reinvest this stake after expiry
+          </b-form-checkbox>
+        </div>
+      </b-card>
+    </b-modal>
+
+    <b-modal
+      v-model="editStakeModalShowing"
+      title="Edit Active Stake"
+      size="lg"
+      centered
+      no-close-on-backdrop
+      no-close-on-esc
+      button-size="sm"
+      ok-only
+      ok-title="Cancel"
+      @ok="editStakeModalShowing = false;"
+    >
+      <form-wizard
+        :color="tierColors.cumulus"
+        :title="null"
+        :subtitle="null"
+        layout="vertical"
+        back-button-text="Previous"
+        class="wizard-vertical mb-3"
+        @on-complete="editStakeModalShowing = false; getMyStakes(true);"
+      >
+        <tab-content
+          title="Update Stake"
+        >
+          <b-card
+            title="Update Stake"
+            class="text-center wizard-card"
+          >
+            <div
+              v-if="selectedStake"
+              class="d-flex"
+            >
+              <b-form-checkbox
+                v-model="selectedStake.autoreinvest"
+                class="ml-auto mr-auto"
+                style="float: left;"
+              >
+                Auto-reinvest this stake after expiry
+              </b-form-checkbox>
+            </div>
+          </b-card>
+        </tab-content>
+        <tab-content
+          title="Sign Stake"
+          :before-change="() => signature !== null"
+        >
+          <b-card
+            title="Sign Stake with Zelcore"
+            class="text-center wizard-card"
+          >
+            <a
+              :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
+              @click="initiateSignWS"
+            >
+              <img
+                class="zelidLogin mb-2"
+                src="@/assets/images/zelID.svg"
+                alt="Zel ID"
+                height="100%"
+                width="100%"
+              >
+            </a>
+            <b-form-input
+              id="data"
+              v-model="dataToSign"
+              :disabled="true"
+              class="mb-1"
+            />
+            <b-form-input
+              id="signature"
+              v-model="signature"
+            />
+          </b-card>
+        </tab-content>
+        <tab-content
+          title="Send Stake"
+          :before-change="() => stakeRegistered === true"
+        >
+          <b-card
+            title="Send edited Stake to Titan"
+            class="text-center wizard-card"
+          >
+            <div class="mt-3 mb-auto ">
+              <b-button
+                size="lg"
+                :disabled="registeringStake || stakeRegistered"
+                variant="success"
+                @click="sendModifiedStake"
+              >
+                Send Stake
+              </b-button>
+              <h4
+                v-if="stakeRegistered"
+                class="mt-3 text-success"
+              >
+                Edited Stake received
+              </h4>
+              <h4
+                v-if="stakeRegisterFailed"
+                class="mt-3 text-danger"
+              >
+                Stake editing failed
+              </h4>
+            </div>
+          </b-card>
+        </tab-content>
+      </form-wizard>
+    </b-modal>
+
+    <b-modal
       v-model="stakeModalShowing"
       title="Stake Flux with Titan"
       size="lg"
@@ -917,15 +1210,34 @@
           title="Stake Amount"
         >
           <b-card
+            v-if="reinvestingNewStake"
+            title="Re-investing Funds"
+            class="text-center wizard-card"
+          >
+            <div>
+              <h5
+                class="mt-3"
+              >
+                A new stake will be created using your available rewards:
+              </h5>
+              <h2
+                class="mt-3"
+              >
+                {{ toFixedLocaleString(totalReward, 2) }} Flux
+              </h2>
+            </div>
+          </b-card>
+          <b-card
+            v-else
             title="Choose Stake Amount"
             class="text-center wizard-card"
           >
             <div>
               <h3 class="float-left">
-                {{ minStakeAmount }}
+                {{ toFixedLocaleString(minStakeAmount) }}
               </h3>
               <h3 class="float-right">
-                {{ maxStakeAmount }}
+                {{ toFixedLocaleString(maxStakeAmount) }}
               </h3>
             </div>
             <b-form-input
@@ -964,13 +1276,22 @@
             >
               <div class="ml-auto mr-auto">
                 <b-button
-                  :class="index === selectedLockupIndex ? 'selectedLockupButton' : 'unselectedLockupButton'"
+                  :class="(index === selectedLockupIndex ? 'selectedLockupButton' : 'unselectedLockupButton') + (reinvestingNewStake ? 'Small' : '')"
                   :style="`background-color: ${indexedTierColors[index]} !important;`"
                   @click="selectLockup(index)"
                 >
                   {{ lockup.name }} - ~{{ (lockup.apr*100).toFixed(2) }}%
                 </b-button>
               </div>
+            </div>
+            <div class="d-flex">
+              <b-form-checkbox
+                v-model="autoReinvestStake"
+                class="ml-auto mr-auto"
+                style="float: left;"
+              >
+                Auto-reinvest this stake after expiry
+              </b-form-checkbox>
             </div>
           </b-card>
         </tab-content>
@@ -1039,6 +1360,7 @@
           </b-card>
         </tab-content>
         <tab-content
+          v-if="!reinvestingNewStake"
           title="Send Funds"
         >
           <div
@@ -1099,6 +1421,7 @@ import {
   BCardText,
   BCardTitle,
   BCol,
+  BFormCheckbox,
   BFormInput,
   BFormSelect,
   BFormSelectOption,
@@ -1149,6 +1472,7 @@ export default {
     BCardText,
     BCardTitle,
     BCol,
+    BFormCheckbox,
     BFormInput,
     BFormSelect,
     BFormSelectOption,
@@ -1194,6 +1518,7 @@ export default {
           icon,
           variant,
         },
+        position: 'bottom-right',
       });
     };
 
@@ -1219,6 +1544,8 @@ export default {
     const registeringStake = ref(false);
     const config = computed(() => ctx.root.$store.state.flux.config);
     const selectedStake = ref(null);
+    const autoReinvestStake = ref(true);
+    const reinvestingNewStake = ref(false);
 
     const redeemAmount = ref(0);
     const redeemAddress = ref(null);
@@ -1322,6 +1649,9 @@ export default {
     const nodeModalShowing = ref(false);
     const aprModalShowing = ref(false);
     const redeemModalShowing = ref(false);
+    const reinvestModalShowing = ref(false);
+    const activeStakeInfoModalShowing = ref(false);
+    const editStakeModalShowing = ref(false);
 
     const perfectScrollbarSettings = {
       maxScrollbarLength: 150,
@@ -1367,8 +1697,14 @@ export default {
       timestamp.value = response.data.substring(response.data.length - 13);
     };
 
+    const getModifyMessage = async () => {
+      const response = await axios.get(`${apiURL}/modifymessage`);
+      dataToSign.value = response.data;
+      timestamp.value = response.data.substring(response.data.length - 13);
+    };
+
     const checkRedeemAddress = async () => {
-      if (!redeemAddress) return false;
+      if (!redeemAddress.value) return false;
       await getRedeemMessage();
       return true;
     };
@@ -1449,18 +1785,28 @@ export default {
     };
 
     const fetchData = async () => {
-      nodeCount.value = await getNodeCount();
-      const response = await axios.get(`${apiURL}/config`);
-      titanConfig.value = response.data;
-      titanConfig.value.lockups.sort((a, b) => a.blocks - b.blocks);
-      titanConfig.value.lockups.forEach((lockup) => {
-        // eslint-disable-next-line no-param-reassign
-        lockup.apr = calcAPR(lockup);
-      });
-      getSharedNodeList();
-      getStats();
-      getMyStakes();
-      getMyPayments();
+      try {
+        nodeCount.value = await getNodeCount();
+        const response = await axios.get(`${apiURL}/config`);
+        titanConfig.value = response.data;
+        titanConfig.value.lockups.sort((a, b) => a.blocks - b.blocks);
+        titanConfig.value.lockups.forEach((lockup) => {
+          // eslint-disable-next-line no-param-reassign
+          lockup.apr = calcAPR(lockup);
+        });
+        if (response.data.minStake > 0) {
+          minStakeAmount.value = response.data.minStake;
+        }
+        if (response.data.maxStake > 0) {
+          maxStakeAmount.value = response.data.maxStake;
+        }
+        getSharedNodeList();
+        getStats();
+        getMyStakes();
+        getMyPayments();
+      } catch (error) {
+        showToast('danger', error.message || error);
+      }
     };
     fetchData();
 
@@ -1468,7 +1814,9 @@ export default {
       fetchData();
     }, 2 * 60 * 1000);
 
-    const showStakeDialog = () => {
+    const showStakeDialog = (reinvesting = false) => {
+      console.log(reinvesting);
+      reinvestingNewStake.value = reinvesting;
       stakeModalShowing.value = true;
       stakeRegistered.value = false;
       stakeRegisterFailed.value = false;
@@ -1480,13 +1828,86 @@ export default {
     };
 
     const confirmStakeDialogFinish = () => {
-      confirmStakeDialogFinishShowing.value = true;
+      if (reinvestingNewStake.value) {
+        // if this is a re-investment, no need to show the payment details reminder dialog
+        stakeModalShowing.value = false;
+      } else {
+        confirmStakeDialogFinishShowing.value = true;
+      }
       getMyStakes(true);
     };
 
     const confirmStakeDialogCancel = (modalEvt) => {
       modalEvt.preventDefault();
       confirmStakeDialogCloseShowing.value = true;
+    };
+
+    const showActiveStakeInfoDialog = (stake) => {
+      selectedStake.value = JSON.parse(JSON.stringify(stake));
+      activeStakeInfoModalShowing.value = true;
+    };
+
+    const editActiveStake = async () => {
+      activeStakeInfoModalShowing.value = false;
+      await getModifyMessage();
+      stakeRegistered.value = false;
+      stakeRegisterFailed.value = false;
+      registeringStake.value = false;
+      signature.value = null;
+      signatureHash.value = null;
+      editStakeModalShowing.value = true;
+    };
+
+    const sendModifiedStake = async () => {
+      registeringStake.value = true;
+      const zelidauthHeader = localStorage.getItem('zelidauth');
+      const data = {
+        stake: selectedStake.value.uuid,
+        timestamp: timestamp.value,
+        signature: signature.value,
+        data: dataToSign.value,
+        autoreinvest: selectedStake.value.autoreinvest,
+        reinvest: false,
+      };
+      showToast('info', 'Sending modified Stake to Titan...');
+
+      const axiosConfig = {
+        headers: {
+          zelidauth: zelidauthHeader,
+          backend: backend(), // include the backend URL, so the titan backend can communicate with the same FluxOS instance
+        },
+      };
+      const response = await axios.post(`${apiURL}/modifystake`, data, axiosConfig).catch((error) => {
+        console.log(error);
+        stakeRegisterFailed.value = true;
+        showToast('danger', error.message || error);
+      });
+
+      console.log(response.data);
+      if (response && response.data && response.data.status === 'success') {
+        stakeRegistered.value = true;
+        showToast('success', response.data.message || response.data);
+      } else {
+        stakeRegisterFailed.value = true;
+        showToast('danger', (response.data.data ? response.data.data.message : response.data.message) || response.data);
+      }
+    };
+
+    const showReinvestDialog = (stake) => {
+      stakeRegistered.value = false;
+      stakeRegisterFailed.value = false;
+      registeringStake.value = false;
+      selectedLockupIndex.value = 0;
+      signature.value = null;
+      signatureHash.value = null;
+      selectedStake.value = JSON.parse(JSON.stringify(stake));
+      getModifyMessage();
+      reinvestModalShowing.value = true;
+    };
+
+    const reinvestDialogFinish = () => {
+      getMyStakes(true);
+      reinvestModalShowing.value = false;
     };
 
     const selectLockup = (lockupIndex) => {
@@ -1532,23 +1953,63 @@ export default {
 
     const confirmRedeemDialogFinish = () => {
       redeemModalShowing.value = false;
+      getMyStakes(true);
+      getMyPayments(true);
     };
 
     const showPaymentDetailsDialog = (stake) => {
       // console.log(`show payment details ${stake}`);
-      selectedStake.value = stake;
+      selectedStake.value = JSON.parse(JSON.stringify(stake));
       paymentDetailsDialogShowing.value = true;
+    };
+
+    const reinvestStake = async () => {
+      registeringStake.value = true;
+      const zelidauthHeader = localStorage.getItem('zelidauth');
+      const data = {
+        stake: selectedStake.value.uuid,
+        timestamp: timestamp.value,
+        signature: signature.value,
+        data: dataToSign.value,
+        autoreinvest: selectedStake.value.autoreinvest,
+        reinvest: true,
+        lockup: titanConfig.value.lockups[selectedLockupIndex.value],
+      };
+      showToast('info', 'Re-investing Stake with Titan...');
+
+      const axiosConfig = {
+        headers: {
+          zelidauth: zelidauthHeader,
+          backend: backend(), // include the backend URL, so the titan backend can communicate with the same FluxOS instance
+        },
+      };
+      const response = await axios.post(`${apiURL}/modifystake`, data, axiosConfig).catch((error) => {
+        console.log(error);
+        stakeRegisterFailed.value = true;
+        showToast('danger', error.message || error);
+      });
+
+      console.log(response.data);
+      if (response && response.data && response.data.status === 'success') {
+        stakeRegistered.value = true;
+        showToast('success', response.data.message || response.data);
+      } else {
+        stakeRegisterFailed.value = true;
+        showToast('danger', (response.data.data ? response.data.data.message : response.data.message) || response.data);
+      }
     };
 
     const registerStake = async () => {
       registeringStake.value = true;
       const zelidauthHeader = localStorage.getItem('zelidauth');
       const data = {
-        amount: stakeAmount.value,
+        amount: reinvestingNewStake.value ? 0 : stakeAmount.value,
         lockup: titanConfig.value.lockups[selectedLockupIndex.value],
         timestamp: timestamp.value,
         signature: signature.value,
         data: dataToSign.value,
+        autoreinvest: autoReinvestStake.value,
+        stakefromrewards: reinvestingNewStake.value,
       };
       showToast('info', 'Registering Stake with Titan...');
 
@@ -1619,12 +2080,13 @@ export default {
 
     const calcMonthlyReward = (stake) => {
       const lockup = titanConfig.value.lockups.find((aLockup) => aLockup.fee === stake.fee);
+      if (!lockup) return 0;
       return ((stake.collateral) * lockup.apr) / 12;
     };
 
     const calculatePaidRewards = () => {
-      let paid = myStakes.value ? myStakes.value.reduce((total, stake) => total + stake.paid, 0) : 0;
-      paid += myExpiredStakes.value ? myExpiredStakes.value.reduce((total, stake) => total + stake.paid - (stake.state === 5 ? stake.collateral : 0), 0) : 0;
+      let paid = myStakes.value ? myStakes.value.reduce((total, stake) => total + stake.paid - (stake.feePaid ?? 0), 0) : 0;
+      paid += myExpiredStakes.value ? myExpiredStakes.value.reduce((total, stake) => total + stake.paid - (stake.feePaid ?? 0) - (stake.state === 5 ? stake.collateral : 0), 0) : 0;
       return toFixedLocaleString(paid, 2);
     };
 
@@ -1636,6 +2098,8 @@ export default {
       await getRegistrationMessage();
       return selectedLockupIndex.value >= 0 && selectedLockupIndex.value < titanConfig.value.lockups.length;
     };
+
+    const checkReinvestDuration = async () => (selectedLockupIndex.value >= 0 && selectedLockupIndex.value < titanConfig.value.lockups.length);
 
     const redeemAmountState = () => {
       console.log(redeemAmount.value);
@@ -1673,6 +2137,7 @@ export default {
       timestamp,
 
       getMyStakes,
+      getMyPayments,
 
       calcAPR,
       calcMonthlyReward,
@@ -1690,6 +2155,7 @@ export default {
 
       stakeModalShowing,
       showStakeDialog,
+      reinvestingNewStake,
       stakeAmount,
       minStakeAmount,
       maxStakeAmount,
@@ -1697,6 +2163,7 @@ export default {
       stakeRegisterFailed,
       selectedLockupIndex,
       selectLockup,
+      autoReinvestStake,
       registeringStake,
       registerStake,
       checkDuration,
@@ -1706,6 +2173,19 @@ export default {
       confirmStakeDialogCloseShowing,
       confirmStakeDialogFinish,
       confirmStakeDialogFinishShowing,
+
+      showActiveStakeInfoDialog,
+      activeStakeInfoModalShowing,
+      editActiveStake,
+      editStakeModalShowing,
+      sendModifiedStake,
+
+      showReinvestDialog,
+      getModifyMessage,
+      reinvestModalShowing,
+      reinvestStake,
+      checkReinvestDuration,
+      reinvestDialogFinish,
 
       showPaymentDetailsDialog,
       paymentDetailsDialogShowing,
@@ -1787,6 +2267,22 @@ a:hover img {
   border-color: red !important;
   border: 5px solid;
   height: 60px;
+  width: 300px;
+  font-size: 20px;
+}
+
+.unselectedLockupButtonSmall {
+  border-color: transparent;
+  border: 0px solid;
+  height: 50px;
+  width: 300px;
+  font-size: 20px;
+}
+
+.selectedLockupButtonSmall {
+  border-color: red !important;
+  border: 5px solid;
+  height: 50px;
   width: 300px;
   font-size: 20px;
 }
