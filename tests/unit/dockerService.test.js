@@ -246,6 +246,21 @@ describe('dockerService tests', () => {
     });
   });
 
+  describe('dockerContainerStatsStream tests', () => {
+    it.only('should return a valid stream', async () => {
+      const containerName = 'website';
+
+      const statsStream = await dockerService.dockerContainerStatsStream(containerName).then(statsStream => { return statsStream });
+
+    });
+
+    it.only('should throw error if the container does not exist', async () => {
+      const containerName = 'test';
+
+      await expect(dockerService.dockerContainerStats(containerName)).to.eventually.be.rejectedWith('Cannot read property \'Id\' of undefined');
+    });
+  });
+
   describe('dockerContainerChanges tests', () => {
     it('should return a valid stats object', async () => {
       const containerName = 'website';
