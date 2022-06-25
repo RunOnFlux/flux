@@ -153,7 +153,7 @@ async function listRunningApps(req, res) {
 }
 
 /**
- * To list all apps. Shall be identical to installedApps but this is the Docker response.
+ * To list all apps or app components Shall be identical to installedApps but this is the Docker response.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {object} Message.
@@ -1762,7 +1762,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
 
     let appId = dockerService.getAppIdentifier(app); // get app or app component identifier
 
-    if (appSpecifications.version === 4 && !isComponent) {
+    if (appSpecifications.version >= 4 && !isComponent) {
       // it is a composed application
       // eslint-disable-next-line no-restricted-syntax
       for (const appComposedComponent of appSpecifications.compose.reverse()) {
@@ -1989,7 +1989,7 @@ async function softRemoveAppLocally(app, res) {
 
   let appId = dockerService.getAppIdentifier(app);
 
-  if (appSpecifications.version === 4 && !isComponent) {
+  if (appSpecifications.version >= 4 && !isComponent) {
     // it is a composed application
     // eslint-disable-next-line no-restricted-syntax
     for (const appComposedComponent of appSpecifications.compose.reverse()) {
@@ -7580,6 +7580,49 @@ async function stopAllNonFluxRunningApps() {
   }
 }
 
+// there might be some apps reported by docker but not installed. In that case compare list and initiate force removal
+async function forceAppRemovals() {
+  try {
+    const dockerAppsReported = await listAllApps();
+    const dockerApps = dockerAppsReported.data;
+    const installedAppsRes = await installedApps();
+    const appsInstalled = installedAppsRes.data;
+    const dockerAppsNames = dockerApps.map((app) => {
+      if (app.Names[0].startsWith('/zel')) {
+        return app.Names[0].slice(4);
+      }
+      return app.Names[0].slice(5);
+    });
+    const dockerAppsTrueNames = [];
+    dockerAppsNames.forEach((appName) => {
+      const name = appName.split('_')[1] || appName;
+      dockerAppsTrueNames.push(name);
+    });
+
+    // array of unique main app names
+    const dockerAppsTrueNameB = [...new Set(dockerAppsTrueNames)];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const dApp of dockerAppsTrueNameB) {
+      // check if app is in installedApps
+      const appInstalledExists = appsInstalled.find((app) => app.name === dApp);
+      if (!appInstalledExists) {
+        // eslint-disable-next-line no-await-in-loop
+        const appDetails = await getApplicationGlobalSpecifications(dApp);
+        if (appDetails) {
+          // it is global app
+          // do removal
+          log.warn(`${dApp} does not exist in installed apps, forcing removal`);
+          removeAppLocally(dApp, null, true); // remove entire app
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.delay(10 * 60 * 1000); // 10 mins
+        }
+      }
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
 module.exports = {
   listRunningApps,
   listAllApps,
@@ -7663,4 +7706,5 @@ module.exports = {
   restorePortsSupport,
   restoreFluxPortsSupport,
   restoreAppsPortsSupport,
+  forceAppRemovals,
 };
