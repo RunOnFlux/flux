@@ -819,6 +819,13 @@ async function startMonitoringOfApps() {
   }
 }
 
+async function stopMonitoringOfApps(deleteData = false) {
+  const apps = await installedApps(); // get all apps running on the node
+  for (const app of apps) {
+    await stopAppMonitoring(app, deleteData);
+  }
+}
+
 /**
  * To show filesystem changes for an app's Docker container. Only accessible by app owner, admins and flux team members.
  * @param {object} req Request.
@@ -7641,6 +7648,7 @@ module.exports = {
   startAppMonitoring,
   stopAppMonitoring,
   startMonitoringOfApps,
+  stopMonitoringOfApps,
   appChanges,
   appExec,
   fluxUsage,
