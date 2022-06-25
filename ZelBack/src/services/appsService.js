@@ -65,6 +65,58 @@ const nodeSpecs = {
   ssdStorage: 0,
 };
 
+const appsMonitored = {
+  // appsMonitored Object Examples:
+  // component1_appname2 { // >= 4 copmonent1
+  //   fiveMinuteInterval, // interval
+  //   oneHourInterval, // interval
+  //   fiveMinuteStatsStore: [    
+  //     { // object of timestamp, data
+  //       timestamp: 1495255666921,
+  //       data: { statsObject },
+  //     },
+  //   ],
+  //   oneHourStatsStore: [    
+  //     { // object of timestamp, data
+  //       timestamp: 1495255666921,
+  //       data: { statsObject },
+  //     },
+  //   ]
+  // },
+  // component2_appname2 { // copmennt2
+  //   fiveMinuteInterval, // interval
+  //   oneHourInterval, // interval
+  //   fiveMinuteStatsStore: [    
+  //     { // object of timestamp, data
+  //       timestamp: 1495255666921,
+  //       data: { statsObject },
+  //     },
+  //   ],
+  //   oneHourStatsStore: [    
+  //     { // object of timestamp, data
+  //       timestamp: 1495255666921,
+  //       data: { statsObject },
+  //     },
+  //   ]
+  // },
+  name: { // app of <= v3
+    fiveMinuteInterval, // interval
+    oneHourInterval, // interval
+    fiveMinuteStatsStore: [
+      { // object of timestamp, data
+        timestamp,
+        data,
+      },
+    ],
+    oneHourStatsStore: [
+      { // object of timestamp, data
+        timestamp,
+        data,
+      },
+    ],
+  },
+};
+
 /**
  * To list running apps.
  * @param {object} req Request.
@@ -715,6 +767,58 @@ async function appStats(req, res) {
   }
 }
 
+async function startAppMonitoring(app) {
+  if (!app) {
+    throw new Error('No App specified');
+  } else if (app.version <= 3) {
+    // prior check if key exists or not in case it is in case its not TODO
+    appsMonitored[app.name] = {}; // fiveMinuteInterval, oneHourInterval, fiveMinuteStatsStore, oneHourStatsStore
+    appsMonitored[app.name].fiveMinuteInterval = setInterval(async () => {
+      const statsNow = await dockerService.appsStats(app.name); // time?
+      appsMonitored[app.name][fiveMinuteStatsStore].unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
+      appsMonitored[app.name][fiveMinuteStatsStore].length = 12; // Store stats every five mins for the last hour only
+    }, 5 * 60 * 1000);
+    appsMonitored[app.name].oneHourInterval = setInterval(async () => {
+      const statsNow = await dockerService.appsStats(app.name); // time?
+      appsMonitored[app.name][oneHourStatsStore].unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
+      appsMonitored[app.name][oneHourStatsStore].length = 24; // Store stats every hour for the last day only
+    }, 60 * 60 * 1000);
+  } else {
+    for (const component of app.compose) {
+      // prior check if key exists or not in case it is in case its not TODO
+      appsMonitored[`${component.name}_${app.name}`] = {}; // fiveMinuteInterval, oneHourInterval, fiveMinuteStatsStore, oneHourStatsStore
+      appsMonitored[`${component.name}_${app.name}`][fiveMinuteStatsStore].length = 12; // Store stats every five mins for the last hour only
+      appsMonitored[`${component.name}_${app.name}`][oneHourStatsStore].length = 24; // Store stats every hour for the last day only
+      appsMonitored[`${component.name}_${app.name}`].fiveMinuteInterval = setInterval(async () => {
+        const statsNow = await dockerService.appsStats(`${component.name}_${app.name}`); // time?
+        appsMonitored[`${component.name}_${app.name}`][fiveMinuteStatsStore].unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
+        appsMonitored[app.name][fiveMinuteStatsStore].length = 12; // Store stats every five mins for the last hour only
+      }, 5 * 60 * 1000);
+      appsMonitored[`${component.name}_${app.name}`].oneHourInterval = setInterval(async () => {
+        const statsNow = await dockerService.appsStats(`${component.name}_${app.name}`); // time?
+        appsMonitored[`${component.name}_${app.name}`][oneHourStatsStore].unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
+        appsMonitored[app.name][oneHourStatsStore].length = 24; // Store stats every hour for the last day only
+      }, 60 * 60 * 1000);
+    }
+  }
+}
+
+// At any stage after the monitoring is started, trigger stop on demand without loosing data (unless delete data is chosen)
+async function stopAppMonitoring(app, deleteData = false) {
+  clearInterval(appsMonitored[app.name].fiveMinuteInterval);
+  clearInterval(appsMonitored[app.name].oneHourInterval);
+  if (deleteData === true) {
+    delete appsMonitored[app.name];
+  }
+}
+
+async function startMonitoringOfApps() {
+  const apps = await installedApps(); // get all apps running on the node
+  for (const app of apps) {
+    await startAppMonitoring(app);
+  }
+}
+
 /**
  * To show filesystem changes for an app's Docker container. Only accessible by app owner, admins and flux team members.
  * @param {object} req Request.
@@ -1277,9 +1381,10 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
  * @param {string} appId App ID.
  * @param {object} appSpecifications App specifications.
  * @param {boolean} isComponent True if a Docker Compose component.
+ * @param {boolean} isDataToBeDeleted True if app stats monitoring data is to be deleted.
  * @param {object} res Response.
  */
-async function appUninstallHard(appName, appId, appSpecifications, isComponent, res) {
+async function appUninstallHard(appName, appId, appSpecifications, isComponent, isDataToBeDeleted, res) {
   const stopStatus = {
     status: isComponent ? `Stopping Flux App Component ${appSpecifications.name}...` : `Stopping Flux App ${appName}...`,
   };
@@ -1552,7 +1657,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
       res.write(serviceHelper.ensureString(cleaningVolumeStatus2));
     }
   }
-
+  stopAppMonitoring(appName, isDataToBeDeleted);
   const appRemovalResponse = {
     status: isComponent ? `Flux App component ${appSpecifications.name} of ${appName} was successfuly removed` : `Flux App ${appName} was successfuly removed`,
   };
@@ -1722,8 +1827,14 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
 
 /**
  * To soft uninstall an app including any components. Removes container/s, removes image/s and denies all app/component ports.
+ * @param {string} appName App name.
+ * @param {string} appId App ID.
+ * @param {object} appSpecifications App specifications.
+ * @param {boolean} isComponent True if a Docker Compose component.
+ * @param {boolean} isDataToBeDeleted True if app stats monitoring data is to be deleted.
+ * @param {object} res Response.
  */
-async function appUninstallSoft(appName, appId, appSpecifications, isComponent, res) {
+async function appUninstallSoft(appName, appId, appSpecifications, isComponent, isDataToBeDeleted, res) {
   const stopStatus = {
     status: isComponent ? `Stopping Flux App Component ${appSpecifications.name}...` : `Stopping Flux App ${appName}...`,
   };
@@ -1828,7 +1939,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   if (res) {
     res.write(serviceHelper.ensureString(portStatus2));
   }
-
+  stopAppMonitoring(appName, isDataToBeDeleted);
   const appRemovalResponse = {
     status: isComponent ? `Flux App component ${appSpecifications.name} of ${appName} was successfuly removed` : `Flux App ${appName} was successfuly removed`,
   };
@@ -2238,6 +2349,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   if (!app) {
     return;
   }
+  startAppMonitoring(appName);
   const appResponse = messageHelper.createDataMessage(app);
   log.info(appResponse);
   if (res) {
@@ -2539,6 +2651,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   if (!app) {
     return;
   }
+  startAppMonitoring(appName);
   const appResponse = messageHelper.createDataMessage(app);
   log.info(appResponse);
   if (res) {
@@ -7482,6 +7595,9 @@ module.exports = {
   appLogStream,
   appInspect,
   appStats,
+  startAppMonitoring,
+  stopAppMonitoring,
+  startMonitoringOfApps,
   appChanges,
   appExec,
   fluxUsage,
