@@ -276,5 +276,6 @@
    "megachips/flux_looking_glass:latest",
    "alekslitvinenk/openvpn",
    "fluxfolio/fluxfolio:latest",
-   "minestrong/minestrongco_web:firsttry"
+   "minestrong/minestrongco_web:firsttry",
+   "ragnarfinance/ragnar_finance:latest"
 ]
