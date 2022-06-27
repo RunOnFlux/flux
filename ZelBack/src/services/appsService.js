@@ -804,25 +804,35 @@ async function startAppMonitoring(app) {
 }
 
 // At any stage after the monitoring is started, trigger stop on demand without loosing data (unless delete data is chosen)
-async function stopAppMonitoring(app, deleteData = false) {
+async function stopAppMonitoring(app) {
   clearInterval(appsMonitored[app.name].fiveMinuteInterval);
   clearInterval(appsMonitored[app.name].oneHourInterval);
-  if (deleteData === true) {
-    delete appsMonitored[app.name];
-  }
+}
+
+async function stopAndDeleteAppMonitoring(app) {
+  clearInterval(appsMonitored[app.name].fiveMinuteInterval);
+  clearInterval(appsMonitored[app.name].oneHourInterval);
+  delete appsMonitored[app.name];
 }
 
 async function startMonitoringOfApps() {
   const apps = await installedApps(); // get all apps running on the node
   for (const app of apps) {
-    await startAppMonitoring(app);
+    await startAppMonitoring(app); // Start monitoring each app
   }
 }
 
-async function stopMonitoringOfApps(deleteData = false) {
+async function stopMonitoringOfApps() {
   const apps = await installedApps(); // get all apps running on the node
   for (const app of apps) {
-    await stopAppMonitoring(app, deleteData);
+    await stopAppMonitoring(app); // Stop monitoring each app
+  }
+}
+
+async function stopAndDeleteMonitoringOfApps() {
+  const apps = await installedApps(); // get all apps running on the node
+  for (const app of apps) {
+    await stopAndDeleteAppMonitoring(app); // Stop monitoring and delete in-memory data for each app
   }
 }
 
@@ -7647,8 +7657,10 @@ module.exports = {
   appStats,
   startAppMonitoring,
   stopAppMonitoring,
+  stopAndDeleteAppMonitoring,
   startMonitoringOfApps,
   stopMonitoringOfApps,
+  stopAndDeleteMonitoringOfApps,
   appChanges,
   appExec,
   fluxUsage,
