@@ -767,6 +767,10 @@ async function appStats(req, res) {
   }
 }
 
+/**
+ * Starts app monitoring for a single app and saves data in-memory to the appsMonitored object.
+ * @param {object} app App specifications.
+ */
 async function startAppMonitoring(app) {
   if (!app) {
     throw new Error('No App specified');
@@ -803,18 +807,29 @@ async function startAppMonitoring(app) {
   }
 }
 
+/**
+ * Stops app monitoring for a single app.
+ * @param {object} app App specifications.
+ */
 // At any stage after the monitoring is started, trigger stop on demand without loosing data (unless delete data is chosen)
 async function stopAppMonitoring(app) {
   clearInterval(appsMonitored[app.name].fiveMinuteInterval);
   clearInterval(appsMonitored[app.name].oneHourInterval);
 }
 
+/**
+ * Stops app monitoring for a single app and deletes in-memory data.
+ * @param {object} app App specifications.
+ */
 async function stopAndDeleteAppMonitoring(app) {
   clearInterval(appsMonitored[app.name].fiveMinuteInterval);
   clearInterval(appsMonitored[app.name].oneHourInterval);
   delete appsMonitored[app.name];
 }
 
+/**
+ * Starts app monitoring for all apps.
+ */
 async function startMonitoringOfApps() {
   const apps = await installedApps(); // get all apps running on the node
   for (const app of apps) {
@@ -822,6 +837,9 @@ async function startMonitoringOfApps() {
   }
 }
 
+/**
+ * Stops app monitoring for all apps.
+ */
 async function stopMonitoringOfApps() {
   const apps = await installedApps(); // get all apps running on the node
   for (const app of apps) {
@@ -829,6 +847,9 @@ async function stopMonitoringOfApps() {
   }
 }
 
+/**
+ * Stops app monitoring for all apps and deletes in-memory data.
+ */
 async function stopAndDeleteMonitoringOfApps() {
   const apps = await installedApps(); // get all apps running on the node
   for (const app of apps) {
