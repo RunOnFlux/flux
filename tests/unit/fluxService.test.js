@@ -1892,7 +1892,7 @@ describe('fluxService tests', () => {
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
       appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
       appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
-      appsServiceGetAppHashesStub.returns({ status: 'success', data: 'getAppHashes data' });
+      appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
       fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
@@ -1921,7 +1921,7 @@ describe('fluxService tests', () => {
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
       appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
       appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
-      appsServiceGetAppHashesStub.returns({ status: 'success', data: 'getAppHashes data' });
+      appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
       fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
@@ -1943,9 +1943,10 @@ describe('fluxService tests', () => {
             fluxusage: 'usage data',
             runningapps: 'listRunningApps data',
             resources: 'appsResources data',
-            hashes: 'getAppHashes data',
           },
           geolocation: null,
+          appsHashesTotal: 1,
+          hashesPresent: 1,
         },
       });
     });
@@ -1959,7 +1960,7 @@ describe('fluxService tests', () => {
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
       appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
       appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
-      appsServiceGetAppHashesStub.returns({ status: 'success', data: 'getAppHashes data' });
+      appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
       fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
@@ -1982,7 +1983,7 @@ describe('fluxService tests', () => {
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
       appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
       appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
-      appsServiceGetAppHashesStub.returns({ status: 'success', data: 'getAppHashes data' });
+      appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
       fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
@@ -2005,7 +2006,7 @@ describe('fluxService tests', () => {
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
       appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
       appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
-      appsServiceGetAppHashesStub.returns({ status: 'success', data: 'getAppHashes data' });
+      appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
       fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
@@ -2028,7 +2029,7 @@ describe('fluxService tests', () => {
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
       appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
       appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
-      appsServiceGetAppHashesStub.returns({ status: 'success', data: 'getAppHashes data' });
+      appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
       fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
@@ -2051,7 +2052,7 @@ describe('fluxService tests', () => {
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
       appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
       appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
-      appsServiceGetAppHashesStub.returns({ status: 'success', data: 'getAppHashes data' });
+      appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
       fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
@@ -2074,7 +2075,7 @@ describe('fluxService tests', () => {
       appsServiceFluxUsageStub.returns({ status: 'error', data: 'usage data' });
       appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
       appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
-      appsServiceGetAppHashesStub.returns({ status: 'success', data: 'getAppHashes data' });
+      appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
       fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
@@ -2097,7 +2098,7 @@ describe('fluxService tests', () => {
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
       appsServiceListRunningAppsStub.returns({ status: 'error', data: 'listRunningApps data' });
       appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
-      appsServiceGetAppHashesStub.returns({ status: 'success', data: 'getAppHashes data' });
+      appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
       fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
@@ -2120,7 +2121,7 @@ describe('fluxService tests', () => {
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
       appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
       appsServiceAppsResourcesStub.returns({ status: 'error', data: 'appsResources data' });
-      appsServiceGetAppHashesStub.returns({ status: 'success', data: 'getAppHashes data' });
+      appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
       fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
@@ -2166,7 +2167,7 @@ describe('fluxService tests', () => {
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
       appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
       appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
-      appsServiceGetAppHashesStub.returns({ status: 'success', data: 'getAppHashes data' });
+      appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'error', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
       fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
@@ -2189,7 +2190,7 @@ describe('fluxService tests', () => {
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
       appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
       appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
-      appsServiceGetAppHashesStub.returns({ status: 'success', data: 'getAppHashes data' });
+      appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'error', data: 'connectedPeersInfo data' });
       fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
@@ -2212,7 +2213,7 @@ describe('fluxService tests', () => {
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
       appsServiceListRunningAppsStub.returns({ status: 'success', data: 'listRunningApps data' });
       appsServiceAppsResourcesStub.returns({ status: 'success', data: 'appsResources data' });
-      appsServiceGetAppHashesStub.returns({ status: 'success', data: 'getAppHashes data' });
+      appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
       fluxNetworkHelperStub.returns({ status: 'error', data: 'getIncomingConnectionsInfo data' });
@@ -2658,7 +2659,7 @@ describe('fluxService tests', () => {
     });
   });
 
-  describe('InstallFluxWatchTower tests', () => {
+  describe('installFluxWatchTower tests', () => {
     let utilStub;
     let funcStub;
 
@@ -2675,7 +2676,7 @@ describe('fluxService tests', () => {
       utilStub.returns(funcStub);
       const nodedpath = path.join(__dirname, '../../../flux/helpers');
 
-      await fluxService.InstallFluxWatchTower();
+      await fluxService.installFluxWatchTower();
 
       sinon.assert.calledOnceWithExactly(funcStub, `cd ${nodedpath} && bash fluxwatchtower.sh`);
     });

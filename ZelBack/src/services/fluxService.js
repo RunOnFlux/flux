@@ -22,10 +22,8 @@ const generalService = require('./generalService');
 const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
+const geolocationService = require('./geolocationService');
 const userconfig = require('../../../config/userconfig');
-
-let storedGeolocation = null;
-let storedIp = null;
 
 /**
  * To show the directory on the node machine where FluxOS files are stored.
@@ -745,7 +743,7 @@ async function getFluxInfo(req, res) {
       benchmark: {},
       flux: {},
       apps: {},
-      geolocation: storedGeolocation,
+      geolocation: geolocationService.getNodeGeolocation(),
     };
     const versionRes = await getFluxVersion();
     if (versionRes.status === 'error') {
@@ -825,7 +823,10 @@ async function getFluxInfo(req, res) {
     if (appHashes.status === 'error') {
       throw appHashes.data;
     }
-    info.apps.hashes = appHashes.data;
+    const hashesOk = appHashes.data.filter((data) => data.height >= 694000);
+    info.appsHashesTotal = hashesOk.length;
+    const mesOK = hashesOk.filter((mes) => mes.message === true);
+    info.hashesPresent = mesOK.length;
     const explorerScannedHeight = await explorerService.getScannedHeight();
     if (explorerScannedHeight.status === 'error') {
       throw explorerScannedHeight.data;
@@ -835,12 +836,12 @@ async function getFluxInfo(req, res) {
     if (connectionsOut.status === 'error') {
       throw connectionsOut.data;
     }
-    info.flux.connectionsOut = connectionsOut.data;
+    info.flux.numberOfConnectionsOut = connectionsOut.data.length;
     const connectionsIn = fluxNetworkHelper.getIncomingConnectionsInfo();
     if (connectionsIn.status === 'error') {
       throw connectionsIn.data;
     }
-    info.flux.connectionsIn = connectionsIn.data;
+    info.flux.numberOfConnectionsIn = connectionsIn.data.length;
 
     const response = messageHelper.createDataMessage(info);
     return res ? res.json(response) : response;
@@ -988,7 +989,7 @@ async function getNodeTier(req, res) {
 /**
  * To install Flux Watch Tower (executes the command `bash fluxwatchtower.sh` in the relevent directory on the node machine).
  */
-async function InstallFluxWatchTower() {
+async function installFluxWatchTower() {
   try {
     const nodedpath = path.join(__dirname, '../../../helpers');
     const exec = `cd ${nodedpath} && bash fluxwatchtower.sh`;
@@ -998,57 +999,6 @@ async function InstallFluxWatchTower() {
   } catch (error) {
     log.error(error);
   }
-}
-
-/**
- * Method responsable for setting node geolocation information
- */
-async function setNodeGeolocation() {
-  try {
-    const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
-    if (!myIP) {
-      throw new Error('Flux IP not detected. Flux geolocation service is awaiting');
-    }
-    if (!storedGeolocation || myIP !== storedIp) {
-      log.info(`Checking geolocation of ${myIP}`);
-      storedIp = myIP;
-      // consider another service failover or stats db
-      const ipApiUrl = `http://ip-api.com/json/${myIP.split(':')[0]}?fields=status,continent,continentCode,country,countryCode,region,regionName,lat,lon,query,org`;
-      const ipRes = await serviceHelper.axiosGet(ipApiUrl);
-      if (ipRes.data.status !== 'success') {
-        throw new Error(`Geolocation of IP ${myIP} is unavailable`);
-      }
-      storedGeolocation = {
-        ip: ipRes.data.query,
-        continent: ipRes.data.continent,
-        continentCode: ipRes.data.continentCode,
-        country: ipRes.data.country,
-        countryCode: ipRes.data.countryCode,
-        region: ipRes.data.region,
-        regionName: ipRes.data.regionName,
-        lat: ipRes.data.lat,
-        lon: ipRes.data.lon,
-        org: ipRes.data.org,
-      };
-    }
-    log.info(`Geolocation of ${myIP} is ${JSON.stringify(storedGeolocation)}`);
-    setTimeout(() => { // executes again in 12h
-      setNodeGeolocation();
-    }, 12 * 60 * 60 * 1000);
-  } catch (error) {
-    log.error(`Failed to get Geolocation with ${error}`);
-    log.error(error);
-    setTimeout(() => {
-      setNodeGeolocation();
-    }, 5 * 60 * 1000);
-  }
-}
-
-/**
- * Method responsable for getting stored node geolocation information
- */
-function getNodeGeolocation() {
-  return storedGeolocation;
 }
 
 module.exports = {
@@ -1087,9 +1037,7 @@ module.exports = {
   adjustKadenaAccount,
   fluxBackendFolder,
   getNodeTier,
-  InstallFluxWatchTower,
-  setNodeGeolocation,
-  getNodeGeolocation,
+  installFluxWatchTower,
 
   // Exports for testing purposes
   fluxLog,

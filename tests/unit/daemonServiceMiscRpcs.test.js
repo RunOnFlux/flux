@@ -76,6 +76,7 @@ describe('daemonServiceMiscRpcs tests', () => {
 
     it('should return isDaemonSynced message if current height is less than header height, no response passed', () => {
       daemonServiceMiscRpcs.setCurrentDaemonHeight(0);
+      daemonServiceMiscRpcs.setCurrentDaemonHeader(249187);
       const expectedResponse = {
         status: 'success',
         data: { header: 249187, height: 0, synced: false },
@@ -88,6 +89,7 @@ describe('daemonServiceMiscRpcs tests', () => {
 
     it('should return isDaemonSynced message if current height is more than header height, no response passed', () => {
       daemonServiceMiscRpcs.setCurrentDaemonHeight(259187);
+      daemonServiceMiscRpcs.setCurrentDaemonHeader(249187);
       const expectedResponse = {
         status: 'success',
         data: { header: 249187, height: 259187, synced: true },
@@ -100,6 +102,7 @@ describe('daemonServiceMiscRpcs tests', () => {
 
     it('should return isDaemonSynced message if current height is more than header height, response passed', () => {
       daemonServiceMiscRpcs.setCurrentDaemonHeight(249192);
+      daemonServiceMiscRpcs.setCurrentDaemonHeader(249187);
       const expectedResponse = {
         status: 'success',
         data: { header: 249187, height: 249192, synced: true },

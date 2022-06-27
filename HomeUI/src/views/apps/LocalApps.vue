@@ -286,7 +286,7 @@
                       <confirm-dialog
                         :target="`stop-running-app-${row.item.name}`"
                         confirm-button="Stop App"
-                        @confirm="stopAll(row.item.name)"
+                        @confirm="stopApp(row.item.name)"
                       />
                     </template>
                   </b-table>
@@ -1959,11 +1959,11 @@ export default {
       const win = window.open(url, '_blank');
       win.focus();
     },
-    async stopAll(app) {
+    async stopApp(app) {
       this.output = '';
       this.showToast('warning', `Stopping ${this.getAppName(app)}`);
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await AppsService.stopAll(zelidauth, app);
+      const response = await AppsService.stopApp(zelidauth, app);
       if (response.data.status === 'success') {
         this.showToast('success', response.data.data.message || response.data.data);
       } else {
@@ -2184,17 +2184,17 @@ export default {
     },
     openAppManagement(app) {
       const appName = this.getAppName(app);
-      const okAppsForAdmin = [
-        'FoldingAtHomeB',
-        'KadenaChainWebNode',
-        'KadenaChainWebData',
-        'FoldingAtHomeArm64',
-      ];
-      if (!okAppsForAdmin.includes(appName) && this.privilege === 'admin') { // node owner but app is a global app
-        this.showToast('danger', `This application ${appName} cannot be managed by node owner`);
-      } else {
-        this.managedApplication = appName;
-      }
+      // const okAppsForAdmin = [
+      //   'FoldingAtHomeB',
+      //   'KadenaChainWebNode',
+      //   'KadenaChainWebData',
+      //   'FoldingAtHomeArm64',
+      // ];
+      // if (!okAppsForAdmin.includes(appName) && this.privilege === 'admin') { // node owner but app is a global app
+      //   this.showToast('danger', `This application ${appName} cannot be managed by node owner`);
+      // } else {
+      this.managedApplication = appName;
+      // }
     },
     clearManagedApplication() {
       this.managedApplication = '';
