@@ -277,5 +277,6 @@
    "alekslitvinenk/openvpn",
    "fluxfolio/fluxfolio:latest",
    "minestrong/minestrongco_web:firsttry",
-   "ragnarfinance/ragnar_finance:latest"
+   "ragnarfinance/ragnar_finance:latest",
+   "smartico/ipfs:latest"
 ]
