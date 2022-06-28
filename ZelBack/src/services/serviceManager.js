@@ -114,6 +114,12 @@ async function startFluxFunctions() {
       log.info('Starting to spawn applications');
       appsService.trySpawningGlobalApplication();
     }, 20 * 60 * 1000);
+    setTimeout(() => {
+      appsService.forceAppRemovals(); // force cleanup of apps every day
+      setInterval(() => {
+        appsService.forceAppRemovals();
+      }, 24 * 60 * 60 * 1000);
+    }, 30 * 60 * 1000);
   } catch (e) {
     log.error(e);
     setTimeout(() => {

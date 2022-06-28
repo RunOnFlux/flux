@@ -93,7 +93,7 @@ async function confirmNodeTierHardware() {
 async function loginPhrase(req, res) {
   try {
     // check docker availablility
-    await dockerService.dockerListContainers(false);
+    await dockerService.dockerListImages();
     // check Node Hardware Requirements are ok.
     const hwPassed = await confirmNodeTierHardware();
     if (hwPassed === false) {

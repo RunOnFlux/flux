@@ -262,6 +262,7 @@ export default {
         '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
         '12hbuDGzfnndXP4NbrS3xdVXUcC6L7N2ag',
         '196GJWyLxzAw3MirTT7Bqs2iGpUQio29GH',
+        '1JM3x7KWnCbosxdrLMon8RfWwEraEmq5qG',
       ],
     );
 

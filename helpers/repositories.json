@@ -82,6 +82,8 @@
    "littlestache/helloworld:latest",
    "wordpress:latest",
    "mysql:5.7",
+   "joomla:latest",
+   "phpmyadmin/phpmyadmin",
    "ethereum/client-go:stable",
    "shatayen/defiportfoliomanager_stream:latest",
    "shatayen/defiportfoliomanager_backend:latest",
@@ -269,7 +271,15 @@
    "dopsimulation/ot-umami-gui:latest",
    "louisdussoulier/dapp:latest",
    "smartico/aave:latest",
-   "runonflux/raven-insight-explorer:latest"
-   "saramandaia/hotcafe:latest"
+   "mauricio503/nodetest:latest",
+   "runonflux/raven-insight-explorer:latest",
+   "saramandaia/hotcafe:latest",
+   "spacepumpkin/flux-api-playground:latest",
+   "megachips/flux_looking_glass:latest",
+   "alekslitvinenk/openvpn",
+   "fluxfolio/fluxfolio:latest",
+   "minestrong/minestrongco_web:firsttry",
+   "ragnarfinance/ragnar_finance:latest",
+   "smartico/ipfs:latest"
    "modernglobal/docushield-cluster:latest"
 ]
