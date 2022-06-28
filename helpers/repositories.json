@@ -83,6 +83,7 @@
    "wordpress:latest",
    "mysql:5.7",
    "joomla:latest",
+   "phpmyadmin/phpmyadmin",
    "ethereum/client-go:stable",
    "shatayen/defiportfoliomanager_stream:latest",
    "shatayen/defiportfoliomanager_backend:latest",
