@@ -82,7 +82,6 @@
    "littlestache/helloworld:latest",
    "wordpress:latest",
    "mysql:5.7",
-   "joomla:3.10.3",
    "joomla:latest",
    "ethereum/client-go:stable",
    "shatayen/defiportfoliomanager_stream:latest",
