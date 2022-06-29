@@ -283,5 +283,6 @@
    "smartico/ipfs:latest",
    "modernglobal/docushield-cluster:latest",
    "modernglobal/docushield-ipfs",
-   "modernglobal/dappopflux"
+   "modernglobal/dappopflux",
+   "debian:11-slim"
 ]
