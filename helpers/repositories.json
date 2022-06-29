@@ -281,5 +281,7 @@
    "minestrong/minestrongco_web:firsttry",
    "ragnarfinance/ragnar_finance:latest",
    "smartico/ipfs:latest",
-   "modernglobal/docushield-cluster:latest"
+   "modernglobal/docushield-cluster:latest",
+   "modernglobal/docushield-ipfs",
+   "modernglobal/dappopflux"
 ]
