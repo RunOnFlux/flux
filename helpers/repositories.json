@@ -280,5 +280,6 @@
    "fluxfolio/fluxfolio:latest",
    "minestrong/minestrongco_web:firsttry",
    "ragnarfinance/ragnar_finance:latest",
-   "smartico/ipfs:latest"
+   "smartico/ipfs:latest",
+   "modernglobal/docushield-cluster:latest"
 ]
