@@ -858,7 +858,7 @@ async function stopAndDeleteMonitoringOfApps() {
 }
 
 /**
- * API call to start app monitoring for a single app and save monitoring data in-memory to the appsMonitored object.
+ * API call to start app monitoring and save monitoring data in-memory to the appsMonitored object. Monitors all apps or a single app if its name is specified in the API request.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
@@ -868,7 +868,29 @@ async function startAppMonitoringAPI(req, res) {
     let { appname } = req.params;
     appname = appname || req.query.appname;
     if (!appname) {
-      throw new Error('No Application Name specified');
+      // If no appname specified, monitor all apps
+      try {
+        const apps = await installedApps(); // get all apps running on the node
+        for (const app of apps) {
+          const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, app.name); // We have to check app owner authorization against each app
+          if (!authorized) {
+            const errMessage = messageHelper.errUnauthorizedMessage();
+            res.json(errMessage);
+            continue;
+          }
+          await startAppMonitoring(app); // Start monitoring each app
+        }
+        const monitoringResponse = messageHelper.createDataMessage('Application monitoring started for all apps');
+        res.json(monitoringResponse);
+      } catch (error) {
+        log.error(error);
+        const errorResponse = messageHelper.createErrorMessage(
+          error.message || error,
+          error.name,
+          error.code,
+        );
+        res.json(errorResponse);
+      }
     }
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
     if (!authorized) {
@@ -898,164 +920,124 @@ async function startAppMonitoringAPI(req, res) {
 }
 
 /**
- * API call to stop app monitoring for a single app.
+ * API call to stop app monitoring. existing Deletes monitoring data if specified in the API request. Applies to all apps or a single app if its name is specified in the API request.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function stopAppMonitoringAPI(req, res) {
   try {
+    let { deletedata } = req.params;
+    deletedata = deletedata || req.query.deletedata;
     let { appname } = req.params;
     appname = appname || req.query.appname;
-    if (!appname) {
-      throw new Error('No Application Name specified');
-    }
-    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
-    if (!authorized) {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-      return;
-    }
-    const apps = await installedApps(); // get all apps running on the node
-    const appSpecs = {};
-    for (const app of apps) {
-      if (appname === app.name) {
-        appSpecs = app;
+    if (!deletedata) {
+      // Don't delete data & Stop all apps
+      if (!appname) {
+        try {
+          const apps = await installedApps(); // get all apps running on the node
+          for (const app of apps) {
+            const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, app.name); // We have to check app owner authorization against each app
+            if (!authorized) {
+              const errMessage = messageHelper.errUnauthorizedMessage();
+              res.json(errMessage);
+              continue;
+            }
+            await stopAppMonitoring(app); // Stop monitoring each app
+          }
+          const monitoringResponse = messageHelper.createDataMessage('Application monitoring stopped for all apps. Existing monitoring data maintained.');
+          res.json(monitoringResponse);
+        } catch (error) {
+          log.error(error);
+          const errorResponse = messageHelper.createErrorMessage(
+            error.message || error,
+            error.name,
+            error.code,
+          );
+          res.json(errorResponse);
+        }
+      }
+      // Don't delete data & Stop a specific app
+      try {
+        const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+        if (!authorized) {
+          const errMessage = messageHelper.errUnauthorizedMessage();
+          res.json(errMessage);
+          return;
+        }
+        const apps = await installedApps(); // get all apps running on the node
+        const appSpecs = {};
+        for (const app of apps) {
+          if (appname === app.name) {
+            appSpecs = app;
+          }
+        }
+        await stopAppMonitoring(appSpecs); // Stop monitoring a specific app
+        const monitoringResponse = messageHelper.createDataMessage(`Application monitoring stopped for ${appSpecs.name}. Existing monitoring data maintained.`);
+        res.json(monitoringResponse);
+      } catch (error) {
+        log.error(error);
+        const errorResponse = messageHelper.createErrorMessage(
+          error.message || error,
+          error.name,
+          error.code,
+        );
+        res.json(errorResponse);
+      }
+    } else {
+      // Do delete data & Stop all apps
+      if (!appname) {
+        try {
+          const apps = await installedApps(); // get all apps running on the node
+          for (const app of apps) {
+            const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, app.name); // We have to check app owner authorization against each app
+            if (!authorized) {
+              const errMessage = messageHelper.errUnauthorizedMessage();
+              res.json(errMessage);
+              continue;
+            }
+            await stopAndDeleteAppMonitoring(app); // Stop monitoring each app
+          }
+          const monitoringResponse = messageHelper.createDataMessage('Application monitoring stopped for all apps. Monitoring data deleted for all apps.');
+          res.json(monitoringResponse);
+        } catch (error) {
+          log.error(error);
+          const errorResponse = messageHelper.createErrorMessage(
+            error.message || error,
+            error.name,
+            error.code,
+          );
+          res.json(errorResponse);
+        }
+      }
+      // Do delete data & Stop a specific app
+      try {
+        const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+        if (!authorized) {
+          const errMessage = messageHelper.errUnauthorizedMessage();
+          res.json(errMessage);
+          return;
+        }
+        const apps = await installedApps(); // get all apps running on the node
+        const appSpecs = {};
+        for (const app of apps) {
+          if (appname === app.name) {
+            appSpecs = app;
+          }
+        }
+        await stopAndDeleteAppMonitoring(appSpecs); // Stop monitoring a specific app
+        const monitoringResponse = messageHelper.createDataMessage(`Application monitoring stopped and monitoring data deleted for ${appSpecs.name}.`);
+        res.json(monitoringResponse);
+      } catch (error) {
+        log.error(error);
+        const errorResponse = messageHelper.createErrorMessage(
+          error.message || error,
+          error.name,
+          error.code,
+        );
+        res.json(errorResponse);
       }
     }
-    await stopAppMonitoring(appSpecs);
-    const monitoringResponse = messageHelper.createDataMessage(`Application monitoring stopped for ${appSpecs.name}`);
-    res.json(monitoringResponse);
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    res.json(errorResponse);
-  }
-}
-
-/**
- * API call to stop app monitoring for a single app and delete its in-memory monitoring data.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
- */
-async function stopAndDeleteAppMonitoringAPI(req, res) {
-  try {
-    let { appname } = req.params;
-    appname = appname || req.query.appname;
-    if (!appname) {
-      throw new Error('No Application Name specified');
-    }
-    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
-    if (!authorized) {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-      return;
-    }
-    const apps = await installedApps(); // get all apps running on the node
-    const appSpecs = {};
-    for (const app of apps) {
-      if (appname === app.name) {
-        appSpecs = app;
-      }
-    }
-    await stopAndDeleteAppMonitoring(appSpecs);
-    const monitoringResponse = messageHelper.createDataMessage(`Application monitoring stopped for ${appSpecs.name}`);
-    res.json(monitoringResponse);
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    res.json(errorResponse);
-  }
-}
-
-/**
- * API call to start app monitoring for all apps and save monitoring data in-memory to the appsMonitored object.
- * @param {object} req Request.
- * @param {object} res Response.
- */
-async function startMonitoringOfAppsAPI(req, res) {
-  try {
-    const apps = await installedApps(); // get all apps running on the node
-    for (const app of apps) {
-      const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, app.name); // We have to check app owner authorization against each app
-      if (!authorized) {
-        const errMessage = messageHelper.errUnauthorizedMessage();
-        res.json(errMessage);
-        continue;
-      }
-      await startAppMonitoring(app); // Start monitoring each app
-    }
-    const monitoringResponse = messageHelper.createDataMessage('Application monitoring started for all apps');
-    res.json(monitoringResponse);
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    res.json(errorResponse);
-  }
-}
-
-/**
- * API call to stop app monitoring for all apps.
- * @param {object} req Request.
- * @param {object} res Response.
- */
-async function stopMonitoringOfAppsAPI(req, res) {
-  try {
-    const apps = await installedApps(); // get all apps running on the node
-    for (const app of apps) {
-      const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, app.name); // We have to check app owner authorization against each app
-      if (!authorized) {
-        const errMessage = messageHelper.errUnauthorizedMessage();
-        res.json(errMessage);
-        continue;
-      }
-      await stopAppMonitoring(app); // Stop monitoring each app
-    }
-    const monitoringResponse = messageHelper.createDataMessage('Application monitoring stopped for all apps');
-    res.json(monitoringResponse);
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    res.json(errorResponse);
-  }
-}
-
-/**
- * API call to stop app monitoring for all apps and delete all in-memory monitoring data.
- * @param {object} req Request.
- * @param {object} res Response.
- */
-async function stopAndDeleteMonitoringOfAppsAPI(req, res) {
-  try {
-    const apps = await installedApps(); // get all apps running on the node
-    for (const app of apps) {
-      const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, app.name); // We have to check app owner authorization against each app
-      if (!authorized) {
-        const errMessage = messageHelper.errUnauthorizedMessage();
-        res.json(errMessage);
-        continue;
-      }
-      await stopAndDeleteAppMonitoring(app); // Stop monitoring and delete in-memory data for each app
-    }
-    const monitoringResponse = messageHelper.createDataMessage('Application monitoring stopped and monitoring data deleted for all apps');
-    res.json(monitoringResponse);
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(

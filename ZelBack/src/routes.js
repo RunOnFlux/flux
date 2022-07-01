@@ -873,20 +873,8 @@ module.exports = (app, expressWs) => {
   app.get('/apps/startmonitoring/:appname?', (req, res) => {
     appsService.startAppMonitoringAPI(req, res);
   });
-  app.get('/apps/stopmonitoring/:appname?', (req, res) => {
+  app.get('/apps/stopmonitoring/:deletedata?/:appname?', (req, res) => {
     appsService.stopAppMonitoringAPI(req, res);
-  });
-  app.get('/apps/stopmonitoringandremovedata/:appname?', (req, res) => {
-    appsService.stopAndDeleteAppMonitoringAPI(req, res);
-  });
-  app.get('/apps/startmonitoring', (req, res) => {
-    appsService.startMonitoringOfAppsAPI(req, res);
-  });
-  app.get('/apps/stopmonitoring', (req, res) => {
-    appsService.stopMonitoringOfAppsAPI(req, res);
-  });
-  app.get('/apps/stopmonitoringandremovedata', (req, res) => {
-    appsService.stopAndDeleteMonitoringOfAppsAPI(req, res);
   });
 
   // POST PUBLIC methods route
