@@ -920,60 +920,41 @@ async function startAppMonitoringAPI(req, res) {
 }
 
 /**
- * API call to stop app monitoring. existing Deletes monitoring data if specified in the API request. Applies to all apps or a single app if its name is specified in the API request.
+ * API call to stop app monitoring. Applies to all apps or a single app if its name is specified in the API request. Maintains existing monitoring data or deletes existing monitoring data if specified in the API request.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function stopAppMonitoringAPI(req, res) {
   try {
-    let { deletedata } = req.params;
-    deletedata = deletedata || req.query.deletedata;
     let { appname } = req.params;
     appname = appname || req.query.appname;
-    if (!deletedata) {
-      // Don't delete data & Stop all apps
-      if (!appname) {
-        try {
-          const apps = await installedApps(); // get all apps running on the node
-          for (const app of apps) {
-            const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, app.name); // We have to check app owner authorization against each app
-            if (!authorized) {
-              const errMessage = messageHelper.errUnauthorizedMessage();
-              res.json(errMessage);
-              continue;
-            }
-            await stopAppMonitoring(app); // Stop monitoring each app
-          }
-          const monitoringResponse = messageHelper.createDataMessage('Application monitoring stopped for all apps. Existing monitoring data maintained.');
-          res.json(monitoringResponse);
-        } catch (error) {
-          log.error(error);
-          const errorResponse = messageHelper.createErrorMessage(
-            error.message || error,
-            error.name,
-            error.code,
-          );
-          res.json(errorResponse);
-        }
-      }
-      // Don't delete data & Stop a specific app
+    let { deletedata } = req.params;
+    deletedata = deletedata || req.query.deletedata;
+    // 1. Stop all apps
+    if (!appname) {
       try {
-        const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
-        if (!authorized) {
-          const errMessage = messageHelper.errUnauthorizedMessage();
-          res.json(errMessage);
-          return;
-        }
         const apps = await installedApps(); // get all apps running on the node
-        const appSpecs = {};
         for (const app of apps) {
-          if (appname === app.name) {
-            appSpecs = app;
+          const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, app.name); // We have to check app owner authorization against each app
+          if (!authorized) {
+            const errMessage = messageHelper.errUnauthorizedMessage();
+            res.json(errMessage);
+            continue;
+          }
+          if (!deletedata) {
+            await stopAppMonitoring(app); // 1.A. Don't delete data (all apps)
+          } else if (deletedata) {
+            await stopAndDeleteAppMonitoring(app); // 1.B. Do delete data (all apps)
           }
         }
-        await stopAppMonitoring(appSpecs); // Stop monitoring a specific app
-        const monitoringResponse = messageHelper.createDataMessage(`Application monitoring stopped for ${appSpecs.name}. Existing monitoring data maintained.`);
+        const successMessage = ``;
+        if (!deletedata) {
+          successMessage = 'Application monitoring stopped for all apps. Existing monitoring data maintained.';
+        } else if (deletedata) {
+          successMessage = 'Application monitoring stopped for all apps. Monitoring data deleted for all apps.';
+        }
+        const monitoringResponse = messageHelper.createDataMessage(successMessage);
         res.json(monitoringResponse);
       } catch (error) {
         log.error(error);
@@ -984,33 +965,8 @@ async function stopAppMonitoringAPI(req, res) {
         );
         res.json(errorResponse);
       }
-    } else {
-      // Do delete data & Stop all apps
-      if (!appname) {
-        try {
-          const apps = await installedApps(); // get all apps running on the node
-          for (const app of apps) {
-            const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, app.name); // We have to check app owner authorization against each app
-            if (!authorized) {
-              const errMessage = messageHelper.errUnauthorizedMessage();
-              res.json(errMessage);
-              continue;
-            }
-            await stopAndDeleteAppMonitoring(app); // Stop monitoring each app
-          }
-          const monitoringResponse = messageHelper.createDataMessage('Application monitoring stopped for all apps. Monitoring data deleted for all apps.');
-          res.json(monitoringResponse);
-        } catch (error) {
-          log.error(error);
-          const errorResponse = messageHelper.createErrorMessage(
-            error.message || error,
-            error.name,
-            error.code,
-          );
-          res.json(errorResponse);
-        }
-      }
-      // Do delete data & Stop a specific app
+    // 2. Stop a specific app
+    } else if (appname) {
       try {
         const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
         if (!authorized) {
@@ -1025,8 +981,15 @@ async function stopAppMonitoringAPI(req, res) {
             appSpecs = app;
           }
         }
-        await stopAndDeleteAppMonitoring(appSpecs); // Stop monitoring a specific app
-        const monitoringResponse = messageHelper.createDataMessage(`Application monitoring stopped and monitoring data deleted for ${appSpecs.name}.`);
+        const successMessage = ``;
+        if (!deletedata) {
+          await stopAppMonitoring(appSpecs); // 2.A. Don't delete data (specific app)
+          successMessage = `Application monitoring stopped for ${appSpecs.name}. Existing monitoring data maintained.`;
+        } else if (deletedata) {
+          await stopAndDeleteAppMonitoring(appSpecs); // 2.B. Do delete data (specific app)
+          successMessage = `Application monitoring stopped and monitoring data deleted for ${appSpecs.name}.`;
+        }
+        const monitoringResponse = messageHelper.createDataMessage(successMessage);
         res.json(monitoringResponse);
       } catch (error) {
         log.error(error);
