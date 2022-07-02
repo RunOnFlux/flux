@@ -845,4 +845,7 @@ module.exports = {
   wsRespondLoginPhrase,
   wsRespondSignature,
   checkLoggedUser,
+
+  // exports for testing purposes
+  confirmNodeTierHardware,
 };
