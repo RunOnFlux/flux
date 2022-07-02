@@ -873,7 +873,7 @@ module.exports = (app, expressWs) => {
   app.get('/apps/startmonitoring/:appname?', (req, res) => {
     appsService.startAppMonitoringAPI(req, res);
   });
-  app.get('/apps/stopmonitoring/:deletedata?/:appname?', (req, res) => {
+  app.get('/apps/stopmonitoring/:appname?/:deletedata?', (req, res) => {
     appsService.stopAppMonitoringAPI(req, res);
   });
 
