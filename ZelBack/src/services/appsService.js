@@ -947,7 +947,7 @@ async function stopAppMonitoringAPI(req, res) {
           await stopAndDeleteAppMonitoring(app); // 1.B. Do delete data (all apps)
         }
       }
-      const successMessage = ``;
+      let successMessage = ``;
       if (!deletedata) {
         successMessage = 'Application monitoring stopped for all apps. Existing monitoring data maintained.';
       } else if (deletedata) {
@@ -970,7 +970,7 @@ async function stopAppMonitoringAPI(req, res) {
           appSpecs = app;
         }
       }
-      const successMessage = ``;
+      let successMessage = ``;
       if (!deletedata) {
         await stopAppMonitoring(appSpecs); // 2.A. Don't delete data (specific app)
         successMessage = `Application monitoring stopped for ${appSpecs.name}. Existing monitoring data maintained.`;
