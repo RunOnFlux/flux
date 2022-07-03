@@ -100,18 +100,18 @@ const appsMonitored = {
   //   ]
   // },
   name: { // app of <= v3
-    fiveMinuteInterval, // interval
-    oneHourInterval, // interval
+    fiveMinuteInterval: {}, // interval
+    oneHourInterval: {}, // interval
     fiveMinuteStatsStore: [
       { // object of timestamp, data
-        timestamp,
-        data,
+        timestamp: {},
+        data: {},
       },
     ],
     oneHourStatsStore: [
       { // object of timestamp, data
-        timestamp,
-        data,
+        timestamp: {},
+        data: {},
       },
     ],
   },
@@ -7819,10 +7819,6 @@ module.exports = {
   stopAndDeleteMonitoringOfApps,
   startAppMonitoringAPI,
   stopAppMonitoringAPI,
-  stopAndDeleteAppMonitoringAPI,
-  startMonitoringOfAppsAPI,
-  stopMonitoringOfAppsAPI,
-  stopAndDeleteMonitoringOfAppsAPI,
   appChanges,
   appExec,
   fluxUsage,
