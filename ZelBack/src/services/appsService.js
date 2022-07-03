@@ -899,7 +899,7 @@ async function startAppMonitoringAPI(req, res) {
       return;
     }
     const apps = await installedApps(); // get all apps running on the node
-    const appSpecs = {};
+    let appSpecs = {};
     for (const app of apps) {
       if (appname === app.name) {
         appSpecs = app;
@@ -943,20 +943,20 @@ async function stopAppMonitoringAPI(req, res) {
         }
         if (!deletedata) {
           await stopAppMonitoring(app); // 1.A. Don't delete data (all apps)
-        } else if (deletedata) {
+        } else {
           await stopAndDeleteAppMonitoring(app); // 1.B. Do delete data (all apps)
         }
       }
       let successMessage = ``;
       if (!deletedata) {
         successMessage = 'Application monitoring stopped for all apps. Existing monitoring data maintained.';
-      } else if (deletedata) {
+      } else {
         successMessage = 'Application monitoring stopped for all apps. Monitoring data deleted for all apps.';
       }
       const monitoringResponse = messageHelper.createDataMessage(successMessage);
       res.json(monitoringResponse);
     // 2. Stop a specific app
-    } else if (appname) {
+    } else {
       const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
       if (!authorized) {
         const errMessage = messageHelper.errUnauthorizedMessage();
@@ -964,7 +964,7 @@ async function stopAppMonitoringAPI(req, res) {
         return;
       }
       const apps = await installedApps(); // get all apps running on the node
-      const appSpecs = {};
+      let appSpecs = {};
       for (const app of apps) {
         if (appname === app.name) {
           appSpecs = app;
@@ -974,7 +974,7 @@ async function stopAppMonitoringAPI(req, res) {
       if (!deletedata) {
         await stopAppMonitoring(appSpecs); // 2.A. Don't delete data (specific app)
         successMessage = `Application monitoring stopped for ${appSpecs.name}. Existing monitoring data maintained.`;
-      } else if (deletedata) {
+      } else {
         await stopAndDeleteAppMonitoring(appSpecs); // 2.B. Do delete data (specific app)
         successMessage = `Application monitoring stopped and monitoring data deleted for ${appSpecs.name}.`;
       }
