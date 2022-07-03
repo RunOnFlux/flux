@@ -933,73 +933,53 @@ async function stopAppMonitoringAPI(req, res) {
     deletedata = deletedata || req.query.deletedata;
     // 1. Stop all apps
     if (!appname) {
-      try {
-        const apps = await installedApps(); // get all apps running on the node
-        for (const app of apps) {
-          const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, app.name); // We have to check app owner authorization against each app
-          if (!authorized) {
-            const errMessage = messageHelper.errUnauthorizedMessage();
-            res.json(errMessage);
-            continue;
-          }
-          if (!deletedata) {
-            await stopAppMonitoring(app); // 1.A. Don't delete data (all apps)
-          } else if (deletedata) {
-            await stopAndDeleteAppMonitoring(app); // 1.B. Do delete data (all apps)
-          }
-        }
-        const successMessage = ``;
-        if (!deletedata) {
-          successMessage = 'Application monitoring stopped for all apps. Existing monitoring data maintained.';
-        } else if (deletedata) {
-          successMessage = 'Application monitoring stopped for all apps. Monitoring data deleted for all apps.';
-        }
-        const monitoringResponse = messageHelper.createDataMessage(successMessage);
-        res.json(monitoringResponse);
-      } catch (error) {
-        log.error(error);
-        const errorResponse = messageHelper.createErrorMessage(
-          error.message || error,
-          error.name,
-          error.code,
-        );
-        res.json(errorResponse);
-      }
-    // 2. Stop a specific app
-    } else if (appname) {
-      try {
-        const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+      const apps = await installedApps(); // get all apps running on the node
+      for (const app of apps) {
+        const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, app.name); // We have to check app owner authorization against each app
         if (!authorized) {
           const errMessage = messageHelper.errUnauthorizedMessage();
           res.json(errMessage);
-          return;
+          continue;
         }
-        const apps = await installedApps(); // get all apps running on the node
-        const appSpecs = {};
-        for (const app of apps) {
-          if (appname === app.name) {
-            appSpecs = app;
-          }
-        }
-        const successMessage = ``;
         if (!deletedata) {
-          await stopAppMonitoring(appSpecs); // 2.A. Don't delete data (specific app)
-          successMessage = `Application monitoring stopped for ${appSpecs.name}. Existing monitoring data maintained.`;
+          await stopAppMonitoring(app); // 1.A. Don't delete data (all apps)
         } else if (deletedata) {
-          await stopAndDeleteAppMonitoring(appSpecs); // 2.B. Do delete data (specific app)
-          successMessage = `Application monitoring stopped and monitoring data deleted for ${appSpecs.name}.`;
+          await stopAndDeleteAppMonitoring(app); // 1.B. Do delete data (all apps)
         }
-        const monitoringResponse = messageHelper.createDataMessage(successMessage);
-        res.json(monitoringResponse);
-      } catch (error) {
-        log.error(error);
-        const errorResponse = messageHelper.createErrorMessage(
-          error.message || error,
-          error.name,
-          error.code,
-        );
-        res.json(errorResponse);
       }
+      const successMessage = ``;
+      if (!deletedata) {
+        successMessage = 'Application monitoring stopped for all apps. Existing monitoring data maintained.';
+      } else if (deletedata) {
+        successMessage = 'Application monitoring stopped for all apps. Monitoring data deleted for all apps.';
+      }
+      const monitoringResponse = messageHelper.createDataMessage(successMessage);
+      res.json(monitoringResponse);
+    // 2. Stop a specific app
+    } else if (appname) {
+      const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+      if (!authorized) {
+        const errMessage = messageHelper.errUnauthorizedMessage();
+        res.json(errMessage);
+        return;
+      }
+      const apps = await installedApps(); // get all apps running on the node
+      const appSpecs = {};
+      for (const app of apps) {
+        if (appname === app.name) {
+          appSpecs = app;
+        }
+      }
+      const successMessage = ``;
+      if (!deletedata) {
+        await stopAppMonitoring(appSpecs); // 2.A. Don't delete data (specific app)
+        successMessage = `Application monitoring stopped for ${appSpecs.name}. Existing monitoring data maintained.`;
+      } else if (deletedata) {
+        await stopAndDeleteAppMonitoring(appSpecs); // 2.B. Do delete data (specific app)
+        successMessage = `Application monitoring stopped and monitoring data deleted for ${appSpecs.name}.`;
+      }
+      const monitoringResponse = messageHelper.createDataMessage(successMessage);
+      res.json(monitoringResponse);
     }
   } catch (error) {
     log.error(error);
