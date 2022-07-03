@@ -1554,10 +1554,9 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
  * @param {string} appId App ID.
  * @param {object} appSpecifications App specifications.
  * @param {boolean} isComponent True if a Docker Compose component.
- * @param {boolean} isDataToBeDeleted True if app stats monitoring data is to be deleted.
  * @param {object} res Response.
  */
-async function appUninstallHard(appName, appId, appSpecifications, isComponent, isDataToBeDeleted, res) {
+async function appUninstallHard(appName, appId, appSpecifications, isComponent, res) {
   const stopStatus = {
     status: isComponent ? `Stopping Flux App Component ${appSpecifications.name}...` : `Stopping Flux App ${appName}...`,
   };
@@ -1830,7 +1829,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
       res.write(serviceHelper.ensureString(cleaningVolumeStatus2));
     }
   }
-  stopAppMonitoring(appName, isDataToBeDeleted);
+  stopAppMonitoring(appName);
   const appRemovalResponse = {
     status: isComponent ? `Flux App component ${appSpecifications.name} of ${appName} was successfuly removed` : `Flux App ${appName} was successfuly removed`,
   };
@@ -2004,10 +2003,9 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
  * @param {string} appId App ID.
  * @param {object} appSpecifications App specifications.
  * @param {boolean} isComponent True if a Docker Compose component.
- * @param {boolean} isDataToBeDeleted True if app stats monitoring data is to be deleted.
  * @param {object} res Response.
  */
-async function appUninstallSoft(appName, appId, appSpecifications, isComponent, isDataToBeDeleted, res) {
+async function appUninstallSoft(appName, appId, appSpecifications, isComponent, res) {
   const stopStatus = {
     status: isComponent ? `Stopping Flux App Component ${appSpecifications.name}...` : `Stopping Flux App ${appName}...`,
   };
@@ -2112,7 +2110,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   if (res) {
     res.write(serviceHelper.ensureString(portStatus2));
   }
-  stopAppMonitoring(appName, isDataToBeDeleted);
+  stopAppMonitoring(appName);
   const appRemovalResponse = {
     status: isComponent ? `Flux App component ${appSpecifications.name} of ${appName} was successfuly removed` : `Flux App ${appName} was successfuly removed`,
   };
