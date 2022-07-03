@@ -104,13 +104,13 @@ const appsMonitored = {
     oneHourInterval: {}, // interval
     fiveMinuteStatsStore: [
       { // object of timestamp, data
-        timestamp: {},
+        timestamp: 0,
         data: {},
       },
     ],
     oneHourStatsStore: [
       { // object of timestamp, data
-        timestamp: {},
+        timestamp: 0,
         data: {},
       },
     ],
