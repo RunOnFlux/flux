@@ -5,7 +5,10 @@ const os = require('os');
 const proxyquire = require('proxyquire');
 const log = require('../../ZelBack/src/lib/log');
 
+const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const generalService = require('../../ZelBack/src/services/generalService');
+const dockerService = require('../../ZelBack/src/services/dockerService');
+const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 
 const adminConfig = {
   initial: {
@@ -248,6 +251,216 @@ describe.only('idService tests', () => {
 
       expect(response).to.eql(true);
       sinon.assert.notCalled(logSpy);
+    });
+  });
+
+  describe.only('loginPhrase tests', () => {
+    let osTotalmemStub;
+    let osCpusStub;
+    let tierStub;
+    let collateralStub;
+    let getDOSStateStub;
+
+    beforeEach(() => {
+      osTotalmemStub = sinon.stub(os, 'totalmem');
+      osCpusStub = sinon.stub(os, 'cpus');
+      tierStub = sinon.stub(generalService, 'nodeTier');
+      collateralStub = sinon.stub(generalService, 'nodeCollateral');
+      getDOSStateStub = sinon.stub(fluxNetworkHelper, 'getDOSState');
+      // only checks for docker availablity
+      sinon.stub(dockerService, 'dockerListImages').returns(true);
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return error if hw reqs are not met', async () => {
+      const res = generateResponse();
+      tierStub.resolves('basic');
+      collateralStub.resolves(1000);
+      osTotalmemStub.returns(1 * 1024 ** 3);
+      osCpusStub.returns([1]);
+      const expectedResponse = {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'Node hardware requirements not met',
+        },
+      };
+
+      await idService.loginPhrase(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+    });
+
+    it('should return error if dos status returns an error', async () => {
+      const res = generateResponse();
+      tierStub.resolves('basic');
+      collateralStub.resolves(1000);
+      osTotalmemStub.returns(8 * 1024 ** 3);
+      osCpusStub.returns([1, 1, 1, 1]);
+      getDOSStateStub.returns({
+        status: 'error',
+        data: {
+          dosState: null,
+          dosMessage: null,
+        },
+      });
+
+      const expectedResponse = {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: 'Unable to check DOS state',
+        },
+      };
+
+      await idService.loginPhrase(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+    });
+
+    it('should return error if dosState > 11 and message is Flux IP detection failed', async () => {
+      const res = generateResponse();
+      tierStub.resolves('basic');
+      collateralStub.resolves(1000);
+      osTotalmemStub.returns(8 * 1024 ** 3);
+      osCpusStub.returns([1, 1, 1, 1]);
+      getDOSStateStub.returns({
+        status: 'success',
+        data: {
+          dosState: 11,
+          dosMessage: 'Flux IP detection failed',
+          nodeHardwareSpecsGood: true,
+        },
+      });
+
+      const expectedResponse = {
+        status: 'error',
+        data: {
+          code: 11,
+          name: 'DOS',
+          message: 'Flux IP detection failed',
+        },
+      };
+
+      await idService.loginPhrase(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+    });
+
+    it('should return error if dosState > 11 and message is Flux collision detection', async () => {
+      const res = generateResponse();
+      tierStub.resolves('basic');
+      collateralStub.resolves(1000);
+      osTotalmemStub.returns(8 * 1024 ** 3);
+      osCpusStub.returns([1, 1, 1, 1]);
+      getDOSStateStub.returns({
+        status: 'success',
+        data: {
+          dosState: 11,
+          dosMessage: 'Flux collision detection',
+          nodeHardwareSpecsGood: true,
+        },
+      });
+
+      const expectedResponse = {
+        status: 'error',
+        data: {
+          code: 11,
+          name: 'DOS',
+          message: 'Flux collision detection',
+        },
+      };
+
+      await idService.loginPhrase(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+    });
+
+    it('should return CONNERROR error if dosState > 11 and message is anything else', async () => {
+      const res = generateResponse();
+      tierStub.resolves('basic');
+      collateralStub.resolves(1000);
+      osTotalmemStub.returns(8 * 1024 ** 3);
+      osCpusStub.returns([1, 1, 1, 1]);
+      getDOSStateStub.returns({
+        status: 'success',
+        data: {
+          dosState: 11,
+          dosMessage: 'test',
+          nodeHardwareSpecsGood: true,
+        },
+      });
+
+      const expectedResponse = {
+        status: 'error',
+        data: {
+          code: 11,
+          name: 'CONNERROR',
+          message: 'test',
+        },
+      };
+
+      await idService.loginPhrase(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+    });
+
+    it('should return  error if nodeHardwareSpecsGood is false', async () => {
+      const res = generateResponse();
+      tierStub.resolves('basic');
+      collateralStub.resolves(1000);
+      osTotalmemStub.returns(8 * 1024 ** 3);
+      osCpusStub.returns([1, 1, 1, 1]);
+      getDOSStateStub.returns({
+        status: 'success',
+        data: {
+          dosState: 11,
+          dosMessage: 'test',
+          nodeHardwareSpecsGood: false,
+        },
+      });
+
+      const expectedResponse = {
+        status: 'error',
+        data: {
+          code: 100,
+          name: 'DOS',
+          message: 'Minimum hardware required for FluxNode tier not met',
+        },
+      };
+
+      await idService.loginPhrase(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+    });
+
+    it('should return write new phrase into the db', async () => {
+      const insertintoDBStub = sinon.stub(dbHelper, 'insertOneToDatabase').returns(true);
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      const res = generateResponse();
+      tierStub.resolves('basic');
+      collateralStub.resolves(1000);
+      osTotalmemStub.returns(8 * 1024 ** 3);
+      osCpusStub.returns([1, 1, 1, 1]);
+      getDOSStateStub.returns({
+        status: 'success',
+        data: {
+          dosState: 0,
+          dosMessage: null,
+          nodeHardwareSpecsGood: true,
+        },
+      });
+
+      await idService.loginPhrase(undefined, res);
+
+      sinon.assert.calledOnce(insertintoDBStub);
+      sinon.assert.calledOnceWithMatch(res.json, { status: 'success', data: sinon.match.string });
     });
   });
 });
