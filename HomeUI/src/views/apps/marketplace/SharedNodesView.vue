@@ -626,6 +626,7 @@
       </b-row>
     </vue-perfect-scrollbar>
 
+    <!-- Titan Nodes Dialog -->
     <b-modal
       v-model="nodeModalShowing"
       title="Titan Nodes"
@@ -672,6 +673,7 @@
       </b-card>
     </b-modal>
 
+    <!-- Lockup APR dialog -->
     <b-modal
       v-model="aprModalShowing"
       title="Lockup APR"
@@ -697,6 +699,7 @@
       </b-card>
     </b-modal>
 
+    <!-- Redeem Rewards Dialog -->
     <b-modal
       v-model="redeemModalShowing"
       title="Redeem Rewards"
@@ -829,6 +832,7 @@
       </form-wizard>
     </b-modal>
 
+    <!-- Pending Payment Details Dialog -->
     <b-modal
       v-model="paymentDetailsDialogShowing"
       title="Pending Payment"
@@ -883,6 +887,7 @@
       </b-card>
     </b-modal>
 
+    <!-- Cancel Staking Dialog -->
     <b-modal
       v-model="confirmStakeDialogCloseShowing"
       title="Cancel Staking?"
@@ -898,6 +903,7 @@
       </h3>
     </b-modal>
 
+    <!-- Finish Staking Confirmation Dialog -->
     <b-modal
       v-model="confirmStakeDialogFinishShowing"
       title="Finish Staking?"
@@ -917,6 +923,7 @@
       </h4>
     </b-modal>
 
+    <!-- Re-invest Expired Stake Dialog -->
     <b-modal
       v-model="reinvestModalShowing"
       title="Re-invest Expired Stake"
@@ -1052,6 +1059,7 @@
       </form-wizard>
     </b-modal>
 
+    <!-- Active Stake Details Dialog -->
     <b-modal
       v-model="activeStakeInfoModalShowing"
       title="Active Stake Details"
@@ -1076,6 +1084,7 @@
       </b-card>
     </b-modal>
 
+    <!-- Edit Active Stake Dialog -->
     <b-modal
       v-model="editStakeModalShowing"
       title="Edit Active Stake"
@@ -1185,6 +1194,7 @@
       </form-wizard>
     </b-modal>
 
+    <!-- Stake Dialog -->
     <b-modal
       v-model="stakeModalShowing"
       title="Stake Flux with Titan"
