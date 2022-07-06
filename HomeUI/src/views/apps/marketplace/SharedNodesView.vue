@@ -1346,6 +1346,15 @@
             class="text-center wizard-card"
           >
             <div class="mt-3 mb-auto ">
+              <h5>
+                <span class="text-danger">IMPORTANT:</span> Your funds will be locked until
+              </h5>
+              <h5>
+                <span class="text-warning">{{ new Date(new Date().getTime() + (getLockupDuration()*1000)).toLocaleString() }}</span>
+               </h5>
+              <h5 class="mb-2">
+                You will not be able to withdraw your staked Flux until your stake has expired.
+              </h5>
               <b-button
                 size="lg"
                 :disabled="registeringStake || stakeRegistered"
@@ -2109,6 +2118,13 @@ export default {
       return selectedLockupIndex.value >= 0 && selectedLockupIndex.value < titanConfig.value.lockups.length;
     };
 
+    const getLockupDuration = () => {
+      if (titanConfig.value) {
+        return titanConfig.value.lockups[selectedLockupIndex.value].time;
+      }
+      return 0;
+    };
+
     const checkReinvestDuration = async () => (selectedLockupIndex.value >= 0 && selectedLockupIndex.value < titanConfig.value.lockups.length);
 
     const redeemAmountState = () => {
@@ -2177,6 +2193,7 @@ export default {
       registeringStake,
       registerStake,
       checkDuration,
+      getLockupDuration,
       getRegistrationMessage,
 
       confirmStakeDialogCancel,
