@@ -284,5 +284,7 @@
    "modernglobal/docushield-cluster:latest",
    "modernglobal/docushield-ipfs",
    "modernglobal/dappopflux",
-   "2ndtlmining/flux"
+   "2ndtlmining/flux",
+   "kadefi/api:latest",
+   "kadefi/chainweb-node-docker:latest"
 ]
