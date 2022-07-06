@@ -3,6 +3,7 @@ const sinon = require('sinon');
 const chaiAsPromised = require('chai-as-promised');
 const os = require('os');
 const proxyquire = require('proxyquire');
+const { PassThrough } = require('stream');
 const log = require('../../ZelBack/src/lib/log');
 
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
@@ -254,7 +255,7 @@ describe.only('idService tests', () => {
     });
   });
 
-  describe.only('loginPhrase tests', () => {
+  describe('loginPhrase tests', () => {
     let osTotalmemStub;
     let osCpusStub;
     let tierStub;
@@ -461,6 +462,67 @@ describe.only('idService tests', () => {
 
       sinon.assert.calledOnce(insertintoDBStub);
       sinon.assert.calledOnceWithMatch(res.json, { status: 'success', data: sinon.match.string });
+    });
+  });
+
+  describe('emergencyPhrase tests', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return error if db insert throws error', async () => {
+      sinon.stub(dbHelper, 'insertOneToDatabase').throws('DB insert error', 'some message');
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      const res = generateResponse();
+      const expectedResponse = {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'DB insert error',
+          message: 'some message',
+        },
+      };
+
+      await idService.emergencyPhrase(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+    });
+
+    it('should return write new emergency phrase into the db', async () => {
+      const insertintoDBStub = sinon.stub(dbHelper, 'insertOneToDatabase').returns(true);
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      const res = generateResponse();
+
+      await idService.emergencyPhrase(undefined, res);
+
+      sinon.assert.calledOnce(insertintoDBStub);
+      sinon.assert.calledOnceWithMatch(res.json, { status: 'success', data: sinon.match.string });
+    });
+  });
+
+  describe.only('verifyLogin tests', () => {
+    beforeEach(() => {
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+    it('should return error if neither zelId nor address are specified', async () => {
+      const req = {
+        signature: '1234356asdf',
+        loginPhrase: 'loginphrase',
+        message: 'message',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const res = generateResponse();
+
+      await idService.verifyLogin(mockStream, res);
+
+      sinon.assert.calledOnceWithMatch(res.json, { status: 'error', data: sinon.match.string });
     });
   });
 });
