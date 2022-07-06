@@ -1595,7 +1595,7 @@ export default {
         if (this.appRegistrationSpecification.instances > this.maxInstances) {
           this.appRegistrationSpecification.instances = this.maxInstances;
         }
-        this.showToast('warning', `On ${continent.text} continent you can deploy a maximum of ${this.maxInstances} instances and the node hardware available is ${continent.nodeTier}. If your app specs are higher the dapp might not install.`);
+        this.showToast('warning', `The node type may fluctuate based upon system requirements for your application. For better results in ${continent.text}, please consider specifications more suited to ${continent.nodeTier} hardware.`);
       } else {
         this.maxInstances = this.appRegistrationSpecificationv5template.maxInstances;
         this.showToast('info', 'No geolocation set you can define up to maximum of 100 instances and up to the maximum hardware specs available on Flux network to your app.');
@@ -1609,14 +1609,14 @@ export default {
         if (this.appRegistrationSpecification.instances > this.maxInstances) {
           this.appRegistrationSpecification.instances = this.maxInstances;
         }
-        this.showToast('warning', `On ${country.text} country you can deploy a maximum of ${this.maxInstances} instances and the node hardware available is ${country.nodeTier}. If your app specs are higher the dapp might not spawn on the network.`);
+        this.showToast('warning', `The node type may fluctuate based upon system requirements for your application. For better results in ${country.text}, please consider specifications more suited to ${country.nodeTier} hardware.`);
       } else {
         const continent = this.continentsOptions.filter((x) => x.value === this.selectedContinent)[0];
         this.maxInstances = continent.maxInstances;
         if (this.appRegistrationSpecification.instances > this.maxInstances) {
           this.appRegistrationSpecification.instances = this.maxInstances;
         }
-        this.showToast('warning', `On ${continent.text} continent you can deploy a maximum of ${this.maxInstances} instances and the node hardware available is ${continent.nodeTier}. If your app specs are higher the dapp might not spawn on the network.`);
+        this.showToast('warning', `The node type may fluctuate based upon system requirements for your application. For better results in ${continent.text}, please consider specifications more suited to ${continent.nodeTier} hardware.`);
       }
     },
   },

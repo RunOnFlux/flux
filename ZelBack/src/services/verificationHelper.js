@@ -116,7 +116,9 @@ function signMessage(message, pk) {
   try {
     const privateKey = zeltrezjs.address.WIFToPrivKey(pk);
 
-    signature = bitcoinMessage.sign(message, Buffer.from(privateKey, 'hex'), false, { extraEntropy: randomBytes(32) });
+    const isCompressed = !pk.startsWith('5');
+
+    signature = bitcoinMessage.sign(message, Buffer.from(privateKey, 'hex'), isCompressed, { extraEntropy: randomBytes(32) });
     signature = signature.toString('base64');
     // => different (but valid) signature each time
   } catch (e) {

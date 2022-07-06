@@ -65,8 +65,8 @@ async function verifyUserSession(headers) {
   if (!loggedUser) {
     const timestamp = new Date().getTime();
     const message = auth.loginPhrase;
-    const sixteenHours = 16 * 60 * 60 * 1000;
-    if (Number(message.substring(0, 13)) < (timestamp - sixteenHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
+    const maxHours = 16 * 60 * 60 * 1000;
+    if (Number(message.substring(0, 13)) < (timestamp - maxHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
       return false;
     }
   }
@@ -219,8 +219,8 @@ async function verifyAppOwnerOrHigherSession(headers, appName) {
   if (!loggedUser) {
     const timestamp = new Date().getTime();
     const message = auth.loginPhrase;
-    const sixteenHours = 2 * 60 * 60 * 1000;
-    if (Number(message.substring(0, 13)) < (timestamp - sixteenHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
+    const maxHours = 2 * 60 * 60 * 1000;
+    if (Number(message.substring(0, 13)) < (timestamp - maxHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
       return false;
     }
   }

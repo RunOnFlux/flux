@@ -5,7 +5,7 @@ const WebSocket = require('ws');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
-const daemonService = require('./daemonService');
+const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
@@ -17,7 +17,7 @@ const {
 let response = messageHelper.createErrorMessage();
 // default cache
 const LRUoptions = {
-  max: 2000, // currently 750 nodes lets put a value expecting increase in the numbers.
+  max: 12000, // currently 12000 nodes
   maxAge: 1000 * 150, // 150 seconds slightly over average blocktime. Allowing 1 block expired too.
 };
 
@@ -165,7 +165,7 @@ function handleIncomingConnection(ws, req, expressWS) {
     const ip = ws._socket.remoteAddress;
     log.warn(`Incoming connection error ${ip}`);
     const ocIndex = incomingConnections.findIndex((incomingCon) => ws._socket.remoteAddress === incomingCon._socket.remoteAddress);
-    const foundPeer = await incomingPeers.find((mypeer) => mypeer.ip === ip);
+    const foundPeer = incomingPeers.find((mypeer) => mypeer.ip === ip);
     if (ocIndex > -1) {
       incomingConnections.splice(ocIndex, 1);
     }
@@ -181,7 +181,7 @@ function handleIncomingConnection(ws, req, expressWS) {
     const ip = ws._socket.remoteAddress;
     log.warn(`Incoming connection close ${ip}`);
     const ocIndex = incomingConnections.findIndex((incomingCon) => ws._socket.remoteAddress === incomingCon._socket.remoteAddress);
-    const foundPeer = await incomingPeers.find((mypeer) => mypeer.ip === ip);
+    const foundPeer = incomingPeers.find((mypeer) => mypeer.ip === ip);
     if (ocIndex > -1) {
       incomingConnections.splice(ocIndex, 1);
     }
@@ -207,7 +207,7 @@ function connectedPeers(req, res) {
   });
   const message = messageHelper.createDataMessage(connections);
   response = message;
-  res.json(response);
+  return res ? res.json(response) : response;
 }
 
 /**
@@ -219,7 +219,7 @@ function connectedPeersInfo(req, res) {
   const connections = outgoingPeers;
   const message = messageHelper.createDataMessage(connections);
   response = message;
-  res.json(response);
+  return res ? res.json(response) : response;
 }
 
 /**
@@ -432,7 +432,7 @@ async function addPeer(req, res) {
     return res.json(errMessage);
   }
   const justIP = ip.split(':')[0];
-  const wsObj = await outgoingConnections.find((client) => client._socket.remoteAddress === justIP);
+  const wsObj = outgoingConnections.find((client) => client._socket.remoteAddress === justIP);
   if (wsObj) {
     const errMessage = messageHelper.createErrorMessage(`Already connected to ${justIP}`);
     return res.json(errMessage);
@@ -453,7 +453,7 @@ async function addPeer(req, res) {
  */
 async function fluxDiscovery() {
   try {
-    const syncStatus = daemonService.isDaemonSynced();
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     if (!syncStatus.data.synced) {
       throw new Error('Daemon not yet synced. Flux discovery is awaiting.');
     }
