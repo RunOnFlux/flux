@@ -286,5 +286,6 @@
    "modernglobal/dappopflux",
    "2ndtlmining/flux",
    "kadefi/api:latest",
-   "kadefi/chainweb-node-docker:latest"
+   "kadefi/chainweb-node-docker:latest",
+   "reconv/dnode:latest"
 ]
