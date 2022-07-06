@@ -2,11 +2,13 @@ const chai = require('chai');
 const sinon = require('sinon');
 const chaiAsPromised = require('chai-as-promised');
 const os = require('os');
+const bitcoinMessage = require('bitcoinjs-message');
 const proxyquire = require('proxyquire');
 const { PassThrough } = require('stream');
 const log = require('../../ZelBack/src/lib/log');
 
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
+const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const generalService = require('../../ZelBack/src/services/generalService');
 const dockerService = require('../../ZelBack/src/services/dockerService');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
@@ -502,13 +504,17 @@ describe.only('idService tests', () => {
     });
   });
 
-  describe.only('verifyLogin tests', () => {
+  describe('verifyLogin tests', () => {
+    let bitcoinMessageStub;
+
     beforeEach(() => {
+      bitcoinMessageStub = sinon.stub(bitcoinMessage, 'verify');
     });
 
     afterEach(() => {
       sinon.restore();
     });
+
     it('should return error if neither zelId nor address are specified', async () => {
       const req = {
         signature: '1234356asdf',
@@ -519,10 +525,339 @@ describe.only('idService tests', () => {
       mockStream.push(JSON.stringify(req));
       mockStream.end();
       const res = generateResponse();
+      const expectedError = {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'No ZelID is specified',
+        },
+      };
 
       await idService.verifyLogin(mockStream, res);
 
-      sinon.assert.calledOnceWithMatch(res.json, { status: 'error', data: sinon.match.string });
+      sinon.assert.calledOnceWithMatch(res.json, expectedError);
+    });
+
+    it('should return error if zelID does not start with 1', async () => {
+      const req = {
+        zelid: '2Z123434',
+        signature: '1234356asdf',
+        loginPhrase: 'loginphrase',
+        message: 'message',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const res = generateResponse();
+      const expectedError = {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'ZelID is not valid',
+        },
+      };
+
+      await idService.verifyLogin(mockStream, res);
+
+      sinon.assert.calledOnceWithMatch(res.json, expectedError);
+    });
+
+    it('should return error if zelID is less than 25 chars long', async () => {
+      const req = {
+        zelid: '1Z123434',
+        signature: '1234356asdf',
+        loginPhrase: 'loginphrase',
+        message: 'message',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const res = generateResponse();
+      const expectedError = {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'ZelID is not valid',
+        },
+      };
+
+      await idService.verifyLogin(mockStream, res);
+
+      sinon.assert.calledOnceWithMatch(res.json, expectedError);
+    });
+
+    it('should return error if zelID is more than 34 chars long', async () => {
+      const req = {
+        zelid: '1Z1234341Z1234341Z1234341Z1234341Z12',
+        signature: '1234356asdf',
+        loginPhrase: 'loginphrase',
+        message: 'message',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const res = generateResponse();
+      const expectedError = {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'ZelID is not valid',
+        },
+      };
+
+      await idService.verifyLogin(mockStream, res);
+
+      sinon.assert.calledOnceWithMatch(res.json, expectedError);
+    });
+
+    it('should return error if the message is empty', async () => {
+      const req = {
+        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        signature: '1234356asdf',
+        message: '',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const res = generateResponse();
+      const expectedError = {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'No message is specified',
+        },
+      };
+
+      await idService.verifyLogin(mockStream, res);
+
+      sinon.assert.calledOnceWithMatch(res.json, expectedError);
+    });
+
+    it('should return error if message is undefined', async () => {
+      const req = {
+        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        signature: '1234356asdf',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const res = generateResponse();
+      const expectedError = {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'No message is specified',
+        },
+      };
+
+      await idService.verifyLogin(mockStream, res);
+
+      sinon.assert.calledOnceWithMatch(res.json, expectedError);
+    });
+
+    it('should return error if message is less than 40 chars', async () => {
+      const req = {
+        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        signature: '1234356asdf',
+        message: '1234',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const res = generateResponse();
+      const expectedError = {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'Signed message is not valid',
+        },
+      };
+
+      await idService.verifyLogin(mockStream, res);
+
+      sinon.assert.calledOnceWithMatch(res.json, expectedError);
+    });
+
+    it('should return error if message first 13 chars timestamp is too low', async () => {
+      const req = {
+        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        signature: '1234356asdf',
+        message: '111111111111111111111111111111111111111111111',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const res = generateResponse();
+      const expectedError = {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'Signed message is not valid',
+        },
+      };
+
+      await idService.verifyLogin(mockStream, res);
+
+      sinon.assert.calledOnceWithMatch(res.json, expectedError);
+    });
+
+    it('should return error if message first 13 chars timestamp is too high', async () => {
+      const req = {
+        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        signature: '1234356asdf',
+        message: '999999999999911111111111111111111111111111111',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const res = generateResponse();
+      const expectedError = {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'Signed message is not valid',
+        },
+      };
+
+      await idService.verifyLogin(mockStream, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedError);
+    });
+
+    it('should return error if database returns nothing', async () => {
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
+      const timestamp = new Date().getTime();
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      const req = {
+        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        signature: '1234356asdf',
+        message: `${timestamp - 300000}11111111111111111111111111111`,
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const res = generateResponse();
+      const expectedError = {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'Signed message is no longer valid. Please request a new one.',
+        },
+      };
+
+      await idService.verifyLogin(mockStream, res);
+      await serviceHelper.delay(100);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedError);
+    });
+
+    it('should return error if signature in database is invalid', async () => {
+      const timestamp = new Date().getTime();
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves({
+        loginPhrase: `${timestamp + 10000}11111111111111111111111111111`,
+      });
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      const req = {
+        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        signature: '1234356asdf',
+        message: `${timestamp - 300000}11111111111111111111111111111`,
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const res = generateResponse();
+      const expectedError = {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'Signed message is no longer valid. Please request a new one.',
+        },
+      };
+
+      await idService.verifyLogin(mockStream, res);
+      await serviceHelper.delay(100);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedError);
+    });
+
+    it('should return error if signature verification failed', async () => {
+      bitcoinMessageStub.returns(false);
+      const timestamp = new Date().getTime();
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves({
+        loginPhrase: `${timestamp - 10000}11111111111111111111111111111`,
+      });
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      const req = {
+        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        signature: '1234356asdf',
+        message: `${timestamp - 300000}11111111111111111111111111111`,
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const res = generateResponse();
+      const expectedError = {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'Invalid signature',
+        },
+      };
+
+      await idService.verifyLogin(mockStream, res);
+      await serviceHelper.delay(100);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedError);
+    });
+
+    it('should return error if signature verification failed', async () => {
+      bitcoinMessageStub.returns(true);
+      const timestamp = new Date().getTime();
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves({
+        loginPhrase: `${timestamp - 10000}11111111111111111111111111111`,
+      });
+      sinon.stub(dbHelper, 'insertOneToDatabase').resolves(true);
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      const req = {
+        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        signature: '1234356asdf',
+        message: `${timestamp - 300000}11111111111111111111111111111`,
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const res = generateResponse();
+      const expectedError = {
+        status: 'success',
+        data: {
+          message: 'Successfully logged in',
+          zelid: '1Z1234341Z1234341Z1234341Z1234341',
+          loginPhrase: sinon.match.string,
+          signature: '1234356asdf',
+          privilage: 'user',
+        },
+      };
+
+      await idService.verifyLogin(mockStream, res);
+      await serviceHelper.delay(100);
+
+      sinon.assert.calledOnceWithMatch(res.json, expectedError);
     });
   });
 });
