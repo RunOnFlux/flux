@@ -276,6 +276,7 @@
    "saramandaia/hotcafe:latest",
    "spacepumpkin/flux-api-playground:latest",
    "megachips/flux_looking_glass:latest",
+   "megachips/quake3:latest",
    "alekslitvinenk/openvpn",
    "fluxfolio/fluxfolio:latest",
    "minestrong/minestrongco_web:firsttry",
@@ -284,5 +285,8 @@
    "modernglobal/docushield-cluster:latest",
    "modernglobal/docushield-ipfs",
    "modernglobal/dappopflux",
+   "2ndtlmining/flux",
+   "kadefi/api:latest",
+   "kadefi/chainweb-node-docker:latest",
    "fusenet/netstat:latest"
 ]
