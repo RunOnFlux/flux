@@ -1581,7 +1581,7 @@ export default {
     const userZelid = ref('');
     userZelid.value = props.zelid;
 
-    const apiURL = 'https://titantest.runonflux.io';
+    const apiURL = 'https://titan.runonflux.io';
 
     const totalReward = ref(0);
     const stakeAmount = ref(50);
