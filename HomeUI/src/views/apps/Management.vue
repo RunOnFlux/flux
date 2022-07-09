@@ -3024,7 +3024,7 @@ export default {
       const lowerCaseName = appName.toLowerCase();
 
       if (!this.appSpecification.compose) {
-        const ports = JSON.parse(this.callBResponse.data.ports);
+        const ports = JSON.parse(JSON.stringify(this.callBResponse.data.containerPorts));
         const domains = [`${lowerCaseName}.app.runonflux.io`];
         // flux specs dont allow more than 10 ports so domainString is enough
         for (let i = 0; i < ports.length; i += 1) {
@@ -3058,7 +3058,7 @@ export default {
       const lowerCaseName = appName.toLowerCase();
 
       if (!this.callBResponse.data.compose) {
-        const ports = JSON.parse(this.callBResponse.data.ports);
+        const ports = JSON.parse(JSON.stringify(this.callBResponse.data.containerPorts));
         const domains = [`${lowerCaseName}.app.runonflux.io`];
         // flux specs dont allow more than 10 ports so domainString is enough
         for (let i = 0; i < ports.length; i += 1) {
