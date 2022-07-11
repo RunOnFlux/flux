@@ -13,6 +13,7 @@
    "runonflux/polkadot-docker:latest",
    "littlestache/cors-anywhere:latest",
    "littlestache/minecraft:latest",
+   "samirma/supershare:latest",
    "littlestache/fluxwhitepaper:latest",
    "treyyoder/quakejs:latest",
    "littlestache/bitcoinwhitepaper:latest",
