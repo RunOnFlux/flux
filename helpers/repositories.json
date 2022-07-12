@@ -289,5 +289,6 @@
    "kadefi/api:latest",
    "kadefi/chainweb-node-docker:latest",
    "fusenet/netstat:latest",
-   "smartico/osmosis:latest"
+   "smartico/osmosis:latest",
+   "anonreal/ergoauction:latest"
 ]
