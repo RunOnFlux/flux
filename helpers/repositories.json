@@ -291,5 +291,6 @@
    "fusenet/netstat:latest",
    "smartico/osmosis:latest",
    "wabato5634/noderank:latest",
-   "anonreal/ergoauction:latest"
+   "anonreal/ergoauction:latest",
+   "vadata/minting-dapp:latest"
 ]
