@@ -290,5 +290,6 @@
    "kadefi/chainweb-node-docker:latest",
    "fusenet/netstat:latest",
    "smartico/osmosis:latest",
-   "wabato5634/noderank:latest"
+   "wabato5634/noderank:latest",
+   "anonreal/ergoauction:latest"
 ]
