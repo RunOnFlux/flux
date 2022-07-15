@@ -8,12 +8,14 @@ const { PassThrough } = require('stream');
 const log = require('../../ZelBack/src/lib/log');
 
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
+const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const generalService = require('../../ZelBack/src/services/generalService');
 const dockerService = require('../../ZelBack/src/services/dockerService');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 
 const adminConfig = {
+  fluxTeamZelId: '1zasdfg',
   initial: {
     ipaddress: '83.51.212.243',
     zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
@@ -38,7 +40,7 @@ const generateResponse = () => {
   return res;
 };
 
-describe.only('idService tests', () => {
+describe('idService tests', () => {
   describe('confirmNodeTierHardware tests', () => {
     let osTotalmemStub;
     let osCpusStub;
@@ -825,7 +827,7 @@ describe.only('idService tests', () => {
       sinon.assert.calledOnceWithExactly(res.json, expectedError);
     });
 
-    it('should return error if signature verification failed', async () => {
+    it('should return success message if everything is okay', async () => {
       bitcoinMessageStub.returns(true);
       const timestamp = new Date().getTime();
       sinon.stub(dbHelper, 'findOneInDatabase').resolves({
@@ -858,6 +860,726 @@ describe.only('idService tests', () => {
       await serviceHelper.delay(100);
 
       sinon.assert.calledOnceWithMatch(res.json, expectedError);
+    });
+  });
+
+  describe('provideSign tests', () => {
+    let bitcoinMessageStub;
+
+    beforeEach(() => {
+      bitcoinMessageStub = sinon.stub(bitcoinMessage, 'verify');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return error if neither zelId nor address are specified', async () => {
+      const req = {
+        signature: '1234356asdf',
+        loginPhrase: 'loginphrase',
+        message: 'message',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const res = generateResponse();
+      const expectedError = {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'No ZelID is specified',
+        },
+      };
+
+      await idService.provideSign(mockStream, res);
+
+      sinon.assert.calledOnceWithMatch(res.json, expectedError);
+    });
+
+    it('should return error if zelID does not start with 1', async () => {
+      const req = {
+        zelid: '2Z123434',
+        signature: '1234356asdf',
+        loginPhrase: 'loginphrase',
+        message: 'message',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const res = generateResponse();
+      const expectedError = {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'ZelID is not valid',
+        },
+      };
+
+      await idService.provideSign(mockStream, res);
+
+      sinon.assert.calledOnceWithMatch(res.json, expectedError);
+    });
+
+    it('should return error if zelID is less than 25 chars long', async () => {
+      const req = {
+        zelid: '1Z123434',
+        signature: '1234356asdf',
+        loginPhrase: 'loginphrase',
+        message: 'message',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const res = generateResponse();
+      const expectedError = {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'ZelID is not valid',
+        },
+      };
+
+      await idService.provideSign(mockStream, res);
+
+      sinon.assert.calledOnceWithMatch(res.json, expectedError);
+    });
+
+    it('should return error if zelID is more than 34 chars long', async () => {
+      const req = {
+        zelid: '1Z1234341Z1234341Z1234341Z1234341Z12',
+        signature: '1234356asdf',
+        loginPhrase: 'loginphrase',
+        message: 'message',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const res = generateResponse();
+      const expectedError = {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'ZelID is not valid',
+        },
+      };
+
+      await idService.provideSign(mockStream, res);
+
+      sinon.assert.calledOnceWithMatch(res.json, expectedError);
+    });
+
+    it('should return error if the message is empty', async () => {
+      const req = {
+        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        signature: '1234356asdf',
+        message: '',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const res = generateResponse();
+      const expectedError = {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'No message is specified',
+        },
+      };
+
+      await idService.provideSign(mockStream, res);
+
+      sinon.assert.calledOnceWithMatch(res.json, expectedError);
+    });
+
+    it('should return error if message is undefined', async () => {
+      const req = {
+        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        signature: '1234356asdf',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const res = generateResponse();
+      const expectedError = {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'No message is specified',
+        },
+      };
+
+      await idService.provideSign(mockStream, res);
+
+      sinon.assert.calledOnceWithMatch(res.json, expectedError);
+    });
+
+    it('should return error if message is less than 40 chars', async () => {
+      const req = {
+        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        signature: '1234356asdf',
+        message: '1234',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const res = generateResponse();
+      const expectedError = {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'Signed message is not valid',
+        },
+      };
+
+      await idService.provideSign(mockStream, res);
+
+      sinon.assert.calledOnceWithMatch(res.json, expectedError);
+    });
+
+    it('should return success message if everything is okay', async () => {
+      bitcoinMessageStub.returns(true);
+      const timestamp = new Date().getTime();
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves({
+        loginPhrase: `${timestamp - 10000}11111111111111111111111111111`,
+      });
+      sinon.stub(dbHelper, 'insertOneToDatabase').resolves(true);
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      const req = {
+        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        signature: '1234356asdf',
+        message: `${timestamp - 300000}11111111111111111111111111111`,
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const res = generateResponse();
+      const expectedError = {
+        status: 'success',
+        data: {
+          identifier: '1Z1234341Z1234341Z1234341Z12343411111111111111',
+          signature: '1234356asdf',
+        },
+      };
+
+      await idService.provideSign(mockStream, res);
+      await serviceHelper.delay(100);
+
+      sinon.assert.calledOnceWithMatch(res.json, expectedError);
+    });
+  });
+
+  describe('loggedUsers tests', () => {
+    let verifyPrivilegeStub;
+
+    beforeEach(() => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return error when unauthorized ', async () => {
+      const res = generateResponse();
+      verifyPrivilegeStub.returns(false);
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+      await idService.loggedUsers(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+    });
+
+    it('should return the found item from DB', async () => {
+      verifyPrivilegeStub.returns(true);
+      const dbStub = sinon.stub(dbHelper, 'findInDatabase').resolves('item found');
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      const res = generateResponse();
+
+      await idService.loggedUsers(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: 'item found' });
+      sinon.assert.calledOnce(dbStub);
+    });
+  });
+
+  describe('loggedSessions tests', () => {
+    let verifyPrivilegeStub;
+
+    beforeEach(() => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return error when unauthorized ', async () => {
+      const res = generateResponse();
+      verifyPrivilegeStub.returns(false);
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+      await idService.loggedSessions(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+    });
+
+    it('should return the found item from DB', async () => {
+      verifyPrivilegeStub.returns(true);
+      const dbStub = sinon.stub(dbHelper, 'findInDatabase').resolves('item found');
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      const res = generateResponse();
+      const req = {
+        headers: {
+          zelidauth: 'zelidauth',
+        },
+      };
+
+      await idService.loggedSessions(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: 'item found' });
+      sinon.assert.calledOnce(dbStub);
+    });
+  });
+
+  describe('logoutCurrentSession tests', () => {
+    let verifyPrivilegeStub;
+
+    beforeEach(() => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return error when unauthorized ', async () => {
+      const res = generateResponse();
+      verifyPrivilegeStub.returns(false);
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+      await idService.logoutCurrentSession(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+    });
+
+    it('should return the found item from DB', async () => {
+      verifyPrivilegeStub.returns(true);
+      const dbStub = sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').resolves('item removed');
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      const res = generateResponse();
+      const req = {
+        headers: {
+          zelidauth: 'zelidauth',
+        },
+      };
+
+      await idService.logoutCurrentSession(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'success',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: 'Successfully logged out',
+        },
+      });
+      sinon.assert.calledOnce(dbStub);
+    });
+  });
+
+  describe('logoutAllSessions tests', () => {
+    let verifyPrivilegeStub;
+
+    beforeEach(() => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return error when unauthorized ', async () => {
+      const res = generateResponse();
+      verifyPrivilegeStub.returns(false);
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+      await idService.logoutAllSessions(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+    });
+
+    it('should return the found item from DB', async () => {
+      verifyPrivilegeStub.returns(true);
+      const dbStub = sinon.stub(dbHelper, 'removeDocumentsFromCollection').resolves('doc removed');
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      const res = generateResponse();
+      const req = {
+        headers: {
+          zelidauth: 'zelidauth',
+        },
+      };
+
+      await idService.logoutAllSessions(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'success',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: 'Successfully logged out all sessions',
+        },
+      });
+      sinon.assert.calledOnce(dbStub);
+    });
+  });
+
+  describe('wsRespondLoginPhrase tests', () => {
+    const generateWebsocket = () => {
+      const ws = {};
+      ws.send = sinon.stub().returns('okay');
+      ws.close = sinon.stub().returns('okay');
+      return ws;
+    };
+    let dbStub;
+
+    beforeEach(async () => {
+      dbStub = sinon.stub(dbHelper, 'findOneInDatabase');
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return error if db rejects promise', async () => {
+      dbStub.rejects('myerrromessage');
+      const ws = generateWebsocket();
+      const req = {
+        params: {
+          loginphrase: '12345',
+        },
+      };
+
+      await idService.wsRespondLoginPhrase(ws, req);
+
+      sinon.assert.calledOnceWithExactly(ws.send, 'status=error&data%5Bname%5D=myerrromessage&data%5Bmessage%5D=Unknown%20error');
+    });
+
+    it('should return proper message if user is fluxTeamZelId', async () => {
+      dbStub.resolves({
+        zelid: adminConfig.fluxTeamZelId,
+        loginPhrase: '12333345656',
+        signature: 'signature1',
+        createdAt: '168450311',
+        expireAt: '168460311',
+      });
+      const ws = generateWebsocket();
+      const req = {
+        params: {
+          loginphrase: '12345',
+        },
+      };
+
+      await idService.wsRespondLoginPhrase(ws, req);
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(ws.send, 'status=success&data%5Bmessage%5D=Successfully%20logged%20in&data%5Bzelid%5D=1zasdfg&data%5BloginPhrase%5D=12333345656&data%5Bsignature%5D=signature1&data%5Bprivilage%5D=user&data%5BcreatedAt%5D=168450311&data%5BexpireAt%5D=168460311');
+    });
+
+    it('should return proper message if user is admin', async () => {
+      dbStub.resolves({
+        zelid: adminConfig.initial.zelid,
+        loginPhrase: '12333345656',
+        signature: 'signature1',
+        createdAt: '168450311',
+        expireAt: '168460311',
+      });
+      const ws = generateWebsocket();
+      const req = {
+        params: {
+          loginphrase: '12345',
+        },
+      };
+
+      await idService.wsRespondLoginPhrase(ws, req);
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(ws.send,
+        'status=success&data%5Bmessage%5D=Successfully%20logged%20in&data%5Bzelid%5D=1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC&data%5BloginPhrase%5D=12333345656&data%5Bsignature%5D=signature1&data%5Bprivilage%5D=admin&data%5BcreatedAt%5D=168450311&data%5BexpireAt%5D=168460311');
+    });
+
+    it('should return error message if 2nd db call throws error', async () => {
+      dbStub.onCall(0).resolves(null);
+      dbStub.onCall(1).rejects('error message');
+      const ws = generateWebsocket();
+      const req = {
+        params: {
+          loginphrase: '12345',
+        },
+      };
+
+      await idService.wsRespondLoginPhrase(ws, req);
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(ws.send,
+        'status=error&data%5Bname%5D=error%20message&data%5Bmessage%5D=Unknown%20error');
+    });
+  });
+
+  describe('wsRespondSignature tests', () => {
+    const generateWebsocket = () => {
+      const ws = {};
+      ws.send = sinon.stub().returns('okay');
+      ws.close = sinon.stub().returns('okay');
+      return ws;
+    };
+    let dbStub;
+
+    beforeEach(async () => {
+      dbStub = sinon.stub(dbHelper, 'findOneInDatabase');
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return error if db rejects promise', async () => {
+      dbStub.rejects('myerrromessage');
+      const ws = generateWebsocket();
+      const req = {
+        params: {
+          message: 'message',
+        },
+      };
+
+      await idService.wsRespondSignature(ws, req);
+
+      sinon.assert.calledOnceWithExactly(ws.send, 'status=error&data%5Bname%5D=myerrromessage&data%5Bmessage%5D=Unknown%20error');
+    });
+
+    it('should return proper message if user is fluxTeamZelId', async () => {
+      dbStub.resolves('found');
+      const ws = generateWebsocket();
+      const req = {
+        params: {
+          message: 'message',
+        },
+      };
+
+      await idService.wsRespondSignature(ws, req);
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(ws.send, 'status=success&data=found');
+    });
+  });
+
+  describe('checkLoggedUser tests', () => {
+    let verifyPrivilegeStub;
+
+    beforeEach(async () => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return error message if no zelid parameter is passed', async () => {
+      const res = generateResponse();
+      const params = {
+        loginPhrase: 'phrase',
+        signature: 'signature',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+
+      await idService.checkLoggedUser(mockStream, res);
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'No user ZelID specificed',
+        },
+      });
+    });
+
+    it('should return error message if no loggedPhrase parameter is passed', async () => {
+      const res = generateResponse();
+      const params = {
+        zelid: '1zel12343434',
+        signature: 'signature',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+
+      await idService.checkLoggedUser(mockStream, res);
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'No user loginPhrase specificed',
+        },
+      });
+    });
+
+    it('should return error message if no loggedPhrase parameter is passed', async () => {
+      const res = generateResponse();
+      const params = {
+        zelid: '1zel12343434',
+        loginPhrase: 'loginphrase',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+
+      await idService.checkLoggedUser(mockStream, res);
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'No user ZelID signature specificed',
+        },
+      });
+    });
+
+    it('should return peroper success message if user is an admin', async () => {
+      verifyPrivilegeStub.withArgs('admin', sinon.match.object).returns(true);
+      const res = generateResponse();
+      const params = {
+        zelid: '1zel12343434',
+        loginPhrase: 'loginphrase',
+        signature: 'signature',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+
+      await idService.checkLoggedUser(mockStream, res);
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'success',
+        data: { code: undefined, name: undefined, message: 'admin' },
+      });
+    });
+
+    it('should return peroper success message if user is fluxteam', async () => {
+      verifyPrivilegeStub.withArgs('admin', sinon.match.object).returns(false);
+      verifyPrivilegeStub.withArgs('fluxteam', sinon.match.object).returns(true);
+      const res = generateResponse();
+      const params = {
+        zelid: '1zel12343434',
+        loginPhrase: 'loginphrase',
+        signature: 'signature',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+
+      await idService.checkLoggedUser(mockStream, res);
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'success',
+        data: { code: undefined, name: undefined, message: 'fluxteam' },
+      });
+    });
+
+    it('should return peroper success message if user is an ordinary user', async () => {
+      verifyPrivilegeStub.withArgs('admin', sinon.match.object).returns(false);
+      verifyPrivilegeStub.withArgs('fluxteam', sinon.match.object).returns(false);
+      verifyPrivilegeStub.withArgs('user', sinon.match.object).returns(true);
+      const res = generateResponse();
+      const params = {
+        zelid: '1zel12343434',
+        loginPhrase: 'loginphrase',
+        signature: 'signature',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+
+      await idService.checkLoggedUser(mockStream, res);
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'success',
+        data: { code: undefined, name: undefined, message: 'user' },
+      });
+    });
+
+    it('should return error message if user has no privileges', async () => {
+      verifyPrivilegeStub.withArgs('admin', sinon.match.object).returns(false);
+      verifyPrivilegeStub.withArgs('fluxteam', sinon.match.object).returns(false);
+      verifyPrivilegeStub.withArgs('user', sinon.match.object).returns(false);
+      const res = generateResponse();
+      const params = {
+        zelid: '1zel12343434',
+        loginPhrase: 'loginphrase',
+        signature: 'signature',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(params));
+      mockStream.end();
+
+      await idService.checkLoggedUser(mockStream, res);
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: { code: undefined, name: undefined, message: 'none' },
+      });
     });
   });
 });

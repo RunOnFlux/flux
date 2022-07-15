@@ -630,7 +630,6 @@ async function wsRespondLoginPhrase(ws, req) {
     log.error(evt.code);
     connclosed = true;
   };
-
   const db = dbHelper.databaseConnection();
 
   const database = db.db(config.database.local.database);
@@ -646,7 +645,6 @@ async function wsRespondLoginPhrase(ws, req) {
         ws.close(1011);
         throw error;
       });
-
       if (result) {
         // user is logged, all ok
         let privilage = 'user';
@@ -781,9 +779,8 @@ async function checkLoggedUser(req, res) {
   req.on('end', async () => {
     try {
       const processedBody = serviceHelper.ensureObject(body);
-      const { zelid } = processedBody;
+      const { zelid, signature } = processedBody;
       const loggedPhrase = processedBody.loginPhrase;
-      const { signature } = processedBody;
       if (!zelid) {
         throw new Error('No user ZelID specificed');
       }
