@@ -13,7 +13,7 @@ export default {
   availableApps() {
     return Api().get('/apps/availableapps');
   },
-  stopAll(zelidauthHeader, app) {
+  stopApp(zelidauthHeader, app) {
     const axiosConfig = {
       headers: {
         zelidauth: zelidauthHeader,
