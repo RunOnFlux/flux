@@ -12,7 +12,7 @@ const packageJson = require('../../../package.json');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
 const messageHelper = require('./messageHelper');
-const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
+const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 const daemonServiceZelnodeRpcs = require('./daemonService/daemonServiceZelnodeRpcs');
 const daemonServiceBenchmarkRpcs = require('./daemonService/daemonServiceBenchmarkRpcs');
 const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRpcs');
@@ -47,21 +47,21 @@ async function fluxBackendFolder(req, res) {
 // eslint-disable-next-line consistent-return
 async function updateFlux(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized === true) {
-    const nodedpath = path.join(__dirname, '../../../');
-    const exec = `cd ${nodedpath} && npm run updateflux`;
-    nodecmd.get(exec, (err) => {
-      if (err) {
-        const errMessage = messageHelper.createErrorMessage(`Error updating Flux: ${err.message}`, err.name, err.code);
-        return res.json(errMessage);
-      }
-      const message = messageHelper.createSuccessMessage('Flux successfully updated');
-      return res.json(message);
-    });
-  } else {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
+  const nodedpath = path.join(__dirname, '../../../');
+  const exec = `cd ${nodedpath} && npm run updateflux`;
+  nodecmd.get(exec, (err) => {
+    if (err) {
+      console.log(err);
+      const errMessage = messageHelper.createErrorMessage(`Error updating Flux: ${err.message}`, err.name, err.code);
+      return res.json(errMessage);
+    }
+    const message = messageHelper.createSuccessMessage('Flux successfully updated');
+    return res.json(message);
+  });
 }
 
 /**
@@ -73,21 +73,20 @@ async function updateFlux(req, res) {
 // eslint-disable-next-line consistent-return
 async function softUpdateFlux(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized === true) {
-    const nodedpath = path.join(__dirname, '../../../');
-    const exec = `cd ${nodedpath} && npm run softupdate`;
-    nodecmd.get(exec, (err) => {
-      if (err) {
-        const errMessage = messageHelper.createErrorMessage(`Error softly updating Flux: ${err.message}`, err.name, err.code);
-        return res.json(errMessage);
-      }
-      const message = messageHelper.createSuccessMessage('Flux successfully updated using soft method');
-      return res.json(message);
-    });
-  } else {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
+  const nodedpath = path.join(__dirname, '../../../');
+  const exec = `cd ${nodedpath} && npm run softupdate`;
+  nodecmd.get(exec, (err) => {
+    if (err) {
+      const errMessage = messageHelper.createErrorMessage(`Error softly updating Flux: ${err.message}`, err.name, err.code);
+      return res.json(errMessage);
+    }
+    const message = messageHelper.createSuccessMessage('Flux successfully updated using soft method');
+    return res.json(message);
+  });
 }
 
 /**
@@ -99,21 +98,20 @@ async function softUpdateFlux(req, res) {
 // eslint-disable-next-line consistent-return
 async function softUpdateFluxInstall(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized === true) {
-    const nodedpath = path.join(__dirname, '../../../');
-    const exec = `cd ${nodedpath} && npm run softupdateinstall`;
-    nodecmd.get(exec, (err) => {
-      if (err) {
-        const errMessage = messageHelper.createErrorMessage(`Error softly updating Flux with installation: ${err.message}`, err.name, err.code);
-        return res.json(errMessage);
-      }
-      const message = messageHelper.createSuccessMessage('Flux successfully updated softly with installation');
-      return res.json(message);
-    });
-  } else {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
+  const nodedpath = path.join(__dirname, '../../../');
+  const exec = `cd ${nodedpath} && npm run softupdateinstall`;
+  nodecmd.get(exec, (err) => {
+    if (err) {
+      const errMessage = messageHelper.createErrorMessage(`Error softly updating Flux with installation: ${err.message}`, err.name, err.code);
+      return res.json(errMessage);
+    }
+    const message = messageHelper.createSuccessMessage('Flux successfully updated softly with installation');
+    return res.json(message);
+  });
 }
 
 /**
@@ -125,21 +123,20 @@ async function softUpdateFluxInstall(req, res) {
 // eslint-disable-next-line consistent-return
 async function hardUpdateFlux(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized === true) {
-    const nodedpath = path.join(__dirname, '../../../');
-    const exec = `cd ${nodedpath} && npm run hardupdateflux`;
-    nodecmd.get(exec, (err) => {
-      if (err) {
-        const errMessage = messageHelper.createErrorMessage(`Error hardupdating Flux: ${err.message}`, err.name, err.code);
-        return res.json(errMessage);
-      }
-      const message = messageHelper.createSuccessMessage('Flux successfully updating');
-      return res.json(message);
-    });
-  } else {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
+  const nodedpath = path.join(__dirname, '../../../');
+  const exec = `cd ${nodedpath} && npm run hardupdateflux`;
+  nodecmd.get(exec, (err) => {
+    if (err) {
+      const errMessage = messageHelper.createErrorMessage(`Error hardupdating Flux: ${err.message}`, err.name, err.code);
+      return res.json(errMessage);
+    }
+    const message = messageHelper.createSuccessMessage('Flux successfully updating');
+    return res.json(message);
+  });
 }
 
 /**
@@ -151,21 +148,20 @@ async function hardUpdateFlux(req, res) {
 // eslint-disable-next-line consistent-return
 async function rebuildHome(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized === true) {
-    const nodedpath = path.join(__dirname, '../../../');
-    const exec = `cd ${nodedpath} && npm run homebuild`;
-    nodecmd.get(exec, (err) => {
-      if (err) {
-        const errMessage = messageHelper.createErrorMessage(`Error rebuilding Flux: ${err.message}`, err.name, err.code);
-        return res.json(errMessage);
-      }
-      const message = messageHelper.createSuccessMessage('Flux successfully rebuilt');
-      return res.json(message);
-    });
-  } else {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
+  const nodedpath = path.join(__dirname, '../../../');
+  const exec = `cd ${nodedpath} && npm run homebuild`;
+  nodecmd.get(exec, (err) => {
+    if (err) {
+      const errMessage = messageHelper.createErrorMessage(`Error rebuilding Flux: ${err.message}`, err.name, err.code);
+      return res.json(errMessage);
+    }
+    const message = messageHelper.createSuccessMessage('Flux successfully rebuilt');
+    return res.json(message);
+  });
 }
 
 /**
@@ -177,21 +173,20 @@ async function rebuildHome(req, res) {
 // eslint-disable-next-line consistent-return
 async function updateDaemon(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized === true) {
-    const nodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${nodedpath} && bash updateDaemon.sh`;
-    nodecmd.get(exec, (err) => {
-      if (err) {
-        const errMessage = messageHelper.createErrorMessage(`Error updating Daemon: ${err.message}`, err.name, err.code);
-        return res.json(errMessage);
-      }
-      const message = messageHelper.createSuccessMessage('Daemon successfully updated');
-      return res.json(message);
-    });
-  } else {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
+  const nodedpath = path.join(__dirname, '../../../helpers');
+  const exec = `cd ${nodedpath} && bash updateDaemon.sh`;
+  nodecmd.get(exec, (err) => {
+    if (err) {
+      const errMessage = messageHelper.createErrorMessage(`Error updating Daemon: ${err.message}`, err.name, err.code);
+      return res.json(errMessage);
+    }
+    const message = messageHelper.createSuccessMessage('Daemon successfully updated');
+    return res.json(message);
+  });
 }
 
 /**
@@ -203,21 +198,20 @@ async function updateDaemon(req, res) {
 // eslint-disable-next-line consistent-return
 async function updateBenchmark(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized === true) {
-    const nodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${nodedpath} && bash updateBenchmark.sh`;
-    nodecmd.get(exec, (err) => {
-      if (err) {
-        const errMessage = messageHelper.createErrorMessage(`Error updating Benchmark: ${err.message}`, err.name, err.code);
-        return res.json(errMessage);
-      }
-      const message = messageHelper.createSuccessMessage('Benchmark successfully updated');
-      return res.json(message);
-    });
-  } else {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
+  const nodedpath = path.join(__dirname, '../../../helpers');
+  const exec = `cd ${nodedpath} && bash updateBenchmark.sh`;
+  nodecmd.get(exec, (err) => {
+    if (err) {
+      const errMessage = messageHelper.createErrorMessage(`Error updating Benchmark: ${err.message}`, err.name, err.code);
+      return res.json(errMessage);
+    }
+    const message = messageHelper.createSuccessMessage('Benchmark successfully updated');
+    return res.json(message);
+  });
 }
 
 /**
@@ -229,24 +223,23 @@ async function updateBenchmark(req, res) {
 // eslint-disable-next-line consistent-return
 async function startBenchmark(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized === true) {
-    let exec = 'zelbenchd -daemon';
-    if (fs.existsSync('/usr/local/bin/fluxbenchd')) {
-      exec = 'fluxbenchd -daemon';
-    }
-    nodecmd.get(exec, (err, data) => {
-      if (err) {
-        const errMessage = messageHelper.createErrorMessage(`Error starting Benchmark: ${err.message}`, err.name, err.code);
-        return res.json(errMessage);
-      }
-      console.log(data);
-      const message = messageHelper.createSuccessMessage('Benchamrk successfully started');
-      return res.json(message);
-    });
-  } else {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
+  let exec = 'zelbenchd -daemon';
+  if (fs.existsSync('/usr/local/bin/fluxbenchd')) {
+    exec = 'fluxbenchd -daemon';
+  }
+  nodecmd.get(exec, (err, data) => {
+    if (err) {
+      const errMessage = messageHelper.createErrorMessage(`Error starting Benchmark: ${err.message}`, err.name, err.code);
+      return res.json(errMessage);
+    }
+    console.log(data);
+    const message = messageHelper.createSuccessMessage('Benchmark successfully started');
+    return res.json(message);
+  });
 }
 
 /**
@@ -258,22 +251,21 @@ async function startBenchmark(req, res) {
 // eslint-disable-next-line consistent-return
 async function restartBenchmark(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized === true) {
-    const nodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${nodedpath} && bash restartBenchmark.sh`;
-    nodecmd.get(exec, (err) => {
-      if (err) {
-        const errMessage = messageHelper.createErrorMessage(`Error restarting Benchmark: ${err.message}`, err.name, err.code);
-        return res.json(errMessage);
-      }
-      const message = messageHelper.createSuccessMessage('Benchmark successfully restarted');
-      return res.json(message);
-    });
-  } else {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     console.log(errMessage);
     return res.json(errMessage);
   }
+  const nodedpath = path.join(__dirname, '../../../helpers');
+  const exec = `cd ${nodedpath} && bash restartBenchmark.sh`;
+  nodecmd.get(exec, (err) => {
+    if (err) {
+      const errMessage = messageHelper.createErrorMessage(`Error restarting Benchmark: ${err.message}`, err.name, err.code);
+      return res.json(errMessage);
+    }
+    const message = messageHelper.createSuccessMessage('Benchmark successfully restarted');
+    return res.json(message);
+  });
 }
 
 /**
@@ -285,24 +277,23 @@ async function restartBenchmark(req, res) {
 // eslint-disable-next-line consistent-return
 async function startDaemon(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized === true) {
-    let exec = 'zelcashd';
-    if (fs.existsSync('/usr/local/bin/fluxd')) {
-      exec = 'fluxd';
-    }
-    nodecmd.get(exec, (err, data) => {
-      if (err) {
-        const errMessage = messageHelper.createErrorMessage(`Error starting Daemon: ${err.message}`, err.name, err.code);
-        return res.json(errMessage);
-      }
-      console.log(data);
-      const message = messageHelper.createSuccessMessage('Daemon successfully started');
-      return res.json(message);
-    });
-  } else {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
+  let exec = 'zelcashd';
+  if (fs.existsSync('/usr/local/bin/fluxd')) {
+    exec = 'fluxd';
+  }
+  nodecmd.get(exec, (err, data) => {
+    if (err) {
+      const errMessage = messageHelper.createErrorMessage(`Error starting Daemon: ${err.message}`, err.name, err.code);
+      return res.json(errMessage);
+    }
+    console.log(data);
+    const message = messageHelper.createSuccessMessage('Daemon successfully started');
+    return res.json(message);
+  });
 }
 
 /**
@@ -314,22 +305,21 @@ async function startDaemon(req, res) {
 // eslint-disable-next-line consistent-return
 async function restartDaemon(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized === true) {
-    const nodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${nodedpath} && bash restartDaemon.sh`;
-    nodecmd.get(exec, (err) => {
-      if (err) {
-        const errMessage = messageHelper.createErrorMessage(`Error restarting Daemon: ${err.message}`, err.name, err.code);
-        return res.json(errMessage);
-      }
-      const message = messageHelper.createSuccessMessage('Daemon successfully restarted');
-      return res.json(message);
-    });
-  } else {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     console.log(errMessage);
     return res.json(errMessage);
   }
+  const nodedpath = path.join(__dirname, '../../../helpers');
+  const exec = `cd ${nodedpath} && bash restartDaemon.sh`;
+  nodecmd.get(exec, (err) => {
+    if (err) {
+      const errMessage = messageHelper.createErrorMessage(`Error restarting Daemon: ${err.message}`, err.name, err.code);
+      return res.json(errMessage);
+    }
+    const message = messageHelper.createSuccessMessage('Daemon successfully restarted');
+    return res.json(message);
+  });
 }
 
 /**
@@ -341,21 +331,20 @@ async function restartDaemon(req, res) {
 // eslint-disable-next-line consistent-return
 async function reindexDaemon(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized === true) {
-    const nodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${nodedpath} && bash reindexDaemon.sh`;
-    nodecmd.get(exec, (err) => {
-      if (err) {
-        const errMessage = messageHelper.createErrorMessage(`Error reindexing Daemon: ${err.message}`, err.name, err.code);
-        return res.json(errMessage);
-      }
-      const message = messageHelper.createSuccessMessage('Daemon successfully reindexing');
-      return res.json(message);
-    });
-  } else {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
+  const nodedpath = path.join(__dirname, '../../../helpers');
+  const exec = `cd ${nodedpath} && bash reindexDaemon.sh`;
+  nodecmd.get(exec, (err) => {
+    if (err) {
+      const errMessage = messageHelper.createErrorMessage(`Error reindexing Daemon: ${err.message}`, err.name, err.code);
+      return res.json(errMessage);
+    }
+    const message = messageHelper.createSuccessMessage('Daemon successfully reindexing');
+    return res.json(message);
+  });
 }
 
 /**
@@ -439,7 +428,7 @@ async function daemonDebug(req, res) {
   }
   // check daemon datadir
   const defaultDir = new fullnode.Config().defaultFolder();
-  const datadir = daemonServiceMiscRpcs.getConfigValue('datadir') || defaultDir;
+  const datadir = daemonServiceUtils.getConfigValue('datadir') || defaultDir;
   const filepath = `${datadir}/debug.log`;
 
   return res.download(filepath, 'debug.log');
@@ -477,7 +466,7 @@ async function tailDaemonDebug(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     const defaultDir = new fullnode.Config().defaultFolder();
-    const datadir = daemonServiceMiscRpcs.getConfigValue('datadir') || defaultDir;
+    const datadir = daemonServiceUtils.getConfigValue('datadir') || defaultDir;
     const filepath = `${datadir}/debug.log`;
     const exec = `tail -n 100 ${filepath}`;
     nodecmd.get(exec, (err, data) => {
@@ -1049,4 +1038,8 @@ module.exports = {
   fluxBackendFolder,
   getNodeTier,
   installFluxWatchTower,
+
+  // Exports for testing purposes
+  fluxLog,
+  tailFluxLog,
 };
