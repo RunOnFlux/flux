@@ -78,10 +78,6 @@ export default {
       required: false,
       default: '',
     },
-    sharednodezelids: {
-      type: Array,
-      required: true,
-    },
   },
   setup(props) {
     const perfectScrollbarSettings = {
@@ -108,16 +104,14 @@ export default {
       });
     });
 
-    const canViewSharedNodes = () => props.sharednodezelids.includes(userZelid.value);
-
-    const nodeActions = canViewSharedNodes() ? [
+    const nodeActions = [
       {
         title: 'Shared Nodes',
         icon: 'inbox',
         event: 'open-shared-nodes',
         route: { name: 'apps-marketplace-sharednodes' },
       },
-    ] : [];
+    ];
 
     return {
       perfectScrollbarSettings,
