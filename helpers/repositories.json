@@ -292,5 +292,6 @@
    "smartico/osmosis:latest",
    "wabato5634/noderank:latest",
    "anonreal/ergoauction:latest",
-   "vadata/minting-dapp:latest"
+   "vadata/minting-dapp:latest",
+   "eliortabeka/themok:1.0.0"
 ]
