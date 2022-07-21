@@ -282,7 +282,7 @@
                             v-if="userZelid"
                             class="flex-grow-1 .btn-relief-primary"
                             variant="gradient-primary"
-                            @click="showStakeDialog"
+                            @click="showStakeDialog(false)"
                           >
                             Stake Flux
                           </b-button>
