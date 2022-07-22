@@ -3,7 +3,7 @@
     <!-- App Header -->
     <div class="app-detail-header">
       <!-- Header: Left -->
-      <div class="app-header-left d-flex align-items-center">
+      <div class="app-header-left d-flex align-items-center flex-grow-1">
         <span class="go-back mr-1">
           <feather-icon
             :icon="$store.state.appConfig.isRTL ? 'ChevronRightIcon' : 'ChevronLeftIcon'"
@@ -12,9 +12,15 @@
             @click="$emit('close-sharednode-view')"
           />
         </span>
-        <h4 class="app-name mb-0">
+        <h4 class="app-name mb-0 flex-grow-1">
           Titan Shared Nodes
         </h4>
+        <a
+          href="https://medium.com/@oGGoldie/flux-titan-staking-guide-e0fb6ead6254"
+          target="_blank"
+        >
+          Titan Guide (by Goldie)
+        </a>
       </div>
     </div>
 
@@ -282,7 +288,7 @@
                             v-if="userZelid"
                             class="flex-grow-1 .btn-relief-primary"
                             variant="gradient-primary"
-                            @click="showStakeDialog"
+                            @click="showStakeDialog(false)"
                           >
                             Stake Flux
                           </b-button>
