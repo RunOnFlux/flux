@@ -293,5 +293,7 @@
    "wabato5634/noderank:latest",
    "anonreal/ergoauction:latest",
    "vadata/minting-dapp:latest",
-   "eliortabeka/themok:1.0.0"
+   "eliortabeka/themok:1.0.0",
+   "tmjeff/awskinesissource-adapter-798ac05e97436f6c749231f8ff9de623:latest",
+   "tmjeff/awskinesistarget-adapter-b219d3f1da547aba2ed01416edb42550:latest"
 ]
