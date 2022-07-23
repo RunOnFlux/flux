@@ -904,4 +904,13 @@ module.exports = {
   fluxShareGetSharedFiles,
   fluxShareRename,
   fluxShareDownloadFolder,
+
+  // exports for testing purposes
+  fluxShareDatabaseFileDelete,
+  fluxShareDatabaseFileDeleteMultiple,
+  getAllFiles,
+  getFluxShareSize,
+  getFluxShareSpecificFolderSize,
+  fluxShareDatabaseShareFile,
+  fluxShareSharedFiles,
 };
