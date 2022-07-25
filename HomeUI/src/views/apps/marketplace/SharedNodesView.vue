@@ -425,13 +425,13 @@
                             <div class="d-flex flex-column seat-column col">
                               <h4
                                 v-b-tooltip.hover.top="new Date(stake.timestamp*1000).toLocaleString(timeoptions)"
-                                class="mr-auto ml-auto"
+                                class="mr-auto ml-auto text-center"
                               >
                                 Start Date: {{ new Date(stake.timestamp*1000).toLocaleDateString() }}
                               </h4>
                               <h5
                                 v-b-tooltip.hover.top="new Date(stake.expiry*1000).toLocaleString(timeoptions)"
-                                class="mr-auto ml-auto"
+                                class="mr-auto ml-auto text-center"
                               >
                                 End Date: {{ new Date(stake.expiry*1000).toLocaleDateString() }}
                               </h5>
@@ -445,7 +445,7 @@
                               </h5>
                             </div>
                             <div class="d-flex flex-column seat-column col">
-                              <h4 class="mr-auto ml-auto">
+                              <h4 class="mr-auto ml-auto text-center">
                                 Monthly Rewards
                               </h4>
                               <h5
