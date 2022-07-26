@@ -1847,9 +1847,7 @@ export default {
       const response = await axios.get(`${apiURL}/stats`);
       titanStats.value = response.data;
 
-      if (totalCollateral.value > titanStats.value.total) {
-        tooMuchStaked.value = false;
-      }
+      tooMuchStaked.value = (totalCollateral.value <= titanStats.value.total);
     };
 
     const getSharedNodeList = async () => {
