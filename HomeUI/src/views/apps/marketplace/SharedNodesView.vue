@@ -138,14 +138,20 @@
                       <hr>
                     </div>
                     <div class="d-flex flex-row">
-                      <b-button
-                        v-if="userZelid"
-                        class="flex-grow-1 .btn-relief-primary"
-                        variant="gradient-primary"
-                        @click="showStakeDialog(false)"
+                      <div
+                        v-b-tooltip.hover.bottom="tooMuchStaked ? (titanConfig ? titanConfig.stakeDisabledMessage : defaultStakeDisabledMessage) : ''"
+                        class="d-flex flex-row flex-grow-1"
                       >
-                        Stake Flux
-                      </b-button>
+                        <b-button
+                          v-if="userZelid"
+                          class="flex-grow-1 .btn-relief-primary"
+                          variant="gradient-primary"
+                          :disabled="tooMuchStaked"
+                          @click="showStakeDialog(false)"
+                        >
+                          Stake Flux
+                        </b-button>
+                      </div>
                     </div>
                   </div>
                 </b-card-body>
@@ -284,14 +290,20 @@
                           <hr>
                         </div>
                         <div class="d-flex flex-row">
-                          <b-button
-                            v-if="userZelid"
-                            class="flex-grow-1 .btn-relief-primary"
-                            variant="gradient-primary"
-                            @click="showStakeDialog(false)"
+                          <div
+                            v-b-tooltip.hover.bottom="tooMuchStaked ? (titanConfig ? titanConfig.stakeDisabledMessage : defaultStakeDisabledMessage) : ''"
+                            class="d-flex flex-row flex-grow-1"
                           >
-                            Stake Flux
-                          </b-button>
+                            <b-button
+                              v-if="userZelid"
+                              class="flex-grow-1 .btn-relief-primary"
+                              variant="gradient-primary"
+                              :disabled="tooMuchStaked"
+                              @click="showStakeDialog(false)"
+                            >
+                              Stake Flux
+                            </b-button>
+                          </div>
                         </div>
                       </div>
                     </b-card-body>
@@ -1606,6 +1618,8 @@ export default {
     const selectedStake = ref(null);
     const autoReinvestStake = ref(true);
     const reinvestingNewStake = ref(false);
+    const tooMuchStaked = ref(true); // the Stake Flux button will be disabled until we determine it can be enabled
+    const defaultStakeDisabledMessage = ref('Too much Flux has staked, please wait for more Nodes to be made available');
 
     const redeemAmount = ref(0);
     const redeemAddress = ref(null);
@@ -1772,6 +1786,10 @@ export default {
     const getStats = async () => {
       const response = await axios.get(`${apiURL}/stats`);
       titanStats.value = response.data;
+
+      if (totalCollateral.value > titanStats.value.total) {
+        tooMuchStaked.value = false;
+      }
     };
 
     const getSharedNodeList = async () => {
@@ -1867,7 +1885,7 @@ export default {
         if (response.data.maxStake > 0) {
           maxStakeAmount.value = response.data.maxStake;
         }
-        getSharedNodeList();
+        await getSharedNodeList();
         getStats();
         getMyStakes();
         getMyPayments();
@@ -2208,6 +2226,8 @@ export default {
       totalReward,
       titanConfig,
       titanStats,
+      tooMuchStaked,
+      defaultStakeDisabledMessage,
 
       userZelid,
       signature,
