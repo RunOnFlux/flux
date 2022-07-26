@@ -367,6 +367,65 @@
           v-else
           class=""
         >
+          <b-col
+            class="d-xxl-none d-xl-flex d-lg-flex d-md-flex d-sm-flex"
+          >
+            <b-card
+              no-body
+              class="flex-grow-1"
+            >
+              <b-card-title
+                class="stakes-title"
+              >
+                Redeem Rewards
+              </b-card-title>
+              <b-card-body>
+                <div class="d-flex flex-row">
+                  <h5 class="flex-grow-1">
+                    Paid:
+                  </h5>
+                  <h4>
+                    {{ calculatePaidRewards() }} Flux
+                  </h4>
+                </div>
+                <div class="d-flex flex-row">
+                  <h5 class="flex-grow-1">
+                    Available:
+                  </h5>
+                  <h4>
+                    {{ toFixedLocaleString(totalReward, 2) }} Flux
+                  </h4>
+                </div>
+                <div
+                  v-b-tooltip.hover.bottom="totalReward <= (titanConfig ? titanConfig.redeemFee : 0) ? 'Available balance is less than the redeem fee' : ''"
+                  class="float-right"
+                  style="display: inline-block;"
+                >
+                  <b-button
+                    v-if="totalReward > minStakeAmount"
+                    class="mt-2 mr-1"
+                    variant="danger"
+                    size="sm"
+                    pill
+                    @click="showStakeDialog(true)"
+                  >
+                    Re-invest Funds
+                  </b-button>
+                  <b-button
+                    id="redeemButton"
+                    class="float-right mt-2"
+                    variant="danger"
+                    size="sm"
+                    pill
+                    :disabled="totalReward <= (titanConfig ? titanConfig.redeemFee : 0)"
+                    @click="showRedeemDialog()"
+                  >
+                    Redeem
+                  </b-button>
+                </div>
+              </b-card-body>
+            </b-card>
+          </b-col>
           <b-col xxl="9">
             <b-card
               class="sharednodes-container"
@@ -617,6 +676,7 @@
           </b-col>
           <b-col
             xxl="3"
+            class="d-xxl-flex d-xl-none d-lg-none d-md-none d-sm-none"
           >
             <b-card no-body>
               <b-card-title
