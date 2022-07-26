@@ -13,7 +13,7 @@
           />
         </span>
         <h4 class="app-name mb-0 flex-grow-1">
-          Titan Shared Nodes
+          Titan Shared Nodes (Beta)
         </h4>
         <a
           href="https://medium.com/@oGGoldie/flux-titan-staking-guide-e0fb6ead6254"
