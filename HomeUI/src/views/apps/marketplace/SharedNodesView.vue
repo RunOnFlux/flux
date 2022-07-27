@@ -1878,7 +1878,7 @@ export default {
         totalCollateral.value += node.collateral;
       });
       // console.log(allNodes);
-      nodes.value = allNodes;
+      nodes.value = allNodes.sort((a, b) => (a.name.toLowerCase() > b.name.toLowerCase() ? 1 : -1));
     };
 
     const getMyStakes = async (force = false) => {
