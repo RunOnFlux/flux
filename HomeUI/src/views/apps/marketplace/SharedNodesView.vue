@@ -678,7 +678,10 @@
             xxl="3"
             class="d-xxl-flex d-xl-none d-lg-none d-md-none d-sm-none"
           >
-            <b-card no-body>
+            <b-card
+              no-body
+              class="flex-grow-1"
+            >
               <b-card-title
                 class="stakes-title"
               >
