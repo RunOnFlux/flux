@@ -459,7 +459,7 @@
                               class="node-status mt-auto mb-auto"
                               button
                               @click="showPaymentDetailsDialog(stake)"
-                              @click.stop="doThis"
+                              @click.stop=""
                             >
                               <v-icon
                                 scale="1.75"
