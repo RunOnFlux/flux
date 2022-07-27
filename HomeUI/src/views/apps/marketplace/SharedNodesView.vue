@@ -1890,7 +1890,9 @@ export default {
         totalReward.value = 0;
         response.data.forEach((stake) => {
           if (stake.expiry < now) {
-            expiredStakes.push(stake);
+            if (stake.state >= 4) { // ensure that only expired or completed stakes are in the Expired list
+              expiredStakes.push(stake);
+            }
           } else {
             activeStakes.push(stake);
           }
