@@ -862,6 +862,7 @@
             <b-form-select
               v-model="redeemAddress"
               :options="redeemAddresses"
+              :disabled="sendingRequest || requestSent || requestFailed"
             >
               <template #first>
                 <b-form-select-option
@@ -883,7 +884,7 @@
             class="text-center wizard-card"
           >
             <a
-              :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
+              :href="(sendingRequest || requestSent || requestFailed) ? '#' : `zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
               @click="initiateSignWS"
             >
               <img
@@ -903,6 +904,7 @@
             <b-form-input
               id="signature"
               v-model="signature"
+              :disabled="sendingRequest || requestSent || requestFailed"
             />
           </b-card>
         </tab-content>
@@ -1067,6 +1069,7 @@
             >
               <b-form-checkbox
                 v-model="selectedStake.autoreinvest"
+                :disabled="stakeRegistered || registeringStake || stakeRegisterFailed"
                 class="ml-auto mr-auto"
                 style="float: left;"
               >
@@ -1093,6 +1096,7 @@
                 <b-button
                   :class="index === selectedLockupIndex ? 'selectedLockupButton' : 'unselectedLockupButton'"
                   :style="`background-color: ${indexedTierColors[index]} !important;`"
+                  :disabled="stakeRegistered || registeringStake || stakeRegisterFailed"
                   @click="selectLockup(index)"
                 >
                   {{ lockup.name }} - ~{{ (lockup.apr*100).toFixed(2) }}%
@@ -1110,7 +1114,7 @@
             class="text-center wizard-card"
           >
             <a
-              :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
+              :href="(stakeRegistered || registeringStake || stakeRegisterFailed) ? '#' : `zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
               @click="initiateSignWS"
             >
               <img
@@ -1130,6 +1134,7 @@
             <b-form-input
               id="signature"
               v-model="signature"
+              :disabled="stakeRegistered || registeringStake || stakeRegisterFailed"
             />
           </b-card>
         </tab-content>
@@ -1228,6 +1233,7 @@
             >
               <b-form-checkbox
                 v-model="selectedStake.autoreinvest"
+                :disabled="stakeRegistered || registeringStake || stakeRegisterFailed"
                 class="ml-auto mr-auto"
                 style="float: left;"
               >
@@ -1245,7 +1251,7 @@
             class="text-center wizard-card"
           >
             <a
-              :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
+              :href="(stakeRegistered || registeringStake || stakeRegisterFailed) ? '#' : `zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
               @click="initiateSignWS"
             >
               <img
@@ -1265,6 +1271,7 @@
             <b-form-input
               id="signature"
               v-model="signature"
+              :disabled="stakeRegistered || registeringStake || stakeRegisterFailed"
             />
           </b-card>
         </tab-content>
@@ -1367,6 +1374,7 @@
               :max="maxStakeAmount"
               step="5"
               number
+              :disabled="stakeRegistered || registeringStake || stakeRegisterFailed"
             />
             <b-form-spinbutton
               id="stakeamount-spnner"
@@ -1375,6 +1383,7 @@
               :max="maxStakeAmount"
               size="lg"
               :formatter-fn="toFixedLocaleString"
+              :disabled="stakeRegistered || registeringStake || stakeRegisterFailed"
               class="stakeAmountSpinner"
             />
           </b-card>
@@ -1397,6 +1406,7 @@
                 <b-button
                   :class="(index === selectedLockupIndex ? 'selectedLockupButton' : 'unselectedLockupButton') + (reinvestingNewStake ? 'Small' : '')"
                   :style="`background-color: ${indexedTierColors[index]} !important;`"
+                  :disabled="stakeRegistered || registeringStake || stakeRegisterFailed"
                   @click="selectLockup(index)"
                 >
                   {{ lockup.name }} - ~{{ (lockup.apr*100).toFixed(2) }}%
@@ -1406,6 +1416,7 @@
             <div class="d-flex">
               <b-form-checkbox
                 v-model="autoReinvestStake"
+                :disabled="stakeRegistered || registeringStake || stakeRegisterFailed"
                 class="ml-auto mr-auto"
                 style="float: left;"
               >
@@ -1423,7 +1434,7 @@
             class="text-center wizard-card"
           >
             <a
-              :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
+              :href="(stakeRegistered || registeringStake || stakeRegisterFailed) ? '#' : `zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
               @click="initiateSignWS"
             >
               <img
@@ -1443,6 +1454,7 @@
             <b-form-input
               id="signature"
               v-model="signature"
+              :disabled="stakeRegistered || registeringStake || stakeRegisterFailed"
             />
           </b-card>
         </tab-content>
@@ -1742,6 +1754,9 @@ export default {
     };
 
     const initiateSignWS = () => {
+      if (stakeRegistered.value || registeringStake.value || stakeRegisterFailed.value) {
+        return;
+      }
       const { protocol, hostname } = window.location;
       let mybackend = '';
       mybackend += protocol;
