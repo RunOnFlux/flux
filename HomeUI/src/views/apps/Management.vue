@@ -784,7 +784,7 @@
                 <confirm-dialog
                   target="stop-app"
                   confirm-button="Stop App"
-                  @confirm="stopAll(appName)"
+                  @confirm="stopApp(appName)"
                 />
                 <b-button
                   id="restart-app"
@@ -845,7 +845,7 @@
           <b-col xs="6">
             <b-card title="Redeploy">
               <b-card-text class="mb-2">
-                The Pause command suspends all processes in the specified App.
+                Redeployes your application. Hard redeploy removes persistant data storage.
               </b-card-text>
               <div class="text-center">
                 <b-button
@@ -946,7 +946,7 @@
                   <confirm-dialog
                     :target="`stop-app-${component.name}_${appSpecification.name}`"
                     confirm-button="Stop App"
-                    @confirm="stopAll(`${component.name}_${appSpecification.name}`)"
+                    @confirm="stopApp(`${component.name}_${appSpecification.name}`)"
                   />
                   <b-button
                     :id="`restart-app-${component.name}_${appSpecification.name}`"
@@ -1379,6 +1379,165 @@
           Global Specifications loading...
         </div>
       </b-tab>
+      <b-tab title="Global Control">
+        <div v-if="globalZelidAuthorized">
+          <b-row class="match-height">
+            <b-col xs="6">
+              <b-card title="Control">
+                <b-card-text class="mb-2">
+                  {{ isAppOwner ? 'General options to control all instances of your application' : 'General options to control instances of selected application running on all nodes that you own' }}
+                </b-card-text>
+                <div class="text-center">
+                  <b-button
+                    id="start-app-global"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Start App"
+                    class="mx-1 my-1"
+                  >
+                    Start App
+                  </b-button>
+                  <confirm-dialog
+                    target="start-app-global"
+                    confirm-button="Start App"
+                    @confirm="startAppGlobally(appName)"
+                  />
+                  <b-button
+                    id="stop-app-global"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Stop App"
+                    class="mx-1 my-1"
+                  >
+                    Stop App
+                  </b-button>
+                  <confirm-dialog
+                    target="stop-app-global"
+                    confirm-button="Stop App"
+                    @confirm="stopAppGlobally(appName)"
+                  />
+                  <b-button
+                    id="restart-app-global"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Restart App"
+                    class="mx-1 my-1"
+                  >
+                    Restart App
+                  </b-button>
+                  <confirm-dialog
+                    target="restart-app-global"
+                    confirm-button="Restart App"
+                    @confirm="restartAppGlobally(appName)"
+                  />
+                </div>
+              </b-card>
+            </b-col>
+            <b-col xs="6">
+              <b-card title="Pause">
+                <b-card-text class="mb-2">
+                  {{ isAppOwner ? 'The Pause command suspends all processes of all instances of your app' : 'The Pause command suspends all processes of selected application on all of nodes that you own' }}
+                </b-card-text>
+                <div class="text-center">
+                  <b-button
+                    id="pause-app-global"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Pause App"
+                    class="mx-1 my-1"
+                  >
+                    Pause App
+                  </b-button>
+                  <confirm-dialog
+                    target="pause-app-global"
+                    confirm-button="Pause App"
+                    @confirm="pauseAppGlobally(appName)"
+                  />
+                  <b-button
+                    id="unpause-app-global"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Unpause App"
+                    class="mx-1 my-1"
+                  >
+                    Unpause App
+                  </b-button>
+                  <confirm-dialog
+                    target="unpause-app-global"
+                    confirm-button="Unpause App"
+                    @confirm="unpauseAppGlobally(appName)"
+                  />
+                </div>
+              </b-card>
+            </b-col>
+          </b-row>
+          <b-row class="match-height">
+            <b-col xs="6">
+              <b-card title="Redeploy">
+                <b-card-text class="mb-2">
+                  {{ isAppOwner ? 'Redeployes all instances of your application. Hard redeploy removes persistant data storage.' : 'Redeployes instances of selected application running on all of your nodes. Hard redeploy removes persistant data storage.' }}
+                </b-card-text>
+                <div class="text-center">
+                  <b-button
+                    id="redeploy-app-soft-global"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Soft Redeploy App"
+                    class="mx-1 my-1"
+                  >
+                    Soft Redeploy App
+                  </b-button>
+                  <confirm-dialog
+                    target="redeploy-app-soft-global"
+                    confirm-button="Redeploy"
+                    @confirm="redeployAppSoftGlobally(appName)"
+                  />
+                  <b-button
+                    id="redeploy-app-hard-global"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Hard Redeploy App"
+                    class="mx-1 my-1"
+                  >
+                    Hard Redeploy App
+                  </b-button>
+                  <confirm-dialog
+                    target="redeploy-app-hard-global"
+                    confirm-button="Redeploy"
+                    @confirm="redeployAppHardGlobally(appName)"
+                  />
+                </div>
+              </b-card>
+            </b-col>
+            <b-col xs="6">
+              <b-card title="Reinstall">
+                <b-card-text class="mb-2">
+                  {{ isAppOwner ? 'Removes all instances of your App forcing an installation on different nodes.' : 'Removes all instances of selected App on all of your nodes forcing installation on different nodes.' }}
+                </b-card-text>
+                <div class="text-center">
+                  <b-button
+                    id="remove-app-global"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Reinstall App"
+                    class="mx-1 my-1"
+                  >
+                    Reinstall App
+                  </b-button>
+                  <confirm-dialog
+                    target="remove-app-global"
+                    confirm-button="Reinstall App"
+                    @confirm="removeAppGlobally(appName)"
+                  />
+                </div>
+              </b-card>
+            </b-col>
+          </b-row>
+        </div>
+        <div v-else>
+          Global management session expired. Please log out and back into FluxOS.
+        </div>
+      </b-tab>
       <b-tab title="Running Instances">
         <b-row>
           <b-col
@@ -1476,7 +1635,7 @@
                   size="sm"
                   class="mr-1"
                   variant="danger"
-                  @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], row.item.port || (row.item.ports ? row.item.ports[0] : row.item.compose[0].ports[0]))"
+                  @click="openApp(locationRow.item.name, locationRow.item.ip.split(':')[0], appUpdateSpecification.port || (appUpdateSpecification.ports ? JSON.parse(appUpdateSpecification.ports)[0] : JSON.parse(appUpdateSpecification.compose[0]).ports[0]))"
                 >
                   Visit App
                 </b-button>
@@ -1504,7 +1663,10 @@
           </b-col>
         </b-row>
       </b-tab>
-      <b-tab title="Update Specifications">
+      <b-tab
+        title="Update Specifications"
+        :disabled="!isAppOwner"
+      >
         <div
           v-if="!fluxCommunication"
           class="text-danger"
@@ -2562,6 +2724,7 @@ import ListEntry from '@/views/components/ListEntry.vue';
 import AppsService from '@/services/AppsService';
 import DaemonService from '@/services/DaemonService';
 
+const axios = require('axios');
 const qs = require('qs');
 const store = require('store');
 const timeoptions = require('@/libs/dateFormat');
@@ -2772,6 +2935,7 @@ export default {
       }],
       selectedContinent: null,
       selectedCountry: null,
+      globalZelidAuthorized: false,
     };
   },
   computed: {
@@ -2804,6 +2968,14 @@ export default {
       const backendURL = store.get('backendURL') || mybackend;
       const url = `${backendURL}/id/providesign`;
       return encodeURI(url);
+    },
+    isAppOwner() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const zelidHeader = qs.parse(zelidauth);
+      if (zelidauth && zelidHeader && zelidHeader.zelid && this.selectedAppOwner === zelidHeader.zelid) {
+        return true;
+      }
+      return false;
     },
     validTill() {
       const expTime = this.timestamp + 60 * 60 * 1000; // 1 hour
@@ -2863,7 +3035,7 @@ export default {
       const lowerCaseName = appName.toLowerCase();
 
       if (!this.appSpecification.compose) {
-        const ports = JSON.parse(this.callBResponse.data.ports);
+        const ports = JSON.parse(JSON.stringify(this.callBResponse.data.containerPorts));
         const domains = [`${lowerCaseName}.app.runonflux.io`];
         // flux specs dont allow more than 10 ports so domainString is enough
         for (let i = 0; i < ports.length; i += 1) {
@@ -2897,7 +3069,7 @@ export default {
       const lowerCaseName = appName.toLowerCase();
 
       if (!this.callBResponse.data.compose) {
-        const ports = JSON.parse(this.callBResponse.data.ports);
+        const ports = JSON.parse(JSON.stringify(this.callBResponse.data.containerPorts));
         const domains = [`${lowerCaseName}.app.runonflux.io`];
         // flux specs dont allow more than 10 ports so domainString is enough
         for (let i = 0; i < ports.length; i += 1) {
@@ -2990,9 +3162,12 @@ export default {
           this.getGlobalApplicationSpecifics();
           break;
         case 11:
-          this.getApplicationLocations();
+          this.getZelidAuthority();
           break;
         case 12:
+          this.getApplicationLocations();
+          break;
+        case 13:
           this.getGlobalApplicationSpecifics();
           break;
         default:
@@ -3085,9 +3260,10 @@ export default {
         this.callBResponse.data = response.data.data;
         const specs = response.data.data;
         console.log(specs);
-        this.appUpdateSpecification = specs;
+        this.appUpdateSpecification = JSON.parse(JSON.stringify(specs));
         this.appUpdateSpecification.instances = specs.instances || 3;
         if (this.appUpdateSpecification.version <= 3) {
+          this.appUpdateSpecification.version = 3; // enforce specs version 3
           this.appUpdateSpecification.ports = specs.port || this.ensureString(specs.ports); // v1 compatibility
           this.appUpdateSpecification.domains = this.ensureString(specs.domains);
           this.appUpdateSpecification.enviromentParameters = this.ensureString(specs.enviromentParameters);
@@ -3096,14 +3272,11 @@ export default {
         } else {
           this.selectedContinent = null;
           this.selectedCountry = null;
-          // todo v4 to v5 after fork happened for all heights.
-          if (specs.height > 1142000) {
-            this.appUpdateSpecification = 5;
-            this.appUpdateSpecification.contacts = '[]';
-            this.appUpdateSpecification.geolocation = '[]';
-          }
+          this.appUpdateSpecification.version = 5; // enforce specs v5
+          this.appUpdateSpecification.contacts = this.ensureString([]);
+          this.appUpdateSpecification.geolocation = this.ensureString([]);
           if (this.appUpdateSpecification.version >= 5) {
-            this.appUpdateSpecification.contacts = this.ensureString(specs.contacts);
+            this.appUpdateSpecification.contacts = this.ensureString(specs.contacts || []);
             if (specs.geolocation && specs.geolocation.length > 0) {
               const appContinent = specs.geolocation.find((x) => x.startsWith('a'));
               if (appContinent) {
@@ -3116,7 +3289,7 @@ export default {
                 this.selectedCountry = countryFound ? countryFound.value : null;
               }
             }
-            this.appUpdateSpecification.geolocation = this.ensureString(specs.geolocation);
+            this.appUpdateSpecification.geolocation = this.ensureString(specs.geolocation || []);
           }
           this.appUpdateSpecification.compose.forEach((component) => {
             // eslint-disable-next-line no-param-reassign
@@ -3130,9 +3303,6 @@ export default {
             // eslint-disable-next-line no-param-reassign
             component.containerPorts = this.ensureString(component.containerPorts);
           });
-        }
-        if (this.appUpdateSpecification.version <= 3) { // fork height for spec v3
-          this.appUpdateSpecification.version = 3; // enforce specs version 3
         }
       }
     },
@@ -3488,11 +3658,11 @@ export default {
       this.selectedAppOwner = response.data.data;
     },
 
-    async stopAll(app) {
+    async stopApp(app) {
       this.output = '';
       this.showToast('warning', `Stopping ${app}`);
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await AppsService.stopAll(zelidauth, app);
+      const response = await AppsService.stopApp(zelidauth, app);
       if (response.data.status === 'success') {
         this.showToast('success', response.data.data.message || response.data.data);
       } else {
@@ -3613,6 +3783,80 @@ export default {
           self.managedApplication = '';
         }, 5000);
       }
+    },
+    getZelidAuthority() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      this.globalZelidAuthorized = false;
+      const auth = qs.parse(zelidauth);
+      const timestamp = new Date().getTime();
+      const maxHours = 1.5 * 60 * 60 * 1000;
+      const mesTime = auth.loginPhrase.substring(0, 13);
+      if (+mesTime < (timestamp - maxHours)) {
+        this.globalZelidAuthorized = false;
+      } else {
+        this.globalZelidAuthorized = true;
+      }
+    },
+    async delay(ms) {
+      return new Promise((resolve) => setTimeout(resolve, ms));
+    },
+    async executeCommand(app, command, textA, textB, parameter) {
+      try {
+        const zelidauth = localStorage.getItem('zelidauth');
+        const axiosConfig = {
+          headers: {
+            zelidauth,
+          },
+        };
+        this.getZelidAuthority();
+        if (!this.globalZelidAuthorized) {
+          throw new Error('Session expired. Please log into FluxOS again');
+        }
+
+        // get app instances
+        const response = await AppsService.getAppLocation(this.appName);
+        const instData = response.data.data;
+        this.showToast('warning', textA);
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appInstance of instData) {
+          const ip = appInstance.ip.split(':')[0];
+          const port = appInstance.ip.split(':')[1] || 16127;
+          let url = `http://${ip}:${port}/apps/${command}/${app}`;
+          if (parameter) {
+            url += `/${parameter}`;
+          }
+          axios.get(url, axiosConfig); // do not wait
+          // eslint-disable-next-line no-await-in-loop
+          await this.delay(500);
+        }
+        this.showToast('success', textB);
+      } catch (error) {
+        this.showToast('danger', error.message || error);
+      }
+    },
+    async stopAppGlobally(app) {
+      this.executeCommand(app, 'appstop', `Stopping ${app} globally. This will take a while...`, 'Application stopped globally');
+    },
+    async startAppGlobally(app) {
+      this.executeCommand(app, 'appstart', `Starting ${app} globally. This will take a while...`, 'Application started globally');
+    },
+    async restartAppGlobally(app) {
+      this.executeCommand(app, 'apprestart', `Restarting ${app} globally. This will take a while...`, 'Application restarted globally');
+    },
+    async pauseAppGlobally(app) {
+      this.executeCommand(app, 'apppause', `Pausing ${app} globally. This will take a while...`, 'Application paused globally');
+    },
+    async unpauseAppGlobally(app) {
+      this.executeCommand(app, 'appunpause', `Unpausing ${app} globally. This will take a while...`, 'Application unpaused globally');
+    },
+    async redeployAppSoftGlobally(app) {
+      this.executeCommand(app, 'redeploy', `Soft redeploying ${app} globally. This will take a while...`, 'Application soft redeployment initiated', 'false');
+    },
+    async redeployAppHardGlobally(app) {
+      this.executeCommand(app, 'redeploy', `Hard redeploying ${app} globally. This will take a while...`, 'Application hard redeployment initiated', 'true');
+    },
+    async removeAppGlobally(app) {
+      this.executeCommand(app, 'appremove', `Reinstalling ${app} globally. This will take a while...`, 'Application reinstallation initiated');
     },
     openApp(name, _ip, _port) {
       console.log(name, _ip, _port);

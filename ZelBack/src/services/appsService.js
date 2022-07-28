@@ -23,7 +23,7 @@ const benchmarkService = require('./benchmarkService');
 const dockerService = require('./dockerService');
 const generalService = require('./generalService');
 const upnpService = require('./upnpService');
-const fluxService = require('./fluxService');
+const geolocationService = require('./geolocationService');
 const log = require('../lib/log');
 const userconfig = require('../../../config/userconfig');
 
@@ -101,7 +101,7 @@ async function listRunningApps(req, res) {
 }
 
 /**
- * To list all apps. Shall be identical to installedApps but this is the Docker response.
+ * To list all apps or app components Shall be identical to installedApps but this is the Docker response.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {object} Message.
@@ -1657,7 +1657,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
 
     let appId = dockerService.getAppIdentifier(app); // get app or app component identifier
 
-    if (appSpecifications.version === 4 && !isComponent) {
+    if (appSpecifications.version >= 4 && !isComponent) {
       // it is a composed application
       // eslint-disable-next-line no-restricted-syntax
       for (const appComposedComponent of appSpecifications.compose.reverse()) {
@@ -1878,7 +1878,7 @@ async function softRemoveAppLocally(app, res) {
 
   let appId = dockerService.getAppIdentifier(app);
 
-  if (appSpecifications.version === 4 && !isComponent) {
+  if (appSpecifications.version >= 4 && !isComponent) {
     // it is a composed application
     // eslint-disable-next-line no-restricted-syntax
     for (const appComposedComponent of appSpecifications.compose.reverse()) {
@@ -2023,22 +2023,22 @@ function totalAppHWRequirements(appSpecifications, myNodeTier) {
 function checkAppGeolocationRequirements(appSpecs) {
   // check geolocation
   if (appSpecs.version >= 5) {
-    const nodeGeo = fluxService.getNodeGeolocation();
+    const nodeGeo = geolocationService.getNodeGeolocation();
     if (!nodeGeo) {
       throw new Error('Node Geolocation not set. Aborting.');
     }
     if (appSpecs.geolocation && appSpecs.geolocation.length > 0) {
       const appContinent = appSpecs.geolocation.find((x) => x.startsWith('a'));
+      const appCountry = appSpecs.geolocation.find((x) => x.startsWith('b'));
       if (appContinent) {
         if (appContinent.slice(1) !== nodeGeo.continentCode) {
           throw new Error('App specs with continents geolocation set not matching node geolocation. Aborting.');
         }
+      }
 
-        const appCountry = appSpecs.geolocation.find((x) => x.startsWith('b'));
-        if (appCountry) {
-          if (appCountry.slice(1) !== nodeGeo.countryCode) {
-            throw new Error('App specs with countries geolocation set not matching node geolocation. Aborting.');
-          }
+      if (appCountry) {
+        if (appCountry.slice(1) !== nodeGeo.countryCode) {
+          throw new Error('App specs with countries geolocation set not matching node geolocation. Aborting.');
         }
       }
     }
@@ -6398,6 +6398,8 @@ async function trySpawningGlobalApplication() {
       log.info(`App ${randomApp} was already evaluated in the last 30m.`);
       if (numberOfGlobalApps < 20) {
         await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
+      } else {
+        await serviceHelper.delay(config.fluxapps.installation.delay * 1000 * 0.1);
       }
       trySpawningGlobalApplication();
       return;
@@ -7465,6 +7467,49 @@ async function stopAllNonFluxRunningApps() {
   }
 }
 
+// there might be some apps reported by docker but not installed. In that case compare list and initiate force removal
+async function forceAppRemovals() {
+  try {
+    const dockerAppsReported = await listAllApps();
+    const dockerApps = dockerAppsReported.data;
+    const installedAppsRes = await installedApps();
+    const appsInstalled = installedAppsRes.data;
+    const dockerAppsNames = dockerApps.map((app) => {
+      if (app.Names[0].startsWith('/zel')) {
+        return app.Names[0].slice(4);
+      }
+      return app.Names[0].slice(5);
+    });
+    const dockerAppsTrueNames = [];
+    dockerAppsNames.forEach((appName) => {
+      const name = appName.split('_')[1] || appName;
+      dockerAppsTrueNames.push(name);
+    });
+
+    // array of unique main app names
+    const dockerAppsTrueNameB = [...new Set(dockerAppsTrueNames)];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const dApp of dockerAppsTrueNameB) {
+      // check if app is in installedApps
+      const appInstalledExists = appsInstalled.find((app) => app.name === dApp);
+      if (!appInstalledExists) {
+        // eslint-disable-next-line no-await-in-loop
+        const appDetails = await getApplicationGlobalSpecifications(dApp);
+        if (appDetails) {
+          // it is global app
+          // do removal
+          log.warn(`${dApp} does not exist in installed apps, forcing removal`);
+          removeAppLocally(dApp, null, true); // remove entire app
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.delay(10 * 60 * 1000); // 10 mins
+        }
+      }
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
 module.exports = {
   listRunningApps,
   listAllApps,
@@ -7545,4 +7590,5 @@ module.exports = {
   restorePortsSupport,
   restoreFluxPortsSupport,
   restoreAppsPortsSupport,
+  forceAppRemovals,
 };
