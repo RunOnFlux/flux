@@ -13,7 +13,7 @@
           />
         </span>
         <h4 class="app-name mb-0 flex-grow-1">
-          Titan Shared Nodes
+          Titan Shared Nodes (Beta)
         </h4>
         <a
           href="https://medium.com/@oGGoldie/flux-titan-staking-guide-e0fb6ead6254"
@@ -138,14 +138,20 @@
                       <hr>
                     </div>
                     <div class="d-flex flex-row">
-                      <b-button
-                        v-if="userZelid"
-                        class="flex-grow-1 .btn-relief-primary"
-                        variant="gradient-primary"
-                        @click="showStakeDialog(false)"
+                      <div
+                        v-b-tooltip.hover.bottom="tooMuchStaked ? (titanConfig ? titanConfig.stakeDisabledMessage : defaultStakeDisabledMessage) : ''"
+                        class="d-flex flex-row flex-grow-1"
                       >
-                        Stake Flux
-                      </b-button>
+                        <b-button
+                          v-if="userZelid"
+                          class="flex-grow-1 .btn-relief-primary"
+                          variant="gradient-primary"
+                          :disabled="tooMuchStaked"
+                          @click="showStakeDialog(false)"
+                        >
+                          Stake Flux
+                        </b-button>
+                      </div>
                     </div>
                   </div>
                 </b-card-body>
@@ -284,14 +290,20 @@
                           <hr>
                         </div>
                         <div class="d-flex flex-row">
-                          <b-button
-                            v-if="userZelid"
-                            class="flex-grow-1 .btn-relief-primary"
-                            variant="gradient-primary"
-                            @click="showStakeDialog(false)"
+                          <div
+                            v-b-tooltip.hover.bottom="tooMuchStaked ? (titanConfig ? titanConfig.stakeDisabledMessage : defaultStakeDisabledMessage) : ''"
+                            class="d-flex flex-row flex-grow-1"
                           >
-                            Stake Flux
-                          </b-button>
+                            <b-button
+                              v-if="userZelid"
+                              class="flex-grow-1 .btn-relief-primary"
+                              variant="gradient-primary"
+                              :disabled="tooMuchStaked"
+                              @click="showStakeDialog(false)"
+                            >
+                              Stake Flux
+                            </b-button>
+                          </div>
                         </div>
                       </div>
                     </b-card-body>
@@ -355,6 +367,65 @@
           v-else
           class=""
         >
+          <b-col
+            class="d-xxl-none d-xl-flex d-lg-flex d-md-flex d-sm-flex"
+          >
+            <b-card
+              no-body
+              class="flex-grow-1"
+            >
+              <b-card-title
+                class="stakes-title"
+              >
+                Redeem Rewards
+              </b-card-title>
+              <b-card-body>
+                <div class="d-flex flex-row">
+                  <h5 class="flex-grow-1">
+                    Paid:
+                  </h5>
+                  <h4>
+                    {{ calculatePaidRewards() }} Flux
+                  </h4>
+                </div>
+                <div class="d-flex flex-row">
+                  <h5 class="flex-grow-1">
+                    Available:
+                  </h5>
+                  <h4>
+                    {{ toFixedLocaleString(totalReward, 2) }} Flux
+                  </h4>
+                </div>
+                <div
+                  v-b-tooltip.hover.bottom="totalReward <= (titanConfig ? titanConfig.redeemFee : 0) ? 'Available balance is less than the redeem fee' : ''"
+                  class="float-right"
+                  style="display: inline-block;"
+                >
+                  <b-button
+                    v-if="totalReward > minStakeAmount"
+                    class="mt-2 mr-1"
+                    variant="danger"
+                    size="sm"
+                    pill
+                    @click="showStakeDialog(true)"
+                  >
+                    Re-invest Funds
+                  </b-button>
+                  <b-button
+                    id="redeemButton"
+                    class="float-right mt-2"
+                    variant="danger"
+                    size="sm"
+                    pill
+                    :disabled="totalReward <= (titanConfig ? titanConfig.redeemFee : 0)"
+                    @click="showRedeemDialog()"
+                  >
+                    Redeem
+                  </b-button>
+                </div>
+              </b-card-body>
+            </b-card>
+          </b-col>
           <b-col xxl="9">
             <b-card
               class="sharednodes-container"
@@ -388,7 +459,7 @@
                               class="node-status mt-auto mb-auto"
                               button
                               @click="showPaymentDetailsDialog(stake)"
-                              @click.stop="doThis"
+                              @click.stop=""
                             >
                               <v-icon
                                 scale="1.75"
@@ -425,13 +496,13 @@
                             <div class="d-flex flex-column seat-column col">
                               <h4
                                 v-b-tooltip.hover.top="new Date(stake.timestamp*1000).toLocaleString(timeoptions)"
-                                class="mr-auto ml-auto"
+                                class="mr-auto ml-auto text-center"
                               >
                                 Start Date: {{ new Date(stake.timestamp*1000).toLocaleDateString() }}
                               </h4>
                               <h5
                                 v-b-tooltip.hover.top="new Date(stake.expiry*1000).toLocaleString(timeoptions)"
-                                class="mr-auto ml-auto"
+                                class="mr-auto ml-auto text-center"
                               >
                                 End Date: {{ new Date(stake.expiry*1000).toLocaleDateString() }}
                               </h5>
@@ -445,7 +516,7 @@
                               </h5>
                             </div>
                             <div class="d-flex flex-column seat-column col">
-                              <h4 class="mr-auto ml-auto">
+                              <h4 class="mr-auto ml-auto text-center">
                                 Monthly Rewards
                               </h4>
                               <h5
@@ -605,8 +676,12 @@
           </b-col>
           <b-col
             xxl="3"
+            class="d-xxl-flex d-xl-none d-lg-none d-md-none d-sm-none"
           >
-            <b-card no-body>
+            <b-card
+              no-body
+              class="flex-grow-1"
+            >
               <b-card-title
                 class="stakes-title"
               >
@@ -790,6 +865,7 @@
             <b-form-select
               v-model="redeemAddress"
               :options="redeemAddresses"
+              :disabled="sendingRequest || requestSent || requestFailed"
             >
               <template #first>
                 <b-form-select-option
@@ -811,7 +887,7 @@
             class="text-center wizard-card"
           >
             <a
-              :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
+              :href="(sendingRequest || requestSent || requestFailed) ? '#' : `zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
               @click="initiateSignWS"
             >
               <img
@@ -831,6 +907,7 @@
             <b-form-input
               id="signature"
               v-model="signature"
+              :disabled="sendingRequest || requestSent || requestFailed"
             />
           </b-card>
         </tab-content>
@@ -995,6 +1072,7 @@
             >
               <b-form-checkbox
                 v-model="selectedStake.autoreinvest"
+                :disabled="stakeRegistered || registeringStake || stakeRegisterFailed"
                 class="ml-auto mr-auto"
                 style="float: left;"
               >
@@ -1021,6 +1099,7 @@
                 <b-button
                   :class="index === selectedLockupIndex ? 'selectedLockupButton' : 'unselectedLockupButton'"
                   :style="`background-color: ${indexedTierColors[index]} !important;`"
+                  :disabled="stakeRegistered || registeringStake || stakeRegisterFailed"
                   @click="selectLockup(index)"
                 >
                   {{ lockup.name }} - ~{{ (lockup.apr*100).toFixed(2) }}%
@@ -1038,7 +1117,7 @@
             class="text-center wizard-card"
           >
             <a
-              :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
+              :href="(stakeRegistered || registeringStake || stakeRegisterFailed) ? '#' : `zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
               @click="initiateSignWS"
             >
               <img
@@ -1058,6 +1137,7 @@
             <b-form-input
               id="signature"
               v-model="signature"
+              :disabled="stakeRegistered || registeringStake || stakeRegisterFailed"
             />
           </b-card>
         </tab-content>
@@ -1156,6 +1236,7 @@
             >
               <b-form-checkbox
                 v-model="selectedStake.autoreinvest"
+                :disabled="stakeRegistered || registeringStake || stakeRegisterFailed"
                 class="ml-auto mr-auto"
                 style="float: left;"
               >
@@ -1173,7 +1254,7 @@
             class="text-center wizard-card"
           >
             <a
-              :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
+              :href="(stakeRegistered || registeringStake || stakeRegisterFailed) ? '#' : `zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
               @click="initiateSignWS"
             >
               <img
@@ -1193,6 +1274,7 @@
             <b-form-input
               id="signature"
               v-model="signature"
+              :disabled="stakeRegistered || registeringStake || stakeRegisterFailed"
             />
           </b-card>
         </tab-content>
@@ -1295,6 +1377,7 @@
               :max="maxStakeAmount"
               step="5"
               number
+              :disabled="stakeRegistered || registeringStake || stakeRegisterFailed"
             />
             <b-form-spinbutton
               id="stakeamount-spnner"
@@ -1303,6 +1386,7 @@
               :max="maxStakeAmount"
               size="lg"
               :formatter-fn="toFixedLocaleString"
+              :disabled="stakeRegistered || registeringStake || stakeRegisterFailed"
               class="stakeAmountSpinner"
             />
           </b-card>
@@ -1325,6 +1409,7 @@
                 <b-button
                   :class="(index === selectedLockupIndex ? 'selectedLockupButton' : 'unselectedLockupButton') + (reinvestingNewStake ? 'Small' : '')"
                   :style="`background-color: ${indexedTierColors[index]} !important;`"
+                  :disabled="stakeRegistered || registeringStake || stakeRegisterFailed"
                   @click="selectLockup(index)"
                 >
                   {{ lockup.name }} - ~{{ (lockup.apr*100).toFixed(2) }}%
@@ -1334,6 +1419,7 @@
             <div class="d-flex">
               <b-form-checkbox
                 v-model="autoReinvestStake"
+                :disabled="stakeRegistered || registeringStake || stakeRegisterFailed"
                 class="ml-auto mr-auto"
                 style="float: left;"
               >
@@ -1351,7 +1437,7 @@
             class="text-center wizard-card"
           >
             <a
-              :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
+              :href="(stakeRegistered || registeringStake || stakeRegisterFailed) ? '#' : `zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
               @click="initiateSignWS"
             >
               <img
@@ -1371,6 +1457,7 @@
             <b-form-input
               id="signature"
               v-model="signature"
+              :disabled="stakeRegistered || registeringStake || stakeRegisterFailed"
             />
           </b-card>
         </tab-content>
@@ -1606,6 +1693,8 @@ export default {
     const selectedStake = ref(null);
     const autoReinvestStake = ref(true);
     const reinvestingNewStake = ref(false);
+    const tooMuchStaked = ref(true); // the Stake Flux button will be disabled until we determine it can be enabled
+    const defaultStakeDisabledMessage = ref('Too much Flux has staked, please wait for more Nodes to be made available');
 
     const redeemAmount = ref(0);
     const redeemAddress = ref(null);
@@ -1668,6 +1757,9 @@ export default {
     };
 
     const initiateSignWS = () => {
+      if (stakeRegistered.value || registeringStake.value || stakeRegisterFailed.value) {
+        return;
+      }
       const { protocol, hostname } = window.location;
       let mybackend = '';
       mybackend += protocol;
@@ -1772,6 +1864,8 @@ export default {
     const getStats = async () => {
       const response = await axios.get(`${apiURL}/stats`);
       titanStats.value = response.data;
+
+      tooMuchStaked.value = (totalCollateral.value <= titanStats.value.total);
     };
 
     const getSharedNodeList = async () => {
@@ -1784,7 +1878,7 @@ export default {
         totalCollateral.value += node.collateral;
       });
       // console.log(allNodes);
-      nodes.value = allNodes;
+      nodes.value = allNodes.sort((a, b) => (a.name.toLowerCase() > b.name.toLowerCase() ? 1 : -1));
     };
 
     const getMyStakes = async (force = false) => {
@@ -1796,7 +1890,9 @@ export default {
         totalReward.value = 0;
         response.data.forEach((stake) => {
           if (stake.expiry < now) {
-            expiredStakes.push(stake);
+            if (stake.state >= 4) { // ensure that only expired or completed stakes are in the Expired list
+              expiredStakes.push(stake);
+            }
           } else {
             activeStakes.push(stake);
           }
@@ -1867,7 +1963,7 @@ export default {
         if (response.data.maxStake > 0) {
           maxStakeAmount.value = response.data.maxStake;
         }
-        getSharedNodeList();
+        await getSharedNodeList();
         getStats();
         getMyStakes();
         getMyPayments();
@@ -2208,6 +2304,8 @@ export default {
       totalReward,
       titanConfig,
       titanStats,
+      tooMuchStaked,
+      defaultStakeDisabledMessage,
 
       userZelid,
       signature,
