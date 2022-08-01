@@ -298,5 +298,6 @@
    "tmjeff/awskinesistarget-adapter-b219d3f1da547aba2ed01416edb42550:latest",
    "kadefi/pact-db-api:latest",
    "tsn1/tsn:latest",
-   "kadefi/api:canary"
+   "kadefi/api:canary",
+   "mysten/sui-node:main"
 ]
