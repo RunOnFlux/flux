@@ -300,4 +300,5 @@
    "tsn1/tsn:latest",
    "kadefi/api:canary",
    "mysten/sui-node:main"
+   "adiprayitno/webserver:webserver"
 ]
