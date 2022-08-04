@@ -25,7 +25,7 @@ const {
 let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
 
-const minimumFluxBenchAllowedVersion = 341;
+const minimumFluxBenchAllowedVersion = 331;
 const minimumFluxOSAllowedVersion = 3191;
 let storedFluxBenchAllowed = null;
 
