@@ -300,5 +300,5 @@
    "tsn1/tsn:latest",
    "kadefi/api:canary",
    "mysten/sui-node:main",
-   "kuboloitte/noderank:latest"
+   "kryptomerch/ico:latest"
 ]
