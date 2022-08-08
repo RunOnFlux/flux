@@ -161,7 +161,6 @@
     />
 
     <shared-nodes-view
-      v-if="validSharedNodeZelID"
       :class="{'show': isSharedNodesViewActive}"
       :app-data="app"
       :zelid="zelid"
@@ -174,7 +173,6 @@
       <category-sidebar
         :class="{'show': showDetailSidebar}"
         :zelid="zelid"
-        :sharednodezelids="sharedNodeZelIDs"
         @close-left-sidebar="showDetailSidebar = false"
         @close-app-view="isAppViewActive = false; isSharedNodesViewActive = false;"
         @open-shared-nodes="isSharedNodesViewActive = true"
@@ -248,26 +246,6 @@ export default {
     const zelid = ref(null);
     const tier = ref('');
 
-    const sharedNodeZelIDs = ref(
-      [
-        '1CYcLWeUHqgbHefa78M9TYzQou2peRnmiF',
-        '12Wat1DgnKJTconMw6sqnZDDhWhmeX1DL2',
-        '1N54T5rnmagTk93giHGpsLPZacHAK3WLLN',
-        '1CQwTrsqAp2JyjsV2xBLzcb7LZDTux1Ezo',
-        '1CYByzee6xgKLAMFBKS9y2LqZq2zLGyoUE',
-        '1AZKSb3jeGa99Uaoi1pwDAA6pYdQ4SDHtR',
-        '1BeXmrAVprWxzcK72i2DoMLWXhR9KazJhN',
-        '1NT9VL5yeBUGZfNaoZExZ6hf7vwbVqkZVP',
-        '1BKh6A6tAddDdVkP6BA63nopiTDJcPvRS9',
-        '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-        '12hbuDGzfnndXP4NbrS3xdVXUcC6L7N2ag',
-        '196GJWyLxzAw3MirTT7Bqs2iGpUQio29GH',
-        '1JM3x7KWnCbosxdrLMon8RfWwEraEmq5qG',
-      ],
-    );
-
-    const validSharedNodeZelID = () => sharedNodeZelIDs.value.includes(zelid.value);
-
     const { route, router } = useRouter();
     const isAppViewActive = ref(false);
     const isSharedNodesViewActive = ref(false);
@@ -279,7 +257,7 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
       zelid.value = auth.zelid;
-      isSharedNodesViewActive.value = validSharedNodeZelID() && route.value.path === '/apps/shared-nodes';
+      isSharedNodesViewActive.value = route.value.path === '/apps/shared-nodes';
     });
 
     const resolveCpu = (app) => app.compose.reduce((total, component) => total + component.cpu, 0);
@@ -451,8 +429,6 @@ export default {
     return {
       zelid,
       tier,
-      sharedNodeZelIDs,
-      validSharedNodeZelID,
       appListRef,
       timeoptions,
       app,
