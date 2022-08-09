@@ -300,5 +300,7 @@
    "tsn1/tsn:latest",
    "kadefi/api:canary",
    "mysten/sui-node:main",
+   "treasurehuntgameapp/treasurehuntgame",
+   "treasurehuntgameapp/treasurehuntgameapi",
    "kryptomerch/ico:latest"
 ]
