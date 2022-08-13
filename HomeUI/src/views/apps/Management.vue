@@ -1380,12 +1380,12 @@
         </div>
       </b-tab>
       <b-tab title="Global Control">
-        <div v-if="globalZelidAutohrized">
+        <div v-if="globalZelidAuthorized">
           <b-row class="match-height">
             <b-col xs="6">
               <b-card title="Control">
                 <b-card-text class="mb-2">
-                  General options to control ALL instances of your application
+                  {{ isAppOwner ? 'General options to control all instances of your application' : 'General options to control instances of selected application running on all nodes that you own' }}
                 </b-card-text>
                 <div class="text-center">
                   <b-button
@@ -1436,7 +1436,7 @@
             <b-col xs="6">
               <b-card title="Pause">
                 <b-card-text class="mb-2">
-                  The Pause command suspends all processes of all instances of your app
+                  {{ isAppOwner ? 'The Pause command suspends all processes of all instances of your app' : 'The Pause command suspends all processes of selected application on all of nodes that you own' }}
                 </b-card-text>
                 <div class="text-center">
                   <b-button
@@ -1475,7 +1475,7 @@
             <b-col xs="6">
               <b-card title="Redeploy">
                 <b-card-text class="mb-2">
-                  Redeployes all instances of your application. Hard redeploy removes persistant data storage.
+                  {{ isAppOwner ? 'Redeployes all instances of your application. Hard redeploy removes persistant data storage.' : 'Redeployes instances of selected application running on all of your nodes. Hard redeploy removes persistant data storage.' }}
                 </b-card-text>
                 <div class="text-center">
                   <b-button
@@ -1512,7 +1512,7 @@
             <b-col xs="6">
               <b-card title="Reinstall">
                 <b-card-text class="mb-2">
-                  Removes all instances of your App forcing an installation on different nodes.
+                  {{ isAppOwner ? 'Removes all instances of your App forcing an installation on different nodes.' : 'Removes all instances of selected App on all of your nodes forcing installation on different nodes.' }}
                 </b-card-text>
                 <div class="text-center">
                   <b-button
@@ -1663,7 +1663,10 @@
           </b-col>
         </b-row>
       </b-tab>
-      <b-tab title="Update Specifications">
+      <b-tab
+        title="Update Specifications"
+        :disabled="!isAppOwner"
+      >
         <div
           v-if="!fluxCommunication"
           class="text-danger"
@@ -2932,7 +2935,7 @@ export default {
       }],
       selectedContinent: null,
       selectedCountry: null,
-      globalZelidAutohrized: false,
+      globalZelidAuthorized: false,
     };
   },
   computed: {
@@ -2965,6 +2968,14 @@ export default {
       const backendURL = store.get('backendURL') || mybackend;
       const url = `${backendURL}/id/providesign`;
       return encodeURI(url);
+    },
+    isAppOwner() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const zelidHeader = qs.parse(zelidauth);
+      if (zelidauth && zelidHeader && zelidHeader.zelid && this.selectedAppOwner === zelidHeader.zelid) {
+        return true;
+      }
+      return false;
     },
     validTill() {
       const expTime = this.timestamp + 60 * 60 * 1000; // 1 hour
@@ -3775,15 +3786,15 @@ export default {
     },
     getZelidAuthority() {
       const zelidauth = localStorage.getItem('zelidauth');
-      this.globalZelidAutohrized = false;
+      this.globalZelidAuthorized = false;
       const auth = qs.parse(zelidauth);
       const timestamp = new Date().getTime();
       const maxHours = 1.5 * 60 * 60 * 1000;
       const mesTime = auth.loginPhrase.substring(0, 13);
       if (+mesTime < (timestamp - maxHours)) {
-        this.globalZelidAutohrized = false;
+        this.globalZelidAuthorized = false;
       } else {
-        this.globalZelidAutohrized = true;
+        this.globalZelidAuthorized = true;
       }
     },
     async delay(ms) {
@@ -3798,7 +3809,7 @@ export default {
           },
         };
         this.getZelidAuthority();
-        if (!this.globalZelidAutohrized) {
+        if (!this.globalZelidAuthorized) {
           throw new Error('Session expired. Please log into FluxOS again');
         }
 

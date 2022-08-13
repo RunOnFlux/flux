@@ -3,7 +3,7 @@
     <!-- App Header -->
     <div class="app-detail-header">
       <!-- Header: Left -->
-      <div class="app-header-left d-flex align-items-center">
+      <div class="app-header-left d-flex align-items-center flex-grow-1">
         <span class="go-back mr-1">
           <feather-icon
             :icon="$store.state.appConfig.isRTL ? 'ChevronRightIcon' : 'ChevronLeftIcon'"
@@ -12,9 +12,15 @@
             @click="$emit('close-sharednode-view')"
           />
         </span>
-        <h4 class="app-name mb-0">
-          Titan Shared Nodes
+        <h4 class="app-name mb-0 flex-grow-1">
+          Titan Shared Nodes (Beta)
         </h4>
+        <a
+          href="https://medium.com/@oGGoldie/flux-titan-staking-guide-e0fb6ead6254"
+          target="_blank"
+        >
+          Titan Guide (by Goldie)
+        </a>
       </div>
     </div>
 
@@ -23,167 +29,54 @@
       :settings="perfectScrollbarSettings"
       class="marketplace-app-list scroll-area"
     >
-      <b-card bg-variant="transparent">
-        <b-row class="match-height d-xxl-flex d-none">
-          <b-col xl="4">
-            <b-card
-              border-variant="primary"
-              no-body
-            >
-              <b-card-title class="text-white text-uppercase shared-node-info-title">
-                Active Nodes
-              </b-card-title>
-              <b-card-body class="shared-node-info-body">
-                <h1 class="active-node-value">
-                  {{ nodes.length }}
+      <b-overlay
+        variant="transparent"
+        opacity="0.95"
+        blur="5px"
+        no-center
+        :show="showOverlay()"
+      >
+        <template #overlay>
+          <div class="mt-5">
+            <div class="text-center">
+              <b-card
+                v-if="titanConfig && titanConfig.maintenanceMessage"
+                border-variant="primary"
+                class="mx-auto"
+                style="max-width: 50rem;"
+                title="Titan Maintenance"
+              >
+                <h1>
+                  {{ titanConfig.maintenanceMessage }}
                 </h1>
-                <div class="d-flex">
-                  <h4 class="flex-grow-1">
-                    Total: {{ totalCollateral.toLocaleString() }} Flux
-                  </h4>
-                  <b-avatar
-                    size="24"
-                    variant="primary"
-                    button
-                    @click="showNodeInfoDialog()"
-                  >
-                    <v-icon
-                      scale="0.9"
-                      name="info"
-                    />
-                  </b-avatar>
-                </div>
-              </b-card-body>
-            </b-card>
-          </b-col>
-          <b-col xl="4">
-            <b-card
-              border-variant="primary"
-              no-body
-            >
-              <b-card-title class="text-white text-uppercase shared-node-info-title">
-                Staking Stats
-              </b-card-title>
-              <b-card-body class="shared-node-info-body">
-                <div class="d-flex flex-column">
-                  <div class="d-flex flex-row">
-                    <h5 class="flex-grow-1">
-                      My Staking Total
-                    </h5>
-                    <h4>
-                      {{ myStakes ? toFixedLocaleString(myStakes.reduce((total, stake) => total + stake.collateral, 0), 0) : 0 }}
-                    </h4>
-                  </div>
-                  <div class="d-flex flex-row">
-                    <h5 class="flex-grow-1">
-                      Titan Staking Total
-                    </h5>
-                    <h4>
-                      {{ titanStats ? toFixedLocaleString(titanStats.total) : '...' }}
-                    </h4>
-                  </div>
-                  <div class="d-flex flex-row">
-                    <h5 class="flex-grow-1">
-                      Current Supply
-                    </h5>
-                    <h4>
-                      {{ titanStats ? toFixedLocaleString(titanStats.currentsupply) : '...' }}
-                    </h4>
-                  </div>
-                  <div class="d-flex flex-row">
-                    <h5 class="flex-grow-1">
-                      Max Supply
-                    </h5>
-                    <h4>
-                      {{ titanStats ? toFixedLocaleString(titanStats.maxsupply) : '...' }}
-                    </h4>
-                  </div>
-                  <div>
-                    <hr>
-                  </div>
-                  <div class="d-flex flex-row">
-                    <b-button
-                      v-if="userZelid"
-                      class="flex-grow-1 .btn-relief-primary"
-                      variant="gradient-primary"
-                      @click="showStakeDialog(false)"
-                    >
-                      Stake Flux
-                    </b-button>
-                  </div>
-                </div>
-              </b-card-body>
-            </b-card>
-          </b-col>
-          <b-col xl="4">
-            <b-card
-              border-variant="primary"
-              no-body
-            >
-              <b-card-title class="text-white text-uppercase shared-node-info-title">
-                Lockup Period APR
-              </b-card-title>
-              <b-card-body
-                v-if="titanConfig"
-                class="shared-node-info-body"
+              </b-card>
+              <b-spinner
+                v-else
+                type="border"
+                variant="danger"
+                style="width: 10rem; height: 10rem;"
+              />
+            </div>
+          </div>
+        </template>
+        <b-card bg-variant="transparent">
+          <b-row class="match-height d-xxl-flex d-none">
+            <b-col xl="4">
+              <b-card
+                border-variant="primary"
+                no-body
               >
-                <div
-                  v-for="lockup in titanConfig.lockups"
-                  :key="lockup.time"
-                  class="lockup"
-                >
-                  <div class="d-flex flex-row">
-                    <h2 class="flex-grow-1">
-                      {{ lockup.name }}
-                    </h2>
-                    <h1>
-                      ~{{ (lockup.apr*100).toFixed(2) }}%
-                    </h1>
-                  </div>
-                </div>
-                <div class="float-right">
-                  <b-avatar
-                    size="24"
-                    variant="primary"
-                    button
-                    @click="showAPRInfoDialog()"
-                  >
-                    <v-icon
-                      scale="0.9"
-                      name="info"
-                    />
-                  </b-avatar>
-                </div>
-              </b-card-body>
-            </b-card>
-          </b-col>
-        </b-row>
-        <b-row class="match-height d-xxl-none d-xl-flex d-lg-flex d-md-flex d-sm-flex">
-          <b-col sm="12">
-            <b-card
-              border-variant="primary"
-              no-body
-            >
-              <b-card-title
-                class="text-white text-uppercase"
-                style="padding-left: 1.5rem; padding-top: 1rem; margin-bottom: 0;"
-              >
-                Active Nodes
-              </b-card-title>
-              <b-row class="match-height">
-                <b-col cols="6">
-                  <h1 class="active-node-value-xl">
+                <b-card-title class="text-white text-uppercase shared-node-info-title">
+                  Active Nodes
+                </b-card-title>
+                <b-card-body class="shared-node-info-body">
+                  <h1 class="active-node-value">
                     {{ nodes.length }}
                   </h1>
-                </b-col>
-                <b-col cols="6">
-                  <h4
-                    class="text-center"
-                    style="padding-top: 2rem"
-                  >
-                    Total: {{ totalCollateral.toLocaleString() }} Flux
-                  </h4>
-                  <h4 class="text-center">
+                  <div class="d-flex">
+                    <h4 class="flex-grow-1">
+                      Total: {{ totalCollateral.toLocaleString() }} Flux
+                    </h4>
                     <b-avatar
                       size="24"
                       variant="primary"
@@ -195,437 +88,657 @@
                         name="info"
                       />
                     </b-avatar>
-                  </h4>
-                </b-col>
-              </b-row>
-            </b-card>
-          </b-col>
-          <b-col sm="12">
-            <b-row class="match-height">
-              <b-col sm="6">
-                <b-card
-                  border-variant="primary"
-                  no-body
-                >
-                  <b-card-title class="text-white text-uppercase shared-node-info-title-xl">
-                    Staking Stats
-                  </b-card-title>
-                  <b-card-body class="shared-node-info-body-xl">
-                    <div class="d-flex flex-column">
-                      <div class="d-flex flex-row">
-                        <h5 class="flex-grow-1">
-                          My Staking Total
-                        </h5>
-                        <h4>
-                          {{ myStakes ? toFixedLocaleString(myStakes.reduce((total, stake) => total + stake.collateral, 0), 0) : 0 }}
-                        </h4>
-                      </div>
-                      <div class="d-flex flex-row">
-                        <h5 class="flex-grow-1">
-                          Titan Staking Total
-                        </h5>
-                        <h4>
-                          {{ titanStats ? toFixedLocaleString(titanStats.total) : '...' }}
-                        </h4>
-                      </div>
-                      <div class="d-flex flex-row">
-                        <h5 class="flex-grow-1">
-                          Current Supply
-                        </h5>
-                        <h4>
-                          {{ titanStats ? toFixedLocaleString(titanStats.currentsupply) : '...' }}
-                        </h4>
-                      </div>
-                      <div class="d-flex flex-row">
-                        <h5 class="flex-grow-1">
-                          Max Supply
-                        </h5>
-                        <h4>
-                          {{ titanStats ? toFixedLocaleString(titanStats.maxsupply) : '...' }}
-                        </h4>
-                      </div>
-                      <div>
-                        <hr>
-                      </div>
-                      <div class="d-flex flex-row">
+                  </div>
+                </b-card-body>
+              </b-card>
+            </b-col>
+            <b-col xl="4">
+              <b-card
+                border-variant="primary"
+                no-body
+              >
+                <b-card-title class="text-white text-uppercase shared-node-info-title">
+                  Staking Stats
+                </b-card-title>
+                <b-card-body class="shared-node-info-body">
+                  <div class="d-flex flex-column">
+                    <div class="d-flex flex-row">
+                      <h5 class="flex-grow-1">
+                        My Staking Total
+                      </h5>
+                      <h4>
+                        {{ myStakes ? toFixedLocaleString(myStakes.reduce((total, stake) => total + stake.collateral, 0), 0) : 0 }}
+                      </h4>
+                    </div>
+                    <div class="d-flex flex-row">
+                      <h5 class="flex-grow-1">
+                        Titan Staking Total
+                      </h5>
+                      <h4>
+                        {{ titanStats ? toFixedLocaleString(titanStats.total) : '...' }}
+                      </h4>
+                    </div>
+                    <div class="d-flex flex-row">
+                      <h5 class="flex-grow-1">
+                        Current Supply
+                      </h5>
+                      <h4>
+                        {{ titanStats ? toFixedLocaleString(titanStats.currentsupply) : '...' }}
+                      </h4>
+                    </div>
+                    <div class="d-flex flex-row">
+                      <h5 class="flex-grow-1">
+                        Max Supply
+                      </h5>
+                      <h4>
+                        {{ titanStats ? toFixedLocaleString(titanStats.maxsupply) : '...' }}
+                      </h4>
+                    </div>
+                    <div>
+                      <hr>
+                    </div>
+                    <div class="d-flex flex-row">
+                      <div
+                        v-b-tooltip.hover.bottom="tooMuchStaked ? (titanConfig ? titanConfig.stakeDisabledMessage : defaultStakeDisabledMessage) : ''"
+                        class="d-flex flex-row flex-grow-1"
+                      >
                         <b-button
                           v-if="userZelid"
                           class="flex-grow-1 .btn-relief-primary"
                           variant="gradient-primary"
+                          :disabled="tooMuchStaked"
                           @click="showStakeDialog(false)"
                         >
                           Stake Flux
                         </b-button>
                       </div>
                     </div>
-                  </b-card-body>
-                </b-card>
-              </b-col>
-              <b-col sm="6">
-                <b-card
-                  border-variant="primary"
-                  no-body
+                  </div>
+                </b-card-body>
+              </b-card>
+            </b-col>
+            <b-col xl="4">
+              <b-card
+                border-variant="primary"
+                no-body
+              >
+                <b-card-title class="text-white text-uppercase shared-node-info-title">
+                  Lockup Period APR
+                </b-card-title>
+                <b-card-body
+                  v-if="titanConfig"
+                  class="shared-node-info-body"
                 >
-                  <b-card-title class="text-white text-uppercase shared-node-info-title-xl">
-                    Lockup Period APR
-                  </b-card-title>
-                  <b-card-body
-                    v-if="titanConfig"
-                    class="shared-node-info-body-xl"
+                  <div
+                    v-for="lockup in titanConfig.lockups"
+                    :key="lockup.time"
+                    class="lockup"
                   >
-                    <div
-                      v-for="lockup in titanConfig.lockups"
-                      :key="lockup.time"
-                      class="lockup"
-                    >
-                      <div class="d-flex flex-row">
-                        <h4 class="flex-grow-1">
-                          {{ lockup.name }}
-                        </h4>
-                        <h4>
-                          ~{{ (lockup.apr*100).toFixed(2) }}%
-                        </h4>
-                      </div>
+                    <div class="d-flex flex-row">
+                      <h2 class="flex-grow-1">
+                        {{ lockup.name }}
+                      </h2>
+                      <h1>
+                        ~{{ (lockup.apr*100).toFixed(2) }}%
+                      </h1>
                     </div>
-                    <div class="float-right">
+                  </div>
+                  <div class="float-right">
+                    <b-avatar
+                      size="24"
+                      variant="primary"
+                      button
+                      @click="showAPRInfoDialog()"
+                    >
+                      <v-icon
+                        scale="0.9"
+                        name="info"
+                      />
+                    </b-avatar>
+                  </div>
+                </b-card-body>
+              </b-card>
+            </b-col>
+          </b-row>
+          <b-row class="match-height d-xxl-none d-xl-flex d-lg-flex d-md-flex d-sm-flex">
+            <b-col sm="12">
+              <b-card
+                border-variant="primary"
+                no-body
+              >
+                <b-card-title
+                  class="text-white text-uppercase"
+                  style="padding-left: 1.5rem; padding-top: 1rem; margin-bottom: 0;"
+                >
+                  Active Nodes
+                </b-card-title>
+                <b-row class="match-height">
+                  <b-col cols="6">
+                    <h1 class="active-node-value-xl">
+                      {{ nodes.length }}
+                    </h1>
+                  </b-col>
+                  <b-col cols="6">
+                    <h4
+                      class="text-center"
+                      style="padding-top: 2rem"
+                    >
+                      Total: {{ totalCollateral.toLocaleString() }} Flux
+                    </h4>
+                    <h4 class="text-center">
                       <b-avatar
                         size="24"
                         variant="primary"
                         button
-                        @click="showAPRInfoDialog()"
+                        @click="showNodeInfoDialog()"
                       >
                         <v-icon
                           scale="0.9"
                           name="info"
                         />
                       </b-avatar>
-                    </div>
-                  </b-card-body>
-                </b-card>
-              </b-col>
-            </b-row>
-          </b-col>
-        </b-row>
-      </b-card>
-      <b-card
-        v-if="!userZelid"
-        title="My Stakes"
-      >
-        <h5>
-          Please login using your ZelID to view your node stakes
-        </h5>
-      </b-card>
-      <b-row
-        v-else
-        class=""
-      >
-        <b-col xxl="9">
-          <b-card
-            class="sharednodes-container"
-            no-body
-          >
-            <b-card-body>
-              <b-tabs>
-                <b-tab
-                  active
-                  title="Active Stakes"
-                >
-                  <ul
-                    class="marketplace-media-list"
+                    </h4>
+                  </b-col>
+                </b-row>
+              </b-card>
+            </b-col>
+            <b-col sm="12">
+              <b-row class="match-height">
+                <b-col sm="6">
+                  <b-card
+                    border-variant="primary"
+                    no-body
                   >
-                    <b-media
-                      v-for="stake in myStakes"
-                      :key="stake.uuid"
-                      tag="li"
-                      no-body
-                      @click="showActiveStakeInfoDialog(stake)"
-                    >
-                      <b-media-body
-                        class="app-media-body"
-                        style="overflow: inherit;"
-                      >
-                        <div class="d-flex flex-row row">
-                          <b-avatar
-                            v-if="stake.confirmations === -1"
-                            size="48"
-                            variant="danger"
-                            class="node-status mt-auto mb-auto"
-                            button
-                            @click="showPaymentDetailsDialog(stake)"
-                            @click.stop="doThis"
-                          >
-                            <v-icon
-                              scale="1.75"
-                              name="hourglass-half"
-                            />
-                          </b-avatar>
-                          <b-avatar
-                            v-else-if="titanConfig && stake.confirmations >= titanConfig.confirms"
-                            size="48"
-                            variant="light-success"
-                            class="node-status mt-auto mb-auto"
-                          >
-                            <v-icon
-                              scale="1.75"
-                              name="check"
-                            />
-                          </b-avatar>
-                          <b-avatar
-                            v-else
-                            size="48"
-                            variant="light-warning"
-                            class="node-status mt-auto mb-auto"
-                          >
-                            {{ stake.confirmations }}/{{ titanConfig ? titanConfig.confirms : 0 }}
-                          </b-avatar>
-                          <div
-                            class="d-flex flex-column seat-column col"
-                            style="flex-grow: 0.8;"
-                          >
-                            <h3 class="mr-auto ml-auto mt-auto mb-auto">
-                              {{ stake.collateral.toLocaleString() }} Flux
-                            </h3>
-                          </div>
-                          <div class="d-flex flex-column seat-column col">
-                            <h4
-                              v-b-tooltip.hover.top="new Date(stake.timestamp*1000).toLocaleString(timeoptions)"
-                              class="mr-auto ml-auto"
-                            >
-                              Start Date: {{ new Date(stake.timestamp*1000).toLocaleDateString() }}
-                            </h4>
-                            <h5
-                              v-b-tooltip.hover.top="new Date(stake.expiry*1000).toLocaleString(timeoptions)"
-                              class="mr-auto ml-auto"
-                            >
-                              End Date: {{ new Date(stake.expiry*1000).toLocaleDateString() }}
-                            </h5>
-                          </div>
-                          <div class="d-flex flex-column seat-column col">
-                            <h4 class="mr-auto ml-auto">
-                              Paid: {{ toFixedLocaleString(stake.paid, 2) }} Flux
-                            </h4>
-                            <h5 class="mr-auto ml-auto">
-                              Pending: {{ toFixedLocaleString(stake.reward, 2) }} Flux
-                            </h5>
-                          </div>
-                          <div class="d-flex flex-column seat-column col">
-                            <h4 class="mr-auto ml-auto">
-                              Monthly Rewards
-                            </h4>
-                            <h5
-                              v-if="titanConfig"
-                              class="mr-auto ml-auto"
-                            >
-                              ~{{ toFixedLocaleString(calcMonthlyReward(stake), 2) }} Flux
-                              <v-icon
-                                v-if="stake.autoreinvest"
-                                v-b-tooltip.hover.top="'Stake will auto-reinvest'"
-                                name="sync"
-                              />
-                            </h5>
-                            <h5
-                              v-else
-                              class="mr-auto ml-auto"
-                            >
-                              ... Flux
-                            </h5>
-                          </div>
+                    <b-card-title class="text-white text-uppercase shared-node-info-title-xl">
+                      Staking Stats
+                    </b-card-title>
+                    <b-card-body class="shared-node-info-body-xl">
+                      <div class="d-flex flex-column">
+                        <div class="d-flex flex-row">
+                          <h5 class="flex-grow-1">
+                            My Staking Total
+                          </h5>
+                          <h4>
+                            {{ myStakes ? toFixedLocaleString(myStakes.reduce((total, stake) => total + stake.collateral, 0), 0) : 0 }}
+                          </h4>
                         </div>
-                        <div v-if="stake.message">
-                          <!-- eslint-disable-next-line vue/no-v-html -->
-                          <div v-html="stake.message" />
+                        <div class="d-flex flex-row">
+                          <h5 class="flex-grow-1">
+                            Titan Staking Total
+                          </h5>
+                          <h4>
+                            {{ titanStats ? toFixedLocaleString(titanStats.total) : '...' }}
+                          </h4>
                         </div>
-                      </b-media-body>
-                    </b-media>
-                  </ul>
-                </b-tab>
-                <b-tab
-                  v-if="myExpiredStakes.length > 0"
-                  title="Expired Stakes"
-                >
-                  <ul
-                    class="marketplace-media-list"
-                  >
-                    <b-media
-                      v-for="stake in myExpiredStakes"
-                      :key="stake.uuid"
-                      tag="li"
-                      no-body
-                    >
-                      <b-media-body
-                        class="app-media-body"
-                        style="overflow: inherit;"
-                      >
-                        <div class="d-flex flex-row row">
-                          <b-avatar
-                            size="48"
-                            variant="light-warning"
-                            class="node-status mt-auto mb-auto"
-                          >
-                            <v-icon
-                              scale="1.75"
-                              name="calendar-times"
-                            />
-                          </b-avatar>
+                        <div class="d-flex flex-row">
+                          <h5 class="flex-grow-1">
+                            Current Supply
+                          </h5>
+                          <h4>
+                            {{ titanStats ? toFixedLocaleString(titanStats.currentsupply) : '...' }}
+                          </h4>
+                        </div>
+                        <div class="d-flex flex-row">
+                          <h5 class="flex-grow-1">
+                            Max Supply
+                          </h5>
+                          <h4>
+                            {{ titanStats ? toFixedLocaleString(titanStats.maxsupply) : '...' }}
+                          </h4>
+                        </div>
+                        <div>
+                          <hr>
+                        </div>
+                        <div class="d-flex flex-row">
                           <div
-                            class="d-flex flex-column seat-column col"
-                            style="flex-grow: 0.8;"
+                            v-b-tooltip.hover.bottom="tooMuchStaked ? (titanConfig ? titanConfig.stakeDisabledMessage : defaultStakeDisabledMessage) : ''"
+                            class="d-flex flex-row flex-grow-1"
                           >
-                            <h3 class="mr-auto ml-auto mt-auto mb-auto">
-                              {{ stake.collateral.toLocaleString() }} Flux
-                            </h3>
-                          </div>
-                          <div class="d-flex flex-column seat-column col">
-                            <h4
-                              v-b-tooltip.hover.top="new Date(stake.timestamp*1000).toLocaleString(timeoptions)"
-                              class="mr-auto ml-auto"
-                            >
-                              Start Date: {{ new Date(stake.timestamp*1000).toLocaleDateString() }}
-                            </h4>
-                            <h5
-                              v-b-tooltip.hover.top="new Date(stake.expiry*1000).toLocaleString(timeoptions)"
-                              class="mr-auto ml-auto"
-                            >
-                              End Date: {{ new Date(stake.expiry*1000).toLocaleDateString() }}
-                            </h5>
-                          </div>
-                          <div class="d-flex flex-column seat-column col">
-                            <h4 class="mr-auto ml-auto">
-                              Paid: {{ stake.state === 5 ? toFixedLocaleString(stake.paid - stake.collateral, 2) : toFixedLocaleString(stake.paid, 2) }} Flux
-                            </h4>
-                            <h5 class="mr-auto ml-auto">
-                              Pending: {{ toFixedLocaleString(stake.reward, 2) }} Flux
-                            </h5>
-                          </div>
-                          <div class="d-flex">
                             <b-button
-                              class="float-right mt-1 mb-1"
-                              :variant="stake.state >= 5 ? 'outline-secondary' : 'danger'"
-                              size="sm"
-                              :disabled="stake.state >= 5"
-                              pill
-                              style="width: 100px"
-                              @click="showReinvestDialog(stake)"
+                              v-if="userZelid"
+                              class="flex-grow-1 .btn-relief-primary"
+                              variant="gradient-primary"
+                              :disabled="tooMuchStaked"
+                              @click="showStakeDialog(false)"
                             >
-                              {{ stake.state >= 5 ? 'Complete' : 'Reinvest' }}
+                              Stake Flux
                             </b-button>
                           </div>
                         </div>
-                      </b-media-body>
-                    </b-media>
-                  </ul>
-                </b-tab>
-                <b-tab title="Payments">
-                  <ul
-                    class="marketplace-media-list"
+                      </div>
+                    </b-card-body>
+                  </b-card>
+                </b-col>
+                <b-col sm="6">
+                  <b-card
+                    border-variant="primary"
+                    no-body
                   >
-                    <b-table
-                      class="payments-table"
-                      striped
-                      hover
-                      responsive
-                      :items="myPayments"
-                      :fields="paymentFields"
-                      show-empty
-                      empty-text="No Payments"
+                    <b-card-title class="text-white text-uppercase shared-node-info-title-xl">
+                      Lockup Period APR
+                    </b-card-title>
+                    <b-card-body
+                      v-if="titanConfig"
+                      class="shared-node-info-body-xl"
                     >
-                      <template #cell(timestamp)="data">
-                        {{ new Date(data.item.timestamp).toLocaleString(timeoptions) }}
-                      </template>
-                      <template #cell(total)="data">
-                        <p
-                          v-b-tooltip.hover.right="`Amount = ${toFixedLocaleString(data.item.total, 2)} Flux - ${data.item.fee} Flux redeem fee`"
-                          style="margin-bottom: 0"
+                      <div
+                        v-for="lockup in titanConfig.lockups"
+                        :key="lockup.time"
+                        class="lockup"
+                      >
+                        <div class="d-flex flex-row">
+                          <h4 class="flex-grow-1">
+                            {{ lockup.name }}
+                          </h4>
+                          <h4>
+                            ~{{ (lockup.apr*100).toFixed(2) }}%
+                          </h4>
+                        </div>
+                      </div>
+                      <div class="float-right">
+                        <b-avatar
+                          size="24"
+                          variant="primary"
+                          button
+                          @click="showAPRInfoDialog()"
                         >
-                          {{ toFixedLocaleString(data.item.total - data.item.fee, 2) }} Flux
-                        </p>
-                      </template>
-                      <template #cell(address)="data">
-                        <a
-                          :href="`https://explorer.runonflux.io/address/${data.item.address}`"
-                          target="_blank"
-                        >
-                          {{ data.item.address }}
-                        </a>
-                      </template>
-                      <template #cell(txid)="data">
-                        <a
-                          v-if="data.item.txid"
-                          :href="`https://explorer.runonflux.io/tx/${data.item.txid}`"
-                          target="_blank"
-                        >
-                          View on Explorer
-                        </a>
-                        <h5 v-else>
-                          {{ data.item.state || 'Processing' }}
-                        </h5>
-                      </template>
-                    </b-table>
-                  </ul>
-                </b-tab>
-              </b-tabs>
-            </b-card-body>
-          </b-card>
-        </b-col>
-        <b-col
-          xxl="3"
+                          <v-icon
+                            scale="0.9"
+                            name="info"
+                          />
+                        </b-avatar>
+                      </div>
+                    </b-card-body>
+                  </b-card>
+                </b-col>
+              </b-row>
+            </b-col>
+          </b-row>
+        </b-card>
+        <b-card
+          v-if="!userZelid"
+          title="My Stakes"
         >
-          <b-card no-body>
-            <b-card-title
-              class="stakes-title"
+          <h5>
+            Please login using your ZelID to view your node stakes
+          </h5>
+        </b-card>
+        <b-row
+          v-else
+          class=""
+        >
+          <b-col
+            class="d-xxl-none d-xl-flex d-lg-flex d-md-flex d-sm-flex"
+          >
+            <b-card
+              no-body
+              class="flex-grow-1"
             >
-              Redeem Rewards
-            </b-card-title>
-            <b-card-body>
-              <div class="d-flex flex-row">
-                <h5 class="flex-grow-1">
-                  Paid:
-                </h5>
-                <h4>
-                  {{ calculatePaidRewards() }} Flux
-                </h4>
-              </div>
-              <div class="d-flex flex-row">
-                <h5 class="flex-grow-1">
-                  Available:
-                </h5>
-                <h4>
-                  {{ toFixedLocaleString(totalReward, 2) }} Flux
-                </h4>
-              </div>
-              <div
-                v-b-tooltip.hover.bottom="totalReward <= (titanConfig ? titanConfig.redeemFee : 0) ? 'Available balance is less than the redeem fee' : ''"
-                class="float-right"
-                style="display: inline-block;"
+              <b-card-title
+                class="stakes-title"
               >
-                <b-button
-                  v-if="totalReward > minStakeAmount"
-                  class="mt-2 mr-1"
-                  variant="danger"
-                  size="sm"
-                  pill
-                  @click="showStakeDialog(true)"
+                Redeem Rewards
+              </b-card-title>
+              <b-card-body>
+                <div class="d-flex flex-row">
+                  <h5 class="flex-grow-1">
+                    Paid:
+                  </h5>
+                  <h4>
+                    {{ calculatePaidRewards() }} Flux
+                  </h4>
+                </div>
+                <div class="d-flex flex-row">
+                  <h5 class="flex-grow-1">
+                    Available:
+                  </h5>
+                  <h4>
+                    {{ toFixedLocaleString(totalReward, 2) }} Flux
+                  </h4>
+                </div>
+                <div
+                  v-b-tooltip.hover.bottom="totalReward <= (titanConfig ? titanConfig.redeemFee : 0) ? 'Available balance is less than the redeem fee' : ''"
+                  class="float-right"
+                  style="display: inline-block;"
                 >
-                  Re-invest Funds
-                </b-button>
-                <b-button
-                  id="redeemButton"
-                  class="float-right mt-2"
-                  variant="danger"
-                  size="sm"
-                  pill
-                  :disabled="totalReward <= (titanConfig ? titanConfig.redeemFee : 0)"
-                  @click="showRedeemDialog()"
+                  <b-button
+                    v-if="totalReward > minStakeAmount"
+                    class="mt-2 mr-1"
+                    variant="danger"
+                    size="sm"
+                    pill
+                    @click="showStakeDialog(true)"
+                  >
+                    Re-invest Funds
+                  </b-button>
+                  <b-button
+                    id="redeemButton"
+                    class="float-right mt-2"
+                    variant="danger"
+                    size="sm"
+                    pill
+                    :disabled="totalReward <= (titanConfig ? titanConfig.redeemFee : 0)"
+                    @click="showRedeemDialog()"
+                  >
+                    Redeem
+                  </b-button>
+                </div>
+              </b-card-body>
+            </b-card>
+          </b-col>
+          <b-col xxl="9">
+            <b-card
+              class="sharednodes-container"
+              no-body
+            >
+              <b-card-body>
+                <b-tabs>
+                  <b-tab
+                    active
+                    title="Active Stakes"
+                  >
+                    <ul
+                      class="marketplace-media-list"
+                    >
+                      <b-media
+                        v-for="stake in myStakes"
+                        :key="stake.uuid"
+                        tag="li"
+                        no-body
+                        @click="showActiveStakeInfoDialog(stake)"
+                      >
+                        <b-media-body
+                          class="app-media-body"
+                          style="overflow: inherit;"
+                        >
+                          <div class="d-flex flex-row row">
+                            <b-avatar
+                              v-if="stake.confirmations === -1"
+                              size="48"
+                              variant="danger"
+                              class="node-status mt-auto mb-auto"
+                              button
+                              @click="showPaymentDetailsDialog(stake)"
+                              @click.stop=""
+                            >
+                              <v-icon
+                                scale="1.75"
+                                name="hourglass-half"
+                              />
+                            </b-avatar>
+                            <b-avatar
+                              v-else-if="titanConfig && stake.confirmations >= titanConfig.confirms"
+                              size="48"
+                              variant="light-success"
+                              class="node-status mt-auto mb-auto"
+                            >
+                              <v-icon
+                                scale="1.75"
+                                name="check"
+                              />
+                            </b-avatar>
+                            <b-avatar
+                              v-else
+                              size="48"
+                              variant="light-warning"
+                              class="node-status mt-auto mb-auto"
+                            >
+                              {{ stake.confirmations }}/{{ titanConfig ? titanConfig.confirms : 0 }}
+                            </b-avatar>
+                            <div
+                              class="d-flex flex-column seat-column col"
+                              style="flex-grow: 0.8;"
+                            >
+                              <h3 class="mr-auto ml-auto mt-auto mb-auto">
+                                {{ stake.collateral.toLocaleString() }} Flux
+                              </h3>
+                            </div>
+                            <div class="d-flex flex-column seat-column col">
+                              <h4
+                                v-b-tooltip.hover.top="new Date(stake.timestamp*1000).toLocaleString(timeoptions)"
+                                class="mr-auto ml-auto text-center"
+                              >
+                                Start Date: {{ new Date(stake.timestamp*1000).toLocaleDateString() }}
+                              </h4>
+                              <h5
+                                v-b-tooltip.hover.top="new Date(stake.expiry*1000).toLocaleString(timeoptions)"
+                                class="mr-auto ml-auto text-center"
+                              >
+                                End Date: {{ new Date(stake.expiry*1000).toLocaleDateString() }}
+                              </h5>
+                            </div>
+                            <div class="d-flex flex-column seat-column col">
+                              <h4 class="mr-auto ml-auto">
+                                Paid: {{ toFixedLocaleString(stake.paid, 2) }} Flux
+                              </h4>
+                              <h5 class="mr-auto ml-auto">
+                                Pending: {{ toFixedLocaleString(stake.reward, 2) }} Flux
+                              </h5>
+                            </div>
+                            <div class="d-flex flex-column seat-column col">
+                              <h4 class="mr-auto ml-auto text-center">
+                                Monthly Rewards
+                              </h4>
+                              <h5
+                                v-if="titanConfig"
+                                class="mr-auto ml-auto"
+                              >
+                                ~{{ toFixedLocaleString(calcMonthlyReward(stake), 2) }} Flux
+                                <v-icon
+                                  v-if="stake.autoreinvest"
+                                  v-b-tooltip.hover.top="'Stake will auto-reinvest'"
+                                  name="sync"
+                                />
+                              </h5>
+                              <h5
+                                v-else
+                                class="mr-auto ml-auto"
+                              >
+                                ... Flux
+                              </h5>
+                            </div>
+                          </div>
+                          <div v-if="stake.message">
+                            <!-- eslint-disable-next-line vue/no-v-html -->
+                            <div v-html="stake.message" />
+                          </div>
+                        </b-media-body>
+                      </b-media>
+                    </ul>
+                  </b-tab>
+                  <b-tab
+                    v-if="myExpiredStakes.length > 0"
+                    title="Expired Stakes"
+                  >
+                    <ul
+                      class="marketplace-media-list"
+                    >
+                      <b-media
+                        v-for="stake in myExpiredStakes"
+                        :key="stake.uuid"
+                        tag="li"
+                        no-body
+                      >
+                        <b-media-body
+                          class="app-media-body"
+                          style="overflow: inherit;"
+                        >
+                          <div class="d-flex flex-row row">
+                            <b-avatar
+                              size="48"
+                              variant="light-warning"
+                              class="node-status mt-auto mb-auto"
+                            >
+                              <v-icon
+                                scale="1.75"
+                                name="calendar-times"
+                              />
+                            </b-avatar>
+                            <div
+                              class="d-flex flex-column seat-column col"
+                              style="flex-grow: 0.8;"
+                            >
+                              <h3 class="mr-auto ml-auto mt-auto mb-auto">
+                                {{ stake.collateral.toLocaleString() }} Flux
+                              </h3>
+                            </div>
+                            <div class="d-flex flex-column seat-column col">
+                              <h4
+                                v-b-tooltip.hover.top="new Date(stake.timestamp*1000).toLocaleString(timeoptions)"
+                                class="mr-auto ml-auto"
+                              >
+                                Start Date: {{ new Date(stake.timestamp*1000).toLocaleDateString() }}
+                              </h4>
+                              <h5
+                                v-b-tooltip.hover.top="new Date(stake.expiry*1000).toLocaleString(timeoptions)"
+                                class="mr-auto ml-auto"
+                              >
+                                End Date: {{ new Date(stake.expiry*1000).toLocaleDateString() }}
+                              </h5>
+                            </div>
+                            <div class="d-flex flex-column seat-column col">
+                              <h4 class="mr-auto ml-auto">
+                                Paid: {{ stake.state === 5 ? toFixedLocaleString(stake.paid - stake.collateral, 2) : toFixedLocaleString(stake.paid, 2) }} Flux
+                              </h4>
+                              <h5 class="mr-auto ml-auto">
+                                Pending: {{ toFixedLocaleString(stake.reward, 2) }} Flux
+                              </h5>
+                            </div>
+                            <div class="d-flex">
+                              <b-button
+                                class="float-right mt-1 mb-1"
+                                :variant="stake.state >= 5 ? 'outline-secondary' : 'danger'"
+                                size="sm"
+                                :disabled="stake.state >= 5"
+                                pill
+                                style="width: 100px"
+                                @click="showReinvestDialog(stake)"
+                              >
+                                {{ stake.state >= 5 ? 'Complete' : 'Reinvest' }}
+                              </b-button>
+                            </div>
+                          </div>
+                        </b-media-body>
+                      </b-media>
+                    </ul>
+                  </b-tab>
+                  <b-tab title="Payments">
+                    <ul
+                      class="marketplace-media-list"
+                    >
+                      <b-table
+                        class="payments-table"
+                        striped
+                        hover
+                        responsive
+                        :items="myPayments"
+                        :fields="paymentFields"
+                        show-empty
+                        empty-text="No Payments"
+                      >
+                        <template #cell(timestamp)="data">
+                          {{ new Date(data.item.timestamp).toLocaleString(timeoptions) }}
+                        </template>
+                        <template #cell(total)="data">
+                          <p
+                            v-b-tooltip.hover.right="`Amount = ${toFixedLocaleString(data.item.total, 2)} Flux - ${data.item.fee} Flux redeem fee`"
+                            style="margin-bottom: 0"
+                          >
+                            {{ toFixedLocaleString(data.item.total - data.item.fee, 2) }} Flux
+                          </p>
+                        </template>
+                        <template #cell(address)="data">
+                          <a
+                            :href="`https://explorer.runonflux.io/address/${data.item.address}`"
+                            target="_blank"
+                          >
+                            {{ data.item.address }}
+                          </a>
+                        </template>
+                        <template #cell(txid)="data">
+                          <a
+                            v-if="data.item.txid"
+                            :href="`https://explorer.runonflux.io/tx/${data.item.txid}`"
+                            target="_blank"
+                          >
+                            View on Explorer
+                          </a>
+                          <h5 v-else>
+                            {{ data.item.state || 'Processing' }}
+                          </h5>
+                        </template>
+                      </b-table>
+                    </ul>
+                  </b-tab>
+                </b-tabs>
+              </b-card-body>
+            </b-card>
+          </b-col>
+          <b-col
+            xxl="3"
+            class="d-xxl-flex d-xl-none d-lg-none d-md-none d-sm-none"
+          >
+            <b-card
+              no-body
+              class="flex-grow-1"
+            >
+              <b-card-title
+                class="stakes-title"
+              >
+                Redeem Rewards
+              </b-card-title>
+              <b-card-body>
+                <div class="d-flex flex-row">
+                  <h5 class="flex-grow-1">
+                    Paid:
+                  </h5>
+                  <h4>
+                    {{ calculatePaidRewards() }} Flux
+                  </h4>
+                </div>
+                <div class="d-flex flex-row">
+                  <h5 class="flex-grow-1">
+                    Available:
+                  </h5>
+                  <h4>
+                    {{ toFixedLocaleString(totalReward, 2) }} Flux
+                  </h4>
+                </div>
+                <div
+                  v-b-tooltip.hover.bottom="totalReward <= (titanConfig ? titanConfig.redeemFee : 0) ? 'Available balance is less than the redeem fee' : ''"
+                  class="float-right"
+                  style="display: inline-block;"
                 >
-                  Redeem
-                </b-button>
-              </div>
-            </b-card-body>
-          </b-card>
-        </b-col>
-      </b-row>
+                  <b-button
+                    v-if="totalReward > minStakeAmount"
+                    class="mt-2 mr-1"
+                    variant="danger"
+                    size="sm"
+                    pill
+                    @click="showStakeDialog(true)"
+                  >
+                    Re-invest Funds
+                  </b-button>
+                  <b-button
+                    id="redeemButton"
+                    class="float-right mt-2"
+                    variant="danger"
+                    size="sm"
+                    pill
+                    :disabled="totalReward <= (titanConfig ? titanConfig.redeemFee : 0)"
+                    @click="showRedeemDialog()"
+                  >
+                    Redeem
+                  </b-button>
+                </div>
+              </b-card-body>
+            </b-card>
+          </b-col>
+        </b-row>
+      </b-overlay>
     </vue-perfect-scrollbar>
 
+    <!-- Titan Nodes Dialog -->
     <b-modal
       v-model="nodeModalShowing"
       title="Titan Nodes"
@@ -672,6 +785,7 @@
       </b-card>
     </b-modal>
 
+    <!-- Lockup APR dialog -->
     <b-modal
       v-model="aprModalShowing"
       title="Lockup APR"
@@ -697,6 +811,7 @@
       </b-card>
     </b-modal>
 
+    <!-- Redeem Rewards Dialog -->
     <b-modal
       v-model="redeemModalShowing"
       title="Redeem Rewards"
@@ -750,6 +865,7 @@
             <b-form-select
               v-model="redeemAddress"
               :options="redeemAddresses"
+              :disabled="sendingRequest || requestSent || requestFailed"
             >
               <template #first>
                 <b-form-select-option
@@ -771,7 +887,7 @@
             class="text-center wizard-card"
           >
             <a
-              :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
+              :href="(sendingRequest || requestSent || requestFailed) ? '#' : `zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
               @click="initiateSignWS"
             >
               <img
@@ -791,6 +907,7 @@
             <b-form-input
               id="signature"
               v-model="signature"
+              :disabled="sendingRequest || requestSent || requestFailed"
             />
           </b-card>
         </tab-content>
@@ -829,6 +946,7 @@
       </form-wizard>
     </b-modal>
 
+    <!-- Pending Payment Details Dialog -->
     <b-modal
       v-model="paymentDetailsDialogShowing"
       title="Pending Payment"
@@ -883,6 +1001,7 @@
       </b-card>
     </b-modal>
 
+    <!-- Cancel Staking Dialog -->
     <b-modal
       v-model="confirmStakeDialogCloseShowing"
       title="Cancel Staking?"
@@ -898,6 +1017,7 @@
       </h3>
     </b-modal>
 
+    <!-- Finish Staking Confirmation Dialog -->
     <b-modal
       v-model="confirmStakeDialogFinishShowing"
       title="Finish Staking?"
@@ -917,6 +1037,7 @@
       </h4>
     </b-modal>
 
+    <!-- Re-invest Expired Stake Dialog -->
     <b-modal
       v-model="reinvestModalShowing"
       title="Re-invest Expired Stake"
@@ -951,6 +1072,7 @@
             >
               <b-form-checkbox
                 v-model="selectedStake.autoreinvest"
+                :disabled="stakeRegistered || registeringStake || stakeRegisterFailed"
                 class="ml-auto mr-auto"
                 style="float: left;"
               >
@@ -977,6 +1099,7 @@
                 <b-button
                   :class="index === selectedLockupIndex ? 'selectedLockupButton' : 'unselectedLockupButton'"
                   :style="`background-color: ${indexedTierColors[index]} !important;`"
+                  :disabled="stakeRegistered || registeringStake || stakeRegisterFailed"
                   @click="selectLockup(index)"
                 >
                   {{ lockup.name }} - ~{{ (lockup.apr*100).toFixed(2) }}%
@@ -994,7 +1117,7 @@
             class="text-center wizard-card"
           >
             <a
-              :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
+              :href="(stakeRegistered || registeringStake || stakeRegisterFailed) ? '#' : `zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
               @click="initiateSignWS"
             >
               <img
@@ -1014,6 +1137,7 @@
             <b-form-input
               id="signature"
               v-model="signature"
+              :disabled="stakeRegistered || registeringStake || stakeRegisterFailed"
             />
           </b-card>
         </tab-content>
@@ -1052,6 +1176,7 @@
       </form-wizard>
     </b-modal>
 
+    <!-- Active Stake Details Dialog -->
     <b-modal
       v-model="activeStakeInfoModalShowing"
       title="Active Stake Details"
@@ -1076,6 +1201,7 @@
       </b-card>
     </b-modal>
 
+    <!-- Edit Active Stake Dialog -->
     <b-modal
       v-model="editStakeModalShowing"
       title="Edit Active Stake"
@@ -1110,6 +1236,7 @@
             >
               <b-form-checkbox
                 v-model="selectedStake.autoreinvest"
+                :disabled="stakeRegistered || registeringStake || stakeRegisterFailed"
                 class="ml-auto mr-auto"
                 style="float: left;"
               >
@@ -1127,7 +1254,7 @@
             class="text-center wizard-card"
           >
             <a
-              :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
+              :href="(stakeRegistered || registeringStake || stakeRegisterFailed) ? '#' : `zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
               @click="initiateSignWS"
             >
               <img
@@ -1147,6 +1274,7 @@
             <b-form-input
               id="signature"
               v-model="signature"
+              :disabled="stakeRegistered || registeringStake || stakeRegisterFailed"
             />
           </b-card>
         </tab-content>
@@ -1185,6 +1313,7 @@
       </form-wizard>
     </b-modal>
 
+    <!-- Stake Dialog -->
     <b-modal
       v-model="stakeModalShowing"
       title="Stake Flux with Titan"
@@ -1248,6 +1377,7 @@
               :max="maxStakeAmount"
               step="5"
               number
+              :disabled="stakeRegistered || registeringStake || stakeRegisterFailed"
             />
             <b-form-spinbutton
               id="stakeamount-spnner"
@@ -1256,6 +1386,7 @@
               :max="maxStakeAmount"
               size="lg"
               :formatter-fn="toFixedLocaleString"
+              :disabled="stakeRegistered || registeringStake || stakeRegisterFailed"
               class="stakeAmountSpinner"
             />
           </b-card>
@@ -1278,6 +1409,7 @@
                 <b-button
                   :class="(index === selectedLockupIndex ? 'selectedLockupButton' : 'unselectedLockupButton') + (reinvestingNewStake ? 'Small' : '')"
                   :style="`background-color: ${indexedTierColors[index]} !important;`"
+                  :disabled="stakeRegistered || registeringStake || stakeRegisterFailed"
                   @click="selectLockup(index)"
                 >
                   {{ lockup.name }} - ~{{ (lockup.apr*100).toFixed(2) }}%
@@ -1287,6 +1419,7 @@
             <div class="d-flex">
               <b-form-checkbox
                 v-model="autoReinvestStake"
+                :disabled="stakeRegistered || registeringStake || stakeRegisterFailed"
                 class="ml-auto mr-auto"
                 style="float: left;"
               >
@@ -1304,7 +1437,7 @@
             class="text-center wizard-card"
           >
             <a
-              :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
+              :href="(stakeRegistered || registeringStake || stakeRegisterFailed) ? '#' : `zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
               @click="initiateSignWS"
             >
               <img
@@ -1324,6 +1457,7 @@
             <b-form-input
               id="signature"
               v-model="signature"
+              :disabled="stakeRegistered || registeringStake || stakeRegisterFailed"
             />
           </b-card>
         </tab-content>
@@ -1336,6 +1470,15 @@
             class="text-center wizard-card"
           >
             <div class="mt-3 mb-auto ">
+              <h5>
+                <span class="text-danger">IMPORTANT:</span> Your funds will be locked until
+              </h5>
+              <h5>
+                <span class="text-warning">{{ new Date(new Date().getTime() + (getLockupDuration()*1000)).toLocaleString() }}</span>
+              </h5>
+              <h5 class="mb-2">
+                You will not be able to withdraw your staked Flux until your stake has expired.
+              </h5>
               <b-button
                 size="lg"
                 :disabled="registeringStake || stakeRegistered"
@@ -1429,7 +1572,9 @@ import {
   BMedia,
   BMediaBody,
   BModal,
+  BOverlay,
   BRow,
+  BSpinner,
   BTabs,
   BTab,
   BTable,
@@ -1480,7 +1625,9 @@ export default {
     BMedia,
     BMediaBody,
     BModal,
+    BOverlay,
     BRow,
+    BSpinner,
     BTabs,
     BTab,
     BTable,
@@ -1527,7 +1674,7 @@ export default {
     const userZelid = ref('');
     userZelid.value = props.zelid;
 
-    const apiURL = 'https://titantest.runonflux.io';
+    const apiURL = 'https://titan.runonflux.io';
 
     const totalReward = ref(0);
     const stakeAmount = ref(50);
@@ -1546,6 +1693,8 @@ export default {
     const selectedStake = ref(null);
     const autoReinvestStake = ref(true);
     const reinvestingNewStake = ref(false);
+    const tooMuchStaked = ref(true); // the Stake Flux button will be disabled until we determine it can be enabled
+    const defaultStakeDisabledMessage = ref('Too much Flux has staked, please wait for more Nodes to be made available');
 
     const redeemAmount = ref(0);
     const redeemAddress = ref(null);
@@ -1608,6 +1757,9 @@ export default {
     };
 
     const initiateSignWS = () => {
+      if (stakeRegistered.value || registeringStake.value || stakeRegisterFailed.value) {
+        return;
+      }
       const { protocol, hostname } = window.location;
       let mybackend = '';
       mybackend += protocol;
@@ -1712,6 +1864,8 @@ export default {
     const getStats = async () => {
       const response = await axios.get(`${apiURL}/stats`);
       titanStats.value = response.data;
+
+      tooMuchStaked.value = (totalCollateral.value <= titanStats.value.total);
     };
 
     const getSharedNodeList = async () => {
@@ -1724,7 +1878,7 @@ export default {
         totalCollateral.value += node.collateral;
       });
       // console.log(allNodes);
-      nodes.value = allNodes;
+      nodes.value = allNodes.sort((a, b) => (a.name.toLowerCase() > b.name.toLowerCase() ? 1 : -1));
     };
 
     const getMyStakes = async (force = false) => {
@@ -1736,7 +1890,9 @@ export default {
         totalReward.value = 0;
         response.data.forEach((stake) => {
           if (stake.expiry < now) {
-            expiredStakes.push(stake);
+            if (stake.state >= 4) { // ensure that only expired or completed stakes are in the Expired list
+              expiredStakes.push(stake);
+            }
           } else {
             activeStakes.push(stake);
           }
@@ -1784,6 +1940,13 @@ export default {
       return apr;
     };
 
+    const showOverlay = () => {
+      if (titanConfig.value && titanConfig.value.maintenanceMode) {
+        return true;
+      }
+      return false;
+    };
+
     const fetchData = async () => {
       try {
         nodeCount.value = await getNodeCount();
@@ -1800,7 +1963,7 @@ export default {
         if (response.data.maxStake > 0) {
           maxStakeAmount.value = response.data.maxStake;
         }
-        getSharedNodeList();
+        await getSharedNodeList();
         getStats();
         getMyStakes();
         getMyPayments();
@@ -1815,7 +1978,7 @@ export default {
     }, 2 * 60 * 1000);
 
     const showStakeDialog = (reinvesting = false) => {
-      console.log(reinvesting);
+      if (titanConfig.value && titanConfig.value.maintenanceMode) return;
       reinvestingNewStake.value = reinvesting;
       stakeModalShowing.value = true;
       stakeRegistered.value = false;
@@ -1843,11 +2006,13 @@ export default {
     };
 
     const showActiveStakeInfoDialog = (stake) => {
+      if (titanConfig.value && titanConfig.value.maintenanceMode) return;
       selectedStake.value = JSON.parse(JSON.stringify(stake));
       activeStakeInfoModalShowing.value = true;
     };
 
     const editActiveStake = async () => {
+      if (titanConfig.value && titanConfig.value.maintenanceMode) return;
       activeStakeInfoModalShowing.value = false;
       await getModifyMessage();
       stakeRegistered.value = false;
@@ -1894,6 +2059,7 @@ export default {
     };
 
     const showReinvestDialog = (stake) => {
+      if (titanConfig.value && titanConfig.value.maintenanceMode) return;
       stakeRegistered.value = false;
       stakeRegisterFailed.value = false;
       registeringStake.value = false;
@@ -1915,14 +2081,17 @@ export default {
     };
 
     const showNodeInfoDialog = () => {
+      if (titanConfig.value && titanConfig.value.maintenanceMode) return;
       nodeModalShowing.value = true;
     };
 
     const showAPRInfoDialog = () => {
+      if (titanConfig.value && titanConfig.value.maintenanceMode) return;
       aprModalShowing.value = true;
     };
 
     const showRedeemDialog = () => {
+      if (titanConfig.value && titanConfig.value.maintenanceMode) return;
       const addresses = [];
       myStakes.value.forEach((stake) => {
         if (stake.address && !addresses.some((address) => address.text === stake.address)) {
@@ -1952,13 +2121,14 @@ export default {
     };
 
     const confirmRedeemDialogFinish = () => {
+      if (titanConfig.value && titanConfig.value.maintenanceMode) return;
       redeemModalShowing.value = false;
       getMyStakes(true);
       getMyPayments(true);
     };
 
     const showPaymentDetailsDialog = (stake) => {
-      // console.log(`show payment details ${stake}`);
+      if (titanConfig.value && titanConfig.value.maintenanceMode) return;
       selectedStake.value = JSON.parse(JSON.stringify(stake));
       paymentDetailsDialogShowing.value = true;
     };
@@ -2099,6 +2269,13 @@ export default {
       return selectedLockupIndex.value >= 0 && selectedLockupIndex.value < titanConfig.value.lockups.length;
     };
 
+    const getLockupDuration = () => {
+      if (titanConfig.value) {
+        return titanConfig.value.lockups[selectedLockupIndex.value].time;
+      }
+      return 0;
+    };
+
     const checkReinvestDuration = async () => (selectedLockupIndex.value >= 0 && selectedLockupIndex.value < titanConfig.value.lockups.length);
 
     const redeemAmountState = () => {
@@ -2127,6 +2304,8 @@ export default {
       totalReward,
       titanConfig,
       titanStats,
+      tooMuchStaked,
+      defaultStakeDisabledMessage,
 
       userZelid,
       signature,
@@ -2167,6 +2346,7 @@ export default {
       registeringStake,
       registerStake,
       checkDuration,
+      getLockupDuration,
       getRegistrationMessage,
 
       confirmStakeDialogCancel,
@@ -2190,6 +2370,8 @@ export default {
       showPaymentDetailsDialog,
       paymentDetailsDialogShowing,
       selectedStake,
+
+      showOverlay,
 
       showRedeemDialog,
       redeemModalShowing,
