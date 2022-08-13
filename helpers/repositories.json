@@ -299,6 +299,10 @@
    "kadefi/pact-db-api:latest",
    "tsn1/tsn:latest",
    "kadefi/api:canary",
-   "mysten/sui-node:main"
+   "mysten/sui-node:main",
+   "treasurehuntgameapp/treasurehuntgame",
+   "treasurehuntgameapp/treasurehuntgameapi",
+   "kryptomerch/ico:latest",
+   "megachips/cerebro:latest",
    "adiprayitno/webserver:webserver"
 ]
