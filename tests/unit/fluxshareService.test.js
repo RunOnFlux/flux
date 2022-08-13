@@ -39,7 +39,7 @@ const generateResponse = () => {
   return res;
 };
 
-describe.only('idService tests', () => {
+describe('idService tests', () => {
   describe('fluxShareDatabaseFileDelete tests', () => {
     let dbStub;
 
