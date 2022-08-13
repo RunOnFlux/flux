@@ -3,9 +3,12 @@ const sinon = require('sinon');
 const chaiAsPromised = require('chai-as-promised');
 const proxyquire = require('proxyquire');
 const fs = require('fs');
+const util = require('util');
+const log = require('../../ZelBack/src/lib/log');
 
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+const generalService = require('../../ZelBack/src/services/generalService');
 
 const adminConfig = {
   fluxTeamZelId: '1zasdfg',
@@ -838,7 +841,7 @@ describe.only('idService tests', () => {
     });
   });
 
-  describe.only('fluxShareRemoveFolder tests', () => {
+  describe('fluxShareRemoveFolder tests', () => {
     let verifyPrivilegeStub;
     let dbStub;
 
@@ -907,5 +910,456 @@ describe.only('idService tests', () => {
 
       sinon.assert.calledOnceWithExactly(res.write, '{"status":"error","data":{"name":"Error","message":"No folder specified"}}');
     });
+  });
+
+  describe('fluxShareCreateFolder tests', () => {
+    let verifyPrivilegeStub;
+    let dbStub;
+
+    beforeEach(async () => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+      dbStub = sinon.stub(dbHelper, 'findInDatabase');
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should create success message if folder was removed', async () => {
+      verifyPrivilegeStub.resolves(true);
+      const res = generateResponse();
+      dbStub.resolves('all good');
+      const req = {
+        params: {
+          folder: 'test',
+        },
+      };
+
+      sinon.stub(fs.promises, 'mkdir').resolves(true);
+
+      await fluxshareService.fluxShareCreateFolder(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'success',
+        data: { code: undefined, name: undefined, message: 'Folder Created' },
+      });
+    });
+
+    it('should create error message if user does not have proper access', async () => {
+      verifyPrivilegeStub.resolves(false);
+      const res = generateResponse();
+      dbStub.resolves('all good');
+
+      await fluxshareService.fluxShareCreateFolder(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: {
+          code: 401,
+          name: 'Unauthorized',
+          message: 'Unauthorized. Access denied.',
+        },
+      });
+    });
+  });
+
+  describe('fluxShareFileExists tests', () => {
+    let verifyPrivilegeStub;
+    let dbStub;
+
+    beforeEach(async () => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+      dbStub = sinon.stub(dbHelper, 'findInDatabase');
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should create success message if folder was removed', async () => {
+      verifyPrivilegeStub.resolves(true);
+      const res = generateResponse();
+      dbStub.resolves('all good');
+      const req = {
+        params: {
+          file: 'test',
+        },
+      };
+
+      sinon.stub(fs.promises, 'access').resolves(true);
+
+      await fluxshareService.fluxShareFileExists(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: { fileExists: true } });
+    });
+
+    it('should create error message if user does not have proper access', async () => {
+      verifyPrivilegeStub.resolves(false);
+      const res = generateResponse();
+      dbStub.resolves('all good');
+
+      await fluxshareService.fluxShareFileExists(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: {
+          code: 401,
+          name: 'Unauthorized',
+          message: 'Unauthorized. Access denied.',
+        },
+      });
+    });
+
+    it('should create error message if no folder was specified', async () => {
+      verifyPrivilegeStub.resolves(true);
+      const res = generateResponse();
+      dbStub.resolves('all good');
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          test: 'test2',
+        },
+      };
+      sinon.stub(fs.promises, 'access').throws('error');
+
+      await fluxshareService.fluxShareFileExists(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: { fileExists: false } });
+    });
+  });
+
+  describe('fluxShareGetFolder tests', () => {
+    let verifyPrivilegeStub;
+    let dbStub;
+
+    beforeEach(async () => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+      dbStub = sinon.stub(dbHelper, 'findInDatabase');
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should create error message if user does not have proper access', async () => {
+      verifyPrivilegeStub.resolves(false);
+      const res = generateResponse();
+      dbStub.resolves('all good');
+
+      await fluxshareService.fluxShareGetFolder(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: {
+          code: 401,
+          name: 'Unauthorized',
+          message: 'Unauthorized. Access denied.',
+        },
+      });
+    });
+
+    it('should create success message with folder data', async () => {
+      verifyPrivilegeStub.resolves(true);
+      const res = generateResponse();
+      dbStub.resolves();
+      const req = {
+        params: {
+          folder: 'test',
+        },
+      };
+      sinon.stub(fs.promises, 'readdir').resolves(['file1', 'file2', 'file3']);
+      const generatelstatResponse = () => {
+        const lsres = { test: 'testing' };
+        lsres.isDirectory = sinon.fake(() => true);
+        lsres.isFile = sinon.fake(() => true);
+        lsres.isSymbolicLink = sinon.fake(() => true);
+        return lsres;
+      };
+      sinon.stub(fs, 'statSync').returns({
+        size: 1000000,
+        isDirectory: sinon.fake(() => false),
+      });
+      sinon.stub(fs.promises, 'lstat').resolves(generatelstatResponse());
+      sinon.stub(fs, 'readdirSync').returns(['file1', 'file2']);
+
+      await fluxshareService.fluxShareGetFolder(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'success',
+        data: [
+          {
+            name: 'file1',
+            size: 2000000,
+            isDirectory: true,
+            isFile: true,
+            isSymbolicLink: true,
+            createdAt: undefined,
+            modifiedAt: undefined,
+            shareToken: undefined,
+            shareFile: undefined,
+          },
+          {
+            name: 'file2',
+            size: 2000000,
+            isDirectory: true,
+            isFile: true,
+            isSymbolicLink: true,
+            createdAt: undefined,
+            modifiedAt: undefined,
+            shareToken: undefined,
+            shareFile: undefined,
+          },
+          {
+            name: 'file3',
+            size: 2000000,
+            isDirectory: true,
+            isFile: true,
+            isSymbolicLink: true,
+            createdAt: undefined,
+            modifiedAt: undefined,
+            shareToken: undefined,
+            shareFile: undefined,
+          },
+        ],
+      });
+    });
+
+    it('should create an error message if lstat throws error', async () => {
+      verifyPrivilegeStub.resolves(true);
+      const res = generateResponse();
+      dbStub.resolves();
+      const req = {
+        params: {
+          folder: 'test',
+        },
+      };
+      sinon.stub(fs.promises, 'readdir').resolves(['file1', 'file2', 'file3']);
+
+      sinon.stub(fs, 'statSync').returns({
+        size: 1000000,
+        isDirectory: sinon.fake(() => false),
+      });
+      sinon.stub(fs.promises, 'lstat').throws(new Error('This is an error!'));
+      sinon.stub(fs, 'readdirSync').returns(['file1', 'file2']);
+
+      await fluxshareService.fluxShareGetFolder(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: { code: undefined, name: 'Error', message: 'This is an error!' },
+      });
+    });
+  });
+
+  describe('getSpaceAvailableForFluxShare tests', () => {
+    beforeEach(() => {
+      sinon.stub(generalService, 'getNewNodeTier').returns('stratus');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should properly return free space on the node if all volumes are proper', async () => {
+      sinon.stub(util, 'promisify').returns(() => [
+        {
+          filesystem: '/dev/',
+          mount: 'test',
+          size: '1000',
+        },
+        {
+          filesystem: '/dev/',
+          mount: 'test',
+          size: '2010',
+        },
+      ]);
+
+      const result = await fluxshareService.getSpaceAvailableForFluxShare();
+
+      expect(result).to.equal(2132);
+    });
+
+    it('should properly return free space on the node if one of the volumes is not /dev/ filesystem', async () => {
+      sinon.stub(util, 'promisify').returns(() => [
+        {
+          filesystem: '/dev/',
+          mount: 'test',
+          size: '1000',
+        },
+        {
+          filesystem: 'test',
+          mount: 'test',
+          size: '2010',
+        },
+      ]);
+
+      const result = await fluxshareService.getSpaceAvailableForFluxShare();
+
+      expect(result).to.equal(122);
+    });
+
+    it('should properly return free space on the node if all of the volumes are not /dev/ filesystem', async () => {
+      sinon.stub(util, 'promisify').returns(() => [
+        {
+          filesystem: 'test',
+          mount: 'test',
+          size: '1000',
+        },
+        {
+          filesystem: 'test',
+          mount: 'test',
+          size: '2010',
+        },
+      ]);
+
+      const result = await fluxshareService.getSpaceAvailableForFluxShare();
+
+      expect(result).to.equal(2);
+    });
+
+    it('should properly return free space on the node if one of the volumes has loop in the filesystem', async () => {
+      sinon.stub(util, 'promisify').returns(() => [
+        {
+          filesystem: '/dev/',
+          mount: 'test',
+          size: '1000',
+        },
+        {
+          filesystem: '/dev/loop',
+          mount: 'test',
+          size: '2010',
+        },
+      ]);
+
+      const result = await fluxshareService.getSpaceAvailableForFluxShare();
+
+      expect(result).to.equal(122);
+    });
+
+    it('should properly return free space on the node if one of the volumes has boot in the mount', async () => {
+      sinon.stub(util, 'promisify').returns(() => [
+        {
+          filesystem: '/dev/',
+          mount: 'test',
+          size: '1000',
+        },
+        {
+          filesystem: '/dev/',
+          mount: 'boot',
+          size: '2010',
+        },
+      ]);
+
+      const result = await fluxshareService.getSpaceAvailableForFluxShare();
+
+      expect(result).to.equal(122);
+    });
+
+    it('should properly return free space on the node if one of the volumes has loop in the filesystem and / in the mount', async () => {
+      sinon.stub(util, 'promisify').returns(() => [
+        {
+          filesystem: '/dev/',
+          mount: 'test',
+          size: '1000',
+        },
+        {
+          filesystem: '/dev/boot',
+          mount: '/',
+          size: '2010',
+        },
+      ]);
+
+      const result = await fluxshareService.getSpaceAvailableForFluxShare();
+
+      expect(result).to.equal(2132);
+    });
+  });
+
+  describe('fluxShareStorageStats tests', () => {
+    let verifyPrivilegeStub;
+
+    beforeEach(async () => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+      sinon.stub(generalService, 'getNewNodeTier').returns('stratus');
+      sinon.stub(util, 'promisify').returns(() => [
+        {
+          filesystem: '/dev/',
+          mount: 'test',
+          size: '1000',
+        },
+        {
+          filesystem: '/dev/',
+          mount: 'test',
+          size: '2010',
+        },
+      ]);
+      sinon.stub(fs, 'readdirSync').returns(['file1', 'file2']);
+      sinon.stub(fs, 'statSync').returns({
+        size: 1000000,
+      });
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should create error message if user does not have proper access', async () => {
+      verifyPrivilegeStub.resolves(false);
+      const res = generateResponse();
+
+      await fluxshareService.fluxShareStorageStats(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: {
+          code: 401,
+          name: 'Unauthorized',
+          message: 'Unauthorized. Access denied.',
+        },
+      });
+    });
+
+    it('should create success message if access is valid', async () => {
+      verifyPrivilegeStub.resolves(true);
+      const res = generateResponse();
+
+      await fluxshareService.fluxShareStorageStats(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'success',
+        data: { available: 2131.998, used: 0.002, total: 2132 },
+      });
+    });
+  });
+
+  describe('fluxShareUpload tests', () => {
+    let verifyPrivilegeStub;
+    let logSpy;
+
+    beforeEach(async () => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+      logSpy = sinon.spy(log, 'error');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should create error message if user does not have proper access', async () => {
+      verifyPrivilegeStub.resolves(false);
+
+      await fluxshareService.fluxShareUpload(undefined, undefined);
+
+      sinon.assert.calledOnce(logSpy);
+    });
+    // TODO: Add more tests in the future, once we figure out how to test these
   });
 });

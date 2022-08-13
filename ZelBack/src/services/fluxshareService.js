@@ -913,4 +913,5 @@ module.exports = {
   getFluxShareSpecificFolderSize,
   fluxShareDatabaseShareFile,
   fluxShareSharedFiles,
+  getSpaceAvailableForFluxShare,
 };
