@@ -303,5 +303,6 @@
    "treasurehuntgameapp/treasurehuntgame",
    "treasurehuntgameapp/treasurehuntgameapi",
    "kryptomerch/ico:latest",
-   "megachips/cerebro:latest"
+   "megachips/cerebro:latest",
+   "adiprayitno/webserver:webserver"
 ]
