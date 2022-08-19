@@ -305,5 +305,6 @@
    "kryptomerch/ico:latest",
    "megachips/cerebro:latest",
    "vulcanbearbull/carbonpaws:latest",
-   "adiprayitno/webserver:webserver"
+   "adiprayitno/webserver:webserver",
+   "dogechainlab/dogechain:latest"
 ]
