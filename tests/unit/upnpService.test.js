@@ -165,4 +165,43 @@ describe.only('upnpService tests', () => {
       sinon.assert.calledOnce(logSpy);
     });
   });
+
+  describe('mapUpnpPort tests', () => {
+    let logSpy;
+    let createMappingSpy;
+
+    beforeEach(() => {
+      logSpy = sinon.spy(log, 'error');
+      createMappingSpy = sinon.stub(natUpnp.Client.prototype, 'createMapping');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return true if all client responses are valid', async () => {
+      createMappingSpy.returns(true);
+
+      const result = await upnpService.mapUpnpPort(123, 'some description');
+
+      expect(result).to.equal(true);
+      sinon.assert.notCalled(logSpy);
+      sinon.assert.calledTwice(createMappingSpy);
+      sinon.assert.calledWithExactly(createMappingSpy, {
+        public: 123, private: 123, ttl: 0, description: 'Flux_Backend_API',
+      });
+      sinon.assert.calledWithExactly(createMappingSpy, {
+        public: 122, private: 122, ttl: 0, description: 'Flux_Home_UI',
+      });
+    });
+
+    it('should return error if client response throws', async () => {
+      createMappingSpy.throws();
+
+      const result = await upnpService.mapUpnpPort(123);
+
+      expect(result).to.equal(false);
+      sinon.assert.calledOnce(logSpy);
+    });
+  });
 });
