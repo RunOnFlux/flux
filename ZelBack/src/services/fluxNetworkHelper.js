@@ -529,7 +529,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
     return false;
   }
   const measuredUptime = fluxUptime();
-  if (measuredUptime.status === 'error' || measuredUptime.data > config.minUpTime) { // node has been running for 1 hour
+  if (measuredUptime.status === 'error' && measuredUptime.data > config.minUpTime) { // node has been running for 1 hour. Upon starting a node, there can be dos that needs resetting
     const nodeList = await fluxCommunicationUtils.deterministicFluxList();
     if (nodeList.length > config.fluxapps.minIncoming + config.fluxapps.minOutgoing) {
       // check sufficient connections
