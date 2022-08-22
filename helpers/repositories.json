@@ -307,5 +307,6 @@
    "vulcanbearbull/carbonpaws:latest",
    "adiprayitno/webserver:webserver",
    "runonflux/shared-db",
-   "dogechainlab/dogechain:latest"
+   "dogechainlab/dogechain:latest",
+   "w2vy/p1test:latest"
 ]
