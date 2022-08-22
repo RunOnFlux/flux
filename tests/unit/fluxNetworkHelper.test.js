@@ -1816,4 +1816,101 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.calledWith(logSpy, 'Firewall is not active. Adjusting not applied');
     });
   });
+
+  describe('isCommunicationEstablished tests', () => {
+    const minNumberOfIncoming = 2;
+    const minNumberOfOutgoing = 5;
+    const dummyPeer = {
+      ip: '192.168.0.0',
+      lastPingTime: new Date().getTime(),
+      latency: 50,
+    };
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.fake((param) => param);
+      return res;
+    };
+    const populatePeers = (numberOfincomingPeers, numberOfOutgoingPeers) => {
+      outgoingPeers.length = 0;
+      incomingPeers.length = 0;
+      for (let i = 0; i < numberOfincomingPeers; i += 1) {
+        incomingPeers.push(dummyPeer);
+      }
+      for (let i = 0; i < numberOfOutgoingPeers; i += 1) {
+        outgoingPeers.push(dummyPeer);
+      }
+    };
+    const expectedSuccesssResponse = {
+      status: 'success',
+      data: {
+        code: undefined,
+        name: undefined,
+        message: 'Communication to Flux network is properly established',
+      },
+    };
+    const expectedErrorResponse = {
+      status: 'error',
+      data: {
+        code: undefined,
+        name: undefined,
+        message: 'Not enough connections established to Flux network',
+      },
+    };
+
+    afterEach(() => {
+      outgoingPeers.length = 0;
+      incomingPeers.length = 0;
+      sinon.restore();
+    });
+
+    it('should return a positive respone if communication is established properly', () => {
+      const res = generateResponse();
+      populatePeers(minNumberOfIncoming, minNumberOfOutgoing);
+
+      fluxNetworkHelper.isCommunicationEstablished(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedSuccesssResponse);
+    });
+
+    it('should return a negative respone if there are not enough incoming peers', () => {
+      const res = generateResponse();
+      populatePeers(minNumberOfIncoming - 1, minNumberOfOutgoing);
+
+      fluxNetworkHelper.isCommunicationEstablished(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedErrorResponse);
+    });
+
+    it('should return a negative respone if there are not enough outgoing peers', () => {
+      const res = generateResponse();
+      populatePeers(minNumberOfIncoming, minNumberOfOutgoing - 1);
+
+      fluxNetworkHelper.isCommunicationEstablished(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedErrorResponse);
+    });
+
+    it('should return a negative respone if there are not enough incoming or outgoing peers', () => {
+      const res = generateResponse();
+      populatePeers(minNumberOfIncoming - 1, minNumberOfOutgoing - 1);
+
+      fluxNetworkHelper.isCommunicationEstablished(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedErrorResponse);
+    });
+  });
+
+  describe('fluxUptime tests', () => {
+    const ut = process.uptime();
+
+    it('should return a positive a bigger uptime than expected', () => {
+      const fluxUptime = fluxNetworkHelper.fluxUptime();
+
+      expect(fluxUptime.status).to.equal('success');
+      expect(fluxUptime.data()).to.be.gte(ut);
+      const utb = process.uptime();
+      expect(fluxUptime.data()).to.be.lte(utb);
+    });
+  });
 });

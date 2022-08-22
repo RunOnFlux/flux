@@ -102,8 +102,9 @@ module.exports = {
     minimumInstances: 3,
     maximumInstances: 100,
     maximumAdditionalInstances: 1, // max instances above subscribed amount. In case of min instances, this is minimumInstances + maximumAdditionalInstances
-    minOutgoing: 5,
-    minIncoming: 2,
+    minOutgoing: 9,
+    minIncoming: 3,
+    minUpTime: 3600, // 1 hour
     installation: {
       probability: 100, // 1%
       delay: 120, // in seconds
