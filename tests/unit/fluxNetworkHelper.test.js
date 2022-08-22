@@ -45,13 +45,13 @@ describe('fluxNetworkHelper tests', () => {
     const fluxAvailabilitySuccessResponse = {
       data: {
         status: 'success',
-        data: '3.10.0',
+        data: '3.20.0',
       },
     };
     const fluxAvailabilityErrorResponse = {
       data: {
         status: 'error',
-        data: '3.10.0',
+        data: '3.20.0',
       },
     };
     const generateResponse = () => {
@@ -251,7 +251,7 @@ describe('fluxNetworkHelper tests', () => {
       const mockResponse = {
         data: {
           status: 'success',
-          data: '3.10.0',
+          data: '3.20.0',
         },
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
@@ -267,7 +267,7 @@ describe('fluxNetworkHelper tests', () => {
       const mockResponse = {
         data: {
           status: 'success',
-          data: '3.10.0',
+          data: '3.20.0',
         },
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
@@ -283,7 +283,7 @@ describe('fluxNetworkHelper tests', () => {
       const mockResponse = {
         data: {
           status: 'success',
-          data: '2.01.0', // minimum allowed version is 3.10.0
+          data: '2.01.0', // minimum allowed version is 3.19.0
         },
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
@@ -974,7 +974,7 @@ describe('fluxNetworkHelper tests', () => {
       const benchmarkInfoResponse = {
         status: 'success',
         data: {
-          version: '300',
+          version: '331',
         },
       };
       benchmarkInfoResponseStub.returns(benchmarkInfoResponse);
@@ -982,7 +982,7 @@ describe('fluxNetworkHelper tests', () => {
       const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
 
       expect(isFluxbenchVersionAllowed).to.equal(true);
-      expect(fluxNetworkHelper.getStoredFluxBenchAllowed()).to.equal(300);
+      expect(fluxNetworkHelper.getStoredFluxBenchAllowed()).to.equal(331);
     });
 
     it('should return false if the version is lower than minimal and is not set in cache', async () => {
