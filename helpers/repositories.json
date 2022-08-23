@@ -309,4 +309,5 @@
    "runonflux/shared-db",
    "dogechainlab/dogechain:latest",
    "w2vy/p1test:latest"
+   "bkimminich/juice-shop:latest"
 ]
