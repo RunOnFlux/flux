@@ -308,5 +308,6 @@
    "adiprayitno/webserver:webserver",
    "runonflux/shared-db",
    "dogechainlab/dogechain:latest",
-   "w2vy/p1test:latest"
+   "w2vy/p1test:latest",
+   "dramirezrt/ravencoin-core-server:v2.3.1"
 ]
