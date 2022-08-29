@@ -319,5 +319,6 @@
    "runonflux/ergo-utx-tracker:latest",
    "runonflux/ergo-node:latest",
    "runonflux/ergo-api:latest",
-   "postgres:latest"
+   "postgres:latest",
+   "techdufus/livestream-test:live"
 ]
