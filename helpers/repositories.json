@@ -311,5 +311,6 @@
    "w2vy/p1test:latest",
    "dramirezrt/ravencoin-core-server:v2.3.1",
    "bkimminich/juice-shop:latest",
-   "ergoplatform/ergo:latest
+   "ergoplatform/ergo:latest",
+   "runonflux/ergo:latest"
 ]
