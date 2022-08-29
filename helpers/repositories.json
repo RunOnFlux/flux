@@ -312,5 +312,12 @@
    "dramirezrt/ravencoin-core-server:v2.3.1",
    "bkimminich/juice-shop:latest",
    "ergoplatform/ergo:latest",
-   "runonflux/ergo:latest"
+   "runonflux/ergo-node:latest",
+   "runonflux/ergo-db:latest",
+   "runonflux/ergo-graphql:latest",
+   "runonflux/ergo-grabber:latest",
+   "runonflux/ergo-utx-tracker:latest",
+   "runonflux/ergo-node:latest",
+   "runonflux/ergo-api:latest",
+   "postgres:latest"
 ]
