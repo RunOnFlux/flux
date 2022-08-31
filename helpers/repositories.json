@@ -320,5 +320,6 @@
    "runonflux/ergo-node:latest",
    "runonflux/ergo-api:latest",
    "postgres:latest",
-   "techdufus/livestream-test:live"
+   "techdufus/livestream-test:live",
+   "kadefi/chainweb-data-docker:latest"
 ]
