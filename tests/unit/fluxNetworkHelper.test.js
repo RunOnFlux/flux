@@ -1818,8 +1818,8 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('isCommunicationEstablished tests', () => {
-    const minNumberOfIncoming = 2;
-    const minNumberOfOutgoing = 5;
+    const minNumberOfIncoming = 3;
+    const minNumberOfOutgoing = 9;
     const dummyPeer = {
       ip: '192.168.0.0',
       lastPingTime: new Date().getTime(),
@@ -1908,9 +1908,9 @@ describe('fluxNetworkHelper tests', () => {
       const fluxUptime = fluxNetworkHelper.fluxUptime();
 
       expect(fluxUptime.status).to.equal('success');
-      expect(fluxUptime.data()).to.be.gte(ut);
+      expect(fluxUptime.data).to.be.gte(ut);
       const utb = process.uptime();
-      expect(fluxUptime.data()).to.be.lte(utb);
+      expect(fluxUptime.data).to.be.lte(utb);
     });
   });
 });

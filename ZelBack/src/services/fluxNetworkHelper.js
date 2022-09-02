@@ -412,11 +412,11 @@ function fluxUptime(req, res) {
   try {
     const ut = process.uptime();
     const measureUptime = Math.floor(ut);
-    message = serviceHelper.createDataMessage(measureUptime);
+    message = messageHelper.createDataMessage(measureUptime);
     return res ? res.json(message) : message;
   } catch (error) {
     log.error(error);
-    message = serviceHelper.createErrorMessage('Error obtaining uptime');
+    message = messageHelper.createErrorMessage('Error obtaining uptime');
     return res ? res.json(message) : message;
   }
 }
@@ -429,11 +429,11 @@ function fluxUptime(req, res) {
 function isCommunicationEstablished(req, res) {
   let message;
   if (outgoingPeers.length < config.fluxapps.minOutgoing) { // easier to establish
-    message = serviceHelper.createErrorMessage('Not enough connections established to Flux network');
+    message = messageHelper.createErrorMessage('Not enough connections established to Flux network');
   } else if (incomingPeers.length < config.fluxapps.minIncoming) { // depends on other nodes successfully connecting to my node
-    message = serviceHelper.createErrorMessage('Not enough connections established to Flux network');
+    message = messageHelper.createErrorMessage('Not enough connections established to Flux network');
   } else {
-    message = serviceHelper.createSuccessMessage('Communication to Flux network is properly established');
+    message = messageHelper.createSuccessMessage('Communication to Flux network is properly established');
   }
   return res ? res.json(message) : message;
 }
