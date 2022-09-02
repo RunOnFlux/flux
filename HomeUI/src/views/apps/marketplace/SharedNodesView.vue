@@ -850,7 +850,7 @@
               {{ toFixedLocaleString(totalReward - (titanConfig ? titanConfig.redeemFee : 0), 2) }} Flux
             </h3>
             <h6>
-              (Redeem Fee: {{ titanConfig ? titanConfig.redeemFee : '...' }} Flux)
+              (<span class="text-warning">Redeem Fee:</span> <span class="text-danger">{{ titanConfig ? titanConfig.redeemFee : '...' }} Flux</span>)
             </h6>
           </b-card>
         </tab-content>
@@ -1865,7 +1865,7 @@ export default {
       const response = await axios.get(`${apiURL}/stats`);
       titanStats.value = response.data;
 
-      tooMuchStaked.value = (totalCollateral.value <= titanStats.value.total);
+      tooMuchStaked.value = (totalCollateral.value <= (titanStats.value.total + titanConfig.value.minStake));
     };
 
     const getSharedNodeList = async () => {
