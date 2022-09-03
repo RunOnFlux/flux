@@ -325,5 +325,6 @@
    "techdufus/dos-lsl1:latest",
    "kadefi/chainweb-data-docker:latest",
    "jeffvaderflux/fluxpools_ui:latest",
-   "honsontran/sushiswap-interface:latest"
+   "honsontran/sushiswap-interface:latest",
+   "renegademaster/zomboid-dedicated-server:latest"
 ]
