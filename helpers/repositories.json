@@ -326,5 +326,6 @@
    "kadefi/chainweb-data-docker:latest",
    "jeffvaderflux/fluxpools_ui:latest",
    "honsontran/sushiswap-interface:latest",
-   "renegademaster/zomboid-dedicated-server:latest"
+   "renegademaster/zomboid-dedicated-server:latest",
+   "zirnheltdj/wisconsinwaters:latest"
 ]
