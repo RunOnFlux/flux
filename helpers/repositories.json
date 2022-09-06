@@ -323,6 +323,7 @@
    "techdufus/livestream-test:live",
    "techdufus/dos-doom:latest",
    "techdufus/dos-lsl1:latest",
+   "portainer/portainer-ce:latest",
    "kadefi/chainweb-data-docker:latest",
    "jeffvaderflux/fluxpools_ui:latest",
    "honsontran/sushiswap-interface:latest",
