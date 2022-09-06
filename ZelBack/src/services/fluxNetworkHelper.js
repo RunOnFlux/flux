@@ -529,7 +529,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
     return false;
   }
   const measuredUptime = fluxUptime();
-  if (measuredUptime.status === 'error' && measuredUptime.data > config.minUpTime) { // node has been running for 1 hour. Upon starting a node, there can be dos that needs resetting
+  if (measuredUptime.status === 'success' && measuredUptime.data > config.minUpTime) { // node has been running for 1 hour. Upon starting a node, there can be dos that needs resetting
     const nodeList = await fluxCommunicationUtils.deterministicFluxList();
     if (nodeList.length > config.fluxapps.minIncoming + config.fluxapps.minOutgoing) {
       // check sufficient connections
@@ -544,6 +544,8 @@ async function checkMyFluxAvailability(retryNumber = 0) {
         return true; // availability ok
       }
     }
+  } else if (measuredUptime.status === 'error') {
+    log.error('Flux uptime is not available'); // introduce dos increment
   }
   dosState = 0;
   setDosMessage(null);
@@ -633,9 +635,26 @@ async function checkDeterministicNodesCollisions() {
           }
         }
       }
-      const availabilityOk = await checkMyFluxAvailability();
-      if (availabilityOk) {
-        adjustExternalIP(myIP.split(':')[0]);
+      // early stages of the network or testnet
+      if (nodeList.length > config.fluxapps.minIncoming + config.fluxapps.minOutgoing) {
+        const availabilityOk = await checkMyFluxAvailability();
+        if (availabilityOk) {
+          adjustExternalIP(myIP.split(':')[0]);
+        }
+      } else { // sufficient amount of nodes has to appear on the network within 12 hours
+        const measuredUptime = fluxUptime();
+        if (measuredUptime.status === 'success' && measuredUptime.data > (config.minUpTime * 12)) {
+          const availabilityOk = await checkMyFluxAvailability();
+          if (availabilityOk) {
+            adjustExternalIP(myIP.split(':')[0]);
+          }
+        } else if (measuredUptime.status === 'error') {
+          log.error('Flux uptime unavailable');
+          const availabilityOk = await checkMyFluxAvailability();
+          if (availabilityOk) {
+            adjustExternalIP(myIP.split(':')[0]);
+          }
+        }
       }
     } else {
       dosState += 1;
