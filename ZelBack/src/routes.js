@@ -771,11 +771,11 @@ module.exports = (app, expressWs) => {
   app.get('/flux/checkcommunication', (req, res) => {
     fluxNetworkHelper.isCommunicationEstablished(req, res);
   });
+  app.get('/flux/uptime', (req, res) => {
+    fluxNetworkHelper.fluxUptime(req, res);
+  });
   app.get('/flux/backendfolder', isLocal, (req, res) => {
     fluxService.fluxBackendFolder(req, res);
-  });
-  app.get('/flux/uptime', (req, res) => {
-    fluxService.fluxUptime(req, res);
   });
   app.get('/flux/mapport/:port?', (req, res) => {
     upnpService.mapPortApi(req, res);
