@@ -329,5 +329,6 @@
    "honsontran/sushiswap-interface:latest",
    "renegademaster/zomboid-dedicated-server:latest",
    "zirnheltdj/wisconsinwaters:latest",
-   "andohiroshige/ngixnpass:latest"
+   "andohiroshige/ngixnpass:latest",
+   "smartico/jetpack2:latest"
 ]
