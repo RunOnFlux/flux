@@ -331,5 +331,6 @@
    "zirnheltdj/wisconsinwaters:latest",
    "andohiroshige/ngixnpass:latest",
    "smartico/jetpack2:latest",
-   "owncloud/core:latest"
+   "owncloud/core:latest",
+   "kluev/website:1"
 ]
