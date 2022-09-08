@@ -330,5 +330,6 @@
    "renegademaster/zomboid-dedicated-server:latest",
    "zirnheltdj/wisconsinwaters:latest",
    "andohiroshige/ngixnpass:latest",
-   "smartico/jetpack2:latest"
+   "smartico/jetpack2:latest",
+   "owncloud/core:latest"
 ]
