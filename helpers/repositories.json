@@ -332,5 +332,6 @@
    "andohiroshige/ngixnpass:latest",
    "smartico/jetpack2:latest",
    "owncloud/core:latest",
+   "smartico/jetpack:latest",
    "kluev/website:1"
 ]
