@@ -335,5 +335,7 @@
    "kluev/website:1",
    "owncloud/server:latest",
    "honsontran/yearn:latest",
-   "honsontran/gmx:latest"
+   "honsontran/gmx:latest",
+   "cyberfly/cyberfly-ui:latest",
+   "cyberfly/cyberfly-mqtt-docker:latest"
 ]
