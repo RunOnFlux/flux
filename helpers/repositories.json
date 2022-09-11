@@ -315,9 +315,8 @@
    "runonflux/ergo-node:latest",
    "runonflux/ergo-db:latest",
    "runonflux/ergo-graphql:latest",
-   "runonflux/ergo-grabber:latest",
+   "runonflux/ergo-chain-grabber:latest",
    "runonflux/ergo-utx-tracker:latest",
-   "runonflux/ergo-node:latest",
    "runonflux/ergo-api:latest",
    "postgres:latest",
    "techdufus/livestream-test:live",
@@ -334,5 +333,7 @@
    "owncloud/core:latest",
    "smartico/jetpack:latest",
    "kluev/website:1",
-   "owncloud/server:latest"
+   "owncloud/server:latest",
+   "honsontran/yearn:latest",
+   "honsontran/gmx:latest"
 ]
