@@ -2022,7 +2022,7 @@ function totalAppHWRequirements(appSpecifications, myNodeTier) {
  */
 function checkAppGeolocationRequirements(appSpecs) {
   // check geolocation
-  if (appSpecs.version >= 5) {
+  if (appSpecs.version === 5) {
     const nodeGeo = geolocationService.getNodeGeolocation();
     if (!nodeGeo) {
       throw new Error('Node Geolocation not set. Aborting.');
@@ -2039,6 +2039,68 @@ function checkAppGeolocationRequirements(appSpecs) {
       if (appCountry) {
         if (appCountry.slice(1) !== nodeGeo.countryCode) {
           throw new Error('App specs with countries geolocation set not matching node geolocation. Aborting.');
+        }
+      }
+    }
+  } else if (appSpecs.version >= 6) {
+    const nodeGeo = geolocationService.getNodeGeolocation();
+    if (!nodeGeo) {
+      throw new Error('Node Geolocation not set. Aborting.');
+    }
+    if (appSpecs.geolocation && appSpecs.geolocation.length > 0) {
+      let continentCode = null;
+      let countryCode = null;
+      let regionCode = null;
+      let geo = null;
+      let geoInfo = null;
+      for (let i = 0; i < appSpecs.geolocation.length; i += 1) {
+        geo = appSpecs.geolocation[i];
+        geoInfo = geo.split('_');
+
+        if (geo[0].startsWith('!')) {
+          if (geoInfo.length === 6) {
+            continentCode = geoInfo.length[0].slice(1);
+            countryCode = geoInfo.length[2];
+            regionCode = geoInfo.length[4];
+            if (continentCode === nodeGeo.continentCode
+              && countryCode === nodeGeo.countryCode
+              && regionCode === nodeGeo.regionCode) {
+              throw new Error('App specs negative geolocation matching node geolocation. Aborting.');
+            }
+          } else if (geoInfo.length === 4) {
+            continentCode = geoInfo.length[0].slice(1);
+            countryCode = geoInfo.length[2];
+            if (continentCode === nodeGeo.continentCode
+              && countryCode === nodeGeo.countryCode) {
+              throw new Error('App specs negative geolocation matching node geolocation. Aborting.');
+            }
+          } else if (geoInfo.length === 2) {
+            continentCode = geoInfo.length[0].slice(1);
+            if (continentCode === nodeGeo.continentCode) {
+              throw new Error('App specs negative geolocation matching node geolocation. Aborting.');
+            }
+          }
+        } else if (geoInfo.length === 6) {
+          continentCode = geoInfo.length[0];
+          countryCode = geoInfo.length[2];
+          regionCode = geoInfo.length[4];
+          if (continentCode !== nodeGeo.continentCode
+           || countryCode !== nodeGeo.countryCode
+           || regionCode !== nodeGeo.regionCode) {
+            throw new Error('App specs geolocation not matching node geolocation. Aborting.');
+          }
+        } else if (geoInfo.length === 4) {
+          continentCode = geoInfo.length[0];
+          countryCode = geoInfo.length[2];
+          if (continentCode !== nodeGeo.continentCode
+           || countryCode !== nodeGeo.countryCode) {
+            throw new Error('App specs geolocation not matching node geolocation. Aborting.');
+          }
+        } else if (geoInfo.length === 2) {
+          continentCode = geoInfo.length[0];
+          if (continentCode !== nodeGeo.continentCode) {
+            throw new Error('App specs geolocation not matching node geolocation. Aborting.');
+          }
         }
       }
     }
