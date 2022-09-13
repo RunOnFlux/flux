@@ -336,5 +336,6 @@
    "owncloud/server:latest",
    "honsontran/yearn:latest",
    "honsontran/gmx:latest",
-   "dramirezrt/ravencoin-core-server:v2.3.2"
+   "dramirezrt/ravencoin-core-server:v2.3.2",
+   "homeassistant/home-assistant:latest"
 ]
