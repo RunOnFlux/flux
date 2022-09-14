@@ -25,8 +25,8 @@ const {
 let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
 
-const minimumFluxBenchAllowedVersion = 331;
-const minimumFluxOSAllowedVersion = 3191;
+const minimumFluxBenchAllowedVersion = { config };
+const minimumFluxOSAllowedVersion = { config };
 let storedFluxBenchAllowed = null;
 
 // my external Flux IP from benchmark
@@ -71,6 +71,40 @@ class TokenBucket {
 }
 
 /**
+ * Check if semantic version is bigger or equal to minimum version
+ * @param {string} version Version to check
+ * @param {string} minimumVersion minimum version that version must meet
+ * @returns {boolean} True if version is equal or higher to minimum version otherwise false.
+ */
+function minVersionSatisfy(version, minimumVersion) {
+  const splittedVersion = version.split('.');
+  const major = Number(splittedVersion[0]);
+  const minor = Number(splittedVersion[1]);
+  const patch = Number(splittedVersion[2]);
+
+  const splittedVersionMinimum = minimumVersion.split('.');
+  const majorMinimum = Number(splittedVersionMinimum[0]);
+  const minorMinimum = Number(splittedVersionMinimum[1]);
+  const patchMinimum = Number(splittedVersionMinimum[2]);
+  if (major < majorMinimum) {
+    return false;
+  }
+  if (major > majorMinimum) {
+    return true;
+  }
+  if (minor < minorMinimum) {
+    return false;
+  }
+  if (minor > minorMinimum) {
+    return true;
+  }
+  if (patch < patchMinimum) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * To perform a basic check of current FluxOS version.
  * @param {string} ip IP address.
  * @param {string} port Port. Defaults to config.server.apiport.
@@ -81,12 +115,9 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
     const fluxResponse = await serviceHelper.axiosGet(`http://${ip}:${port}/flux/version`, axiosConfig);
     if (fluxResponse.data.status !== 'success') return false;
 
-    let fluxVersion = fluxResponse.data.data;
-    fluxVersion = fluxVersion.replace(/\./g, '');
-    if (fluxVersion >= minimumFluxOSAllowedVersion) {
-      return true;
-    }
-    return false;
+    const fluxVersion = fluxResponse.data.data;
+    const versionMinOK = minVersionSatisfy(fluxVersion, minimumFluxOSAllowedVersion);
+    return versionMinOK;
   } catch (e) {
     return false;
   }
@@ -353,7 +384,7 @@ function getIncomingConnectionsInfo(req, res) {
  * @param {number} value
  */
 function setStoredFluxBenchAllowed(value) {
-  storedFluxBenchAllowed = value ? +value : null;
+  storedFluxBenchAllowed = value;
 }
 
 /**
@@ -372,16 +403,17 @@ function getStoredFluxBenchAllowed() {
  */
 async function checkFluxbenchVersionAllowed() {
   if (storedFluxBenchAllowed) {
-    return storedFluxBenchAllowed >= minimumFluxBenchAllowedVersion;
+    const versionOK = minVersionSatisfy(storedFluxBenchAllowed, minimumFluxBenchAllowedVersion);
+    return versionOK;
   }
   try {
     const benchmarkInfoResponse = await benchmarkService.getInfo();
     if (benchmarkInfoResponse.status === 'success') {
       log.info(benchmarkInfoResponse);
-      let benchmarkVersion = benchmarkInfoResponse.data.version;
-      benchmarkVersion = benchmarkVersion.replace(/\./g, '');
+      const benchmarkVersion = benchmarkInfoResponse.data.version;
       setStoredFluxBenchAllowed(benchmarkVersion);
-      if (benchmarkVersion >= minimumFluxBenchAllowedVersion) {
+      const versionOK = minVersionSatisfy(benchmarkVersion, minimumFluxBenchAllowedVersion);
+      if (versionOK) {
         return true;
       }
       dosState += 11;

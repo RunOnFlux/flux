@@ -235,6 +235,52 @@ describe('fluxNetworkHelper tests', () => {
     });
   });
 
+  describe('minVersionSatisfy tests', () => {
+    const minimalVersion = '3.4.12';
+
+    it('should return true if major version is higher than minimalVersion', async () => {
+      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('4.0.0', minimalVersion);
+
+      expect(versionAllowed).to.equal(true);
+    });
+
+    it('should return true if minor version is higher than minimalVersion', async () => {
+      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('3.5.0', minimalVersion);
+
+      expect(versionAllowed).to.equal(true);
+    });
+
+    it('should return true if patch version is higher than minimalVersion', async () => {
+      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('3.4.13', minimalVersion);
+
+      expect(versionAllowed).to.equal(true);
+    });
+
+    it('should return true if patch version is equal to minimalVersion', async () => {
+      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('3.4.12', minimalVersion);
+
+      expect(versionAllowed).to.equal(true);
+    });
+
+    it('should return false if patch version is below to minimalVersion', async () => {
+      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('3.4.11', minimalVersion);
+
+      expect(versionAllowed).to.equal(true);
+    });
+
+    it('should return false if minor version is below to minimalVersion', async () => {
+      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('3.3.11', minimalVersion);
+
+      expect(versionAllowed).to.equal(true);
+    });
+
+    it('should return false if major version is below to minimalVersion', async () => {
+      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('2.3.11', minimalVersion);
+
+      expect(versionAllowed).to.equal(true);
+    });
+  });
+
   describe('isFluxAvailable tests', () => {
     let stub;
     const ip = '127.0.0.1';
@@ -919,7 +965,7 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('checkFluxbenchVersionAllowed tests', () => {
-    // minimumFluxBenchAllowedVersion = 331;
+    // minimumFluxBenchAllowedVersion = '3.3.1;
     let benchmarkInfoResponseStub;
 
     beforeEach(() => {
@@ -932,7 +978,7 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('should return true if bench version is higher than minimal and stored in cache', async () => {
-      fluxNetworkHelper.setStoredFluxBenchAllowed(400);
+      fluxNetworkHelper.setStoredFluxBenchAllowed('4.0.0');
 
       const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
 
@@ -940,7 +986,7 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('should return true if bench version is equal to minimal and stored in cache', async () => {
-      fluxNetworkHelper.setStoredFluxBenchAllowed(331);
+      fluxNetworkHelper.setStoredFluxBenchAllowed('3.3.1');
 
       const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
 
@@ -948,7 +994,7 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('should return false if bench version is lower than minimal and is stored in cache', async () => {
-      fluxNetworkHelper.setStoredFluxBenchAllowed(300);
+      fluxNetworkHelper.setStoredFluxBenchAllowed('3.0.0');
 
       const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
 
@@ -974,7 +1020,7 @@ describe('fluxNetworkHelper tests', () => {
       const benchmarkInfoResponse = {
         status: 'success',
         data: {
-          version: '331',
+          version: '3.3.1',
         },
       };
       benchmarkInfoResponseStub.returns(benchmarkInfoResponse);
@@ -982,14 +1028,14 @@ describe('fluxNetworkHelper tests', () => {
       const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
 
       expect(isFluxbenchVersionAllowed).to.equal(true);
-      expect(fluxNetworkHelper.getStoredFluxBenchAllowed()).to.equal(331);
+      expect(fluxNetworkHelper.getStoredFluxBenchAllowed()).to.equal('3.3.1');
     });
 
     it('should return false if the version is lower than minimal and is not set in cache', async () => {
       const benchmarkInfoResponse = {
         status: 'success',
         data: {
-          version: '200',
+          version: '2.0.0',
         },
       };
       benchmarkInfoResponseStub.returns(benchmarkInfoResponse);
@@ -997,7 +1043,7 @@ describe('fluxNetworkHelper tests', () => {
       const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
 
       expect(isFluxbenchVersionAllowed).to.equal(false);
-      expect(fluxNetworkHelper.getStoredFluxBenchAllowed()).to.equal(200);
+      expect(fluxNetworkHelper.getStoredFluxBenchAllowed()).to.equal('2.0.0');
     });
 
     it('should return false if the version is unattainable from benchmarkInfo', async () => {
@@ -1027,7 +1073,7 @@ describe('fluxNetworkHelper tests', () => {
 
   describe('checkMyFluxAvailability tests', () => {
     beforeEach(() => {
-      fluxNetworkHelper.setStoredFluxBenchAllowed(400);
+      fluxNetworkHelper.setStoredFluxBenchAllowed('4.0.0');
       fluxNetworkHelper.setMyFluxIp('129.3.3.3');
       const deterministicZelnodeListResponse = [
         {
@@ -1059,7 +1105,7 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('should return false if the flux bench version is lower than allowed', async () => {
-      fluxNetworkHelper.setStoredFluxBenchAllowed(200);
+      fluxNetworkHelper.setStoredFluxBenchAllowed('2.0.0');
 
       const result = await fluxNetworkHelper.checkMyFluxAvailability();
 
@@ -1279,7 +1325,7 @@ describe('fluxNetworkHelper tests', () => {
     let deterministicZelnodeListResponse;
 
     beforeEach(() => {
-      fluxNetworkHelper.setStoredFluxBenchAllowed(400);
+      fluxNetworkHelper.setStoredFluxBenchAllowed('4.0.0');
       fluxNetworkHelper.setMyFluxIp('129.3.3.3');
       sinon.stub(daemonServiceWalletRpcs, 'createConfirmationTransaction').returns(true);
       sinon.stub(serviceHelper, 'delay').returns(true);
