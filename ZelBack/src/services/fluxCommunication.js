@@ -88,7 +88,7 @@ async function handleAppRunningMessage(message, fromIP) {
 function handleIncomingConnection(ws, req, expressWS) {
   // now we are in connections state. push the websocket to our incomingconnections
   const maxPeers = 20;
-  const maxNumberOfConnections = numberOfFluxNodes / 40 < 120 ? numberOfFluxNodes / 40 : 120;
+  const maxNumberOfConnections = numberOfFluxNodes / 40 < 70 ? numberOfFluxNodes / 40 : 70;
   const maxCon = Math.max(maxPeers, maxNumberOfConnections);
   if (incomingConnections.length > maxCon) {
     setTimeout(() => {
@@ -460,9 +460,9 @@ async function fluxDiscovery() {
     numberOfFluxNodes = nodeList.length;
     const currentIpsConnTried = [];
     const requiredNumberOfConnections = numberOfFluxNodes / 100 < 40 ? numberOfFluxNodes / 100 : 40; // 1%
-    const maxNumberOfConnections = numberOfFluxNodes / 75 < 50 ? numberOfFluxNodes / 75 : 50; // 1.5%
+    const maxNumberOfConnections = numberOfFluxNodes / 75 < 60 ? numberOfFluxNodes / 75 : 60; // 1.5%
     const minCon = Math.max(minPeers, requiredNumberOfConnections); // awlays maintain at least 10 or 1% of nodes whatever is higher
-    const maxCon = Math.max(maxPeers, maxNumberOfConnections); // have a maximum of 20 or 2% of nodes whatever is higher
+    const maxCon = Math.max(maxPeers, maxNumberOfConnections); // have a maximum of 20 or 1.5% of nodes whatever is higher
     log.info(`Current number of outgoing connections:${outgoingConnections.length}`);
     log.info(`Current number of incoming connections:${incomingConnections.length}`);
     // coonect to peers as min connections not yet established
