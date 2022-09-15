@@ -61,6 +61,8 @@ module.exports = {
     porttestnet: 26125,
     rpcporttestnet: 26124,
   },
+  minimumFluxBenchAllowedVersion: '3.3.1',
+  minimumFluxOSAllowedVersion: '3.23.0',
   fluxTeamZelId: '1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM',
   deterministicNodesStart: 558000,
   fluxapps: {

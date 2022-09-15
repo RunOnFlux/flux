@@ -862,6 +862,7 @@ async function adjustFirewall() {
 }
 
 module.exports = {
+  minVersionSatisfy,
   isFluxAvailable,
   checkFluxAvailability,
   getMyFluxIPandPort,

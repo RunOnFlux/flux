@@ -79,7 +79,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(fluxAvailabilitySuccessResponse);
-      const expectedAddress = 'http://127.0.0.1:16125/flux/version';
+      const expectedAddress = 'http://127.0.0.1:16125/flux/checkfluxavailability';
       const expectedMessage = {
         status: 'success',
         data: {
@@ -109,7 +109,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(fluxAvailabilitySuccessResponse);
-      const expectedAddress = 'http://127.0.0.1:16125/flux/version';
+      const expectedAddress = 'http://127.0.0.1:16125/flux/checkfluxavailability';
       const expectedMessage = {
         status: 'success',
         data: {
@@ -139,7 +139,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(fluxAvailabilityErrorResponse);
-      const expectedAddress = 'http://127.0.0.1:16125/flux/version';
+      const expectedAddress = 'http://127.0.0.1:16125/flux/checkfluxavailability';
       const expectedMessage = {
         status: 'error',
         data: {
