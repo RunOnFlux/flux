@@ -25,8 +25,6 @@ const {
 let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
 
-const minimumFluxBenchAllowedVersion = { config };
-const minimumFluxOSAllowedVersion = { config };
 let storedFluxBenchAllowed = null;
 
 // my external Flux IP from benchmark
@@ -116,7 +114,7 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
     if (fluxResponse.data.status !== 'success') return false;
 
     const fluxVersion = fluxResponse.data.data;
-    const versionMinOK = minVersionSatisfy(fluxVersion, minimumFluxOSAllowedVersion);
+    const versionMinOK = minVersionSatisfy(fluxVersion, config.minimumFluxOSAllowedVersion);
     return versionMinOK;
   } catch (e) {
     return false;
@@ -403,7 +401,7 @@ function getStoredFluxBenchAllowed() {
  */
 async function checkFluxbenchVersionAllowed() {
   if (storedFluxBenchAllowed) {
-    const versionOK = minVersionSatisfy(storedFluxBenchAllowed, minimumFluxBenchAllowedVersion);
+    const versionOK = minVersionSatisfy(storedFluxBenchAllowed, config.minimumFluxBenchAllowedVersion);
     return versionOK;
   }
   try {
@@ -412,12 +410,12 @@ async function checkFluxbenchVersionAllowed() {
       log.info(benchmarkInfoResponse);
       const benchmarkVersion = benchmarkInfoResponse.data.version;
       setStoredFluxBenchAllowed(benchmarkVersion);
-      const versionOK = minVersionSatisfy(benchmarkVersion, minimumFluxBenchAllowedVersion);
+      const versionOK = minVersionSatisfy(benchmarkVersion, config.minimumFluxBenchAllowedVersion);
       if (versionOK) {
         return true;
       }
       dosState += 11;
-      setDosMessage(`Fluxbench Version Error. Current lower version allowed is v${minimumFluxBenchAllowedVersion} found v${benchmarkVersion}`);
+      setDosMessage(`Fluxbench Version Error. Current lower version allowed is v${config.minimumFluxBenchAllowedVersion} found v${benchmarkVersion}`);
       log.error(dosMessage);
       return false;
     }
