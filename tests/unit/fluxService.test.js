@@ -1350,7 +1350,7 @@ describe('fluxService tests', () => {
         code: 403,
         name: 'testing error',
       });
-      const nodedpath = path.join(__dirname, '../.flux/debug.log');
+      const nodedpath = path.join(__dirname, '../../../../../.flux/debug.log'); // 2 more
       const expectedResponse = {
         data: {
           code: 403,
@@ -1420,7 +1420,7 @@ describe('fluxService tests', () => {
         code: 403,
         name: 'testing error',
       });
-      const nodedpath = path.join(__dirname, '../.fluxbenchmark/debug.log');
+      const nodedpath = path.join(__dirname, '../../../.zelbenchmark/debug.log'); // .fluxbenchmark
       const expectedResponse = {
         data: {
           code: 403,
