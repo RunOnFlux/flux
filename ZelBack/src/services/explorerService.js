@@ -1599,4 +1599,8 @@ module.exports = {
   getScannedHeight,
   getAllFusionCoinbase,
   getAddressFusionCoinbase,
+
+  // exports for testing puproses
+  getSenderTransactionFromDaemon,
+  getSenderForFluxTxInsight,
 };
