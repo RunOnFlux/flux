@@ -402,7 +402,7 @@ export default {
           },
         },
       },
-      activeParallelAssets: 0,
+      activeParallelAssets: 7,
     };
   },
   mounted() {

@@ -23,11 +23,22 @@ jobs:
       uses: actions/setup-node@v1
       with:
         node-version: ${{ matrix.node-version }}
-    - name: npm install, build, and test
+    - name: install flux and flux benchmark daemons
       run: |
-        npm i
-        npm run ciconfig
-        npm run homebuild
+        echo 'deb https://apt.runonflux.io/ '$(lsb_release -cs)' main' | sudo tee --append /etc/apt/sources.list.d/flux.list
+        gpg --keyserver keyserver.ubuntu.com --recv 4B69CA27A986265D
+        gpg --export 4B69CA27A986265D | sudo apt-key add -
+        sudo apt-get update
+        sudo apt-get install flux
+        sudo apt-get install fluxbench
+    - name: npm install
+      run: npm i
+    - name: configure
+      run: npm run ciconfig
+    - name: build home
+      run: npm run homebuild
+    - name: Test suite
+      run: |
         npm run test:zelback
         npm run test:zelback:unit
       env:

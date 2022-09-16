@@ -25,8 +25,6 @@ const {
 let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
 
-const minimumFluxBenchAllowedVersion = 331;
-const minimumFluxOSAllowedVersion = 3191;
 let storedFluxBenchAllowed = null;
 
 // my external Flux IP from benchmark
@@ -71,6 +69,40 @@ class TokenBucket {
 }
 
 /**
+ * Check if semantic version is bigger or equal to minimum version
+ * @param {string} version Version to check
+ * @param {string} minimumVersion minimum version that version must meet
+ * @returns {boolean} True if version is equal or higher to minimum version otherwise false.
+ */
+function minVersionSatisfy(version, minimumVersion) {
+  const splittedVersion = version.split('.');
+  const major = Number(splittedVersion[0]);
+  const minor = Number(splittedVersion[1]);
+  const patch = Number(splittedVersion[2]);
+
+  const splittedVersionMinimum = minimumVersion.split('.');
+  const majorMinimum = Number(splittedVersionMinimum[0]);
+  const minorMinimum = Number(splittedVersionMinimum[1]);
+  const patchMinimum = Number(splittedVersionMinimum[2]);
+  if (major < majorMinimum) {
+    return false;
+  }
+  if (major > majorMinimum) {
+    return true;
+  }
+  if (minor < minorMinimum) {
+    return false;
+  }
+  if (minor > minorMinimum) {
+    return true;
+  }
+  if (patch < patchMinimum) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * To perform a basic check of current FluxOS version.
  * @param {string} ip IP address.
  * @param {string} port Port. Defaults to config.server.apiport.
@@ -81,12 +113,9 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
     const fluxResponse = await serviceHelper.axiosGet(`http://${ip}:${port}/flux/version`, axiosConfig);
     if (fluxResponse.data.status !== 'success') return false;
 
-    let fluxVersion = fluxResponse.data.data;
-    fluxVersion = fluxVersion.replace(/\./g, '');
-    if (fluxVersion >= minimumFluxOSAllowedVersion) {
-      return true;
-    }
-    return false;
+    const fluxVersion = fluxResponse.data.data;
+    const versionMinOK = minVersionSatisfy(fluxVersion, config.minimumFluxOSAllowedVersion);
+    return versionMinOK;
   } catch (e) {
     return false;
   }
@@ -353,7 +382,7 @@ function getIncomingConnectionsInfo(req, res) {
  * @param {number} value
  */
 function setStoredFluxBenchAllowed(value) {
-  storedFluxBenchAllowed = value ? +value : null;
+  storedFluxBenchAllowed = value;
 }
 
 /**
@@ -372,20 +401,21 @@ function getStoredFluxBenchAllowed() {
  */
 async function checkFluxbenchVersionAllowed() {
   if (storedFluxBenchAllowed) {
-    return storedFluxBenchAllowed >= minimumFluxBenchAllowedVersion;
+    const versionOK = minVersionSatisfy(storedFluxBenchAllowed, config.minimumFluxBenchAllowedVersion);
+    return versionOK;
   }
   try {
     const benchmarkInfoResponse = await benchmarkService.getInfo();
     if (benchmarkInfoResponse.status === 'success') {
       log.info(benchmarkInfoResponse);
-      let benchmarkVersion = benchmarkInfoResponse.data.version;
-      benchmarkVersion = benchmarkVersion.replace(/\./g, '');
+      const benchmarkVersion = benchmarkInfoResponse.data.version;
       setStoredFluxBenchAllowed(benchmarkVersion);
-      if (benchmarkVersion >= minimumFluxBenchAllowedVersion) {
+      const versionOK = minVersionSatisfy(benchmarkVersion, config.minimumFluxBenchAllowedVersion);
+      if (versionOK) {
         return true;
       }
       dosState += 11;
-      setDosMessage(`Fluxbench Version Error. Current lower version allowed is v${minimumFluxBenchAllowedVersion} found v${benchmarkVersion}`);
+      setDosMessage(`Fluxbench Version Error. Current lower version allowed is v${config.minimumFluxBenchAllowedVersion} found v${benchmarkVersion}`);
       log.error(dosMessage);
       return false;
     }
@@ -400,6 +430,42 @@ async function checkFluxbenchVersionAllowed() {
     setDosMessage('Fluxbench Version Error. Error obtaining Flux Version.');
     return false;
   }
+}
+
+/**
+ * To get node uptime in seconds
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+function fluxUptime(req, res) {
+  let message;
+  try {
+    const ut = process.uptime();
+    const measureUptime = Math.floor(ut);
+    message = messageHelper.createDataMessage(measureUptime);
+    return res ? res.json(message) : message;
+  } catch (error) {
+    log.error(error);
+    message = messageHelper.createErrorMessage('Error obtaining uptime');
+    return res ? res.json(message) : message;
+  }
+}
+
+/**
+ * To check if sufficient communication is established. Minimum number of outgoing and incoming peers must be met.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+function isCommunicationEstablished(req, res) {
+  let message;
+  if (outgoingPeers.length < config.fluxapps.minOutgoing) { // easier to establish
+    message = messageHelper.createErrorMessage('Not enough connections established to Flux network');
+  // } else if (incomingPeers.length < config.fluxapps.minIncoming) { // depends on other nodes successfully connecting to my node, todo enforcement
+  //   message = messageHelper.createErrorMessage('Not enough incoming connections from Flux network');
+  } else {
+    message = messageHelper.createSuccessMessage('Communication to Flux network is properly established');
+  }
+  return res ? res.json(message) : message;
 }
 
 /**
@@ -492,6 +558,25 @@ async function checkMyFluxAvailability(retryNumber = 0) {
     }
     return false;
   }
+  const measuredUptime = fluxUptime();
+  if (measuredUptime.status === 'success' && measuredUptime.data > config.minUpTime) { // node has been running for 1 hour. Upon starting a node, there can be dos that needs resetting
+    const nodeList = await fluxCommunicationUtils.deterministicFluxList();
+    if (nodeList.length > config.fluxapps.minIncoming + config.fluxapps.minOutgoing) {
+      // check sufficient connections
+      const connectionInfo = isCommunicationEstablished();
+      if (connectionInfo.status === 'error') {
+        dosState += 0.015; // slow increment, DOS after ~13 hours. 0.015 per minute. This check depends on other nodes being able to connect to my node
+        if (dosState > 10) {
+          setDosMessage(dosMessage || 'Flux does not have sufficient peers');
+          log.error(dosMessage);
+          return false;
+        }
+        return true; // availability ok
+      }
+    }
+  } else if (measuredUptime.status === 'error') {
+    log.error('Flux uptime is not available'); // introduce dos increment
+  }
   dosState = 0;
   setDosMessage(null);
   return true;
@@ -580,9 +665,26 @@ async function checkDeterministicNodesCollisions() {
           }
         }
       }
-      const availabilityOk = await checkMyFluxAvailability();
-      if (availabilityOk) {
-        adjustExternalIP(myIP.split(':')[0]);
+      // early stages of the network or testnet
+      if (nodeList.length > config.fluxapps.minIncoming + config.fluxapps.minOutgoing) {
+        const availabilityOk = await checkMyFluxAvailability();
+        if (availabilityOk) {
+          adjustExternalIP(myIP.split(':')[0]);
+        }
+      } else { // sufficient amount of nodes has to appear on the network within 12 hours
+        const measuredUptime = fluxUptime();
+        if (measuredUptime.status === 'success' && measuredUptime.data > (config.minUpTime * 12)) {
+          const availabilityOk = await checkMyFluxAvailability();
+          if (availabilityOk) {
+            adjustExternalIP(myIP.split(':')[0]);
+          }
+        } else if (measuredUptime.status === 'error') {
+          log.error('Flux uptime unavailable');
+          const availabilityOk = await checkMyFluxAvailability();
+          if (availabilityOk) {
+            adjustExternalIP(myIP.split(':')[0]);
+          }
+        }
       }
     } else {
       dosState += 1;
@@ -758,6 +860,7 @@ async function adjustFirewall() {
 }
 
 module.exports = {
+  minVersionSatisfy,
   isFluxAvailable,
   checkFluxAvailability,
   getMyFluxIPandPort,
@@ -787,4 +890,6 @@ module.exports = {
   setDosMessage,
   setDosStateValue,
   getDosStateValue,
+  fluxUptime,
+  isCommunicationEstablished,
 };

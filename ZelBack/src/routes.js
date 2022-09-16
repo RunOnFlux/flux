@@ -769,7 +769,10 @@ module.exports = (app, expressWs) => {
     fluxNetworkHelper.allowPortApi(req, res);
   });
   app.get('/flux/checkcommunication', (req, res) => {
-    fluxCommunication.isCommunicationEstablished(req, res);
+    fluxNetworkHelper.isCommunicationEstablished(req, res);
+  });
+  app.get('/flux/uptime', (req, res) => {
+    fluxNetworkHelper.fluxUptime(req, res);
   });
   app.get('/flux/backendfolder', isLocal, (req, res) => {
     fluxService.fluxBackendFolder(req, res);

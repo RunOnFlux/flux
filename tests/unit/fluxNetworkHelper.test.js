@@ -45,13 +45,13 @@ describe('fluxNetworkHelper tests', () => {
     const fluxAvailabilitySuccessResponse = {
       data: {
         status: 'success',
-        data: '3.10.0',
+        data: '4.20.0',
       },
     };
     const fluxAvailabilityErrorResponse = {
       data: {
         status: 'error',
-        data: '3.10.0',
+        data: '4.20.0',
       },
     };
     const generateResponse = () => {
@@ -235,6 +235,52 @@ describe('fluxNetworkHelper tests', () => {
     });
   });
 
+  describe('minVersionSatisfy tests', () => {
+    const minimalVersion = '3.4.12';
+
+    it('should return true if major version is higher than minimalVersion', async () => {
+      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('4.0.0', minimalVersion);
+
+      expect(versionAllowed).to.equal(true);
+    });
+
+    it('should return true if minor version is higher than minimalVersion', async () => {
+      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('3.5.0', minimalVersion);
+
+      expect(versionAllowed).to.equal(true);
+    });
+
+    it('should return true if patch version is higher than minimalVersion', async () => {
+      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('3.4.13', minimalVersion);
+
+      expect(versionAllowed).to.equal(true);
+    });
+
+    it('should return true if patch version is equal to minimalVersion', async () => {
+      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('3.4.12', minimalVersion);
+
+      expect(versionAllowed).to.equal(true);
+    });
+
+    it('should return false if patch version is below to minimalVersion', async () => {
+      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('3.4.11', minimalVersion);
+
+      expect(versionAllowed).to.equal(false);
+    });
+
+    it('should return false if minor version is below to minimalVersion', async () => {
+      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('3.3.11', minimalVersion);
+
+      expect(versionAllowed).to.equal(false);
+    });
+
+    it('should return false if major version is below to minimalVersion', async () => {
+      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('2.3.11', minimalVersion);
+
+      expect(versionAllowed).to.equal(false);
+    });
+  });
+
   describe('isFluxAvailable tests', () => {
     let stub;
     const ip = '127.0.0.1';
@@ -251,7 +297,7 @@ describe('fluxNetworkHelper tests', () => {
       const mockResponse = {
         data: {
           status: 'success',
-          data: '3.10.0',
+          data: '4.20.0',
         },
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
@@ -267,7 +313,7 @@ describe('fluxNetworkHelper tests', () => {
       const mockResponse = {
         data: {
           status: 'success',
-          data: '3.10.0',
+          data: '4.20.0',
         },
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
@@ -283,7 +329,7 @@ describe('fluxNetworkHelper tests', () => {
       const mockResponse = {
         data: {
           status: 'success',
-          data: '2.01.0', // minimum allowed version is 3.10.0
+          data: '2.01.0', // minimum allowed version is 3.19.0
         },
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
@@ -919,7 +965,7 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('checkFluxbenchVersionAllowed tests', () => {
-    // minimumFluxBenchAllowedVersion = 331;
+    // minimumFluxBenchAllowedVersion = '3.3.1;
     let benchmarkInfoResponseStub;
 
     beforeEach(() => {
@@ -932,7 +978,7 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('should return true if bench version is higher than minimal and stored in cache', async () => {
-      fluxNetworkHelper.setStoredFluxBenchAllowed(400);
+      fluxNetworkHelper.setStoredFluxBenchAllowed('4.0.0');
 
       const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
 
@@ -940,7 +986,7 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('should return true if bench version is equal to minimal and stored in cache', async () => {
-      fluxNetworkHelper.setStoredFluxBenchAllowed(331);
+      fluxNetworkHelper.setStoredFluxBenchAllowed('3.3.1');
 
       const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
 
@@ -948,7 +994,7 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('should return false if bench version is lower than minimal and is stored in cache', async () => {
-      fluxNetworkHelper.setStoredFluxBenchAllowed(300);
+      fluxNetworkHelper.setStoredFluxBenchAllowed('3.0.0');
 
       const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
 
@@ -967,14 +1013,14 @@ describe('fluxNetworkHelper tests', () => {
       const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
 
       expect(isFluxbenchVersionAllowed).to.equal(true);
-      expect(fluxNetworkHelper.getStoredFluxBenchAllowed()).to.equal(5413);
+      expect(fluxNetworkHelper.getStoredFluxBenchAllowed()).to.equal('5.41.3');
     });
 
     it('should return true if the version is equal to minimal and is not set in cache', async () => {
       const benchmarkInfoResponse = {
         status: 'success',
         data: {
-          version: '300',
+          version: '3.3.1',
         },
       };
       benchmarkInfoResponseStub.returns(benchmarkInfoResponse);
@@ -982,14 +1028,14 @@ describe('fluxNetworkHelper tests', () => {
       const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
 
       expect(isFluxbenchVersionAllowed).to.equal(true);
-      expect(fluxNetworkHelper.getStoredFluxBenchAllowed()).to.equal(300);
+      expect(fluxNetworkHelper.getStoredFluxBenchAllowed()).to.equal('3.3.1');
     });
 
     it('should return false if the version is lower than minimal and is not set in cache', async () => {
       const benchmarkInfoResponse = {
         status: 'success',
         data: {
-          version: '200',
+          version: '2.0.0',
         },
       };
       benchmarkInfoResponseStub.returns(benchmarkInfoResponse);
@@ -997,7 +1043,7 @@ describe('fluxNetworkHelper tests', () => {
       const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
 
       expect(isFluxbenchVersionAllowed).to.equal(false);
-      expect(fluxNetworkHelper.getStoredFluxBenchAllowed()).to.equal(200);
+      expect(fluxNetworkHelper.getStoredFluxBenchAllowed()).to.equal('2.0.0');
     });
 
     it('should return false if the version is unattainable from benchmarkInfo', async () => {
@@ -1027,7 +1073,7 @@ describe('fluxNetworkHelper tests', () => {
 
   describe('checkMyFluxAvailability tests', () => {
     beforeEach(() => {
-      fluxNetworkHelper.setStoredFluxBenchAllowed(400);
+      fluxNetworkHelper.setStoredFluxBenchAllowed('4.0.0');
       fluxNetworkHelper.setMyFluxIp('129.3.3.3');
       const deterministicZelnodeListResponse = [
         {
@@ -1059,7 +1105,7 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('should return false if the flux bench version is lower than allowed', async () => {
-      fluxNetworkHelper.setStoredFluxBenchAllowed(200);
+      fluxNetworkHelper.setStoredFluxBenchAllowed('2.0.0');
 
       const result = await fluxNetworkHelper.checkMyFluxAvailability();
 
@@ -1279,7 +1325,7 @@ describe('fluxNetworkHelper tests', () => {
     let deterministicZelnodeListResponse;
 
     beforeEach(() => {
-      fluxNetworkHelper.setStoredFluxBenchAllowed(400);
+      fluxNetworkHelper.setStoredFluxBenchAllowed('4.0.0');
       fluxNetworkHelper.setMyFluxIp('129.3.3.3');
       sinon.stub(daemonServiceWalletRpcs, 'createConfirmationTransaction').returns(true);
       sinon.stub(serviceHelper, 'delay').returns(true);
@@ -1814,6 +1860,103 @@ describe('fluxNetworkHelper tests', () => {
         sinon.assert.neverCalledWith(funcStub, `sudo ufw allow out ${port}`);
       }
       sinon.assert.calledWith(logSpy, 'Firewall is not active. Adjusting not applied');
+    });
+  });
+
+  describe('isCommunicationEstablished tests', () => {
+    const minNumberOfIncoming = 3;
+    const minNumberOfOutgoing = 9;
+    const dummyPeer = {
+      ip: '192.168.0.0',
+      lastPingTime: new Date().getTime(),
+      latency: 50,
+    };
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.fake((param) => param);
+      return res;
+    };
+    const populatePeers = (numberOfincomingPeers, numberOfOutgoingPeers) => {
+      outgoingPeers.length = 0;
+      incomingPeers.length = 0;
+      for (let i = 0; i < numberOfincomingPeers; i += 1) {
+        incomingPeers.push(dummyPeer);
+      }
+      for (let i = 0; i < numberOfOutgoingPeers; i += 1) {
+        outgoingPeers.push(dummyPeer);
+      }
+    };
+    const expectedSuccesssResponse = {
+      status: 'success',
+      data: {
+        code: undefined,
+        name: undefined,
+        message: 'Communication to Flux network is properly established',
+      },
+    };
+    const expectedErrorResponse = {
+      status: 'error',
+      data: {
+        code: undefined,
+        name: undefined,
+        message: 'Not enough connections established to Flux network',
+      },
+    };
+
+    afterEach(() => {
+      outgoingPeers.length = 0;
+      incomingPeers.length = 0;
+      sinon.restore();
+    });
+
+    it('should return a positive respone if communication is established properly', () => {
+      const res = generateResponse();
+      populatePeers(minNumberOfIncoming, minNumberOfOutgoing);
+
+      fluxNetworkHelper.isCommunicationEstablished(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedSuccesssResponse);
+    });
+
+    it('should return a negative respone if there are not enough incoming peers', () => {
+      const res = generateResponse();
+      populatePeers(minNumberOfIncoming - 1, minNumberOfOutgoing);
+
+      fluxNetworkHelper.isCommunicationEstablished(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedErrorResponse);
+    });
+
+    it('should return a negative respone if there are not enough outgoing peers', () => {
+      const res = generateResponse();
+      populatePeers(minNumberOfIncoming, minNumberOfOutgoing - 1);
+
+      fluxNetworkHelper.isCommunicationEstablished(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedErrorResponse);
+    });
+
+    it('should return a negative respone if there are not enough incoming or outgoing peers', () => {
+      const res = generateResponse();
+      populatePeers(minNumberOfIncoming - 1, minNumberOfOutgoing - 1);
+
+      fluxNetworkHelper.isCommunicationEstablished(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedErrorResponse);
+    });
+  });
+
+  describe('fluxUptime tests', () => {
+    const ut = process.uptime();
+
+    it('should return a positive a bigger uptime than expected', () => {
+      const fluxUptime = fluxNetworkHelper.fluxUptime();
+
+      expect(fluxUptime.status).to.equal('success');
+      expect(fluxUptime.data).to.be.gte(ut);
+      const utb = process.uptime();
+      expect(fluxUptime.data).to.be.lte(utb);
     });
   });
 });
