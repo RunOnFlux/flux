@@ -339,5 +339,7 @@
    "dramirezrt/ravencoin-core-server:v2.3.2",
    "homeassistant/home-assistant:latest",
    "honsontran/abracadabra-money:latest",
-   "honsontran/dopex:latest"   
+   "honsontran/dopex:latest",
+   "cyberfly/cyberfly-ui:latest",
+   "cyberfly/cyberfly-mqtt-docker:latest"  
 ]
