@@ -337,5 +337,7 @@
    "honsontran/yearn:latest",
    "honsontran/gmx:latest",
    "dramirezrt/ravencoin-core-server:v2.3.2",
-   "homeassistant/home-assistant:latest"
+   "homeassistant/home-assistant:latest",
+   "honsontran/abracadabra-money:latest",
+   "honsontran/dopex:latest"   
 ]
