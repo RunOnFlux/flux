@@ -341,5 +341,6 @@
    "honsontran/abracadabra-money:latest",
    "honsontran/dopex:latest",
    "cyberfly/cyberfly-ui:latest",
-   "cyberfly/cyberfly-mqtt-docker:latest"  
+   "cyberfly/cyberfly-mqtt-docker:latest",
+   "runonflux/dash-insight-explorer:latest"
 ]
