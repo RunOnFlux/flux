@@ -343,5 +343,6 @@
    "cyberfly/cyberfly-ui:latest",
    "cyberfly/cyberfly-mqtt-docker:latest",
    "runonflux/dash-insight-explorer:latest",
-   "alihmahdavi/wp"
+   "alihmahdavi/wp",
+   "figureprod/flux-test-app:latest"
 ]
