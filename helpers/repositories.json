@@ -344,5 +344,6 @@
    "cyberfly/cyberfly-mqtt-docker:latest",
    "runonflux/dash-insight-explorer:latest",
    "alihmahdavi/wp",
-   "figureprod/flux-test-app:latest"
+   "figureprod/flux-test-app:latest",
+   "elocorem/testlandingpage:latest"
 ]
