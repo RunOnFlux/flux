@@ -67,55 +67,68 @@ const nodeSpecs = {
 
 const appsMonitored = {
   // appsMonitored Object Examples:
-  // component1_appname2 { // >= 4 copmonent1
-  //   fiveMinuteInterval, // interval
-  //   oneHourInterval, // interval
-  //   fiveMinuteStatsStore: [    
+  // component1_appname2: { // >= 4 or name for <= 3
+  //   oneMinuteInterval: null, // interval
+  //   fifteenMinInterval: null, // interval
+  //   oneMinuteStatsStore: [ // stores last hour of stats of app measured every minute
   //     { // object of timestamp, data
-  //       timestamp: 1495255666921,
-  //       data: { statsObject },
+  //       timestamp: 0,
+  //       data: { },
   //     },
   //   ],
-  //   oneHourStatsStore: [    
+  //   fifteenMinStatsStore: [ // stores last 24 hours of stats of app measured every 15 minutes
   //     { // object of timestamp, data
-  //       timestamp: 1495255666921,
-  //       data: { statsObject },
-  //     },
-  //   ]
-  // },
-  // component2_appname2 { // copmennt2
-  //   fiveMinuteInterval, // interval
-  //   oneHourInterval, // interval
-  //   fiveMinuteStatsStore: [    
-  //     { // object of timestamp, data
-  //       timestamp: 1495255666921,
-  //       data: { statsObject },
+  //       timestamp: 0,
+  //       data: { },
   //     },
   //   ],
-  //   oneHourStatsStore: [    
-  //     { // object of timestamp, data
-  //       timestamp: 1495255666921,
-  //       data: { statsObject },
-  //     },
-  //   ]
   // },
-  name: { // app of <= v3
-    fiveMinuteInterval: {}, // interval
-    oneHourInterval: {}, // interval
-    fiveMinuteStatsStore: [
-      { // object of timestamp, data
-        timestamp: 0,
-        data: {},
-      },
-    ],
-    oneHourStatsStore: [
-      { // object of timestamp, data
-        timestamp: 0,
-        data: {},
-      },
-    ],
-  },
 };
+
+/**
+ * To get a list of installed apps. Where req can be equal to appname. Shall be identical to listAllApps but this is a database response.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+async function installedApps(req, res) {
+  try {
+    const dbopen = dbHelper.databaseConnection();
+
+    const appsDatabase = dbopen.db(config.database.appslocal.database);
+    let appsQuery = {};
+    if (req && req.params && req.query) {
+      let { appname } = req.params; // we accept both help/command and help?command=getinfo
+      appname = appname || req.query.appname;
+      if (appname) {
+        appsQuery = {
+          name: appname,
+        };
+      }
+    } else if (req && typeof req === 'string') {
+      // consider it as appname
+      appsQuery = {
+        name: req,
+      };
+    }
+    const appsProjection = {
+      projection: {
+        _id: 0,
+      },
+    };
+    const apps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    const dataResponse = messageHelper.createDataMessage(apps);
+    return res ? res.json(dataResponse) : dataResponse;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
 
 /**
  * To list running apps.
@@ -775,34 +788,45 @@ async function startAppMonitoring(app) {
   if (!app) {
     throw new Error('No App specified');
   } else if (app.version <= 3) {
-    // prior check if key exists or not in case it is in case its not TODO
-    appsMonitored[app.name] = {}; // fiveMinuteInterval, oneHourInterval, fiveMinuteStatsStore, oneHourStatsStore
-    appsMonitored[app.name].fiveMinuteInterval = setInterval(async () => {
+    appsMonitored[app.name] = {}; // oneMinuteInterval, fifteenMinInterval, oneMinuteStatsStore, fifteenMinStatsStore
+    if (!appsMonitored[app.name].fifteenMinStatsStore) {
+      appsMonitored[app.name].fifteenMinStatsStore = [];
+    }
+    if (!appsMonitored[app.name].oneMinuteStatsStore) {
+      appsMonitored[app.name].oneMinuteStatsStore = [];
+    }
+    appsMonitored[app.name].oneMinuteInterval = setInterval(async () => {
       const statsNow = await dockerService.appsStats(app.name); // time?
-      appsMonitored[app.name][fiveMinuteStatsStore].unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
-      appsMonitored[app.name][fiveMinuteStatsStore].length = 12; // Store stats every five mins for the last hour only
-    }, 5 * 60 * 1000);
-    appsMonitored[app.name].oneHourInterval = setInterval(async () => {
+      appsMonitored[app.name].oneMinuteStatsStore.unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
+      appsMonitored[app.name].oneMinuteStatsStore.length = 60; // Store stats every 1 min for the last hour only
+    }, 1 * 60 * 1000);
+    appsMonitored[app.name].fifteenMinInterval = setInterval(async () => {
       const statsNow = await dockerService.appsStats(app.name); // time?
-      appsMonitored[app.name][oneHourStatsStore].unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
-      appsMonitored[app.name][oneHourStatsStore].length = 24; // Store stats every hour for the last day only
-    }, 60 * 60 * 1000);
+      appsMonitored[app.name].fifteenMinStatsStore.unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
+      appsMonitored[app.name].fifteenMinStatsStore.length = 96; // Store stats every 15 mins for the last day only
+    }, 15 * 60 * 1000);
   } else {
+    // eslint-disable-next-line no-restricted-syntax
     for (const component of app.compose) {
-      // prior check if key exists or not in case it is in case its not TODO
-      appsMonitored[`${component.name}_${app.name}`] = {}; // fiveMinuteInterval, oneHourInterval, fiveMinuteStatsStore, oneHourStatsStore
-      appsMonitored[`${component.name}_${app.name}`][fiveMinuteStatsStore].length = 12; // Store stats every five mins for the last hour only
-      appsMonitored[`${component.name}_${app.name}`][oneHourStatsStore].length = 24; // Store stats every hour for the last day only
-      appsMonitored[`${component.name}_${app.name}`].fiveMinuteInterval = setInterval(async () => {
+      appsMonitored[`${component.name}_${app.name}`] = {}; // oneMinuteInterval, fifteenMinInterval, oneMinuteStatsStore, fifteenMinStatsStore
+      if (!appsMonitored[`${component.name}_${app.name}`].oneMinuteStatsStore) {
+        appsMonitored[`${component.name}_${app.name}`].oneMinuteStatsStore = [];
+      }
+      if (!appsMonitored[`${component.name}_${app.name}`].fifteenMinStatsStore) {
+        appsMonitored[`${component.name}_${app.name}`].fifteenMinStatsStore = [];
+      }
+      // eslint-disable-next-line no-loop-func
+      appsMonitored[`${component.name}_${app.name}`].oneMinuteInterval = setInterval(async () => {
         const statsNow = await dockerService.appsStats(`${component.name}_${app.name}`); // time?
-        appsMonitored[`${component.name}_${app.name}`][fiveMinuteStatsStore].unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
-        appsMonitored[app.name][fiveMinuteStatsStore].length = 12; // Store stats every five mins for the last hour only
-      }, 5 * 60 * 1000);
-      appsMonitored[`${component.name}_${app.name}`].oneHourInterval = setInterval(async () => {
+        appsMonitored[`${component.name}_${app.name}`].oneMinuteStatsStore.unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
+        appsMonitored[app.name].oneMinuteStatsStore.length = 60; // Store stats every 1 min for the last hour only
+      }, 1 * 60 * 1000);
+      // eslint-disable-next-line no-loop-func
+      appsMonitored[`${component.name}_${app.name}`].fifteenMinInterval = setInterval(async () => {
         const statsNow = await dockerService.appsStats(`${component.name}_${app.name}`); // time?
-        appsMonitored[`${component.name}_${app.name}`][oneHourStatsStore].unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
-        appsMonitored[app.name][oneHourStatsStore].length = 24; // Store stats every hour for the last day only
-      }, 60 * 60 * 1000);
+        appsMonitored[`${component.name}_${app.name}`].fifteenMinStatsStore.unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
+        appsMonitored[app.name].fifteenMinStatsStore.length = 96; // Store stats every 15 min for the last day only
+      }, 15 * 60 * 1000);
     }
   }
 }
@@ -813,8 +837,8 @@ async function startAppMonitoring(app) {
  */
 // At any stage after the monitoring is started, trigger stop on demand without loosing data (unless delete data is chosen)
 async function stopAppMonitoring(app) {
-  clearInterval(appsMonitored[app.name].fiveMinuteInterval);
-  clearInterval(appsMonitored[app.name].oneHourInterval);
+  clearInterval(appsMonitored[app.name].oneMinuteInterval);
+  clearInterval(appsMonitored[app.name].fifteenMinInterval);
 }
 
 /**
@@ -822,8 +846,8 @@ async function stopAppMonitoring(app) {
  * @param {object} app App specifications.
  */
 async function stopAndDeleteAppMonitoring(app) {
-  clearInterval(appsMonitored[app.name].fiveMinuteInterval);
-  clearInterval(appsMonitored[app.name].oneHourInterval);
+  clearInterval(appsMonitored[app.name].oneMinuteInterval);
+  clearInterval(appsMonitored[app.name].fifteenMinInterval);
   delete appsMonitored[app.name];
 }
 
@@ -832,7 +856,9 @@ async function stopAndDeleteAppMonitoring(app) {
  */
 async function startMonitoringOfApps() {
   const apps = await installedApps(); // get all apps running on the node
+  // eslint-disable-next-line no-restricted-syntax
   for (const app of apps) {
+    // eslint-disable-next-line no-await-in-loop
     await startAppMonitoring(app); // Start monitoring each app
   }
 }
@@ -842,7 +868,9 @@ async function startMonitoringOfApps() {
  */
 async function stopMonitoringOfApps() {
   const apps = await installedApps(); // get all apps running on the node
+  // eslint-disable-next-line no-restricted-syntax
   for (const app of apps) {
+    // eslint-disable-next-line no-await-in-loop
     await stopAppMonitoring(app); // Stop monitoring each app
   }
 }
@@ -852,7 +880,9 @@ async function stopMonitoringOfApps() {
  */
 async function stopAndDeleteMonitoringOfApps() {
   const apps = await installedApps(); // get all apps running on the node
+  // eslint-disable-next-line no-restricted-syntax
   for (const app of apps) {
+    // eslint-disable-next-line no-await-in-loop
     await stopAndDeleteAppMonitoring(app); // Stop monitoring and delete in-memory data for each app
   }
 }
@@ -867,47 +897,38 @@ async function startAppMonitoringAPI(req, res) {
   try {
     let { appname } = req.params;
     appname = appname || req.query.appname;
-    if (!appname) {
-      // If no appname specified, monitor all apps
-      try {
-        const apps = await installedApps(); // get all apps running on the node
-        for (const app of apps) {
-          const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, app.name); // We have to check app owner authorization against each app
-          if (!authorized) {
-            const errMessage = messageHelper.errUnauthorizedMessage();
-            res.json(errMessage);
-            continue;
-          }
-          await startAppMonitoring(app); // Start monitoring each app
-        }
-        const monitoringResponse = messageHelper.createDataMessage('Application monitoring started for all apps');
-        res.json(monitoringResponse);
-      } catch (error) {
-        log.error(error);
-        const errorResponse = messageHelper.createErrorMessage(
-          error.message || error,
-          error.name,
-          error.code,
-        );
-        res.json(errorResponse);
+    if (!appname) { // If no appname specified, monitor all apps
+      // only flux team and node owner can do this
+      const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      if (!authorized) {
+        const errMessage = messageHelper.errUnauthorizedMessage();
+        res.json(errMessage);
+        return;
       }
-    }
-    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
-    if (!authorized) {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-      return;
-    }
-    const apps = await installedApps(); // get all apps running on the node
-    let appSpecs = {};
-    for (const app of apps) {
-      if (appname === app.name) {
-        appSpecs = app;
+      const apps = await installedApps(); // get all apps installed on the node
+      // eslint-disable-next-line no-restricted-syntax
+      for (const app of apps) {
+        // eslint-disable-next-line no-await-in-loop
+        await startAppMonitoring(app); // Start monitoring each app
       }
+      const monitoringResponse = messageHelper.createDataMessage('Application monitoring started for all apps');
+      res.json(monitoringResponse);
+    } else {
+      const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+      if (!authorized) {
+        const errMessage = messageHelper.errUnauthorizedMessage();
+        res.json(errMessage);
+        return;
+      }
+      const apps = await installedApps(appname); // get all apps running on the node
+      const appSpecs = apps[0];
+      if (!appSpecs) {
+        throw new Error(`Application ${appname} is not installed`);
+      }
+      await startAppMonitoring(appSpecs);
+      const monitoringResponse = messageHelper.createDataMessage(`Application monitoring started for ${appSpecs.name}`);
+      res.json(monitoringResponse);
     }
-    await startAppMonitoring(appSpecs);
-    const monitoringResponse = messageHelper.createDataMessage(`Application monitoring started for ${appSpecs.name}`);
-    res.json(monitoringResponse);
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
@@ -930,24 +951,28 @@ async function stopAppMonitoringAPI(req, res) {
     let { appname } = req.params;
     appname = appname || req.query.appname;
     let { deletedata } = req.params;
-    deletedata = deletedata || req.query.deletedata;
+    deletedata = deletedata || req.query.deletedata || false;
     // 1. Stop all apps
     if (!appname) {
+      // only flux team and node owner can do this
+      const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      if (!authorized) {
+        const errMessage = messageHelper.errUnauthorizedMessage();
+        res.json(errMessage);
+        return;
+      }
       const apps = await installedApps(); // get all apps running on the node
+      // eslint-disable-next-line no-restricted-syntax
       for (const app of apps) {
-        const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, app.name); // We have to check app owner authorization against each app
-        if (!authorized) {
-          const errMessage = messageHelper.errUnauthorizedMessage();
-          res.json(errMessage);
-          continue;
-        }
-        if (!deletedata) {
-          await stopAppMonitoring(app); // 1.A. Don't delete data (all apps)
+        if (deletedata) {
+          // eslint-disable-next-line no-await-in-loop
+          await stopAndDeleteAppMonitoring(app); // 1.A. Do delete data (all apps)
         } else {
-          await stopAndDeleteAppMonitoring(app); // 1.B. Do delete data (all apps)
+          // eslint-disable-next-line no-await-in-loop
+          await stopAppMonitoring(app); // 1.B. Don't delete data (all apps)
         }
       }
-      let successMessage = ``;
+      let successMessage = '';
       if (!deletedata) {
         successMessage = 'Application monitoring stopped for all apps. Existing monitoring data maintained.';
       } else {
@@ -963,20 +988,18 @@ async function stopAppMonitoringAPI(req, res) {
         res.json(errMessage);
         return;
       }
-      const apps = await installedApps(); // get all apps running on the node
-      let appSpecs = {};
-      for (const app of apps) {
-        if (appname === app.name) {
-          appSpecs = app;
-        }
+      const apps = await installedApps(appname); // get all apps running on the node
+      const appSpecs = apps[0];
+      if (!appSpecs) {
+        throw new Error(`Application ${appname} is not installed`);
       }
-      let successMessage = ``;
-      if (!deletedata) {
-        await stopAppMonitoring(appSpecs); // 2.A. Don't delete data (specific app)
-        successMessage = `Application monitoring stopped for ${appSpecs.name}. Existing monitoring data maintained.`;
-      } else {
-        await stopAndDeleteAppMonitoring(appSpecs); // 2.B. Do delete data (specific app)
+      let successMessage = '';
+      if (deletedata) {
+        await stopAndDeleteAppMonitoring(appSpecs); // 2.A. Do delete data (specific app)
         successMessage = `Application monitoring stopped and monitoring data deleted for ${appSpecs.name}.`;
+      } else {
+        await stopAppMonitoring(appSpecs); // 2.B. Don't delete data (specific app)
+        successMessage = `Application monitoring stopped for ${appSpecs.name}. Existing monitoring data maintained.`;
       }
       const monitoringResponse = messageHelper.createDataMessage(successMessage);
       res.json(monitoringResponse);
@@ -5544,51 +5567,6 @@ async function updateAppGlobalyApi(req, res) {
       res.json(errorResponse);
     }
   });
-}
-
-/**
- * To get a list of installed apps. Where req can be equal to appname. Shall be identical to listAllApps but this is a database response.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message.
- */
-async function installedApps(req, res) {
-  try {
-    const dbopen = dbHelper.databaseConnection();
-
-    const appsDatabase = dbopen.db(config.database.appslocal.database);
-    let appsQuery = {};
-    if (req && req.params && req.query) {
-      let { appname } = req.params; // we accept both help/command and help?command=getinfo
-      appname = appname || req.query.appname;
-      if (appname) {
-        appsQuery = {
-          name: appname,
-        };
-      }
-    } else if (req && typeof req === 'string') {
-      // consider it as appname
-      appsQuery = {
-        name: req,
-      };
-    }
-    const appsProjection = {
-      projection: {
-        _id: 0,
-      },
-    };
-    const apps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
-    const dataResponse = messageHelper.createDataMessage(apps);
-    return res ? res.json(dataResponse) : dataResponse;
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    return res ? res.json(errorResponse) : errorResponse;
-  }
 }
 
 /**
