@@ -873,6 +873,12 @@ module.exports = (app, expressWs) => {
   app.get('/apps/reconstructhashes', (req, res) => {
     appsService.reconstructAppMessagesHashCollectionAPI(req, res);
   });
+  app.get('/apps/startmonitoring/:appname?', (req, res) => {
+    appsService.startAppMonitoringAPI(req, res);
+  });
+  app.get('/apps/stopmonitoring/:appname?/:deletedata?', (req, res) => {
+    appsService.stopAppMonitoringAPI(req, res);
+  });
 
   // POST PUBLIC methods route
   app.post('/id/verifylogin', (req, res) => {

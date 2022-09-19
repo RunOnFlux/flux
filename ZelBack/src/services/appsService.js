@@ -65,6 +65,58 @@ const nodeSpecs = {
   ssdStorage: 0,
 };
 
+const appsMonitored = {
+  // appsMonitored Object Examples:
+  // component1_appname2 { // >= 4 copmonent1
+  //   fiveMinuteInterval, // interval
+  //   oneHourInterval, // interval
+  //   fiveMinuteStatsStore: [    
+  //     { // object of timestamp, data
+  //       timestamp: 1495255666921,
+  //       data: { statsObject },
+  //     },
+  //   ],
+  //   oneHourStatsStore: [    
+  //     { // object of timestamp, data
+  //       timestamp: 1495255666921,
+  //       data: { statsObject },
+  //     },
+  //   ]
+  // },
+  // component2_appname2 { // copmennt2
+  //   fiveMinuteInterval, // interval
+  //   oneHourInterval, // interval
+  //   fiveMinuteStatsStore: [    
+  //     { // object of timestamp, data
+  //       timestamp: 1495255666921,
+  //       data: { statsObject },
+  //     },
+  //   ],
+  //   oneHourStatsStore: [    
+  //     { // object of timestamp, data
+  //       timestamp: 1495255666921,
+  //       data: { statsObject },
+  //     },
+  //   ]
+  // },
+  name: { // app of <= v3
+    fiveMinuteInterval: {}, // interval
+    oneHourInterval: {}, // interval
+    fiveMinuteStatsStore: [
+      { // object of timestamp, data
+        timestamp: 0,
+        data: {},
+      },
+    ],
+    oneHourStatsStore: [
+      { // object of timestamp, data
+        timestamp: 0,
+        data: {},
+      },
+    ],
+  },
+};
+
 /**
  * To list running apps.
  * @param {object} req Request.
@@ -712,6 +764,231 @@ async function appStats(req, res) {
       error.code,
     );
     res.json(errMessage);
+  }
+}
+
+/**
+ * Starts app monitoring for a single app and saves monitoring data in-memory to the appsMonitored object.
+ * @param {object} app App specifications.
+ */
+async function startAppMonitoring(app) {
+  if (!app) {
+    throw new Error('No App specified');
+  } else if (app.version <= 3) {
+    // prior check if key exists or not in case it is in case its not TODO
+    appsMonitored[app.name] = {}; // fiveMinuteInterval, oneHourInterval, fiveMinuteStatsStore, oneHourStatsStore
+    appsMonitored[app.name].fiveMinuteInterval = setInterval(async () => {
+      const statsNow = await dockerService.appsStats(app.name); // time?
+      appsMonitored[app.name][fiveMinuteStatsStore].unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
+      appsMonitored[app.name][fiveMinuteStatsStore].length = 12; // Store stats every five mins for the last hour only
+    }, 5 * 60 * 1000);
+    appsMonitored[app.name].oneHourInterval = setInterval(async () => {
+      const statsNow = await dockerService.appsStats(app.name); // time?
+      appsMonitored[app.name][oneHourStatsStore].unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
+      appsMonitored[app.name][oneHourStatsStore].length = 24; // Store stats every hour for the last day only
+    }, 60 * 60 * 1000);
+  } else {
+    for (const component of app.compose) {
+      // prior check if key exists or not in case it is in case its not TODO
+      appsMonitored[`${component.name}_${app.name}`] = {}; // fiveMinuteInterval, oneHourInterval, fiveMinuteStatsStore, oneHourStatsStore
+      appsMonitored[`${component.name}_${app.name}`][fiveMinuteStatsStore].length = 12; // Store stats every five mins for the last hour only
+      appsMonitored[`${component.name}_${app.name}`][oneHourStatsStore].length = 24; // Store stats every hour for the last day only
+      appsMonitored[`${component.name}_${app.name}`].fiveMinuteInterval = setInterval(async () => {
+        const statsNow = await dockerService.appsStats(`${component.name}_${app.name}`); // time?
+        appsMonitored[`${component.name}_${app.name}`][fiveMinuteStatsStore].unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
+        appsMonitored[app.name][fiveMinuteStatsStore].length = 12; // Store stats every five mins for the last hour only
+      }, 5 * 60 * 1000);
+      appsMonitored[`${component.name}_${app.name}`].oneHourInterval = setInterval(async () => {
+        const statsNow = await dockerService.appsStats(`${component.name}_${app.name}`); // time?
+        appsMonitored[`${component.name}_${app.name}`][oneHourStatsStore].unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
+        appsMonitored[app.name][oneHourStatsStore].length = 24; // Store stats every hour for the last day only
+      }, 60 * 60 * 1000);
+    }
+  }
+}
+
+/**
+ * Stops app monitoring for a single app.
+ * @param {object} app App specifications.
+ */
+// At any stage after the monitoring is started, trigger stop on demand without loosing data (unless delete data is chosen)
+async function stopAppMonitoring(app) {
+  clearInterval(appsMonitored[app.name].fiveMinuteInterval);
+  clearInterval(appsMonitored[app.name].oneHourInterval);
+}
+
+/**
+ * Stops app monitoring for a single app and deletes in-memory monitoring data.
+ * @param {object} app App specifications.
+ */
+async function stopAndDeleteAppMonitoring(app) {
+  clearInterval(appsMonitored[app.name].fiveMinuteInterval);
+  clearInterval(appsMonitored[app.name].oneHourInterval);
+  delete appsMonitored[app.name];
+}
+
+/**
+ * Starts app monitoring for all apps.
+ */
+async function startMonitoringOfApps() {
+  const apps = await installedApps(); // get all apps running on the node
+  for (const app of apps) {
+    await startAppMonitoring(app); // Start monitoring each app
+  }
+}
+
+/**
+ * Stops app monitoring for all apps.
+ */
+async function stopMonitoringOfApps() {
+  const apps = await installedApps(); // get all apps running on the node
+  for (const app of apps) {
+    await stopAppMonitoring(app); // Stop monitoring each app
+  }
+}
+
+/**
+ * Stops app monitoring for all apps and deletes in-memory monitoring data.
+ */
+async function stopAndDeleteMonitoringOfApps() {
+  const apps = await installedApps(); // get all apps running on the node
+  for (const app of apps) {
+    await stopAndDeleteAppMonitoring(app); // Stop monitoring and delete in-memory data for each app
+  }
+}
+
+/**
+ * API call to start app monitoring and save monitoring data in-memory to the appsMonitored object. Monitors all apps or a single app if its name is specified in the API request.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
+async function startAppMonitoringAPI(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+    if (!appname) {
+      // If no appname specified, monitor all apps
+      try {
+        const apps = await installedApps(); // get all apps running on the node
+        for (const app of apps) {
+          const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, app.name); // We have to check app owner authorization against each app
+          if (!authorized) {
+            const errMessage = messageHelper.errUnauthorizedMessage();
+            res.json(errMessage);
+            continue;
+          }
+          await startAppMonitoring(app); // Start monitoring each app
+        }
+        const monitoringResponse = messageHelper.createDataMessage('Application monitoring started for all apps');
+        res.json(monitoringResponse);
+      } catch (error) {
+        log.error(error);
+        const errorResponse = messageHelper.createErrorMessage(
+          error.message || error,
+          error.name,
+          error.code,
+        );
+        res.json(errorResponse);
+      }
+    }
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    if (!authorized) {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+      return;
+    }
+    const apps = await installedApps(); // get all apps running on the node
+    let appSpecs = {};
+    for (const app of apps) {
+      if (appname === app.name) {
+        appSpecs = app;
+      }
+    }
+    await startAppMonitoring(appSpecs);
+    const monitoringResponse = messageHelper.createDataMessage(`Application monitoring started for ${appSpecs.name}`);
+    res.json(monitoringResponse);
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
+/**
+ * API call to stop app monitoring. Applies to all apps or a single app if its name is specified in the API request. Maintains existing monitoring data or deletes existing monitoring data if specified in the API request.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
+async function stopAppMonitoringAPI(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+    let { deletedata } = req.params;
+    deletedata = deletedata || req.query.deletedata;
+    // 1. Stop all apps
+    if (!appname) {
+      const apps = await installedApps(); // get all apps running on the node
+      for (const app of apps) {
+        const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, app.name); // We have to check app owner authorization against each app
+        if (!authorized) {
+          const errMessage = messageHelper.errUnauthorizedMessage();
+          res.json(errMessage);
+          continue;
+        }
+        if (!deletedata) {
+          await stopAppMonitoring(app); // 1.A. Don't delete data (all apps)
+        } else {
+          await stopAndDeleteAppMonitoring(app); // 1.B. Do delete data (all apps)
+        }
+      }
+      let successMessage = ``;
+      if (!deletedata) {
+        successMessage = 'Application monitoring stopped for all apps. Existing monitoring data maintained.';
+      } else {
+        successMessage = 'Application monitoring stopped for all apps. Monitoring data deleted for all apps.';
+      }
+      const monitoringResponse = messageHelper.createDataMessage(successMessage);
+      res.json(monitoringResponse);
+    // 2. Stop a specific app
+    } else {
+      const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+      if (!authorized) {
+        const errMessage = messageHelper.errUnauthorizedMessage();
+        res.json(errMessage);
+        return;
+      }
+      const apps = await installedApps(); // get all apps running on the node
+      let appSpecs = {};
+      for (const app of apps) {
+        if (appname === app.name) {
+          appSpecs = app;
+        }
+      }
+      let successMessage = ``;
+      if (!deletedata) {
+        await stopAppMonitoring(appSpecs); // 2.A. Don't delete data (specific app)
+        successMessage = `Application monitoring stopped for ${appSpecs.name}. Existing monitoring data maintained.`;
+      } else {
+        await stopAndDeleteAppMonitoring(appSpecs); // 2.B. Do delete data (specific app)
+        successMessage = `Application monitoring stopped and monitoring data deleted for ${appSpecs.name}.`;
+      }
+      const monitoringResponse = messageHelper.createDataMessage(successMessage);
+      res.json(monitoringResponse);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
   }
 }
 
@@ -1552,7 +1829,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
       res.write(serviceHelper.ensureString(cleaningVolumeStatus2));
     }
   }
-
+  stopAppMonitoring(appName);
   const appRemovalResponse = {
     status: isComponent ? `Flux App component ${appSpecifications.name} of ${appName} was successfuly removed` : `Flux App ${appName} was successfuly removed`,
   };
@@ -1722,6 +1999,11 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
 
 /**
  * To soft uninstall an app including any components. Removes container/s, removes image/s and denies all app/component ports.
+ * @param {string} appName App name.
+ * @param {string} appId App ID.
+ * @param {object} appSpecifications App specifications.
+ * @param {boolean} isComponent True if a Docker Compose component.
+ * @param {object} res Response.
  */
 async function appUninstallSoft(appName, appId, appSpecifications, isComponent, res) {
   const stopStatus = {
@@ -1828,7 +2110,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   if (res) {
     res.write(serviceHelper.ensureString(portStatus2));
   }
-
+  stopAppMonitoring(appName);
   const appRemovalResponse = {
     status: isComponent ? `Flux App component ${appSpecifications.name} of ${appName} was successfuly removed` : `Flux App ${appName} was successfuly removed`,
   };
@@ -2238,6 +2520,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   if (!app) {
     return;
   }
+  startAppMonitoring(appName);
   const appResponse = messageHelper.createDataMessage(app);
   log.info(appResponse);
   if (res) {
@@ -2539,6 +2822,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   if (!app) {
     return;
   }
+  startAppMonitoring(appName);
   const appResponse = messageHelper.createDataMessage(app);
   log.info(appResponse);
   if (res) {
@@ -7525,6 +7809,14 @@ module.exports = {
   appLogStream,
   appInspect,
   appStats,
+  startAppMonitoring,
+  stopAppMonitoring,
+  stopAndDeleteAppMonitoring,
+  startMonitoringOfApps,
+  stopMonitoringOfApps,
+  stopAndDeleteMonitoringOfApps,
+  startAppMonitoringAPI,
+  stopAppMonitoringAPI,
   appChanges,
   appExec,
   fluxUsage,
