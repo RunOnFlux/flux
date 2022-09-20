@@ -843,6 +843,9 @@ module.exports = (app, expressWs) => {
   app.get('/apps/appstats/:appname?', (req, res) => {
     appsService.appStats(req, res);
   });
+  app.get('/apps/appmonitor/:appname?', (req, res) => {
+    appsService.appMonitor(req, res);
+  });
   app.get('/apps/appchanges/:appname?', (req, res) => {
     appsService.appChanges(req, res);
   });

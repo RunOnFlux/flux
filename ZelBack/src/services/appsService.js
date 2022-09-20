@@ -793,6 +793,42 @@ async function appStats(req, res) {
 }
 
 /**
+ * To show resource usage statistics for an app's Docker container. Only accessible by app owner, admins and flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function appMonitor(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+
+    if (!appname) {
+      throw new Error('No Flux App specified');
+    }
+
+    const mainAppName = appname.split('_')[1] || appname;
+
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
+    if (authorized === true) {
+      const response = appsMonitored[appname];
+      const appResponse = messageHelper.createDataMessage(response);
+      res.json(appResponse);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errMessage = messageHelper.createErrorMessage(
+      error.message,
+      error.name,
+      error.code,
+    );
+    res.json(errMessage);
+  }
+}
+
+/**
  * Starts app monitoring for a single app and saves monitoring data in-memory to the appsMonitored object.
  * @param {object} appName monitored component name
  */
@@ -7798,6 +7834,7 @@ module.exports = {
   appLogStream,
   appInspect,
   appStats,
+  appMonitor,
   startMonitoringOfApps,
   startAppMonitoringAPI,
   stopAppMonitoringAPI,
