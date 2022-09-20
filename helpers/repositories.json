@@ -345,5 +345,6 @@
    "runonflux/dash-insight-explorer:latest",
    "alihmahdavi/wp",
    "figureprod/flux-test-app:latest",
-   "elocorem/testlandingpage:latest"
+   "elocorem/testlandingpage:latest",
+   "avaplatform/avalanchego:latest"
 ]
