@@ -25,7 +25,8 @@ jobs:
         node-version: ${{ matrix.node-version }}
     - name: install flux and flux benchmark daemons
       run: |
-        echo 'deb https://apt.runonflux.io/ '$(lsb_release -cs)' main' | sudo tee --append /etc/apt/sources.list.d/flux.list
+        echo 'deb https://apt.runonflux.io/ '$(lsb_release -cs)' main' | sudo tee /etc/apt/sources.list.d/flux.list
+        echo 'deb https://runonflux.github.io/aptrepo/ '$(lsb_release -cs)' main' | sudo tee --append /etc/apt/sources.list.d/flux.list
         gpg --keyserver keyserver.ubuntu.com --recv 4B69CA27A986265D
         gpg --export 4B69CA27A986265D | sudo apt-key add -
         sudo apt-get update
