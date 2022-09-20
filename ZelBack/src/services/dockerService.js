@@ -177,6 +177,12 @@ async function dockerContainerStats(idOrName) {
   return response;
 }
 
+/**
+ * Take stats from docker container and follow progress of the stream.
+ * @param {string} repoTag Docker Hub repo/image tag.
+ * @param {object} res Response.
+ * @param {function} callback Callback.
+ */
 async function dockerContainerStatsStream(idOrName, res, callback) {
   // container ID or name
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
