@@ -250,6 +250,8 @@ async function appStart(req, res) {
     let appRes;
     if (isComponent) {
       appRes = await dockerService.appDockerStart(appname);
+      // eslint-disable-next-line no-use-before-define
+      startAppMonitoring(appname).catch((error) => log.error(error));
     } else {
       // ask for starting entire composed application
       // eslint-disable-next-line no-use-before-define
@@ -259,11 +261,15 @@ async function appStart(req, res) {
       }
       if (appSpecs.version <= 3) {
         appRes = await dockerService.appDockerStart(appname);
+        // eslint-disable-next-line no-use-before-define
+        startAppMonitoring(appname).catch((error) => log.error(error));
       } else {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecs.compose) {
           // eslint-disable-next-line no-await-in-loop
           await dockerService.appDockerStart(`${appComponent.name}_${appSpecs.name}`);
+          // eslint-disable-next-line no-use-before-define
+          startAppMonitoring(`${appComponent.name}_${appSpecs.name}`).catch((error) => log.error(error));
         }
         appRes = `Application ${appSpecs.name} started`;
       }
@@ -309,6 +315,8 @@ async function appStop(req, res) {
 
     let appRes;
     if (isComponent) {
+      // eslint-disable-next-line no-use-before-define
+      stopAppMonitoring(appname, false).catch((error) => log.error(error));
       appRes = await dockerService.appDockerStop(appname);
     } else {
       // ask for stopping entire composed application
@@ -318,10 +326,14 @@ async function appStop(req, res) {
         throw new Error('Application not found');
       }
       if (appSpecs.version <= 3) {
+        // eslint-disable-next-line no-use-before-define
+        stopAppMonitoring(appname, false).catch((error) => log.error(error));
         appRes = await dockerService.appDockerStop(appname);
       } else {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecs.compose.reverse()) {
+          // eslint-disable-next-line no-use-before-define
+          stopAppMonitoring(`${appComponent.name}_${appSpecs.name}`, false).catch((error) => log.error(error));
           // eslint-disable-next-line no-await-in-loop
           await dockerService.appDockerStop(`${appComponent.name}_${appSpecs.name}`);
         }
@@ -782,108 +794,101 @@ async function appStats(req, res) {
 
 /**
  * Starts app monitoring for a single app and saves monitoring data in-memory to the appsMonitored object.
- * @param {object} app App specifications.
+ * @param {object} appName monitored component name
  */
-async function startAppMonitoring(app) {
-  if (!app) {
+function startAppMonitoring(appName) {
+  if (!appName) {
     throw new Error('No App specified');
-  } else if (app.version <= 3) {
-    appsMonitored[app.name] = {}; // oneMinuteInterval, fifteenMinInterval, oneMinuteStatsStore, fifteenMinStatsStore
-    if (!appsMonitored[app.name].fifteenMinStatsStore) {
-      appsMonitored[app.name].fifteenMinStatsStore = [];
-    }
-    if (!appsMonitored[app.name].oneMinuteStatsStore) {
-      appsMonitored[app.name].oneMinuteStatsStore = [];
-    }
-    appsMonitored[app.name].oneMinuteInterval = setInterval(async () => {
-      const statsNow = await dockerService.appsStats(app.name); // time?
-      appsMonitored[app.name].oneMinuteStatsStore.unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
-      appsMonitored[app.name].oneMinuteStatsStore.length = 60; // Store stats every 1 min for the last hour only
-    }, 1 * 60 * 1000);
-    appsMonitored[app.name].fifteenMinInterval = setInterval(async () => {
-      const statsNow = await dockerService.appsStats(app.name); // time?
-      appsMonitored[app.name].fifteenMinStatsStore.unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
-      appsMonitored[app.name].fifteenMinStatsStore.length = 96; // Store stats every 15 mins for the last day only
-    }, 15 * 60 * 1000);
   } else {
-    // eslint-disable-next-line no-restricted-syntax
-    for (const component of app.compose) {
-      appsMonitored[`${component.name}_${app.name}`] = {}; // oneMinuteInterval, fifteenMinInterval, oneMinuteStatsStore, fifteenMinStatsStore
-      if (!appsMonitored[`${component.name}_${app.name}`].oneMinuteStatsStore) {
-        appsMonitored[`${component.name}_${app.name}`].oneMinuteStatsStore = [];
-      }
-      if (!appsMonitored[`${component.name}_${app.name}`].fifteenMinStatsStore) {
-        appsMonitored[`${component.name}_${app.name}`].fifteenMinStatsStore = [];
-      }
-      // eslint-disable-next-line no-loop-func
-      appsMonitored[`${component.name}_${app.name}`].oneMinuteInterval = setInterval(async () => {
-        const statsNow = await dockerService.appsStats(`${component.name}_${app.name}`); // time?
-        appsMonitored[`${component.name}_${app.name}`].oneMinuteStatsStore.unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
-        appsMonitored[app.name].oneMinuteStatsStore.length = 60; // Store stats every 1 min for the last hour only
-      }, 1 * 60 * 1000);
-      // eslint-disable-next-line no-loop-func
-      appsMonitored[`${component.name}_${app.name}`].fifteenMinInterval = setInterval(async () => {
-        const statsNow = await dockerService.appsStats(`${component.name}_${app.name}`); // time?
-        appsMonitored[`${component.name}_${app.name}`].fifteenMinStatsStore.unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
-        appsMonitored[app.name].fifteenMinStatsStore.length = 96; // Store stats every 15 min for the last day only
-      }, 15 * 60 * 1000);
+    appsMonitored[appName] = {}; // oneMinuteInterval, fifteenMinInterval, oneMinuteStatsStore, fifteenMinStatsStore
+    if (!appsMonitored[appName].fifteenMinStatsStore) {
+      appsMonitored[appName].fifteenMinStatsStore = [];
     }
+    if (!appsMonitored[appName].oneMinuteStatsStore) {
+      appsMonitored[appName].oneMinuteStatsStore = [];
+    }
+    appsMonitored[appName].oneMinuteInterval = setInterval(async () => {
+      try {
+        const statsNow = await dockerService.dockerContainerStats(appName);
+        appsMonitored[appName].oneMinuteStatsStore.unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
+        appsMonitored[appName].oneMinuteStatsStore.length = 60; // Store stats every 1 min for the last hour only
+      } catch (error) {
+        log.error(error);
+      }
+    }, 1 * 60 * 1000);
+    appsMonitored[appName].fifteenMinInterval = setInterval(async () => {
+      try {
+        const statsNow = await dockerService.dockerContainerStats(appName);
+        appsMonitored[appName].fifteenMinStatsStore.unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
+        appsMonitored[appName].fifteenMinStatsStore.length = 96; // Store stats every 15 mins for the last day only
+      } catch (error) {
+        log.error(error);
+      }
+    }, 15 * 60 * 1000);
   }
 }
 
 /**
  * Stops app monitoring for a single app.
- * @param {object} app App specifications.
+ * @param {object} appName App specifications.
+ * @param {boolean} deleteData Delete monitored data
  */
 // At any stage after the monitoring is started, trigger stop on demand without loosing data (unless delete data is chosen)
-async function stopAppMonitoring(app) {
-  clearInterval(appsMonitored[app.name].oneMinuteInterval);
-  clearInterval(appsMonitored[app.name].fifteenMinInterval);
-}
-
-/**
- * Stops app monitoring for a single app and deletes in-memory monitoring data.
- * @param {object} app App specifications.
- */
-async function stopAndDeleteAppMonitoring(app) {
-  clearInterval(appsMonitored[app.name].oneMinuteInterval);
-  clearInterval(appsMonitored[app.name].fifteenMinInterval);
-  delete appsMonitored[app.name];
+function stopAppMonitoring(appName, deleteData) {
+  if (appsMonitored[appName]) {
+    clearInterval(appsMonitored[appName].oneMinuteInterval);
+    clearInterval(appsMonitored[appName].fifteenMinInterval);
+  }
+  if (deleteData) {
+    delete appsMonitored[appName];
+  }
 }
 
 /**
  * Starts app monitoring for all apps.
+ * @param {array} appSpecsToMonitor Array of application specs to be monitored
  */
-async function startMonitoringOfApps() {
-  const apps = await installedApps(); // get all apps running on the node
-  // eslint-disable-next-line no-restricted-syntax
-  for (const app of apps) {
-    // eslint-disable-next-line no-await-in-loop
-    await startAppMonitoring(app); // Start monitoring each app
+async function startMonitoringOfApps(appSpecsToMonitor) {
+  try {
+    const apps = appSpecsToMonitor || await installedApps(); // get all apps running on the node
+    // eslint-disable-next-line no-restricted-syntax
+    for (const app of apps) {
+      if (app.version <= 3) {
+        startAppMonitoring(app.name).catch((error) => log.error(error));
+      } else {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of app.components) {
+          const monitoredName = `${component.name}_${app.name}`;
+          startAppMonitoring(monitoredName).catch((error) => log.error(error));
+        }
+      }
+    }
+  } catch (error) {
+    log.error(error);
   }
 }
 
 /**
  * Stops app monitoring for all apps.
+ * @param {array} appSpecsToMonitor Array of application specs to be stopped for monitor
  */
-async function stopMonitoringOfApps() {
-  const apps = await installedApps(); // get all apps running on the node
-  // eslint-disable-next-line no-restricted-syntax
-  for (const app of apps) {
-    // eslint-disable-next-line no-await-in-loop
-    await stopAppMonitoring(app); // Stop monitoring each app
-  }
-}
-
-/**
- * Stops app monitoring for all apps and deletes in-memory monitoring data.
- */
-async function stopAndDeleteMonitoringOfApps() {
-  const apps = await installedApps(); // get all apps running on the node
-  // eslint-disable-next-line no-restricted-syntax
-  for (const app of apps) {
-    // eslint-disable-next-line no-await-in-loop
-    await stopAndDeleteAppMonitoring(app); // Stop monitoring and delete in-memory data for each app
+async function stopMonitoringOfApps(appSpecsToMonitor, deleteData = false) {
+  try {
+    const apps = appSpecsToMonitor || await installedApps(); // get all apps running on the node
+    // eslint-disable-next-line no-restricted-syntax
+    for (const app of apps) {
+      if (app.version <= 3) {
+        stopAppMonitoring(app.name, deleteData).catch((error) => log.error(error));
+      } else {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of app.components) {
+          const monitoredName = `${component.name}_${app.name}`;
+          stopAppMonitoring(monitoredName, deleteData).catch((error) => log.error(error));
+        }
+      }
+    }
+  } catch (error) {
+    log.error(error);
   }
 }
 
@@ -905,28 +910,32 @@ async function startAppMonitoringAPI(req, res) {
         res.json(errMessage);
         return;
       }
-      const apps = await installedApps(); // get all apps installed on the node
-      // eslint-disable-next-line no-restricted-syntax
-      for (const app of apps) {
-        // eslint-disable-next-line no-await-in-loop
-        await startAppMonitoring(app); // Start monitoring each app
-      }
-      const monitoringResponse = messageHelper.createDataMessage('Application monitoring started for all apps');
+      // this should not be started if some monitoring is already running. Stop all monitoring before
+      await stopMonitoringOfApps();
+      await startMonitoringOfApps();
+      const monitoringResponse = messageHelper.createSuccessMessage('Application monitoring started for all apps');
       res.json(monitoringResponse);
     } else {
-      const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+      const mainAppName = appname.split('_')[1] || appname;
+      const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
       if (!authorized) {
         const errMessage = messageHelper.errUnauthorizedMessage();
         res.json(errMessage);
         return;
       }
-      const apps = await installedApps(appname); // get all apps running on the node
+      const apps = await installedApps(mainAppName); // get all apps running on the node
       const appSpecs = apps[0];
       if (!appSpecs) {
-        throw new Error(`Application ${appname} is not installed`);
+        throw new Error(`Application ${mainAppName} is not installed`);
       }
-      await startAppMonitoring(appSpecs);
-      const monitoringResponse = messageHelper.createDataMessage(`Application monitoring started for ${appSpecs.name}`);
+      if (mainAppName === appname) {
+        await stopMonitoringOfApps([appSpecs]);
+        await startMonitoringOfApps([appSpecs]);
+      } else { // component based or <= 3
+        stopAppMonitoring(appname);
+        startAppMonitoring(appname);
+      }
+      const monitoringResponse = messageHelper.createSuccessMessage(`Application monitoring started for ${appSpecs.name}`);
       res.json(monitoringResponse);
     }
   } catch (error) {
@@ -961,47 +970,42 @@ async function stopAppMonitoringAPI(req, res) {
         res.json(errMessage);
         return;
       }
-      const apps = await installedApps(); // get all apps running on the node
-      // eslint-disable-next-line no-restricted-syntax
-      for (const app of apps) {
-        if (deletedata) {
-          // eslint-disable-next-line no-await-in-loop
-          await stopAndDeleteAppMonitoring(app); // 1.A. Do delete data (all apps)
-        } else {
-          // eslint-disable-next-line no-await-in-loop
-          await stopAppMonitoring(app); // 1.B. Don't delete data (all apps)
-        }
-      }
+      await stopMonitoringOfApps();
       let successMessage = '';
       if (!deletedata) {
         successMessage = 'Application monitoring stopped for all apps. Existing monitoring data maintained.';
       } else {
         successMessage = 'Application monitoring stopped for all apps. Monitoring data deleted for all apps.';
       }
-      const monitoringResponse = messageHelper.createDataMessage(successMessage);
+      const monitoringResponse = messageHelper.createSuccessMessage(successMessage);
       res.json(monitoringResponse);
     // 2. Stop a specific app
     } else {
-      const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+      const mainAppName = appname.split('_')[1] || appname;
+      const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
       if (!authorized) {
         const errMessage = messageHelper.errUnauthorizedMessage();
         res.json(errMessage);
         return;
       }
-      const apps = await installedApps(appname); // get all apps running on the node
-      const appSpecs = apps[0];
-      if (!appSpecs) {
-        throw new Error(`Application ${appname} is not installed`);
-      }
       let successMessage = '';
-      if (deletedata) {
-        await stopAndDeleteAppMonitoring(appSpecs); // 2.A. Do delete data (specific app)
-        successMessage = `Application monitoring stopped and monitoring data deleted for ${appSpecs.name}.`;
-      } else {
-        await stopAppMonitoring(appSpecs); // 2.B. Don't delete data (specific app)
-        successMessage = `Application monitoring stopped for ${appSpecs.name}. Existing monitoring data maintained.`;
+      if (mainAppName === appname) {
+        // get appSpecs TODO
+        const apps = await installedApps(mainAppName); // get all apps running on the node
+        const appSpecs = apps[0];
+        if (!appSpecs) {
+          throw new Error(`Application ${mainAppName} is not installed`);
+        }
+        await stopMonitoringOfApps([appSpecs], deletedata);
+      } else { // component based or <= 3
+        stopAppMonitoring(appname, deletedata);
       }
-      const monitoringResponse = messageHelper.createDataMessage(successMessage);
+      if (deletedata) {
+        successMessage = `Application monitoring stopped and monitoring data deleted for ${appname}.`;
+      } else {
+        successMessage = `Application monitoring stopped for ${appname}. Existing monitoring data maintained.`;
+      }
+      const monitoringResponse = messageHelper.createSuccessMessage(successMessage);
       res.json(monitoringResponse);
     }
   } catch (error) {
@@ -1587,6 +1591,11 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   if (res) {
     res.write(serviceHelper.ensureString(stopStatus));
   }
+  let monitoredName = appName;
+  if (isComponent) {
+    monitoredName = `${appSpecifications.name}_${appName}`;
+  }
+  stopAppMonitoring(monitoredName, true).catch((error) => log.error(error));
   await dockerService.appDockerStop(appId).catch((error) => {
     const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
@@ -1852,7 +1861,6 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
       res.write(serviceHelper.ensureString(cleaningVolumeStatus2));
     }
   }
-  stopAppMonitoring(appName);
   const appRemovalResponse = {
     status: isComponent ? `Flux App component ${appSpecifications.name} of ${appName} was successfuly removed` : `Flux App ${appName} was successfuly removed`,
   };
@@ -2036,7 +2044,11 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   if (res) {
     res.write(serviceHelper.ensureString(stopStatus));
   }
-
+  let monitoredName = appName;
+  if (isComponent) {
+    monitoredName = `${appSpecifications.name}_${appName}`;
+  }
+  stopAppMonitoring(monitoredName, false).catch((error) => log.error(error));
   await dockerService.appDockerStop(appId);
 
   const stopStatus2 = {
@@ -2133,7 +2145,6 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   if (res) {
     res.write(serviceHelper.ensureString(portStatus2));
   }
-  stopAppMonitoring(appName);
   const appRemovalResponse = {
     status: isComponent ? `Flux App component ${appSpecifications.name} of ${appName} was successfuly removed` : `Flux App ${appName} was successfuly removed`,
   };
@@ -2538,12 +2549,12 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
     res.write(serviceHelper.ensureString(startStatus));
   }
   const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
-  const app = await dockerService.appDockerStart(dockerService.getAppIdentifier(identifier));
+  const app = await dockerService.appDockerStart(identifier);
   installationInProgress = false;
   if (!app) {
     return;
   }
-  startAppMonitoring(appName);
+  startAppMonitoring(identifier).catch((error) => log.error(error));
   const appResponse = messageHelper.createDataMessage(app);
   log.info(appResponse);
   if (res) {
@@ -2840,12 +2851,12 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
     res.write(serviceHelper.ensureString(startStatus));
   }
   const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
-  const app = await dockerService.appDockerStart(dockerService.getAppIdentifier(identifier));
+  const app = await dockerService.appDockerStart(identifier);
   installationInProgress = false;
   if (!app) {
     return;
   }
-  startAppMonitoring(appName);
+  startAppMonitoring(identifier).catch((error) => log.error(error));
   const appResponse = messageHelper.createDataMessage(app);
   log.info(appResponse);
   if (res) {
@@ -6917,12 +6928,12 @@ async function checkAndNotifyPeersOfRunningApps() {
           if (appDetails) {
             log.warn(`${stoppedApp} is stopped but should be running. Starting...`);
             // it is a stopped global app. Try to run it.
-            const appId = dockerService.getAppIdentifier(stoppedApp);
             // check if some removal is in progress and if it is don't start it!
             if (!removalInProgress && !installationInProgress && !reinstallationOfOldAppsInProgress) {
-              log.warn(`${appId} is stopped, starting`);
+              log.warn(`${stoppedApp} is stopped, starting`);
               // eslint-disable-next-line no-await-in-loop
-              await dockerService.appDockerStart(appId);
+              await dockerService.appDockerStart(stoppedApp);
+              startAppMonitoring(stoppedApp).catch((error) => log.error(error));
             } else {
               log.warn(`Not starting ${stoppedApp} as application removal or installation is in progress`);
             }
@@ -7787,12 +7798,7 @@ module.exports = {
   appLogStream,
   appInspect,
   appStats,
-  startAppMonitoring,
-  stopAppMonitoring,
-  stopAndDeleteAppMonitoring,
   startMonitoringOfApps,
-  stopMonitoringOfApps,
-  stopAndDeleteMonitoringOfApps,
   startAppMonitoringAPI,
   stopAppMonitoringAPI,
   appChanges,
