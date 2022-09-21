@@ -251,7 +251,7 @@ async function appStart(req, res) {
     if (isComponent) {
       appRes = await dockerService.appDockerStart(appname);
       // eslint-disable-next-line no-use-before-define
-      startAppMonitoring(appname).catch((error) => log.error(error));
+      startAppMonitoring(appname);
     } else {
       // ask for starting entire composed application
       // eslint-disable-next-line no-use-before-define
@@ -262,14 +262,14 @@ async function appStart(req, res) {
       if (appSpecs.version <= 3) {
         appRes = await dockerService.appDockerStart(appname);
         // eslint-disable-next-line no-use-before-define
-        startAppMonitoring(appname).catch((error) => log.error(error));
+        startAppMonitoring(appname);
       } else {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecs.compose) {
           // eslint-disable-next-line no-await-in-loop
           await dockerService.appDockerStart(`${appComponent.name}_${appSpecs.name}`);
           // eslint-disable-next-line no-use-before-define
-          startAppMonitoring(`${appComponent.name}_${appSpecs.name}`).catch((error) => log.error(error));
+          startAppMonitoring(`${appComponent.name}_${appSpecs.name}`);
         }
         appRes = `Application ${appSpecs.name} started`;
       }
@@ -316,7 +316,7 @@ async function appStop(req, res) {
     let appRes;
     if (isComponent) {
       // eslint-disable-next-line no-use-before-define
-      stopAppMonitoring(appname, false).catch((error) => log.error(error));
+      stopAppMonitoring(appname, false);
       appRes = await dockerService.appDockerStop(appname);
     } else {
       // ask for stopping entire composed application
@@ -327,13 +327,13 @@ async function appStop(req, res) {
       }
       if (appSpecs.version <= 3) {
         // eslint-disable-next-line no-use-before-define
-        stopAppMonitoring(appname, false).catch((error) => log.error(error));
+        stopAppMonitoring(appname, false);
         appRes = await dockerService.appDockerStop(appname);
       } else {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecs.compose.reverse()) {
           // eslint-disable-next-line no-use-before-define
-          stopAppMonitoring(`${appComponent.name}_${appSpecs.name}`, false).catch((error) => log.error(error));
+          stopAppMonitoring(`${appComponent.name}_${appSpecs.name}`, false);
           // eslint-disable-next-line no-await-in-loop
           await dockerService.appDockerStop(`${appComponent.name}_${appSpecs.name}`);
         }
@@ -897,12 +897,12 @@ async function startMonitoringOfApps(appSpecsToMonitor) {
     // eslint-disable-next-line no-restricted-syntax
     for (const app of apps) {
       if (app.version <= 3) {
-        startAppMonitoring(app.name).catch((error) => log.error(error));
+        startAppMonitoring(app.name);
       } else {
         // eslint-disable-next-line no-restricted-syntax
         for (const component of app.compose) {
           const monitoredName = `${component.name}_${app.name}`;
-          startAppMonitoring(monitoredName).catch((error) => log.error(error));
+          startAppMonitoring(monitoredName);
         }
       }
     }
@@ -928,12 +928,12 @@ async function stopMonitoringOfApps(appSpecsToMonitor, deleteData = false) {
     // eslint-disable-next-line no-restricted-syntax
     for (const app of apps) {
       if (app.version <= 3) {
-        stopAppMonitoring(app.name, deleteData).catch((error) => log.error(error));
+        stopAppMonitoring(app.name, deleteData);
       } else {
         // eslint-disable-next-line no-restricted-syntax
         for (const component of app.compose) {
           const monitoredName = `${component.name}_${app.name}`;
-          stopAppMonitoring(monitoredName, deleteData).catch((error) => log.error(error));
+          stopAppMonitoring(monitoredName, deleteData);
         }
       }
     }
@@ -1653,7 +1653,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   if (isComponent) {
     monitoredName = `${appSpecifications.name}_${appName}`;
   }
-  stopAppMonitoring(monitoredName, true).catch((error) => log.error(error));
+  stopAppMonitoring(monitoredName, true);
   await dockerService.appDockerStop(appId).catch((error) => {
     const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
@@ -2106,7 +2106,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   if (isComponent) {
     monitoredName = `${appSpecifications.name}_${appName}`;
   }
-  stopAppMonitoring(monitoredName, false).catch((error) => log.error(error));
+  stopAppMonitoring(monitoredName, false);
   await dockerService.appDockerStop(appId);
 
   const stopStatus2 = {
@@ -2612,7 +2612,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   if (!app) {
     return;
   }
-  startAppMonitoring(identifier).catch((error) => log.error(error));
+  startAppMonitoring(identifier);
   const appResponse = messageHelper.createDataMessage(app);
   log.info(appResponse);
   if (res) {
@@ -2914,7 +2914,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   if (!app) {
     return;
   }
-  startAppMonitoring(identifier).catch((error) => log.error(error));
+  startAppMonitoring(identifier);
   const appResponse = messageHelper.createDataMessage(app);
   log.info(appResponse);
   if (res) {
@@ -6991,7 +6991,7 @@ async function checkAndNotifyPeersOfRunningApps() {
               log.warn(`${stoppedApp} is stopped, starting`);
               // eslint-disable-next-line no-await-in-loop
               await dockerService.appDockerStart(stoppedApp);
-              startAppMonitoring(stoppedApp).catch((error) => log.error(error));
+              startAppMonitoring(stoppedApp);
             } else {
               log.warn(`Not starting ${stoppedApp} as application removal or installation is in progress`);
             }
