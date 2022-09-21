@@ -853,7 +853,7 @@ async function appMonitorStream(req, res) {
 
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (authorized === true) {
-      await dockerStatsStreamPromise(appname, res);
+      await dockerStatsStreamPromise(appname, req, res);
       res.end();
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();

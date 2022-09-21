@@ -183,7 +183,7 @@ async function dockerContainerStats(idOrName) {
  * @param {object} res Response.
  * @param {function} callback Callback.
  */
-async function dockerContainerStatsStream(idOrName, res, callback) {
+async function dockerContainerStatsStream(idOrName, req, res, callback) {
   // container ID or name
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
@@ -194,6 +194,7 @@ async function dockerContainerStatsStream(idOrName, res, callback) {
       } else {
         callback(null, output);
       }
+      mystream.destroy();
     }
     function onProgress(event) {
       if (res) {
@@ -206,6 +207,9 @@ async function dockerContainerStatsStream(idOrName, res, callback) {
     } else {
       docker.modem.followProgress(mystream, onFinished, onProgress);
     }
+    req.on('close', () => {
+      mystream.destroy();
+    });
   });
 }
 
