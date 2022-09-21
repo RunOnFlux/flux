@@ -886,7 +886,14 @@ function stopAppMonitoring(appName, deleteData) {
  */
 async function startMonitoringOfApps(appSpecsToMonitor) {
   try {
-    const apps = appSpecsToMonitor || await installedApps(); // get all apps running on the node
+    let apps = appSpecsToMonitor;
+    if (!apps) {
+      const installedAppsRes = await installedApps();
+      if (installedAppsRes.status !== 'success') {
+        throw new Error('Failed to get installed Apps');
+      }
+      apps = installedAppsRes.data;
+    }
     // eslint-disable-next-line no-restricted-syntax
     for (const app of apps) {
       if (app.version <= 3) {
@@ -910,7 +917,14 @@ async function startMonitoringOfApps(appSpecsToMonitor) {
  */
 async function stopMonitoringOfApps(appSpecsToMonitor, deleteData = false) {
   try {
-    const apps = appSpecsToMonitor || await installedApps(); // get all apps running on the node
+    let apps = appSpecsToMonitor;
+    if (!apps) {
+      const installedAppsRes = await installedApps();
+      if (installedAppsRes.status !== 'success') {
+        throw new Error('Failed to get installed Apps');
+      }
+      apps = installedAppsRes.data;
+    }
     // eslint-disable-next-line no-restricted-syntax
     for (const app of apps) {
       if (app.version <= 3) {
@@ -959,7 +973,11 @@ async function startAppMonitoringAPI(req, res) {
         res.json(errMessage);
         return;
       }
-      const apps = await installedApps(mainAppName); // get all apps running on the node
+      const installedAppsRes = await installedApps(mainAppName);
+      if (installedAppsRes.status !== 'success') {
+        throw new Error('Failed to get installed Apps');
+      }
+      const apps = installedAppsRes.data;
       const appSpecs = apps[0];
       if (!appSpecs) {
         throw new Error(`Application ${mainAppName} is not installed`);
@@ -1027,7 +1045,11 @@ async function stopAppMonitoringAPI(req, res) {
       let successMessage = '';
       if (mainAppName === appname) {
         // get appSpecs TODO
-        const apps = await installedApps(mainAppName); // get all apps running on the node
+        const installedAppsRes = await installedApps(mainAppName);
+        if (installedAppsRes.status !== 'success') {
+          throw new Error('Failed to get installed Apps');
+        }
+        const apps = installedAppsRes.data;
         const appSpecs = apps[0];
         if (!appSpecs) {
           throw new Error(`Application ${mainAppName} is not installed`);
