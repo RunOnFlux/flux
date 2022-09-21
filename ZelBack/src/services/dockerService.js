@@ -178,6 +178,38 @@ async function dockerContainerStats(idOrName) {
 }
 
 /**
+ * Take stats from docker container and follow progress of the stream.
+ * @param {string} repoTag Docker Hub repo/image tag.
+ * @param {object} res Response.
+ * @param {function} callback Callback.
+ */
+async function dockerContainerStatsStream(idOrName, res, callback) {
+  // container ID or name
+  const dockerContainer = await getDockerContainerByIdOrName(idOrName);
+
+  dockerContainer.stats(idOrName, (err, mystream) => {
+    function onFinished(error, output) {
+      if (error) {
+        callback(err);
+      } else {
+        callback(null, output);
+      }
+    }
+    function onProgress(event) {
+      if (res) {
+        res.write(serviceHelper.ensureString(event));
+      }
+      log.info(event);
+    }
+    if (err) {
+      callback(err);
+    } else {
+      docker.modem.followProgress(mystream, onFinished, onProgress);
+    }
+  });
+}
+
+/**
  * Returns changes on a container’s filesystem.
  *
  * @param {string} idOrName
@@ -591,6 +623,7 @@ module.exports = {
   dockerListImages,
   dockerContainerInspect,
   dockerContainerStats,
+  dockerContainerStatsStream,
   dockerContainerChanges,
   dockerPullStream,
   dockerContainerExec,
