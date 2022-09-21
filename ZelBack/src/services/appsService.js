@@ -900,7 +900,7 @@ async function startMonitoringOfApps(appSpecsToMonitor) {
         startAppMonitoring(app.name).catch((error) => log.error(error));
       } else {
         // eslint-disable-next-line no-restricted-syntax
-        for (const component of app.components) {
+        for (const component of app.compose) {
           const monitoredName = `${component.name}_${app.name}`;
           startAppMonitoring(monitoredName).catch((error) => log.error(error));
         }
@@ -931,7 +931,7 @@ async function stopMonitoringOfApps(appSpecsToMonitor, deleteData = false) {
         stopAppMonitoring(app.name, deleteData).catch((error) => log.error(error));
       } else {
         // eslint-disable-next-line no-restricted-syntax
-        for (const component of app.components) {
+        for (const component of app.compose) {
           const monitoredName = `${component.name}_${app.name}`;
           stopAppMonitoring(monitoredName, deleteData).catch((error) => log.error(error));
         }
