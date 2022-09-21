@@ -33,6 +33,7 @@ const appsFolder = `${fluxDirPath}ZelApps/`;
 const cmdAsync = util.promisify(nodecmd.get);
 const crontabLoad = util.promisify(systemcrontab.load);
 const dockerPullStreamPromise = util.promisify(dockerService.dockerPullStream);
+const dockerStatsStreamPromise = util.promisify(dockerService.dockerContainerStatsStream);
 
 const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
 const appsHashesCollection = config.database.daemon.collections.appsHashes;
@@ -810,9 +811,50 @@ async function appMonitor(req, res) {
 
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (authorized === true) {
-      const response = appsMonitored[appname];
-      const appResponse = messageHelper.createDataMessage(response);
-      res.json(appResponse);
+      if (appsMonitored[appname]) {
+        const response = {
+          lastHour: appsMonitored[appname].oneMinuteStatsStore,
+          lastDay: appsMonitored[appname].fifteenMinStatsStore,
+        };
+
+        const appResponse = messageHelper.createDataMessage(response);
+        res.json(appResponse);
+      } else throw new Error('No data available');
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errMessage = messageHelper.createErrorMessage(
+      error.message,
+      error.name,
+      error.code,
+    );
+    res.json(errMessage);
+  }
+}
+
+/**
+ * To show resource usage statistics for an app's Docker container. Only accessible by app owner, admins and flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function appMonitorStream(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+
+    if (!appname) {
+      throw new Error('No Flux App specified');
+    }
+
+    const mainAppName = appname.split('_')[1] || appname;
+
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
+    if (authorized === true) {
+      await dockerStatsStreamPromise(appname, res);
+      res.end();
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -7857,6 +7899,7 @@ module.exports = {
   appInspect,
   appStats,
   appMonitor,
+  appMonitorStream,
   startMonitoringOfApps,
   startAppMonitoringAPI,
   stopAppMonitoringAPI,

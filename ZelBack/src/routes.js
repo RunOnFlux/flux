@@ -846,6 +846,9 @@ module.exports = (app, expressWs) => {
   app.get('/apps/appmonitor/:appname?', (req, res) => {
     appsService.appMonitor(req, res);
   });
+  app.get('/apps/appmonitorstream/:appname?', (req, res) => {
+    appsService.appMonitorStream(req, res);
+  });
   app.get('/apps/appchanges/:appname?', (req, res) => {
     appsService.appChanges(req, res);
   });
