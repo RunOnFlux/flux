@@ -61,6 +61,8 @@ module.exports = {
     porttestnet: 26125,
     rpcporttestnet: 26124,
   },
+  minimumFluxBenchAllowedVersion: '3.3.1',
+  minimumFluxOSAllowedVersion: '3.23.0',
   fluxTeamZelId: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
   deterministicNodesStart: 558000,
   fluxapps: {
@@ -103,8 +105,9 @@ module.exports = {
     minimumInstances: 3,
     maximumInstances: 100,
     maximumAdditionalInstances: 1, // max instances above subscribed amount. In case of min instances, this is minimumInstances + maximumAdditionalInstances
-    minOutgoing: 5,
-    minIncoming: 2,
+    minOutgoing: 9,
+    minIncoming: 3,
+    minUpTime: 3600, // 1 hour
     installation: {
       probability: 100, // 1%
       delay: 120, // in seconds

@@ -769,7 +769,10 @@ module.exports = (app, expressWs) => {
     fluxNetworkHelper.allowPortApi(req, res);
   });
   app.get('/flux/checkcommunication', (req, res) => {
-    fluxCommunication.isCommunicationEstablished(req, res);
+    fluxNetworkHelper.isCommunicationEstablished(req, res);
+  });
+  app.get('/flux/uptime', (req, res) => {
+    fluxNetworkHelper.fluxUptime(req, res);
   });
   app.get('/flux/backendfolder', isLocal, (req, res) => {
     fluxService.fluxBackendFolder(req, res);
@@ -840,6 +843,12 @@ module.exports = (app, expressWs) => {
   app.get('/apps/appstats/:appname?', (req, res) => {
     appsService.appStats(req, res);
   });
+  app.get('/apps/appmonitor/:appname?', (req, res) => {
+    appsService.appMonitor(req, res);
+  });
+  app.get('/apps/appmonitorstream/:appname?', (req, res) => {
+    appsService.appMonitorStream(req, res);
+  });
   app.get('/apps/appchanges/:appname?', (req, res) => {
     appsService.appChanges(req, res);
   });
@@ -869,6 +878,12 @@ module.exports = (app, expressWs) => {
   });
   app.get('/apps/reconstructhashes', (req, res) => {
     appsService.reconstructAppMessagesHashCollectionAPI(req, res);
+  });
+  app.get('/apps/startmonitoring/:appname?', (req, res) => {
+    appsService.startAppMonitoringAPI(req, res);
+  });
+  app.get('/apps/stopmonitoring/:appname?/:deletedata?', (req, res) => {
+    appsService.stopAppMonitoringAPI(req, res);
   });
 
   // POST PUBLIC methods route
