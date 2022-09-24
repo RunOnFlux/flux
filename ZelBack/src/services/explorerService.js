@@ -1603,4 +1603,10 @@ module.exports = {
   // exports for testing puproses
   getSenderTransactionFromDaemon,
   getSenderForFluxTxInsight,
+  getSenderForFluxTx,
+  getSender,
+  processBlockTransactions,
+  getVerboseBlock,
+  decodeMessage,
+  processInsight,
 };
