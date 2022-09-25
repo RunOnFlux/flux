@@ -350,5 +350,7 @@
    "michaeldoron59/themok:1.0.0",
    "desoprotocol/backend:stable",
    "desoprotocol/frontend:stable",
-   "honsontran/deso-nginx:latest"
+   "honsontran/deso-nginx:latest",
+   "honsontran/deso-backend:stable,
+   "honsontran/deso-frontend:stable"
 ]
