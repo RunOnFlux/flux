@@ -880,10 +880,7 @@ async function getAppFolderSize(appName) {
     const directoryPath = `${dirpath}ZelApps/${appName}`;
     const exec = `sudo du -s --block-size=1 ${directoryPath}`;
     const cmdres = await cmdAsync(exec);
-    log.info(serviceHelper.ensureString(cmdres).split(' ')[0]);
-    log.info(cmdres);
-    log.info(cmdres.split(' '));
-    const size = serviceHelper.ensureString(cmdres).split(' ')[0] || 0;
+    const size = serviceHelper.ensureString(cmdres).split('\t')[0] || 0;
     return size;
   } catch (error) {
     log.error(error);
