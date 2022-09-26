@@ -353,5 +353,6 @@
    "honsontran/deso-nginx:latest",
    "honsontran/deso-backend:stable",
    "honsontran/deso-frontend:stable",
-   "neoxa/full-node:latest"
+   "neoxa/full-node:latest",
+   "hostnodes/hostnodes-stats:latest"
 ]
