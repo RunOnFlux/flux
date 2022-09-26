@@ -4302,7 +4302,7 @@ export default {
         const block = `${(entry.data.blkio_stats.io_service_bytes_recursive.find((x) => x.op === 'Read').value / 1e9).toFixed(2)} / ${(entry.data.blkio_stats.io_service_bytes_recursive.find((x) => x.op === 'Write').value / 1e9).toFixed(2)} GB`;
         let disk = '0 / 0 GB';
         if (entry.data.disk_stats) {
-          disk = `${(entry.data.disk_stats.used / 1e9).toFixed(2)} / ${(specifications.hdd / 1e9).toFixed(2)} GB, ${((entry.data.disk_stats.used / (specifications.hdd * 1e9)) * 100).toFixed(2)}%`;
+          disk = `${(entry.data.disk_stats.used / 1e9).toFixed(2)} / ${(specifications.hdd).toFixed(2)} GB, ${((entry.data.disk_stats.used / (specifications.hdd * 1e9)) * 100).toFixed(2)}%`;
         }
         const pids = entry.data.pids_stats.current;
         const point = {
