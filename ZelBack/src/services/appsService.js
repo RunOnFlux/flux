@@ -908,8 +908,8 @@ function startAppMonitoring(appName) {
         const statsNow = await dockerService.dockerContainerStats(appName);
         const appFolderName = dockerService.getAppDockerNameIdentifier(appName).substring(1);
         const folderSize = await getAppFolderSize(appFolderName);
-        statsNow.disk = {
-          usage: folderSize * 1e9,
+        statsNow.disk_stats = {
+          used: folderSize,
         };
         appsMonitored[appName].oneMinuteStatsStore.unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
         if (appsMonitored[appName].oneMinuteStatsStore.length > 60) {
