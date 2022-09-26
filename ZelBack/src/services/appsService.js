@@ -880,8 +880,11 @@ async function getAppFolderSize(appName) {
     const directoryPath = `${dirpath}ZelApps/${appName}`;
     const exec = `sudo du -s --block-size=1 ${directoryPath}`;
     const cmdres = await cmdAsync(exec);
+    log.info(serviceHelper.ensureString(cmdres).split(' ')[0]);
     log.info(cmdres);
-    return cmdres.split(' ')[0];
+    log.info(cmdres.split(' '));
+    const size = serviceHelper.ensureString(cmdres).split(' ')[0] || 0;
+    return size;
   } catch (error) {
     log.error(error);
     return 0;
@@ -912,7 +915,9 @@ function startAppMonitoring(appName) {
           usage: folderSize * 1e9,
         };
         appsMonitored[appName].oneMinuteStatsStore.unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
-        appsMonitored[appName].oneMinuteStatsStore.length = 60; // Store stats every 1 min for the last hour only
+        if (appsMonitored[appName].oneMinuteStatsStore.length > 60) {
+          appsMonitored[appName].oneMinuteStatsStore.length = 60; // Store stats every 1 min for the last hour only
+        }
       } catch (error) {
         log.error(error);
       }
@@ -921,7 +926,9 @@ function startAppMonitoring(appName) {
       try {
         const statsNow = await dockerService.dockerContainerStats(appName);
         appsMonitored[appName].fifteenMinStatsStore.unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
-        appsMonitored[appName].fifteenMinStatsStore.length = 96; // Store stats every 15 mins for the last day only
+        if (appsMonitored[appName].oneMinuteStatsStore.length > 96) {
+          appsMonitored[appName].fifteenMinStatsStore.length = 96; // Store stats every 15 mins for the last day only
+        }
       } catch (error) {
         log.error(error);
       }
