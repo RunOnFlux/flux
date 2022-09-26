@@ -24,6 +24,7 @@ const dockerService = require('./dockerService');
 const generalService = require('./generalService');
 const upnpService = require('./upnpService');
 const geolocationService = require('./geolocationService');
+const fluxshareService = require('./fluxshareService');
 const log = require('../lib/log');
 const userconfig = require('../../../config/userconfig');
 
@@ -888,6 +889,11 @@ function startAppMonitoring(appName) {
     appsMonitored[appName].oneMinuteInterval = setInterval(async () => {
       try {
         const statsNow = await dockerService.dockerContainerStats(appName);
+        const appFolderNAme = dockerService.getAppDockerNameIdentifier(appName).substring(1);
+        const folderSize = await fluxshareService.getAppFolderSize(appFolderNAme);
+        statsNow.disk = {
+          usage: folderSize * 1e9,
+        };
         appsMonitored[appName].oneMinuteStatsStore.unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
         appsMonitored[appName].oneMinuteStatsStore.length = 60; // Store stats every 1 min for the last hour only
       } catch (error) {

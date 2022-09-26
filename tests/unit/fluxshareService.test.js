@@ -151,7 +151,7 @@ describe('idService tests', () => {
     });
   });
 
-  describe('getFluxShareSize tests', () => {
+  describe('getAppFolderSize tests', () => {
     let readdirSyncStub;
     let statSyncStub;
 
@@ -172,7 +172,7 @@ describe('idService tests', () => {
         size: 1000000,
       });
 
-      const result = await fluxshareService.getFluxShareSize(dirPath, arrayOfFiles);
+      const result = await fluxshareService.getAppFolderSize(dirPath, arrayOfFiles);
 
       expect(result).to.equal(0.002);
     });
