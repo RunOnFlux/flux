@@ -86,9 +86,9 @@ function getAllFiles(dirPath, arrayOfFiles) {
  * To get total size (GB) for all files within a directory.
  * @returns {number} Total file size (GB).
  */
-function getAppFolderSize(application = 'ZelShare') {
+function getFluxShareSize() {
   const dirpath = path.join(__dirname, '../../../');
-  const directoryPath = `${dirpath}ZelApps/${application}`;
+  const directoryPath = `${dirpath}ZelApps/ZelShare`;
 
   const arrayOfFiles = getAllFiles(directoryPath);
 
@@ -765,7 +765,7 @@ async function fluxShareStorageStats(req, res) {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized) {
       const spaceAvailableForFluxShare = await getSpaceAvailableForFluxShare();
-      let spaceUsedByFluxShare = getAppFolderSize();
+      let spaceUsedByFluxShare = getFluxShareSize();
       spaceUsedByFluxShare = Number(spaceUsedByFluxShare.toFixed(6));
       const data = {
         available: spaceAvailableForFluxShare - spaceUsedByFluxShare,
@@ -811,7 +811,7 @@ async function fluxShareUpload(req, res) {
       keepExtensions: true,
     };
     const spaceAvailableForFluxShare = await getSpaceAvailableForFluxShare();
-    let spaceUsedByFluxShare = getAppFolderSize();
+    let spaceUsedByFluxShare = getFluxShareSize();
     spaceUsedByFluxShare = Number(spaceUsedByFluxShare.toFixed(6));
     const available = spaceAvailableForFluxShare - spaceUsedByFluxShare;
     if (available <= 0) {
@@ -909,7 +909,7 @@ module.exports = {
   fluxShareDatabaseFileDelete,
   fluxShareDatabaseFileDeleteMultiple,
   getAllFiles,
-  getAppFolderSize,
+  getFluxShareSize,
   getFluxShareSpecificFolderSize,
   fluxShareDatabaseShareFile,
   fluxShareSharedFiles,

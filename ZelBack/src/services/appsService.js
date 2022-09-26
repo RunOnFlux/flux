@@ -24,7 +24,6 @@ const dockerService = require('./dockerService');
 const generalService = require('./generalService');
 const upnpService = require('./upnpService');
 const geolocationService = require('./geolocationService');
-const fluxshareService = require('./fluxshareService');
 const log = require('../lib/log');
 const userconfig = require('../../../config/userconfig');
 
@@ -872,6 +871,24 @@ async function appMonitorStream(req, res) {
 }
 
 /**
+ * Returns folder size in byes of application component
+ * @param {object} appName monitored component name
+ */
+async function getAppFolderSize(appName) {
+  try {
+    const dirpath = path.join(__dirname, '../../../');
+    const directoryPath = `${dirpath}ZelApps/${appName}`;
+    const exec = `sudo du -s ${directoryPath}`;
+    const cmdres = await cmdAsync(exec);
+    log.info(cmdres);
+    return cmdres.split(' ')[0];
+  } catch (error) {
+    log.error(error);
+    return 0;
+  }
+}
+
+/**
  * Starts app monitoring for a single app and saves monitoring data in-memory to the appsMonitored object.
  * @param {object} appName monitored component name
  */
@@ -889,8 +906,8 @@ function startAppMonitoring(appName) {
     appsMonitored[appName].oneMinuteInterval = setInterval(async () => {
       try {
         const statsNow = await dockerService.dockerContainerStats(appName);
-        const appFolderNAme = dockerService.getAppDockerNameIdentifier(appName).substring(1);
-        const folderSize = await fluxshareService.getAppFolderSize(appFolderNAme);
+        const appFolderName = dockerService.getAppDockerNameIdentifier(appName).substring(1);
+        const folderSize = await getAppFolderSize(appFolderName);
         statsNow.disk = {
           usage: folderSize * 1e9,
         };
