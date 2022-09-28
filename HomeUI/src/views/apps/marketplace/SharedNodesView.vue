@@ -163,7 +163,7 @@
                 no-body
               >
                 <b-card-title class="text-white text-uppercase shared-node-info-title">
-                  Lockup Period APR
+                  Lockup Period Estimated APR
                 </b-card-title>
                 <b-card-body
                   v-if="titanConfig"
