@@ -2438,12 +2438,13 @@ function totalAppHWRequirements(appSpecifications, myNodeTier) {
  */
 function checkAppGeolocationRequirements(appSpecs) {
   // check geolocation
-  if (appSpecs.version === 5) {
+  if (appSpecs.version >= 5) {
     const nodeGeo = geolocationService.getNodeGeolocation();
     if (!nodeGeo) {
       throw new Error('Node Geolocation not set. Aborting.');
     }
     if (appSpecs.geolocation && appSpecs.geolocation.length > 0) {
+      // previous geolocation specification version (a, b) [aEU, bFR]
       const appContinent = appSpecs.geolocation.find((x) => x.startsWith('a'));
       const appCountry = appSpecs.geolocation.find((x) => x.startsWith('b'));
       if (appContinent) {
@@ -2451,77 +2452,31 @@ function checkAppGeolocationRequirements(appSpecs) {
           throw new Error('App specs with continents geolocation set not matching node geolocation. Aborting.');
         }
       }
-
       if (appCountry) {
         if (appCountry.slice(1) !== nodeGeo.countryCode) {
           throw new Error('App specs with countries geolocation set not matching node geolocation. Aborting.');
         }
       }
-    }
-  } else if (appSpecs.version >= 6) {
-    const nodeGeo = geolocationService.getNodeGeolocation();
-    if (!nodeGeo) {
-      throw new Error('Node Geolocation not set. Aborting.');
-    }
-    if (appSpecs.geolocation && appSpecs.geolocation.length > 0) {
-      let continentCode = null;
-      let countryCode = null;
-      let regionCode = null;
-      let geo = null;
-      let geoInfo = null;
-      for (let i = 0; i < appSpecs.geolocation.length; i += 1) {
-        geo = appSpecs.geolocation[i];
-        geoInfo = geo.split('_');
 
-        if (geo[0].startsWith('!')) {
-          if (geoInfo.length === 6) {
-            continentCode = geoInfo.length[0].slice(1);
-            countryCode = geoInfo.length[2];
-            regionCode = geoInfo.length[4];
-            if (continentCode === nodeGeo.continentCode
-              && countryCode === nodeGeo.countryCode
-              && regionCode === nodeGeo.regionCode) {
-              throw new Error('App specs negative geolocation matching node geolocation. Aborting.');
-            }
-          } else if (geoInfo.length === 4) {
-            continentCode = geoInfo.length[0].slice(1);
-            countryCode = geoInfo.length[2];
-            if (continentCode === nodeGeo.continentCode
-              && countryCode === nodeGeo.countryCode) {
-              throw new Error('App specs negative geolocation matching node geolocation. Aborting.');
-            }
-          } else if (geoInfo.length === 2) {
-            continentCode = geoInfo.length[0].slice(1);
-            if (continentCode === nodeGeo.continentCode) {
-              throw new Error('App specs negative geolocation matching node geolocation. Aborting.');
-            }
-          }
-        } else if (geoInfo.length === 6) {
-          continentCode = geoInfo.length[0];
-          countryCode = geoInfo.length[2];
-          regionCode = geoInfo.length[4];
-          if (continentCode !== nodeGeo.continentCode
-           || countryCode !== nodeGeo.countryCode
-           || regionCode !== nodeGeo.regionCode) {
-            throw new Error('App specs geolocation not matching node geolocation. Aborting.');
-          }
-        } else if (geoInfo.length === 4) {
-          continentCode = geoInfo.length[0];
-          countryCode = geoInfo.length[2];
-          if (continentCode !== nodeGeo.continentCode
-           || countryCode !== nodeGeo.countryCode) {
-            throw new Error('App specs geolocation not matching node geolocation. Aborting.');
-          }
-        } else if (geoInfo.length === 2) {
-          continentCode = geoInfo.length[0];
-          if (continentCode !== nodeGeo.continentCode) {
-            throw new Error('App specs geolocation not matching node geolocation. Aborting.');
-          }
+      // current geolocation style [acEU], [acEU_CZ], [acEU_CZ_PRG], [a!cEU], [a!cEU_CZ], [a!cEU_CZ_PRG]
+      const geoC = appSpecs.geolocation.filter((x) => x.startsWith('ac')); // this ensures that new specs can only run on updated nodes.
+      const geoCForbidden = appSpecs.geolocation.filter((x) => x.startsWith('a!c'));
+      const myNodeLocationContinent = nodeGeo.continentCode;
+      const myNodeLocationContCountry = `${nodeGeo.continentCode}_${nodeGeo.countryCode}`;
+      const myNodeLocationFull = `${nodeGeo.continentCode}_${nodeGeo.countryCode}_${nodeGeo.regionCode}`;
+      geoCForbidden.forEach((locationNotAllowed) => {
+        if (locationNotAllowed.slice(3) === myNodeLocationContinent || locationNotAllowed.slice(3) === myNodeLocationContCountry || locationNotAllowed.slice(3) === myNodeLocationFull) {
+          throw new Error('App specs of geolocation set is forbidden to run on node geolocation. Aborting.');
+        }
+      });
+      if (geoC.length) {
+        const nodeLocationOK = geoC.find((locationAllowed) => locationAllowed.slice(2) === myNodeLocationContinent || locationAllowed.slice(2) === myNodeLocationContCountry || locationAllowed.slice(2) === myNodeLocationFull);
+        if (!nodeLocationOK) {
+          throw new Error('App specs of geolocation set is not matching to run on node geolocation. Aborting.');
         }
       }
     }
   }
-
   return true;
 }
 
