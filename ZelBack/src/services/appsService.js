@@ -2471,6 +2471,7 @@ function checkAppGeolocationRequirements(appSpecs) {
       throw new Error('Node Geolocation not set. Aborting.');
     }
     if (appSpecs.geolocation && appSpecs.geolocation.length > 0) {
+      // previous geolocation specification version (a, b) [aEU, bFR]
       const appContinent = appSpecs.geolocation.find((x) => x.startsWith('a'));
       const appCountry = appSpecs.geolocation.find((x) => x.startsWith('b'));
       if (appContinent) {
@@ -2478,15 +2479,31 @@ function checkAppGeolocationRequirements(appSpecs) {
           throw new Error('App specs with continents geolocation set not matching node geolocation. Aborting.');
         }
       }
-
       if (appCountry) {
         if (appCountry.slice(1) !== nodeGeo.countryCode) {
           throw new Error('App specs with countries geolocation set not matching node geolocation. Aborting.');
         }
       }
+
+      // current geolocation style [acEU], [acEU_CZ], [acEU_CZ_PRG], [a!cEU], [a!cEU_CZ], [a!cEU_CZ_PRG]
+      const geoC = appSpecs.geolocation.filter((x) => x.startsWith('ac')); // this ensures that new specs can only run on updated nodes.
+      const geoCForbidden = appSpecs.geolocation.filter((x) => x.startsWith('a!c'));
+      const myNodeLocationContinent = nodeGeo.continentCode;
+      const myNodeLocationContCountry = `${nodeGeo.continentCode}_${nodeGeo.countryCode}`;
+      const myNodeLocationFull = `${nodeGeo.continentCode}_${nodeGeo.countryCode}_${nodeGeo.regionCode}`;
+      geoCForbidden.forEach((locationNotAllowed) => {
+        if (locationNotAllowed.slice(3) === myNodeLocationContinent || locationNotAllowed.slice(3) === myNodeLocationContCountry || locationNotAllowed.slice(3) === myNodeLocationFull) {
+          throw new Error('App specs of geolocation set is forbidden to run on node geolocation. Aborting.');
+        }
+      });
+      if (geoC.length) {
+        const nodeLocationOK = geoC.find((locationAllowed) => locationAllowed.slice(2) === myNodeLocationContinent || locationAllowed.slice(2) === myNodeLocationContCountry || locationAllowed.slice(2) === myNodeLocationFull);
+        if (!nodeLocationOK) {
+          throw new Error('App specs of geolocation set is not matching to run on node geolocation. Aborting.');
+        }
+      }
     }
   }
-
   return true;
 }
 

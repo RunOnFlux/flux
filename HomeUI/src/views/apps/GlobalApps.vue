@@ -52,7 +52,7 @@
                         title="Hash"
                         :data="row.item.hash"
                       />
-                      <div v-if="row.item.version >= 5">
+                      <div v-if="row.item.version === 5">
                         <list-entry
                           title="Continent"
                           :data="row.item.geolocation.length > 0 ? getContinent(row.item.geolocation) : 'All'"
@@ -61,6 +61,26 @@
                           title="Country"
                           :data="row.item.geolocation.length > 0 ? getCountry(row.item.geolocation) : 'All'"
                         />
+                      </div>
+                      <div v-if="row.item.version >= 6">
+                        <h4>Geolocation Settings</h4>
+                        <div v-if="row.item.geolocation.length === 0">
+                          <b-card>
+                            <b-card-title>
+                              No geolocation specified for the app
+                            </b-card-title>
+                          </b-card>
+                        </div>
+                        <div v-else>
+                          <b-card
+                            v-for="(geolocation, x) in row.item.geolocation"
+                            :key="x"
+                          >
+                            <b-card-title>
+                              {{ getGeolocation(geolocation) }}
+                            </b-card-title>
+                          </b-card>
+                        </div>
                       </div>
                       <list-entry
                         v-if="row.item.instances"
@@ -350,6 +370,12 @@
                       />
                       <div v-if="row.item.version >= 5">
                         <list-entry
+                          title="Contacts"
+                          :data="JSON.stringify(row.item.contacts)"
+                        />
+                      </div>
+                      <div v-if="row.item.version === 5">
+                        <list-entry
                           title="Continent"
                           :data="row.item.geolocation.length > 0 ? getContinent(row.item.geolocation) : 'All'"
                         />
@@ -357,10 +383,26 @@
                           title="Country"
                           :data="row.item.geolocation.length > 0 ? getCountry(row.item.geolocation) : 'All'"
                         />
-                        <list-entry
-                          title="Contacts"
-                          :data="JSON.stringify(row.item.contacts)"
-                        />
+                      </div>
+                      <div v-if="row.item.version >= 6">
+                        <h4>Geolocation Settings</h4>
+                        <div v-if="row.item.geolocation.length === 0">
+                          <b-card>
+                            <b-card-title>
+                              No geolocation specified for the app
+                            </b-card-title>
+                          </b-card>
+                        </div>
+                        <div v-else>
+                          <b-card
+                            v-for="(geolocation, x) in row.item.geolocation"
+                            :key="x"
+                          >
+                            <b-card-title>
+                              {{ getGeolocation(geolocation) }}
+                            </b-card-title>
+                          </b-card>
+                        </div>
                       </div>
                       <list-entry
                         v-if="row.item.instances"
@@ -979,6 +1021,23 @@ export default {
         return 'All';
       }
       return 'All';
+    },
+    getGeolocation(geo) {
+      const geoInfo = geo.split('_');
+      let output = 'Geolocation ';
+      if (geo[0].startsWith('!')) {
+        output = 'Negative geolocation ';
+      }
+      for (let i = 0; i < geoInfo.length; i += 1) {
+        if (i === 1) {
+          output = `Continent: ${geoInfo[i]};`;
+        } else if (i === 3) {
+          output = ` Country: ${geoInfo[i]};`;
+        } else if (i === 5) {
+          output = ` Region: ${geoInfo[i]};`;
+        }
+      }
+      return output;
     },
   },
 };
