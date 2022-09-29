@@ -638,6 +638,70 @@
         </div>
       </b-tab>
       <b-tab
+        title="Monitoring"
+        :disabled="!isApplicationInstalledLocally"
+      >
+        <h3>{{ appSpecification.name }} History Statistics 1 hour</h3>
+        <div v-if="appSpecification.version >= 4">
+          <div
+            v-for="(component, index) in callResponse.data"
+            :key="index"
+          >
+            <h4>{{ component.name }} Component</h4>
+            <b-table
+              v-if="component.callData"
+              class="stats-table"
+              :items="generateStatsTableItems(component.callData.lastHour, appSpecification.compose.find((c) => c.name === component.name))"
+              :fields="statsFields"
+            />
+            <div v-else>
+              Loading...
+            </div>
+          </div>
+        </div>
+        <div v-else>
+          <b-table
+            v-if="callResponse.data && callResponse.data[0]"
+            class="stats-table"
+            :items="generateStatsTableItems(callResponse.data[0].callData.lastHour, appSpecification)"
+            :fields="statsFields"
+          />
+          <div v-else>
+            Loading...
+          </div>
+        </div>
+        <br><br>
+        <h3>{{ appSpecification.name }} History Statistics 24 hours</h3>
+        <div v-if="appSpecification.version >= 4">
+          <div
+            v-for="(component, index) in callResponse.data"
+            :key="index"
+          >
+            <h4>{{ component.name }} Component</h4>
+            <b-table
+              v-if="component.callData"
+              class="stats-table"
+              :items="generateStatsTableItems(component.callData.lastDay, appSpecification.compose.find((c) => c.name === component.name))"
+              :fields="statsFields"
+            />
+            <div v-else>
+              Loading...
+            </div>
+          </div>
+        </div>
+        <div v-else>
+          <b-table
+            v-if="callResponse.data && callResponse.data[0]"
+            class="stats-table"
+            :items="generateStatsTableItems(callResponse.data[0].callData.lastDay, appSpecification)"
+            :fields="statsFields"
+          />
+          <div v-else>
+            Loading...
+          </div>
+        </div>
+      </b-tab>
+      <b-tab
         title="File Changes"
         :disabled="!isApplicationInstalledLocally"
       >
@@ -880,6 +944,57 @@
               </div>
             </b-card>
           </b-col>
+          <b-col xs="6">
+            <b-card title="Monitoring">
+              <b-card-text class="mb-2">
+                Controls Application Monitoring
+              </b-card-text>
+              <div class="text-center">
+                <b-button
+                  id="start-monitoring"
+                  v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                  variant="success"
+                  aria-label="Start Monitoring"
+                  class="mx-1 my-1"
+                >
+                  Start Monitoring
+                </b-button>
+                <confirm-dialog
+                  target="start-monitoring"
+                  confirm-button="Start Monitoring"
+                  @confirm="startMonitoring(appName)"
+                />
+                <b-button
+                  id="stop-monitoring"
+                  v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                  variant="success"
+                  aria-label="Stop Monitoring"
+                  class="mx-1 my-1"
+                >
+                  Stop Monitoring
+                </b-button>
+                <confirm-dialog
+                  target="stop-monitoring"
+                  confirm-button="Stop Monitoring"
+                  @confirm="stopMonitoring(appName, false)"
+                />
+                <b-button
+                  id="stop-monitoring-delete"
+                  v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                  variant="success"
+                  aria-label="Stop Monitoring and Delete Monitored Data"
+                  class="mx-1 my-1"
+                >
+                  Stop Monitoring and Delete Monitored Data
+                </b-button>
+                <confirm-dialog
+                  target="stop-monitoring-delete"
+                  confirm-button="Stop Monitoring"
+                  @confirm="stopMonitoring(appName, true)"
+                />
+              </div>
+            </b-card>
+          </b-col>
         </b-row>
         <b-row class="match-height">
           <b-col xs="6">
@@ -1038,6 +1153,57 @@
                     :target="`unpause-app-${component.name}_${appSpecification.name}`"
                     confirm-button="Unpause Component"
                     @confirm="unpauseApp(`${component.name}_${appSpecification.name}`)"
+                  />
+                </div>
+              </b-card>
+            </b-col>
+            <b-col xs="6">
+              <b-card title="Monitoring">
+                <b-card-text class="mb-2">
+                  Controls Component Monitoring
+                </b-card-text>
+                <div class="text-center">
+                  <b-button
+                    :id="`start-monitoring-${component.name}_${appSpecification.name}`"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Start Monitoring"
+                    class="mx-1 my-1"
+                  >
+                    Start Monitoring
+                  </b-button>
+                  <confirm-dialog
+                    :target="`start-monitoring-${component.name}_${appSpecification.name}`"
+                    confirm-button="Start Monitoring"
+                    @confirm="startMonitoring(`${component.name}_${appSpecification.name}`)"
+                  />
+                  <b-button
+                    :id="`stop-monitoring-${component.name}_${appSpecification.name}`"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Stop Monitoring"
+                    class="mx-1 my-1"
+                  >
+                    Stop Monitoring
+                  </b-button>
+                  <confirm-dialog
+                    :target="`stop-monitoring-${component.name}_${appSpecification.name}`"
+                    confirm-button="Stop Monitoring"
+                    @confirm="stopMonitoring(`${component.name}_${appSpecification.name}`, false)"
+                  />
+                  <b-button
+                    :id="`stop-monitoring-delete-${component.name}_${appSpecification.name}`"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Stop Monitoring and Delete Monitored Data"
+                    class="mx-1 my-1"
+                  >
+                    Stop Monitoring and Delete Monitored Data
+                  </b-button>
+                  <confirm-dialog
+                    :target="`pause-app-${component.name}_${appSpecification.name}`"
+                    confirm-button="Stop Monitoring"
+                    @confirm="stopMonitoring(`${component.name}_${appSpecification.name}`, true)"
                   />
                 </div>
               </b-card>
@@ -2953,6 +3119,7 @@ import {
   VBTooltip,
 } from 'bootstrap-vue';
 
+import VueApexCharts from 'vue-apexcharts';
 import Ripple from 'vue-ripple-directive';
 import { mapState } from 'vuex';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
@@ -2990,6 +3157,8 @@ export default {
     ListEntry,
     // eslint-disable-next-line vue/no-unused-components
     ToastificationContent,
+    // eslint-disable-next-line vue/no-unused-components
+    VueApexCharts,
   },
   directives: {
     'b-tooltip': VBTooltip,
@@ -3174,6 +3343,16 @@ export default {
       selectedContinent: null,
       selectedCountry: null,
       globalZelidAuthorized: false,
+      monitoringStream: {},
+      statsFields: [
+        { key: 'timestamp', label: 'Date' },
+        { key: 'cpu', label: 'CPU' },
+        { key: 'memory', label: 'RAM' },
+        { key: 'disk', label: 'DISK' },
+        { key: 'net', label: 'NET I/O' },
+        { key: 'block', label: 'BLOCK I/O' },
+        { key: 'pids', label: 'PIDS' },
+      ],
       geoData: [],
       geoLocationForm: {
         continent: [],
@@ -3361,6 +3540,7 @@ export default {
     this.appSpecification = {};
     this.callResponse.data = '';
     this.callResponse.status = '';
+    this.monitoringStream = {};
     this.appExec.cmd = '';
     this.appExec.env = '';
     this.checkFluxCommunication();
@@ -3401,12 +3581,16 @@ export default {
           this.getApplicationStats();
           break;
         case 4:
-          this.getApplicationChanges();
+          this.getApplicationMonitoring();
+          // this.getApplicationMonitoringStream(); // TODO UI with graphs
           break;
         case 5:
-          this.getApplicationProcesses();
+          this.getApplicationChanges();
           break;
         case 6:
+          this.getApplicationProcesses();
+          break;
+        case 7:
           this.getApplicationLogs();
           break;
         case 10:
@@ -3987,6 +4171,103 @@ export default {
       this.callResponse.status = 'success';
       this.callResponse.data = callData;
     },
+    async getApplicationMonitoring() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const callData = [];
+      if (this.appSpecification.version >= 4) {
+        // compose
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of this.appSpecification.compose) {
+          // eslint-disable-next-line no-await-in-loop
+          const response = await AppsService.getAppMonitoring(zelidauth, `${component.name}_${this.appSpecification.name}`);
+          if (response.data.status === 'error') {
+            this.showToast('danger', response.data.data.message || response.data.data);
+          } else {
+            const appComponentInspect = {
+              name: component.name,
+              callData: response.data.data,
+            };
+            callData.push(appComponentInspect);
+          }
+        }
+      } else {
+        const response = await AppsService.getAppMonitoring(zelidauth, this.appName);
+        if (response.data.status === 'error') {
+          this.showToast('danger', response.data.data.message || response.data.data);
+        } else {
+          const appComponentInspect = {
+            name: this.appSpecification.name,
+            callData: response.data.data,
+          };
+          callData.push(appComponentInspect);
+        }
+        console.log(response);
+      }
+      this.callResponse.status = 'success';
+      this.callResponse.data = callData;
+    },
+    async getApplicationMonitoringStream() {
+      const self = this;
+      const zelidauth = localStorage.getItem('zelidauth');
+      if (this.appSpecification.version >= 4) {
+        // compose
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of this.appSpecification.compose) {
+          const axiosConfig = {
+            headers: {
+              zelidauth,
+            },
+            onDownloadProgress(progressEvent) {
+              self.monitoringStream[`${component.name}_${self.appSpecification.name}`] = JSON.parse(`[${progressEvent.target.response.replace(/}{"read/g, '},{"read')}]`);
+            },
+          };
+          // eslint-disable-next-line no-await-in-loop
+          const response = await AppsService.justAPI().get(`/apps/appmonitorstream/${component.name}_${this.appSpecification.name}`, axiosConfig);
+          if (response.data.status === 'error') {
+            this.showToast('danger', response.data.data.message || response.data.data);
+          }
+        }
+      } else {
+        const axiosConfig = {
+          headers: {
+            zelidauth,
+          },
+          onDownloadProgress(progressEvent) {
+            console.log(progressEvent.target.response);
+            self.monitoringStream[self.appName] = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
+          },
+        };
+        // eslint-disable-next-line no-await-in-loop
+        const response = await AppsService.justAPI().get(`/apps/appmonitorstream/${this.appName}`, axiosConfig);
+        if (response.data.status === 'error') {
+          this.showToast('danger', response.data.data.message || response.data.data);
+        }
+      }
+    },
+    async stopMonitoring(appName, deleteData = false) {
+      this.output = '';
+      this.showToast('warning', `Stopping Monitoring of ${appName}`);
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await AppsService.stopAppMonitoring(zelidauth, appName, deleteData);
+      if (response.data.status === 'success') {
+        this.showToast('success', response.data.data.message || response.data.data);
+      } else {
+        this.showToast('danger', response.data.data.message || response.data.data);
+      }
+      console.log(response);
+    },
+    async startMonitoring(appName) {
+      this.output = '';
+      this.showToast('warning', `Starting Monitoring of ${appName}`);
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await AppsService.startAppMonitoring(zelidauth, appName);
+      if (response.data.status === 'success') {
+        this.showToast('success', response.data.data.message || response.data.data);
+      } else {
+        this.showToast('danger', response.data.data.message || response.data.data);
+      }
+      console.log(response);
+    },
     async getApplicationChanges() {
       const zelidauth = localStorage.getItem('zelidauth');
       const callData = [];
@@ -4449,6 +4730,86 @@ export default {
         }
         this.showToast('warning', `The node type may fluctuate based upon system requirements for your application. For better results in ${continent.text}, please consider specifications more suited to ${continent.nodeTier} hardware.`);
       }
+    },
+    generateStatsTableItems(statsData, specifications) {
+      // { key: 'timestamp', label: 'DATE' },
+      // { key: 'cpu', label: 'CPU' },
+      // { key: 'memory', label: 'RAM' },
+      // { key: 'disk', label: 'SSD' },
+      // { key: 'net', label: 'NET I/O' },
+      // { key: 'block', label: 'BLOCK I/O' },
+      // { key: 'pids', label: 'PIDS' },
+      console.log(statsData);
+      if (!statsData || !Array.isArray(statsData)) {
+        return [];
+      }
+      const statsItems = [];
+      statsData.forEach((entry) => {
+        const cpuMultiplier = entry.data.cpu_stats.online_cpus / specifications.cpu;
+        const cpu = `${(((entry.data.cpu_stats.cpu_usage.total_usage - entry.data.precpu_stats.cpu_usage.total_usage) / (entry.data.cpu_stats.system_cpu_usage - entry.data.precpu_stats.system_cpu_usage)) * 100 * cpuMultiplier).toFixed(2)}%`;
+        const memory = `${(entry.data.memory_stats.usage / 1e9).toFixed(2)} / ${(specifications.ram / 1e3).toFixed(2)} GB, ${((entry.data.memory_stats.usage / (specifications.ram * 1e6)) * 100).toFixed(2)}%`;
+        let net = '0 / 0 GB';
+        if (entry.data.networks.eth0) {
+          net = `${(entry.data.networks.eth0.rx_bytes / 1e9).toFixed(2)} / ${(entry.data.networks.eth0.tx_bytes / 1e9).toFixed(2)} GB`;
+        }
+        const block = `${(entry.data.blkio_stats.io_service_bytes_recursive.find((x) => x.op === 'Read').value / 1e9).toFixed(2)} / ${(entry.data.blkio_stats.io_service_bytes_recursive.find((x) => x.op === 'Write').value / 1e9).toFixed(2)} GB`;
+        let disk = '0 / 0 GB';
+        if (entry.data.disk_stats) {
+          disk = `${(entry.data.disk_stats.used / 1e9).toFixed(2)} / ${(specifications.hdd).toFixed(2)} GB, ${((entry.data.disk_stats.used / (specifications.hdd * 1e9)) * 100).toFixed(2)}%`;
+        }
+        const pids = entry.data.pids_stats.current;
+        const point = {
+          timestamp: new Date(entry.timestamp).toLocaleString('en-GB', timeoptions.shortDate),
+          cpu,
+          memory,
+          net,
+          block,
+          disk,
+          pids,
+        };
+        statsItems.push(point);
+      });
+      return statsItems;
+    },
+    getCpuPercentage(statsData) {
+      console.log(statsData);
+      const percentages = [];
+      statsData.forEach((data) => {
+        const onePercentage = `${((data.data.cpu_stats.cpu_usage.total_usage / data.data.cpu_stats.cpu_usage.system_cpu_usage) * 100).toFixed(2)}%`;
+        percentages.push(onePercentage);
+      });
+      return percentages;
+    },
+    getTimestamps(statsData) {
+      const timestamps = [];
+      statsData.forEach((data) => {
+        timestamps.push(data.timestamp);
+      });
+      return timestamps;
+    },
+    chartOptions(timestamps) {
+      const chartOptions = {
+        chart: {
+          height: 350,
+          type: 'area',
+        },
+        dataLabels: {
+          enabled: false,
+        },
+        stroke: {
+          curve: 'smooth',
+        },
+        xaxis: {
+          type: 'timestamp',
+          categories: timestamps,
+        },
+        tooltip: {
+          x: {
+            format: 'dd/MM/yy HH:mm',
+          },
+        },
+      };
+      return chartOptions;
     },
     getGeolocation(geo) {
       const geoInfo = geo.split('_');

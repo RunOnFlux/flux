@@ -871,6 +871,24 @@ async function appMonitorStream(req, res) {
 }
 
 /**
+ * Returns folder size in byes of application component
+ * @param {object} appName monitored component name
+ */
+async function getAppFolderSize(appName) {
+  try {
+    const dirpath = path.join(__dirname, '../../../');
+    const directoryPath = `${dirpath}ZelApps/${appName}`;
+    const exec = `sudo du -s --block-size=1 ${directoryPath}`;
+    const cmdres = await cmdAsync(exec);
+    const size = serviceHelper.ensureString(cmdres).split('\t')[0] || 0;
+    return size;
+  } catch (error) {
+    log.error(error);
+    return 0;
+  }
+}
+
+/**
  * Starts app monitoring for a single app and saves monitoring data in-memory to the appsMonitored object.
  * @param {object} appName monitored component name
  */
@@ -888,8 +906,15 @@ function startAppMonitoring(appName) {
     appsMonitored[appName].oneMinuteInterval = setInterval(async () => {
       try {
         const statsNow = await dockerService.dockerContainerStats(appName);
+        const appFolderName = dockerService.getAppDockerNameIdentifier(appName).substring(1);
+        const folderSize = await getAppFolderSize(appFolderName);
+        statsNow.disk_stats = {
+          used: folderSize,
+        };
         appsMonitored[appName].oneMinuteStatsStore.unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
-        appsMonitored[appName].oneMinuteStatsStore.length = 60; // Store stats every 1 min for the last hour only
+        if (appsMonitored[appName].oneMinuteStatsStore.length > 60) {
+          appsMonitored[appName].oneMinuteStatsStore.length = 60; // Store stats every 1 min for the last hour only
+        }
       } catch (error) {
         log.error(error);
       }
@@ -898,7 +923,9 @@ function startAppMonitoring(appName) {
       try {
         const statsNow = await dockerService.dockerContainerStats(appName);
         appsMonitored[appName].fifteenMinStatsStore.unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
-        appsMonitored[appName].fifteenMinStatsStore.length = 96; // Store stats every 15 mins for the last day only
+        if (appsMonitored[appName].oneMinuteStatsStore.length > 96) {
+          appsMonitored[appName].fifteenMinStatsStore.length = 96; // Store stats every 15 mins for the last day only
+        }
       } catch (error) {
         log.error(error);
       }

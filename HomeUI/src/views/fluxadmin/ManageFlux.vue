@@ -441,6 +441,63 @@
           </div>
         </b-card>
       </b-col>
+      <b-col
+        xs="12"
+        lg="4"
+      >
+        <b-card title="Application Monitoring">
+          <b-card-text>
+            Application on Flux are monitoring it's usage statistics to provide application owner data about application performance.
+          </b-card-text>
+          <div class="text-center">
+            <b-button
+              id="start-app-monitoring"
+              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+              variant="success"
+              aria-label="Start Applications Monitoring"
+              class="mx-1 my-1"
+              style="width: 250px;"
+            >
+              Start Applications Monitoring
+            </b-button>
+            <confirm-dialog
+              target="rstart-app-monitoring"
+              confirm-button="Start Applications Monitoring"
+              @confirm="startApplicationsMonitoring()"
+            />
+            <b-button
+              id="stop-app-monitoring"
+              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+              variant="success"
+              aria-label="Stop Applications Monitoring"
+              class="mx-1 my-1"
+              style="width: 250px;"
+            >
+              Stop Applications Monitoring
+            </b-button>
+            <confirm-dialog
+              target="stop-app-monitoring"
+              confirm-button="Stop Applications Monitoring"
+              @confirm="stopApplicationsMonitoring(false)"
+            />
+            <b-button
+              id="stop-app-monitoring-delete"
+              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+              variant="success"
+              aria-label="Stop Applications Monitoring and Delete Monitored Data"
+              class="mx-1 my-1"
+              style="width: 250px;"
+            >
+              Stop Applications Monitoring and Delete Monitored Data
+            </b-button>
+            <confirm-dialog
+              target="stop-app-monitoring-delete"
+              confirm-button="Stop Applications Monitoring and Delete Monitored Data"
+              @confirm="stopApplicationsMonitoring(true)"
+            />
+          </div>
+        </b-card>
+      </b-col>
     </b-row>
   </div>
 </template>
@@ -811,6 +868,30 @@ export default {
           console.log(error);
           this.showToast('danger', 'Error verifying recent version');
         });
+    },
+    async stopMonitoring(deleteData = false) {
+      this.output = '';
+      this.showToast('warning', 'Stopping Applications Monitoring');
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await AppsService.stopAppMonitoring(zelidauth, null, deleteData);
+      if (response.data.status === 'success') {
+        this.showToast('success', response.data.data.message || response.data.data);
+      } else {
+        this.showToast('danger', response.data.data.message || response.data.data);
+      }
+      console.log(response);
+    },
+    async startMonitoring() {
+      this.output = '';
+      this.showToast('warning', 'Starting Applications Monitoring');
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await AppsService.startAppMonitoring(zelidauth);
+      if (response.data.status === 'success') {
+        this.showToast('success', response.data.data.message || response.data.data);
+      } else {
+        this.showToast('danger', response.data.data.message || response.data.data);
+      }
+      console.log(response);
     },
     showToast(variant, title, icon = 'InfoIcon') {
       this.$toast({
