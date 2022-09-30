@@ -50,34 +50,31 @@
                           title="Hash"
                           :data="row.item.hash"
                         />
-                        <div v-if="row.item.version === 5">
-                          <list-entry
-                            title="Continent"
-                            :data="row.item.geolocation.length > 0 ? getContinent(row.item.geolocation) : 'All'"
-                          />
-                          <list-entry
-                            title="Country"
-                            :data="row.item.geolocation.length > 0 ? getCountry(row.item.geolocation) : 'All'"
-                          />
-                        </div>
-                        <div v-if="row.item.version >= 6">
-                          <h4>Geolocation Settings</h4>
-                          <div v-if="row.item.geolocation.length === 0">
-                            <b-card>
-                              <b-card-title>
-                                No geolocation specified for the app
-                              </b-card-title>
-                            </b-card>
+                        <div v-if="row.item.version >= 5">
+                          <div v-if="row.item.geolocation.length">
+                            <div
+                              v-for="location in row.item.geolocation"
+                              :key="location"
+                            >
+                              <list-entry
+                                title="Geolocation"
+                                :data="getGeolocation(location)"
+                              />
+                            </div>
                           </div>
                           <div v-else>
-                            <b-card
-                              v-for="(geolocation, x) in row.item.geolocation"
-                              :key="x"
-                            >
-                              <b-card-title>
-                                {{ getGeolocation(geolocation) }}
-                              </b-card-title>
-                            </b-card>
+                            <list-entry
+                              title="Continent"
+                              data="All"
+                            />
+                            <list-entry
+                              title="Country"
+                              data="All"
+                            />
+                            <list-entry
+                              title="Region"
+                              data="All"
+                            />
                           </div>
                         </div>
                         <list-entry
@@ -363,34 +360,31 @@
                           title="Hash"
                           :data="row.item.hash"
                         />
-                        <div v-if="row.item.version === 5">
-                          <list-entry
-                            title="Continent"
-                            :data="row.item.geolocation.length > 0 ? getContinent(row.item.geolocation) : 'All'"
-                          />
-                          <list-entry
-                            title="Country"
-                            :data="row.item.geolocation.length > 0 ? getCountry(row.item.geolocation) : 'All'"
-                          />
-                        </div>
-                        <div v-if="row.item.version >= 6">
-                          <h4>Geolocation Settings</h4>
-                          <div v-if="row.item.geolocation.length === 0">
-                            <b-card>
-                              <b-card-title>
-                                No geolocation specified for the app
-                              </b-card-title>
-                            </b-card>
+                        <div v-if="row.item.version >= 5">
+                          <div v-if="row.item.geolocation.length">
+                            <div
+                              v-for="location in row.item.geolocation"
+                              :key="location"
+                            >
+                              <list-entry
+                                title="Geolocation"
+                                :data="getGeolocation(location)"
+                              />
+                            </div>
                           </div>
                           <div v-else>
-                            <b-card
-                              v-for="(geolocation, x) in row.item.geolocation"
-                              :key="x"
-                            >
-                              <b-card-title>
-                                {{ getGeolocation(geolocation) }}
-                              </b-card-title>
-                            </b-card>
+                            <list-entry
+                              title="Continent"
+                              data="All"
+                            />
+                            <list-entry
+                              title="Country"
+                              data="All"
+                            />
+                            <list-entry
+                              title="Region"
+                              data="All"
+                            />
                           </div>
                         </div>
                         <list-entry
@@ -794,35 +788,30 @@
                             title="Contacts"
                             :data="JSON.stringify(row.item.contacts)"
                           />
-                        </div>
-                        <div v-if="row.item.version === 5">
-                          <list-entry
-                            title="Continent"
-                            :data="row.item.geolocation.length > 0 ? getContinent(row.item.geolocation) : 'All'"
-                          />
-                          <list-entry
-                            title="Country"
-                            :data="row.item.geolocation.length > 0 ? getCountry(row.item.geolocation) : 'All'"
-                          />
-                        </div>
-                        <div v-if="row.item.version >= 6">
-                          <h4>Geolocation Settings</h4>
-                          <div v-if="row.item.geolocation.length === 0">
-                            <b-card>
-                              <b-card-title>
-                                No geolocation specified for the app
-                              </b-card-title>
-                            </b-card>
+                          <div v-if="row.item.geolocation.length">
+                            <div
+                              v-for="location in row.item.geolocation"
+                              :key="location"
+                            >
+                              <list-entry
+                                title="Geolocation"
+                                :data="getGeolocation(location)"
+                              />
+                            </div>
                           </div>
                           <div v-else>
-                            <b-card
-                              v-for="(geolocation, x) in row.item.geolocation"
-                              :key="x"
-                            >
-                              <b-card-title>
-                                {{ getGeolocation(geolocation) }}
-                              </b-card-title>
-                            </b-card>
+                            <list-entry
+                              title="Continent"
+                              data="All"
+                            />
+                            <list-entry
+                              title="Country"
+                              data="All"
+                            />
+                            <list-entry
+                              title="Region"
+                              data="All"
+                            />
                           </div>
                         </div>
                         <list-entry
@@ -1239,35 +1228,30 @@
                             title="Contacts"
                             :data="JSON.stringify(row.item.contacts)"
                           />
-                        </div>
-                        <div v-if="row.item.version === 5">
-                          <list-entry
-                            title="Continent"
-                            :data="row.item.geolocation.length > 0 ? getContinent(row.item.geolocation) : 'All'"
-                          />
-                          <list-entry
-                            title="Country"
-                            :data="row.item.geolocation.length > 0 ? getCountry(row.item.geolocation) : 'All'"
-                          />
-                        </div>
-                        <div v-if="row.item.version >= 6">
-                          <h4>Geolocation Settings</h4>
-                          <div v-if="row.item.geolocation.length === 0">
-                            <b-card>
-                              <b-card-title>
-                                No geolocation specified for the app
-                              </b-card-title>
-                            </b-card>
+                          <div v-if="row.item.geolocation.length">
+                            <div
+                              v-for="location in row.item.geolocation"
+                              :key="location"
+                            >
+                              <list-entry
+                                title="Geolocation"
+                                :data="getGeolocation(location)"
+                              />
+                            </div>
                           </div>
                           <div v-else>
-                            <b-card
-                              v-for="(geolocation, x) in row.item.geolocation"
-                              :key="x"
-                            >
-                              <b-card-title>
-                                {{ getGeolocation(geolocation) }}
-                              </b-card-title>
-                            </b-card>
+                            <list-entry
+                              title="Continent"
+                              data="All"
+                            />
+                            <list-entry
+                              title="Country"
+                              data="All"
+                            />
+                            <list-entry
+                              title="Region"
+                              data="All"
+                            />
                           </div>
                         </div>
                         <list-entry
@@ -1716,6 +1700,8 @@ const store = require('store');
 const qs = require('qs');
 const timeoptions = require('@/libs/dateFormat');
 
+const geolocations = require('../../libs/geolocation');
+
 export default {
   components: {
     BTabs,
@@ -1844,84 +1830,6 @@ export default {
         status: '',
         data: '',
       },
-      continentsOptions: [{
-        value: null, text: 'All',
-      },
-      {
-        value: 'AS', nodeTier: 'Cumulus', maxInstances: 5, text: 'Asia',
-      },
-      {
-        value: 'EU', nodeTier: 'Stratus', maxInstances: 20, text: 'Europe',
-      },
-      {
-        value: 'NA', nodeTier: 'Stratus', maxInstances: 20, text: 'North America',
-      },
-      {
-        value: 'OC', nodeTier: 'Cumulus', maxInstances: 3, text: 'Oceania',
-      }],
-      countriesOptions: [{
-        value: null, text: 'All', continentCode: 'AS',
-      },
-      {
-        value: 'SG', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'AS', text: 'Singapore',
-      },
-      {
-        value: 'TW', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'AS', text: 'Taiwan',
-      },
-      {
-        value: 'TH', nodeTier: 'Cumulus', maxInstances: 5, continentCode: 'AS', text: 'Thailand',
-      },
-      {
-        value: null, text: 'All', continentCode: 'EU',
-      },
-      {
-        value: 'BE', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Belgium',
-      },
-      {
-        value: 'CZ', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Czechia',
-      },
-      {
-        value: 'FI', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'EU', text: 'Finland',
-      },
-      {
-        value: 'FR', nodeTier: 'Stratus', maxInstances: 5, continentCode: 'EU', text: 'France',
-      },
-      {
-        value: 'DE', nodeTier: 'Stratus', maxInstances: 15, continentCode: 'EU', text: 'Germany',
-      },
-      {
-        value: 'LT', nodeTier: 'Cumulus', maxInstances: 5, continentCode: 'EU', text: 'Lithuania',
-      },
-      {
-        value: 'NL', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Netherlands',
-      },
-      {
-        value: 'PL', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'EU', text: 'Poland',
-      },
-      {
-        value: 'RU', nodeTier: 'Nimbus', maxInstances: 5, continentCode: 'EU', text: 'Russia',
-      },
-      {
-        value: 'SI', nodeTier: 'Stratus', maxInstances: 3, continentCode: 'EU', text: 'Slovenia',
-      },
-      {
-        value: 'ES', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Spain',
-      },
-      {
-        value: 'GB', nodeTier: 'Stratus', maxInstances: 3, continentCode: 'EU', text: 'United Kingdom',
-      },
-      {
-        value: null, text: 'All', continentCode: 'NA',
-      },
-      {
-        value: 'US', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'NA', text: 'United States',
-      },
-      {
-        value: 'CA', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'NA', text: 'Canada',
-      },
-      {
-        value: null, text: 'All', continentCode: 'OC',
-      }],
     };
   },
   computed: {
@@ -2373,46 +2281,53 @@ export default {
       }
       return param;
     },
-    getContinent(item) {
-      const objItem = this.ensureObject(item);
-      const appContinent = objItem.find((x) => x.startsWith('a'));
-      if (appContinent) {
-        const appContinentAux = this.continentsOptions.find((x) => x.value === appContinent.slice(1));
-        if (appContinentAux) {
-          return appContinentAux.text;
-        }
-        return 'All';
-      }
-      return 'All';
-    },
-    getCountry(item) {
-      const objItem = this.ensureObject(item);
-      const appCountry = objItem.find((x) => x.startsWith('b'));
-      if (appCountry) {
-        const appCountryAux = this.countriesOptions.find((x) => x.value === appCountry.slice(1));
-        if (appCountryAux) {
-          return appCountryAux.text;
-        }
-        return 'All';
-      }
-      return 'All';
-    },
     getGeolocation(geo) {
-      const geoInfo = geo.split('_');
-      let output = 'Geolocation ';
-      if (geo[0].startsWith('!')) {
-        output = 'Negative geolocation ';
-      }
-      for (let i = 0; i < geoInfo.length; i += 1) {
-        if (i === 1) {
-          output = `Continent: ${geoInfo[i]};`;
-        } else if (i === 3) {
-          output = ` Country: ${geoInfo[i]};`;
-        } else if (i === 5) {
-          output = ` Region: ${geoInfo[i]};`;
+      if (geo.startsWith('a') && !geo.startsWith('ac') && geo.startsWith('a!c')) {
+        // specific continent
+        const continentCode = geo.slice(1);
+        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode);
+        return `Continent: ${continentExists.name || 'Unkown'}`;
+      } if (geo.startsWith('b')) {
+        // specific country
+        const countryCode = geo.slice(1);
+        const countryExists = geolocations.countries.find((country) => country.code === countryCode);
+        return `Country: ${countryExists.name || 'Unkown'}`;
+      } if (geo.startsWith('ac')) {
+        // allowed location
+        const specifiedLocation = geo.slice(2);
+        const locations = specifiedLocation.split('_');
+        const continentCode = locations[0];
+        const countryCode = locations[1];
+        const regionName = locations[2];
+        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode);
+        const countryExists = geolocations.countries.find((country) => country.code === countryCode);
+        let locationString = `Allowed location: Continent: ${continentExists.name}`;
+        if (countryCode) {
+          locationString += `, Country: ${countryExists.name}`;
         }
+        if (regionName) {
+          locationString += `, Region: ${regionName}`;
+        }
+        return locationString;
+      } if (geo.startsWith('a!c')) {
+        // forbidden location
+        const specifiedLocation = geo.slice(3);
+        const locations = specifiedLocation.split('_');
+        const continentCode = locations[0];
+        const countryCode = locations[1];
+        const regionName = locations[2];
+        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode);
+        const countryExists = geolocations.countries.find((country) => country.code === countryCode);
+        let locationString = `Forbidden location: Continent: ${continentExists.name}`;
+        if (countryCode) {
+          locationString += `, Country: ${countryExists.name}`;
+        }
+        if (regionName) {
+          locationString += `, Region: ${regionName}`;
+        }
+        return locationString;
       }
-      return output;
+      return 'All locations allowed';
     },
   },
 };
