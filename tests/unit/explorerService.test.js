@@ -703,7 +703,7 @@ describe.only('explorerService tests', () => {
     });
   });
 
-  describe.only('processStandard tests', () => {
+  describe('processStandard tests', () => {
     let dbStubFind;
     let dbStubInsert;
     const database = {};
@@ -719,7 +719,7 @@ describe.only('explorerService tests', () => {
       sinon.restore();
     });
 
-    it.only('should do nothing if version is >5', async () => {
+    it('should do nothing if version is >5', async () => {
       const blockVerbose = {
         tx: [
           {
@@ -758,32 +758,57 @@ describe.only('explorerService tests', () => {
 
       sinon.assert.notCalled(dbStubInsert);
     });
-
-    it('save to db if version is >0 and <5 and data is correct', async () => {
+    // TODO CONTINUE HERE
+    it.only('save to db if version is >0 and <5 and data is correct', async () => {
       const blockVerbose = {
         tx: [
           {
-            version: 3,
-            txid: '12345',
-            type: 'send',
-            update_type: 'someType',
-            ip: '192.168.1.1',
-            benchmark_tier: 'stratus',
-            txhash: 'hash1234',
-            outidx: '1111',
-            vout: [{
-              n: 444,
-              scriptPubKey:
+            version: 4,
+            txid: 11222233333,
+            vin: [
               {
-                addresses: ['t1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6'],
-                asm: 'OP_RETURN 5468697320737472696e672069732065786163746c792036342063686172616374657273206c6f6e672e20496e636c7564696e67207468697320737472696e67',
+                txid: 1,
+                vout: 12345,
+              }, {
+                txid: 2,
+                vout: 555454,
               },
-              valueSat: 20000000,
+            ],
+            vout: [{
+              scriptPubKey: {
+                addresses: [1111, 22222, 3333],
+                hex: 0x1AFFF,
+              },
+              valueSat: 555,
             }],
           },
         ],
-        height: 983000,
+        height: 829000,
       };
+      sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').returns({
+        txid: 2222,
+        address: 12345,
+        satoshis: 10000,
+        value: 'my test value',
+      });
+      sinon.stub(daemonServiceTransactionRpcs, 'getRawTransaction').returns({
+        status: 'success',
+        data: {
+          txid: 12345,
+          address: 12345,
+          satoshis: 10000,
+          value: 'my test value',
+          vout: {
+            444: {
+              scriptPubKey:
+            { addresses: ['1ZACDE1234567'] },
+              valueSat: 1000,
+            },
+          },
+        },
+      });
+      dbStubInsert.returns(true);
+
       await explorerService.processStandard(blockVerbose, database);
 
       sinon.assert.calledOnceWithExactly(dbStubInsert, {}, 'zelappshashes', [
