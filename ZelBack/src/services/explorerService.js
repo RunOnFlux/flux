@@ -1581,6 +1581,11 @@ async function getAddressBalance(req, res) {
   }
 }
 
+// exported for testing purposes
+function setBlockProccessingCanContinue(value) {
+  blockProccessingCanContinue = value;
+}
+
 module.exports = {
   initiateBlockProcessor,
   processBlock,
@@ -1609,4 +1614,7 @@ module.exports = {
   getVerboseBlock,
   decodeMessage,
   processInsight,
+  processTransaction,
+  processStandard,
+  setBlockProccessingCanContinue,
 };
