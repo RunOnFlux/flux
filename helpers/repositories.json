@@ -356,5 +356,7 @@
    "honsontran/deso-backend:stable",
    "honsontran/deso-frontend:stable",
    "neoxa/full-node:latest",
-   "hostnodes/hostnodes-stats:latest"
+   "hostnodes/hostnodes-stats:latest",
+   "fusenet/node:latest",
+   "fusenet/spark-netstat:1.0.0"
 ]
