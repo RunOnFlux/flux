@@ -922,6 +922,11 @@ function startAppMonitoring(appName) {
     appsMonitored[appName].fifteenMinInterval = setInterval(async () => {
       try {
         const statsNow = await dockerService.dockerContainerStats(appName);
+        const appFolderName = dockerService.getAppDockerNameIdentifier(appName).substring(1);
+        const folderSize = await getAppFolderSize(appFolderName);
+        statsNow.disk_stats = {
+          used: folderSize,
+        };
         appsMonitored[appName].fifteenMinStatsStore.unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
         if (appsMonitored[appName].oneMinuteStatsStore.length > 96) {
           appsMonitored[appName].fifteenMinStatsStore.length = 96; // Store stats every 15 mins for the last day only
