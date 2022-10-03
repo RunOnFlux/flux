@@ -2471,6 +2471,7 @@ function checkAppGeolocationRequirements(appSpecs) {
       throw new Error('Node Geolocation not set. Aborting.');
     }
     if (appSpecs.geolocation && appSpecs.geolocation.length > 0) {
+      // previous geolocation specification version (a, b) [aEU, bFR]
       const appContinent = appSpecs.geolocation.find((x) => x.startsWith('a'));
       const appCountry = appSpecs.geolocation.find((x) => x.startsWith('b'));
       if (appContinent) {
@@ -2478,15 +2479,31 @@ function checkAppGeolocationRequirements(appSpecs) {
           throw new Error('App specs with continents geolocation set not matching node geolocation. Aborting.');
         }
       }
-
       if (appCountry) {
         if (appCountry.slice(1) !== nodeGeo.countryCode) {
           throw new Error('App specs with countries geolocation set not matching node geolocation. Aborting.');
         }
       }
+
+      // current geolocation style [acEU], [acEU_CZ], [acEU_CZ_PRG], [a!cEU], [a!cEU_CZ], [a!cEU_CZ_PRG]
+      const geoC = appSpecs.geolocation.filter((x) => x.startsWith('ac')); // this ensures that new specs can only run on updated nodes.
+      const geoCForbidden = appSpecs.geolocation.filter((x) => x.startsWith('a!c'));
+      const myNodeLocationContinent = nodeGeo.continentCode;
+      const myNodeLocationContCountry = `${nodeGeo.continentCode}_${nodeGeo.countryCode}`;
+      const myNodeLocationFull = `${nodeGeo.continentCode}_${nodeGeo.countryCode}_${nodeGeo.regionName}`;
+      geoCForbidden.forEach((locationNotAllowed) => {
+        if (locationNotAllowed.slice(3) === myNodeLocationContinent || locationNotAllowed.slice(3) === myNodeLocationContCountry || locationNotAllowed.slice(3) === myNodeLocationFull) {
+          throw new Error('App specs of geolocation set is forbidden to run on node geolocation. Aborting.');
+        }
+      });
+      if (geoC.length) {
+        const nodeLocationOK = geoC.find((locationAllowed) => locationAllowed.slice(2) === myNodeLocationContinent || locationAllowed.slice(2) === myNodeLocationContCountry || locationAllowed.slice(2) === myNodeLocationFull);
+        if (!nodeLocationOK) {
+          throw new Error('App specs of geolocation set is not matching to run on node geolocation. Aborting.');
+        }
+      }
     }
   }
-
   return true;
 }
 
@@ -3993,7 +4010,7 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
  * @param {object} appSpecification App specifications.
  * @returns {boolean} True if no errors are thrown.
  */
-function verifyRestrictionCorrectnessOfApp(appSpecifications) {
+function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
   if (appSpecifications.version !== 1 && appSpecifications.version !== 2 && appSpecifications.version !== 3 && appSpecifications.version !== 4 && appSpecifications.version !== 5) {
     throw new Error('Flux App message version specification is invalid');
   }
@@ -4192,7 +4209,12 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications) {
       throw new Error('Invalid geolocation submited.'); // for now we are only accepting continent and country.
     }
     appSpecifications.geolocation.forEach((geo) => {
-      if (geo.length > 5) { // for now we only treat aXX and bXX as continent and country specs.
+      let maxGeoLength = 5;
+      if (height > 1230000) { // once all nodes update, we can remove this
+        // ac geolocation
+        maxGeoLength = 50; // should be way more than sufficient
+      }
+      if (geo.length > maxGeoLength) { // for now we only treat aXX and bXX as continent and country specs.
         throw new Error(`Geolocation ${geo} is not valid.`); // firt letter for what represents and next two for the code
       }
     });
@@ -4372,7 +4394,7 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
   verifyTypeCorrectnessOfApp(appSpecifications);
 
   // RESTRICTION CHECKS
-  verifyRestrictionCorrectnessOfApp(appSpecifications);
+  verifyRestrictionCorrectnessOfApp(appSpecifications, height);
 
   // SPECS VALIDIT TIME
   if (height < config.fluxapps.appSpecsEnforcementHeights[appSpecifications.version]) {
