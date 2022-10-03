@@ -2472,9 +2472,16 @@ function checkAppGeolocationRequirements(appSpecs) {
     }
     if (appSpecs.geolocation && appSpecs.geolocation.length > 0) {
       // previous geolocation specification version (a, b) [aEU, bFR]
+      // current geolocation style [acEU], [acEU_CZ], [acEU_CZ_PRG], [a!cEU], [a!cEU_CZ], [a!cEU_CZ_PRG]
       const appContinent = appSpecs.geolocation.find((x) => x.startsWith('a'));
       const appCountry = appSpecs.geolocation.find((x) => x.startsWith('b'));
-      if (appContinent) {
+      const geoC = appSpecs.geolocation.filter((x) => x.startsWith('ac')); // this ensures that new specs can only run on updated nodes.
+      const geoCForbidden = appSpecs.geolocation.filter((x) => x.startsWith('a!c'));
+      const myNodeLocationContinent = nodeGeo.continentCode;
+      const myNodeLocationContCountry = `${nodeGeo.continentCode}_${nodeGeo.countryCode}`;
+      const myNodeLocationFull = `${nodeGeo.continentCode}_${nodeGeo.countryCode}_${nodeGeo.regionName}`;
+
+      if (appContinent && !geoC.length && !geoCForbidden.length) { // backwards old style compatible. Can be removed after a month
         if (appContinent.slice(1) !== nodeGeo.continentCode) {
           throw new Error('App specs with continents geolocation set not matching node geolocation. Aborting.');
         }
@@ -2485,12 +2492,6 @@ function checkAppGeolocationRequirements(appSpecs) {
         }
       }
 
-      // current geolocation style [acEU], [acEU_CZ], [acEU_CZ_PRG], [a!cEU], [a!cEU_CZ], [a!cEU_CZ_PRG]
-      const geoC = appSpecs.geolocation.filter((x) => x.startsWith('ac')); // this ensures that new specs can only run on updated nodes.
-      const geoCForbidden = appSpecs.geolocation.filter((x) => x.startsWith('a!c'));
-      const myNodeLocationContinent = nodeGeo.continentCode;
-      const myNodeLocationContCountry = `${nodeGeo.continentCode}_${nodeGeo.countryCode}`;
-      const myNodeLocationFull = `${nodeGeo.continentCode}_${nodeGeo.countryCode}_${nodeGeo.regionName}`;
       geoCForbidden.forEach((locationNotAllowed) => {
         if (locationNotAllowed.slice(3) === myNodeLocationContinent || locationNotAllowed.slice(3) === myNodeLocationContCountry || locationNotAllowed.slice(3) === myNodeLocationFull) {
           throw new Error('App specs of geolocation set is forbidden to run on node geolocation. Aborting.');
