@@ -33,6 +33,7 @@ const appsFolder = `${fluxDirPath}ZelApps/`;
 const cmdAsync = util.promisify(nodecmd.get);
 const crontabLoad = util.promisify(systemcrontab.load);
 const dockerPullStreamPromise = util.promisify(dockerService.dockerPullStream);
+const dockerStatsStreamPromise = util.promisify(dockerService.dockerContainerStatsStream);
 
 const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
 const appsHashesCollection = config.database.daemon.collections.appsHashes;
@@ -64,6 +65,71 @@ const nodeSpecs = {
   ram: 0,
   ssdStorage: 0,
 };
+
+const appsMonitored = {
+  // appsMonitored Object Examples:
+  // component1_appname2: { // >= 4 or name for <= 3
+  //   oneMinuteInterval: null, // interval
+  //   fifteenMinInterval: null, // interval
+  //   oneMinuteStatsStore: [ // stores last hour of stats of app measured every minute
+  //     { // object of timestamp, data
+  //       timestamp: 0,
+  //       data: { },
+  //     },
+  //   ],
+  //   fifteenMinStatsStore: [ // stores last 24 hours of stats of app measured every 15 minutes
+  //     { // object of timestamp, data
+  //       timestamp: 0,
+  //       data: { },
+  //     },
+  //   ],
+  // },
+};
+
+/**
+ * To get a list of installed apps. Where req can be equal to appname. Shall be identical to listAllApps but this is a database response.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+async function installedApps(req, res) {
+  try {
+    const dbopen = dbHelper.databaseConnection();
+
+    const appsDatabase = dbopen.db(config.database.appslocal.database);
+    let appsQuery = {};
+    if (req && req.params && req.query) {
+      let { appname } = req.params; // we accept both help/command and help?command=getinfo
+      appname = appname || req.query.appname;
+      if (appname) {
+        appsQuery = {
+          name: appname,
+        };
+      }
+    } else if (req && typeof req === 'string') {
+      // consider it as appname
+      appsQuery = {
+        name: req,
+      };
+    }
+    const appsProjection = {
+      projection: {
+        _id: 0,
+      },
+    };
+    const apps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    const dataResponse = messageHelper.createDataMessage(apps);
+    return res ? res.json(dataResponse) : dataResponse;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
 
 /**
  * To list running apps.
@@ -185,6 +251,8 @@ async function appStart(req, res) {
     let appRes;
     if (isComponent) {
       appRes = await dockerService.appDockerStart(appname);
+      // eslint-disable-next-line no-use-before-define
+      startAppMonitoring(appname);
     } else {
       // ask for starting entire composed application
       // eslint-disable-next-line no-use-before-define
@@ -194,11 +262,15 @@ async function appStart(req, res) {
       }
       if (appSpecs.version <= 3) {
         appRes = await dockerService.appDockerStart(appname);
+        // eslint-disable-next-line no-use-before-define
+        startAppMonitoring(appname);
       } else {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecs.compose) {
           // eslint-disable-next-line no-await-in-loop
           await dockerService.appDockerStart(`${appComponent.name}_${appSpecs.name}`);
+          // eslint-disable-next-line no-use-before-define
+          startAppMonitoring(`${appComponent.name}_${appSpecs.name}`);
         }
         appRes = `Application ${appSpecs.name} started`;
       }
@@ -244,6 +316,8 @@ async function appStop(req, res) {
 
     let appRes;
     if (isComponent) {
+      // eslint-disable-next-line no-use-before-define
+      stopAppMonitoring(appname, false);
       appRes = await dockerService.appDockerStop(appname);
     } else {
       // ask for stopping entire composed application
@@ -253,10 +327,14 @@ async function appStop(req, res) {
         throw new Error('Application not found');
       }
       if (appSpecs.version <= 3) {
+        // eslint-disable-next-line no-use-before-define
+        stopAppMonitoring(appname, false);
         appRes = await dockerService.appDockerStop(appname);
       } else {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecs.compose.reverse()) {
+          // eslint-disable-next-line no-use-before-define
+          stopAppMonitoring(`${appComponent.name}_${appSpecs.name}`, false);
           // eslint-disable-next-line no-await-in-loop
           await dockerService.appDockerStop(`${appComponent.name}_${appSpecs.name}`);
         }
@@ -712,6 +790,364 @@ async function appStats(req, res) {
       error.code,
     );
     res.json(errMessage);
+  }
+}
+
+/**
+ * To show resource usage statistics for an app's Docker container. Only accessible by app owner, admins and flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function appMonitor(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+
+    if (!appname) {
+      throw new Error('No Flux App specified');
+    }
+
+    const mainAppName = appname.split('_')[1] || appname;
+
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
+    if (authorized === true) {
+      if (appsMonitored[appname]) {
+        const response = {
+          lastHour: appsMonitored[appname].oneMinuteStatsStore,
+          lastDay: appsMonitored[appname].fifteenMinStatsStore,
+        };
+
+        const appResponse = messageHelper.createDataMessage(response);
+        res.json(appResponse);
+      } else throw new Error('No data available');
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errMessage = messageHelper.createErrorMessage(
+      error.message,
+      error.name,
+      error.code,
+    );
+    res.json(errMessage);
+  }
+}
+
+/**
+ * To show resource usage statistics for an app's Docker container. Only accessible by app owner, admins and flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function appMonitorStream(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+
+    if (!appname) {
+      throw new Error('No Flux App specified');
+    }
+
+    const mainAppName = appname.split('_')[1] || appname;
+
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
+    if (authorized === true) {
+      await dockerStatsStreamPromise(appname, req, res);
+      res.end();
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errMessage = messageHelper.createErrorMessage(
+      error.message,
+      error.name,
+      error.code,
+    );
+    res.json(errMessage);
+  }
+}
+
+/**
+ * Returns folder size in byes of application component
+ * @param {object} appName monitored component name
+ */
+async function getAppFolderSize(appName) {
+  try {
+    const dirpath = path.join(__dirname, '../../../');
+    const directoryPath = `${dirpath}ZelApps/${appName}`;
+    const exec = `sudo du -s --block-size=1 ${directoryPath}`;
+    const cmdres = await cmdAsync(exec);
+    const size = serviceHelper.ensureString(cmdres).split('\t')[0] || 0;
+    return size;
+  } catch (error) {
+    log.error(error);
+    return 0;
+  }
+}
+
+/**
+ * Starts app monitoring for a single app and saves monitoring data in-memory to the appsMonitored object.
+ * @param {object} appName monitored component name
+ */
+function startAppMonitoring(appName) {
+  if (!appName) {
+    throw new Error('No App specified');
+  } else {
+    appsMonitored[appName] = {}; // oneMinuteInterval, fifteenMinInterval, oneMinuteStatsStore, fifteenMinStatsStore
+    if (!appsMonitored[appName].fifteenMinStatsStore) {
+      appsMonitored[appName].fifteenMinStatsStore = [];
+    }
+    if (!appsMonitored[appName].oneMinuteStatsStore) {
+      appsMonitored[appName].oneMinuteStatsStore = [];
+    }
+    appsMonitored[appName].oneMinuteInterval = setInterval(async () => {
+      try {
+        const statsNow = await dockerService.dockerContainerStats(appName);
+        const appFolderName = dockerService.getAppDockerNameIdentifier(appName).substring(1);
+        const folderSize = await getAppFolderSize(appFolderName);
+        statsNow.disk_stats = {
+          used: folderSize,
+        };
+        appsMonitored[appName].oneMinuteStatsStore.unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
+        if (appsMonitored[appName].oneMinuteStatsStore.length > 60) {
+          appsMonitored[appName].oneMinuteStatsStore.length = 60; // Store stats every 1 min for the last hour only
+        }
+      } catch (error) {
+        log.error(error);
+      }
+    }, 1 * 60 * 1000);
+    appsMonitored[appName].fifteenMinInterval = setInterval(async () => {
+      try {
+        const statsNow = await dockerService.dockerContainerStats(appName);
+        const appFolderName = dockerService.getAppDockerNameIdentifier(appName).substring(1);
+        const folderSize = await getAppFolderSize(appFolderName);
+        statsNow.disk_stats = {
+          used: folderSize,
+        };
+        appsMonitored[appName].fifteenMinStatsStore.unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
+        if (appsMonitored[appName].oneMinuteStatsStore.length > 96) {
+          appsMonitored[appName].fifteenMinStatsStore.length = 96; // Store stats every 15 mins for the last day only
+        }
+      } catch (error) {
+        log.error(error);
+      }
+    }, 15 * 60 * 1000);
+  }
+}
+
+/**
+ * Stops app monitoring for a single app.
+ * @param {object} appName App specifications.
+ * @param {boolean} deleteData Delete monitored data
+ */
+// At any stage after the monitoring is started, trigger stop on demand without loosing data (unless delete data is chosen)
+function stopAppMonitoring(appName, deleteData) {
+  if (appsMonitored[appName]) {
+    clearInterval(appsMonitored[appName].oneMinuteInterval);
+    clearInterval(appsMonitored[appName].fifteenMinInterval);
+  }
+  if (deleteData) {
+    delete appsMonitored[appName];
+  }
+}
+
+/**
+ * Starts app monitoring for all apps.
+ * @param {array} appSpecsToMonitor Array of application specs to be monitored
+ */
+async function startMonitoringOfApps(appSpecsToMonitor) {
+  try {
+    let apps = appSpecsToMonitor;
+    if (!apps) {
+      const installedAppsRes = await installedApps();
+      if (installedAppsRes.status !== 'success') {
+        throw new Error('Failed to get installed Apps');
+      }
+      apps = installedAppsRes.data;
+    }
+    // eslint-disable-next-line no-restricted-syntax
+    for (const app of apps) {
+      if (app.version <= 3) {
+        startAppMonitoring(app.name);
+      } else {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of app.compose) {
+          const monitoredName = `${component.name}_${app.name}`;
+          startAppMonitoring(monitoredName);
+        }
+      }
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
+ * Stops app monitoring for all apps.
+ * @param {array} appSpecsToMonitor Array of application specs to be stopped for monitor
+ */
+async function stopMonitoringOfApps(appSpecsToMonitor, deleteData = false) {
+  try {
+    let apps = appSpecsToMonitor;
+    if (!apps) {
+      const installedAppsRes = await installedApps();
+      if (installedAppsRes.status !== 'success') {
+        throw new Error('Failed to get installed Apps');
+      }
+      apps = installedAppsRes.data;
+    }
+    // eslint-disable-next-line no-restricted-syntax
+    for (const app of apps) {
+      if (app.version <= 3) {
+        stopAppMonitoring(app.name, deleteData);
+      } else {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of app.compose) {
+          const monitoredName = `${component.name}_${app.name}`;
+          stopAppMonitoring(monitoredName, deleteData);
+        }
+      }
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
+ * API call to start app monitoring and save monitoring data in-memory to the appsMonitored object. Monitors all apps or a single app if its name is specified in the API request.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
+async function startAppMonitoringAPI(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+    if (!appname) { // If no appname specified, monitor all apps
+      // only flux team and node owner can do this
+      const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      if (!authorized) {
+        const errMessage = messageHelper.errUnauthorizedMessage();
+        res.json(errMessage);
+        return;
+      }
+      // this should not be started if some monitoring is already running. Stop all monitoring before
+      await stopMonitoringOfApps();
+      await startMonitoringOfApps();
+      const monitoringResponse = messageHelper.createSuccessMessage('Application monitoring started for all apps');
+      res.json(monitoringResponse);
+    } else {
+      const mainAppName = appname.split('_')[1] || appname;
+      const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
+      if (!authorized) {
+        const errMessage = messageHelper.errUnauthorizedMessage();
+        res.json(errMessage);
+        return;
+      }
+      const installedAppsRes = await installedApps(mainAppName);
+      if (installedAppsRes.status !== 'success') {
+        throw new Error('Failed to get installed Apps');
+      }
+      const apps = installedAppsRes.data;
+      const appSpecs = apps[0];
+      if (!appSpecs) {
+        throw new Error(`Application ${mainAppName} is not installed`);
+      }
+      if (mainAppName === appname) {
+        await stopMonitoringOfApps([appSpecs]);
+        await startMonitoringOfApps([appSpecs]);
+      } else { // component based or <= 3
+        stopAppMonitoring(appname);
+        startAppMonitoring(appname);
+      }
+      const monitoringResponse = messageHelper.createSuccessMessage(`Application monitoring started for ${appSpecs.name}`);
+      res.json(monitoringResponse);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
+/**
+ * API call to stop app monitoring. Applies to all apps or a single app if its name is specified in the API request. Maintains existing monitoring data or deletes existing monitoring data if specified in the API request.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
+async function stopAppMonitoringAPI(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+    let { deletedata } = req.params;
+    deletedata = deletedata || req.query.deletedata || false;
+    // 1. Stop all apps
+    if (!appname) {
+      // only flux team and node owner can do this
+      const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      if (!authorized) {
+        const errMessage = messageHelper.errUnauthorizedMessage();
+        res.json(errMessage);
+        return;
+      }
+      await stopMonitoringOfApps();
+      let successMessage = '';
+      if (!deletedata) {
+        successMessage = 'Application monitoring stopped for all apps. Existing monitoring data maintained.';
+      } else {
+        successMessage = 'Application monitoring stopped for all apps. Monitoring data deleted for all apps.';
+      }
+      const monitoringResponse = messageHelper.createSuccessMessage(successMessage);
+      res.json(monitoringResponse);
+    // 2. Stop a specific app
+    } else {
+      const mainAppName = appname.split('_')[1] || appname;
+      const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
+      if (!authorized) {
+        const errMessage = messageHelper.errUnauthorizedMessage();
+        res.json(errMessage);
+        return;
+      }
+      let successMessage = '';
+      if (mainAppName === appname) {
+        // get appSpecs TODO
+        const installedAppsRes = await installedApps(mainAppName);
+        if (installedAppsRes.status !== 'success') {
+          throw new Error('Failed to get installed Apps');
+        }
+        const apps = installedAppsRes.data;
+        const appSpecs = apps[0];
+        if (!appSpecs) {
+          throw new Error(`Application ${mainAppName} is not installed`);
+        }
+        await stopMonitoringOfApps([appSpecs], deletedata);
+      } else { // component based or <= 3
+        stopAppMonitoring(appname, deletedata);
+      }
+      if (deletedata) {
+        successMessage = `Application monitoring stopped and monitoring data deleted for ${appname}.`;
+      } else {
+        successMessage = `Application monitoring stopped for ${appname}. Existing monitoring data maintained.`;
+      }
+      const monitoringResponse = messageHelper.createSuccessMessage(successMessage);
+      res.json(monitoringResponse);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
   }
 }
 
@@ -1287,6 +1723,11 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   if (res) {
     res.write(serviceHelper.ensureString(stopStatus));
   }
+  let monitoredName = appName;
+  if (isComponent) {
+    monitoredName = `${appSpecifications.name}_${appName}`;
+  }
+  stopAppMonitoring(monitoredName, true);
   await dockerService.appDockerStop(appId).catch((error) => {
     const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
@@ -1552,7 +1993,6 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
       res.write(serviceHelper.ensureString(cleaningVolumeStatus2));
     }
   }
-
   const appRemovalResponse = {
     status: isComponent ? `Flux App component ${appSpecifications.name} of ${appName} was successfuly removed` : `Flux App ${appName} was successfuly removed`,
   };
@@ -1722,6 +2162,11 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
 
 /**
  * To soft uninstall an app including any components. Removes container/s, removes image/s and denies all app/component ports.
+ * @param {string} appName App name.
+ * @param {string} appId App ID.
+ * @param {object} appSpecifications App specifications.
+ * @param {boolean} isComponent True if a Docker Compose component.
+ * @param {object} res Response.
  */
 async function appUninstallSoft(appName, appId, appSpecifications, isComponent, res) {
   const stopStatus = {
@@ -1731,7 +2176,11 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   if (res) {
     res.write(serviceHelper.ensureString(stopStatus));
   }
-
+  let monitoredName = appName;
+  if (isComponent) {
+    monitoredName = `${appSpecifications.name}_${appName}`;
+  }
+  stopAppMonitoring(monitoredName, false);
   await dockerService.appDockerStop(appId);
 
   const stopStatus2 = {
@@ -1828,7 +2277,6 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   if (res) {
     res.write(serviceHelper.ensureString(portStatus2));
   }
-
   const appRemovalResponse = {
     status: isComponent ? `Flux App component ${appSpecifications.name} of ${appName} was successfuly removed` : `Flux App ${appName} was successfuly removed`,
   };
@@ -2028,22 +2476,40 @@ function checkAppGeolocationRequirements(appSpecs) {
       throw new Error('Node Geolocation not set. Aborting.');
     }
     if (appSpecs.geolocation && appSpecs.geolocation.length > 0) {
+      // previous geolocation specification version (a, b) [aEU, bFR]
+      // current geolocation style [acEU], [acEU_CZ], [acEU_CZ_PRG], [a!cEU], [a!cEU_CZ], [a!cEU_CZ_PRG]
       const appContinent = appSpecs.geolocation.find((x) => x.startsWith('a'));
       const appCountry = appSpecs.geolocation.find((x) => x.startsWith('b'));
-      if (appContinent) {
+      const geoC = appSpecs.geolocation.filter((x) => x.startsWith('ac')); // this ensures that new specs can only run on updated nodes.
+      const geoCForbidden = appSpecs.geolocation.filter((x) => x.startsWith('a!c'));
+      const myNodeLocationContinent = nodeGeo.continentCode;
+      const myNodeLocationContCountry = `${nodeGeo.continentCode}_${nodeGeo.countryCode}`;
+      const myNodeLocationFull = `${nodeGeo.continentCode}_${nodeGeo.countryCode}_${nodeGeo.regionName}`;
+
+      if (appContinent && !geoC.length && !geoCForbidden.length) { // backwards old style compatible. Can be removed after a month
         if (appContinent.slice(1) !== nodeGeo.continentCode) {
           throw new Error('App specs with continents geolocation set not matching node geolocation. Aborting.');
         }
       }
-
       if (appCountry) {
         if (appCountry.slice(1) !== nodeGeo.countryCode) {
           throw new Error('App specs with countries geolocation set not matching node geolocation. Aborting.');
         }
       }
+
+      geoCForbidden.forEach((locationNotAllowed) => {
+        if (locationNotAllowed.slice(3) === myNodeLocationContinent || locationNotAllowed.slice(3) === myNodeLocationContCountry || locationNotAllowed.slice(3) === myNodeLocationFull) {
+          throw new Error('App specs of geolocation set is forbidden to run on node geolocation. Aborting.');
+        }
+      });
+      if (geoC.length) {
+        const nodeLocationOK = geoC.find((locationAllowed) => locationAllowed.slice(2) === myNodeLocationContinent || locationAllowed.slice(2) === myNodeLocationContCountry || locationAllowed.slice(2) === myNodeLocationFull);
+        if (!nodeLocationOK) {
+          throw new Error('App specs of geolocation set is not matching to run on node geolocation. Aborting.');
+        }
+      }
     }
   }
-
   return true;
 }
 
@@ -2233,11 +2699,12 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
     res.write(serviceHelper.ensureString(startStatus));
   }
   const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
-  const app = await dockerService.appDockerStart(dockerService.getAppIdentifier(identifier));
+  const app = await dockerService.appDockerStart(identifier);
   installationInProgress = false;
   if (!app) {
     return;
   }
+  startAppMonitoring(identifier);
   const appResponse = messageHelper.createDataMessage(app);
   log.info(appResponse);
   if (res) {
@@ -2534,11 +3001,12 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
     res.write(serviceHelper.ensureString(startStatus));
   }
   const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
-  const app = await dockerService.appDockerStart(dockerService.getAppIdentifier(identifier));
+  const app = await dockerService.appDockerStart(identifier);
   installationInProgress = false;
   if (!app) {
     return;
   }
+  startAppMonitoring(identifier);
   const appResponse = messageHelper.createDataMessage(app);
   log.info(appResponse);
   if (res) {
@@ -3548,7 +4016,7 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
  * @param {object} appSpecification App specifications.
  * @returns {boolean} True if no errors are thrown.
  */
-function verifyRestrictionCorrectnessOfApp(appSpecifications) {
+function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
   if (appSpecifications.version !== 1 && appSpecifications.version !== 2 && appSpecifications.version !== 3 && appSpecifications.version !== 4 && appSpecifications.version !== 5) {
     throw new Error('Flux App message version specification is invalid');
   }
@@ -3747,7 +4215,12 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications) {
       throw new Error('Invalid geolocation submited.'); // for now we are only accepting continent and country.
     }
     appSpecifications.geolocation.forEach((geo) => {
-      if (geo.length > 5) { // for now we only treat aXX and bXX as continent and country specs.
+      let maxGeoLength = 5;
+      if (height > 1230000) { // once all nodes update, we can remove this
+        // ac geolocation
+        maxGeoLength = 50; // should be way more than sufficient
+      }
+      if (geo.length > maxGeoLength) { // for now we only treat aXX and bXX as continent and country specs.
         throw new Error(`Geolocation ${geo} is not valid.`); // firt letter for what represents and next two for the code
       }
     });
@@ -3927,7 +4400,7 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
   verifyTypeCorrectnessOfApp(appSpecifications);
 
   // RESTRICTION CHECKS
-  verifyRestrictionCorrectnessOfApp(appSpecifications);
+  verifyRestrictionCorrectnessOfApp(appSpecifications, height);
 
   // SPECS VALIDIT TIME
   if (height < config.fluxapps.appSpecsEnforcementHeights[appSpecifications.version]) {
@@ -5260,51 +5733,6 @@ async function updateAppGlobalyApi(req, res) {
       res.json(errorResponse);
     }
   });
-}
-
-/**
- * To get a list of installed apps. Where req can be equal to appname. Shall be identical to listAllApps but this is a database response.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message.
- */
-async function installedApps(req, res) {
-  try {
-    const dbopen = dbHelper.databaseConnection();
-
-    const appsDatabase = dbopen.db(config.database.appslocal.database);
-    let appsQuery = {};
-    if (req && req.params && req.query) {
-      let { appname } = req.params; // we accept both help/command and help?command=getinfo
-      appname = appname || req.query.appname;
-      if (appname) {
-        appsQuery = {
-          name: appname,
-        };
-      }
-    } else if (req && typeof req === 'string') {
-      // consider it as appname
-      appsQuery = {
-        name: req,
-      };
-    }
-    const appsProjection = {
-      projection: {
-        _id: 0,
-      },
-    };
-    const apps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
-    const dataResponse = messageHelper.createDataMessage(apps);
-    return res ? res.json(dataResponse) : dataResponse;
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    return res ? res.json(errorResponse) : errorResponse;
-  }
 }
 
 /**
@@ -6655,12 +7083,12 @@ async function checkAndNotifyPeersOfRunningApps() {
           if (appDetails) {
             log.warn(`${stoppedApp} is stopped but should be running. Starting...`);
             // it is a stopped global app. Try to run it.
-            const appId = dockerService.getAppIdentifier(stoppedApp);
             // check if some removal is in progress and if it is don't start it!
             if (!removalInProgress && !installationInProgress && !reinstallationOfOldAppsInProgress) {
-              log.warn(`${appId} is stopped, starting`);
+              log.warn(`${stoppedApp} is stopped, starting`);
               // eslint-disable-next-line no-await-in-loop
-              await dockerService.appDockerStart(appId);
+              await dockerService.appDockerStart(stoppedApp);
+              startAppMonitoring(stoppedApp);
             } else {
               log.warn(`Not starting ${stoppedApp} as application removal or installation is in progress`);
             }
@@ -7525,6 +7953,11 @@ module.exports = {
   appLogStream,
   appInspect,
   appStats,
+  appMonitor,
+  appMonitorStream,
+  startMonitoringOfApps,
+  startAppMonitoringAPI,
+  stopAppMonitoringAPI,
   appChanges,
   appExec,
   fluxUsage,
