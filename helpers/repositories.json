@@ -358,5 +358,6 @@
    "neoxa/full-node:latest",
    "hostnodes/hostnodes-stats:latest",
    "fusenet/node:latest",
-   "fusenet/spark-netstat:1.0.0"
+   "fusenet/spark-netstat:1.0.0",
+   "siomiz/softethervpn:latest"
 ]
