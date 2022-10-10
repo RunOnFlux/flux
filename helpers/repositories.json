@@ -359,5 +359,6 @@
    "hostnodes/hostnodes-stats:latest",
    "fusenet/node:latest",
    "fusenet/spark-netstat:1.0.0",
-   "siomiz/softethervpn:latest"
+   "siomiz/softethervpn:latest",
+   "w2vy/vault_demo:latest"
 ]
