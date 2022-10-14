@@ -362,5 +362,6 @@
    "siomiz/softethervpn:latest",
    "w2vy/vault_demo:latest",
    "satishweb/doh-server:latest",
-   "dfarrel1/noderank:latest",
+   "ykoubiac/btcpx-farming-calculator:latest",
+   "dfarrel1/noderank:latest"
 ]
