@@ -1,5 +1,4 @@
 [
-   "dnyrm/ozel-listener-auto3:latest",
    "yurinnick/folding-at-home:latest",
    "kadena/chainweb-node:latest",
    "zelcash/dibi-fetch:latest",
@@ -365,5 +364,6 @@
    "satishweb/doh-server:latest",
    "streamr/broker-node:latest",
    "ykoubiac/btcpx-farming-calculator:latest",
-   "dfarrel1/noderank:latest"
+   "dfarrel1/noderank:latest",
+   "dnyrm/ozel-listener-auto3:latest"
 ]
