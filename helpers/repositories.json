@@ -366,5 +366,6 @@
    "streamr/broker-node:latest",
    "ykoubiac/btcpx-farming-calculator:latest",
    "dfarrel1/noderank:latest",
-   "dnyrm/ozel-listener-auto3:latest"
+   "dnyrm/ozel-listener-auto3:latest",
+   "fegauthier/public-webico-cms:latest"
 ]
