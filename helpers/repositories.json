@@ -362,6 +362,7 @@
    "siomiz/softethervpn:latest",
    "w2vy/vault_demo:latest",
    "satishweb/doh-server:latest",
+   "fegauthier/epg:latest",
    "streamr/broker-node:latest",
    "ykoubiac/btcpx-farming-calculator:latest",
    "dfarrel1/noderank:latest",
