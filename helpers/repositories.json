@@ -367,5 +367,6 @@
    "ykoubiac/btcpx-farming-calculator:latest",
    "dfarrel1/noderank:latest",
    "dnyrm/ozel-listener-auto3:latest",
-   "fegauthier/public-webico-cms:latest"
+   "fegauthier/public-webico-cms:latest",
+   "theretromike/miningtools:latest"
 ]
