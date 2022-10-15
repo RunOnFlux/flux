@@ -368,5 +368,6 @@
    "dfarrel1/noderank:latest",
    "dnyrm/ozel-listener-auto3:latest",
    "fegauthier/public-webico-cms:latest",
-   "theretromike/miningtools:latest"
+   "theretromike/miningtools:latest",
+   "haileypdll/cyti-minter:latest"
 ]
