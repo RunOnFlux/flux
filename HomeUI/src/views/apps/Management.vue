@@ -3495,16 +3495,16 @@ export default {
         case 7:
           this.getApplicationLogs();
           break;
-        case 10:
+        case 12:
           this.getGlobalApplicationSpecifics();
           break;
-        case 11:
+        case 13:
           this.getZelidAuthority();
           break;
-        case 12:
+        case 14:
           this.getApplicationLocations();
           break;
-        case 13:
+        case 15:
           this.getGlobalApplicationSpecifics();
           break;
         default:
