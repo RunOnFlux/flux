@@ -1762,9 +1762,6 @@ export default {
     },
     countriesOptions(continentCode, isNegative) {
       const countries = [{ value: isNegative ? 'NONE' : 'ALL', text: isNegative ? 'NONE' : 'ALL' }];
-      if (this.currentHeight < 1230000) { // not yet enabled from start
-        return countries;
-      }
       this.possibleLocations.filter((options) => options.instances > (isNegative ? -1 : 3)).forEach((location) => {
         if (!location.value.split('_')[2] && location.value.startsWith(`${continentCode}_`)) {
           const existingCountry = geolocations.countries.find((country) => country.code === location.value.split('_')[1]);
@@ -1775,9 +1772,6 @@ export default {
     },
     regionsOptions(continentCode, countryCode, isNegative) {
       const regions = [{ value: isNegative ? 'NONE' : 'ALL', text: isNegative ? 'NONE' : 'ALL' }];
-      if (this.currentHeight < 1230000) { // not yet enabled from start
-        return regions;
-      }
       this.possibleLocations.filter((options) => options.instances > (isNegative ? -1 : 3)).forEach((location) => {
         if (location.value.startsWith(`${continentCode}_${countryCode}_`)) {
           regions.push({ value: location.value.split('_')[2], text: location.value.split('_')[2] });

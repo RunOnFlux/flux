@@ -3266,7 +3266,6 @@ export default {
       forbiddenGeolocations: {},
       numberOfGeolocations: 1,
       numberOfNegativeGeolocations: 1,
-      geoWasUpdate: false,
     };
   },
   computed: {
@@ -3666,10 +3665,7 @@ export default {
       try {
         const appSpecification = this.appUpdateSpecification;
         if (appSpecification.version >= 5) {
-          // TODO because we will have a grace period, check if geolocation was updated
-          if (this.geoWasUpdate) {
-            appSpecification.geolocation = this.generateGeolocations();
-          }
+          appSpecification.geolocation = this.generateGeolocations();
         }
         // call api for verification of app registration specifications that returns formatted specs
         const responseAppSpecs = await AppsService.appUpdateVerification(appSpecification);
@@ -4623,9 +4619,6 @@ export default {
     },
     countriesOptions(continentCode, isNegative) {
       const countries = [{ value: isNegative ? 'NONE' : 'ALL', text: isNegative ? 'NONE' : 'ALL' }];
-      if (this.callBResponse.data.height < 1230000) { // not yet enabled from start
-        return countries;
-      }
       this.possibleLocations.filter((options) => options.instances > (isNegative ? -1 : 3)).forEach((location) => {
         if (!location.value.split('_')[2] && location.value.startsWith(`${continentCode}_`)) {
           const existingCountry = geolocations.countries.find((country) => country.code === location.value.split('_')[1]);
@@ -4636,9 +4629,6 @@ export default {
     },
     regionsOptions(continentCode, countryCode, isNegative) {
       const regions = [{ value: isNegative ? 'NONE' : 'ALL', text: isNegative ? 'NONE' : 'ALL' }];
-      if (this.callBResponse.data.height < 1230000) { // not yet enabled from start
-        return regions;
-      }
       this.possibleLocations.filter((options) => options.instances > (isNegative ? -1 : 3)).forEach((location) => {
         if (location.value.startsWith(`${continentCode}_${countryCode}_`)) {
           regions.push({ value: location.value.split('_')[2], text: location.value.split('_')[2] });
@@ -4743,7 +4733,6 @@ export default {
       instances = instances > 3 ? instances : 3;
       const maxInstances = instances > 100 ? 100 : instances;
       this.maxInstances = maxInstances;
-      this.geoWasUpdate = true; // TODO later remove after fork
     },
   },
 };
