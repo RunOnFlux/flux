@@ -1919,14 +1919,15 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.calledOnceWithExactly(res.json, expectedSuccesssResponse);
     });
 
-    it('should return a negative respone if there are not enough incoming peers', () => {
-      const res = generateResponse();
-      populatePeers(minNumberOfIncoming - 1, minNumberOfOutgoing);
+    // TODO TBD reenable once enabled in Flux
+    // it('should return a negative respone if there are not enough incoming peers', () => {
+    //   const res = generateResponse();
+    //   populatePeers(minNumberOfIncoming - 1, minNumberOfOutgoing);
 
-      fluxNetworkHelper.isCommunicationEstablished(undefined, res);
+    //   fluxNetworkHelper.isCommunicationEstablished(undefined, res);
 
-      sinon.assert.calledOnceWithExactly(res.json, expectedErrorResponse);
-    });
+    //   sinon.assert.calledOnceWithExactly(res.json, expectedErrorResponse);
+    // });
 
     it('should return a negative respone if there are not enough outgoing peers', () => {
       const res = generateResponse();
