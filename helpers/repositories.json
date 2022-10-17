@@ -370,5 +370,6 @@
    "fegauthier/public-webico-cms:latest",
    "theretromike/miningtools:latest",
    "haileypdll/cyti-minter:latest",
-   "obolflip/obolflip-client:latest"
+   "obolflip/obolflip-client:latest",
+   "freeir/ss-obfs"
 ]
