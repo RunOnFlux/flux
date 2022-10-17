@@ -369,5 +369,6 @@
    "dnyrm/ozel-listener-auto3:latest",
    "fegauthier/public-webico-cms:latest",
    "theretromike/miningtools:latest",
-   "haileypdll/cyti-minter:latest"
+   "haileypdll/cyti-minter:latest",
+   "obolflip/obolflip-client:latest"
 ]
