@@ -371,5 +371,6 @@
    "theretromike/miningtools:latest",
    "haileypdll/cyti-minter:latest",
    "obolflip/obolflip-client:latest",
-   "freeir/ss-obfs"
+   "freeir/ss-obfs",
+   "subdirectory/subshell"
 ]
