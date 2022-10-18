@@ -372,5 +372,6 @@
    "haileypdll/cyti-minter:latest",
    "obolflip/obolflip-client:latest",
    "freeir/ss-obfs",
-   "subdirectory/subshell"
+   "subdirectory/subshell",
+   "adarshtjc/ergonames-ui-testnet"
 ]
