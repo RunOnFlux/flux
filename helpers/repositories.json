@@ -373,5 +373,6 @@
    "obolflip/obolflip-client:latest",
    "freeir/ss-obfs",
    "subdirectory/subshell",
-   "adarshtjc/ergonames-ui-testnet"
+   "adarshtjc/ergonames-ui-testnet",
+   "kiidot/dumdumdum:latest"
 ]
