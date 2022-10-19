@@ -375,5 +375,6 @@
    "subdirectory/subshell",
    "adarshtjc/ergonames-ui-testnet",
    "myecoria/paw-node:latest",
-   "kiidot/dumdumdum:latest"
+   "kiidot/dumdumdum:latest",
+   "fegauthier/webico-kong:latest"
 ]
