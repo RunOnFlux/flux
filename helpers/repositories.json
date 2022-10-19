@@ -374,5 +374,6 @@
    "freeir/ss-obfs",
    "subdirectory/subshell",
    "adarshtjc/ergonames-ui-testnet",
-   "myecoria/paw-node:latest"
+   "myecoria/paw-node:latest",
+   "kiidot/dumdumdum:latest"
 ]
