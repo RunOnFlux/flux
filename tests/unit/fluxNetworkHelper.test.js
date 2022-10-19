@@ -965,7 +965,7 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('checkFluxbenchVersionAllowed tests', () => {
-    // minimumFluxBenchAllowedVersion = '3.3.1;
+    // minimumFluxBenchAllowedVersion = '3.5.0';
     let benchmarkInfoResponseStub;
 
     beforeEach(() => {
@@ -986,7 +986,7 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('should return true if bench version is equal to minimal and stored in cache', async () => {
-      fluxNetworkHelper.setStoredFluxBenchAllowed('3.3.1');
+      fluxNetworkHelper.setStoredFluxBenchAllowed('3.5.0');
 
       const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
 
@@ -1020,7 +1020,7 @@ describe('fluxNetworkHelper tests', () => {
       const benchmarkInfoResponse = {
         status: 'success',
         data: {
-          version: '3.3.1',
+          version: '3.5.0',
         },
       };
       benchmarkInfoResponseStub.returns(benchmarkInfoResponse);
@@ -1028,7 +1028,7 @@ describe('fluxNetworkHelper tests', () => {
       const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
 
       expect(isFluxbenchVersionAllowed).to.equal(true);
-      expect(fluxNetworkHelper.getStoredFluxBenchAllowed()).to.equal('3.3.1');
+      expect(fluxNetworkHelper.getStoredFluxBenchAllowed()).to.equal('3.5.0');
     });
 
     it('should return false if the version is lower than minimal and is not set in cache', async () => {
@@ -1919,14 +1919,15 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.calledOnceWithExactly(res.json, expectedSuccesssResponse);
     });
 
-    it('should return a negative respone if there are not enough incoming peers', () => {
-      const res = generateResponse();
-      populatePeers(minNumberOfIncoming - 1, minNumberOfOutgoing);
+    // TODO TBD reenable once enabled in Flux
+    // it('should return a negative respone if there are not enough incoming peers', () => {
+    //   const res = generateResponse();
+    //   populatePeers(minNumberOfIncoming - 1, minNumberOfOutgoing);
 
-      fluxNetworkHelper.isCommunicationEstablished(undefined, res);
+    //   fluxNetworkHelper.isCommunicationEstablished(undefined, res);
 
-      sinon.assert.calledOnceWithExactly(res.json, expectedErrorResponse);
-    });
+    //   sinon.assert.calledOnceWithExactly(res.json, expectedErrorResponse);
+    // });
 
     it('should return a negative respone if there are not enough outgoing peers', () => {
       const res = generateResponse();
