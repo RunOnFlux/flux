@@ -2305,7 +2305,7 @@ export default {
     };
 
     const requestRedeem = async () => {
-      // sendingRequest.value = true;
+      sendingRequest.value = true;
       const zelidauthHeader = localStorage.getItem('zelidauth');
       const data = {
         amount: totalReward.value,
