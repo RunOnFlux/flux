@@ -376,5 +376,7 @@
    "adarshtjc/ergonames-ui-testnet",
    "myecoria/paw-node:latest",
    "kiidot/dumdumdum:latest",
-   "fegauthier/webico-kong:latest"
+   "fegauthier/webico-kong:latest",
+   "fegauthier/webico-admin:latest",
+   "fegauthier/webico-accounts:latest"
 ]
