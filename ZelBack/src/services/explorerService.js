@@ -468,7 +468,6 @@ async function processStandard(blockDataVerbose, database) {
   // utxoDetail = { txid, vout, height, address, satoshis, scriptPubKey )
   // and can create addressTransactionIndex.
   // amount in address can be calculated from utxos. We do not need to store it.
-  console.log(transactions);
   await Promise.all(transactions.map(async (tx) => {
     // normal transactions
     if (tx.version < 5 && tx.version > 0) {
@@ -1618,4 +1617,5 @@ module.exports = {
   processTransaction,
   processStandard,
   setBlockProccessingCanContinue,
+  restoreDatabaseToBlockheightState,
 };
