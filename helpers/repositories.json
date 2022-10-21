@@ -378,5 +378,6 @@
    "kiidot/dumdumdum:latest",
    "fegauthier/webico-kong:latest",
    "fegauthier/webico-admin:latest",
-   "fegauthier/webico-accounts:latest"
+   "fegauthier/webico-accounts:latest",
+   "getblokio/ergo-react:3.0"
 ]
