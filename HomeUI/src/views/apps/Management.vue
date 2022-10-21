@@ -119,19 +119,19 @@
                 />
                 <list-entry
                   title="Automatic Domains"
-                  :data="constructAutomaticDomains.toString()"
+                  :data="constructAutomaticDomains(callResponse.data.ports, callResponse.data.name).toString() || 'none'"
                 />
                 <list-entry
                   title="Ports"
-                  :data="callResponse.data.ports.toString()"
+                  :data="callResponse.data.ports.toString() || 'none'"
                 />
                 <list-entry
                   title="Container Ports"
-                  :data="callResponse.data.containerPorts.toString()"
+                  :data="callResponse.data.containerPorts.toString() || 'none'"
                 />
                 <list-entry
                   title="Container Data"
-                  :data="callResponse.data.containerData.toString()"
+                  :data="callResponse.data.containerData.toString() || 'none'"
                 />
                 <list-entry
                   title="Environment Parameters"
@@ -221,15 +221,15 @@
                 />
                 <list-entry
                   title="Automatic Domains"
-                  :data="constructAutomaticDomains[index].toString()"
+                  :data="constructAutomaticDomains(component.ports, callResponse.data.name, index).toString() || 'none'"
                 />
                 <list-entry
                   title="Ports"
-                  :data="component.ports.toString()"
+                  :data="component.ports.toString() || 'none'"
                 />
                 <list-entry
                   title="Container Ports"
-                  :data="component.containerPorts.toString()"
+                  :data="component.containerPorts.toString() || 'none'"
                 />
                 <list-entry
                   title="Container Data"
@@ -384,15 +384,15 @@
                 />
                 <list-entry
                   title="Automatic Domains"
-                  :data="constructAutomaticDomainsGlobal.toString()"
+                  :data="constructAutomaticDomainsGlobal.toString() || 'none'"
                 />
                 <list-entry
                   title="Ports"
-                  :data="callBResponse.data.ports.toString()"
+                  :data="callBResponse.data.ports.toString() || 'none'"
                 />
                 <list-entry
                   title="Container Ports"
-                  :data="callBResponse.data.containerPorts.toString()"
+                  :data="callBResponse.data.containerPorts.toString() || 'none'"
                 />
                 <list-entry
                   title="Container Data"
@@ -486,15 +486,15 @@
                 />
                 <list-entry
                   title="Automatic Domains"
-                  :data="constructAutomaticDomainsGlobal[index].toString()"
+                  :data="constructAutomaticDomains(component.ports, callBResponse.data.name, index).toString() || 'none'"
                 />
                 <list-entry
                   title="Ports"
-                  :data="component.ports.toString()"
+                  :data="component.ports.toString() || 'none'"
                 />
                 <list-entry
                   title="Container Ports"
-                  :data="component.containerPorts.toString()"
+                  :data="component.containerPorts.toString() || 'none'"
                 />
                 <list-entry
                   title="Container Data"
@@ -1411,15 +1411,15 @@
               />
               <list-entry
                 title="Automatic Domains"
-                :data="constructAutomaticDomainsGlobal.toString()"
+                :data="constructAutomaticDomainsGlobal.toString() || 'none'"
               />
               <list-entry
                 title="Ports"
-                :data="callBResponse.data.ports.toString()"
+                :data="callBResponse.data.ports.toString() || 'none'"
               />
               <list-entry
                 title="Container Ports"
-                :data="callBResponse.data.containerPorts.toString()"
+                :data="callBResponse.data.containerPorts.toString() || 'none'"
               />
               <list-entry
                 title="Container Data"
@@ -1512,15 +1512,15 @@
               />
               <list-entry
                 title="Automatic Domains"
-                :data="constructAutomaticDomainsGlobal[index].toString()"
+                :data="constructAutomaticDomains(component.ports, callBResponse.data.name, index).toString() || 'none'"
               />
               <list-entry
                 title="Ports"
-                :data="component.ports.toString()"
+                :data="component.ports.toString() || 'none'"
               />
               <list-entry
                 title="Container Ports"
-                :data="component.containerPorts.toString()"
+                :data="component.containerPorts.toString() || 'none'"
               />
               <list-entry
                 title="Container Data"
@@ -3357,32 +3357,6 @@ export default {
       }
       return niceString;
     },
-    constructAutomaticDomains() {
-      const appName = this.appSpecification.name;
-      if (!appName) {
-        return 'loading...';
-      }
-      const lowerCaseName = appName.toLowerCase();
-
-      if (!this.appSpecification.compose) {
-        const ports = JSON.parse(JSON.stringify(this.callBResponse.data.containerPorts));
-        const domains = [`${lowerCaseName}.app.runonflux.io`];
-        // flux specs dont allow more than 10 ports so domainString is enough
-        for (let i = 0; i < ports.length; i += 1) {
-          const portDomain = `${lowerCaseName}_${ports[i]}.app.runonflux.io`;
-          domains.push(portDomain);
-        }
-        return domains;
-      }
-      const domains = [`${lowerCaseName}.app.runonflux.io`];
-      this.appSpecification.compose.forEach((component) => {
-        for (let i = 0; i < component.ports.length; i += 1) {
-          const portDomain = `${lowerCaseName}_${component.ports[i]}.app.runonflux.io`;
-          domains.push(portDomain);
-        }
-      });
-      return domains;
-    },
     constructAutomaticDomainsGlobal() {
       if (!this.callBResponse.data) {
         return 'loading...';
@@ -3399,7 +3373,7 @@ export default {
       const lowerCaseName = appName.toLowerCase();
 
       if (!this.callBResponse.data.compose) {
-        const ports = JSON.parse(JSON.stringify(this.callBResponse.data.containerPorts));
+        const ports = JSON.parse(JSON.stringify(this.callBResponse.data.ports));
         const domains = [`${lowerCaseName}.app.runonflux.io`];
         // flux specs dont allow more than 10 ports so domainString is enough
         for (let i = 0; i < ports.length; i += 1) {
@@ -3408,7 +3382,7 @@ export default {
         }
         return domains;
       }
-      const domains = [];
+      const domains = [`${lowerCaseName}.app.runonflux.io`];
       this.callBResponse.data.compose.forEach((component) => {
         for (let i = 0; i < component.ports.length; i += 1) {
           const portDomain = `${lowerCaseName}_${component.ports[i]}.app.runonflux.io`;
@@ -4733,6 +4707,26 @@ export default {
       instances = instances > 3 ? instances : 3;
       const maxInstances = instances > 100 ? 100 : instances;
       this.maxInstances = maxInstances;
+    },
+    constructAutomaticDomains(appPorts, appName, index = 0) {
+      const ports = JSON.parse(JSON.stringify(appPorts));
+      const lowerCaseName = appName.toLowerCase();
+      if (index === 0) {
+        const domains = [`${lowerCaseName}.app.runonflux.io`];
+        // flux specs dont allow more than 10 ports so domainString is enough
+        for (let i = 0; i < ports.length; i += 1) {
+          const portDomain = `${lowerCaseName}_${ports[i]}.app.runonflux.io`;
+          domains.push(portDomain);
+        }
+        return domains;
+      }
+      const domains = [];
+      // flux specs dont allow more than 10 ports so domainString is enough
+      for (let i = 0; i < ports.length; i += 1) {
+        const portDomain = `${lowerCaseName}_${ports[i]}.app.runonflux.io`;
+        domains.push(portDomain);
+      }
+      return domains;
     },
   },
 };
