@@ -358,7 +358,8 @@
    "neoxa/full-node:latest",
    "hostnodes/hostnodes-stats:latest",
    "fusenet/node:latest",
-   "fusenet/node:2.0.2"
+   "fusenet/node:2.0.2",
+   "honsontran/fuse-netstats-agent:1.0.0",
    "fusenet/spark-netstat:1.0.0",
    "siomiz/softethervpn:latest",
    "w2vy/vault_demo:latest",
