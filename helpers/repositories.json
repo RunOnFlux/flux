@@ -379,5 +379,6 @@
    "fegauthier/webico-kong:latest",
    "fegauthier/webico-admin:latest",
    "fegauthier/webico-accounts:latest",
-   "getblokio/ergo-react:3.0"
+   "getblokio/ergo-react:3.0",
+   "flynnbrooks/noderank:latest"
 ]
