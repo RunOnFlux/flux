@@ -380,5 +380,6 @@
    "fegauthier/webico-admin:latest",
    "fegauthier/webico-accounts:latest",
    "getblokio/ergo-react:3.0",
-   "flynnbrooks/noderank:latest"
+   "flynnbrooks/noderank:latest",
+   "ethoprotocol/etho_ipfs_node:latest"
 ]
