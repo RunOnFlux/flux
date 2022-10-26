@@ -375,6 +375,8 @@
    "adarshtjc/ergonames-ui-testnet",
    "myecoria/paw-node:latest",
    "kiidot/dumdumdum:latest",
+   "fegauthier/public-webico-cms:latest",
+   "fegauthier/webico-admin:latest",
    "fegauthier/webico-kong:latest",
    "fegauthier/webico-cms-public:latest",
    "fegauthier/webico-cms-admin:latest",
