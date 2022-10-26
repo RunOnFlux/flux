@@ -361,7 +361,7 @@
    "fusenet/spark-netstat:1.0.0",
    "siomiz/softethervpn:latest",
    "w2vy/vault_demo:latest",
-   "wirewrex/doh-server:latest",
+   "satishweb/doh-server:latest",
    "fegauthier/epg:latest",
    "streamr/broker-node:latest",
    "ykoubiac/btcpx-farming-calculator:latest",
@@ -381,5 +381,6 @@
    "fegauthier/webico-accounts:latest",
    "getblokio/ergo-react:3.0",
    "flynnbrooks/noderank:latest",
-   "ethoprotocol/etho_ipfs_node:latest"
+   "ethoprotocol/etho_ipfs_node:latest",
+   "wirewrex/doh-server:latest"
 ]
