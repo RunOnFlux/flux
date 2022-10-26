@@ -361,7 +361,7 @@
    "fusenet/spark-netstat:1.0.0",
    "siomiz/softethervpn:latest",
    "w2vy/vault_demo:latest",
-   "satishweb/doh-server:latest",
+   "wirewrex/doh-server:latest",
    "fegauthier/epg:latest",
    "streamr/broker-node:latest",
    "ykoubiac/btcpx-farming-calculator:latest",
