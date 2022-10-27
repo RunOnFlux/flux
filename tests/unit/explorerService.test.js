@@ -1275,19 +1275,594 @@ describe.only('explorerService tests', () => {
     });
   });
 
-  describe.only('restoreDatabaseToBlockheightState tests', () => {
+  describe('restoreDatabaseToBlockheightState tests', () => {
     let removeDocumentsFromCollectionStub;
     let updateInDatabaseStub;
+    let logInfoSpy;
 
     beforeEach(async () => {
-      removeDocumentsFromCollectionStub = sinon.stub(dbHelper, 'findOneInDatabase');
-      removeDocumentsFromCollectionStub = sinon.stub(dbHelper, 'updateInDatabase');
+      removeDocumentsFromCollectionStub = sinon.stub(dbHelper, 'removeDocumentsFromCollection');
+      updateInDatabaseStub = sinon.stub(dbHelper, 'updateInDatabase');
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
+      logInfoSpy = sinon.spy(log, 'info');
+    });
+
+    afterEach(() => {
+      sinon.restore();
     });
 
     it('should throw if height was not passed', async () => {
       await expect(explorerService.restoreDatabaseToBlockheightState(undefined)).to.eventually.be.rejectedWith('No blockheight for restoring provided');
     });
+
+    it('should remove and update db properly, no rescan parameter passed', async () => {
+      removeDocumentsFromCollectionStub.returns(true);
+      updateInDatabaseStub.returns(true);
+      const height = 100000;
+
+      const result = await explorerService.restoreDatabaseToBlockheightState(height);
+
+      expect(result).to.equal(true);
+      sinon.assert.calledOnceWithExactly(logInfoSpy, 'Rescan completed');
+      sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'utxoindex', { height: { $gt: height } });
+      sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'coinbasefusionindex', { height: { $gt: height } });
+      sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'addresstransactionindex', { transactions: { $exists: true, $size: 0 } });
+      sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'zelnodetransactions', { height: { $gt: height } });
+      sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'zelappshashes', { height: { $gt: height } });
+      sinon.assert.calledWithMatch(updateInDatabaseStub, sinon.match.object, 'addresstransactionindex', {}, { $pull: { transactions: { height: sinon.match.object } } });
+    });
+
+    it('should remove and update db properly, rescan parameter passed', async () => {
+      removeDocumentsFromCollectionStub.returns(true);
+      updateInDatabaseStub.returns(true);
+      const height = 100000;
+
+      const result = await explorerService.restoreDatabaseToBlockheightState(height, true);
+
+      expect(result).to.equal(true);
+      sinon.assert.calledWith(logInfoSpy, 'Rescanning Apps!');
+      sinon.assert.calledWith(logInfoSpy, 'Rescan completed');
+      sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'utxoindex', { height: { $gt: height } });
+      sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'coinbasefusionindex', { height: { $gt: height } });
+      sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'addresstransactionindex', { transactions: { $exists: true, $size: 0 } });
+      sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'zelnodetransactions', { height: { $gt: height } });
+      sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'zelappshashes', { height: { $gt: height } });
+      sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'zelappsmessages', { height: { $gt: height } });
+      sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'zelappsinformation', { height: { $gt: height } });
+      sinon.assert.calledWithMatch(updateInDatabaseStub, sinon.match.object, 'addresstransactionindex', {}, { $pull: { transactions: { height: sinon.match.object } } });
+    });
   });
+
+  describe('getAllUtxos tests', () => {
+    let findInDatabaseStub;
+    let logErrorSpy;
+    let isInsightExplorerStub;
+
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.stub().returns(res);
+      return res;
+    };
+
+    beforeEach(async () => {
+      findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase');
+      isInsightExplorerStub = sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer');
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      logErrorSpy = sinon.spy(log, 'error');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw error if isInsigtExplorer is true', async () => {
+      isInsightExplorerStub.returns(true);
+      const res = generateResponse();
+
+      await explorerService.getAllUtxos(undefined, res);
+
+      sinon.assert.calledOnce(logErrorSpy);
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'Data unavailable. Deprecated',
+        },
+      });
+    });
+
+    it('should return record from db if isInsightExplorer is false', async () => {
+      isInsightExplorerStub.returns(false);
+      const res = generateResponse();
+      findInDatabaseStub.returns(['tx1', 'tx2']);
+
+      await explorerService.getAllUtxos(undefined, res);
+
+      sinon.assert.notCalled(logErrorSpy);
+      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: ['tx1', 'tx2'] });
+      sinon.assert.calledOnceWithMatch(findInDatabaseStub, sinon.match.object, 'utxoindex', {}, {
+        projection: {
+          _id: 0,
+          txid: 1,
+          vout: 1,
+          height: 1,
+          address: 1,
+          satoshis: 1,
+          scriptPubKey: 1,
+          coinbase: 1,
+        },
+      });
+    });
+  });
+
+  describe('getAllFusionCoinbase tests', () => {
+    let findInDatabaseStub;
+    let logErrorSpy;
+    let isInsightExplorerStub;
+
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.stub().returns(res);
+      return res;
+    };
+
+    beforeEach(async () => {
+      findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase');
+      isInsightExplorerStub = sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer');
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      logErrorSpy = sinon.spy(log, 'error');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw error if isInsigtExplorer is true', async () => {
+      isInsightExplorerStub.returns(true);
+      const res = generateResponse();
+
+      await explorerService.getAllFusionCoinbase(undefined, res);
+
+      sinon.assert.calledOnce(logErrorSpy);
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'Data unavailable. Deprecated',
+        },
+      });
+    });
+
+    it('should return record from db if isInsightExplorer is false', async () => {
+      isInsightExplorerStub.returns(false);
+      const res = generateResponse();
+      findInDatabaseStub.returns(['tx1', 'tx2']);
+
+      await explorerService.getAllFusionCoinbase(undefined, res);
+
+      sinon.assert.notCalled(logErrorSpy);
+      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: ['tx1', 'tx2'] });
+      sinon.assert.calledOnceWithMatch(findInDatabaseStub, sinon.match.object, 'coinbasefusionindex', {}, {
+        projection: {
+          _id: 0,
+          txid: 1,
+          vout: 1,
+          height: 1,
+          address: 1,
+          satoshis: 1,
+          scriptPubKey: 1,
+          coinbase: 1,
+        },
+      });
+    });
+  });
+
+  describe('getAllFluxTransactions tests', () => {
+    let findInDatabaseStub;
+    let logErrorSpy;
+
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.stub().returns(res);
+      return res;
+    };
+
+    beforeEach(async () => {
+      findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase');
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      logErrorSpy = sinon.spy(log, 'error');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return record from db if isInsightExplorer is false', async () => {
+      const res = generateResponse();
+      findInDatabaseStub.returns(['tx1', 'tx2']);
+
+      await explorerService.getAllFluxTransactions(undefined, res);
+
+      sinon.assert.notCalled(logErrorSpy);
+      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: ['tx1', 'tx2'] });
+      sinon.assert.calledOnceWithMatch(findInDatabaseStub, sinon.match.object, 'zelnodetransactions', {}, {
+        projection: {
+          _id: 0,
+          txid: 1,
+          version: 1,
+          type: 1,
+          updateType: 1,
+          ip: 1,
+          benchTier: 1,
+          collateralHash: 1,
+          collateralIndex: 1,
+          zelAddress: 1,
+          lockedAmount: 1,
+          height: 1,
+        },
+      });
+    });
+  });
+
+  describe('getAllAddressesWithTransactions tests', () => {
+    let findInDatabaseStub;
+    let logErrorSpy;
+    let isInsightExplorerStub;
+
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.stub().returns(res);
+      return res;
+    };
+
+    beforeEach(async () => {
+      findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase');
+      isInsightExplorerStub = sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer');
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      logErrorSpy = sinon.spy(log, 'error');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw error if isInsigtExplorer is true', async () => {
+      isInsightExplorerStub.returns(true);
+      const res = generateResponse();
+
+      await explorerService.getAllAddressesWithTransactions(undefined, res);
+
+      sinon.assert.calledOnce(logErrorSpy);
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'Data unavailable. Deprecated',
+        },
+      });
+    });
+
+    it('should return record from db if isInsightExplorer is false', async () => {
+      isInsightExplorerStub.returns(false);
+      const res = generateResponse();
+      findInDatabaseStub.returns(['tx1', 'tx2']);
+
+      await explorerService.getAllAddressesWithTransactions(undefined, res);
+
+      sinon.assert.notCalled(logErrorSpy);
+      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: ['tx1', 'tx2'] });
+      sinon.assert.calledOnceWithMatch(findInDatabaseStub, sinon.match.object, 'addresstransactionindex', {}, {
+        projection: {
+          _id: 0, transactions: 1, address: 1, count: 1,
+        },
+      });
+    });
+  });
+
+  describe('getAllAddresses tests', () => {
+    let distinctDatabaseStub;
+    let logErrorSpy;
+    let isInsightExplorerStub;
+
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.stub().returns(res);
+      return res;
+    };
+
+    beforeEach(async () => {
+      distinctDatabaseStub = sinon.stub(dbHelper, 'distinctDatabase');
+      isInsightExplorerStub = sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer');
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      logErrorSpy = sinon.spy(log, 'error');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw error if isInsigtExplorer is true', async () => {
+      isInsightExplorerStub.returns(true);
+      const res = generateResponse();
+
+      await explorerService.getAllAddresses(undefined, res);
+
+      sinon.assert.calledOnce(logErrorSpy);
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'Data unavailable. Deprecated',
+        },
+      });
+    });
+
+    it('should return record from db if isInsightExplorer is false', async () => {
+      isInsightExplorerStub.returns(false);
+      const res = generateResponse();
+      distinctDatabaseStub.returns(['addr1', 'addr2']);
+
+      await explorerService.getAllAddresses(undefined, res);
+
+      sinon.assert.notCalled(logErrorSpy);
+      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: ['addr1', 'addr2'] });
+      sinon.assert.calledOnceWithMatch(distinctDatabaseStub, sinon.match.object, 'addresstransactionindex', 'address');
+    });
+  });
+
+  describe('getAddressFusionCoinbase tests', () => {
+    let findInDatabaseStub;
+    let logErrorSpy;
+    let isInsightExplorerStub;
+
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.stub().returns(res);
+      return res;
+    };
+
+    beforeEach(async () => {
+      findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase');
+      isInsightExplorerStub = sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer');
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      logErrorSpy = sinon.spy(log, 'error');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw error if isInsigtExplorer is true', async () => {
+      isInsightExplorerStub.returns(true);
+      const res = generateResponse();
+
+      await explorerService.getAddressFusionCoinbase(undefined, res);
+
+      sinon.assert.calledOnce(logErrorSpy);
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'Data unavailable. Deprecated',
+        },
+      });
+    });
+
+    it('should throw error if isInsigtExplorer is false, no address provided', async () => {
+      isInsightExplorerStub.returns(true);
+      const res = generateResponse();
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+
+      await explorerService.getAddressFusionCoinbase(req, res);
+
+      sinon.assert.calledOnce(logErrorSpy);
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'Data unavailable. Deprecated',
+        },
+      });
+    });
+
+    it('should return record from db if isInsightExplorer is false, address provided in params', async () => {
+      isInsightExplorerStub.returns(false);
+      const res = generateResponse();
+      findInDatabaseStub.returns(['tx1', 'tx2']);
+      const req = {
+        params: {
+          address: '1Z123456ACED',
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      await explorerService.getAddressFusionCoinbase(req, res);
+
+      sinon.assert.notCalled(logErrorSpy);
+      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: ['tx1', 'tx2'] });
+      sinon.assert.calledOnceWithMatch(findInDatabaseStub, sinon.match.object, 'coinbasefusionindex', { address: '1Z123456ACED' }, {
+        projection: {
+          _id: 0,
+          txid: 1,
+          vout: 1,
+          height: 1,
+          address: 1,
+          satoshis: 1,
+          scriptPubKey: 1,
+          coinbase: 1,
+        },
+      });
+    });
+
+    it('should return record from db if isInsightExplorer is false, address provided in query', async () => {
+      isInsightExplorerStub.returns(false);
+      const res = generateResponse();
+      findInDatabaseStub.returns(['tx1', 'tx2']);
+      const req = {
+        params: {
+          test2: 'test2',
+        },
+        query: {
+          address: '1Z123456ACED',
+        },
+      };
+      await explorerService.getAddressFusionCoinbase(req, res);
+
+      sinon.assert.notCalled(logErrorSpy);
+      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: ['tx1', 'tx2'] });
+      sinon.assert.calledOnceWithMatch(findInDatabaseStub, sinon.match.object, 'coinbasefusionindex', { address: '1Z123456ACED' }, {
+        projection: {
+          _id: 0,
+          txid: 1,
+          vout: 1,
+          height: 1,
+          address: 1,
+          satoshis: 1,
+          scriptPubKey: 1,
+          coinbase: 1,
+        },
+      });
+    });
+  });
+
+  describe.only('getFilteredFluxTxs tests', () => {
+    let findInDatabaseStub;
+    let logErrorSpy;
+
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.stub().returns(res);
+      return res;
+    };
+
+    beforeEach(async () => {
+      findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase');
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      logErrorSpy = sinon.spy(log, 'error');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return error if filter is not valid', async () => {
+      const res = generateResponse();
+      findInDatabaseStub.returns(['tx1', 'tx2']);
+      const req = {
+        params: {
+          filter: 'test1',
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      await explorerService.getFilteredFluxTxs(req, res);
+
+      sinon.assert.calledOnce(logErrorSpy);
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'It is possible to only filter via IP address, Flux address and Collateral hash.',
+        },
+      });
+    });
+
+    it('should properly filter out records if filter is ip', async () => {
+      const res = generateResponse();
+      findInDatabaseStub.returns(['tx1', 'tx2']);
+      const req = {
+        params: {
+          filter: '192.168.0.0',
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      await explorerService.getFilteredFluxTxs(req, res);
+
+      sinon.assert.notCalled(logErrorSpy);
+      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: ['tx1', 'tx2'] });
+      sinon.assert.calledOnceWithMatch(findInDatabaseStub, sinon.match.object, 'zelnodetransactions', { ip: '192.168.0.0' }, {
+        projection: {
+          _id: 0,
+          txid: 1,
+          version: 1,
+          type: 1,
+          updateType: 1,
+          ip: 1,
+          benchTier: 1,
+          collateralHash: 1,
+          collateralIndex: 1,
+          zelAddress: 1,
+          lockedAmount: 1,
+          height: 1,
+        },
+      });
+    });
+
+    it('should properly filter out records if filter is 64 chars long', async () => {
+      const res = generateResponse();
+      findInDatabaseStub.returns(['tx1', 'tx2']);
+      const req = {
+        params: {
+          filter: 'This string is exactly 64 characters long. Including this string',
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      await explorerService.getFilteredFluxTxs(req, res);
+
+      sinon.assert.notCalled(logErrorSpy);
+      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: ['tx1', 'tx2'] });
+      sinon.assert.calledOnceWithMatch(findInDatabaseStub, sinon.match.object, 'zelnodetransactions', { ip: '192.168.0.0' }, {
+        projection: {
+          _id: 0,
+          txid: 1,
+          version: 1,
+          type: 1,
+          updateType: 1,
+          ip: 1,
+          benchTier: 1,
+          collateralHash: 1,
+          collateralIndex: 1,
+          zelAddress: 1,
+          lockedAmount: 1,
+          height: 1,
+        },
+      });
+    });
+  });
+  // TODO initiateBlockProcessor, getAddressUtxos tests
 });
