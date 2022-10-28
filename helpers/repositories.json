@@ -392,5 +392,9 @@
    "boxboat/hextris:latest",
    "bigmandave/doge-node",
    "treyyoder/quakejs:latest",
-   "biosmarcel/scribble.rs:latest"
+   "biosmarcel/scribble.rs:latest",
+   "arkanus/quakejs:latest",
+   "chesscorp/chess-club:latest",
+   "guilhermebkel/unapy:latest",
+   "modem7/wordle:latest"
 ]
