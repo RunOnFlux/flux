@@ -112,7 +112,7 @@
     "apexcharts": "~3.36.0",
     "babel-eslint": "~10.1.0",
     "babel-plugin-component": "~1.1.1",
-    "bootstrap-vue": "~2.22.0",
+    "bootstrap-vue": "~2.23.1",
     "chai": "~4.3.6",
     "chai-as-promised": "~7.1.1",
     "concurrently": "~6.5.1",
