@@ -121,7 +121,7 @@
     "eslint": "~6.8.0",
     "eslint-plugin-vue": "~7.20.0",
     "jsdoc": "~3.6.11",
-    "leaflet": "~1.8.0",
+    "leaflet": "~1.9.2",
     "mocha": "~9.2.2",
     "nyc": "~15.1.0",
     "portal-vue": "~2.1.7",
