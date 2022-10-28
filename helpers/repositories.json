@@ -397,5 +397,7 @@
    "chesscorp/chess-club:latest",
    "guilhermebkel/unapy:latest",
    "modem7/wordle:latest",
-   "fegauthier/persistent-storage-test:latest"
+   "fegauthier/persistent-storage-test:latest",
+   "marcolederdev/ravewave-server:latest",
+   "marcolederdev/ravewave-client:latest"
 ]
