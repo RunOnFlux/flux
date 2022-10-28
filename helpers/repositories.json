@@ -391,5 +391,6 @@
    "truecharts/quakejs:latest",
    "boxboat/hextris:latest",
    "bigmandave/doge-node",
-   "treyyoder/quakejs:latest"
+   "treyyoder/quakejs:latest",
+   "biosmarcel/scribble.rs:latest"
 ]
