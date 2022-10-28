@@ -390,5 +390,7 @@
    "truecharts/wordle:latest",
    "truecharts/quakejs:latest",
    "boxboat/hextris:latest",
-   "bigmandave/doge-node"
+   "bigmandave/doge-node",
+   "treyyoder/quakejs:latest",
+   "biosmarcel/scribble.rs:latest"
 ]
