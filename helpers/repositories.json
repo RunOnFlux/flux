@@ -384,5 +384,11 @@
    "getblokio/ergo-react:3.0",
    "flynnbrooks/noderank:latest",
    "ethoprotocol/etho_ipfs_node:latest",
-   "wirewrex/doh-server:latest"
+   "wirewrex/doh-server:latest",
+   "vlabresearch/scribble:v0.0.23",
+   "riftbit/teeworlds:latest",
+   "truecharts/wordle:latest"
+   "truecharts/quakejs:latest",
+   "boxboat/hextris:latest",
+   "bigmandave/doge-node"
 ]
