@@ -396,5 +396,6 @@
    "arkanus/quakejs:latest",
    "chesscorp/chess-club:latest",
    "guilhermebkel/unapy:latest",
-   "modem7/wordle:latest"
+   "modem7/wordle:latest",
+   "fegauthier/persistent-storage-test:latest"
 ]
