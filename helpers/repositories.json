@@ -399,5 +399,6 @@
    "modem7/wordle:latest",
    "fegauthier/persistent-storage-test:latest",
    "marcolederdev/ravewave-server:latest",
-   "marcolederdev/ravewave-client:latest"
+   "marcolederdev/ravewave-client:latest",
+   "honsontran/flux-fuse-netstats-agent"
 ]
