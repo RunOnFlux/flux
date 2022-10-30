@@ -1,8 +1,8 @@
 const sinon = require('sinon');
 const { expect } = require('chai');
 const LRU = require('lru-cache');
-const mongodb = require('mongodb');
 const explorerService = require('../../ZelBack/src/services/explorerService');
+const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const appsService = require('../../ZelBack/src/services/appsService');
 const daemonServiceTransactionRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceTransactionRpcs');
 const daemonServiceBlockchainRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBlockchainRpcs');
@@ -11,8 +11,6 @@ const daemonServiceControlRpcs = require('../../ZelBack/src/services/daemonServi
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const log = require('../../ZelBack/src/lib/log');
-
-const { MongoClient } = mongodb;
 
 describe.only('explorerService tests', () => {
   describe('getSenderTransactionFromDaemon tests', () => {
@@ -2216,11 +2214,12 @@ describe.only('explorerService tests', () => {
     });
   });
 
-  describe.only('initiateBlockProcessor tests', () => {
+  describe('initiateBlockProcessor tests', () => {
     let findInDatabaseStub;
     let getInfoStub;
     let dropCollectionStub;
     let logErrorSpy;
+    let logInfoSpy;
 
     const generateResponse = () => {
       const res = { test: 'testing' };
@@ -2237,6 +2236,44 @@ describe.only('explorerService tests', () => {
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
       logErrorSpy = sinon.spy(log, 'error');
+      logInfoSpy = sinon.spy(log, 'info');
+      sinon.stub(dbHelper, 'insertManyToDatabase').returns(true);
+      sinon.stub(dbHelper, 'updateOneInDatabase').returns(true);
+      sinon.stub(dbHelper, 'collectionStats').returns({
+        size: 10000,
+        count: 15,
+        avgObjSize: 1111,
+      });
+      sinon.stub(appsService, 'expireGlobalApplications').returns(true);
+      sinon.stub(appsService, 'checkAndRemoveApplicationInstance').returns(true);
+      sinon.stub(daemonServiceBlockchainRpcs, 'getBlock').returns({
+        status: 'success',
+        data: {
+          tx: [
+            {
+              version: 3,
+              txid: '12345',
+              type: 'send',
+              update_type: 'someType',
+              ip: '192.168.1.1',
+              benchmark_tier: 'stratus',
+              txhash: 'hash1234',
+              outidx: '1111',
+              vout: [{
+                n: 444,
+                scriptPubKey:
+                {
+                  addresses: ['t1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6'],
+                  asm: 'OP_RETURN 5468697320737472696e672069732065786163746c792036342063686172616374657273206c6f6e672e20496e636c7564696e67207468697320737472696e67',
+                },
+                valueSat: 20000000,
+              }],
+            },
+          ],
+          height: 695000,
+          confirmations: 1,
+        },
+      });
     });
 
     afterEach(() => {
@@ -2285,7 +2322,7 @@ describe.only('explorerService tests', () => {
       sinon.assert.calledOnceWithMatch(findInDatabaseStub, sinon.match.object, 'scannedheight', { generalScannedHeight: { $gte: 0 } }, { projection: { _id: 0, generalScannedHeight: 1 } });
     });
 
-    it.only('should return error if daemon service getInfo does not return success message', async () => {
+    it('should run the block processor, all params false', async () => {
       findInDatabaseStub.returns({ generalScannedHeight: 0 });
       dropCollectionStub.resolves(true);
       const createIndexFake = sinon.fake.resolves(true);
@@ -2298,13 +2335,269 @@ describe.only('explorerService tests', () => {
           blocks: 200000,
         },
       });
+      sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer').returns(true);
+      explorerService.setBlockProccessingCanContinue(false);
 
-      await explorerService.initiateBlockProcessor(false, false);
+      await explorerService.initiateBlockProcessor(false, false, false);
+      await serviceHelper.delay(200);
 
-      // sinon.assert.calledOnce(logErrorSpy);
-      // sinon.assert.calledOnceWithMatch(findInDatabaseStub, sinon.match.object, 'scannedheight', { generalScannedHeight: { $gte: 0 } }, { projection: { _id: 0, generalScannedHeight: 1 } });
+      sinon.assert.notCalled(logErrorSpy);
+      sinon.assert.calledWithMatch(logInfoSpy, 'FLUX documents: 10000, 15, 1111');
+      sinon.assert.calledWithMatch(logInfoSpy, 'Processing Explorer Block Height: 695000');
+      sinon.assert.calledWithMatch(logInfoSpy, 'Preparing apps collections');
+      sinon.assert.calledWithMatch(logInfoSpy, 'Preparation done');
+    });
+
+    it('should run the block processor, restoreDatabase set to true, height > 0', async () => {
+      sinon.stub(dbHelper, 'removeDocumentsFromCollection').resolves(true);
+      sinon.stub(dbHelper, 'updateInDatabase').resolves(true);
+      findInDatabaseStub.returns({ generalScannedHeight: 1000 });
+      dropCollectionStub.resolves(true);
+      const createIndexFake = sinon.fake.resolves(true);
+      const collectionFake = sinon.fake.returns({ createIndex: createIndexFake });
+      const dbFake = sinon.fake.returns({ collection: collectionFake });
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: dbFake });
+      getInfoStub.returns({
+        status: 'success',
+        data: {
+          blocks: 200000,
+        },
+      });
+      sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer').returns(true);
+      explorerService.setBlockProccessingCanContinue(false);
+
+      await explorerService.initiateBlockProcessor(true, false, false);
+      await serviceHelper.delay(200);
+
+      sinon.assert.notCalled(logErrorSpy);
+      sinon.assert.calledWithMatch(logInfoSpy, 'FLUX documents: 10000, 15, 1111');
+      sinon.assert.calledWithMatch(logInfoSpy, 'Processing Explorer Block Height: 695000');
+      sinon.assert.calledWithMatch(logInfoSpy, 'Restoring database...');
+      sinon.assert.calledWithMatch(logInfoSpy, 'Rescan completed');
+      sinon.assert.calledWithMatch(logInfoSpy, 'Rescan completed');
+      sinon.assert.calledWithMatch(logInfoSpy, 'Database restored OK');
+    });
+
+    it('should run the block processor, deepRestore, restoreDatabase set to true, height > 0', async () => {
+      sinon.stub(dbHelper, 'removeDocumentsFromCollection').resolves(true);
+      sinon.stub(dbHelper, 'updateInDatabase').resolves(true);
+      findInDatabaseStub.returns({ generalScannedHeight: 1000 });
+      dropCollectionStub.resolves(true);
+      const createIndexFake = sinon.fake.resolves(true);
+      const collectionFake = sinon.fake.returns({ createIndex: createIndexFake });
+      const dbFake = sinon.fake.returns({ collection: collectionFake });
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: dbFake });
+      getInfoStub.returns({
+        status: 'success',
+        data: {
+          blocks: 200000,
+        },
+      });
+      sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer').returns(true);
+      explorerService.setBlockProccessingCanContinue(false);
+
+      await explorerService.initiateBlockProcessor(true, true, false);
+      await serviceHelper.delay(200);
+
+      sinon.assert.notCalled(logErrorSpy);
+      sinon.assert.calledWithMatch(logInfoSpy, 'FLUX documents: 10000, 15, 1111');
+      sinon.assert.calledWithMatch(logInfoSpy, 'Processing Explorer Block Height: 695000');
+      sinon.assert.calledWithMatch(logInfoSpy, 'Deep restoring of database...');
+      sinon.assert.calledWithMatch(logInfoSpy, 'Rescan completed');
+      sinon.assert.calledWithMatch(logInfoSpy, 'Rescan completed');
+      sinon.assert.calledWithMatch(logInfoSpy, 'Database restored OK');
+    });
+
+    it('should run the block processor, reindexOrRescanGlobalApps set to true, height == 0', async () => {
+      sinon.stub(dbHelper, 'removeDocumentsFromCollection').resolves(true);
+      sinon.stub(dbHelper, 'updateInDatabase').resolves(true);
+      findInDatabaseStub.returns({ generalScannedHeight: 0 });
+      dropCollectionStub.resolves(true);
+      const createIndexFake = sinon.fake.resolves(true);
+      const collectionFake = sinon.fake.returns({ createIndex: createIndexFake });
+      const dbFake = sinon.fake.returns({ collection: collectionFake });
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: dbFake });
+      getInfoStub.returns({
+        status: 'success',
+        data: {
+          blocks: 200000,
+        },
+      });
+      sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer').returns(true);
+      explorerService.setBlockProccessingCanContinue(false);
+
+      await explorerService.initiateBlockProcessor(false, false, true);
+      await serviceHelper.delay(200);
+
+      sinon.assert.notCalled(logErrorSpy);
+      sinon.assert.calledWithMatch(logInfoSpy, 'FLUX documents: 10000, 15, 1111');
+      sinon.assert.calledWithMatch(logInfoSpy, 'Processing Explorer Block Height: 695000');
+      sinon.assert.calledWithMatch(logInfoSpy, 'Preparing apps collections');
+      sinon.assert.calledWithMatch(logInfoSpy, 'Preparation done');
+      sinon.assert.calledWithMatch(dropCollectionStub, sinon.match.object, 'zelappslocation');
+      sinon.assert.calledWithMatch(dropCollectionStub, sinon.match.object, 'zelappsmessages');
+      sinon.assert.calledWithMatch(dropCollectionStub, sinon.match.object, 'coinbasefusionindex');
+      sinon.assert.calledWithMatch(dropCollectionStub, sinon.match.object, 'zelappshashes');
+      sinon.assert.calledWithMatch(dropCollectionStub, sinon.match.object, 'addresstransactionindex');
+      sinon.assert.calledWithMatch(dropCollectionStub, sinon.match.object, 'zelnodetransactions');
     });
   });
 
-  // TODO  getAddressUtxos, checkBlockProcessingStopped, stopBlockProcessing, restartBlockProcessing, reindexExplorer, rescanExplorer tests
+  describe('getAddressUtxos tests', () => {
+    let findInDatabaseStub;
+    let logErrorSpy;
+    let isInsightExplorerStub;
+
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.stub().returns(res);
+      return res;
+    };
+
+    beforeEach(async () => {
+      findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase');
+      isInsightExplorerStub = sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer');
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      logErrorSpy = sinon.spy(log, 'error');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw error if no address param is passed', async () => {
+      isInsightExplorerStub.returns(true);
+      const res = generateResponse();
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          test1: 'test1',
+        },
+      };
+
+      await explorerService.getAddressUtxos(req, res);
+
+      sinon.assert.calledOnce(logErrorSpy);
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'No address provided',
+        },
+      });
+    });
+
+    it('should return record from db if isInsightExplorer is false, addr in params', async () => {
+      isInsightExplorerStub.returns(false);
+      const res = generateResponse();
+      findInDatabaseStub.returns(['tx1', 'tx2']);
+      const req = {
+        params: {
+          address: '1Z123123123123123AAAACCC',
+        },
+        query: {
+          test1: 'test1',
+        },
+      };
+
+      await explorerService.getAddressUtxos(req, res);
+
+      sinon.assert.notCalled(logErrorSpy);
+      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: ['tx1', 'tx2'] });
+      sinon.assert.calledOnceWithMatch(findInDatabaseStub, sinon.match.object, 'utxoindex', {}, {
+        projection: {
+          _id: 0,
+          txid: 1,
+          vout: 1,
+          height: 1,
+          address: 1,
+          satoshis: 1,
+          scriptPubKey: 1,
+          coinbase: 1,
+        },
+      });
+    });
+
+    it('should return record from db if isInsightExplorer is false, addr in query', async () => {
+      isInsightExplorerStub.returns(false);
+      const res = generateResponse();
+      findInDatabaseStub.returns(['tx1', 'tx2']);
+      const req = {
+        query: {
+          address: '1Z123123123123123AAAACCC',
+        },
+        params: {
+          test1: 'test1',
+        },
+      };
+
+      await explorerService.getAddressUtxos(req, res);
+
+      sinon.assert.notCalled(logErrorSpy);
+      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: ['tx1', 'tx2'] });
+      sinon.assert.calledOnceWithMatch(findInDatabaseStub, sinon.match.object, 'utxoindex', {}, {
+        projection: {
+          _id: 0,
+          txid: 1,
+          vout: 1,
+          height: 1,
+          address: 1,
+          satoshis: 1,
+          scriptPubKey: 1,
+          coinbase: 1,
+        },
+      });
+    });
+
+    it('should data from daemon if isInsightExplorer is true', async () => {
+      isInsightExplorerStub.returns(true);
+      const res = generateResponse();
+      findInDatabaseStub.returns(['tx1', 'tx2']);
+      const req = {
+        params: {
+          address: '1Z123123123123123AAAACCC',
+        },
+        query: {
+          test1: 'test1',
+        },
+      };
+      sinon.stub(daemonServiceAddressRpcs, 'getSingleAddressUtxos').returns({
+        data: [
+          {
+            address: '1ZADD',
+            txid: 1,
+            outputIndex: 11,
+            height: 10000,
+            satoshis: 123456,
+            script: '1231244aaasdff',
+          },
+        ],
+      });
+      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { height: 10000 } });
+
+      await explorerService.getAddressUtxos(req, res);
+
+      sinon.assert.notCalled(logErrorSpy);
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'success',
+        data: [
+          {
+            address: '1ZADD',
+            txid: 1,
+            vout: 11,
+            height: 10000,
+            satoshis: 123456,
+            scriptPubKey: '1231244aaasdff',
+            confirmations: 0,
+          },
+        ],
+      });
+      sinon.assert.notCalled(findInDatabaseStub);
+    });
+  });
 });

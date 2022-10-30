@@ -854,7 +854,6 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       // log.info(resultE, resultF);
       log.info('Preparation done');
     }
-    console.log(daemonHeight, scannedBlockHeight);
     if (daemonHeight > scannedBlockHeight) {
       if (scannedBlockHeight !== 0 && restoreDatabase === true) {
         try {
@@ -917,6 +916,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       }
       isInInitiationOfBP = false;
       const isInsightExplorer = daemonServiceMiscRpcs.isInsightExplorer();
+
       if (isInsightExplorer) {
         // if node is insight explorer based, we are only processing flux app messages
         if (scannedBlockHeight < config.deterministicNodesStart - 1) {
