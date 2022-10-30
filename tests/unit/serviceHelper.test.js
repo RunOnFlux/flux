@@ -306,7 +306,7 @@ describe('serviceHelper tests', () => {
     });
 
     it('custom decimal places false B', () => {
-      expect(serviceHelper.isDecimalLimit(3.2342342341, 2)).t.equal(false);
+      expect(serviceHelper.isDecimalLimit(3.2342342341, 2)).to.equal(false);
     });
   });
 });

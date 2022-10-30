@@ -131,8 +131,8 @@ function isDecimalLimit(value, decimals = 8) {
   if (Number.isNaN(numberRepresentation)) {
     return false;
   }
-  const decimalValue = ensureString(value).split('.')[1];
-  if (decimalValue && decimalValue.length <= decimals) {
+  const decimalValue = ensureString(value).split('.')[1] || '';
+  if (decimalValue.length <= decimals) {
     return true;
   }
   return false;
