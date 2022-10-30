@@ -854,6 +854,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       // log.info(resultE, resultF);
       log.info('Preparation done');
     }
+    console.log(daemonHeight, scannedBlockHeight);
     if (daemonHeight > scannedBlockHeight) {
       if (scannedBlockHeight !== 0 && restoreDatabase === true) {
         try {
@@ -1581,9 +1582,14 @@ async function getAddressBalance(req, res) {
   }
 }
 
-// exported for testing purposes
+// testing purposes
 function setBlockProccessingCanContinue(value) {
   blockProccessingCanContinue = value;
+}
+
+// testing purposes
+function setIsInInitiationOfBP(value) {
+  isInInitiationOfBP = value;
 }
 
 module.exports = {
@@ -1617,5 +1623,6 @@ module.exports = {
   processTransaction,
   processStandard,
   setBlockProccessingCanContinue,
+  setIsInInitiationOfBP,
   restoreDatabaseToBlockheightState,
 };

@@ -1,13 +1,18 @@
 const sinon = require('sinon');
 const { expect } = require('chai');
 const LRU = require('lru-cache');
+const mongodb = require('mongodb');
 const explorerService = require('../../ZelBack/src/services/explorerService');
 const appsService = require('../../ZelBack/src/services/appsService');
 const daemonServiceTransactionRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceTransactionRpcs');
 const daemonServiceBlockchainRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBlockchainRpcs');
+const daemonServiceAddressRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceAddressRpcs');
+const daemonServiceControlRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceControlRpcs');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const log = require('../../ZelBack/src/lib/log');
+
+const { MongoClient } = mongodb;
 
 describe.only('explorerService tests', () => {
   describe('getSenderTransactionFromDaemon tests', () => {
@@ -1752,7 +1757,7 @@ describe.only('explorerService tests', () => {
     });
   });
 
-  describe.only('getFilteredFluxTxs tests', () => {
+  describe('getFilteredFluxTxs tests', () => {
     let findInDatabaseStub;
     let logErrorSpy;
 
@@ -1774,12 +1779,12 @@ describe.only('explorerService tests', () => {
       sinon.restore();
     });
 
-    it('should return error if filter is not valid', async () => {
+    it('should return error if filter is not valid - 38 chars long', async () => {
       const res = generateResponse();
       findInDatabaseStub.returns(['tx1', 'tx2']);
       const req = {
         params: {
-          filter: 'test1',
+          filter: '12342314324123412312341234123411111111',
         },
         query: {
           test2: 'test2',
@@ -1836,7 +1841,7 @@ describe.only('explorerService tests', () => {
       findInDatabaseStub.returns(['tx1', 'tx2']);
       const req = {
         params: {
-          filter: 'This string is exactly 64 characters long. Including this string',
+          filter: '123423143241234123123412341234asdfsdfdasfasdfasdfasdfasdfqwqqqee',
         },
         query: {
           test2: 'test2',
@@ -1846,7 +1851,73 @@ describe.only('explorerService tests', () => {
 
       sinon.assert.notCalled(logErrorSpy);
       sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: ['tx1', 'tx2'] });
-      sinon.assert.calledOnceWithMatch(findInDatabaseStub, sinon.match.object, 'zelnodetransactions', { ip: '192.168.0.0' }, {
+      sinon.assert.calledOnceWithMatch(findInDatabaseStub, sinon.match.object, 'zelnodetransactions', { collateralHash: '123423143241234123123412341234asdfsdfdasfasdfasdfasdfasdfqwqqqee' }, {
+        projection: {
+          _id: 0,
+          txid: 1,
+          version: 1,
+          type: 1,
+          updateType: 1,
+          ip: 1,
+          benchTier: 1,
+          collateralHash: 1,
+          collateralIndex: 1,
+          zelAddress: 1,
+          lockedAmount: 1,
+          height: 1,
+        },
+      });
+    });
+
+    it('should properly filter out records if filter is 30 chars long', async () => {
+      const res = generateResponse();
+      findInDatabaseStub.returns(['tx1', 'tx2']);
+      const req = {
+        params: {
+          filter: '123423143241234123123412341234',
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      await explorerService.getFilteredFluxTxs(req, res);
+
+      sinon.assert.notCalled(logErrorSpy);
+      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: ['tx1', 'tx2'] });
+      sinon.assert.calledOnceWithMatch(findInDatabaseStub, sinon.match.object, 'zelnodetransactions', { zelAddress: '123423143241234123123412341234' }, {
+        projection: {
+          _id: 0,
+          txid: 1,
+          version: 1,
+          type: 1,
+          updateType: 1,
+          ip: 1,
+          benchTier: 1,
+          collateralHash: 1,
+          collateralIndex: 1,
+          zelAddress: 1,
+          lockedAmount: 1,
+          height: 1,
+        },
+      });
+    });
+
+    it('should properly filter out records if filter is 37 chars long', async () => {
+      const res = generateResponse();
+      findInDatabaseStub.returns(['tx1', 'tx2']);
+      const req = {
+        params: {
+          filter: '1234231432412341231234123412341111111',
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      await explorerService.getFilteredFluxTxs(req, res);
+
+      sinon.assert.notCalled(logErrorSpy);
+      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: ['tx1', 'tx2'] });
+      sinon.assert.calledOnceWithMatch(findInDatabaseStub, sinon.match.object, 'zelnodetransactions', { zelAddress: '1234231432412341231234123412341111111' }, {
         projection: {
           _id: 0,
           txid: 1,
@@ -1864,5 +1935,376 @@ describe.only('explorerService tests', () => {
       });
     });
   });
-  // TODO initiateBlockProcessor, getAddressUtxos tests
+
+  describe('getAddressFusionCoinbase tests', () => {
+    let distinctDatabaseStub;
+    let logErrorSpy;
+    let isInsightExplorerStub;
+
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.stub().returns(res);
+      return res;
+    };
+
+    beforeEach(async () => {
+      distinctDatabaseStub = sinon.stub(dbHelper, 'distinctDatabase');
+      isInsightExplorerStub = sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer');
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      logErrorSpy = sinon.spy(log, 'error');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw error if no params are passed', async () => {
+      isInsightExplorerStub.returns(true);
+      const res = generateResponse();
+
+      await explorerService.getAddressTransactions(undefined, res);
+
+      sinon.assert.calledOnce(logErrorSpy);
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'TypeError',
+          message: "Cannot read property 'params' of undefined",
+        },
+      });
+    });
+
+    it('should throw error if no address param is passed', async () => {
+      isInsightExplorerStub.returns(true);
+      const res = generateResponse();
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+
+      await explorerService.getAddressTransactions(req, res);
+
+      sinon.assert.calledOnce(logErrorSpy);
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'No address provided',
+        },
+      });
+    });
+
+    it('should return record from db if isInsightExplorer is false, address provided in params', async () => {
+      isInsightExplorerStub.returns(false);
+      const res = generateResponse();
+      distinctDatabaseStub.returns(['tx1', 'tx2']);
+      const req = {
+        params: {
+          address: '1Z123456ACED',
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      await explorerService.getAddressTransactions(req, res);
+
+      sinon.assert.notCalled(logErrorSpy);
+      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: ['tx1', 'tx2'] });
+      sinon.assert.calledOnceWithMatch(distinctDatabaseStub, sinon.match.object, 'addresstransactionindex', 'transactions', { address: '1Z123456ACED' });
+    });
+
+    it('should return txid if isInsightExplorer is true, address provided in params', async () => {
+      sinon.stub(daemonServiceAddressRpcs, 'getSingleAddresssTxids').returns({
+        data: {
+          reverse: sinon.fake(() => ['txid1', 'txid2', 'txid3']),
+        },
+      });
+      isInsightExplorerStub.returns(true);
+      const res = generateResponse();
+      const req = {
+        params: {
+          address: '1Z123456ACED',
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      await explorerService.getAddressTransactions(req, res);
+
+      sinon.assert.notCalled(logErrorSpy);
+      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: [{ txid: 'txid1' }, { txid: 'txid2' }, { txid: 'txid3' }] });
+      sinon.assert.notCalled(distinctDatabaseStub);
+    });
+  });
+
+  describe('getScannedHeight tests', () => {
+    let findOneInDatabaseStub;
+    let logErrorSpy;
+
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.stub().returns(res);
+      return res;
+    };
+
+    beforeEach(async () => {
+      findOneInDatabaseStub = sinon.stub(dbHelper, 'findOneInDatabase');
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      logErrorSpy = sinon.spy(log, 'error');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should pass error if nothing was found in db', async () => {
+      findOneInDatabaseStub.returns(null);
+      const res = generateResponse();
+
+      await explorerService.getScannedHeight(undefined, res);
+
+      sinon.assert.calledOnce(logErrorSpy);
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'Scanning not initiated',
+        },
+      });
+    });
+
+    it('should return result, response passed', async () => {
+      findOneInDatabaseStub.returns(10000000);
+      const res = generateResponse();
+
+      await explorerService.getScannedHeight(undefined, res);
+
+      sinon.assert.notCalled(logErrorSpy);
+      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: 10000000 });
+      sinon.assert.calledOnceWithMatch(findOneInDatabaseStub, sinon.match.object, 'scannedheight', { generalScannedHeight: { $gte: 0 } }, { projection: { _id: 0, generalScannedHeight: 1 } });
+    });
+
+    it('should return result, no response passed', async () => {
+      findOneInDatabaseStub.returns(10000000);
+
+      const result = await explorerService.getScannedHeight(undefined, undefined);
+
+      sinon.assert.notCalled(logErrorSpy);
+      expect(result).to.eql({ status: 'success', data: 10000000 });
+      sinon.assert.calledOnceWithMatch(findOneInDatabaseStub, sinon.match.object, 'scannedheight', { generalScannedHeight: { $gte: 0 } }, { projection: { _id: 0, generalScannedHeight: 1 } });
+    });
+  });
+
+  describe('getAddressBalance tests', () => {
+    let findInDatabaseStub;
+    let logErrorSpy;
+    let isInsightExplorerStub;
+
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.stub().returns(res);
+      return res;
+    };
+
+    beforeEach(async () => {
+      findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase');
+      isInsightExplorerStub = sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer');
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      logErrorSpy = sinon.spy(log, 'error');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw error if no address is provided', async () => {
+      isInsightExplorerStub.returns(true);
+      const res = generateResponse();
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+
+      await explorerService.getAddressBalance(req, res);
+
+      sinon.assert.calledOnce(logErrorSpy);
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'No address provided',
+        },
+      });
+    });
+
+    it('should return record from db if isInsightExplorer is false, address provided in params', async () => {
+      isInsightExplorerStub.returns(false);
+      const res = generateResponse();
+      findInDatabaseStub.returns([{ satoshis: 1000 }, { satoshis: 2000 }]);
+      const req = {
+        params: {
+          address: '1Z123456ACED',
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      await explorerService.getAddressBalance(req, res);
+
+      sinon.assert.notCalled(logErrorSpy);
+      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: 3000 });
+      sinon.assert.calledOnceWithMatch(findInDatabaseStub, sinon.match.object, 'utxoindex', { address: '1Z123456ACED' }, { projection: { _id: 0, satoshis: 1 } });
+    });
+
+    it('should return record from db if isInsightExplorer is false, address provided in query', async () => {
+      isInsightExplorerStub.returns(false);
+      const res = generateResponse();
+      findInDatabaseStub.returns([{ satoshis: 1000 }, { satoshis: 2000 }]);
+      const req = {
+        query: {
+          address: '1Z123456ACED',
+        },
+        params: {
+          test2: 'test2',
+        },
+      };
+      await explorerService.getAddressBalance(req, res);
+
+      sinon.assert.notCalled(logErrorSpy);
+      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: 3000 });
+      sinon.assert.calledOnceWithMatch(findInDatabaseStub, sinon.match.object, 'utxoindex', { address: '1Z123456ACED' }, { projection: { _id: 0, satoshis: 1 } });
+    });
+
+    it('should return data from daemon service if isInsightExplorer is true, address provided in params', async () => {
+      isInsightExplorerStub.returns(true);
+      sinon.stub(daemonServiceAddressRpcs, 'getSingleAddressBalance').returns({
+        data: { balance: 100000 },
+      });
+      const res = generateResponse();
+      findInDatabaseStub.returns([{ satoshis: 1000 }, { satoshis: 2000 }]);
+      const req = {
+        params: {
+          address: '1Z123456ACED',
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      await explorerService.getAddressBalance(req, res);
+
+      sinon.assert.notCalled(logErrorSpy);
+      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: 100000 });
+      sinon.assert.notCalled(findInDatabaseStub);
+    });
+  });
+
+  describe.only('initiateBlockProcessor tests', () => {
+    let findInDatabaseStub;
+    let getInfoStub;
+    let dropCollectionStub;
+    let logErrorSpy;
+
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.stub().returns(res);
+      return res;
+    };
+
+    beforeEach(async () => {
+      findInDatabaseStub = sinon.stub(dbHelper, 'findOneInDatabase');
+      dropCollectionStub = sinon.stub(dbHelper, 'dropCollection');
+      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true } });
+      getInfoStub = sinon.stub(daemonServiceControlRpcs, 'getInfo');
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      logErrorSpy = sinon.spy(log, 'error');
+    });
+
+    afterEach(() => {
+      explorerService.setIsInInitiationOfBP(false);
+      sinon.restore();
+    });
+
+    it('should return right away if isInInitiationOfBP is true', async () => {
+      explorerService.setIsInInitiationOfBP(true);
+      const res = generateResponse();
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+
+      const result = await explorerService.initiateBlockProcessor(req, res);
+
+      expect(result).to.be.undefined;
+      sinon.assert.notCalled(findInDatabaseStub);
+    });
+
+    it('should return error if daemon service getInfo does not return success message', async () => {
+      getInfoStub.returns({
+        status: 'error',
+        data: {
+          message: 'message',
+        },
+      });
+      const res = generateResponse();
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          test: 'test',
+        },
+      };
+
+      await explorerService.initiateBlockProcessor(req, res);
+
+      sinon.assert.calledOnce(logErrorSpy);
+      sinon.assert.calledOnceWithMatch(findInDatabaseStub, sinon.match.object, 'scannedheight', { generalScannedHeight: { $gte: 0 } }, { projection: { _id: 0, generalScannedHeight: 1 } });
+    });
+
+    it.only('should return error if daemon service getInfo does not return success message', async () => {
+      findInDatabaseStub.returns({ generalScannedHeight: 0 });
+      dropCollectionStub.resolves(true);
+      const createIndexFake = sinon.fake.resolves(true);
+      const collectionFake = sinon.fake.returns({ createIndex: createIndexFake });
+      const dbFake = sinon.fake.returns({ collection: collectionFake });
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: dbFake });
+      getInfoStub.returns({
+        status: 'success',
+        data: {
+          blocks: 200000,
+        },
+      });
+
+      await explorerService.initiateBlockProcessor(false, false);
+
+      // sinon.assert.calledOnce(logErrorSpy);
+      // sinon.assert.calledOnceWithMatch(findInDatabaseStub, sinon.match.object, 'scannedheight', { generalScannedHeight: { $gte: 0 } }, { projection: { _id: 0, generalScannedHeight: 1 } });
+    });
+  });
+
+  // TODO  getAddressUtxos, checkBlockProcessingStopped, stopBlockProcessing, restartBlockProcessing, reindexExplorer, rescanExplorer tests
 });
