@@ -278,8 +278,8 @@ describe('serviceHelper tests', () => {
   });
 
   describe('isDecimalLimit function tests', () => {
-    const falseBools = [3.123456789, '0.1234567890', 'number', undefined, null, NaN, '3.123.3', 9.0000000000000000000000000, '7.000000000'];
-    const trueBools = [1.123, 4.12345678, '4324.123453', 4, '6', 4.00, '5.000'];
+    const falseBools = [3.123456789, '0.1234567890', 'number', undefined, NaN, '3.123.3', '7.000000000'];
+    const trueBools = [1.123, 4.12345678, '4324.123453', 4, '6', 4.00, '5.000', null];
 
     for (const falseBool of falseBools) {
       it(`parameter ${falseBool} should return false`, () => {

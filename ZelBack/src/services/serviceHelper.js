@@ -123,7 +123,7 @@ async function deleteLoginPhrase(phrase) {
 
 /**
  * If a number or a string value has maximum of decimals
- * @param {number, string} value Number to check agains
+ * @param {(string|number)} value Number to check agains
  * @param {number} decimals Maximum number of allowed decimals. Defaults to 8 for satoshis
  */
 function isDecimalLimit(value, decimals = 8) {
