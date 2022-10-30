@@ -406,5 +406,6 @@
    "ipfs/ipfs-cluster",
    "modernglobal/mintit-fe",
    "wanchain/client-go:latest",
-   "wanchain/client-go:3.0.0"
+   "wanchain/client-go:3.0.0",
+   "touilleio/alephium-standalone:v1.4.6"
 ]
