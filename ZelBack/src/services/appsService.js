@@ -5014,6 +5014,10 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   console.log(serviceHelper.ensureString(message));
   myCache.set(serviceHelper.ensureString(message), message);
   const specifications = message.appSpecifications || message.zelAppSpecifications;
+  // eslint-disable-next-line no-use-before-define
+  const appSpecFormatted = specificationFormatter(specifications);
+  const messageTimestamp = serviceHelper.ensureNumber(message.timestamp);
+  const messageVersion = serviceHelper.ensureNumber(message.version);
 
   // check permanent app message storage
   const appMessage = await checkAppMessageExistence(message.hash);
@@ -5034,23 +5038,23 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
     if (message.type === 'zelappregister' || message.type === 'fluxappregister') {
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       const daemonHeight = syncStatus.data.height;
-      await verifyAppSpecifications(specifications, daemonHeight);
+      await verifyAppSpecifications(appSpecFormatted, daemonHeight);
       await verifyAppHash(message);
-      await checkApplicationRegistrationNameConflicts(specifications);
-      await verifyAppMessageSignature(message.type, message.version, specifications, message.timestamp, message.signature);
+      await checkApplicationRegistrationNameConflicts(appSpecFormatted);
+      await verifyAppMessageSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature);
     } else if (message.type === 'zelappupdate' || message.type === 'fluxappupdate') {
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       const daemonHeight = syncStatus.data.height;
       // stadard verifications
-      await verifyAppSpecifications(specifications, daemonHeight);
+      await verifyAppSpecifications(appSpecFormatted, daemonHeight);
       await verifyAppHash(message);
       // verify that app exists, does not change repotag (for v1-v3), does not change name and does not change component names
-      await checkApplicationUpdateNameRepositoryConflicts(specifications, message.timestamp);
+      await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, messageTimestamp);
       // get previousAppSpecifications as we need previous owner
-      const previousAppSpecs = await getPreviousAppSpecifications(specifications, message);
+      const previousAppSpecs = await getPreviousAppSpecifications(appSpecFormatted, message);
       const { owner } = previousAppSpecs;
       // here signature is checked against PREVIOUS app owner
-      await verifyAppMessageUpdateSignature(message.type, message.version, specifications, message.timestamp, message.signature, owner);
+      await verifyAppMessageUpdateSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature, owner);
     } else {
       throw new Error('Invalid Flux App message received');
     }
@@ -5060,11 +5064,11 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   const validTill = receivedAt + (60 * 60 * 1000); // 60 minutes
 
   const newMessage = {
-    appSpecifications: specifications,
+    appSpecifications: appSpecFormatted,
     type: message.type, // shall be fluxappregister, fluxappupdate
-    version: message.version,
+    version: messageVersion,
     hash: message.hash,
-    timestamp: message.timestamp,
+    timestamp: messageTimestamp,
     signature: message.signature,
     receivedAt: new Date(receivedAt),
     expireAt: new Date(validTill),
