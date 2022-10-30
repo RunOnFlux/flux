@@ -12,7 +12,7 @@ const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const log = require('../../ZelBack/src/lib/log');
 
-describe.only('explorerService tests', () => {
+describe('explorerService tests', () => {
   describe('getSenderTransactionFromDaemon tests', () => {
     let daemonServiceTransactionRpcsStub;
     const txid = '12345';
