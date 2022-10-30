@@ -404,5 +404,7 @@
    "ipfs/go-ipfs",
    "ipfs/kubo",
    "ipfs/ipfs-cluster",
-   "modernglobal/mintit-fe"
+   "modernglobal/mintit-fe",
+   "wanchain/client-go:latest",
+   "wanchain/client-go:3.0.0"
 ]
