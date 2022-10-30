@@ -276,4 +276,37 @@ describe('serviceHelper tests', () => {
       expect(afterDeletionResult).to.be.null;
     });
   });
+
+  describe('isDecimalLimit function tests', () => {
+    const falseBools = [3.123456789, '0.1234567890', 'number', undefined, null, NaN, '3.123.3', 9.0000000000000000000000000, '7.000000000'];
+    const trueBools = [1.123, 4.12345678, '4324.123453', 4, '6', 4.00, '5.000'];
+
+    for (const falseBool of falseBools) {
+      it(`parameter ${falseBool} should return false`, () => {
+        expect(serviceHelper.isDecimalLimit(falseBool)).to.equal(false);
+      });
+    }
+
+    for (const trueBool of trueBools) {
+      it(`parameter ${trueBool} should return true`, () => {
+        expect(serviceHelper.isDecimalLimit(trueBool)).to.equal(true);
+      });
+    }
+
+    it('custom decimal places ok', () => {
+      expect(serviceHelper.isDecimalLimit(3.42, 2)).to.equal(true);
+    });
+
+    it('custom decimal places ok B', () => {
+      expect(serviceHelper.isDecimalLimit(3.0, 0)).to.equal(true);
+    });
+
+    it('custom decimal places false', () => {
+      expect(serviceHelper.isDecimalLimit(3.1, 0)).to.equal(false);
+    });
+
+    it('custom decimal places false B', () => {
+      expect(serviceHelper.isDecimalLimit(3.2342342341, 2)).t.equal(false);
+    });
+  });
 });

@@ -36,7 +36,7 @@ function ensureBoolean(parameter) {
  * @returns {number} Parameter converted to number type.
  */
 function ensureNumber(parameter) {
-  return typeof parameter === 'number' ? parameter : Number(parameter);
+  return Number(parameter);
 }
 
 /**
@@ -122,6 +122,23 @@ async function deleteLoginPhrase(phrase) {
 }
 
 /**
+ * If a number or a string value has maximum of decimals
+ * @param {number, string} value Number to check agains
+ * @param {number} decimals Maximum number of allowed decimals. Defaults to 8 for satoshis
+ */
+function isDecimalLimit(value, decimals = 8) {
+  const numberRepresentation = ensureNumber(value);
+  if (Number.isNaN(numberRepresentation)) {
+    return false;
+  }
+  const decimalValue = ensureString(value).split('.')[1];
+  if (decimalValue && decimalValue.length <= decimals) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * To handle timeouts on axios connection.
  * @param {string} url URL.
  * @param {object} options Options object.
@@ -153,4 +170,5 @@ module.exports = {
   delay,
   getApplicationOwner,
   deleteLoginPhrase,
+  isDecimalLimit,
 };
