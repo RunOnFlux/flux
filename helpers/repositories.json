@@ -400,5 +400,9 @@
    "fegauthier/persistent-storage-test:latest",
    "marcolederdev/ravewave-server:latest",
    "marcolederdev/ravewave-client:latest",
-   "honsontran/flux-fuse-netstats-agent"
+   "honsontran/flux-fuse-netstats-agent",
+   "ipfs/go-ipfs",
+   "ipfs/kubo",
+   "ipfs/ipfs-cluster",
+   "modernglobal/mintit-fe"
 ]
