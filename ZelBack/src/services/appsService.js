@@ -3784,6 +3784,9 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
   if (typeof version !== 'number') {
     throw new Error('Invalid Flux App version');
   }
+  if (!serviceHelper.isDecimalLimit(version)) {
+    throw new Error('Invalid Flux App version decimals');
+  }
 
   if (typeof name !== 'string') {
     throw new Error('Invalid Flux App name');
@@ -3816,6 +3819,9 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
       ports.forEach((parameter) => {
         if (typeof parameter !== 'string') {
           throw new Error('Ports for Flux App are invalid');
+        }
+        if (!serviceHelper.isDecimalLimit(parameter, 0)) {
+          throw new Error('Ports for Flux App are invalid decimals');
         }
       });
     } else {
@@ -3853,6 +3859,9 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
         if (typeof parameter !== 'string') {
           throw new Error('Container Ports for Flux App are invalid');
         }
+        if (!serviceHelper.isDecimalLimit(parameter, 0)) {
+          throw new Error('Container Ports for Flux App are invalid decimals');
+        }
       });
     } else {
       throw new Error('Container Ports for Flux App are invalid');
@@ -3862,6 +3871,9 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
     }
     if (typeof cpu !== 'number' || typeof hdd !== 'number' || typeof ram !== 'number') {
       throw new Error('Invalid HW specifications');
+    }
+    if (!serviceHelper.isDecimalLimit(cpu) || !serviceHelper.isDecimalLimit(hdd) || !serviceHelper.isDecimalLimit(ram)) {
+      throw new Error('Invalid HW specifications decimal limits');
     }
 
     if (tiered) {
@@ -3877,6 +3889,11 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
       if (typeof cpubasic !== 'number' || typeof cpusuper !== 'number' || typeof cpubamf !== 'number'
         || typeof rambasic !== 'number' || typeof ramsuper !== 'number' || typeof rambamf !== 'number'
         || typeof hddbasic !== 'number' || typeof hddsuper !== 'number' || typeof hddbamf !== 'number') {
+        throw new Error('Invalid tiered HW specifications');
+      }
+      if (!serviceHelper.isDecimalLimit(cpubasic) || !serviceHelper.isDecimalLimit(cpusuper) || !serviceHelper.isDecimalLimit(cpubamf)
+        || !serviceHelper.isDecimalLimit(rambasic) || !serviceHelper.isDecimalLimit(ramsuper) || !serviceHelper.isDecimalLimit(rambamf)
+        || !serviceHelper.isDecimalLimit(hddbasic) || !serviceHelper.isDecimalLimit(hddsuper) || !serviceHelper.isDecimalLimit(hddbamf)) {
         throw new Error('Invalid tiered HW specifications');
       }
     }
@@ -3910,6 +3927,9 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
         appComponent.ports.forEach((parameter) => {
           if (typeof parameter !== 'number') {
             throw new Error(`Ports for Flux App component ${appComponent.name} are invalid`);
+          }
+          if (!serviceHelper.isDecimalLimit(parameter, 0)) {
+            throw new Error(`Ports for Flux App component ${appComponent.name} are invalid decimals`);
           }
         });
       } else {
@@ -3947,6 +3967,9 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
           if (typeof parameter !== 'number') {
             throw new Error(`Container Ports for Flux App component ${appComponent.name} are invalid`);
           }
+          if (!serviceHelper.isDecimalLimit(parameter, 0)) {
+            throw new Error(`Container Ports for Flux App component ${appComponent.name} are invalid decimals`);
+          }
         });
       } else {
         throw new Error(`Container Ports for Flux App component ${appComponent.name} are invalid`);
@@ -3959,6 +3982,9 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
       const hddB = appComponent.hdd;
       if (typeof cpuB !== 'number' || typeof ramB !== 'number' || typeof hddB !== 'number') {
         throw new Error('Invalid HW specifications');
+      }
+      if (!serviceHelper.isDecimalLimit(cpuB) || !serviceHelper.isDecimalLimit(ramB) || !serviceHelper.isDecimalLimit(hddB)) {
+        throw new Error('Invalid HW specifications decimal limits');
       }
       if (appComponent.tiered) {
         const { cpubasic } = appComponent;
@@ -3975,6 +4001,11 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
           || typeof hddbasic !== 'number' || typeof hddsuper !== 'number' || typeof hddbamf !== 'number') {
           throw new Error('Invalid tiered HW specifications');
         }
+        if (!serviceHelper.isDecimalLimit(cpubasic) || !serviceHelper.isDecimalLimit(cpusuper) || !serviceHelper.isDecimalLimit(cpubamf)
+          || !serviceHelper.isDecimalLimit(rambasic) || !serviceHelper.isDecimalLimit(ramsuper) || !serviceHelper.isDecimalLimit(rambamf)
+          || !serviceHelper.isDecimalLimit(hddbasic) || !serviceHelper.isDecimalLimit(hddsuper) || !serviceHelper.isDecimalLimit(hddbamf)) {
+          throw new Error('Invalid tiered HW specifications');
+        }
       }
     });
   }
@@ -3987,6 +4018,9 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
       throw new Error('Invalid instances specification');
     }
     if (Number.isInteger(instances) !== true) {
+      throw new Error('Invalid instances specified');
+    }
+    if (!serviceHelper.isDecimalLimit(instances, 0)) {
       throw new Error('Invalid instances specified');
     }
   }
