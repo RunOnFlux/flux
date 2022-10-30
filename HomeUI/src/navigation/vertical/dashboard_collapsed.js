@@ -20,9 +20,9 @@ export default [
         route: 'dashboard-map',
       },
       {
-        title: 'Economics',
-        icon: 'dollar-sign',
-        route: 'dashboard-economics',
+        title: 'Rewards',
+        icon: 'coins',
+        route: 'dashboard-rewards',
       },
       {
         title: 'List',

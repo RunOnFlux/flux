@@ -113,7 +113,7 @@
               </div>
               <div>
                 <b-card-text class="mt-2">
-                  Total Supply
+                  Max Supply
                 </b-card-text>
                 <h3>
                   {{ beautifyValue(maxSupply, 0) }} FLUX

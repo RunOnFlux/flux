@@ -62,14 +62,31 @@
               :data="callResponse.data.hash"
             />
             <div v-if="callResponse.data.version >= 5">
-              <list-entry
-                title="Continent"
-                :data="callResponse.data.geolocation.length > 0 ? getContinent(callResponse.data.geolocation) : 'All'"
-              />
-              <list-entry
-                title="Country"
-                :data="callResponse.data.geolocation.length > 0 ? getCountry(callResponse.data.geolocation) : 'All'"
-              />
+              <div v-if="callResponse.data.geolocation.length">
+                <div
+                  v-for="location in callResponse.data.geolocation"
+                  :key="location"
+                >
+                  <list-entry
+                    title="Geolocation"
+                    :data="getGeolocation(location)"
+                  />
+                </div>
+              </div>
+              <div v-else>
+                <list-entry
+                  title="Continent"
+                  data="All"
+                />
+                <list-entry
+                  title="Country"
+                  data="All"
+                />
+                <list-entry
+                  title="Region"
+                  data="All"
+                />
+              </div>
             </div>
             <list-entry
               v-if="callResponse.data.instances"
@@ -102,19 +119,19 @@
                 />
                 <list-entry
                   title="Automatic Domains"
-                  :data="constructAutomaticDomains"
+                  :data="constructAutomaticDomains(callResponse.data.ports, callResponse.data.name).toString() || 'none'"
                 />
                 <list-entry
                   title="Ports"
-                  :data="callResponse.data.ports.toString()"
+                  :data="callResponse.data.ports.toString() || 'none'"
                 />
                 <list-entry
                   title="Container Ports"
-                  :data="callResponse.data.containerPorts.toString()"
+                  :data="callResponse.data.containerPorts.toString() || 'none'"
                 />
                 <list-entry
                   title="Container Data"
-                  :data="callResponse.data.containerData"
+                  :data="callResponse.data.containerData.toString() || 'none'"
                 />
                 <list-entry
                   title="Environment Parameters"
@@ -204,15 +221,15 @@
                 />
                 <list-entry
                   title="Automatic Domains"
-                  :data="constructAutomaticDomains[index]"
+                  :data="constructAutomaticDomains(component.ports, callResponse.data.name, index).toString() || 'none'"
                 />
                 <list-entry
                   title="Ports"
-                  :data="component.ports.toString()"
+                  :data="component.ports.toString() || 'none'"
                 />
                 <list-entry
                   title="Container Ports"
-                  :data="component.containerPorts.toString()"
+                  :data="component.containerPorts.toString() || 'none'"
                 />
                 <list-entry
                   title="Container Data"
@@ -310,14 +327,31 @@
               :data="callBResponse.data.hash"
             />
             <div v-if="callBResponse.data.version >= 5">
-              <list-entry
-                title="Continent"
-                :data="callBResponse.data.geolocation.length > 0 ? getContinent(callBResponse.data.geolocation) : 'All'"
-              />
-              <list-entry
-                title="Country"
-                :data="callBResponse.data.geolocation.length > 0 ? getCountry(callBResponse.data.geolocation) : 'All'"
-              />
+              <div v-if="callBResponse.data.geolocation.length">
+                <div
+                  v-for="location in callBResponse.data.geolocation"
+                  :key="location"
+                >
+                  <list-entry
+                    title="Geolocation"
+                    :data="getGeolocation(location)"
+                  />
+                </div>
+              </div>
+              <div v-else>
+                <list-entry
+                  title="Continent"
+                  data="All"
+                />
+                <list-entry
+                  title="Country"
+                  data="All"
+                />
+                <list-entry
+                  title="Region"
+                  data="All"
+                />
+              </div>
             </div>
             <list-entry
               v-if="callBResponse.data.instances"
@@ -350,15 +384,15 @@
                 />
                 <list-entry
                   title="Automatic Domains"
-                  :data="constructAutomaticDomainsGlobal"
+                  :data="constructAutomaticDomainsGlobal.toString() || 'none'"
                 />
                 <list-entry
                   title="Ports"
-                  :data="callBResponse.data.ports.toString()"
+                  :data="callBResponse.data.ports.toString() || 'none'"
                 />
                 <list-entry
                   title="Container Ports"
-                  :data="callBResponse.data.containerPorts.toString()"
+                  :data="callBResponse.data.containerPorts.toString() || 'none'"
                 />
                 <list-entry
                   title="Container Data"
@@ -452,15 +486,15 @@
                 />
                 <list-entry
                   title="Automatic Domains"
-                  :data="constructAutomaticDomainsGlobal[index]"
+                  :data="constructAutomaticDomains(component.ports, callBResponse.data.name, index).toString() || 'none'"
                 />
                 <list-entry
                   title="Ports"
-                  :data="component.ports.toString()"
+                  :data="component.ports.toString() || 'none'"
                 />
                 <list-entry
                   title="Container Ports"
-                  :data="component.containerPorts.toString()"
+                  :data="component.containerPorts.toString() || 'none'"
                 />
                 <list-entry
                   title="Container Data"
@@ -595,6 +629,70 @@
             rows="15"
             :value="JSON.stringify(callResponse.data[0].callData, null, 4)"
           />
+        </div>
+      </b-tab>
+      <b-tab
+        title="Monitoring"
+        :disabled="!isApplicationInstalledLocally"
+      >
+        <h3>{{ appSpecification.name }} History Statistics 1 hour</h3>
+        <div v-if="appSpecification.version >= 4">
+          <div
+            v-for="(component, index) in callResponse.data"
+            :key="index"
+          >
+            <h4>{{ component.name }} Component</h4>
+            <b-table
+              v-if="component.callData"
+              class="stats-table"
+              :items="generateStatsTableItems(component.callData.lastHour, appSpecification.compose.find((c) => c.name === component.name))"
+              :fields="statsFields"
+            />
+            <div v-else>
+              Loading...
+            </div>
+          </div>
+        </div>
+        <div v-else>
+          <b-table
+            v-if="callResponse.data && callResponse.data[0]"
+            class="stats-table"
+            :items="generateStatsTableItems(callResponse.data[0].callData.lastHour, appSpecification)"
+            :fields="statsFields"
+          />
+          <div v-else>
+            Loading...
+          </div>
+        </div>
+        <br><br>
+        <h3>{{ appSpecification.name }} History Statistics 24 hours</h3>
+        <div v-if="appSpecification.version >= 4">
+          <div
+            v-for="(component, index) in callResponse.data"
+            :key="index"
+          >
+            <h4>{{ component.name }} Component</h4>
+            <b-table
+              v-if="component.callData"
+              class="stats-table"
+              :items="generateStatsTableItems(component.callData.lastDay, appSpecification.compose.find((c) => c.name === component.name))"
+              :fields="statsFields"
+            />
+            <div v-else>
+              Loading...
+            </div>
+          </div>
+        </div>
+        <div v-else>
+          <b-table
+            v-if="callResponse.data && callResponse.data[0]"
+            class="stats-table"
+            :items="generateStatsTableItems(callResponse.data[0].callData.lastDay, appSpecification)"
+            :fields="statsFields"
+          />
+          <div v-else>
+            Loading...
+          </div>
         </div>
       </b-tab>
       <b-tab
@@ -840,6 +938,57 @@
               </div>
             </b-card>
           </b-col>
+          <b-col xs="6">
+            <b-card title="Monitoring">
+              <b-card-text class="mb-2">
+                Controls Application Monitoring
+              </b-card-text>
+              <div class="text-center">
+                <b-button
+                  id="start-monitoring"
+                  v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                  variant="success"
+                  aria-label="Start Monitoring"
+                  class="mx-1 my-1"
+                >
+                  Start Monitoring
+                </b-button>
+                <confirm-dialog
+                  target="start-monitoring"
+                  confirm-button="Start Monitoring"
+                  @confirm="startMonitoring(appName)"
+                />
+                <b-button
+                  id="stop-monitoring"
+                  v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                  variant="success"
+                  aria-label="Stop Monitoring"
+                  class="mx-1 my-1"
+                >
+                  Stop Monitoring
+                </b-button>
+                <confirm-dialog
+                  target="stop-monitoring"
+                  confirm-button="Stop Monitoring"
+                  @confirm="stopMonitoring(appName, false)"
+                />
+                <b-button
+                  id="stop-monitoring-delete"
+                  v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                  variant="success"
+                  aria-label="Stop Monitoring and Delete Monitored Data"
+                  class="mx-1 my-1"
+                >
+                  Stop Monitoring and Delete Monitored Data
+                </b-button>
+                <confirm-dialog
+                  target="stop-monitoring-delete"
+                  confirm-button="Stop Monitoring"
+                  @confirm="stopMonitoring(appName, true)"
+                />
+              </div>
+            </b-card>
+          </b-col>
         </b-row>
         <b-row class="match-height">
           <b-col xs="6">
@@ -1002,6 +1151,57 @@
                 </div>
               </b-card>
             </b-col>
+            <b-col xs="6">
+              <b-card title="Monitoring">
+                <b-card-text class="mb-2">
+                  Controls Component Monitoring
+                </b-card-text>
+                <div class="text-center">
+                  <b-button
+                    :id="`start-monitoring-${component.name}_${appSpecification.name}`"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Start Monitoring"
+                    class="mx-1 my-1"
+                  >
+                    Start Monitoring
+                  </b-button>
+                  <confirm-dialog
+                    :target="`start-monitoring-${component.name}_${appSpecification.name}`"
+                    confirm-button="Start Monitoring"
+                    @confirm="startMonitoring(`${component.name}_${appSpecification.name}`)"
+                  />
+                  <b-button
+                    :id="`stop-monitoring-${component.name}_${appSpecification.name}`"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Stop Monitoring"
+                    class="mx-1 my-1"
+                  >
+                    Stop Monitoring
+                  </b-button>
+                  <confirm-dialog
+                    :target="`stop-monitoring-${component.name}_${appSpecification.name}`"
+                    confirm-button="Stop Monitoring"
+                    @confirm="stopMonitoring(`${component.name}_${appSpecification.name}`, false)"
+                  />
+                  <b-button
+                    :id="`stop-monitoring-delete-${component.name}_${appSpecification.name}`"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Stop Monitoring and Delete Monitored Data"
+                    class="mx-1 my-1"
+                  >
+                    Stop Monitoring and Delete Monitored Data
+                  </b-button>
+                  <confirm-dialog
+                    :target="`pause-app-${component.name}_${appSpecification.name}`"
+                    confirm-button="Stop Monitoring"
+                    @confirm="stopMonitoring(`${component.name}_${appSpecification.name}`, true)"
+                  />
+                </div>
+              </b-card>
+            </b-col>
           </b-row>
         </b-card>
       </b-tab>
@@ -1155,14 +1355,31 @@
                 title="Contacts"
                 :data="callBResponse.data.contacts.toString() || 'none'"
               />
-              <list-entry
-                title="Continent"
-                :data="callBResponse.data.geolocation.length > 0 ? getContinent(callBResponse.data.geolocation) : 'All'"
-              />
-              <list-entry
-                title="Country"
-                :data="callBResponse.data.geolocation.length > 0 ? getCountry(callBResponse.data.geolocation) : 'All'"
-              />
+              <div v-if="callBResponse.data.geolocation.length">
+                <div
+                  v-for="location in callBResponse.data.geolocation"
+                  :key="location"
+                >
+                  <list-entry
+                    title="Geolocation"
+                    :data="getGeolocation(location)"
+                  />
+                </div>
+              </div>
+              <div v-else>
+                <list-entry
+                  title="Continent"
+                  data="All"
+                />
+                <list-entry
+                  title="Country"
+                  data="All"
+                />
+                <list-entry
+                  title="Region"
+                  data="All"
+                />
+              </div>
             </div>
             <list-entry
               v-if="callBResponse.data.instances"
@@ -1194,15 +1411,15 @@
               />
               <list-entry
                 title="Automatic Domains"
-                :data="constructAutomaticDomainsGlobal"
+                :data="constructAutomaticDomainsGlobal.toString() || 'none'"
               />
               <list-entry
                 title="Ports"
-                :data="callBResponse.data.ports.toString()"
+                :data="callBResponse.data.ports.toString() || 'none'"
               />
               <list-entry
                 title="Container Ports"
-                :data="callBResponse.data.containerPorts.toString()"
+                :data="callBResponse.data.containerPorts.toString() || 'none'"
               />
               <list-entry
                 title="Container Data"
@@ -1295,15 +1512,15 @@
               />
               <list-entry
                 title="Automatic Domains"
-                :data="constructAutomaticDomainsGlobal[index]"
+                :data="constructAutomaticDomains(component.ports, callBResponse.data.name, index).toString() || 'none'"
               />
               <list-entry
                 title="Ports"
-                :data="component.ports.toString()"
+                :data="component.ports.toString() || 'none'"
               />
               <list-entry
                 title="Container Ports"
-                :data="component.containerPorts.toString()"
+                :data="component.containerPorts.toString() || 'none'"
               />
               <list-entry
                 title="Container Data"
@@ -1749,33 +1966,204 @@
                       />
                     </div>
                   </div>
-                  <b-form-group
-                    label-cols="2"
-                    label-cols-lg="1"
-                    label="Continent"
-                    label-for="Continent"
+                </div>
+                <div v-if="appUpdateSpecification.version >= 5">
+                  <h4>Allowed Geolocation</h4>
+                  <div
+                    v-for="n in numberOfGeolocations"
+                    :key="n + 'pos'"
                   >
-                    <b-form-select
-                      id="continent"
-                      v-model="selectedContinent"
-                      :options="continentsOptions"
-                      @change="continentChanged"
-                    />
-                  </b-form-group>
-                  <b-form-group
-                    v-if="selectedContinent"
-                    label-cols="2"
-                    label-cols-lg="1"
-                    label="Country"
-                    label-for="Country"
+                    <b-form-group
+                      label-cols="3"
+                      label-cols-lg="1"
+                      :label="'Continent - ' + n"
+                      label-for="Continent"
+                    >
+                      <b-form-select
+                        id="Continent"
+                        v-model="allowedGeolocations[`selectedContinent${n}`]"
+                        :options="continentsOptions(false)"
+                        @change="adjustMaxInstancesPossible()"
+                      >
+                        <template #first>
+                          <b-form-select-option
+                            :value="undefined"
+                            disabled
+                          >
+                            -- Select to restrict Continent  --
+                          </b-form-select-option>
+                        </template>
+                      </b-form-select>
+                    </b-form-group>
+                    <b-form-group
+                      v-if="allowedGeolocations[`selectedContinent${n}`]"
+                      label-cols="3"
+                      label-cols-lg="1"
+                      :label="'Country - ' + n"
+                      label-for="Country"
+                    >
+                      <b-form-select
+                        id="country"
+                        v-model="allowedGeolocations[`selectedCountry${n}`]"
+                        :options="countriesOptions(allowedGeolocations[`selectedContinent${n}`], false)"
+                        @change="adjustMaxInstancesPossible()"
+                      >
+                        <template #first>
+                          <b-form-select-option
+                            :value="undefined"
+                            disabled
+                          >
+                            -- Select to restrict Country --
+                          </b-form-select-option>
+                        </template>
+                      </b-form-select>
+                    </b-form-group>
+                    <b-form-group
+                      v-if="allowedGeolocations[`selectedCountry${n}`]"
+                      label-cols="3"
+                      label-cols-lg="1"
+                      :label="'Region - ' + n"
+                      label-for="Region"
+                    >
+                      <b-form-select
+                        id="Region"
+                        v-model="allowedGeolocations[`selectedRegion${n}`]"
+                        :options="regionsOptions(allowedGeolocations[`selectedContinent${n}`], allowedGeolocations[`selectedCountry${n}`], false)"
+                        @change="adjustMaxInstancesPossible()"
+                      >
+                        <template #first>
+                          <b-form-select-option
+                            :value="undefined"
+                            disabled
+                          >
+                            -- Select to restrict Region --
+                          </b-form-select-option>
+                        </template>
+                      </b-form-select>
+                    </b-form-group>
+                  </div>
+                  <div class="text-center">
+                    <b-button
+                      v-if="numberOfGeolocations > 1"
+                      v-b-tooltip.hover.bottom="'Remove Allowed Geolocation Restriction'"
+                      v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                      variant="outline-secondary"
+                      size="sm"
+                      class="m-1"
+                      @click="numberOfGeolocations = numberOfGeolocations - 1; adjustMaxInstancesPossible()"
+                    >
+                      <v-icon name="minus" />
+                    </b-button>
+                    <b-button
+                      v-if="numberOfGeolocations < 5"
+                      v-b-tooltip.hover.bottom="'Add Allowed Geolocation Restriction'"
+                      v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                      variant="outline-secondary"
+                      size="sm"
+                      class="m-1"
+                      @click="numberOfGeolocations = numberOfGeolocations + 1; adjustMaxInstancesPossible()"
+                    >
+                      <v-icon name="plus" />
+                    </b-button>
+                  </div>
+                </div>
+                <br><br>
+                <div v-if="appUpdateSpecification.version >= 5">
+                  <h4>Forbidden Geolocation</h4>
+                  <div
+                    v-for="n in numberOfNegativeGeolocations"
+                    :key="n + 'posB'"
                   >
-                    <b-form-select
-                      id="country"
-                      v-model="selectedCountry"
-                      :options="countriesOptions.filter((x)=> x.continentCode === selectedContinent)"
-                      @change="countryChanged"
-                    />
-                  </b-form-group>
+                    <b-form-group
+                      label-cols="3"
+                      label-cols-lg="1"
+                      :label="'Continent - ' + n"
+                      label-for="Continent"
+                    >
+                      <b-form-select
+                        id="Continent"
+                        v-model="forbiddenGeolocations[`selectedContinent${n}`]"
+                        :options="continentsOptions(true)"
+                      >
+                        <template #first>
+                          <b-form-select-option
+                            :value="undefined"
+                            disabled
+                          >
+                            -- Select to ban Continent  --
+                          </b-form-select-option>
+                        </template>
+                      </b-form-select>
+                    </b-form-group>
+                    <b-form-group
+                      v-if="forbiddenGeolocations[`selectedContinent${n}`]"
+                      label-cols="3"
+                      label-cols-lg="1"
+                      :label="'Country - ' + n"
+                      label-for="Country"
+                    >
+                      <b-form-select
+                        id="country"
+                        v-model="forbiddenGeolocations[`selectedCountry${n}`]"
+                        :options="countriesOptions(forbiddenGeolocations[`selectedContinent${n}`], true)"
+                      >
+                        <template #first>
+                          <b-form-select-option
+                            :value="undefined"
+                            disabled
+                          >
+                            -- Select to ban Country --
+                          </b-form-select-option>
+                        </template>
+                      </b-form-select>
+                    </b-form-group>
+                    <b-form-group
+                      v-if="forbiddenGeolocations[`selectedCountry${n}`]"
+                      label-cols="3"
+                      label-cols-lg="1"
+                      :label="'Region - ' + n"
+                      label-for="Region"
+                    >
+                      <b-form-select
+                        id="Region"
+                        v-model="forbiddenGeolocations[`selectedRegion${n}`]"
+                        :options="regionsOptions(forbiddenGeolocations[`selectedContinent${n}`], forbiddenGeolocations[`selectedCountry${n}`], true)"
+                      >
+                        <template #first>
+                          <b-form-select-option
+                            :value="undefined"
+                            disabled
+                          >
+                            -- Select to ban Region --
+                          </b-form-select-option>
+                        </template>
+                      </b-form-select>
+                    </b-form-group>
+                  </div>
+                  <div class="text-center">
+                    <b-button
+                      v-if="numberOfNegativeGeolocations > 1"
+                      v-b-tooltip.hover.bottom="'Remove Forbidden Geolocation Restriction'"
+                      v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                      variant="outline-secondary"
+                      size="sm"
+                      class="m-1"
+                      @click="numberOfNegativeGeolocations = numberOfNegativeGeolocations - 1"
+                    >
+                      <v-icon name="minus" />
+                    </b-button>
+                    <b-button
+                      v-if="numberOfNegativeGeolocations < 5"
+                      v-b-tooltip.hover.bottom="'Add Forbidden Geolocation Restriction'"
+                      v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                      variant="outline-secondary"
+                      size="sm"
+                      class="m-1"
+                      @click="numberOfNegativeGeolocations = numberOfNegativeGeolocations + 1"
+                    >
+                      <v-icon name="plus" />
+                    </b-button>
+                  </div>
                 </div>
                 <br>
                 <b-form-group
@@ -2709,12 +3097,14 @@ import {
   BFormInput,
   BFormCheckbox,
   BFormSelect,
+  BFormSelectOption,
   BInputGroup,
   BInputGroupAppend,
   BPagination,
   VBTooltip,
 } from 'bootstrap-vue';
 
+import VueApexCharts from 'vue-apexcharts';
 import Ripple from 'vue-ripple-directive';
 import { mapState } from 'vuex';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
@@ -2728,6 +3118,8 @@ const axios = require('axios');
 const qs = require('qs');
 const store = require('store');
 const timeoptions = require('@/libs/dateFormat');
+
+const geolocations = require('../../libs/geolocation');
 
 export default {
   components: {
@@ -2745,6 +3137,7 @@ export default {
     BFormInput,
     BFormCheckbox,
     BFormSelect,
+    BFormSelectOption,
     BInputGroup,
     BInputGroupAppend,
     BPagination,
@@ -2752,6 +3145,8 @@ export default {
     ListEntry,
     // eslint-disable-next-line vue/no-unused-components
     ToastificationContent,
+    // eslint-disable-next-line vue/no-unused-components
+    VueApexCharts,
   },
   directives: {
     'b-tooltip': VBTooltip,
@@ -2855,87 +3250,22 @@ export default {
       deploymentAddress: '',
       appPricePerMonthForUpdate: 0,
       maxInstances: 100,
-      continentsOptions: [{
-        value: null, text: 'All',
-      },
-      {
-        value: 'AS', nodeTier: 'Cumulus', maxInstances: 5, text: 'Asia',
-      },
-      {
-        value: 'EU', nodeTier: 'Stratus', maxInstances: 20, text: 'Europe',
-      },
-      {
-        value: 'NA', nodeTier: 'Stratus', maxInstances: 20, text: 'North America',
-      },
-      {
-        value: 'OC', nodeTier: 'Cumulus', maxInstances: 3, text: 'Oceania',
-      }],
-      countriesOptions: [{
-        value: null, text: 'All', continentCode: 'AS',
-      },
-      {
-        value: 'SG', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'AS', text: 'Singapore',
-      },
-      {
-        value: 'TW', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'AS', text: 'Taiwan',
-      },
-      {
-        value: 'TH', nodeTier: 'Cumulus', maxInstances: 5, continentCode: 'AS', text: 'Thailand',
-      },
-      {
-        value: null, text: 'All', continentCode: 'EU',
-      },
-      {
-        value: 'BE', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Belgium',
-      },
-      {
-        value: 'CZ', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Czechia',
-      },
-      {
-        value: 'FI', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'EU', text: 'Finland',
-      },
-      {
-        value: 'FR', nodeTier: 'Stratus', maxInstances: 5, continentCode: 'EU', text: 'France',
-      },
-      {
-        value: 'DE', nodeTier: 'Stratus', maxInstances: 15, continentCode: 'EU', text: 'Germany',
-      },
-      {
-        value: 'LT', nodeTier: 'Cumulus', maxInstances: 5, continentCode: 'EU', text: 'Lithuania',
-      },
-      {
-        value: 'NL', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Netherlands',
-      },
-      {
-        value: 'PL', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'EU', text: 'Poland',
-      },
-      {
-        value: 'RU', nodeTier: 'Nimbus', maxInstances: 5, continentCode: 'EU', text: 'Russia',
-      },
-      {
-        value: 'SI', nodeTier: 'Stratus', maxInstances: 3, continentCode: 'EU', text: 'Slovenia',
-      },
-      {
-        value: 'ES', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Spain',
-      },
-      {
-        value: 'GB', nodeTier: 'Stratus', maxInstances: 3, continentCode: 'EU', text: 'United Kingdom',
-      },
-      {
-        value: null, text: 'All', continentCode: 'NA',
-      },
-      {
-        value: 'US', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'NA', text: 'United States',
-      },
-      {
-        value: 'CA', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'NA', text: 'Canada',
-      },
-      {
-        value: null, text: 'All', continentCode: 'OC',
-      }],
-      selectedContinent: null,
-      selectedCountry: null,
       globalZelidAuthorized: false,
+      monitoringStream: {},
+      statsFields: [
+        { key: 'timestamp', label: 'Date' },
+        { key: 'cpu', label: 'CPU' },
+        { key: 'memory', label: 'RAM' },
+        { key: 'disk', label: 'DISK' },
+        { key: 'net', label: 'NET I/O' },
+        { key: 'block', label: 'BLOCK I/O' },
+        { key: 'pids', label: 'PIDS' },
+      ],
+      possibleLocations: [],
+      allowedGeolocations: {},
+      forbiddenGeolocations: {},
+      numberOfGeolocations: 1,
+      numberOfNegativeGeolocations: 1,
     };
   },
   computed: {
@@ -3027,32 +3357,6 @@ export default {
       }
       return niceString;
     },
-    constructAutomaticDomains() {
-      const appName = this.appSpecification.name;
-      if (!appName) {
-        return 'loading...';
-      }
-      const lowerCaseName = appName.toLowerCase();
-
-      if (!this.appSpecification.compose) {
-        const ports = JSON.parse(JSON.stringify(this.callBResponse.data.containerPorts));
-        const domains = [`${lowerCaseName}.app.runonflux.io`];
-        // flux specs dont allow more than 10 ports so domainString is enough
-        for (let i = 0; i < ports.length; i += 1) {
-          const portDomain = `${lowerCaseName}_${ports[i]}.app.runonflux.io`;
-          domains.push(portDomain);
-        }
-        return domains;
-      }
-      const domains = [`${lowerCaseName}.app.runonflux.io`];
-      this.appSpecification.compose.forEach((component) => {
-        for (let i = 0; i < component.ports.length; i += 1) {
-          const portDomain = `${lowerCaseName}_${component.ports[i]}.app.runonflux.io`;
-          domains.push(portDomain);
-        }
-      });
-      return domains;
-    },
     constructAutomaticDomainsGlobal() {
       if (!this.callBResponse.data) {
         return 'loading...';
@@ -3069,7 +3373,7 @@ export default {
       const lowerCaseName = appName.toLowerCase();
 
       if (!this.callBResponse.data.compose) {
-        const ports = JSON.parse(JSON.stringify(this.callBResponse.data.containerPorts));
+        const ports = JSON.parse(JSON.stringify(this.callBResponse.data.ports));
         const domains = [`${lowerCaseName}.app.runonflux.io`];
         // flux specs dont allow more than 10 ports so domainString is enough
         for (let i = 0; i < ports.length; i += 1) {
@@ -3078,7 +3382,7 @@ export default {
         }
         return domains;
       }
-      const domains = [];
+      const domains = [`${lowerCaseName}.app.runonflux.io`];
       this.callBResponse.data.compose.forEach((component) => {
         for (let i = 0; i < component.ports.length; i += 1) {
           const portDomain = `${lowerCaseName}_${component.ports[i]}.app.runonflux.io`;
@@ -3110,6 +3414,7 @@ export default {
     this.appSpecification = {};
     this.callResponse.data = '';
     this.callResponse.status = '';
+    this.monitoringStream = {};
     this.appExec.cmd = '';
     this.appExec.env = '';
     this.checkFluxCommunication();
@@ -3120,6 +3425,7 @@ export default {
       this.getInstalledApplicationSpecifics();
     }
     this.appsDeploymentInformation();
+    this.getGeolocationData();
   },
   methods: {
     async appsDeploymentInformation() {
@@ -3150,24 +3456,28 @@ export default {
           this.getApplicationStats();
           break;
         case 4:
-          this.getApplicationChanges();
+          this.getApplicationMonitoring();
+          // this.getApplicationMonitoringStream(); // TODO UI with graphs
           break;
         case 5:
-          this.getApplicationProcesses();
+          this.getApplicationChanges();
           break;
         case 6:
+          this.getApplicationProcesses();
+          break;
+        case 7:
           this.getApplicationLogs();
           break;
-        case 10:
+        case 12:
           this.getGlobalApplicationSpecifics();
           break;
-        case 11:
+        case 13:
           this.getZelidAuthority();
           break;
-        case 12:
+        case 14:
           this.getApplicationLocations();
           break;
-        case 13:
+        case 15:
           this.getGlobalApplicationSpecifics();
           break;
         default:
@@ -3270,25 +3580,12 @@ export default {
           this.appUpdateSpecification.commands = this.ensureString(specs.commands);
           this.appUpdateSpecification.containerPorts = specs.containerPort || this.ensureString(specs.containerPorts); // v1 compatibility
         } else {
-          this.selectedContinent = null;
-          this.selectedCountry = null;
           this.appUpdateSpecification.version = 5; // enforce specs v5
           this.appUpdateSpecification.contacts = this.ensureString([]);
           this.appUpdateSpecification.geolocation = this.ensureString([]);
           if (this.appUpdateSpecification.version >= 5) {
             this.appUpdateSpecification.contacts = this.ensureString(specs.contacts || []);
-            if (specs.geolocation && specs.geolocation.length > 0) {
-              const appContinent = specs.geolocation.find((x) => x.startsWith('a'));
-              if (appContinent) {
-                const continentFound = this.continentsOptions.find((x) => x.value === appContinent.slice(1));
-                this.selectedContinent = continentFound ? continentFound.value : null;
-              }
-              const appCountry = specs.geolocation.find((x) => x.startsWith('b'));
-              if (appCountry) {
-                const countryFound = this.countriesOptions.find((x) => x.value === appCountry.slice(1));
-                this.selectedCountry = countryFound ? countryFound.value : null;
-              }
-            }
+            this.decodeGeolocation(specs.geolocation);
             this.appUpdateSpecification.geolocation = this.ensureString(specs.geolocation || []);
           }
           this.appUpdateSpecification.compose.forEach((component) => {
@@ -3342,13 +3639,7 @@ export default {
       try {
         const appSpecification = this.appUpdateSpecification;
         if (appSpecification.version >= 5) {
-          if (this.selectedContinent) {
-            appSpecification.geolocation = [];
-            appSpecification.geolocation.push(`a${this.selectedContinent}`);
-            if (this.selectedCountry) {
-              appSpecification.geolocation.push(`b${this.selectedCountry}`);
-            }
-          }
+          appSpecification.geolocation = this.generateGeolocations();
         }
         // call api for verification of app registration specifications that returns formatted specs
         const responseAppSpecs = await AppsService.appUpdateVerification(appSpecification);
@@ -3533,6 +3824,103 @@ export default {
       }
       this.callResponse.status = 'success';
       this.callResponse.data = callData;
+    },
+    async getApplicationMonitoring() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const callData = [];
+      if (this.appSpecification.version >= 4) {
+        // compose
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of this.appSpecification.compose) {
+          // eslint-disable-next-line no-await-in-loop
+          const response = await AppsService.getAppMonitoring(zelidauth, `${component.name}_${this.appSpecification.name}`);
+          if (response.data.status === 'error') {
+            this.showToast('danger', response.data.data.message || response.data.data);
+          } else {
+            const appComponentInspect = {
+              name: component.name,
+              callData: response.data.data,
+            };
+            callData.push(appComponentInspect);
+          }
+        }
+      } else {
+        const response = await AppsService.getAppMonitoring(zelidauth, this.appName);
+        if (response.data.status === 'error') {
+          this.showToast('danger', response.data.data.message || response.data.data);
+        } else {
+          const appComponentInspect = {
+            name: this.appSpecification.name,
+            callData: response.data.data,
+          };
+          callData.push(appComponentInspect);
+        }
+        console.log(response);
+      }
+      this.callResponse.status = 'success';
+      this.callResponse.data = callData;
+    },
+    async getApplicationMonitoringStream() {
+      const self = this;
+      const zelidauth = localStorage.getItem('zelidauth');
+      if (this.appSpecification.version >= 4) {
+        // compose
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of this.appSpecification.compose) {
+          const axiosConfig = {
+            headers: {
+              zelidauth,
+            },
+            onDownloadProgress(progressEvent) {
+              self.monitoringStream[`${component.name}_${self.appSpecification.name}`] = JSON.parse(`[${progressEvent.target.response.replace(/}{"read/g, '},{"read')}]`);
+            },
+          };
+          // eslint-disable-next-line no-await-in-loop
+          const response = await AppsService.justAPI().get(`/apps/appmonitorstream/${component.name}_${this.appSpecification.name}`, axiosConfig);
+          if (response.data.status === 'error') {
+            this.showToast('danger', response.data.data.message || response.data.data);
+          }
+        }
+      } else {
+        const axiosConfig = {
+          headers: {
+            zelidauth,
+          },
+          onDownloadProgress(progressEvent) {
+            console.log(progressEvent.target.response);
+            self.monitoringStream[self.appName] = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
+          },
+        };
+        // eslint-disable-next-line no-await-in-loop
+        const response = await AppsService.justAPI().get(`/apps/appmonitorstream/${this.appName}`, axiosConfig);
+        if (response.data.status === 'error') {
+          this.showToast('danger', response.data.data.message || response.data.data);
+        }
+      }
+    },
+    async stopMonitoring(appName, deleteData = false) {
+      this.output = '';
+      this.showToast('warning', `Stopping Monitoring of ${appName}`);
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await AppsService.stopAppMonitoring(zelidauth, appName, deleteData);
+      if (response.data.status === 'success') {
+        this.showToast('success', response.data.data.message || response.data.data);
+      } else {
+        this.showToast('danger', response.data.data.message || response.data.data);
+      }
+      console.log(response);
+    },
+    async startMonitoring(appName) {
+      this.output = '';
+      this.showToast('warning', `Starting Monitoring of ${appName}`);
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await AppsService.startAppMonitoring(zelidauth, appName);
+      if (response.data.status === 'success') {
+        this.showToast('success', response.data.data.message || response.data.data);
+      } else {
+        this.showToast('danger', response.data.data.message || response.data.data);
+      }
+      console.log(response);
     },
     async getApplicationChanges() {
       const zelidauth = localStorage.getItem('zelidauth');
@@ -3996,6 +4384,349 @@ export default {
         }
         this.showToast('warning', `The node type may fluctuate based upon system requirements for your application. For better results in ${continent.text}, please consider specifications more suited to ${continent.nodeTier} hardware.`);
       }
+    },
+    generateStatsTableItems(statsData, specifications) {
+      // { key: 'timestamp', label: 'DATE' },
+      // { key: 'cpu', label: 'CPU' },
+      // { key: 'memory', label: 'RAM' },
+      // { key: 'disk', label: 'SSD' },
+      // { key: 'net', label: 'NET I/O' },
+      // { key: 'block', label: 'BLOCK I/O' },
+      // { key: 'pids', label: 'PIDS' },
+      console.log(statsData);
+      if (!statsData || !Array.isArray(statsData)) {
+        return [];
+      }
+      const statsItems = [];
+      statsData.forEach((entry) => {
+        const cpuMultiplier = entry.data.cpu_stats.online_cpus / specifications.cpu;
+        const cpu = `${(((entry.data.cpu_stats.cpu_usage.total_usage - entry.data.precpu_stats.cpu_usage.total_usage) / (entry.data.cpu_stats.system_cpu_usage - entry.data.precpu_stats.system_cpu_usage)) * 100 * cpuMultiplier).toFixed(2)}%`;
+        const memory = `${(entry.data.memory_stats.usage / 1e9).toFixed(2)} / ${(specifications.ram / 1e3).toFixed(2)} GB, ${((entry.data.memory_stats.usage / (specifications.ram * 1e6)) * 100).toFixed(2)}%`;
+        let net = '0 / 0 GB';
+        if (entry.data.networks.eth0) {
+          net = `${(entry.data.networks.eth0.rx_bytes / 1e9).toFixed(2)} / ${(entry.data.networks.eth0.tx_bytes / 1e9).toFixed(2)} GB`;
+        }
+        const block = `${(entry.data.blkio_stats.io_service_bytes_recursive.find((x) => x.op === 'Read').value / 1e9).toFixed(2)} / ${(entry.data.blkio_stats.io_service_bytes_recursive.find((x) => x.op === 'Write').value / 1e9).toFixed(2)} GB`;
+        let disk = '0 / 0 GB';
+        if (entry.data.disk_stats) {
+          disk = `${(entry.data.disk_stats.used / 1e9).toFixed(2)} / ${(specifications.hdd).toFixed(2)} GB, ${((entry.data.disk_stats.used / (specifications.hdd * 1e9)) * 100).toFixed(2)}%`;
+        }
+        const pids = entry.data.pids_stats.current;
+        const point = {
+          timestamp: new Date(entry.timestamp).toLocaleString('en-GB', timeoptions.shortDate),
+          cpu,
+          memory,
+          net,
+          block,
+          disk,
+          pids,
+        };
+        statsItems.push(point);
+      });
+      return statsItems;
+    },
+    getCpuPercentage(statsData) {
+      console.log(statsData);
+      const percentages = [];
+      statsData.forEach((data) => {
+        const onePercentage = `${((data.data.cpu_stats.cpu_usage.total_usage / data.data.cpu_stats.cpu_usage.system_cpu_usage) * 100).toFixed(2)}%`;
+        percentages.push(onePercentage);
+      });
+      return percentages;
+    },
+    getTimestamps(statsData) {
+      const timestamps = [];
+      statsData.forEach((data) => {
+        timestamps.push(data.timestamp);
+      });
+      return timestamps;
+    },
+    chartOptions(timestamps) {
+      const chartOptions = {
+        chart: {
+          height: 350,
+          type: 'area',
+        },
+        dataLabels: {
+          enabled: false,
+        },
+        stroke: {
+          curve: 'smooth',
+        },
+        xaxis: {
+          type: 'timestamp',
+          categories: timestamps,
+        },
+        tooltip: {
+          x: {
+            format: 'dd/MM/yy HH:mm',
+          },
+        },
+      };
+      return chartOptions;
+    },
+    decodeGeolocation(existingGeolocation) {
+      // decode geolocation and push it properly numberOfGeolocations, numberOfNegativeGeolocations
+      // selectedContinent1, selectedCountry1, selectedRegion1
+      // existingGeolocation is an array that can contain older specs of a, b OR can contain new specs of ac (a!c);
+      let isOldSpecs = false;
+      existingGeolocation.forEach((location) => {
+        if (location.startsWith('b')) {
+          isOldSpecs = true;
+        }
+        if (location.startsWith('a') && location.startsWith('ac') && location.startsWith('a!c')) {
+          isOldSpecs = true;
+        }
+      });
+      let updatedNewSpecGeo = existingGeolocation;
+      if (isOldSpecs) {
+        const continentEncoded = existingGeolocation.find((location) => location.startsWith('a') && location.startsWith('ac') && location.startsWith('a!c'));
+        const countryEncoded = existingGeolocation.find((location) => location.startsWith('b'));
+        let newSpecLocation = `ac${continentEncoded.slice(1)}`;
+        if (countryEncoded) {
+          newSpecLocation += `_${countryEncoded.slice(1)}`;
+        }
+        updatedNewSpecGeo = [newSpecLocation];
+      }
+      // updatedNewSpecGeo is now geolocation according to new specs
+      const allowedLocations = updatedNewSpecGeo.filter((locations) => locations.startsWith('ac'));
+      const forbiddenLocations = updatedNewSpecGeo.filter((locations) => locations.startsWith('a!c'));
+      for (let i = 1; i < allowedLocations.length + 1; i += 1) {
+        this.numberOfGeolocations = i;
+        const specifiedLocation = allowedLocations[i - 1].slice(2);
+        const locations = specifiedLocation.split('_');
+        const continentCode = locations[0];
+        const countryCode = locations[1];
+        const regionName = locations[2];
+        this.allowedGeolocations[`selectedContinent${i}`] = continentCode;
+        this.allowedGeolocations[`selectedCountry${i}`] = countryCode || 'ALL';
+        this.allowedGeolocations[`selectedRegion${i}`] = regionName || 'ALL';
+      }
+      for (let i = 1; i < forbiddenLocations.length + 1; i += 1) {
+        this.numberOfNegativeGeolocations = i;
+        const specifiedLocation = forbiddenLocations[i - 1].slice(3);
+        const locations = specifiedLocation.split('_');
+        const continentCode = locations[0];
+        const countryCode = locations[1];
+        const regionName = locations[2];
+        this.forbiddenGeolocations[`selectedContinent${i}`] = continentCode;
+        this.forbiddenGeolocations[`selectedCountry${i}`] = countryCode || 'NONE';
+        this.forbiddenGeolocations[`selectedRegion${i}`] = regionName || 'NONE';
+      }
+    },
+    async getGeolocationData() {
+      let possibleLocations = [];
+      try {
+        // go through our geolocations that are stored as available and construct, no restrictions on instances
+        geolocations.continents.forEach((continent) => {
+          possibleLocations.push({
+            value: continent.code,
+            instances: continent.available ? 100 : 0,
+          });
+        });
+        geolocations.countries.forEach((country) => {
+          possibleLocations.push({
+            value: `${country.continent}_${country.code}`,
+            instances: country.available ? 100 : 0,
+          });
+        });
+
+        // fetch locations from stats
+        const response = await axios.get('https://stats.runonflux.io/fluxinfo?projection=geolocation');
+        if (response.data.status === 'success') {
+          const geoData = response.data.data;
+          if (geoData.length > 5000) { // all went well
+            possibleLocations = [];
+            geoData.forEach((flux) => {
+              if (flux.geolocation && flux.geolocation.continentCode && flux.geolocation.regionName && flux.geolocation.countryCode) {
+                const continentLocation = flux.geolocation.continentCode;
+                const countryLocation = `${continentLocation}_${flux.geolocation.countryCode}`;
+                const regionLocation = `${countryLocation}_${flux.geolocation.regionName}`;
+                const continentLocationExists = possibleLocations.find((location) => location.value === continentLocation);
+                if (continentLocationExists) {
+                  continentLocationExists.instances += 1;
+                } else {
+                  possibleLocations.push({
+                    value: continentLocation,
+                    instances: 1,
+                  });
+                }
+                const countryLocationExists = possibleLocations.find((location) => location.value === countryLocation);
+                if (countryLocationExists) {
+                  countryLocationExists.instances += 1;
+                } else {
+                  possibleLocations.push({
+                    value: countryLocation,
+                    instances: 1,
+                  });
+                }
+                const regionLocationExists = possibleLocations.find((location) => location.value === regionLocation);
+                if (regionLocationExists) {
+                  regionLocationExists.instances += 1;
+                } else {
+                  possibleLocations.push({
+                    value: regionLocation,
+                    instances: 1,
+                  });
+                }
+              }
+            });
+          }
+        } else {
+          this.showToast('info', 'Failed to get geolocation data from FluxStats, Using stored locations');
+        }
+      } catch (error) {
+        console.log(error);
+        this.showToast('info', 'Failed to get geolocation data from FluxStats, Using stored locations');
+      }
+      this.possibleLocations = possibleLocations;
+    },
+    continentsOptions(isNegative) {
+      const continents = [{ value: isNegative ? 'NONE' : 'ALL', text: isNegative ? 'NONE' : 'ALL' }];
+      this.possibleLocations.filter((options) => options.instances > (isNegative ? -1 : 3)).forEach((location) => {
+        if (!location.value.includes('_')) {
+          const existingContinent = geolocations.continents.find((continent) => continent.code === location.value);
+          continents.push({ value: location.value, text: existingContinent ? existingContinent.name : location.value });
+        }
+      });
+      return continents;
+    },
+    countriesOptions(continentCode, isNegative) {
+      const countries = [{ value: isNegative ? 'NONE' : 'ALL', text: isNegative ? 'NONE' : 'ALL' }];
+      this.possibleLocations.filter((options) => options.instances > (isNegative ? -1 : 3)).forEach((location) => {
+        if (!location.value.split('_')[2] && location.value.startsWith(`${continentCode}_`)) {
+          const existingCountry = geolocations.countries.find((country) => country.code === location.value.split('_')[1]);
+          countries.push({ value: location.value.split('_')[1], text: existingCountry ? existingCountry.name : location.value.split('_')[1] });
+        }
+      });
+      return countries;
+    },
+    regionsOptions(continentCode, countryCode, isNegative) {
+      const regions = [{ value: isNegative ? 'NONE' : 'ALL', text: isNegative ? 'NONE' : 'ALL' }];
+      this.possibleLocations.filter((options) => options.instances > (isNegative ? -1 : 3)).forEach((location) => {
+        if (location.value.startsWith(`${continentCode}_${countryCode}_`)) {
+          regions.push({ value: location.value.split('_')[2], text: location.value.split('_')[2] });
+        }
+      });
+      return regions;
+    },
+    generateGeolocations() {
+      const geo = [];
+      for (let i = 1; i < this.numberOfGeolocations + 1; i += 1) {
+        const continent = this.allowedGeolocations[`selectedContinent${i}`];
+        const country = this.allowedGeolocations[`selectedCountry${i}`];
+        const region = this.allowedGeolocations[`selectedRegion${i}`];
+        if (continent && continent !== 'ALL') {
+          let geolocation = `ac${continent}`;
+          if (country && country !== 'ALL') {
+            geolocation += `_${country}`;
+            if (region && region !== 'ALL') {
+              geolocation += `_${region}`;
+            }
+          }
+          geo.push(geolocation);
+        }
+      }
+      for (let i = 1; i < this.numberOfNegativeGeolocations + 1; i += 1) {
+        const continent = this.forbiddenGeolocations[`selectedContinent${i}`];
+        const country = this.forbiddenGeolocations[`selectedCountry${i}`];
+        const region = this.forbiddenGeolocations[`selectedRegion${i}`];
+        if (continent && continent !== 'NONE') {
+          let geolocation = `a!c${continent}`;
+          if (country && country !== 'NONE') {
+            geolocation += `_${country}`;
+            if (region && region !== 'NONE') {
+              geolocation += `_${region}`;
+            }
+          }
+          geo.push(geolocation);
+        }
+      }
+      return geo;
+    },
+    getGeolocation(geo) {
+      if (geo.startsWith('a') && !geo.startsWith('ac') && geo.startsWith('a!c')) {
+        // specific continent
+        const continentCode = geo.slice(1);
+        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode);
+        return `Continent: ${continentExists.name || 'Unkown'}`;
+      } if (geo.startsWith('b')) {
+        // specific country
+        const countryCode = geo.slice(1);
+        const countryExists = geolocations.countries.find((country) => country.code === countryCode);
+        return `Country: ${countryExists.name || 'Unkown'}`;
+      } if (geo.startsWith('ac')) {
+        // allowed location
+        const specifiedLocation = geo.slice(2);
+        const locations = specifiedLocation.split('_');
+        const continentCode = locations[0];
+        const countryCode = locations[1];
+        const regionName = locations[2];
+        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode);
+        const countryExists = geolocations.countries.find((country) => country.code === countryCode);
+        let locationString = `Allowed location: Continent: ${continentExists.name}`;
+        if (countryCode) {
+          locationString += `, Country: ${countryExists.name}`;
+        }
+        if (regionName) {
+          locationString += `, Region: ${regionName}`;
+        }
+        return locationString;
+      } if (geo.startsWith('a!c')) {
+        // forbidden location
+        const specifiedLocation = geo.slice(3);
+        const locations = specifiedLocation.split('_');
+        const continentCode = locations[0];
+        const countryCode = locations[1];
+        const regionName = locations[2];
+        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode);
+        const countryExists = geolocations.countries.find((country) => country.code === countryCode);
+        let locationString = `Forbidden location: Continent: ${continentExists.name}`;
+        if (countryCode) {
+          locationString += `, Country: ${countryExists.name}`;
+        }
+        if (regionName) {
+          locationString += `, Region: ${regionName}`;
+        }
+        return locationString;
+      }
+      return 'All locations allowed';
+    },
+    adjustMaxInstancesPossible() {
+      const currentGeolocations = this.generateGeolocations();
+      const positiveLocations = currentGeolocations.filter((location) => location.startsWith('ac'));
+      console.log(currentGeolocations);
+      let instances = 0;
+      positiveLocations.forEach((location) => {
+        const locFound = this.possibleLocations.find((l) => l.value === location.slice(2));
+        if (locFound) {
+          instances += locFound.instances;
+        }
+      });
+      console.log(instances);
+      instances = instances > 3 ? instances : 3;
+      const maxInstances = instances > 100 ? 100 : instances;
+      this.maxInstances = maxInstances;
+    },
+    constructAutomaticDomains(appPorts, appName, index = 0) {
+      const ports = JSON.parse(JSON.stringify(appPorts));
+      const lowerCaseName = appName.toLowerCase();
+      if (index === 0) {
+        const domains = [`${lowerCaseName}.app.runonflux.io`];
+        // flux specs dont allow more than 10 ports so domainString is enough
+        for (let i = 0; i < ports.length; i += 1) {
+          const portDomain = `${lowerCaseName}_${ports[i]}.app.runonflux.io`;
+          domains.push(portDomain);
+        }
+        return domains;
+      }
+      const domains = [];
+      // flux specs dont allow more than 10 ports so domainString is enough
+      for (let i = 0; i < ports.length; i += 1) {
+        const portDomain = `${lowerCaseName}_${ports[i]}.app.runonflux.io`;
+        domains.push(portDomain);
+      }
+      return domains;
     },
   },
 };

@@ -16,10 +16,10 @@
           Titan Shared Nodes (Beta)
         </h4>
         <a
-          href="https://medium.com/@oGGoldie/flux-titan-staking-guide-e0fb6ead6254"
+          href="https://fluxofficial.medium.com/flux-titan-nodes-guide-useful-staking-e527278b1a2a"
           target="_blank"
         >
-          Titan Guide (by Goldie)
+          Titan Guide
         </a>
       </div>
     </div>
@@ -163,7 +163,7 @@
                 no-body
               >
                 <b-card-title class="text-white text-uppercase shared-node-info-title">
-                  Lockup Period APR
+                  Lockup Period Estimated APR
                 </b-card-title>
                 <b-card-body
                   v-if="titanConfig"
@@ -798,15 +798,29 @@
       <b-card
         title="APR Calculations"
       >
-        <p>
-          The APR for a Titan Shared Nodes lockup is dependant on the number of active Stratus nodes on the Flux network.
+        <p class="text-center">
+          The APR for a Titan Shared Nodes lockup is dependent on the number of active Stratus nodes on the Flux network and the current block reward.
         </p>
-        <p>
+        <p class="text-center">
           APR is calculated using this basic formula:
         </p>
-        <p>
+        <p class="text-center">
           Per block reward (22.5) x Blocks per day (720) x 365 /<br>
           &nbsp;(Number of Stratus nodes * 40,000)
+        </p>
+        <p class="text-center">
+          <br>
+          <b-avatar
+            size="24"
+            variant="warning"
+            button
+          >
+            <v-icon
+              scale="0.9"
+              name="info"
+            />
+          </b-avatar>
+          APR does not mean the actual or predicted returns in fiat currency or Flux.
         </p>
       </b-card>
     </b-modal>
@@ -847,10 +861,23 @@
               You will receive
             </h4>
             <h3>
-              {{ toFixedLocaleString(totalReward - (titanConfig ? titanConfig.redeemFee : 0), 2) }} Flux
+              {{ toFixedLocaleString(totalReward - calculateRedeemFee(), 2) }} Flux
             </h3>
             <h6>
-              (<span class="text-warning">Redeem Fee:</span> <span class="text-danger">{{ titanConfig ? titanConfig.redeemFee : '...' }} Flux</span>)
+              (<span class="text-warning">Redeem Fee:</span>
+              <span
+                v-if="titanConfig && titanConfig.maxRedeemFee"
+                v-b-tooltip.hover.bottom="`Fee of ${titanConfig.redeemFee}% of your rewards, capped at ${titanConfig.maxRedeemFee} Flux`"
+                class="text-danger"
+              > {{ toFixedLocaleString(calculateRedeemFee(), 8) }} Flux
+              </span>
+              <span
+                v-else
+                class="text-danger"
+              >
+                {{ titanConfig ? titanConfig.redeemFee : '...' }} Flux
+              </span>)
+              <!--(<span class="text-warning">Redeem Fee:</span> <span class="text-danger">{{ calculateRedeemFee() }} Flux</span>)-->
             </h6>
           </b-card>
         </tab-content>
@@ -1068,7 +1095,7 @@
           >
             <div
               v-if="selectedStake"
-              class="d-flex"
+              class="d-flex flex-column"
             >
               <b-form-checkbox
                 v-model="selectedStake.autoreinvest"
@@ -1078,6 +1105,19 @@
               >
                 Auto-reinvest this stake after expiry
               </b-form-checkbox>
+              <div
+                v-if="titanConfig && titanConfig.reinvestFee > 0 && titanConfig.maxReinvestFee"
+                class="mt-2"
+              >
+                <h6>
+                  <span class="text-warning">Re-invest Fee:</span>
+                  <span
+                    v-b-tooltip.hover.bottom="`Fee of ${titanConfig.reinvestFee}% of your rewards, capped at ${titanConfig.maxReinvestFee} Flux`"
+                    class="text-danger"
+                  > {{ toFixedLocaleString(calculateReinvestFee(), 8) }} Flux
+                  </span>
+                </h6>
+              </div>
             </div>
           </b-card>
         </tab-content>
@@ -1354,6 +1394,19 @@
               >
                 {{ toFixedLocaleString(totalReward, 2) }} Flux
               </h2>
+              <div
+                v-if="titanConfig && titanConfig.reinvestFee > 0 && titanConfig.maxReinvestFee"
+                class="mt-2"
+              >
+                <h6>
+                  <span class="text-warning">Re-invest Fee:</span>
+                  <span
+                    v-b-tooltip.hover.bottom="`Fee of ${titanConfig.reinvestFee}% of your rewards, capped at ${titanConfig.maxReinvestFee} Flux`"
+                    class="text-danger"
+                  > {{ toFixedLocaleString(calculateNewStakeReinvestFee(), 8) }} Flux
+                  </span>
+                </h6>
+              </div>
             </div>
           </b-card>
           <b-card
@@ -1677,6 +1730,7 @@ export default {
     const apiURL = 'https://titan.runonflux.io';
 
     const totalReward = ref(0);
+    const totalRewardForFee = ref(0);
     const stakeAmount = ref(50);
     const minStakeAmount = ref(50);
     const maxStakeAmount = ref(1000);
@@ -1888,13 +1942,18 @@ export default {
         const expiredStakes = [];
         const now = Date.now() / 1000;
         totalReward.value = 0;
+        totalRewardForFee.value = 0;
         response.data.forEach((stake) => {
           if (stake.expiry < now) {
             if (stake.state >= 4) { // ensure that only expired or completed stakes are in the Expired list
               expiredStakes.push(stake);
+              if (stake.state === 4) { // include the expired stake's actual reward for fee calculation
+                totalRewardForFee.value += (stake.reward - stake.collateral);
+              }
             }
           } else {
             activeStakes.push(stake);
+            totalRewardForFee.value += stake.reward;
           }
           totalReward.value += stake.reward;
         });
@@ -2076,6 +2135,37 @@ export default {
       reinvestModalShowing.value = false;
     };
 
+    const calculateReinvestFee = () => {
+      const actualReward = (selectedStake.value.reward - selectedStake.value.collateral);
+      let fee = actualReward * (titanConfig.value.reinvestFee / 100);
+      if (fee > titanConfig.value.maxReinvestFee) {
+        fee = titanConfig.value.maxReinvestFee;
+      }
+      return fee;
+    };
+
+    const calculateNewStakeReinvestFee = () => {
+      const actualReward = totalRewardForFee.value;
+      let fee = actualReward * (titanConfig.value.reinvestFee / 100);
+      if (fee > titanConfig.value.maxReinvestFee) {
+        fee = titanConfig.value.maxReinvestFee;
+      }
+      return fee;
+    };
+
+    const calculateRedeemFee = () => {
+      if (!titanConfig.value) return 0;
+      if (!titanConfig.value.maxRedeemFee) {
+        return titanConfig.value.redeemFee;
+      }
+      const actualReward = totalRewardForFee.value;
+      let fee = actualReward * (titanConfig.value.redeemFee / 100);
+      if (fee > titanConfig.value.maxRedeemFee) {
+        fee = titanConfig.value.maxRedeemFee;
+      }
+      return fee;
+    };
+
     const selectLockup = (lockupIndex) => {
       selectedLockupIndex.value = lockupIndex;
     };
@@ -2208,11 +2298,14 @@ export default {
 
     const toFixedLocaleString = (number, digits = 0) => {
       const roundedDown = Math.floor(number * (10 ** digits)) / (10 ** digits);
-      return roundedDown.toLocaleString();
+      if (digits < 4) {
+        return roundedDown.toLocaleString();
+      }
+      return `${roundedDown}`;
     };
 
     const requestRedeem = async () => {
-      // sendingRequest.value = true;
+      sendingRequest.value = true;
       const zelidauthHeader = localStorage.getItem('zelidauth');
       const data = {
         amount: totalReward.value,
@@ -2366,6 +2459,8 @@ export default {
       reinvestStake,
       checkReinvestDuration,
       reinvestDialogFinish,
+      calculateReinvestFee,
+      calculateNewStakeReinvestFee,
 
       showPaymentDetailsDialog,
       paymentDetailsDialogShowing,
@@ -2386,6 +2481,7 @@ export default {
       requestFailed,
       requestRedeem,
       confirmRedeemDialogFinish,
+      calculateRedeemFee,
 
       tierColors,
       indexedTierColors,

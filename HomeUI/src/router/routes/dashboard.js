@@ -51,17 +51,34 @@ export default [
     },
   },
   {
-    path: '/dashboard/economics',
-    name: 'dashboard-economics',
+    path: '/dashboard/rewards',
+    name: 'dashboard-rewards',
     component: () => import('@/views/dashboard/Economics.vue'),
     meta: {
-      pageTitle: 'Economics',
+      pageTitle: 'Rewards',
       breadcrumb: [
         {
           text: 'Dashboard',
         },
         {
-          text: 'Economics',
+          text: 'Rewards',
+          active: true,
+        },
+      ],
+    },
+  },
+  {
+    path: '/dashboard/economics',
+    name: 'dashboard-economics',
+    component: () => import('@/views/dashboard/Economics.vue'),
+    meta: {
+      pageTitle: 'Rewards',
+      breadcrumb: [
+        {
+          text: 'Dashboard',
+        },
+        {
+          text: 'Rewards',
           active: true,
         },
       ],

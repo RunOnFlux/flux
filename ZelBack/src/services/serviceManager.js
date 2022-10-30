@@ -90,6 +90,7 @@ async function startFluxFunctions() {
     }
     setTimeout(() => {
       appsService.stopAllNonFluxRunningApps();
+      appsService.startMonitoringOfApps();
       appsService.restoreAppsPortsSupport();
     }, 1 * 60 * 1000);
     setTimeout(() => {

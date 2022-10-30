@@ -91,33 +91,204 @@
                   />
                 </div>
               </div>
-              <b-form-group
-                label-cols="2"
-                label-cols-lg="1"
-                label="Continent"
-                label-for="Continent"
-              >
-                <b-form-select
-                  id="continent"
-                  v-model="selectedContinent"
-                  :options="continentsOptions"
-                  @change="continentChanged"
-                />
-              </b-form-group>
-              <b-form-group
-                v-if="selectedContinent"
-                label-cols="2"
-                label-cols-lg="1"
-                label="Country"
-                label-for="Country"
-              >
-                <b-form-select
-                  id="country"
-                  v-model="selectedCountry"
-                  :options="countriesOptions.filter((x)=> x.continentCode === selectedContinent)"
-                  @change="countryChanged"
-                />
-              </b-form-group>
+              <div v-if="specificationVersion >= 5">
+                <h4>Allowed Geolocation</h4>
+                <div
+                  v-for="n in numberOfGeolocations"
+                  :key="n + 'pos'"
+                >
+                  <b-form-group
+                    label-cols="3"
+                    label-cols-lg="1"
+                    :label="'Continent - ' + n"
+                    label-for="Continent"
+                  >
+                    <b-form-select
+                      id="Continent"
+                      v-model="allowedGeolocations[`selectedContinent${n}`]"
+                      :options="continentsOptions(false)"
+                      @change="adjustMaxInstancesPossible()"
+                    >
+                      <template #first>
+                        <b-form-select-option
+                          :value="undefined"
+                          disabled
+                        >
+                          -- Select to restrict Continent  --
+                        </b-form-select-option>
+                      </template>
+                    </b-form-select>
+                  </b-form-group>
+                  <b-form-group
+                    v-if="allowedGeolocations[`selectedContinent${n}`]"
+                    label-cols="3"
+                    label-cols-lg="1"
+                    :label="'Country - ' + n"
+                    label-for="Country"
+                  >
+                    <b-form-select
+                      id="country"
+                      v-model="allowedGeolocations[`selectedCountry${n}`]"
+                      :options="countriesOptions(allowedGeolocations[`selectedContinent${n}`], false)"
+                      @change="adjustMaxInstancesPossible()"
+                    >
+                      <template #first>
+                        <b-form-select-option
+                          :value="undefined"
+                          disabled
+                        >
+                          -- Select to restrict Country --
+                        </b-form-select-option>
+                      </template>
+                    </b-form-select>
+                  </b-form-group>
+                  <b-form-group
+                    v-if="allowedGeolocations[`selectedCountry${n}`]"
+                    label-cols="3"
+                    label-cols-lg="1"
+                    :label="'Region - ' + n"
+                    label-for="Region"
+                  >
+                    <b-form-select
+                      id="Region"
+                      v-model="allowedGeolocations[`selectedRegion${n}`]"
+                      :options="regionsOptions(allowedGeolocations[`selectedContinent${n}`], allowedGeolocations[`selectedCountry${n}`], false)"
+                      @change="adjustMaxInstancesPossible()"
+                    >
+                      <template #first>
+                        <b-form-select-option
+                          :value="undefined"
+                          disabled
+                        >
+                          -- Select to restrict Region --
+                        </b-form-select-option>
+                      </template>
+                    </b-form-select>
+                  </b-form-group>
+                </div>
+                <div class="text-center">
+                  <b-button
+                    v-if="numberOfGeolocations > 1"
+                    v-b-tooltip.hover.bottom="'Remove Allowed Geolocation Restriction'"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="outline-secondary"
+                    size="sm"
+                    class="m-1"
+                    @click="numberOfGeolocations = numberOfGeolocations - 1; adjustMaxInstancesPossible()"
+                  >
+                    <v-icon name="minus" />
+                  </b-button>
+                  <b-button
+                    v-if="numberOfGeolocations < 5"
+                    v-b-tooltip.hover.bottom="'Add Allowed Geolocation Restriction'"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="outline-secondary"
+                    size="sm"
+                    class="m-1"
+                    @click="numberOfGeolocations = numberOfGeolocations + 1; adjustMaxInstancesPossible()"
+                  >
+                    <v-icon name="plus" />
+                  </b-button>
+                </div>
+              </div>
+              <br><br>
+              <div v-if="specificationVersion >= 5">
+                <h4>Forbidden Geolocation</h4>
+                <div
+                  v-for="n in numberOfNegativeGeolocations"
+                  :key="n + 'posB'"
+                >
+                  <b-form-group
+                    label-cols="3"
+                    label-cols-lg="1"
+                    :label="'Continent - ' + n"
+                    label-for="Continent"
+                  >
+                    <b-form-select
+                      id="Continent"
+                      v-model="forbiddenGeolocations[`selectedContinent${n}`]"
+                      :options="continentsOptions(true)"
+                    >
+                      <template #first>
+                        <b-form-select-option
+                          :value="undefined"
+                          disabled
+                        >
+                          -- Select to ban Continent  --
+                        </b-form-select-option>
+                      </template>
+                    </b-form-select>
+                  </b-form-group>
+                  <b-form-group
+                    v-if="forbiddenGeolocations[`selectedContinent${n}`]"
+                    label-cols="3"
+                    label-cols-lg="1"
+                    :label="'Country - ' + n"
+                    label-for="Country"
+                  >
+                    <b-form-select
+                      id="country"
+                      v-model="forbiddenGeolocations[`selectedCountry${n}`]"
+                      :options="countriesOptions(forbiddenGeolocations[`selectedContinent${n}`], true)"
+                    >
+                      <template #first>
+                        <b-form-select-option
+                          :value="undefined"
+                          disabled
+                        >
+                          -- Select to ban Country --
+                        </b-form-select-option>
+                      </template>
+                    </b-form-select>
+                  </b-form-group>
+                  <b-form-group
+                    v-if="forbiddenGeolocations[`selectedCountry${n}`]"
+                    label-cols="3"
+                    label-cols-lg="1"
+                    :label="'Region - ' + n"
+                    label-for="Region"
+                  >
+                    <b-form-select
+                      id="Region"
+                      v-model="forbiddenGeolocations[`selectedRegion${n}`]"
+                      :options="regionsOptions(forbiddenGeolocations[`selectedContinent${n}`], forbiddenGeolocations[`selectedCountry${n}`], true)"
+                    >
+                      <template #first>
+                        <b-form-select-option
+                          :value="undefined"
+                          disabled
+                        >
+                          -- Select to ban Region --
+                        </b-form-select-option>
+                      </template>
+                    </b-form-select>
+                  </b-form-group>
+                </div>
+                <div class="text-center">
+                  <b-button
+                    v-if="numberOfNegativeGeolocations > 1"
+                    v-b-tooltip.hover.bottom="'Remove Forbidden Geolocation Restriction'"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="outline-secondary"
+                    size="sm"
+                    class="m-1"
+                    @click="numberOfNegativeGeolocations = numberOfNegativeGeolocations - 1"
+                  >
+                    <v-icon name="minus" />
+                  </b-button>
+                  <b-button
+                    v-if="numberOfNegativeGeolocations < 5"
+                    v-b-tooltip.hover.bottom="'Add Forbidden Geolocation Restriction'"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="outline-secondary"
+                    size="sm"
+                    class="m-1"
+                    @click="numberOfNegativeGeolocations = numberOfNegativeGeolocations + 1"
+                  >
+                    <v-icon name="plus" />
+                  </b-button>
+                </div>
+              </div>
             </div>
             <br>
             <b-form-group
@@ -1049,6 +1220,7 @@ import {
   BFormGroup,
   BFormInput,
   BFormSelect,
+  BFormSelectOption,
   BFormTextarea,
   BLink,
   VBTooltip,
@@ -1061,8 +1233,11 @@ import AppsService from '@/services/AppsService';
 import DaemonService from '@/services/DaemonService';
 
 const qs = require('qs');
+const axios = require('axios');
 const store = require('store');
 const timeoptions = require('@/libs/dateFormat');
+
+const geolocations = require('../../libs/geolocation');
 
 export default {
   components: {
@@ -1075,6 +1250,7 @@ export default {
     BFormGroup,
     BFormInput,
     BFormSelect,
+    BFormSelectOption,
     BFormTextarea,
     BLink,
     // eslint-disable-next-line vue/no-unused-components
@@ -1221,86 +1397,11 @@ export default {
       deploymentAddress: '',
       minInstances: 3,
       maxInstances: 100,
-      continentsOptions: [{
-        value: null, text: 'All',
-      },
-      {
-        value: 'AS', nodeTier: 'Cumulus', maxInstances: 5, text: 'Asia',
-      },
-      {
-        value: 'EU', nodeTier: 'Stratus', maxInstances: 20, text: 'Europe',
-      },
-      {
-        value: 'NA', nodeTier: 'Stratus', maxInstances: 20, text: 'North America',
-      },
-      {
-        value: 'OC', nodeTier: 'Cumulus', maxInstances: 3, text: 'Oceania',
-      }],
-      countriesOptions: [{
-        value: null, text: 'All', continentCode: 'AS',
-      },
-      {
-        value: 'SG', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'AS', text: 'Singapore',
-      },
-      {
-        value: 'TW', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'AS', text: 'Taiwan',
-      },
-      {
-        value: 'TH', nodeTier: 'Cumulus', maxInstances: 5, continentCode: 'AS', text: 'Thailand',
-      },
-      {
-        value: null, text: 'All', continentCode: 'EU',
-      },
-      {
-        value: 'BE', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Belgium',
-      },
-      {
-        value: 'CZ', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Czechia',
-      },
-      {
-        value: 'FI', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'EU', text: 'Finland',
-      },
-      {
-        value: 'FR', nodeTier: 'Stratus', maxInstances: 5, continentCode: 'EU', text: 'France',
-      },
-      {
-        value: 'DE', nodeTier: 'Stratus', maxInstances: 15, continentCode: 'EU', text: 'Germany',
-      },
-      {
-        value: 'LT', nodeTier: 'Cumulus', maxInstances: 5, continentCode: 'EU', text: 'Lithuania',
-      },
-      {
-        value: 'NL', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Netherlands',
-      },
-      {
-        value: 'PL', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'EU', text: 'Poland',
-      },
-      {
-        value: 'RU', nodeTier: 'Nimbus', maxInstances: 5, continentCode: 'EU', text: 'Russia',
-      },
-      {
-        value: 'SI', nodeTier: 'Stratus', maxInstances: 3, continentCode: 'EU', text: 'Slovenia',
-      },
-      {
-        value: 'ES', nodeTier: 'Cumulus', maxInstances: 3, continentCode: 'EU', text: 'Spain',
-      },
-      {
-        value: 'GB', nodeTier: 'Stratus', maxInstances: 3, continentCode: 'EU', text: 'United Kingdom',
-      },
-      {
-        value: null, text: 'All', continentCode: 'NA',
-      },
-      {
-        value: 'US', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'NA', text: 'United States',
-      },
-      {
-        value: 'CA', nodeTier: 'Stratus', maxInstances: 10, continentCode: 'NA', text: 'Canada',
-      },
-      {
-        value: null, text: 'All', continentCode: 'OC',
-      }],
-      selectedContinent: null,
-      selectedCountry: null,
+      possibleLocations: [],
+      allowedGeolocations: {},
+      forbiddenGeolocations: {},
+      numberOfGeolocations: 1,
+      numberOfNegativeGeolocations: 1,
     };
   },
   computed: {
@@ -1360,9 +1461,10 @@ export default {
     },
   },
   beforeMount() {
-    this.appRegistrationSpecification = this.appRegistrationSpecificationv4template;
+    this.appRegistrationSpecification = this.appRegistrationSpecificationv5template;
   },
   mounted() {
+    this.getGeolocationData();
     this.getDaemonInfo();
     this.appsDeploymentInformation();
     const zelidauth = localStorage.getItem('zelidauth');
@@ -1375,13 +1477,7 @@ export default {
         // formation, pre verificaiton
         const appSpecification = this.appRegistrationSpecification;
         if (appSpecification.version >= 5) {
-          if (this.selectedContinent) {
-            appSpecification.geolocation = [];
-            appSpecification.geolocation.push(`a${this.selectedContinent}`);
-            if (this.selectedCountry) {
-              appSpecification.geolocation.push(`b${this.selectedCountry}`);
-            }
-          }
+          appSpecification.geolocation = this.generateGeolocations();
         }
         // call api for verification of app registration specifications that returns formatted specs
         const responseAppSpecs = await AppsService.appRegistrationVerificaiton(appSpecification);
@@ -1587,37 +1683,151 @@ export default {
       });
     },
 
-    continentChanged() {
-      this.selectedCountry = null;
-      if (this.selectedContinent) {
-        const continent = this.continentsOptions.filter((x) => x.value === this.selectedContinent)[0];
-        this.maxInstances = continent.maxInstances;
-        if (this.appRegistrationSpecification.instances > this.maxInstances) {
-          this.appRegistrationSpecification.instances = this.maxInstances;
-        }
-        this.showToast('warning', `The node type may fluctuate based upon system requirements for your application. For better results in ${continent.text}, please consider specifications more suited to ${continent.nodeTier} hardware.`);
-      } else {
-        this.maxInstances = this.appRegistrationSpecificationv5template.maxInstances;
-        this.showToast('info', 'No geolocation set you can define up to maximum of 100 instances and up to the maximum hardware specs available on Flux network to your app.');
-      }
-    },
+    async getGeolocationData() {
+      let possibleLocations = [];
+      try {
+        // go through our geolocations that are stored as available and construct, no restrictions on instances
+        geolocations.continents.forEach((continent) => {
+          possibleLocations.push({
+            value: continent.code,
+            instances: continent.available ? 100 : 0,
+          });
+        });
+        geolocations.countries.forEach((country) => {
+          possibleLocations.push({
+            value: `${country.continent}_${country.code}`,
+            instances: country.available ? 100 : 0,
+          });
+        });
 
-    countryChanged() {
-      if (this.selectedCountry) {
-        const country = this.countriesOptions.filter((x) => x.value === this.selectedCountry)[0];
-        this.maxInstances = country.maxInstances;
-        if (this.appRegistrationSpecification.instances > this.maxInstances) {
-          this.appRegistrationSpecification.instances = this.maxInstances;
+        // fetch locations from stats
+        const response = await axios.get('https://stats.runonflux.io/fluxinfo?projection=geolocation');
+        if (response.data.status === 'success') {
+          const geoData = response.data.data;
+          if (geoData.length > 5000) { // all went well
+            possibleLocations = [];
+            geoData.forEach((flux) => {
+              if (flux.geolocation && flux.geolocation.continentCode && flux.geolocation.regionName && flux.geolocation.countryCode) {
+                const continentLocation = flux.geolocation.continentCode;
+                const countryLocation = `${continentLocation}_${flux.geolocation.countryCode}`;
+                const regionLocation = `${countryLocation}_${flux.geolocation.regionName}`;
+                const continentLocationExists = possibleLocations.find((location) => location.value === continentLocation);
+                if (continentLocationExists) {
+                  continentLocationExists.instances += 1;
+                } else {
+                  possibleLocations.push({
+                    value: continentLocation,
+                    instances: 1,
+                  });
+                }
+                const countryLocationExists = possibleLocations.find((location) => location.value === countryLocation);
+                if (countryLocationExists) {
+                  countryLocationExists.instances += 1;
+                } else {
+                  possibleLocations.push({
+                    value: countryLocation,
+                    instances: 1,
+                  });
+                }
+                const regionLocationExists = possibleLocations.find((location) => location.value === regionLocation);
+                if (regionLocationExists) {
+                  regionLocationExists.instances += 1;
+                } else {
+                  possibleLocations.push({
+                    value: regionLocation,
+                    instances: 1,
+                  });
+                }
+              }
+            });
+          }
+        } else {
+          this.showToast('info', 'Failed to get geolocation data from FluxStats, Using stored locations');
         }
-        this.showToast('warning', `The node type may fluctuate based upon system requirements for your application. For better results in ${country.text}, please consider specifications more suited to ${country.nodeTier} hardware.`);
-      } else {
-        const continent = this.continentsOptions.filter((x) => x.value === this.selectedContinent)[0];
-        this.maxInstances = continent.maxInstances;
-        if (this.appRegistrationSpecification.instances > this.maxInstances) {
-          this.appRegistrationSpecification.instances = this.maxInstances;
-        }
-        this.showToast('warning', `The node type may fluctuate based upon system requirements for your application. For better results in ${continent.text}, please consider specifications more suited to ${continent.nodeTier} hardware.`);
+      } catch (error) {
+        console.log(error);
+        this.showToast('info', 'Failed to get geolocation data from FluxStats, Using stored locations');
       }
+      this.possibleLocations = possibleLocations;
+    },
+    continentsOptions(isNegative) {
+      const continents = [{ value: isNegative ? 'NONE' : 'ALL', text: isNegative ? 'NONE' : 'ALL' }];
+      this.possibleLocations.filter((options) => options.instances > (isNegative ? -1 : 3)).forEach((location) => {
+        if (!location.value.includes('_')) {
+          const existingContinent = geolocations.continents.find((continent) => continent.code === location.value);
+          continents.push({ value: location.value, text: existingContinent ? existingContinent.name : location.value });
+        }
+      });
+      return continents;
+    },
+    countriesOptions(continentCode, isNegative) {
+      const countries = [{ value: isNegative ? 'NONE' : 'ALL', text: isNegative ? 'NONE' : 'ALL' }];
+      this.possibleLocations.filter((options) => options.instances > (isNegative ? -1 : 3)).forEach((location) => {
+        if (!location.value.split('_')[2] && location.value.startsWith(`${continentCode}_`)) {
+          const existingCountry = geolocations.countries.find((country) => country.code === location.value.split('_')[1]);
+          countries.push({ value: location.value.split('_')[1], text: existingCountry ? existingCountry.name : location.value.split('_')[1] });
+        }
+      });
+      return countries;
+    },
+    regionsOptions(continentCode, countryCode, isNegative) {
+      const regions = [{ value: isNegative ? 'NONE' : 'ALL', text: isNegative ? 'NONE' : 'ALL' }];
+      this.possibleLocations.filter((options) => options.instances > (isNegative ? -1 : 3)).forEach((location) => {
+        if (location.value.startsWith(`${continentCode}_${countryCode}_`)) {
+          regions.push({ value: location.value.split('_')[2], text: location.value.split('_')[2] });
+        }
+      });
+      return regions;
+    },
+    generateGeolocations() {
+      const geo = [];
+      for (let i = 1; i < this.numberOfGeolocations + 1; i += 1) {
+        const continent = this.allowedGeolocations[`selectedContinent${i}`];
+        const country = this.allowedGeolocations[`selectedCountry${i}`];
+        const region = this.allowedGeolocations[`selectedRegion${i}`];
+        if (continent && continent !== 'ALL') {
+          let geolocation = `ac${continent}`;
+          if (country && country !== 'ALL') {
+            geolocation += `_${country}`;
+            if (region && region !== 'ALL') {
+              geolocation += `_${region}`;
+            }
+          }
+          geo.push(geolocation);
+        }
+      }
+      for (let i = 1; i < this.numberOfNegativeGeolocations + 1; i += 1) {
+        const continent = this.forbiddenGeolocations[`selectedContinent${i}`];
+        const country = this.forbiddenGeolocations[`selectedCountry${i}`];
+        const region = this.forbiddenGeolocations[`selectedRegion${i}`];
+        if (continent && continent !== 'NONE') {
+          let geolocation = `a!c${continent}`;
+          if (country && country !== 'NONE') {
+            geolocation += `_${country}`;
+            if (region && region !== 'NONE') {
+              geolocation += `_${region}`;
+            }
+          }
+          geo.push(geolocation);
+        }
+      }
+      return geo;
+    },
+    adjustMaxInstancesPossible() {
+      const currentGeolocations = this.generateGeolocations();
+      const positiveLocations = currentGeolocations.filter((location) => location.startsWith('ac'));
+      console.log(currentGeolocations);
+      let instances = 0;
+      positiveLocations.forEach((location) => {
+        const locFound = this.possibleLocations.find((l) => l.value === location.slice(2));
+        if (locFound) {
+          instances += locFound.instances;
+        }
+      });
+      console.log(instances);
+      instances = instances > 3 ? instances : 3;
+      const maxInstances = instances > 100 ? 100 : instances;
+      this.maxInstances = maxInstances;
     },
   },
 };
