@@ -2485,6 +2485,9 @@ function checkAppGeolocationRequirements(appSpecs) {
       const myNodeLocationContinent = nodeGeo.continentCode;
       const myNodeLocationContCountry = `${nodeGeo.continentCode}_${nodeGeo.countryCode}`;
       const myNodeLocationFull = `${nodeGeo.continentCode}_${nodeGeo.countryCode}_${nodeGeo.regionName}`;
+      const myNodeLocationContinentALL = 'ALL';
+      const myNodeLocationContCountryALL = `${nodeGeo.continentCode}_ALL`;
+      const myNodeLocationFullALL = `${nodeGeo.continentCode}_${nodeGeo.countryCode}_ALL`;
 
       if (appContinent && !geoC.length && !geoCForbidden.length) { // backwards old style compatible. Can be removed after a month
         if (appContinent.slice(1) !== nodeGeo.continentCode) {
@@ -2503,7 +2506,8 @@ function checkAppGeolocationRequirements(appSpecs) {
         }
       });
       if (geoC.length) {
-        const nodeLocationOK = geoC.find((locationAllowed) => locationAllowed.slice(2) === myNodeLocationContinent || locationAllowed.slice(2) === myNodeLocationContCountry || locationAllowed.slice(2) === myNodeLocationFull);
+        const nodeLocationOK = geoC.find((locationAllowed) => locationAllowed.slice(2) === myNodeLocationContinent || locationAllowed.slice(2) === myNodeLocationContCountry || locationAllowed.slice(2) === myNodeLocationFull
+          || locationAllowed.slice(2) === myNodeLocationContinentALL || locationAllowed.slice(2) === myNodeLocationContCountryALL || locationAllowed.slice(2) === myNodeLocationFullALL);
         if (!nodeLocationOK) {
           throw new Error('App specs of geolocation set is not matching to run on node geolocation. Aborting.');
         }
