@@ -407,5 +407,6 @@
    "modernglobal/mintit-fe",
    "wanchain/client-go:latest",
    "wanchain/client-go:3.0.0",
-   "binwiederhier/ntfy"
+   "binwiederhier/ntfy",
+   "pihole/pihole"
 ]
