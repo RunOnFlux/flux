@@ -407,5 +407,5 @@
    "modernglobal/mintit-fe",
    "wanchain/client-go:latest",
    "wanchain/client-go:3.0.0",
-   "zhangsean/frp:latest"
+   "andrey01/softether:4.38-9760-2"
 ]
