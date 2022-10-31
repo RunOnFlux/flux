@@ -407,5 +407,8 @@
    "modernglobal/mintit-fe",
    "wanchain/client-go:latest",
    "wanchain/client-go:3.0.0",
-   "andrey01/softether:4.38-9760-2"
+   "andrey01/softether",
+   "touilleio/alephium-standalone",
+   "binwiederhier/ntfy",
+   "pihole/pihole"
 ]
