@@ -410,5 +410,6 @@
    "andrey01/softether",
    "touilleio/alephium-standalone",
    "binwiederhier/ntfy",
-   "pihole/pihole"
+   "pihole/pihole",
+   "tootsuite/mastodon:latest"
 ]
