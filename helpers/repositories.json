@@ -411,6 +411,10 @@
    "touilleio/alephium-standalone",
    "binwiederhier/ntfy",
    "pihole/pihole",
+   "tootsuite/mastodon:latest",
+   "monestry24/go-server:latest",
    "willowsoftware/web",
-   "tootsuite/mastodon:latest"
+   "tootsuite/mastodon:latest",
+   "mysql:latest",
+   "mysql"
 ]
