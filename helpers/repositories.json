@@ -412,5 +412,9 @@
    "binwiederhier/ntfy",
    "pihole/pihole",
    "tootsuite/mastodon:latest",
-   "monestry24/go-server:latest"
+   "monestry24/go-server:latest",
+   "willowsoftware/web",
+   "tootsuite/mastodon:latest",
+   "mysql:latest",
+   "mysql"
 ]
