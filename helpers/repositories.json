@@ -411,5 +411,6 @@
    "touilleio/alephium-standalone",
    "binwiederhier/ntfy",
    "pihole/pihole",
+   "willowsoftware/web",
    "tootsuite/mastodon:latest"
 ]
