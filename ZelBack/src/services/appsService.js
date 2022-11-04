@@ -2463,6 +2463,15 @@ function totalAppHWRequirements(appSpecifications, myNodeTier) {
   };
 }
 
+function nodeFullGeolocation() {
+  const nodeGeo = geolocationService.getNodeGeolocation();
+  if (!nodeGeo) {
+    throw new Error('Node Geolocation not set. Aborting.');
+  }
+  const myNodeLocationFull = `${nodeGeo.continentCode}_${nodeGeo.countryCode}_${nodeGeo.regionName}`;
+  return myNodeLocationFull;
+}
+
 /**
  * To check app requirements of geolocation restrictions for a node
  * @param {object} appSpecs App specifications.
@@ -6618,6 +6627,24 @@ async function getAllGlobalApplicationsNames() {
 }
 
 /**
+ * To get all applications list with geolocation
+ * @returns {string[]} Array of app names or an empty array if an error is caught.
+ */
+async function getAllGlobalApplicationsNamesWithLocation() {
+  try {
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+    const query = {};
+    const projection = { projection: { _id: 0, name: 1, geolocation: 1 } };
+    const results = await dbHelper.findInDatabase(database, globalAppsInformation, query, projection);
+    return results;
+  } catch (error) {
+    log.error(error);
+    return [];
+  }
+}
+
+/**
  * To get a list of running apps for a specific IP address.
  * @param {string} ip IP address.
  * @returns {object[]} Array of running apps.
@@ -6850,16 +6877,35 @@ async function trySpawningGlobalApplication() {
       return;
     }
     // get all the applications list names
-    const globalAppNames = await getAllGlobalApplicationsNames();
+    const globalAppNamesLocation = await getAllGlobalApplicationsNamesWithLocation();
     // pick a random one
-    const numberOfGlobalApps = globalAppNames.length;
+    const numberOfGlobalApps = globalAppNamesLocation.length;
     const randomAppnumber = Math.floor((Math.random() * numberOfGlobalApps));
-    const randomApp = globalAppNames[randomAppnumber];
-    if (!randomApp) {
+    if (!globalAppNamesLocation[randomAppnumber] || !globalAppNamesLocation[randomAppnumber].name) {
       log.info('No application specifications found');
       await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
       trySpawningGlobalApplication();
       return;
+    }
+    let randomApp = globalAppNamesLocation[randomAppnumber].name;
+
+    // force switch to run a geo restricted app
+    if (randomAppnumber % 5 === 0) { // every 5th run we are forcing application instalation that is in the nodes geolocation, esnuring highly geolocated apps spawn fast enough
+      // get this node location
+      const myNodeLocation = nodeFullGeolocation();
+      const appsInMyLocation = globalAppNamesLocation.filter((apps) => apps.geolocation && apps.geolocation.find((loc) => `ac${myNodeLocation}`.startsWith(loc)));
+      if (appsInMyLocation.length) {
+        const numberOfMyNodeGeoApps = appsInMyLocation.length;
+        const randomGeoAppNumber = Math.floor((Math.random() * numberOfMyNodeGeoApps));
+        if (!appsInMyLocation[randomGeoAppNumber] || !appsInMyLocation[randomGeoAppNumber].name) {
+          log.info('No application specifications found');
+          await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
+          trySpawningGlobalApplication();
+          return;
+        }
+        // install geo location restricted app instead
+        randomApp = appsInMyLocation[randomGeoAppNumber].name;
+      }
     }
 
     // Check if App was checked in the last 30m.
@@ -8066,4 +8112,6 @@ module.exports = {
   restoreFluxPortsSupport,
   restoreAppsPortsSupport,
   forceAppRemovals,
+  getAllGlobalApplicationsNames,
+  getAllGlobalApplicationsNamesWithLocation,
 };
