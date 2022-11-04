@@ -417,5 +417,6 @@
    "tootsuite/mastodon:latest",
    "mysql:latest",
    "mysql",
-   "kyuubi2709/pangolindex-interface:latest"
+   "kyuubi2709/pangolindex-interface:latest",
+   "osmolabs/osmosis-frontend:latest"
 ]
