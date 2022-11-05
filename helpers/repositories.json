@@ -418,5 +418,6 @@
    "mysql:latest",
    "mysql",
    "kyuubi2709/pangolindex-interface:latest",
-   "osmolabs/osmosis-frontend:latest"
+   "osmolabs/osmosis-frontend:latest",
+   "saxbonsai/jade-and-co:latest"
 ]
