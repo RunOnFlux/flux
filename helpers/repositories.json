@@ -420,5 +420,6 @@
    "kyuubi2709/pangolindex-interface:latest",
    "osmolabs/osmosis-frontend:latest",
    "saxbonsai/jade-and-co:latest",
-   "kyuubi2709/aave-interface:latest"
+   "kyuubi2709/aave-interface:latest",
+   "ethoprotocol/etho_ipfs_node_www:latest"
 ]
