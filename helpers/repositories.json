@@ -420,6 +420,7 @@
    "kyuubi2709/pangolindex-interface:latest",
    "osmolabs/osmosis-frontend:latest",
    "saxbonsai/jade-and-co:latest",
+   "jc21/nginx-proxy-manager:latest",
    "dengivseti/tds_frontend:latest",
    "dengivseti/tds_server:latest",
    "nginx:stable-alpine"
