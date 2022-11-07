@@ -327,6 +327,7 @@
    "portainer/portainer-ce:latest",
    "kadefi/chainweb-data-docker:latest",
    "kadefi/price-server:latest",
+   "kadefi/udf-server:latest",
    "jeffvaderflux/fluxpools_ui:latest",
    "honsontran/sushiswap-interface:latest",
    "renegademaster/zomboid-dedicated-server:latest",
