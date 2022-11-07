@@ -421,5 +421,9 @@
    "osmolabs/osmosis-frontend:latest",
    "saxbonsai/jade-and-co:latest",
    "kyuubi2709/aave-interface:latest",
-   "ethoprotocol/etho_ipfs_node_www:latest"
+   "ethoprotocol/etho_ipfs_node_www:latest",
+   "jc21/nginx-proxy-manager:latest",
+   "dengivseti/tds_frontend:latest",
+   "dengivseti/tds_server:latest",
+   "nginx:stable-alpine"
 ]
