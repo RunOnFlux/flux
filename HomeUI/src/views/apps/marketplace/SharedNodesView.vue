@@ -2025,9 +2025,12 @@ export default {
           maxStakeAmount.value = response.data.maxStake;
         }
         await getSharedNodeList();
-        getStats();
+        await getStats();
         getMyStakes();
         getMyPayments();
+        if (totalCollateral.value - titanStats.value.total < maxStakeAmount.value) {
+          maxStakeAmount.value = totalCollateral.value - titanStats.value.total;
+        }
       } catch (error) {
         showToast('danger', error.message || error);
       }
