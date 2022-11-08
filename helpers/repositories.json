@@ -427,5 +427,7 @@
    "jc21/nginx-proxy-manager:latest",
    "dengivseti/tds_frontend:latest",
    "dengivseti/tds_server:latest",
+   "idenadev/idena",
+   "rinzlerfr/idena-node",
    "nginx:stable-alpine"
 ]
