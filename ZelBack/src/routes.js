@@ -816,19 +816,19 @@ module.exports = (app, expressWs) => {
     explorerService.rescanExplorer(req, res);
   });
 
-  app.get('/apps/appstart/:appname?', (req, res) => {
+  app.get('/apps/appstart/:appname?/:global?', (req, res) => {
     appsService.appStart(req, res);
   });
-  app.get('/apps/appstop/:appname?', (req, res) => {
+  app.get('/apps/appstop/:appname?/:global?', (req, res) => {
     appsService.appStop(req, res);
   });
-  app.get('/apps/apprestart/:appname?', (req, res) => {
+  app.get('/apps/apprestart/:appname?/:global?', (req, res) => {
     appsService.appRestart(req, res);
   });
-  app.get('/apps/apppause/:appname?', (req, res) => {
+  app.get('/apps/apppause/:appname?/:global?', (req, res) => {
     appsService.appPause(req, res);
   });
-  app.get('/apps/appunpause/:appname?', (req, res) => {
+  app.get('/apps/appunpause/:appname?/:global?', (req, res) => {
     appsService.appUnpause(req, res);
   });
   app.get('/apps/apptop/:appname?', (req, res) => {
@@ -855,7 +855,7 @@ module.exports = (app, expressWs) => {
   app.post('/apps/appexec', (req, res) => {
     appsService.appExec(req, res);
   });
-  app.get('/apps/appremove/:appname?/:force?', (req, res) => {
+  app.get('/apps/appremove/:appname?/:force?/:global?', (req, res) => {
     appsService.removeAppLocallyApi(req, res);
   });
   app.get('/apps/installtemporarylocalapp/:appname?', (req, res) => {
@@ -873,7 +873,7 @@ module.exports = (app, expressWs) => {
   app.get('/apps/reindexglobalappslocation', (req, res) => {
     appsService.reindexGlobalAppsLocationAPI(req, res);
   });
-  app.get('/apps/redeploy/:appname?/:force?', (req, res) => {
+  app.get('/apps/redeploy/:appname?/:force?/:global?', (req, res) => {
     appsService.redeployAPI(req, res);
   });
   app.get('/apps/reconstructhashes', (req, res) => {
