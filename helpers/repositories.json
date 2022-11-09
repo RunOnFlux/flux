@@ -199,6 +199,8 @@
    "ipfs/js-ipfs:latest",
    "terramoney/core-node:v0.5.17",
    "docushield/website:latest",
+   "peterdemin/kibitzr",
+   "peer2profit/peer2profit_linux",
    "smartico/nodify_www:latest",
    "smartico/nodify_db:latest",
    "tornadocash/nova-ui:latest",
