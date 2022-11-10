@@ -252,7 +252,7 @@ async function executeAppGlobalCommand(appname, command, zelidauth, paramA) {
       }
       axios.get(url, axiosConfig);// do not wait, we do not care of the response
       // eslint-disable-next-line no-await-in-loop
-      await this.delay(500);
+      await serviceHelper.delay(500);
     }
   } catch (error) {
     log.error(error);
