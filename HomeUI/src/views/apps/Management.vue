@@ -4207,7 +4207,7 @@ export default {
         if (parameter) {
           urlPath += `/${parameter}`;
         }
-        urlPath += '/global';
+        urlPath += '/true'; // global deploy
         const response = await AppsService.justAPI().get(urlPath, axiosConfig);
         await this.delay(500);
         if (response.data.status === 'success') {
