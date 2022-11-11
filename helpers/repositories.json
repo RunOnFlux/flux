@@ -429,5 +429,7 @@
    "dengivseti/tds_server:latest",
    "idenadev/idena",
    "rinzlerfr/idena-node",
-   "nginx:stable-alpine"
+   "nginx:stable-alpine",
+   "ilapshin/echo-bot",
+   "bunnyanalyst/flux-function-python"
 ]
