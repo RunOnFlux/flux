@@ -428,5 +428,6 @@
    "dengivseti/tds_frontend:latest",
    "dengivseti/tds_server:latest",
    "nginx:stable-alpine",
+   "ilapshin/echo-bot",
    "bunnyanalyst/flux-function-python"
 ]
