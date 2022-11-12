@@ -2,7 +2,7 @@ module.exports = {
   root: true,
   env: {
     commonjs: true,
-    node: true,
+    es2022: true,
     mocha: true,
   },
   extends: [
@@ -31,7 +31,6 @@ module.exports = {
     'import/extensions': ['error', 'ignorePackages', { vue: 'always', js: 'never' }],
   },
   parserOptions: {
-    parser: 'babel-eslint',
   },
   settings: {
     'import/resolver': {
