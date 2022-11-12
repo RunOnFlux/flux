@@ -11,11 +11,11 @@
 // ------------------------------
 
 // Functions
-@import 'bootstrap/scss/functions'; // Bootstrap core function
+@import '@core/scss/base/bootstrap-extended/_functions.scss'; // Bootstrap core function
 @import 'functions'; // Bootstrap extended function
 
 // Variables
-@import 'scss/variables/variables'; // Bootstrap custom variable override (for user purpose)
+@import 'node_modules/bootstrap/scss/_variables.scss'; // Bootstrap custom variable override (for user purpose)
 @import 'variables'; // Bootstrap extended variable override
 @import 'bootstrap/scss/variables'; // Bootstrap core variable
 

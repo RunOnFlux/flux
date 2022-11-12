@@ -64,7 +64,7 @@ export default {
 </script>
 
 <style lang="scss" scoped>
-@import '~@core/scss/base/bootstrap-extended/include'; // Bootstrap includes
+@import '@core/scss/base/bootstrap-extended/include'; // Bootstrap includes
 @import '~@core/scss/base/components/include'; // Components includes
 
 // Color palettes

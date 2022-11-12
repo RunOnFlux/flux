@@ -1,7 +1,7 @@
 $options-padding-x: 20px;
 $options-padding-y: 7px;
 
-@import '~@core/scss/base/bootstrap-extended/include';
+@import '@core/scss/base/bootstrap-extended/include';
 // Overrides user variable
 @import '~@core/scss/base/components/include';
 @import 'vue-select/src/scss/global/_variables.scss';
