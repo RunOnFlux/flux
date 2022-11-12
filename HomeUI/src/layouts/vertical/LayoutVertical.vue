@@ -8,7 +8,7 @@
 
     <!-- <app-customizer
       v-if="showCustomizer"
-      slot="customizer"
+      v-slot="customizer"
     /> -->
   </layout-vertical>
 </template>

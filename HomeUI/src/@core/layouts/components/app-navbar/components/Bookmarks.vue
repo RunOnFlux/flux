@@ -23,7 +23,7 @@
       @hidden="resetsearchQuery"
     >
       <feather-icon
-        slot="button-content"
+        v-slot="button-content"
         icon="StarIcon"
         size="21"
         class="text-warning"

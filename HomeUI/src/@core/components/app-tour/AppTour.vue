@@ -12,7 +12,7 @@
     name="vuexyTour"
     :steps="steps"
   >
-    <template slot-scope="tour">
+    <template v-slot="tour">
       <transition name="fade">
         <!-- eslint-disable vue/no-use-v-if-with-v-for -->
         <v-step
@@ -28,7 +28,7 @@
           :labels="tour.labels"
         >
           <div
-            slot="actions"
+            v-slot="actions"
             class="tour-actions d-flex justify-content-between"
           >
             <!-- Skip Button -->
