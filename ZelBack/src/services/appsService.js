@@ -1618,6 +1618,23 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       res.write(serviceHelper.ensureString(makeDirectory2));
     }
 
+    const permissionsDirectory = {
+      status: 'Adjusting directory permissions...',
+    };
+    log.info(permissionsDirectory);
+    if (res) {
+      res.write(serviceHelper.ensureString(permissionsDirectory));
+    }
+    const execPERM = `sudo chmod 777 ${appsFolder + appId}`;
+    await cmdAsync(execPERM);
+    const permissionsDirectory2 = {
+      status: 'Permissions adjusted',
+    };
+    log.info(permissionsDirectory2);
+    if (res) {
+      res.write(serviceHelper.ensureString(permissionsDirectory2));
+    }
+
     const mountingStatus = {
       status: 'Mounting volume...',
     };
