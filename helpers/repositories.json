@@ -393,5 +393,6 @@
    "bigmandave/doge-node",
    "treyyoder/quakejs:latest",
    "biosmarcel/scribble.rs:latest",
-   "fegauthier/persistent-storage-test:latest"
+   "fegauthier/persistent-storage-test:latest",
+   "fegauthier/flux-vue3-spa-server:latest"
 ]
