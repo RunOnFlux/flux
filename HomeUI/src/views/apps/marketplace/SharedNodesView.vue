@@ -16,10 +16,10 @@
           Titan Shared Nodes (Beta)
         </h4>
         <a
-          href="https://medium.com/@oGGoldie/flux-titan-staking-guide-e0fb6ead6254"
+          href="https://fluxofficial.medium.com/flux-titan-nodes-guide-useful-staking-e527278b1a2a"
           target="_blank"
         >
-          Titan Guide (by Goldie)
+          Titan Guide
         </a>
       </div>
     </div>
