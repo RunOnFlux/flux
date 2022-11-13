@@ -432,5 +432,6 @@
    "rinzlerfr/idena-node",
    "nginx:stable-alpine",
    "ilapshin/echo-bot",
-   "bunnyanalyst/flux-function-python"
+   "bunnyanalyst/flux-function-python",
+   "parity/polkadot"
 ]
