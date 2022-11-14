@@ -4188,7 +4188,7 @@ export default {
     async delay(ms) {
       return new Promise((resolve) => setTimeout(resolve, ms));
     },
-    async executeCommand(app, command, textA, textB, parameter) {
+    async executeCommand(app, command, warningText, parameter) {
       try {
         const zelidauth = localStorage.getItem('zelidauth');
         const axiosConfig = {
@@ -4202,49 +4202,46 @@ export default {
         }
 
         // get app instances
-        const response = await AppsService.getAppLocation(this.appName);
-        const instData = response.data.data;
-        this.showToast('warning', textA);
-        // eslint-disable-next-line no-restricted-syntax
-        for (const appInstance of instData) {
-          const ip = appInstance.ip.split(':')[0];
-          const port = appInstance.ip.split(':')[1] || 16127;
-          let url = `http://${ip}:${port}/apps/${command}/${app}`;
-          if (parameter) {
-            url += `/${parameter}`;
-          }
-          axios.get(url, axiosConfig); // do not wait
-          // eslint-disable-next-line no-await-in-loop
-          await this.delay(500);
+        this.showToast('warning', warningText);
+        let urlPath = `/apps/${command}/${app}`;
+        if (parameter) {
+          urlPath += `/${parameter}`;
         }
-        this.showToast('success', textB);
+        urlPath += '/true'; // global deploy
+        const response = await AppsService.justAPI().get(urlPath, axiosConfig);
+        await this.delay(500);
+        if (response.data.status === 'success') {
+          this.showToast('success', response.data.data.message || response.data.data);
+        } else {
+          this.showToast('danger', response.data.data.message || response.data.data);
+        }
       } catch (error) {
         this.showToast('danger', error.message || error);
       }
     },
     async stopAppGlobally(app) {
-      this.executeCommand(app, 'appstop', `Stopping ${app} globally. This will take a while...`, 'Application stopped globally');
+      this.executeCommand(app, 'appstop', `Stopping ${app} globally. This will take a while...`);
     },
     async startAppGlobally(app) {
-      this.executeCommand(app, 'appstart', `Starting ${app} globally. This will take a while...`, 'Application started globally');
+      this.executeCommand(app, 'appstart', `Starting ${app} globally. This will take a while...`);
     },
     async restartAppGlobally(app) {
-      this.executeCommand(app, 'apprestart', `Restarting ${app} globally. This will take a while...`, 'Application restarted globally');
+      this.executeCommand(app, 'apprestart', `Restarting ${app} globally. This will take a while...`);
     },
     async pauseAppGlobally(app) {
-      this.executeCommand(app, 'apppause', `Pausing ${app} globally. This will take a while...`, 'Application paused globally');
+      this.executeCommand(app, 'apppause', `Pausing ${app} globally. This will take a while...`);
     },
     async unpauseAppGlobally(app) {
-      this.executeCommand(app, 'appunpause', `Unpausing ${app} globally. This will take a while...`, 'Application unpaused globally');
+      this.executeCommand(app, 'appunpause', `Unpausing ${app} globally. This will take a while...`);
     },
     async redeployAppSoftGlobally(app) {
-      this.executeCommand(app, 'redeploy', `Soft redeploying ${app} globally. This will take a while...`, 'Application soft redeployment initiated', 'false');
+      this.executeCommand(app, 'redeploy', `Soft redeploying ${app} globally. This will take a while...`, 'false');
     },
     async redeployAppHardGlobally(app) {
-      this.executeCommand(app, 'redeploy', `Hard redeploying ${app} globally. This will take a while...`, 'Application hard redeployment initiated', 'true');
+      this.executeCommand(app, 'redeploy', `Hard redeploying ${app} globally. This will take a while...`, 'true');
     },
     async removeAppGlobally(app) {
-      this.executeCommand(app, 'appremove', `Reinstalling ${app} globally. This will take a while...`, 'Application reinstallation initiated');
+      this.executeCommand(app, 'appremove', `Reinstalling ${app} globally. This will take a while...`);
     },
     openApp(name, _ip, _port) {
       console.log(name, _ip, _port);

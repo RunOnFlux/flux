@@ -48,6 +48,7 @@ describe('fluxCommunication tests', () => {
     });
 
     it('should broadcast the app message if a proper data is given', async () => {
+      sinon.stub(appsService, 'storeAppTemporaryMessage').returns(true);
       const fromIp = '127.0.0.5';
       const appSpecifications = {
         name: 'website',

@@ -403,6 +403,7 @@
                 >
                   <b-button
                     v-if="totalReward > minStakeAmount"
+                    :disabled="totalReward >= totalCollateral - titanStats.total"
                     class="mt-2 mr-1"
                     variant="danger"
                     size="sm"
@@ -609,7 +610,7 @@
                                 class="float-right mt-1 mb-1"
                                 :variant="stake.state >= 5 ? 'outline-secondary' : 'danger'"
                                 size="sm"
-                                :disabled="stake.state >= 5"
+                                :disabled="stake.state >= 5 || (totalReward >= totalCollateral - titanStats.total)"
                                 pill
                                 style="width: 100px"
                                 @click="showReinvestDialog(stake)"
@@ -711,6 +712,7 @@
                 >
                   <b-button
                     v-if="totalReward > minStakeAmount"
+                    :disabled="totalReward >= totalCollateral - titanStats.total"
                     class="mt-2 mr-1"
                     variant="danger"
                     size="sm"
@@ -2023,9 +2025,12 @@ export default {
           maxStakeAmount.value = response.data.maxStake;
         }
         await getSharedNodeList();
-        getStats();
+        await getStats();
         getMyStakes();
         getMyPayments();
+        if (totalCollateral.value - titanStats.value.total < maxStakeAmount.value) {
+          maxStakeAmount.value = totalCollateral.value - titanStats.value.total;
+        }
       } catch (error) {
         showToast('danger', error.message || error);
       }

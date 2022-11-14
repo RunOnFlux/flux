@@ -916,6 +916,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       }
       isInInitiationOfBP = false;
       const isInsightExplorer = daemonServiceMiscRpcs.isInsightExplorer();
+
       if (isInsightExplorer) {
         // if node is insight explorer based, we are only processing flux app messages
         if (scannedBlockHeight < config.deterministicNodesStart - 1) {
@@ -1581,6 +1582,16 @@ async function getAddressBalance(req, res) {
   }
 }
 
+// testing purposes
+function setBlockProccessingCanContinue(value) {
+  blockProccessingCanContinue = value;
+}
+
+// testing purposes
+function setIsInInitiationOfBP(value) {
+  isInInitiationOfBP = value;
+}
+
 module.exports = {
   initiateBlockProcessor,
   processBlock,
@@ -1599,4 +1610,19 @@ module.exports = {
   getScannedHeight,
   getAllFusionCoinbase,
   getAddressFusionCoinbase,
+
+  // exports for testing puproses
+  getSenderTransactionFromDaemon,
+  getSenderForFluxTxInsight,
+  getSenderForFluxTx,
+  getSender,
+  processBlockTransactions,
+  getVerboseBlock,
+  decodeMessage,
+  processInsight,
+  processTransaction,
+  processStandard,
+  setBlockProccessingCanContinue,
+  setIsInInitiationOfBP,
+  restoreDatabaseToBlockheightState,
 };

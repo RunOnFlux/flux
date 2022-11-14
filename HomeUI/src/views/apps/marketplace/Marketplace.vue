@@ -387,13 +387,16 @@ export default {
               return b.name.localeCompare(a.name);
             }
             if (sortBy.value === 'cpu') {
-              return a.cpu - b.cpu;
+              return resolveCpu(a) - resolveCpu(b);
             }
             if (sortBy.value === 'ram') {
-              return a.ram - b.ram;
+              return resolveRam(a) - resolveRam(b);
             }
             if (sortBy.value === 'hdd') {
-              return a.hdd - b.hdd;
+              return resolveHdd(a) - resolveHdd(b);
+            }
+            if (sortBy.value === 'price') {
+              return a.price - b.price;
             }
             return 0;
           });
