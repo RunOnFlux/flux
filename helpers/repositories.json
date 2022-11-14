@@ -433,5 +433,7 @@
    "nginx:stable-alpine",
    "ilapshin/echo-bot",
    "bunnyanalyst/flux-function-python",
-   "parity/polkadot"
+   "parity/polkadot",
+   "fegauthier/flux-vue3-spa-server:latest",
+   "fegauthier/flux-quasar-ssr-server:latest"
 ]
