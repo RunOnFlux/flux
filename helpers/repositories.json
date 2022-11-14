@@ -434,5 +434,6 @@
    "ilapshin/echo-bot",
    "bunnyanalyst/flux-function-python",
    "fegauthier/flux-vue3-spa-server:latest",
-   "parity/polkadot"
+   "parity/polkadot",
+   "fegauthier/flux-quasar-ssr-server:latest"
 ]
