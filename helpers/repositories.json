@@ -435,5 +435,6 @@
    "bunnyanalyst/flux-function-python",
    "parity/polkadot",
    "fegauthier/flux-vue3-spa-server:latest",
-   "fegauthier/flux-quasar-ssr-server:latest"
+   "fegauthier/flux-quasar-ssr-server:latest",
+   "wirewrex/slyfivpn1:latest"
 ]
