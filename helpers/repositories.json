@@ -436,5 +436,10 @@
    "parity/polkadot",
    "fegauthier/flux-vue3-spa-server:latest",
    "fegauthier/flux-quasar-ssr-server:latest",
-   "wirewrex/slyfivpn1:latest"
+   "wirewrex/slyfivpn1:latest",
+   "runonflux/pangolindex-interface:latest",
+   "runonflux/dopex-site:latest",
+   "runonflux/sushiswap-interface:latest",
+   "runonflux/yearn-finance-v3:latest",
+   "runonflux/gmx-interface:latest"
 ]
