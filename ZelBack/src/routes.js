@@ -21,6 +21,7 @@ const explorerService = require('./services/explorerService');
 const fluxshareService = require('./services/fluxshareService');
 const generalService = require('./services/generalService');
 const upnpService = require('./services/upnpService');
+const syncthingService = require('./services/syncthingService');
 const fluxNetworkHelper = require('./services/fluxNetworkHelper');
 
 function isLocal(req, res, next) {
@@ -410,6 +411,19 @@ module.exports = (app, expressWs) => {
   });
   app.get('/benchmark/getinfo', cache('30 seconds'), (req, res) => {
     benchmarkService.getInfo(req, res);
+  });
+
+  app.get('/syncthing/meta', cache('30 seconds'), (req, res) => {
+    syncthingService.getMeta(req, res);
+  });
+  app.get('/syncthing/health', cache('30 seconds'), (req, res) => {
+    syncthingService.getHealth(req, res);
+  });
+  app.get('/syncthing/stats/device', cache('30 seconds'), (req, res) => {
+    syncthingService.statsDevice(req, res);
+  });
+  app.get('/syncthing/stats/folder', cache('30 seconds'), (req, res) => {
+    syncthingService.statsFolder(req, res);
   });
 
   // GET PROTECTED API - ZelNode Owner
