@@ -10,6 +10,7 @@ const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const fluxService = require('./fluxService');
 const geolocationService = require('./geolocationService');
 const upnpService = require('./upnpService');
+const syncthingService = require('./syncthingService');
 const userconfig = require('../../../config/userconfig');
 
 const apiPort = userconfig.initial.apiport || config.server.apiport;
@@ -82,6 +83,8 @@ async function startFluxFunctions() {
     log.info('Flux checks operational');
     fluxCommunication.fluxDiscovery();
     log.info('Flux Discovery started');
+    syncthingService.startSyncthing();
+    log.info('Syncthing service started');
     try {
       appsService.reconstructAppMessagesHashCollection();
       log.info('Validation of App Messages Hash Collection');

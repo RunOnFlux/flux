@@ -1,12 +1,18 @@
 const config = require('config');
+const nodecmd = require('node-cmd');
 const axios = require('axios');
 const { XMLParser } = require('fast-xml-parser');
 const fs = require('fs');
 const os = require('os');
+const path = require('path');
+// eslint-disable-next-line import/no-extraneous-dependencies
+const util = require('util');
 
+const cmdAsync = util.promisify(nodecmd.get);
 const fsPromises = fs.promises;
 
 const messageHelper = require('./messageHelper');
+const serviceHelper = require('./serviceHelper');
 const log = require('../lib/log');
 
 const syncthingURL = `http://${config.syncthing.ip}:${config.syncthing.port}`;
@@ -41,7 +47,7 @@ async function getSyncthingApiKey() { // can throw
   return apiKey;
 }
 
-async function performRequest(method = 'get', path = '', data) {
+async function performRequest(method = 'get', urlpath = '', data) {
   try {
     if (!syncthingApiKey) {
       const apiKey = await getSyncthingApiKey();
@@ -54,7 +60,7 @@ async function performRequest(method = 'get', path = '', data) {
         'X-API-Key': syncthingApiKey,
       },
     });
-    const response = await instance[method](path, data);
+    const response = await instance[method](urlpath, data);
     const successResponse = messageHelper.createDataMessage(response.data);
     return successResponse;
   } catch (error) {
@@ -111,7 +117,36 @@ async function getDeviceID(req, res) {
   }
 }
 
+async function installSyncthing() { // can throw
+  const nodedpath = path.join(__dirname, '../../../helpers');
+  const exec = `cd ${nodedpath} && bash installSyncthing.sh`;
+  await cmdAsync(exec);
+  log.info('Syncthing installed');
+}
+
+async function startSyncthing() {
+  try {
+    // check wether syncthing is running or not
+    const myDevice = getDeviceID();
+    if (myDevice.status === 'error') {
+      const exec = 'syncthing';
+      try {
+        await cmdAsync(exec);
+      } catch (error) {
+        log.error(error);
+        log.info('Syncthing is not installed, proceeding with installation');
+        await installSyncthing();
+        serviceHelper.delay(1 * 60 * 1000);
+        startSyncthing();
+      }
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
 module.exports = {
+  startSyncthing,
   getMeta,
   getHealth,
   statsDevice,
