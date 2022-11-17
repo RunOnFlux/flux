@@ -11,6 +11,7 @@
 // ------------------------------
 
 // Functions
+@import 'node_modules/bootstrap/scss/_functions.scss'; // Bootstrap functions
 @import '@core/scss/base/bootstrap-extended/_functions.scss'; // Bootstrap core function
 @import 'functions'; // Bootstrap extended function
 
