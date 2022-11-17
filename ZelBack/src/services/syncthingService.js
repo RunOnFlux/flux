@@ -1,10 +1,11 @@
 const config = require('config');
 const axios = require('axios');
+const { XMLParser } = require('fast-xml-parser');
 const fs = require('fs');
+const os = require('os');
 
 const fsPromises = fs.promises;
 
-const xmlToJson = require('./xmlToJson');
 const messageHelper = require('./messageHelper');
 const log = require('../lib/log');
 
@@ -12,10 +13,17 @@ const syncthingURL = `http://${config.syncthing.ip}:${config.syncthing.port}`;
 
 let syncthingApiKey = '';
 
+const parserOptions = {
+  ignoreAttributes: false,
+  attributeNamePrefix: '@_',
+  allowBooleanAttributes: true,
+};
+const parser = new XMLParser(parserOptions);
+
 async function getConfigFile() {
   try {
-    const result = await fsPromises.readFile('$HOME/.config/syncthing');
-    console.log(result);
+    const homedir = os.homedir();
+    const result = await fsPromises.readFile(`${homedir}/.config/syncthing/config.xml`, 'utf8');
     return result;
   } catch (error) {
     log.error(error);
@@ -25,8 +33,10 @@ async function getConfigFile() {
 
 async function getSyncthingApiKey() { // can throw
   const fileRead = await getConfigFile();
-  const xmlDOM = new DOMParser().parseFromString(fileRead, 'text/xml');
-  const jsonConfig = xmlToJson.xmlToJson(xmlDOM);
+  if (!fileRead) {
+    throw new Error('No Syncthing configuration f ound');
+  }
+  const jsonConfig = parser.parse(fileRead);
   const apiKey = jsonConfig.configuration.gui.apikey;
   return apiKey;
 }
