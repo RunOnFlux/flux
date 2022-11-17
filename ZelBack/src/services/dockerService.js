@@ -417,6 +417,8 @@ async function appDockerCreate(appSpecifications, appName, isComponent) {
       ];
     }
   }
+  // containerData can have flags eg. s (s:/data) for synthing enabled container data
+  const containerData = appSpecifications.containerData.split(':')[1] || appSpecifications.containerData;
   const options = {
     Image: appSpecifications.repotag,
     name: getAppIdentifier(identifier),
@@ -430,7 +432,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent) {
     HostConfig: {
       NanoCPUs: appSpecifications.cpu * 1e9,
       Memory: appSpecifications.ram * 1024 * 1024,
-      Binds: [`${appsFolder + getAppIdentifier(identifier)}:${appSpecifications.containerData}`],
+      Binds: [`${appsFolder + getAppIdentifier(identifier)}:${containerData}`],
       Ulimits: [
         {
           Name: 'nofile',
