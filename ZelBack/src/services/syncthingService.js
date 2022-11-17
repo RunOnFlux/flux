@@ -138,10 +138,15 @@ async function startSyncthing() {
         await installSyncthing();
         serviceHelper.delay(1 * 60 * 1000);
         startSyncthing();
+        return;
       }
     }
+    serviceHelper.delay(8 * 60 * 1000);
+    startSyncthing();
   } catch (error) {
     log.error(error);
+    serviceHelper.delay(2 * 60 * 1000);
+    startSyncthing();
   }
 }
 
