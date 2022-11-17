@@ -34,7 +34,7 @@ async function getConfigFile() {
 async function getSyncthingApiKey() { // can throw
   const fileRead = await getConfigFile();
   if (!fileRead) {
-    throw new Error('No Syncthing configuration f ound');
+    throw new Error('No Syncthing configuration found');
   }
   const jsonConfig = parser.parse(fileRead);
   const apiKey = jsonConfig.configuration.gui.apikey;
@@ -65,27 +65,49 @@ async function performRequest(method = 'get', path = '', data) {
 }
 
 async function getMeta(req, res) {
+  // does not require authentication
   const response = await performRequest('get', '/meta.js');
-  console.log(response);
+  // "var metadata = {\"deviceID\":\"K6VOO4G-5RLTF3B-JTUFMHH-JWITKGM-63DTTMT-I6BMON6-7E3LVFW-V5WAIAO\"};\n"
   return res ? res.json(response) : response;
 }
-
 async function getHealth(req, res) {
   const response = await performRequest('get', '/rest/noauth/health');
-  console.log(response);
   return res ? res.json(response) : response;
 }
 
 async function statsDevice(req, res) {
   const response = await performRequest('get', '/rest/stats/device');
-  console.log(response);
   return res ? res.json(response) : response;
 }
 
 async function statsFolder(req, res) {
   const response = await performRequest('get', '/rest/stats/folder');
-  console.log(response);
   return res ? res.json(response) : response;
+}
+
+async function systemPing(req, res) {
+  const response = await performRequest('get', '/rest/system/ping');
+  return res ? res.json(response) : response;
+}
+
+// our device id and also test that syncthing is installed and running and we have api key
+async function getDeviceID(req, res) {
+  try {
+    const meta = await getMeta();
+    const healthy = await getHealth(); // check that syncthing instance is healthy
+    const pingResponse = await systemPing(); // check that flux has proper api key
+    if (meta.status === 'success' && pingResponse.data.ping === 'pong' && healthy.data.status === 'OK') {
+      const adjustedString = meta.data.slice(15).slice(0, -2);
+      const deviceObject = JSON.parse(adjustedString);
+      const successResponse = messageHelper.createDataMessage(deviceObject);
+      return res ? res.json(successResponse) : successResponse;
+    }
+    throw new Error('Syncthing is not running properly');
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return errorResponse;
+  }
 }
 
 module.exports = {
@@ -93,4 +115,6 @@ module.exports = {
   getHealth,
   statsDevice,
   statsFolder,
+  systemPing,
+  getDeviceID,
 };

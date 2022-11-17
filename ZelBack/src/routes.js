@@ -416,6 +416,9 @@ module.exports = (app, expressWs) => {
   app.get('/syncthing/meta', cache('30 seconds'), (req, res) => {
     syncthingService.getMeta(req, res);
   });
+  app.get('/syncthing/deviceid', cache('30 seconds'), (req, res) => {
+    syncthingService.getDeviceID(req, res);
+  });
   app.get('/syncthing/health', cache('30 seconds'), (req, res) => {
     syncthingService.getHealth(req, res);
   });
@@ -423,6 +426,9 @@ module.exports = (app, expressWs) => {
     syncthingService.statsDevice(req, res);
   });
   app.get('/syncthing/stats/folder', cache('30 seconds'), (req, res) => {
+    syncthingService.statsFolder(req, res);
+  });
+  app.get('/syncthing/system/ping', cache('30 seconds'), (req, res) => {
     syncthingService.statsFolder(req, res);
   });
 
