@@ -1,4 +1,5 @@
 const config = require('config');
+const axios = require('axios');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const os = require('os');
 const path = require('path');
@@ -224,6 +225,41 @@ async function listAppsImages(req, res) {
 }
 
 /**
+ * To execute a command to all app instances.
+ * @param {string} appname Application name or App component name in Flux notation '_'.
+ * @param {string} command What command to execute, api route to be done.
+ * @param {object} zelidauth What zelidauth headers to send with request for authentication purposes.
+ * @param {(object|boolean|string)} paramA first parameter that a command may need
+ */
+async function executeAppGlobalCommand(appname, command, zelidauth, paramA) {
+  try {
+    // get a list of the specific app locations
+    // eslint-disable-next-line no-use-before-define
+    const locations = await appLocation(appname);
+    // eslint-disable-next-line no-restricted-syntax
+    for (const appInstance of locations) {
+      // HERE let the node we are connected to handle it
+      const ip = appInstance.ip.split(':')[0];
+      const port = appInstance.ip.split(':')[1] || 16127;
+      const axiosConfig = {
+        headers: {
+          zelidauth,
+        },
+      };
+      let url = `http://${ip}:${port}/apps/${command}/${appname}`;
+      if (paramA) {
+        url += `/${paramA}`;
+      }
+      axios.get(url, axiosConfig);// do not wait, we do not care of the response
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(500);
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
  * To start an app. Starts each component if the app is using Docker Compose. Only accessible by app owner, admins and flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -233,6 +269,9 @@ async function appStart(req, res) {
   try {
     let { appname } = req.params;
     appname = appname || req.query.appname;
+    let { global } = req.params;
+    global = global || req.query.global || false;
+    global = serviceHelper.ensureBoolean(global);
 
     if (!appname) {
       throw new Error('No Flux App specified');
@@ -246,6 +285,11 @@ async function appStart(req, res) {
       return res ? res.json(errMessage) : errMessage;
     }
 
+    if (global) {
+      executeAppGlobalCommand(appname, 'appstart', req.headers.zelidauth); // do not wait
+      const appResponse = messageHelper.createDataMessage(`${appname} queried for global start`);
+      return res ? res.json(appResponse) : appResponse;
+    }
     const isComponent = appname.includes('_'); // it is a component start. Proceed with starting just component
 
     let appRes;
@@ -299,6 +343,9 @@ async function appStop(req, res) {
   try {
     let { appname } = req.params;
     appname = appname || req.query.appname;
+    let { global } = req.params;
+    global = global || req.query.global || false;
+    global = serviceHelper.ensureBoolean(global);
 
     if (!appname) {
       throw new Error('No Flux App specified');
@@ -310,6 +357,11 @@ async function appStop(req, res) {
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
+    }
+    if (global) {
+      executeAppGlobalCommand(appname, 'appstop', req.headers.zelidauth); // do not wait
+      const appResponse = messageHelper.createDataMessage(`${appname} queried for global stop`);
+      return res ? res.json(appResponse) : appResponse;
     }
 
     const isComponent = appname.includes('_'); // it is a component stop. Proceed with stopping just component
@@ -365,6 +417,9 @@ async function appRestart(req, res) {
   try {
     let { appname } = req.params;
     appname = appname || req.query.appname;
+    let { global } = req.params;
+    global = global || req.query.global || false;
+    global = serviceHelper.ensureBoolean(global);
 
     if (!appname) {
       throw new Error('No Flux App specified');
@@ -376,6 +431,11 @@ async function appRestart(req, res) {
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
+    }
+    if (global) {
+      executeAppGlobalCommand(appname, 'apprestart', req.headers.zelidauth); // do not wait
+      const appResponse = messageHelper.createDataMessage(`${appname} queried for global restart`);
+      return res ? res.json(appResponse) : appResponse;
     }
 
     const isComponent = appname.includes('_'); // it is a component restart. Proceed with restarting just component
@@ -485,6 +545,9 @@ async function appPause(req, res) {
   try {
     let { appname } = req.params;
     appname = appname || req.query.appname;
+    let { global } = req.params;
+    global = global || req.query.global || false;
+    global = serviceHelper.ensureBoolean(global);
 
     if (!appname) {
       throw new Error('No Flux App specified');
@@ -496,6 +559,11 @@ async function appPause(req, res) {
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
+    }
+    if (global) {
+      executeAppGlobalCommand(appname, 'apppause', req.headers.zelidauth); // do not wait
+      const appResponse = messageHelper.createDataMessage(`${appname} queried for global pause`);
+      return res ? res.json(appResponse) : appResponse;
     }
 
     const isComponent = appname.includes('_'); // it is a component pause. Proceed with pausing just component
@@ -545,6 +613,9 @@ async function appUnpause(req, res) {
   try {
     let { appname } = req.params;
     appname = appname || req.query.appname;
+    let { global } = req.params;
+    global = global || req.query.global || false;
+    global = serviceHelper.ensureBoolean(global);
 
     if (!appname) {
       throw new Error('No Flux App specified');
@@ -556,6 +627,11 @@ async function appUnpause(req, res) {
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
+    }
+    if (global) {
+      executeAppGlobalCommand(appname, 'appunpause', req.headers.zelidauth); // do not wait
+      const appResponse = messageHelper.createDataMessage(`${appname} queried for global unpase`);
+      return res ? res.json(appResponse) : appResponse;
     }
 
     const isComponent = appname.includes('_'); // it is a component unpause. Proceed with unpausing just component
@@ -1638,6 +1714,23 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       res.write(serviceHelper.ensureString(mountingStatus2));
     }
 
+    const permissionsDirectory = {
+      status: 'Adjusting permissions...',
+    };
+    log.info(permissionsDirectory);
+    if (res) {
+      res.write(serviceHelper.ensureString(permissionsDirectory));
+    }
+    const execPERM = `sudo chmod 777 ${appsFolder + appId}`;
+    await cmdAsync(execPERM);
+    const permissionsDirectory2 = {
+      status: 'Permissions adjusted',
+    };
+    log.info(permissionsDirectory2);
+    if (res) {
+      res.write(serviceHelper.ensureString(permissionsDirectory2));
+    }
+
     const cronStatus = {
       status: 'Creating crontab...',
     };
@@ -2382,6 +2475,9 @@ async function removeAppLocallyApi(req, res) {
   try {
     let { appname } = req.params;
     appname = appname || req.query.appname;
+    let { global } = req.params;
+    global = global || req.query.global || false;
+    global = serviceHelper.ensureBoolean(global);
 
     if (appname.includes('_')) {
       throw new Error('Components cannot be removed manually');
@@ -2399,6 +2495,10 @@ async function removeAppLocallyApi(req, res) {
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
+    } else if (global) {
+      executeAppGlobalCommand(appname, 'appremove', req.headers.zelidauth); // do not wait
+      const appResponse = messageHelper.createDataMessage(`${appname} queried for global reinstallation`);
+      res.json(appResponse);
     } else {
       // remove app from local machine.
       // find in database, stop app, remove container, close ports delete data associated on system, remove from database
@@ -6535,26 +6635,38 @@ async function getAppHashes(req, res) {
 }
 
 /**
+ * To get app locations or a location of an app
+ * @param {string} appname Application Name.
+ */
+async function appLocation(appname) {
+  const dbopen = dbHelper.databaseConnection();
+  const database = dbopen.db(config.database.appsglobal.database);
+  let query = {};
+  if (appname) {
+    query = { name: new RegExp(`^${appname}$`, 'i') }; // case insensitive
+  }
+  const projection = {
+    projection: {
+      _id: 0,
+      name: 1,
+      hash: 1,
+      ip: 1,
+      broadcastedAt: 1,
+      expireAt: 1,
+    },
+  };
+  const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
+  return results;
+}
+
+/**
  * To get app locations.
  * @param {object} req Request.
  * @param {object} res Response.
  */
 async function getAppsLocations(req, res) {
   try {
-    const dbopen = dbHelper.databaseConnection();
-    const database = dbopen.db(config.database.appsglobal.database);
-    const query = {};
-    const projection = {
-      projection: {
-        _id: 0,
-        name: 1,
-        hash: 1,
-        ip: 1,
-        broadcastedAt: 1,
-        expireAt: 1,
-      },
-    };
-    const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
+    const results = await appLocation();
     const resultsResponse = messageHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {
@@ -6580,20 +6692,7 @@ async function getAppsLocation(req, res) {
     if (!appname) {
       throw new Error('No Flux App name specified');
     }
-    const dbopen = dbHelper.databaseConnection();
-    const database = dbopen.db(config.database.appsglobal.database);
-    const query = { name: new RegExp(`^${appname}$`, 'i') }; // case insensitive
-    const projection = {
-      projection: {
-        _id: 0,
-        name: 1,
-        hash: 1,
-        ip: 1,
-        broadcastedAt: 1,
-        expireAt: 1,
-      },
-    };
-    const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
+    const results = await appLocation(appname);
     const resultsResponse = messageHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {
@@ -6876,6 +6975,21 @@ async function trySpawningGlobalApplication() {
       trySpawningGlobalApplication();
       return;
     }
+
+    const benchmarkBenchRes = await benchmarkService.getBenchmarks();
+    if (benchmarkBenchRes.status === 'error') {
+      log.info('FluxBench status Error. Global applications will not be installed');
+      await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
+      trySpawningGlobalApplication();
+      return;
+    }
+    if (benchmarkBenchRes.data.thunder) {
+      log.info('Flux Node is a Thunder Storage Node. Global applications will not be installed');
+      await serviceHelper.delay(24 * 3600 * 1000); // check again in one day as changing from and to only requires the restart of flux daemon
+      trySpawningGlobalApplication();
+      return;
+    }
+
     // get all the applications list names
     const globalAppNamesLocation = await getAllGlobalApplicationsNamesWithLocation();
     // pick a random one
@@ -7716,6 +7830,9 @@ async function redeployAPI(req, res) {
   try {
     let { appname } = req.params;
     appname = appname || req.query.appname;
+    let { global } = req.params;
+    global = global || req.query.global || false;
+    global = serviceHelper.ensureBoolean(global);
 
     if (!appname) {
       throw new Error('No Flux App specified');
@@ -7733,6 +7850,13 @@ async function redeployAPI(req, res) {
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
+      return;
+    }
+    if (global) {
+      executeAppGlobalCommand(appname, 'redeploy', req.headers.zelidauth); // do not wait
+      const hardOrSoft = force ? 'hard' : 'soft';
+      const appResponse = messageHelper.createDataMessage(`${appname} queried for global ${hardOrSoft} redeploy`);
+      res.json(appResponse);
       return;
     }
 
