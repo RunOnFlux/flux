@@ -441,5 +441,6 @@
    "runonflux/dopex-site:latest",
    "runonflux/sushiswap-interface:latest",
    "runonflux/yearn-finance-v3:latest",
-   "runonflux/gmx-interface:latest"
+   "runonflux/gmx-interface:latest",
+   "honsontran/frax-frontend:latest"
 ]
