@@ -99,14 +99,15 @@ async function getDeviceID(req, res) {
     if (meta.status === 'success' && pingResponse.data.ping === 'pong' && healthy.data.status === 'OK') {
       const adjustedString = meta.data.slice(15).slice(0, -2);
       const deviceObject = JSON.parse(adjustedString);
-      const successResponse = messageHelper.createDataMessage(deviceObject);
+      const { deviceID } = deviceObject;
+      const successResponse = messageHelper.createDataMessage(deviceID);
       return res ? res.json(successResponse) : successResponse;
     }
     throw new Error('Syncthing is not running properly');
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return errorResponse;
+    return res ? res.json(errorResponse) : errorResponse;
   }
 }
 
