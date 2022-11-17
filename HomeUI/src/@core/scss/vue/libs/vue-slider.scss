@@ -1,8 +1,8 @@
-@import '~@core/scss/base/bootstrap-extended/include';
+@import '@core/scss/base/bootstrap-extended/include';
 
 // Color palettes
-@import '~@core/scss/base/core/colors/palette-variables.scss';
-@import '~@core/scss/base/components/include';
+@import '@core/scss/base/core/colors/palette-variables.scss';
+@import '@core/scss/base/components/include';
 
 /* Set the theme color of the component */
 $themeColor: $primary;

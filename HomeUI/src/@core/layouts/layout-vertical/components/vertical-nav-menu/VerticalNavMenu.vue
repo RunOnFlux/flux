@@ -209,5 +209,5 @@ export default {
 </script>
 
 <style lang="scss">
-@import "~@core/scss/base/core/menu/menu-types/vertical-menu.scss";
+@import "@core/scss/base/core/menu/menu-types/vertical-menu.scss";
 </style>

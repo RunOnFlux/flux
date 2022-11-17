@@ -2,7 +2,7 @@
 
 @import '@core/scss/base/bootstrap-extended/include';
 // Overrides user variable
-@import '~@core/scss/base/components/include';
+@import '@core/scss/base/components/include';
 
 .tree-container {
   .tag-box-container {

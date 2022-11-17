@@ -1,7 +1,7 @@
 // Core variables and mixins
-@import '~@core/scss/base/bootstrap-extended/include';
+@import '@core/scss/base/bootstrap-extended/include';
 // Overrides user variable
-@import '~@core/scss/base/components/include';
+@import '@core/scss/base/components/include';
 // good table variable override to change the color of table
 $text-color: $body-color;
 $thead-bg-color-1: transparent;

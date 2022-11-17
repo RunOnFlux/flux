@@ -8,6 +8,6 @@
 // ================================================================================================
 
 // Overrides user variable
-@import 'scss/variables/_variables-components'; // Component custom variable override (for user purpose)
+@import 'HomeUI/src/assets/scss/variables/_variables-components.scss'; // Component custom variable override (for user purpose)
 @import 'variables'; // Component variable
 @import 'variables-dark'; // Dark variable

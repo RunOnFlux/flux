@@ -1,6 +1,6 @@
 // Reason: We aren't getting style due to structural changes
 // Color palettes
-@import '~@core/scss/base/core/colors/palette-variables.scss';
+@import '@core/scss/base/core/colors/palette-variables.scss';
 
 .b-avatar {
   font-size: 0.857rem;
@@ -50,7 +50,7 @@
 }
 
 // Color palettes
-@import '~@core/scss/base/core/colors/palette-variables.scss';
+@import '@core/scss/base/core/colors/palette-variables.scss';
 
 // Badge Variants
 @each $color_name, $color in $colors {
