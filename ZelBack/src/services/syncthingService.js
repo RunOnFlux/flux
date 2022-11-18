@@ -204,6 +204,9 @@ async function patchConfigFolders(req, res) {
   if (!id) {
     throw new Error('device ID is not provided');
   }
+  if (!data) {
+    throw new Error('data is not provided');
+  }
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const response = await performRequest('patch', `/rest/config/folders/${id}`, data);
@@ -220,6 +223,9 @@ async function patchConfigDevices(req, res) {
   data = data || req.query.data;
   if (!id) {
     throw new Error('device ID is not provided');
+  }
+  if (!data) {
+    throw new Error('data is not provided');
   }
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
