@@ -174,6 +174,56 @@ async function deleteConfigDevices(req, res) {
   return res ? res.json(response) : response;
 }
 
+async function getConfigOptions(req, res) {
+  const response = await performRequest('get', `/rest/config/options`);
+  return res ? res.json(response) : response;
+}
+
+async function putConfigOptions(req, res) {
+  let { data } = req.params;
+  data = data || req.query.data;
+  if (!data) {
+    throw new Error('No options data is provided');
+  }
+  const response = await performRequest('put', `/rest/config/options`, data);
+  return res ? res.json(response) : response;
+}
+
+async function patchConfigOptions(req, res) {
+  let { data } = req.params;
+  data = data || req.query.data;
+  if (!data) {
+    throw new Error('No options data is provided');
+  }
+  const response = await performRequest('patch', `/rest/config/options`, data);
+  return res ? res.json(response) : response;
+}
+
+async function getConfigGui(req, res) {
+  const response = await performRequest('get', `/rest/config/gui`);
+  return res ? res.json(response) : response;
+}
+
+async function putConfigGui(req, res) {
+  let { data } = req.params;
+  data = data || req.query.data;
+  if (!data) {
+    throw new Error('No gui options data is provided');
+  }
+  const response = await performRequest('put', `/rest/config/gui`, data);
+  return res ? res.json(response) : response;
+}
+
+async function patchConfigGui(req, res) {
+  let { data } = req.params;
+  data = data || req.query.data;
+  if (!data) {
+    throw new Error('No gui options data is provided');
+  }
+  const response = await performRequest('patch', `/rest/config/gui`, data);
+  return res ? res.json(response) : response;
+}
+
 
 // our device id and also test that syncthing is installed and running and we have api key
 async function getDeviceID(req, res) {
@@ -244,5 +294,11 @@ module.exports = {
   patchConfigDevices,
   deleteConfigFolders,
   deleteConfigDevices,
+  getConfigOptions,
+  putConfigOptions,
+  patchConfigOptions,
+  getConfigGui,
+  putConfigGui,
+  patchConfigGui,
   getDeviceID,
 };
