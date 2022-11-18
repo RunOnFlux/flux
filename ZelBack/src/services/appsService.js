@@ -8166,7 +8166,7 @@ async function stopSyncthingApp(appComponentName, res) {
     }
     let folderIsBeingSynced = false;
     allSyncthingFolders.data.forEach((syncthingFolder) => {
-      if (syncthingFolder === folder) {
+      if (syncthingFolder.path === folder) {
         folderIsBeingSynced = true;
       }
     })
