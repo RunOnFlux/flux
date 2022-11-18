@@ -31,6 +31,16 @@ jobs:
         sudo apt-get update
         sudo apt-get install flux
         sudo apt-get install fluxbench
+    - name: install syncthing
+      run: |
+        sudo curl -o /usr/share/keyrings/syncthing-archive-keyring.gpg https://syncthing.net/release-key.gpg
+        echo 'deb [signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg] https://apt.syncthing.net/ syncthing stable' | sudo tee /etc/apt/sources.list.d/syncthing.list
+        sudo apt install ca-certificates -y > /dev/null 2>&1
+        sudo apt-get update -y
+        sudo apt-get install syncthing -y
+    - name: run syncthing # todo some start parameters
+      run: |
+        syncthing
     - name: npm install
       run: npm i
     - name: configure
