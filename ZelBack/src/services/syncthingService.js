@@ -132,7 +132,7 @@ async function postConfigFolders(req, res) {
   }
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
-    const response = await performRequest('post', '/rest/config/folders', data);
+    response = await performRequest('post', '/rest/config/folders', data);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -147,7 +147,7 @@ async function postConfigDevices(req, res) {
   }
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
-    const response = await performRequest('post', '/rest/config/devices', data);
+    response = await performRequest('post', '/rest/config/devices', data);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -168,7 +168,7 @@ async function putConfigFolders(req, res) {
   }
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
-    const response = await performRequest('put', path, data);
+    response = await performRequest('put', path, data);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -189,7 +189,7 @@ async function putConfigDevices(req, res) {
   }
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
-    const response = await performRequest('put', path, data);
+    response = await performRequest('put', path, data);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -209,7 +209,7 @@ async function patchConfigFolders(req, res) {
   }
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
-    const response = await performRequest('patch', `/rest/config/folders/${id}`, data);
+    response = await performRequest('patch', `/rest/config/folders/${id}`, data);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -229,7 +229,7 @@ async function patchConfigDevices(req, res) {
   }
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
-    const response = await performRequest('patch', `/rest/config/devices/${id}`, data);
+    response = await performRequest('patch', `/rest/config/devices/${id}`, data);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   } 
@@ -244,7 +244,7 @@ async function deleteConfigFolders(req, res) {
   }
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
-    const response = await performRequest('delete', `/rest/config/folders/${id}`);
+    response = await performRequest('delete', `/rest/config/folders/${id}`);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -259,7 +259,7 @@ async function deleteConfigDevices(req, res) {
   }
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
-    const response = await performRequest('delete', `/rest/config/devices/${id}`);
+    response = await performRequest('delete', `/rest/config/devices/${id}`);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -279,7 +279,7 @@ async function putConfigOptions(req, res) {
   }
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
-    const response = await performRequest('put', `/rest/config/options`, data);
+    response = await performRequest('put', `/rest/config/options`, data);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -294,7 +294,7 @@ async function patchConfigOptions(req, res) {
   }
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
-    const response = await performRequest('patch', `/rest/config/options`, data);
+    response = await performRequest('patch', `/rest/config/options`, data);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -314,7 +314,7 @@ async function putConfigGui(req, res) {
   }
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
-    const response = await performRequest('put', `/rest/config/gui`, data);
+    response = await performRequest('put', `/rest/config/gui`, data);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -329,7 +329,7 @@ async function patchConfigGui(req, res) {
   }
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
-    const response = await performRequest('patch', `/rest/config/gui`, data);
+    response = await performRequest('patch', `/rest/config/gui`, data);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
