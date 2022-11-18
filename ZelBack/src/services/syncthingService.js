@@ -127,124 +127,161 @@ async function getConfigDevices(req, res) {
 }
 
 async function postConfigFolders(req, res) {
-  let { data } = req.params;
-  data = data || req.query.data;
-  if (!data) {
-    throw new Error('data is not provided');
+  try{
+    let { data } = req.params;
+    data = data || req.query.data;
+    if (!data) {
+      throw new Error('data is not provided');
+    }
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    let response = null;
+    if (disableAuth || authorized === true) {
+      response = await performRequest('post', '/rest/config/folders', data);
+    } else {
+      response = messageHelper.errUnauthorizedMessage();
+    }
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
   }
-  const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  let response = null;
-  if (disableAuth || authorized === true) {
-    response = await performRequest('post', '/rest/config/folders', data);
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
-  return res ? res.json(response) : response;
 }
 
 async function postConfigDevices(req, res) {
-  let { data } = req.params;
-  data = data || req.query.data;
-  if (!data) {
-    throw new Error('data is not provided');
+  try{
+    let { data } = req.params;
+    data = data || req.query.data;
+    if (!data) {
+      throw new Error('data is not provided');
+    }
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    let response = null;
+    if (disableAuth || authorized === true) {
+      response = await performRequest('post', '/rest/config/devices', data);
+    } else {
+      response = messageHelper.errUnauthorizedMessage();
+    }
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
   }
-  const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  let response = null;
-  if (disableAuth || authorized === true) {
-    response = await performRequest('post', '/rest/config/devices', data);
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
-  return res ? res.json(response) : response;
 }
 
 async function putConfigFolders(req, res) {
-  let { id } = req.params;
-  id = id || req.query.id;
-  let path = '/rest/config/folders';
-  if(id){
-    path = `/rest/config/folders/${id}`;
+  try{
+    let { id } = req.params;
+    id = id || req.query.id;
+    let path = '/rest/config/folders';
+    if(id){
+      path = `/rest/config/folders/${id}`;
+    }
+    let { data } = req.params;
+    data = data || req.query.data;
+    if (!data) {
+      throw new Error('data is not provided');
+    }
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    let response = null;
+    if (disableAuth || authorized === true) {
+      response = await performRequest('put', path, data);
+    } else {
+      response = messageHelper.errUnauthorizedMessage();
+    }
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
   }
-  let { data } = req.params;
-  data = data || req.query.data;
-  if (!data) {
-    throw new Error('data is not provided');
-  }
-  const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  let response = null;
-  if (disableAuth || authorized === true) {
-    response = await performRequest('put', path, data);
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
-  return res ? res.json(response) : response;
 }
 
 async function putConfigDevices(req, res) {
-  let { id } = req.params;
-  id = id || req.query.id;
-  let path = '/rest/config/devices';
-  if(id){
-    path = `/rest/config/devices/${id}`;
+  try{
+    let { id } = req.params;
+    id = id || req.query.id;
+    let path = '/rest/config/devices';
+    if(id){
+      path = `/rest/config/devices/${id}`;
+    }
+    let { data } = req.params;
+    data = data || req.query.data;
+    if (!data) {
+      throw new Error('data is not provided');
+    }
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    let response = null;
+    if (disableAuth || authorized === true) {
+      response = await performRequest('put', path, data);
+    } else {
+      response = messageHelper.errUnauthorizedMessage();
+    }
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
   }
-  let { data } = req.params;
-  data = data || req.query.data;
-  if (!data) {
-    throw new Error('data is not provided');
-  }
-  const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  let response = null;
-  if (disableAuth || authorized === true) {
-    response = await performRequest('put', path, data);
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
-  return res ? res.json(response) : response;
 }
 
 async function patchConfigFolders(req, res) {
-  let { id } = req.params;
-  id = id || req.query.id;
-  let { data } = req.params;
-  data = data || req.query.data;
-  if (!id) {
-    throw new Error('device ID is not provided');
+  try{
+    let { id } = req.params;
+    id = id || req.query.id;
+    let { data } = req.params;
+    data = data || req.query.data;
+    if (!id) {
+      throw new Error('device ID is not provided');
+    }
+    if (!data) {
+      throw new Error('data is not provided');
+    }
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    let response = null;
+    if (disableAuth || authorized === true) {
+      response = await performRequest('patch', `/rest/config/folders/${id}`, data);
+    } else {
+      response = messageHelper.errUnauthorizedMessage();
+    }
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
   }
-  if (!data) {
-    throw new Error('data is not provided');
-  }
-  const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  let response = null;
-  if (disableAuth || authorized === true) {
-    response = await performRequest('patch', `/rest/config/folders/${id}`, data);
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
-  return res ? res.json(response) : response;
 }
 
 async function patchConfigDevices(req, res) {
-  let { id } = req.params;
-  id = id || req.query.id;
-  let { data } = req.params;
-  data = data || req.query.data;
-  if (!id) {
-    throw new Error('device ID is not provided');
+  try{
+    let { id } = req.params;
+    id = id || req.query.id;
+    let { data } = req.params;
+    data = data || req.query.data;
+    if (!id) {
+      throw new Error('device ID is not provided');
+    }
+    if (!data) {
+      throw new Error('data is not provided');
+    }
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    let response = null;
+    if (disableAuth || authorized === true) {
+      response = await performRequest('patch', `/rest/config/devices/${id}`, data);
+    } else {
+      response = messageHelper.errUnauthorizedMessage();
+    } 
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
   }
-  if (!data) {
-    throw new Error('data is not provided');
-  }
-  const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  let response = null;
-  if (disableAuth || authorized === true) {
-    response = await performRequest('patch', `/rest/config/devices/${id}`, data);
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  } 
-  return res ? res.json(response) : response;
 }
 
 async function deleteConfigFolders(req, res) {
+  try{
   let { id } = req.params;
   id = id || req.query.id;
   if (!id) {
@@ -258,22 +295,33 @@ async function deleteConfigFolders(req, res) {
     response = messageHelper.errUnauthorizedMessage();
   }
   return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
 }
 
 async function deleteConfigDevices(req, res) {
-  let { id } = req.params;
-  id = id || req.query.id;
-  if (!id) {
-    throw new Error('device ID is not provided');
+  try{
+    let { id } = req.params;
+    id = id || req.query.id;
+    if (!id) {
+      throw new Error('device ID is not provided');
+    }
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    let response = null;
+    if (disableAuth || authorized === true) {
+      response = await performRequest('delete', `/rest/config/devices/${id}`);
+    } else {
+      response = messageHelper.errUnauthorizedMessage();
+    }
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
   }
-  const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  let response = null;
-  if (disableAuth || authorized === true) {
-    response = await performRequest('delete', `/rest/config/devices/${id}`);
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
-  return res ? res.json(response) : response;
 }
 
 async function getConfigOptions(req, res) {
@@ -282,35 +330,47 @@ async function getConfigOptions(req, res) {
 }
 
 async function putConfigOptions(req, res) {
-  let { data } = req.params;
-  data = data || req.query.data;
-  if (!data) {
-    throw new Error('No options data is provided');
+  try{
+    let { data } = req.params;
+    data = data || req.query.data;
+    if (!data) {
+      throw new Error('No options data is provided');
+    }
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    let response = null;
+    if (disableAuth || authorized === true) {
+      response = await performRequest('put', `/rest/config/options`, data);
+    } else {
+      response = messageHelper.errUnauthorizedMessage();
+    }
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
   }
-  const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  let response = null;
-  if (disableAuth || authorized === true) {
-    response = await performRequest('put', `/rest/config/options`, data);
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
-  return res ? res.json(response) : response;
 }
 
 async function patchConfigOptions(req, res) {
-  let { data } = req.params;
-  data = data || req.query.data;
-  if (!data) {
-    throw new Error('No options data is provided');
-  }
-  const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  let response = null;
-  if (disableAuth || authorized === true) {
-    response = await performRequest('patch', `/rest/config/options`, data);
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
+  try{
+    let { data } = req.params;
+    data = data || req.query.data;
+    if (!data) {
+      throw new Error('No options data is provided');
+    }
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    let response = null;
+    if (disableAuth || authorized === true) {
+      response = await performRequest('patch', `/rest/config/options`, data);
+    } else {
+      response = messageHelper.errUnauthorizedMessage();
+    }
   return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
 }
 
 async function getConfigGui(req, res) {
@@ -319,35 +379,47 @@ async function getConfigGui(req, res) {
 }
 
 async function putConfigGui(req, res) {
-  let { data } = req.params;
-  data = data || req.query.data;
-  if (!data) {
-    throw new Error('No gui options data is provided');
+  try{
+    let { data } = req.params;
+    data = data || req.query.data;
+    if (!data) {
+      throw new Error('No gui options data is provided');
+    }
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    let response = null;
+    if (disableAuth || authorized === true) {
+      response = await performRequest('put', `/rest/config/gui`, data);
+    } else {
+      response = messageHelper.errUnauthorizedMessage();
+    }
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
   }
-  const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  let response = null;
-  if (disableAuth || authorized === true) {
-    response = await performRequest('put', `/rest/config/gui`, data);
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
-  return res ? res.json(response) : response;
 }
 
 async function patchConfigGui(req, res) {
-  let { data } = req.params;
-  data = data || req.query.data;
-  if (!data) {
-    throw new Error('No gui options data is provided');
+  try{
+    let { data } = req.params;
+    data = data || req.query.data;
+    if (!data) {
+      throw new Error('No gui options data is provided');
+    }
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    let response = null;
+    if (disableAuth || authorized === true) {
+      response = await performRequest('patch', `/rest/config/gui`, data);
+    } else {
+      response = messageHelper.errUnauthorizedMessage();
+    }
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
   }
-  const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  let response = null;
-  if (disableAuth || authorized === true) {
-    response = await performRequest('patch', `/rest/config/gui`, data);
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
-  return res ? res.json(response) : response;
 }
 
 
