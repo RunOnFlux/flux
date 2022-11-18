@@ -25,6 +25,7 @@ const dockerService = require('./dockerService');
 const generalService = require('./generalService');
 const upnpService = require('./upnpService');
 const geolocationService = require('./geolocationService');
+const syncthingService = require('./syncthingService');
 const log = require('../lib/log');
 const userconfig = require('../../../config/userconfig');
 
@@ -1786,9 +1787,9 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     if (useThisVolume.mount === '/') {
       execRemoveAlloc = `sudo rm -rf ${fluxDirPath}appvolumes/${appId}FLUXFSVOL`;
     }
-    await cmdAsync(execRemoveAlloc);
-    const execFinal = `sudo rm -rf ${appsFolder + appId}/${appId}VERTEMP`;
-    await cmdAsync(execFinal);
+    await cmdAsync(execRemoveAlloc).catch((error) => log.error(error));
+    const execFinal = `sudo rm -rf ${appsFolder + appId}`;
+    await cmdAsync(execFinal).catch((error) => log.error(error));
     const aloocationRemoval2 = {
       status: 'Pre-removal cleaning completed. Forcing removal.',
     };
@@ -1838,6 +1839,8 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   if (res) {
     res.write(serviceHelper.ensureString(stopStatus2));
   }
+
+  await stopSyncthingApp(monitoredName, res);
 
   const removeStatus = {
     status: isComponent ? `Removing Flux App component ${appSpecifications.name} container...` : `Removing Flux App ${appName} container...`,
@@ -2283,6 +2286,8 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   if (res) {
     res.write(serviceHelper.ensureString(stopStatus2));
   }
+
+  await stopSyncthingApp(monitoredName, res);
 
   const removeStatus = {
     status: isComponent ? `Removing Flux App component ${appSpecifications.name} container...` : `Removing Flux App ${appName} container...`,
@@ -8150,6 +8155,80 @@ async function forceAppRemovals() {
   }
 }
 
+async function stopSyncthingApp(appComponentName, res) {
+  try {
+    const identifier = appComponentName;
+    const appId = dockerService.getAppIdentifier(identifier);
+    const folder = `${appsFolder + appId}`;
+    const allSyncthingFolders = await syncthingService.getConfigFolders();
+    if (allSyncthingFolders.status === 'error') {
+      return;
+    }
+    let folderIsBeingSynced = false;
+    allSyncthingFolders.data.forEach((syncthingFolder) => {
+      if (syncthingFolder === folder) {
+        folderIsBeingSynced = true;
+      }
+    })
+    if (!folderIsBeingSynced) {
+      return;
+    }
+    const adjustSyncthingA = {
+      status: 'Adjusting Syncthing...',
+    };
+    // TODO remove folder from syncing
+    const adjustSyncthingB = {
+      status: 'Syncthing adjusted',
+    };
+    log.info(adjustSyncthingA);
+    if (res) {
+      res.write(serviceHelper.ensureString(adjustSyncthingA));
+    }
+    if (res) {
+      res.write(serviceHelper.ensureString(adjustSyncthingB));
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+// update syncthing configuration for locally installed apps
+async function syncthingApps() {
+  try {
+  // do not run if installationInProgress or removalInProgress
+  if (installationInProgress || removalInProgress) {
+    return;
+  }
+  // get list of all installed apps
+  const installedApps = await installedApps();
+  if (installedApps.status === 'error') {
+    return;
+  }
+  let configHasChanged = false;
+  // go through every containerData of all components of every app
+  for (const installedApp of installedApps) {
+    if (installedApp.version <= 3) {
+      const containerDataFlags = installedApp.containerData.split(':')[1] ? installedApp.containerData.split(':')[0] : '';
+      if (containerDataFlags.includes('s')) {
+        // TODO do magic, this is syncthing
+      }
+    } else {
+      for (const installedComponent of installedApp) {
+        const containerDataFlags = installedComponent.containerData.split(':')[1] ? installedComponent.containerData.split(':')[0] : '';
+        if (containerDataFlags.includes('s')) {
+          // TODO do magic, this is syncthing
+        }
+      }
+    }
+  }
+  if (configHasChanged) {
+    // TODO reload syncthing? Or above was done through some magic and no reload needed?
+  }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
 module.exports = {
   listRunningApps,
   listAllApps,
@@ -8238,4 +8317,5 @@ module.exports = {
   forceAppRemovals,
   getAllGlobalApplicationsNames,
   getAllGlobalApplicationsNamesWithLocation,
+  syncthingApps,
 };

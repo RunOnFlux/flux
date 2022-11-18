@@ -96,6 +96,11 @@ async function systemPing(req, res) {
   return res ? res.json(response) : response;
 }
 
+async function getConfigFolders(req, res) {
+  const response = await performRequest('get', '/rest/config/folders');
+  return res ? res.json(response) : response;
+}
+
 // our device id and also test that syncthing is installed and running and we have api key
 async function getDeviceID(req, res) {
   try {
@@ -157,5 +162,6 @@ module.exports = {
   statsDevice,
   statsFolder,
   systemPing,
+  getConfigFolders,
   getDeviceID,
 };

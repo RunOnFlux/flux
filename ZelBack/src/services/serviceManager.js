@@ -110,6 +110,12 @@ async function startFluxFunctions() {
         appsService.checkAndNotifyPeersOfRunningApps();
       }, 20 * 60 * 1000);
     }, 4 * 60 * 1000);
+    setTimeout(() => {
+      appsService.syncthingApps(); // after 6 mins adjust our syncthing configuration
+      setInterval(() => { // recheck and possibly adjust syncthing configuration every minute
+        appsService.syncthingApps();
+      }, 1 * 60 * 1000);
+    }, 6 * 60 * 1000);
     setInterval(() => { // every 12 mins (6 blocks)
       appsService.continuousFluxAppHashesCheck();
     }, 12 * 60 * 1000);

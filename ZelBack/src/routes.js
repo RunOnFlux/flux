@@ -431,6 +431,9 @@ module.exports = (app, expressWs) => {
   app.get('/syncthing/system/ping', cache('30 seconds'), (req, res) => {
     syncthingService.systemPing(req, res);
   });
+  app.get('/syncthing/config/folders', cache('30 seconds'), (req, res) => {
+    syncthingService.getConfigFolders(req, res);
+  });
 
   // GET PROTECTED API - ZelNode Owner
   app.get('/daemon/stop', (req, res) => {
