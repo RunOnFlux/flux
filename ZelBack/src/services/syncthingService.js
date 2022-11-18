@@ -110,6 +110,7 @@ async function putConfigFolders(req, res) {
   let { id } = req.params;
   let { data } = req.params;
   id = id || req.query.id;
+  data = data || req.query.data;
   if (!id) {
     throw new Error('device ID is not provided');
   }
@@ -121,6 +122,7 @@ async function putConfigDevices(req, res) {
   let { id } = req.params;
   let { data } = req.params;
   id = id || req.query.id;
+  data = data || req.query.data;
   if (!id) {
     throw new Error('device ID is not provided');
   }
@@ -132,6 +134,7 @@ async function patchConfigFolders(req, res) {
   let { id } = req.params;
   let { data } = req.params;
   id = id || req.query.id;
+  data = data || req.query.data;
   if (!id) {
     throw new Error('device ID is not provided');
   }
@@ -143,6 +146,7 @@ async function patchConfigDevices(req, res) {
   let { id } = req.params;
   let { data } = req.params;
   id = id || req.query.id;
+  data = data || req.query.data;
   if (!id) {
     throw new Error('device ID is not provided');
   }
