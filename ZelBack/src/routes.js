@@ -1044,43 +1044,43 @@ module.exports = (app, expressWs) => {
     syncthingService.postConfigDevices(req, res);
   });
 
-  app.put('/syncthing/config/folders', (req, res) => {
+  app.post('/syncthing/config/folders', (req, res) => {
     syncthingService.putConfigFolders(req, res);
   });
 
-  app.put('/syncthing/config/devices', (req, res) => {
+  app.post('/syncthing/config/devices', (req, res) => {
     syncthingService.putConfigDevices(req, res);
   });
 
-  app.patch('/syncthing/config/folders', (req, res) => {
+  app.post('/syncthing/config/folders', (req, res) => {
     syncthingService.patchConfigFolders(req, res);
   });
 
-  app.patch('/syncthing/config/devices', (req, res) => {
+  app.post('/syncthing/config/devices', (req, res) => {
     syncthingService.patchConfigDevices(req, res);
   });
 
-  app.delete('/syncthing/config/folders', (req, res) => {
+  app.post('/syncthing/config/folders', (req, res) => {
     syncthingService.deleteConfigFolders(req, res);
   });
 
-  app.delete('/syncthing/config/devices', (req, res) => {
+  app.post('/syncthing/config/devices', (req, res) => {
     syncthingService.deleteConfigDevices(req, res);
   });
 
-  app.put('/syncthing/config/options', (req, res) => {
+  app.post('/syncthing/config/options', (req, res) => {
     syncthingService.putConfigOptions(req, res);
   });
 
-  app.patch('/syncthing/config/options', (req, res) => {
+  app.post('/syncthing/config/options', (req, res) => {
     syncthingService.patchConfigOptions(req, res);
   });
 
-  app.put('/syncthing/config/gui', (req, res) => {
+  app.post('/syncthing/config/gui', (req, res) => {
     syncthingService.putConfigGui(req, res);
   });
 
-  app.patch('/syncthing/config/gui', (req, res) => {
+  app.post('/syncthing/config/gui', (req, res) => {
     syncthingService.patchConfigGui(req, res);
   });
 
