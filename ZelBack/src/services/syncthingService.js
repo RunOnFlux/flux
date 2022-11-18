@@ -101,6 +101,42 @@ async function getConfigFolders(req, res) {
   return res ? res.json(response) : response;
 }
 
+async function getConfigDevices(req, res) {
+  const response = await performRequest('get', '/rest/config/devices');
+  return res ? res.json(response) : response;
+}
+
+async function putConfigFolders(req, res, id, data) {
+  const response = await performRequest('put', `/rest/config/folders/${id}`, data);
+  return res ? res.json(response) : response;
+}
+
+async function putConfigDevices(req, res, id, data) {
+  const response = await performRequest('put', `/rest/config/devices/${id}`, data);
+  return res ? res.json(response) : response;
+}
+
+async function patchConfigFolders(req, res, id, data) {
+  const response = await performRequest('patch', `/rest/config/folders/${id}`, data);
+  return res ? res.json(response) : response;
+}
+
+async function patchConfigDevices(req, res, id, data) {
+  const response = await performRequest('patch', `/rest/config/devices/${id}`, data);
+  return res ? res.json(response) : response;
+}
+
+async function deleteConfigFolders(req, res, id) {
+  const response = await performRequest('delete', `/rest/config/folders/${id}`);
+  return res ? res.json(response) : response;
+}
+
+async function deleteConfigDevices(req, res, id) {
+  const response = await performRequest('delete', `/rest/config/devices/${id}`);
+  return res ? res.json(response) : response;
+}
+
+
 // our device id and also test that syncthing is installed and running and we have api key
 async function getDeviceID(req, res) {
   try {
@@ -163,5 +199,12 @@ module.exports = {
   statsFolder,
   systemPing,
   getConfigFolders,
+  getConfigDevices,
+  putConfigFolders,
+  putConfigDevices,
+  patchConfigFolders,
+  patchConfigDevices,
+  deleteConfigFolders,
+  deleteConfigDevices,
   getDeviceID,
 };
