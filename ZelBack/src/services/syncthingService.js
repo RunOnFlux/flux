@@ -96,6 +96,11 @@ async function systemPing(req, res) {
   return res ? res.json(response) : response;
 }
 
+async function getConfigRestartRequired(req, res) {
+  const response = await performRequest('get', '/rest/config/restart-required');
+  return res ? res.json(response) : response;
+}
+
 async function getConfigFolders(req, res) {
   const response = await performRequest('get', '/rest/config/folders');
   return res ? res.json(response) : response;
@@ -286,6 +291,7 @@ module.exports = {
   statsDevice,
   statsFolder,
   systemPing,
+  getConfigRestartRequired,
   getConfigFolders,
   getConfigDevices,
   putConfigFolders,
