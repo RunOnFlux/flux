@@ -132,7 +132,7 @@ async function installSyncthing() { // can throw
 async function startSyncthing() {
   try {
     // check wether syncthing is running or not
-    const myDevice = getDeviceID();
+    const myDevice = await getDeviceID();
     if (myDevice.status === 'error') {
       const exec = 'syncthing';
       try {
@@ -141,16 +141,16 @@ async function startSyncthing() {
         log.error(error);
         log.info('Syncthing is not installed, proceeding with installation');
         await installSyncthing();
-        serviceHelper.delay(1 * 60 * 1000);
+        await serviceHelper.delay(1 * 60 * 1000);
         startSyncthing();
         return;
       }
     }
-    serviceHelper.delay(8 * 60 * 1000);
+    await serviceHelper.delay(8 * 60 * 1000);
     startSyncthing();
   } catch (error) {
     log.error(error);
-    serviceHelper.delay(2 * 60 * 1000);
+    await serviceHelper.delay(2 * 60 * 1000);
     startSyncthing();
   }
 }
