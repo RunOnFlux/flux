@@ -434,6 +434,15 @@ module.exports = (app, expressWs) => {
   app.get('/syncthing/config/folders', cache('30 seconds'), (req, res) => {
     syncthingService.getConfigFolders(req, res);
   });
+  app.get('/syncthing/config/restart-required', cache('30 seconds'), (req, res) => {
+    syncthingService.getConfigRestartRequired(req, res);
+  });
+  app.get('/syncthing/config/options', cache('30 seconds'), (req, res) => {
+    syncthingService.getConfigOptions(req, res);
+  });
+  app.get('/syncthing/config/gui', cache('30 seconds'), (req, res) => {
+    syncthingService.getConfigGui(req, res);
+  });
 
   // GET PROTECTED API - ZelNode Owner
   app.get('/daemon/stop', (req, res) => {
@@ -1025,6 +1034,54 @@ module.exports = (app, expressWs) => {
 
   app.post('/benchmark/signzelnodetransaction', (req, res) => {
     benchmarkService.signFluxTransactionPost(req, res);
+  });
+
+  app.post('/syncthing/config/folders', (req, res) => {
+    syncthingService.postConfigFolders(req, res);
+  });
+
+  app.post('/syncthing/config/devices', (req, res) => {
+    syncthingService.postConfigDevices(req, res);
+  });
+
+  app.put('/syncthing/config/folders', (req, res) => {
+    syncthingService.putConfigFolders(req, res);
+  });
+
+  app.put('/syncthing/config/devices', (req, res) => {
+    syncthingService.putConfigDevices(req, res);
+  });
+
+  app.patch('/syncthing/config/folders', (req, res) => {
+    syncthingService.patchConfigFolders(req, res);
+  });
+
+  app.patch('/syncthing/config/devices', (req, res) => {
+    syncthingService.patchConfigDevices(req, res);
+  });
+
+  app.delete('/syncthing/config/folders', (req, res) => {
+    syncthingService.deleteConfigFolders(req, res);
+  });
+
+  app.delete('/syncthing/config/devices', (req, res) => {
+    syncthingService.deleteConfigDevices(req, res);
+  });
+
+  app.put('/syncthing/config/options', (req, res) => {
+    syncthingService.putConfigOptions(req, res);
+  });
+
+  app.patch('/syncthing/config/options', (req, res) => {
+    syncthingService.patchConfigOptions(req, res);
+  });
+
+  app.put('/syncthing/config/gui', (req, res) => {
+    syncthingService.putConfigGui(req, res);
+  });
+
+  app.patch('/syncthing/config/gui', (req, res) => {
+    syncthingService.patchConfigGui(req, res);
   });
 
   // POST PROTECTED API - FluxTeam
