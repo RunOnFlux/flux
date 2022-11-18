@@ -5,9 +5,9 @@ const { XMLParser } = require('fast-xml-parser');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const util = require('util');
 const verificationHelper = require('./verificationHelper');
 // eslint-disable-next-line import/no-extraneous-dependencies
-const util = require('util');
 
 const cmdAsync = util.promisify(nodecmd.get);
 const fsPromises = fs.promises;
@@ -105,36 +105,36 @@ async function getConfigRestartRequired(req, res) {
 async function getConfigFolders(req, res) {
   let { id } = req.params;
   id = id || req.query.id;
-  let path = '/rest/config/folders';
-  if(id){
-    path = `/rest/config/folders/${id}`;
+  let apiPath = '/rest/config/folders';
+  if (id) {
+    apiPath = `/rest/config/folders/${id}`;
   }
-  const response = await performRequest('get', path);
+  const response = await performRequest('get', apiPath);
   return res ? res.json(response) : response;
 }
 
 async function getConfigDevices(req, res) {
   let { id } = req.params;
   id = id || req.query.id;
-  let path = '/rest/config/devices';
-  if(id){
-    path = `/rest/config/devices/${id}`;
+  let apiPath = '/rest/config/devices';
+  if (id) {
+    apiPath = `/rest/config/devices/${id}`;
   }
-  const response = await performRequest('get', path);
+  const response = await performRequest('get', apiPath);
   return res ? res.json(response) : response;
 }
 
 async function postConfigFolders(req, res) {
-  try{
+  try {
     let { data } = req.params;
     data = data || req.query.data;
     if (!data) {
       throw new Error('data is not provided');
     }
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    // const authorized = await verificationHelper.verifyPrivilege('admin', req);
     let response = null;
     // if (authorized === true) {
-      response = await performRequest('post', '/rest/config/folders', data);
+    response = await performRequest('post', '/rest/config/folders', data);
     // } else {
     //  response = messageHelper.errUnauthorizedMessage();
     // }
@@ -147,19 +147,19 @@ async function postConfigFolders(req, res) {
 }
 
 async function postConfigDevices(req, res) {
-  try{
+  try {
     let { data } = req.params;
     data = data || req.query.data;
     if (!data) {
       throw new Error('data is not provided');
     }
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    // const authorized = await verificationHelper.verifyPrivilege('admin', req);
     let response = null;
     // if (authorized === true) {
-      response = await performRequest('post', '/rest/config/devices', data);
-   // } else {
-   //   response = messageHelper.errUnauthorizedMessage();
-   // }
+    response = await performRequest('post', '/rest/config/devices', data);
+    // } else {
+    //   response = messageHelper.errUnauthorizedMessage();
+    // }
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
@@ -169,12 +169,12 @@ async function postConfigDevices(req, res) {
 }
 
 async function putConfigFolders(req, res) {
-  try{
+  try {
     let { id } = req.params;
     id = id || req.query.id;
-    let path = '/rest/config/folders';
-    if(id){
-      path = `/rest/config/folders/${id}`;
+    let apiPath = '/rest/config/folders';
+    if (id) {
+      apiPath = `/rest/config/folders/${id}`;
     }
     let { data } = req.params;
     data = data || req.query.data;
@@ -184,7 +184,7 @@ async function putConfigFolders(req, res) {
     // const authorized = await verificationHelper.verifyPrivilege('admin', req);
     let response = null;
     // if (authorized === true) {
-      response = await performRequest('put', path, data);
+    response = await performRequest('put', apiPath, data);
     // } else {
     //   response = messageHelper.errUnauthorizedMessage();
     // }
@@ -197,12 +197,12 @@ async function putConfigFolders(req, res) {
 }
 
 async function putConfigDevices(req, res) {
-  try{
+  try {
     let { id } = req.params;
     id = id || req.query.id;
-    let path = '/rest/config/devices';
-    if(id){
-      path = `/rest/config/devices/${id}`;
+    let apiPath = '/rest/config/devices';
+    if (id) {
+      apiPath = `/rest/config/devices/${id}`;
     }
     let { data } = req.params;
     data = data || req.query.data;
@@ -212,7 +212,7 @@ async function putConfigDevices(req, res) {
     // const authorized = await verificationHelper.verifyPrivilege('admin', req);
     let response = null;
     // if (authorized === true) {
-      response = await performRequest('put', path, data);
+    response = await performRequest('put', apiPath, data);
     // } else {
     //  response = messageHelper.errUnauthorizedMessage();
     // }
@@ -225,7 +225,7 @@ async function putConfigDevices(req, res) {
 }
 
 async function patchConfigFolders(req, res) {
-  try{
+  try {
     let { id } = req.params;
     id = id || req.query.id;
     let { data } = req.params;
@@ -239,7 +239,7 @@ async function patchConfigFolders(req, res) {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
     let response = null;
     // if (authorized === true) {
-      response = await performRequest('patch', `/rest/config/folders/${id}`, data);
+    response = await performRequest('patch', `/rest/config/folders/${id}`, data);
     // } else {
     //   response = messageHelper.errUnauthorizedMessage();
     // }
@@ -252,7 +252,7 @@ async function patchConfigFolders(req, res) {
 }
 
 async function patchConfigDevices(req, res) {
-  try{
+  try {
     let { id } = req.params;
     id = id || req.query.id;
     let { data } = req.params;
@@ -263,13 +263,13 @@ async function patchConfigDevices(req, res) {
     if (!data) {
       throw new Error('data is not provided');
     }
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    // const authorized = await verificationHelper.verifyPrivilege('admin', req);
     let response = null;
     // if (authorized === true) {
-      response = await performRequest('patch', `/rest/config/devices/${id}`, data);
+    response = await performRequest('patch', `/rest/config/devices/${id}`, data);
     // } else {
     //   response = messageHelper.errUnauthorizedMessage();
-    // } 
+    // }
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
@@ -279,20 +279,20 @@ async function patchConfigDevices(req, res) {
 }
 
 async function deleteConfigFolders(req, res) {
-  try{
-  let { id } = req.params;
-  id = id || req.query.id;
-  if (!id) {
-    throw new Error('device ID is not provided');
-  }
-  const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  let response = null;
-  // if (authorized === true) {
+  try {
+    let { id } = req.params;
+    id = id || req.query.id;
+    if (!id) {
+      throw new Error('device ID is not provided');
+    }
+    // const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    let response = null;
+    // if (authorized === true) {
     response = await performRequest('delete', `/rest/config/folders/${id}`);
-  // } else {
-  //   response = messageHelper.errUnauthorizedMessage();
-  // }
-  return res ? res.json(response) : response;
+    // } else {
+    //   response = messageHelper.errUnauthorizedMessage();
+    // }
+    return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
@@ -301,16 +301,16 @@ async function deleteConfigFolders(req, res) {
 }
 
 async function deleteConfigDevices(req, res) {
-  try{
+  try {
     let { id } = req.params;
     id = id || req.query.id;
     if (!id) {
       throw new Error('device ID is not provided');
     }
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    // const authorized = await verificationHelper.verifyPrivilege('admin', req);
     let response = null;
     // if (authorized === true) {
-      response = await performRequest('delete', `/rest/config/devices/${id}`);
+    response = await performRequest('delete', `/rest/config/devices/${id}`);
     // } else {
     //   response = messageHelper.errUnauthorizedMessage();
     // }
@@ -323,12 +323,12 @@ async function deleteConfigDevices(req, res) {
 }
 
 async function getConfigOptions(req, res) {
-  const response = await performRequest('get', `/rest/config/options`);
+  const response = await performRequest('get', '/rest/config/options');
   return res ? res.json(response) : response;
 }
 
 async function putConfigOptions(req, res) {
-  try{
+  try {
     let { data } = req.params;
     data = data || req.query.data;
     if (!data) {
@@ -337,7 +337,7 @@ async function putConfigOptions(req, res) {
     // const authorized = await verificationHelper.verifyPrivilege('admin', req);
     let response = null;
     // if (authorized === true) {
-      response = await performRequest('put', `/rest/config/options`, data);
+    response = await performRequest('put', '/rest/config/options', data);
     // } else {
     //   response = messageHelper.errUnauthorizedMessage();
     // }
@@ -350,7 +350,7 @@ async function putConfigOptions(req, res) {
 }
 
 async function patchConfigOptions(req, res) {
-  try{
+  try {
     let { data } = req.params;
     data = data || req.query.data;
     if (!data) {
@@ -359,11 +359,11 @@ async function patchConfigOptions(req, res) {
     // const authorized = await verificationHelper.verifyPrivilege('admin', req);
     let response = null;
     // if (authorized === true) {
-      response = await performRequest('patch', `/rest/config/options`, data);
+    response = await performRequest('patch', '/rest/config/options', data);
     // } else {
     //   response = messageHelper.errUnauthorizedMessage();
     // }
-  return res ? res.json(response) : response;
+    return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
@@ -372,21 +372,21 @@ async function patchConfigOptions(req, res) {
 }
 
 async function getConfigGui(req, res) {
-  const response = await performRequest('get', `/rest/config/gui`);
+  const response = await performRequest('get', '/rest/config/gui');
   return res ? res.json(response) : response;
 }
 
 async function putConfigGui(req, res) {
-  try{
+  try {
     let { data } = req.params;
     data = data || req.query.data;
     if (!data) {
       throw new Error('No gui options data is provided');
     }
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    // const authorized = await verificationHelper.verifyPrivilege('admin', req);
     let response = null;
     // if (authorized === true) {
-      response = await performRequest('put', `/rest/config/gui`, data);
+    response = await performRequest('put', '/rest/config/gui', data);
     // } else {
     //   response = messageHelper.errUnauthorizedMessage();
     // }
@@ -399,16 +399,16 @@ async function putConfigGui(req, res) {
 }
 
 async function patchConfigGui(req, res) {
-  try{
+  try {
     let { data } = req.params;
     data = data || req.query.data;
     if (!data) {
       throw new Error('No gui options data is provided');
     }
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    // const authorized = await verificationHelper.verifyPrivilege('admin', req);
     let response = null;
     // if (authorized === true) {
-      response = await performRequest('patch', `/rest/config/gui`, data);
+    response = await performRequest('patch', '/rest/config/gui', data);
     // } else {
     //   response = messageHelper.errUnauthorizedMessage();
     // }
@@ -419,7 +419,6 @@ async function patchConfigGui(req, res) {
     return res ? res.json(errorResponse) : errorResponse;
   }
 }
-
 
 // our device id and also test that syncthing is installed and running and we have api key
 async function getDeviceID(req, res) {
