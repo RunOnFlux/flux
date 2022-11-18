@@ -124,17 +124,51 @@ async function getConfigDevices(req, res) {
   return res ? res.json(response) : response;
 }
 
-async function putConfigFolders(req, res) {
-  let { id } = req.params;
+async function postConfigFolders(req, res) {
   let { data } = req.params;
-  id = id || req.query.id;
   data = data || req.query.data;
-  if (!id) {
-    throw new Error('device ID is not provided');
+  if (!data) {
+    throw new Error('data is not provided');
   }
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
-    const response = await performRequest('put', `/rest/config/folders/${id}`, data);
+    const response = await performRequest('post', '/rest/config/folders', data);
+  } else {
+    response = messageHelper.errUnauthorizedMessage();
+  }
+  return res ? res.json(response) : response;
+}
+
+async function postConfigDevices(req, res) {
+  let { data } = req.params;
+  data = data || req.query.data;
+  if (!data) {
+    throw new Error('data is not provided');
+  }
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
+  if (authorized === true) {
+    const response = await performRequest('post', '/rest/config/devices', data);
+  } else {
+    response = messageHelper.errUnauthorizedMessage();
+  }
+  return res ? res.json(response) : response;
+}
+
+async function putConfigFolders(req, res) {
+  let { id } = req.params;
+  id = id || req.query.id;
+  let path = '/rest/config/folders';
+  if(id){
+    path = `/rest/config/folders/${id}`;
+  }
+  let { data } = req.params;
+  data = data || req.query.data;
+  if (!data) {
+    throw new Error('data is not provided');
+  }
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
+  if (authorized === true) {
+    const response = await performRequest('put', path, data);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -143,15 +177,19 @@ async function putConfigFolders(req, res) {
 
 async function putConfigDevices(req, res) {
   let { id } = req.params;
-  let { data } = req.params;
   id = id || req.query.id;
+  let path = '/rest/config/devices';
+  if(id){
+    path = `/rest/config/devices/${id}`;
+  }
+  let { data } = req.params;
   data = data || req.query.data;
-  if (!id) {
-    throw new Error('device ID is not provided');
+  if (!data) {
+    throw new Error('data is not provided');
   }
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
-    const response = await performRequest('put', `/rest/config/devices/${id}`, data);
+    const response = await performRequest('put', path, data);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -160,8 +198,8 @@ async function putConfigDevices(req, res) {
 
 async function patchConfigFolders(req, res) {
   let { id } = req.params;
-  let { data } = req.params;
   id = id || req.query.id;
+  let { data } = req.params;
   data = data || req.query.data;
   if (!id) {
     throw new Error('device ID is not provided');
@@ -177,8 +215,8 @@ async function patchConfigFolders(req, res) {
 
 async function patchConfigDevices(req, res) {
   let { id } = req.params;
-  let { data } = req.params;
   id = id || req.query.id;
+  let { data } = req.params;
   data = data || req.query.data;
   if (!id) {
     throw new Error('device ID is not provided');
@@ -357,6 +395,8 @@ module.exports = {
   getConfigRestartRequired,
   getConfigFolders,
   getConfigDevices,
+  postConfigFolders,
+  postConfigDevices,
   putConfigFolders,
   putConfigDevices,
   patchConfigFolders,
