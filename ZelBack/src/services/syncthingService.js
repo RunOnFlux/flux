@@ -20,8 +20,6 @@ const syncthingURL = `http://${config.syncthing.ip}:${config.syncthing.port}`;
 
 let syncthingApiKey = '';
 
-const disableAuth = true;
-
 const parserOptions = {
   ignoreAttributes: false,
   attributeNamePrefix: '@_',
@@ -135,11 +133,11 @@ async function postConfigFolders(req, res) {
     }
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
     let response = null;
-    if (disableAuth || authorized === true) {
+    // if (authorized === true) {
       response = await performRequest('post', '/rest/config/folders', data);
-    } else {
-      response = messageHelper.errUnauthorizedMessage();
-    }
+    // } else {
+    //  response = messageHelper.errUnauthorizedMessage();
+    // }
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
@@ -157,11 +155,11 @@ async function postConfigDevices(req, res) {
     }
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
     let response = null;
-    if (disableAuth || authorized === true) {
+    // if (authorized === true) {
       response = await performRequest('post', '/rest/config/devices', data);
-    } else {
-      response = messageHelper.errUnauthorizedMessage();
-    }
+   // } else {
+   //   response = messageHelper.errUnauthorizedMessage();
+   // }
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
@@ -183,13 +181,13 @@ async function putConfigFolders(req, res) {
     if (!data) {
       throw new Error('data is not provided');
     }
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    // const authorized = await verificationHelper.verifyPrivilege('admin', req);
     let response = null;
-    if (disableAuth || authorized === true) {
+    // if (authorized === true) {
       response = await performRequest('put', path, data);
-    } else {
-      response = messageHelper.errUnauthorizedMessage();
-    }
+    // } else {
+    //   response = messageHelper.errUnauthorizedMessage();
+    // }
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
@@ -211,13 +209,13 @@ async function putConfigDevices(req, res) {
     if (!data) {
       throw new Error('data is not provided');
     }
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    // const authorized = await verificationHelper.verifyPrivilege('admin', req);
     let response = null;
-    if (disableAuth || authorized === true) {
+    // if (authorized === true) {
       response = await performRequest('put', path, data);
-    } else {
-      response = messageHelper.errUnauthorizedMessage();
-    }
+    // } else {
+    //  response = messageHelper.errUnauthorizedMessage();
+    // }
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
@@ -240,11 +238,11 @@ async function patchConfigFolders(req, res) {
     }
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
     let response = null;
-    if (disableAuth || authorized === true) {
+    // if (authorized === true) {
       response = await performRequest('patch', `/rest/config/folders/${id}`, data);
-    } else {
-      response = messageHelper.errUnauthorizedMessage();
-    }
+    // } else {
+    //   response = messageHelper.errUnauthorizedMessage();
+    // }
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
@@ -267,11 +265,11 @@ async function patchConfigDevices(req, res) {
     }
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
     let response = null;
-    if (disableAuth || authorized === true) {
+    // if (authorized === true) {
       response = await performRequest('patch', `/rest/config/devices/${id}`, data);
-    } else {
-      response = messageHelper.errUnauthorizedMessage();
-    } 
+    // } else {
+    //   response = messageHelper.errUnauthorizedMessage();
+    // } 
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
@@ -289,11 +287,11 @@ async function deleteConfigFolders(req, res) {
   }
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   let response = null;
-  if (disableAuth || authorized === true) {
+  // if (authorized === true) {
     response = await performRequest('delete', `/rest/config/folders/${id}`);
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
+  // } else {
+  //   response = messageHelper.errUnauthorizedMessage();
+  // }
   return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
@@ -311,11 +309,11 @@ async function deleteConfigDevices(req, res) {
     }
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
     let response = null;
-    if (disableAuth || authorized === true) {
+    // if (authorized === true) {
       response = await performRequest('delete', `/rest/config/devices/${id}`);
-    } else {
-      response = messageHelper.errUnauthorizedMessage();
-    }
+    // } else {
+    //   response = messageHelper.errUnauthorizedMessage();
+    // }
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
@@ -336,13 +334,13 @@ async function putConfigOptions(req, res) {
     if (!data) {
       throw new Error('No options data is provided');
     }
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    // const authorized = await verificationHelper.verifyPrivilege('admin', req);
     let response = null;
-    if (disableAuth || authorized === true) {
+    // if (authorized === true) {
       response = await performRequest('put', `/rest/config/options`, data);
-    } else {
-      response = messageHelper.errUnauthorizedMessage();
-    }
+    // } else {
+    //   response = messageHelper.errUnauthorizedMessage();
+    // }
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
@@ -358,13 +356,13 @@ async function patchConfigOptions(req, res) {
     if (!data) {
       throw new Error('No options data is provided');
     }
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    // const authorized = await verificationHelper.verifyPrivilege('admin', req);
     let response = null;
-    if (disableAuth || authorized === true) {
+    // if (authorized === true) {
       response = await performRequest('patch', `/rest/config/options`, data);
-    } else {
-      response = messageHelper.errUnauthorizedMessage();
-    }
+    // } else {
+    //   response = messageHelper.errUnauthorizedMessage();
+    // }
   return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
@@ -387,11 +385,11 @@ async function putConfigGui(req, res) {
     }
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
     let response = null;
-    if (disableAuth || authorized === true) {
+    // if (authorized === true) {
       response = await performRequest('put', `/rest/config/gui`, data);
-    } else {
-      response = messageHelper.errUnauthorizedMessage();
-    }
+    // } else {
+    //   response = messageHelper.errUnauthorizedMessage();
+    // }
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
@@ -409,11 +407,11 @@ async function patchConfigGui(req, res) {
     }
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
     let response = null;
-    if (disableAuth || authorized === true) {
+    // if (authorized === true) {
       response = await performRequest('patch', `/rest/config/gui`, data);
-    } else {
-      response = messageHelper.errUnauthorizedMessage();
-    }
+    // } else {
+    //   response = messageHelper.errUnauthorizedMessage();
+    // }
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
