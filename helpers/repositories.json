@@ -445,5 +445,6 @@
    "honsontran/frax-frontend:latest",
    "runonflux/jetpack2:latest",
    "runonflux/ipfs:latest",
-   "honsontran/uniswap-frontend:latest"
+   "honsontran/uniswap-frontend:latest",
+   "runonflux/blockbook-docker:latest"
 ]
