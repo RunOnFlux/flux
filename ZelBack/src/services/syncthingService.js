@@ -134,7 +134,7 @@ async function startSyncthing() {
     // check wether syncthing is running or not
     const myDevice = await getDeviceID();
     if (myDevice.status === 'error') {
-      const exec = 'syncthing';
+      const exec = 'syncthing --allow-newer-config --no-browser --continue';
       try {
         await cmdAsync(exec);
       } catch (error) {
