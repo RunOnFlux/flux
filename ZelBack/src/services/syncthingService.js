@@ -106,32 +106,42 @@ async function getConfigDevices(req, res) {
   return res ? res.json(response) : response;
 }
 
-async function putConfigFolders(req, res, id, data) {
+async function putConfigFolders(req, res) {
+  let { id } = req.params;
+  let { data } = req.params;
   const response = await performRequest('put', `/rest/config/folders/${id}`, data);
   return res ? res.json(response) : response;
 }
 
-async function putConfigDevices(req, res, id, data) {
+async function putConfigDevices(req, res) {
+  let { id } = req.params;
+  let { data } = req.params;
   const response = await performRequest('put', `/rest/config/devices/${id}`, data);
   return res ? res.json(response) : response;
 }
 
-async function patchConfigFolders(req, res, id, data) {
+async function patchConfigFolders(req, res) {
+  let { id } = req.params;
+  let { data } = req.params;
   const response = await performRequest('patch', `/rest/config/folders/${id}`, data);
   return res ? res.json(response) : response;
 }
 
-async function patchConfigDevices(req, res, id, data) {
+async function patchConfigDevices(req, res) {
+  let { id } = req.params;
+  let { data } = req.params;
   const response = await performRequest('patch', `/rest/config/devices/${id}`, data);
   return res ? res.json(response) : response;
 }
 
-async function deleteConfigFolders(req, res, id) {
+async function deleteConfigFolders(req, res) {
+  let { id } = req.params;
   const response = await performRequest('delete', `/rest/config/folders/${id}`);
   return res ? res.json(response) : response;
 }
 
-async function deleteConfigDevices(req, res, id) {
+async function deleteConfigDevices(req, res) {
+  let { id } = req.params;
   const response = await performRequest('delete', `/rest/config/devices/${id}`);
   return res ? res.json(response) : response;
 }
