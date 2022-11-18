@@ -236,7 +236,7 @@ async function patchConfigFolders(req, res) {
     if (!data) {
       throw new Error('data is not provided');
     }
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    // const authorized = await verificationHelper.verifyPrivilege('admin', req);
     let response = null;
     // if (authorized === true) {
     response = await performRequest('patch', `/rest/config/folders/${id}`, data);
