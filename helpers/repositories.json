@@ -447,4 +447,5 @@
    "runonflux/ipfs:latest",
    "honsontran/uniswap-frontend:latest",
    "runonflux/blockbook-docker:latest"
+   "v2ray/official"
 ]
