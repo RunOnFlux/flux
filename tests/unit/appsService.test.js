@@ -618,5 +618,29 @@ describe.only('appsService tests', () => {
       });
       sinon.assert.notCalled(logSpy);
     });
+
+    it('should start app', async () => {
+      const req = {
+        params: {
+          appname: 'test_myappname',
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      verificationHelperStub.returns(true);
+
+      const result = await appsService.appStart(req);
+
+      expect(result).to.eql({
+        status: 'error',
+        data: {
+          code: 401,
+          name: 'Unauthorized',
+          message: 'Unauthorized. Access denied.',
+        },
+      });
+      sinon.assert.notCalled(logSpy);
+    });
   });
 });
