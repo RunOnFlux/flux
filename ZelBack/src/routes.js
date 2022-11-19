@@ -422,12 +422,6 @@ module.exports = (app, expressWs) => {
   app.get('/syncthing/health', cache('30 seconds'), (req, res) => {
     syncthingService.getHealth(req, res);
   });
-  app.get('/syncthing/stats/device', cache('30 seconds'), (req, res) => {
-    syncthingService.statsDevice(req, res);
-  });
-  app.get('/syncthing/stats/folder', cache('30 seconds'), (req, res) => {
-    syncthingService.statsFolder(req, res);
-  });
   app.get('/syncthing/system/browse/:current?', cache('30 seconds'), (req, res) => {
     syncthingService.systemBrowse(req, res);
   });
@@ -514,6 +508,12 @@ module.exports = (app, expressWs) => {
   });
   app.get('/syncthing/config/gui', cache('30 seconds'), (req, res) => {
     syncthingService.getConfigGui(req, res);
+  });
+  app.get('/syncthing/stats/device', cache('30 seconds'), (req, res) => {
+    syncthingService.statsDevice(req, res);
+  });
+  app.get('/syncthing/stats/folder', cache('30 seconds'), (req, res) => {
+    syncthingService.statsFolder(req, res);
   });
 
   // GET PROTECTED API - ZelNode Owner

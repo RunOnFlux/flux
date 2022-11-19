@@ -82,6 +82,7 @@ async function getHealth(req, res) {
   return res ? res.json(response) : response;
 }
 
+// === STATISTICS ENDPOINTS ===
 async function statsDevice(req, res) {
   const response = await performRequest('get', '/rest/stats/device');
   return res ? res.json(response) : response;
@@ -91,6 +92,7 @@ async function statsFolder(req, res) {
   const response = await performRequest('get', '/rest/stats/folder');
   return res ? res.json(response) : response;
 }
+
 // === SYSTEM ENDPOINTS ===
 async function systemBrowse(req, res) {
   let { current } = req.params;
