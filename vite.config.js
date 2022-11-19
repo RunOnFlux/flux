@@ -13,6 +13,11 @@ export default defineConfig({
       }
     },
   })],
+  optimizeDeps: {
+    include: [
+      'ZelBack/config/default',
+    ],
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './HomeUI/src/'),
