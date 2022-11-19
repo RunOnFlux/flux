@@ -1054,6 +1054,17 @@ module.exports = (app, expressWs) => {
     benchmarkService.signFluxTransactionPost(req, res);
   });
 
+  // POST PROTECTED API - FluxTeam
+  app.post('/flux/broadcastmessage', (req, res) => {
+    fluxCommunicationMessagesSender.broadcastMessageFromUserPost(req, res);
+  });
+  app.post('/flux/broadcastmessagetooutgoing', (req, res) => {
+    fluxCommunicationMessagesSender.broadcastMessageToOutgoingFromUserPost(req, res);
+  });
+  app.post('/flux/broadcastmessagetoincoming', (req, res) => {
+    fluxCommunicationMessagesSender.broadcastMessageToIncomingFromUserPost(req, res);
+  });
+
   app.post('/syncthing/config', (req, res) => {
     syncthingService.postConfig(req, res);
   });
@@ -1080,17 +1091,6 @@ module.exports = (app, expressWs) => {
   });
   app.post('/syncthing/config/ldap', cache('30 seconds'), (req, res) => {
     syncthingService.postConfigLdap(req, res);
-  });
-
-  // POST PROTECTED API - FluxTeam
-  app.post('/flux/broadcastmessage', (req, res) => {
-    fluxCommunicationMessagesSender.broadcastMessageFromUserPost(req, res);
-  });
-  app.post('/flux/broadcastmessagetooutgoing', (req, res) => {
-    fluxCommunicationMessagesSender.broadcastMessageToOutgoingFromUserPost(req, res);
-  });
-  app.post('/flux/broadcastmessagetoincoming', (req, res) => {
-    fluxCommunicationMessagesSender.broadcastMessageToIncomingFromUserPost(req, res);
   });
 
   // WebSockets PUBLIC
