@@ -97,6 +97,37 @@ async function systemPing(req, res) {
   return res ? res.json(response) : response;
 }
 
+// === CONFIG ENDPOINTS ===
+async function getConfig(req, res) {
+  const response = await performRequest('get', '/rest/config');
+  return res ? res.json(response) : response;
+}
+
+async function postConfig(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const newConfig = processedBody.config;
+    try {
+      const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      let response = null;
+      if (authorized === true) {
+        response = await performRequest('put', '/rest/config', newConfig);
+      } else {
+        response = messageHelper.errUnauthorizedMessage();
+      }
+      return res ? res.json(response) : response;
+    } catch (error) {
+      log.error(error);
+      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+      return res ? res.json(errorResponse) : errorResponse;
+    }
+  });
+}
+
 async function getConfigRestartRequired(req, res) {
   const response = await performRequest('get', '/rest/config/restart-required');
   return res ? res.json(response) : response;
@@ -125,201 +156,158 @@ async function getConfigDevices(req, res) {
 }
 
 async function postConfigFolders(req, res) {
-  try {
-    let { data } = req.params;
-    data = data || req.query.data;
-    if (!data) {
-      throw new Error('data is not provided');
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const newConfig = processedBody.config;
+    const { id } = processedBody;
+    const method = (processedBody.method || 'post').toLowerCase();
+    try {
+      let apiPath = '/rest/config/folders';
+      if (id) {
+        apiPath = `/rest/config/folders/${id}`;
+      }
+      const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      let response = null;
+      if (authorized === true) {
+        response = await performRequest(method, apiPath, newConfig);
+      } else {
+        response = messageHelper.errUnauthorizedMessage();
+      }
+      return res ? res.json(response) : response;
+    } catch (error) {
+      log.error(error);
+      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+      return res ? res.json(errorResponse) : errorResponse;
     }
-    // const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    let response = null;
-    // if (authorized === true) {
-    response = await performRequest('post', '/rest/config/folders', data);
-    // } else {
-    //  response = messageHelper.errUnauthorizedMessage();
-    // }
-    return res ? res.json(response) : response;
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res ? res.json(errorResponse) : errorResponse;
-  }
+  });
 }
 
 async function postConfigDevices(req, res) {
-  try {
-    let { data } = req.params;
-    data = data || req.query.data;
-    if (!data) {
-      throw new Error('data is not provided');
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const newConfig = processedBody.config;
+    const { id } = processedBody;
+    const method = (processedBody.method || 'post').toLowerCase();
+    try {
+      let apiPath = '/rest/config/devices';
+      if (id) {
+        apiPath = `/rest/config/devices/${id}`;
+      }
+      const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      let response = null;
+      if (authorized === true) {
+        response = await performRequest(method, apiPath, newConfig);
+      } else {
+        response = messageHelper.errUnauthorizedMessage();
+      }
+      return res ? res.json(response) : response;
+    } catch (error) {
+      log.error(error);
+      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+      return res ? res.json(errorResponse) : errorResponse;
     }
-    // const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    let response = null;
-    // if (authorized === true) {
-    response = await performRequest('post', '/rest/config/devices', data);
-    // } else {
-    //   response = messageHelper.errUnauthorizedMessage();
-    // }
-    return res ? res.json(response) : response;
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res ? res.json(errorResponse) : errorResponse;
-  }
+  });
 }
 
-async function putConfigFolders(req, res) {
-  try {
-    let { id } = req.params;
-    id = id || req.query.id;
-    let apiPath = '/rest/config/folders';
-    if (id) {
-      apiPath = `/rest/config/folders/${id}`;
-    }
-    let { data } = req.params;
-    data = data || req.query.data;
-    if (!data) {
-      throw new Error('data is not provided');
-    }
-    // const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    let response = null;
-    // if (authorized === true) {
-    response = await performRequest('put', apiPath, data);
-    // } else {
-    //   response = messageHelper.errUnauthorizedMessage();
-    // }
-    return res ? res.json(response) : response;
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res ? res.json(errorResponse) : errorResponse;
-  }
+async function getConfigDefaultsFolder(req, res) {
+  const response = await performRequest('get', '/rest/config/defaults/folder');
+  return res ? res.json(response) : response;
 }
 
-async function putConfigDevices(req, res) {
-  try {
-    let { id } = req.params;
-    id = id || req.query.id;
-    let apiPath = '/rest/config/devices';
-    if (id) {
-      apiPath = `/rest/config/devices/${id}`;
-    }
-    let { data } = req.params;
-    data = data || req.query.data;
-    if (!data) {
-      throw new Error('data is not provided');
-    }
-    // const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    let response = null;
-    // if (authorized === true) {
-    response = await performRequest('put', apiPath, data);
-    // } else {
-    //  response = messageHelper.errUnauthorizedMessage();
-    // }
-    return res ? res.json(response) : response;
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res ? res.json(errorResponse) : errorResponse;
-  }
+async function getConfigDefaultsDevice(req, res) {
+  const response = await performRequest('get', '/rest/config/defaults/device');
+  return res ? res.json(response) : response;
 }
 
-async function patchConfigFolders(req, res) {
-  try {
-    let { id } = req.params;
-    id = id || req.query.id;
-    let { data } = req.params;
-    data = data || req.query.data;
-    if (!id) {
-      throw new Error('device ID is not provided');
+async function postConfigDefaultsFolder(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const newConfig = processedBody.config;
+    const method = (processedBody.method || 'put').toLowerCase();
+    try {
+      const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      let response = null;
+      if (authorized === true) {
+        response = await performRequest(method, '/rest/config/defaults/folder', newConfig);
+      } else {
+        response = messageHelper.errUnauthorizedMessage();
+      }
+      return res ? res.json(response) : response;
+    } catch (error) {
+      log.error(error);
+      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+      return res ? res.json(errorResponse) : errorResponse;
     }
-    if (!data) {
-      throw new Error('data is not provided');
-    }
-    // const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    let response = null;
-    // if (authorized === true) {
-    response = await performRequest('patch', `/rest/config/folders/${id}`, data);
-    // } else {
-    //   response = messageHelper.errUnauthorizedMessage();
-    // }
-    return res ? res.json(response) : response;
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res ? res.json(errorResponse) : errorResponse;
-  }
+  });
 }
 
-async function patchConfigDevices(req, res) {
-  try {
-    let { id } = req.params;
-    id = id || req.query.id;
-    let { data } = req.params;
-    data = data || req.query.data;
-    if (!id) {
-      throw new Error('device ID is not provided');
+async function postConfigDefaultsDevice(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const newConfig = processedBody.config;
+    const method = (processedBody.method || 'put').toLowerCase();
+    try {
+      const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      let response = null;
+      if (authorized === true) {
+        response = await performRequest(method, '/rest/config/defaults/device', newConfig);
+      } else {
+        response = messageHelper.errUnauthorizedMessage();
+      }
+      return res ? res.json(response) : response;
+    } catch (error) {
+      log.error(error);
+      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+      return res ? res.json(errorResponse) : errorResponse;
     }
-    if (!data) {
-      throw new Error('data is not provided');
-    }
-    // const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    let response = null;
-    // if (authorized === true) {
-    response = await performRequest('patch', `/rest/config/devices/${id}`, data);
-    // } else {
-    //   response = messageHelper.errUnauthorizedMessage();
-    // }
-    return res ? res.json(response) : response;
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res ? res.json(errorResponse) : errorResponse;
-  }
+  });
 }
 
-async function deleteConfigFolders(req, res) {
-  try {
-    let { id } = req.params;
-    id = id || req.query.id;
-    if (!id) {
-      throw new Error('device ID is not provided');
-    }
-    // const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    let response = null;
-    // if (authorized === true) {
-    response = await performRequest('delete', `/rest/config/folders/${id}`);
-    // } else {
-    //   response = messageHelper.errUnauthorizedMessage();
-    // }
-    return res ? res.json(response) : response;
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res ? res.json(errorResponse) : errorResponse;
-  }
+async function getConfigDefaultsIgnores(req, res) {
+  const response = await performRequest('get', '/rest/config/defaults/ignores');
+  return res ? res.json(response) : response;
 }
 
-async function deleteConfigDevices(req, res) {
-  try {
-    let { id } = req.params;
-    id = id || req.query.id;
-    if (!id) {
-      throw new Error('device ID is not provided');
+async function postConfigDefaultsIgnores(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const newConfig = processedBody.config;
+    const method = 'put';
+    try {
+      const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      let response = null;
+      if (authorized === true) {
+        response = await performRequest(method, '/rest/config/defaults/ignores', newConfig);
+      } else {
+        response = messageHelper.errUnauthorizedMessage();
+      }
+      return res ? res.json(response) : response;
+    } catch (error) {
+      log.error(error);
+      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+      return res ? res.json(errorResponse) : errorResponse;
     }
-    // const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    let response = null;
-    // if (authorized === true) {
-    response = await performRequest('delete', `/rest/config/devices/${id}`);
-    // } else {
-    //   response = messageHelper.errUnauthorizedMessage();
-    // }
-    return res ? res.json(response) : response;
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res ? res.json(errorResponse) : errorResponse;
-  }
+  });
 }
 
 async function getConfigOptions(req, res) {
@@ -327,99 +315,95 @@ async function getConfigOptions(req, res) {
   return res ? res.json(response) : response;
 }
 
-async function putConfigOptions(req, res) {
-  try {
-    let { data } = req.params;
-    data = data || req.query.data;
-    if (!data) {
-      throw new Error('No options data is provided');
-    }
-    // const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    let response = null;
-    // if (authorized === true) {
-    response = await performRequest('put', '/rest/config/options', data);
-    // } else {
-    //   response = messageHelper.errUnauthorizedMessage();
-    // }
-    return res ? res.json(response) : response;
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res ? res.json(errorResponse) : errorResponse;
-  }
-}
-
-async function patchConfigOptions(req, res) {
-  try {
-    let { data } = req.params;
-    data = data || req.query.data;
-    if (!data) {
-      throw new Error('No options data is provided');
-    }
-    // const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    let response = null;
-    // if (authorized === true) {
-    response = await performRequest('patch', '/rest/config/options', data);
-    // } else {
-    //   response = messageHelper.errUnauthorizedMessage();
-    // }
-    return res ? res.json(response) : response;
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res ? res.json(errorResponse) : errorResponse;
-  }
-}
-
 async function getConfigGui(req, res) {
   const response = await performRequest('get', '/rest/config/gui');
   return res ? res.json(response) : response;
 }
 
-async function putConfigGui(req, res) {
-  try {
-    let { data } = req.params;
-    data = data || req.query.data;
-    if (!data) {
-      throw new Error('No gui options data is provided');
-    }
-    // const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    let response = null;
-    // if (authorized === true) {
-    response = await performRequest('put', '/rest/config/gui', data);
-    // } else {
-    //   response = messageHelper.errUnauthorizedMessage();
-    // }
-    return res ? res.json(response) : response;
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res ? res.json(errorResponse) : errorResponse;
-  }
+async function getConfigLdap(req, res) {
+  const response = await performRequest('get', '/rest/config/ldap');
+  return res ? res.json(response) : response;
 }
 
-async function patchConfigGui(req, res) {
-  try {
-    let { data } = req.params;
-    data = data || req.query.data;
-    if (!data) {
-      throw new Error('No gui options data is provided');
+async function postConfigOptions(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const newConfig = processedBody.config;
+    const method = (processedBody.method || 'put').toLowerCase();
+    try {
+      const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      let response = null;
+      if (authorized === true) {
+        response = await performRequest(method, '/rest/config/options', newConfig);
+      } else {
+        response = messageHelper.errUnauthorizedMessage();
+      }
+      return res ? res.json(response) : response;
+    } catch (error) {
+      log.error(error);
+      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+      return res ? res.json(errorResponse) : errorResponse;
     }
-    // const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    let response = null;
-    // if (authorized === true) {
-    response = await performRequest('patch', '/rest/config/gui', data);
-    // } else {
-    //   response = messageHelper.errUnauthorizedMessage();
-    // }
-    return res ? res.json(response) : response;
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res ? res.json(errorResponse) : errorResponse;
-  }
+  });
 }
 
+async function postConfigGui(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const newConfig = processedBody.config;
+    const method = (processedBody.method || 'put').toLowerCase();
+    try {
+      const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      let response = null;
+      if (authorized === true) {
+        response = await performRequest(method, '/rest/config/gui', newConfig);
+      } else {
+        response = messageHelper.errUnauthorizedMessage();
+      }
+      return res ? res.json(response) : response;
+    } catch (error) {
+      log.error(error);
+      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+      return res ? res.json(errorResponse) : errorResponse;
+    }
+  });
+}
+
+async function postConfigLdap(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const newConfig = processedBody.config;
+    const method = (processedBody.method || 'put').toLowerCase();
+    try {
+      const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      let response = null;
+      if (authorized === true) {
+        response = await performRequest(method, '/rest/config/ldap', newConfig);
+      } else {
+        response = messageHelper.errUnauthorizedMessage();
+      }
+      return res ? res.json(response) : response;
+    } catch (error) {
+      log.error(error);
+      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+      return res ? res.json(errorResponse) : errorResponse;
+    }
+  });
+}
+
+// === CUSTOM ===
 // our device id and also test that syncthing is installed and running and we have api key
 async function getDeviceID(req, res) {
   try {
@@ -476,27 +460,30 @@ async function startSyncthing() {
 
 module.exports = {
   startSyncthing,
+  getDeviceID,
   getMeta,
   getHealth,
   statsDevice,
   statsFolder,
   systemPing,
+  // CONFIG
+  getConfig,
+  postConfig,
   getConfigRestartRequired,
   getConfigFolders,
   getConfigDevices,
   postConfigFolders,
   postConfigDevices,
-  putConfigFolders,
-  putConfigDevices,
-  patchConfigFolders,
-  patchConfigDevices,
-  deleteConfigFolders,
-  deleteConfigDevices,
+  getConfigDefaultsFolder,
+  getConfigDefaultsDevice,
+  postConfigDefaultsFolder,
+  postConfigDefaultsDevice,
+  getConfigDefaultsIgnores,
+  postConfigDefaultsIgnores,
   getConfigOptions,
-  putConfigOptions,
-  patchConfigOptions,
   getConfigGui,
-  putConfigGui,
-  patchConfigGui,
-  getDeviceID,
+  getConfigLdap,
+  postConfigOptions,
+  postConfigGui,
+  postConfigLdap,
 };

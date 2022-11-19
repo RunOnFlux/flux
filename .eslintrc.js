@@ -21,7 +21,7 @@ module.exports = {
     'no-console': 'off',
     'linebreak-style': [
       'error',
-      process.platform === 'win32' ? 'windows' : 'unix',
+      'unix',
     ],
     'prefer-destructuring': ['error', { object: true, array: false }],
     'import/no-extraneous-dependencies': ['error', {
