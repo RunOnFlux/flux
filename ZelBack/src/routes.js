@@ -428,8 +428,62 @@ module.exports = (app, expressWs) => {
   app.get('/syncthing/stats/folder', cache('30 seconds'), (req, res) => {
     syncthingService.statsFolder(req, res);
   });
+  app.get('/syncthing/system/browse/:current?', cache('30 seconds'), (req, res) => {
+    syncthingService.systemBrowse(req, res);
+  });
+  app.get('/syncthing/system/connections', cache('30 seconds'), (req, res) => {
+    syncthingService.systemConnections(req, res);
+  });
+  app.get('/syncthing/system/debug/:enable?/:disable?', cache('30 seconds'), (req, res) => {
+    syncthingService.systemDebug(req, res);
+  });
+  app.get('/syncthing/system/discovery/:device?/:addr?', cache('30 seconds'), (req, res) => {
+    syncthingService.systemDiscovery(req, res);
+  });
+  app.get('/syncthing/system/error/clear', cache('30 seconds'), (req, res) => {
+    syncthingService.systemErrorClear(req, res);
+  });
+  app.get('/syncthing/system/error/:message?', cache('30 seconds'), (req, res) => {
+    syncthingService.systemError(req, res);
+  });
+  app.get('/syncthing/system/error/:message?', cache('30 seconds'), (req, res) => {
+    syncthingService.systemError(req, res);
+  });
+  app.get('/syncthing/system/log/:since?', cache('30 seconds'), (req, res) => {
+    syncthingService.systemLog(req, res);
+  });
+  app.get('/syncthing/system/logtxt/:since?', cache('30 seconds'), (req, res) => {
+    syncthingService.systemLogTxt(req, res);
+  });
+  app.get('/syncthing/system/paths', cache('30 seconds'), (req, res) => {
+    syncthingService.systemPaths(req, res);
+  });
+  app.get('/syncthing/system/pause/:device?', cache('30 seconds'), (req, res) => {
+    syncthingService.systemPause(req, res);
+  });
   app.get('/syncthing/system/ping', cache('30 seconds'), (req, res) => {
     syncthingService.systemPing(req, res);
+  });
+  app.get('/syncthing/system/reset/:folder?', cache('30 seconds'), (req, res) => {
+    syncthingService.systemReset(req, res);
+  });
+  app.get('/syncthing/system/restart', cache('30 seconds'), (req, res) => {
+    syncthingService.systemRestart(req, res);
+  });
+  app.get('/syncthing/system/resume/:device?', cache('30 seconds'), (req, res) => {
+    syncthingService.systemResume(req, res);
+  });
+  app.get('/syncthing/system/shutdown', cache('30 seconds'), (req, res) => {
+    syncthingService.systemShutdown(req, res);
+  });
+  app.get('/syncthing/system/status', cache('30 seconds'), (req, res) => {
+    syncthingService.systemStatus(req, res);
+  });
+  app.get('/syncthing/system/upgrade', cache('30 seconds'), (req, res) => {
+    syncthingService.systemUpgrade(req, res);
+  });
+  app.get('/syncthing/system/version', cache('30 seconds'), (req, res) => {
+    syncthingService.systemVersion(req, res);
   });
   app.get('/syncthing/config', cache('30 seconds'), (req, res) => {
     syncthingService.getConfig(req, res);
@@ -1065,6 +1119,12 @@ module.exports = (app, expressWs) => {
     fluxCommunicationMessagesSender.broadcastMessageToIncomingFromUserPost(req, res);
   });
 
+  app.post('/syncthing/system/error', cache('30 seconds'), (req, res) => {
+    syncthingService.postSystemError(req, res);
+  });
+  app.get('/syncthing/system/upgrade', cache('30 seconds'), (req, res) => {
+    syncthingService.postSystemUpgrade(req, res);
+  });
   app.post('/syncthing/config', (req, res) => {
     syncthingService.postConfig(req, res);
   });

@@ -91,9 +91,192 @@ async function statsFolder(req, res) {
   const response = await performRequest('get', '/rest/stats/folder');
   return res ? res.json(response) : response;
 }
+// === SYSTEM ENDPOINTS ===
+async function systemBrowse(req, res) {
+  let { current } = req.params;
+  current = current || req.query.current;
+  let apiPath = 'rest/system/browse';
+  if (current) {
+    apiPath += `?current=${current}`;
+  }
+  const response = await performRequest('get', apiPath);
+  return res ? res.json(response) : response;
+}
+
+async function systemConnections(req, res) {
+  const response = await performRequest('get', '/rest/system/connections');
+  return res ? res.json(response) : response;
+}
+
+async function systemDebug(req, res) {
+  let method = 'get';
+  let { disable } = req.params;
+  disable = disable || req.query.disable;
+  let { enable } = req.params;
+  enable = enable || req.query.enable;
+  let apiPath = 'rest/system/debug';
+  if (enable || disable) {
+    method = 'post';
+  }
+  if (enable && disable) {
+    apiPath += `?enable=${enable}&disable=${disable}`;
+  } else if (enable) {
+    apiPath += `?enable=${enable}`;
+  } else if (disable) {
+    apiPath += `?disable=${disable}`;
+  }
+  const response = await performRequest(method, apiPath);
+  return res ? res.json(response) : response;
+}
+
+async function systemDiscovery(req, res) {
+  let method = 'get';
+  let { device } = req.params;
+  device = device || req.query.device;
+  let { addr } = req.params;
+  addr = addr || req.query.addr;
+  let apiPath = 'rest/system/discovery';
+  if (device || addr) {
+    method = 'post';
+  }
+  if (device && addr) { // both must be defined otherwise get
+    method = 'post';
+    apiPath += `?device=${device}&addr=${addr}`;
+  }
+  const response = await performRequest(method, apiPath);
+  return res ? res.json(response) : response;
+}
+
+async function systemErrorClear(req, res) {
+  const response = await performRequest('post', '/rest/system/error/clear');
+  return res ? res.json(response) : response;
+}
+
+async function systemError(req, res) {
+  let method = 'get';
+  let { message } = req.params;
+  message = message || req.query.message;
+  const apiPath = 'rest/system/error';
+  if (message) {
+    method = 'post';
+  }
+  const response = await performRequest(method, apiPath, message);
+  return res ? res.json(response) : response;
+}
+
+async function postSystemError(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const message = serviceHelper.ensureObject(body);
+    try {
+      const response = await performRequest('post', '/rest/system/error', message);
+      return res ? res.json(response) : response;
+    } catch (error) {
+      log.error(error);
+      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+      return res ? res.json(errorResponse) : errorResponse;
+    }
+  });
+}
+
+async function systemLog(req, res) {
+  let { since } = req.params;
+  since = since || req.query.since;
+  let apiPath = 'rest/system/log';
+  if (since) {
+    apiPath += `?since=${since}`;
+  }
+  const response = await performRequest('get', apiPath);
+  return res ? res.json(response) : response;
+}
+
+async function systemLogTxt(req, res) {
+  let { since } = req.params;
+  since = since || req.query.since;
+  let apiPath = 'rest/system/log.txt';
+  if (since) {
+    apiPath += `?since=${since}`;
+  }
+  const response = await performRequest('get', apiPath);
+  return res ? res.json(response) : response;
+}
+
+async function systemPaths(req, res) {
+  const response = await performRequest('get', '/rest/system/paths');
+  return res ? res.json(response) : response;
+}
+
+async function systemPause(req, res) {
+  let { device } = req.params;
+  device = device || req.query.device;
+  let apiPath = 'rest/system/pause';
+  if (device) {
+    apiPath += `?device=${device}`;
+  }
+  const response = await performRequest('post', apiPath);
+  return res ? res.json(response) : response;
+}
 
 async function systemPing(req, res) {
-  const response = await performRequest('get', '/rest/system/ping');
+  const response = await performRequest('get', '/rest/system/ping'); // can also be 'post', same
+  return res ? res.json(response) : response;
+}
+
+async function systemReset(req, res) {
+  // note: scary call
+  let { folder } = req.params;
+  folder = folder || req.query.folder;
+  let apiPath = 'rest/system/reset';
+  if (folder) {
+    apiPath += `?folder=${folder}`;
+  }
+  const response = await performRequest('post', apiPath);
+  return res ? res.json(response) : response;
+}
+
+// restarts syncthing
+async function systemRestart(req, res) {
+  const response = await performRequest('post', '/rest/system/restart');
+  return res ? res.json(response) : response;
+}
+
+async function systemResume(req, res) {
+  let { device } = req.params;
+  device = device || req.query.device;
+  let apiPath = 'rest/system/pause';
+  if (device) {
+    apiPath += `?device=${device}`;
+  }
+  const response = await performRequest('post', apiPath);
+  return res ? res.json(response) : response;
+}
+
+// shutsdown syncthing
+async function systemShutdown(req, res) {
+  const response = await performRequest('post', '/rest/system/shutdown');
+  return res ? res.json(response) : response;
+}
+
+async function systemStatus(req, res) {
+  const response = await performRequest('get', '/rest/system/status');
+  return res ? res.json(response) : response;
+}
+
+async function systemUpgrade(req, res) {
+  const response = await performRequest('get', '/rest/system/upgrade');
+  return res ? res.json(response) : response;
+}
+
+async function postSystemUpgrade(req, res) {
+  const response = await performRequest('post', '/rest/system/upgrade');
+  return res ? res.json(response) : response;
+}
+
+async function systemVersion(req, res) {
+  const response = await performRequest('get', '/rest/system/version');
   return res ? res.json(response) : response;
 }
 
@@ -138,7 +321,7 @@ async function getConfigFolders(req, res) {
   id = id || req.query.id;
   let apiPath = '/rest/config/folders';
   if (id) {
-    apiPath = `/rest/config/folders/${id}`;
+    apiPath += `/${id}`;
   }
   const response = await performRequest('get', apiPath);
   return res ? res.json(response) : response;
@@ -149,7 +332,7 @@ async function getConfigDevices(req, res) {
   id = id || req.query.id;
   let apiPath = '/rest/config/devices';
   if (id) {
-    apiPath = `/rest/config/devices/${id}`;
+    apiPath += `/${id}`;
   }
   const response = await performRequest('get', apiPath);
   return res ? res.json(response) : response;
@@ -168,7 +351,7 @@ async function postConfigFolders(req, res) {
     try {
       let apiPath = '/rest/config/folders';
       if (id) {
-        apiPath = `/rest/config/folders/${id}`;
+        apiPath += `/${id}`;
       }
       const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       let response = null;
@@ -199,7 +382,7 @@ async function postConfigDevices(req, res) {
     try {
       let apiPath = '/rest/config/devices';
       if (id) {
-        apiPath = `/rest/config/devices/${id}`;
+        apiPath += `/${id}`;
       }
       const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       let response = null;
@@ -465,6 +648,25 @@ module.exports = {
   getHealth,
   statsDevice,
   statsFolder,
+  systemBrowse,
+  systemConnections,
+  systemDiscovery,
+  systemDebug,
+  systemErrorClear,
+  systemError,
+  postSystemError,
+  systemLog,
+  systemLogTxt,
+  systemPaths,
+  systemPause,
+  systemReset,
+  systemRestart,
+  systemResume,
+  systemShutdown,
+  systemStatus,
+  systemUpgrade,
+  postSystemUpgrade,
+  systemVersion,
   systemPing,
   // CONFIG
   getConfig,
