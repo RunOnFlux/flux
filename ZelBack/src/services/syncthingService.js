@@ -631,6 +631,9 @@ async function startSyncthing() {
       const exec = 'syncthing --allow-newer-config --no-browser';
       try {
         await cmdAsync(exec);
+        await serviceHelper.delay(30 * 1000);
+        startSyncthing();
+        return;
       } catch (error) {
         log.error(error);
         log.info('Syncthing is not installed, proceeding with installation');
