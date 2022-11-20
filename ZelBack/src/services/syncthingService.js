@@ -242,7 +242,9 @@ async function systemReset(req, res) {
 
 // restarts syncthing
 async function systemRestart(req, res) {
+  log.info('Restarting Syncthing...');
   const response = await performRequest('post', '/rest/system/restart');
+  log.info('Syncthing restarted');
   return res ? res.json(response) : response;
 }
 
@@ -512,7 +514,9 @@ async function getConfigLdap(req, res) {
 }
 
 async function adjustConfigOptions(method, newConfig) {
+  log.info('Patching Syncthing configuration...');
   const response = await performRequest(method, '/rest/config/options', newConfig);
+  log.info('Syncthing configuration patched...');
   return response;
 }
 
@@ -630,6 +634,7 @@ async function startSyncthing() {
     if (myDevice.status === 'error') {
       const exec = 'syncthing --allow-newer-config --no-browser';
       try {
+        log.info('Executing Syncthing start...');
         await cmdAsync(exec);
         await serviceHelper.delay(30 * 1000);
         startSyncthing();
@@ -657,7 +662,7 @@ async function startSyncthing() {
           || currentConfigOptions.data.localAnnounceEnabled !== newConfig.localAnnounceEnabled
           || currentConfigOptions.data.listenAddresses !== newConfig.listenAddresses) {
           // patch our config
-          await postConfigOptions('patch', newConfig);
+          await adjustConfigOptions('patch', newConfig);
           const restartRequired = await getConfigRestartRequired();
           if (restartRequired.status === 'success' && restartRequired.data.requiresRestart === true) {
             await systemRestart();
