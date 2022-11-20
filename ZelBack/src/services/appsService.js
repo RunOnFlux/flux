@@ -1787,9 +1787,9 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     if (useThisVolume.mount === '/') {
       execRemoveAlloc = `sudo rm -rf ${fluxDirPath}appvolumes/${appId}FLUXFSVOL`;
     }
-    await cmdAsync(execRemoveAlloc).catch((error) => log.error(error));
+    await cmdAsync(execRemoveAlloc).catch((e) => log.error(e));
     const execFinal = `sudo rm -rf ${appsFolder + appId}`;
-    await cmdAsync(execFinal).catch((error) => log.error(error));
+    await cmdAsync(execFinal).catch((e) => log.error(e));
     const aloocationRemoval2 = {
       status: 'Pre-removal cleaning completed. Forcing removal.',
     };
@@ -1840,6 +1840,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     res.write(serviceHelper.ensureString(stopStatus2));
   }
 
+  // eslint-disable-next-line no-use-before-define
   await stopSyncthingApp(monitoredName, res);
 
   const removeStatus = {
@@ -2287,6 +2288,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
     res.write(serviceHelper.ensureString(stopStatus2));
   }
 
+  // eslint-disable-next-line no-use-before-define
   await stopSyncthingApp(monitoredName, res);
 
   const removeStatus = {
@@ -8169,7 +8171,7 @@ async function stopSyncthingApp(appComponentName, res) {
       if (syncthingFolder.path === folder) {
         folderIsBeingSynced = true;
       }
-    })
+    });
     if (!folderIsBeingSynced) {
       return;
     }
@@ -8196,34 +8198,36 @@ async function stopSyncthingApp(appComponentName, res) {
 async function syncthingApps() {
   try {
   // do not run if installationInProgress or removalInProgress
-  if (installationInProgress || removalInProgress) {
-    return;
-  }
-  // get list of all installed apps
-  const installedApps = await installedApps();
-  if (installedApps.status === 'error') {
-    return;
-  }
-  let configHasChanged = false;
-  // go through every containerData of all components of every app
-  for (const installedApp of installedApps) {
-    if (installedApp.version <= 3) {
-      const containerDataFlags = installedApp.containerData.split(':')[1] ? installedApp.containerData.split(':')[0] : '';
-      if (containerDataFlags.includes('s')) {
-        // TODO do magic, this is syncthing
-      }
-    } else {
-      for (const installedComponent of installedApp) {
-        const containerDataFlags = installedComponent.containerData.split(':')[1] ? installedComponent.containerData.split(':')[0] : '';
+    if (installationInProgress || removalInProgress) {
+      return;
+    }
+    // get list of all installed apps
+    const appsInstalled = await installedApps();
+    if (appsInstalled.status === 'error') {
+      return;
+    }
+    const configHasChanged = false;
+    // go through every containerData of all components of every app
+    // eslint-disable-next-line no-restricted-syntax
+    for (const installedApp of appsInstalled) {
+      if (installedApp.version <= 3) {
+        const containerDataFlags = installedApp.containerData.split(':')[1] ? installedApp.containerData.split(':')[0] : '';
         if (containerDataFlags.includes('s')) {
+        // TODO do magic, this is syncthing
+        }
+      } else {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const installedComponent of installedApp) {
+          const containerDataFlags = installedComponent.containerData.split(':')[1] ? installedComponent.containerData.split(':')[0] : '';
+          if (containerDataFlags.includes('s')) {
           // TODO do magic, this is syncthing
+          }
         }
       }
     }
-  }
-  if (configHasChanged) {
+    if (configHasChanged) {
     // TODO reload syncthing? Or above was done through some magic and no reload needed?
-  }
+    }
   } catch (error) {
     log.error(error);
   }

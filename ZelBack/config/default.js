@@ -156,9 +156,8 @@ module.exports = {
       stratus: 40000,
     },
   },
-  syncthing: {
+  syncthing: { // operates on apiPort + 2
     ip: '127.0.0.1', // local
     port: 8384, // local
-    // https://docs.syncthing.net/users/firewall.html
   },
 };

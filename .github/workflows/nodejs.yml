@@ -9,7 +9,7 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [14.x]
+        node-version: [16.x]
 
     services:
       mongodb:
@@ -37,10 +37,10 @@ jobs:
         echo 'deb [signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg] https://apt.syncthing.net/ syncthing stable' | sudo tee /etc/apt/sources.list.d/syncthing.list
         sudo apt install ca-certificates -y > /dev/null 2>&1
         sudo apt-get update -y
-        sudo apt-get install syncthing -y
-    - name: run syncthing # todo some start parameters
+        sudo apt-get install screen syncthing -y
+    - name: run syncthing
       run: |
-        syncthing
+        screen -S Bsyncthing -dm syncthing
     - name: npm install
       run: npm i
     - name: configure

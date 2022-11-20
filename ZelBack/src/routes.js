@@ -422,26 +422,98 @@ module.exports = (app, expressWs) => {
   app.get('/syncthing/health', cache('30 seconds'), (req, res) => {
     syncthingService.getHealth(req, res);
   });
+  app.get('/syncthing/system/browse/:current?', cache('30 seconds'), (req, res) => {
+    syncthingService.systemBrowse(req, res);
+  });
+  app.get('/syncthing/system/connections', cache('30 seconds'), (req, res) => {
+    syncthingService.systemConnections(req, res);
+  });
+  app.get('/syncthing/system/debug/:enable?/:disable?', cache('30 seconds'), (req, res) => {
+    syncthingService.systemDebug(req, res);
+  });
+  app.get('/syncthing/system/discovery/:device?/:addr?', cache('30 seconds'), (req, res) => {
+    syncthingService.systemDiscovery(req, res);
+  });
+  app.get('/syncthing/system/error/clear', cache('30 seconds'), (req, res) => {
+    syncthingService.systemErrorClear(req, res);
+  });
+  app.get('/syncthing/system/error/:message?', cache('30 seconds'), (req, res) => {
+    syncthingService.systemError(req, res);
+  });
+  app.get('/syncthing/system/error/:message?', cache('30 seconds'), (req, res) => {
+    syncthingService.systemError(req, res);
+  });
+  app.get('/syncthing/system/log/:since?', cache('30 seconds'), (req, res) => {
+    syncthingService.systemLog(req, res);
+  });
+  app.get('/syncthing/system/logtxt/:since?', cache('30 seconds'), (req, res) => {
+    syncthingService.systemLogTxt(req, res);
+  });
+  app.get('/syncthing/system/paths', cache('30 seconds'), (req, res) => {
+    syncthingService.systemPaths(req, res);
+  });
+  app.get('/syncthing/system/pause/:device?', cache('30 seconds'), (req, res) => {
+    syncthingService.systemPause(req, res);
+  });
+  app.get('/syncthing/system/ping', cache('30 seconds'), (req, res) => {
+    syncthingService.systemPing(req, res);
+  });
+  app.get('/syncthing/system/reset/:folder?', cache('30 seconds'), (req, res) => {
+    syncthingService.systemReset(req, res);
+  });
+  app.get('/syncthing/system/restart', cache('30 seconds'), (req, res) => {
+    syncthingService.systemRestart(req, res);
+  });
+  app.get('/syncthing/system/resume/:device?', cache('30 seconds'), (req, res) => {
+    syncthingService.systemResume(req, res);
+  });
+  app.get('/syncthing/system/shutdown', cache('30 seconds'), (req, res) => {
+    syncthingService.systemShutdown(req, res);
+  });
+  app.get('/syncthing/system/status', cache('30 seconds'), (req, res) => {
+    syncthingService.systemStatus(req, res);
+  });
+  app.get('/syncthing/system/upgrade', cache('30 seconds'), (req, res) => {
+    syncthingService.systemUpgrade(req, res);
+  });
+  app.get('/syncthing/system/version', cache('30 seconds'), (req, res) => {
+    syncthingService.systemVersion(req, res);
+  });
+  app.get('/syncthing/config', cache('30 seconds'), (req, res) => {
+    syncthingService.getConfig(req, res);
+  });
+  app.get('/syncthing/config/restart-required', cache('30 seconds'), (req, res) => {
+    syncthingService.getConfigRestartRequired(req, res);
+  });
+  app.get('/syncthing/config/folders/:id?', cache('30 seconds'), (req, res) => {
+    syncthingService.getConfigFolders(req, res);
+  });
+  app.get('/syncthing/config/devices/:id?', cache('30 seconds'), (req, res) => {
+    syncthingService.getConfigDevices(req, res);
+  });
+  app.get('/syncthing/config/defaults/folder', cache('30 seconds'), (req, res) => {
+    syncthingService.getConfigDefaultsFolder(req, res);
+  });
+  app.get('/syncthing/config/defaults/device', cache('30 seconds'), (req, res) => {
+    syncthingService.getConfigDefaultsDevice(req, res);
+  });
+  app.get('/syncthing/config/defaults/ignores', cache('30 seconds'), (req, res) => {
+    syncthingService.getConfigDefaultsIgnores(req, res);
+  });
+  app.get('/syncthing/config/options', cache('30 seconds'), (req, res) => {
+    syncthingService.getConfigOptions(req, res);
+  });
+  app.get('/syncthing/config/ldap', cache('30 seconds'), (req, res) => {
+    syncthingService.getConfigLdap(req, res);
+  });
+  app.get('/syncthing/config/gui', cache('30 seconds'), (req, res) => {
+    syncthingService.getConfigGui(req, res);
+  });
   app.get('/syncthing/stats/device', cache('30 seconds'), (req, res) => {
     syncthingService.statsDevice(req, res);
   });
   app.get('/syncthing/stats/folder', cache('30 seconds'), (req, res) => {
     syncthingService.statsFolder(req, res);
-  });
-  app.get('/syncthing/system/ping', cache('30 seconds'), (req, res) => {
-    syncthingService.systemPing(req, res);
-  });
-  app.get('/syncthing/config/folders', cache('30 seconds'), (req, res) => {
-    syncthingService.getConfigFolders(req, res);
-  });
-  app.get('/syncthing/config/restart-required', cache('30 seconds'), (req, res) => {
-    syncthingService.getConfigRestartRequired(req, res);
-  });
-  app.get('/syncthing/config/options', cache('30 seconds'), (req, res) => {
-    syncthingService.getConfigOptions(req, res);
-  });
-  app.get('/syncthing/config/gui', cache('30 seconds'), (req, res) => {
-    syncthingService.getConfigGui(req, res);
   });
 
   // GET PROTECTED API - ZelNode Owner
@@ -1093,6 +1165,40 @@ module.exports = (app, expressWs) => {
   });
   app.post('/flux/broadcastmessagetoincoming', (req, res) => {
     fluxCommunicationMessagesSender.broadcastMessageToIncomingFromUserPost(req, res);
+  });
+
+  app.post('/syncthing/system/error', cache('30 seconds'), (req, res) => {
+    syncthingService.postSystemError(req, res);
+  });
+  app.get('/syncthing/system/upgrade', cache('30 seconds'), (req, res) => {
+    syncthingService.postSystemUpgrade(req, res);
+  });
+  app.post('/syncthing/config', (req, res) => {
+    syncthingService.postConfig(req, res);
+  });
+  app.post('/syncthing/config/folders', cache('30 seconds'), (req, res) => {
+    syncthingService.postConfigFolders(req, res);
+  });
+  app.post('/syncthing/config/devices', cache('30 seconds'), (req, res) => {
+    syncthingService.postConfigDevices(req, res);
+  });
+  app.post('/syncthing/config/defaults/folder', cache('30 seconds'), (req, res) => {
+    syncthingService.postConfigDefaultsFolder(req, res);
+  });
+  app.post('/syncthing/config/defaults/device', cache('30 seconds'), (req, res) => {
+    syncthingService.postConfigDefaultsDevice(req, res);
+  });
+  app.post('/syncthing/config/defaults/ignores', cache('30 seconds'), (req, res) => {
+    syncthingService.postConfigDefaultsIgnores(req, res);
+  });
+  app.post('/syncthing/config/options', cache('30 seconds'), (req, res) => {
+    syncthingService.postConfigOptions(req, res);
+  });
+  app.post('/syncthing/config/gui', cache('30 seconds'), (req, res) => {
+    syncthingService.postConfigGui(req, res);
+  });
+  app.post('/syncthing/config/ldap', cache('30 seconds'), (req, res) => {
+    syncthingService.postConfigLdap(req, res);
   });
 
   // WebSockets PUBLIC
