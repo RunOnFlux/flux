@@ -15,6 +15,7 @@ const fsPromises = fs.promises;
 const messageHelper = require('./messageHelper');
 const serviceHelper = require('./serviceHelper');
 const log = require('../lib/log');
+const userconfig = require('../../../config/userconfig');
 
 const syncthingURL = `http://${config.syncthing.ip}:${config.syncthing.port}`;
 
@@ -510,6 +511,11 @@ async function getConfigLdap(req, res) {
   return res ? res.json(response) : response;
 }
 
+async function adjustConfigOptions(method, newConfig) {
+  const response = await performRequest(method, '/rest/config/options', newConfig);
+  return response;
+}
+
 async function postConfigOptions(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -523,7 +529,7 @@ async function postConfigOptions(req, res) {
       const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       let response = null;
       if (authorized === true) {
-        response = await performRequest(method, '/rest/config/options', newConfig);
+        response = await adjustConfigOptions(method, newConfig);
       } else {
         response = messageHelper.errUnauthorizedMessage();
       }
@@ -632,6 +638,28 @@ async function startSyncthing() {
         await serviceHelper.delay(1 * 60 * 1000);
         startSyncthing();
         return;
+      }
+    } else {
+      const currentConfigOptions = await getConfigOptions();
+      const apiPort = userconfig.initial.apiport || config.server.apiport;
+      const myPort = apiPort + 2; // end with 9 eg 16139
+      // adjust configuration
+      const newConfig = {
+        globalAnnounceEnabled: false,
+        localAnnounceEnabled: false,
+        listenAddresses: [`tcp://:${myPort}`, `quic://:${myPort}`],
+      };
+      if (currentConfigOptions.status === 'success') {
+        if (currentConfigOptions.data.globalAnnounceEnabled !== newConfig.globalAnnounceEnabled
+          || currentConfigOptions.data.localAnnounceEnabled !== newConfig.localAnnounceEnabled
+          || currentConfigOptions.data.listenAddresses !== newConfig.listenAddresses) {
+          // patch our config
+          await postConfigOptions('patch', newConfig);
+          const restartRequired = await getConfigRestartRequired();
+          if (restartRequired.status === 'success' && restartRequired.data.requiresRestart === true) {
+            await systemRestart();
+          }
+        }
       }
     }
     await serviceHelper.delay(8 * 60 * 1000);
