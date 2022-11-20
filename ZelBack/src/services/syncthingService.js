@@ -634,8 +634,8 @@ async function startSyncthing() {
     if (myDevice.status === 'error') {
       const exec = 'syncthing --allow-newer-config --no-browser';
       try {
-        log.info('Executing Syncthing start...');
-        await cmdAsync(exec);
+        log.info('Spawning Syncthing instance...');
+        cmdAsync(exec);
         await serviceHelper.delay(30 * 1000);
         startSyncthing();
         return;
