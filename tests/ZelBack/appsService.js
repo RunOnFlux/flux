@@ -144,6 +144,8 @@ describe('checkHWParameters', () => {
     const fluxAppSpecs = {
       repotag: 'yurinnick/folding-at-home:latest',
       repotagB: 'yurinnick/folding-at-home:latestaaa',
+      repotagC: ' bunnyanalyst/fluxrun:latest',
+      repotagD: 'bunnyanalyst/fluxrun:latest ',
     };
     const repA = await appService.verifyRepository(fluxAppSpecs.repotag);
     expect(repA).to.be.equal(true);
@@ -151,6 +153,14 @@ describe('checkHWParameters', () => {
       expect(error.message).to.be.equal('Repository yurinnick/folding-at-home:latestaaa is not found on docker hub in expected format');
     });
     expect(repB).to.be.equal(undefined);
+    const repC = await appService.verifyRepository(fluxAppSpecs.repotagC).catch((error) => {
+      expect(error.message).to.be.equal('Repository " bunnyanalyst/fluxrun:latest" should not countain space character.');
+    });
+    expect(repC).to.be.equal(undefined);
+    const repD = await appService.verifyRepository(fluxAppSpecs.repotagD).catch((error) => {
+      expect(error.message).to.be.equal('Repository "bunnyanalyst/fluxrun:latest " should not countain space character.');
+    });
+    expect(repD).to.be.equal(undefined);
     // expect(appService.verifyAppSpecifications(fluxAppSpecs)).to.not.throw();
   });
 
