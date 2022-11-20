@@ -154,11 +154,11 @@ describe('checkHWParameters', () => {
     });
     expect(repB).to.be.equal(undefined);
     const repC = await appService.verifyRepository(fluxAppSpecs.repotagC).catch((error) => {
-      expect(error.message).to.be.equal('Repository " bunnyanalyst/fluxrun:latest" should not countain space character.');
+      expect(error.message).to.be.equal('Repository " bunnyanalyst/fluxrun:latest" should not contain space characters.');
     });
     expect(repC).to.be.equal(undefined);
     const repD = await appService.verifyRepository(fluxAppSpecs.repotagD).catch((error) => {
-      expect(error.message).to.be.equal('Repository "bunnyanalyst/fluxrun:latest " should not countain space character.');
+      expect(error.message).to.be.equal('Repository "bunnyanalyst/fluxrun:latest " should not contain space characters.');
     });
     expect(repD).to.be.equal(undefined);
     // expect(appService.verifyAppSpecifications(fluxAppSpecs)).to.not.throw();

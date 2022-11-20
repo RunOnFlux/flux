@@ -3779,7 +3779,7 @@ async function verifyRepository(repotag) {
   }
 
   if (/\s/.test(repotag)) {
-    throw new Error(`Repository "${repotag}" should not countain space character.`);
+    throw new Error(`Repository "${repotag}" should not contain space characters.`);
   }
 
   const splittedRepo = repotag.split(':');
