@@ -598,6 +598,78 @@ async function postConfigLdap(req, res) {
   });
 }
 
+async function getClusterPendigDevices(req, res) {
+  const response = await performRequest('get', '/rest/cluster/pending/devices');
+  return res ? res.json(response) : response;
+}
+
+async function postClusterPendigDevices(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const newConfig = processedBody.config;
+    const { device } = processedBody;
+    const method = (processedBody.method || 'delete').toLowerCase();
+    try {
+      let apiPath = '/rest/cluster/pending/devices';
+      if (device) {
+        apiPath += `?device=${device}`;
+      }
+      const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      let response = null;
+      if (authorized === true) {
+        response = await performRequest(method, apiPath, newConfig);
+      } else {
+        response = messageHelper.errUnauthorizedMessage();
+      }
+      return res ? res.json(response) : response;
+    } catch (error) {
+      log.error(error);
+      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+      return res ? res.json(errorResponse) : errorResponse;
+    }
+  });
+}
+
+async function getClusterPendigFolders(req, res) {
+  const response = await performRequest('get', '/rest/cluster/pending/folders');
+  return res ? res.json(response) : response;
+}
+
+async function postClusterPendigFolders(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const newConfig = processedBody.config;
+    const { folder } = processedBody;
+    const method = (processedBody.method || 'delete').toLowerCase();
+    try {
+      let apiPath = '/rest/cluster/pending/folders';
+      if (folder) {
+        apiPath += `?folder=${folder}`;
+      }
+      const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      let response = null;
+      if (authorized === true) {
+        response = await performRequest(method, apiPath, newConfig);
+      } else {
+        response = messageHelper.errUnauthorizedMessage();
+      }
+      return res ? res.json(response) : response;
+    } catch (error) {
+      log.error(error);
+      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+      return res ? res.json(errorResponse) : errorResponse;
+    }
+  });
+}
+
 // === CUSTOM ===
 // our device id and also test that syncthing is installed and running and we have api key
 async function getDeviceID(req, res) {
@@ -726,4 +798,9 @@ module.exports = {
   postConfigOptions,
   postConfigGui,
   postConfigLdap,
+  // Cluster
+  getClusterPendigDevices,
+  postClusterPendigDevices,
+  getClusterPendigFolders,
+  postClusterPendigFolders,
 };
