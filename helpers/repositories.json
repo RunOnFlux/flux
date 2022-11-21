@@ -447,5 +447,6 @@
    "runonflux/ipfs:latest",
    "honsontran/uniswap-frontend:latest",
    "runonflux/blockbook-docker:latest",
+   "digiminer/ubuntu-kryptokrona:latest",
    "byblaaz/mamaki-node:latest"
 ]
