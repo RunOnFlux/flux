@@ -1075,6 +1075,41 @@ async function postDbScan(req, res) {
   });
 }
 
+// === EVENT ENDPOINTS ===
+
+async function getEvents(req, res) {
+  let { events } = req.params;
+  events = events || req.query.events;
+  let { since } = req.params;
+  since = since || req.query.device;
+  let { limit } = req.params;
+  limit = limit || req.query.limit;
+  let apiPath = '/rest/events?';
+  try {
+    if (events) apiPath += `events=${events}&`;
+    if (since) apiPath += `since=${since}&`;
+    if (limit) apiPath += `limit=${limit}`;
+
+    const response = await performRequest('get', apiPath);
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+async function getEventsDisk(req, res) {
+  try {
+    const response = await performRequest('get', '/rest/events/disk');
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
 // === CUSTOM ===
 // our device id and also test that syncthing is installed and running and we have api key
 async function getDeviceID(req, res) {
@@ -1226,4 +1261,7 @@ module.exports = {
   postDbPrio,
   postDbRevert,
   postDbScan,
+  // EVENTS
+  getEvents,
+  getEventsDisk,
 };
