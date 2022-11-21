@@ -1110,6 +1110,55 @@ async function getEventsDisk(req, res) {
   }
 }
 
+// === MICS SERVICES ENDPOINTS ===
+
+async function getSvcDeviceID(req, res) {
+  let { id } = req.params;
+  id = id || req.query.id;
+  let apiPath = '/rest/svc/deviceid';
+  try {
+    if (id) {
+      apiPath += `?id=${id}`;
+    } else {
+      throw new Error('id parameter is mandatory');
+    }
+    const response = await performRequest('get', apiPath);
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+async function getSvcRandomString(req, res) {
+  let { length } = req.params;
+  length = length || req.query.length;
+  let apiPath = '/rest/svc/random/string';
+  try {
+    if (length) {
+      apiPath += `?length=${length}`;
+    }
+    const response = await performRequest('get', apiPath);
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+async function getSvcReport(req, res) {
+  try {
+    const response = await performRequest('get', '/rest/svc/report');
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
 // === CUSTOM ===
 // our device id and also test that syncthing is installed and running and we have api key
 async function getDeviceID(req, res) {
@@ -1264,4 +1313,8 @@ module.exports = {
   // EVENTS
   getEvents,
   getEventsDisk,
+  // MISC
+  getSvcDeviceID,
+  getSvcRandomString,
+  getSvcReport,
 };
