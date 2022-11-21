@@ -1188,10 +1188,10 @@ module.exports = (app, expressWs) => {
   app.post('/syncthing/config/devices', cache('30 seconds'), (req, res) => {
     syncthingService.postConfigDevices(req, res);
   });
-  app.post('/syncthing/config/defaults/folder', (req, res) => {
+  app.post('/syncthing/config/defaults/folder', cache('30 seconds'), (req, res) => {
     syncthingService.postConfigDefaultsFolder(req, res);
   });
-  app.post('/syncthing/config/defaults/device', (req, res) => {
+  app.post('/syncthing/config/defaults/device', cache('30 seconds'), (req, res) => {
     syncthingService.postConfigDefaultsDevice(req, res);
   });
   app.post('/syncthing/config/defaults/ignores', cache('30 seconds'), (req, res) => {
@@ -1205,6 +1205,30 @@ module.exports = (app, expressWs) => {
   });
   app.post('/syncthing/config/ldap', cache('30 seconds'), (req, res) => {
     syncthingService.postConfigLdap(req, res);
+  });
+  app.post('/syncthing/cluster/pending/devices', cache('30 seconds'), (req, res) => {
+    syncthingService.postClusterPendigDevices(req, res);
+  });
+  app.post('/syncthing/cluster/pending/folders', cache('30 seconds'), (req, res) => {
+    syncthingService.postClusterPendigFolders(req, res);
+  });
+  app.post('/syncthing/folder/versions', cache('30 seconds'), (req, res) => {
+    syncthingService.postFolderVersions(req, res);
+  });
+  app.post('/syncthing/db/ignores', cache('30 seconds'), (req, res) => {
+    syncthingService.postDbIgnores(req, res);
+  });
+  app.post('/syncthing/db/override', cache('30 seconds'), (req, res) => {
+    syncthingService.postDbOverride(req, res);
+  });
+  app.post('/syncthing/db/prio', cache('30 seconds'), (req, res) => {
+    syncthingService.postDbPrio(req, res);
+  });
+  app.post('/syncthing/db/revert', cache('30 seconds'), (req, res) => {
+    syncthingService.postDbRevert(req, res);
+  });
+  app.post('/syncthing/db/scan', cache('30 seconds'), (req, res) => {
+    syncthingService.postDbScan(req, res);
   });
 
   // WebSockets PUBLIC
