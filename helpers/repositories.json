@@ -449,5 +449,6 @@
    "runonflux/blockbook-docker:latest",
    "v2ray/official",
    "digiminer/ubuntu-kryptokrona:latest",
-   "byblaaz/mamaki-node:latest"
+   "byblaaz/mamaki-node:latest",
+   "keyoxide/keyoxide"
 ]
