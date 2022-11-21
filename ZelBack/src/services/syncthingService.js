@@ -674,7 +674,7 @@ async function postClusterPendigFolders(req, res) {
 
 // === FOLDER ENDPOINTS ===
 
-async function folderErrors(req, res) {
+async function getFolderErrors(req, res) {
   let { folder } = req.params;
   folder = folder || req.query.folder;
   let apiPath = '/rest/folder/errors';
@@ -693,7 +693,7 @@ async function folderErrors(req, res) {
   }
 }
 
-async function folderVersions(req, res) {
+async function getFolderVersions(req, res) {
   let { folder } = req.params;
   folder = folder || req.query.folder;
   let apiPath = '/rest/folder/versions';
@@ -745,7 +745,7 @@ async function postFolderVersions(req, res) {
 
 // === DATABASE ENDPOINTS ===
 
-async function dbBrowse(req, res) {
+async function getDbBrowse(req, res) {
   let { folder } = req.params;
   folder = folder || req.query.folder;
   let { levels } = req.params;
@@ -770,7 +770,7 @@ async function dbBrowse(req, res) {
   }
 }
 
-async function dbCompletion(req, res) {
+async function getDbCompletion(req, res) {
   let { folder } = req.params;
   folder = folder || req.query.folder;
   let { device } = req.params;
@@ -789,7 +789,7 @@ async function dbCompletion(req, res) {
   }
 }
 
-async function dbFile(req, res) {
+async function getDbFile(req, res) {
   let { folder } = req.params;
   folder = folder || req.query.folder;
   let { file } = req.params;
@@ -808,7 +808,7 @@ async function dbFile(req, res) {
   }
 }
 
-async function dbIgnores(req, res) {
+async function getDbIgnores(req, res) {
   let { folder } = req.params;
   folder = folder || req.query.folder;
   let apiPath = '/rest/db/ignores';
@@ -823,7 +823,7 @@ async function dbIgnores(req, res) {
   }
 }
 
-async function dbLocalchanged(req, res) {
+async function getDbLocalchanged(req, res) {
   let { folder } = req.params;
   folder = folder || req.query.folder;
   let apiPath = '/rest/db/localchanged';
@@ -842,7 +842,7 @@ async function dbLocalchanged(req, res) {
   }
 }
 
-async function dbNeed(req, res) {
+async function getDbNeed(req, res) {
   let { folder } = req.params;
   folder = folder || req.query.folder;
   let apiPath = '/rest/db/need';
@@ -861,7 +861,7 @@ async function dbNeed(req, res) {
   }
 }
 
-async function dbRemoteNeed(req, res) {
+async function getDbRemoteNeed(req, res) {
   let { folder } = req.params;
   folder = folder || req.query.folder;
   let { device } = req.params;
@@ -887,7 +887,7 @@ async function dbRemoteNeed(req, res) {
   }
 }
 
-async function dbStatus(req, res) {
+async function getDbStatus(req, res) {
   let { folder } = req.params;
   folder = folder || req.query.folder;
   let apiPath = '/rest/db/status';
@@ -1293,18 +1293,18 @@ module.exports = {
   getClusterPendigFolders,
   postClusterPendigFolders,
   // Folder
-  folderErrors,
-  folderVersions,
+  getFolderErrors,
+  getFolderVersions,
   postFolderVersions,
   // DATABASE ENDPOINTS
-  dbBrowse,
-  dbCompletion,
-  dbFile,
-  dbIgnores,
-  dbLocalchanged,
-  dbNeed,
-  dbRemoteNeed,
-  dbStatus,
+  getDbBrowse,
+  getDbCompletion,
+  getDbFile,
+  getDbIgnores,
+  getDbLocalchanged,
+  getDbNeed,
+  getDbRemoteNeed,
+  getDbStatus,
   postDbIgnores,
   postDbOverride,
   postDbPrio,
