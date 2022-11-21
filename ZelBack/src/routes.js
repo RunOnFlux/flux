@@ -515,6 +515,60 @@ module.exports = (app, expressWs) => {
   app.get('/syncthing/stats/folder', cache('30 seconds'), (req, res) => {
     syncthingService.statsFolder(req, res);
   });
+  app.get('/syncthing/cluster/pending/devices', cache('30 seconds'), (req, res) => {
+    syncthingService.getClusterPendigDevices(req, res);
+  });
+  app.get('/syncthing/cluster/pending/folders', cache('30 seconds'), (req, res) => {
+    syncthingService.getClusterPendigFolders(req, res);
+  });
+  app.get('/syncthing/folder/errors', cache('30 seconds'), (req, res) => {
+    syncthingService.getFolderErrors(req, res);
+  });
+  app.get('/syncthing/folder/versions', cache('30 seconds'), (req, res) => {
+    syncthingService.getFolderVersions(req, res);
+  });
+  app.get('/syncthing/db/browse', cache('30 seconds'), (req, res) => {
+    syncthingService.getDbBrowse(req, res);
+  });
+  app.get('/syncthing/db/completion', cache('30 seconds'), (req, res) => {
+    syncthingService.getDbCompletion(req, res);
+  });
+  app.get('/syncthing/db/file', cache('30 seconds'), (req, res) => {
+    syncthingService.getDbFile(req, res);
+  });
+  app.get('/syncthing/db/ignores', cache('30 seconds'), (req, res) => {
+    syncthingService.getDbIgnores(req, res);
+  });
+  app.get('/syncthing/db/getDbLocalchanged', cache('30 seconds'), (req, res) => {
+    syncthingService.getDbIgnores(req, res);
+  });
+  app.get('/syncthing/db/need', cache('30 seconds'), (req, res) => {
+    syncthingService.getDbNeed(req, res);
+  });
+  app.get('/syncthing/db/remoteneed', cache('30 seconds'), (req, res) => {
+    syncthingService.getDbRemoteNeed(req, res);
+  });
+  app.get('/syncthing/db/status', cache('30 seconds'), (req, res) => {
+    syncthingService.getDbStatus(req, res);
+  });
+  app.get('/syncthing/debug/peerCompletion', cache('30 seconds'), (req, res) => {
+    syncthingService.debugPeerCompletion(req, res);
+  });
+  app.get('/syncthing/debug/httpmetrics', cache('30 seconds'), (req, res) => {
+    syncthingService.debugHttpmetrics(req, res);
+  });
+  app.get('/syncthing/debug/cpuprof', cache('30 seconds'), (req, res) => {
+    syncthingService.debugCpuprof(req, res);
+  });
+  app.get('/syncthing/debug/heapprof', cache('30 seconds'), (req, res) => {
+    syncthingService.debugPeapprof(req, res);
+  });
+  app.get('/syncthing/debug/support', cache('30 seconds'), (req, res) => {
+    syncthingService.debugSupport(req, res);
+  });
+  app.get('/syncthing/debug/file', cache('30 seconds'), (req, res) => {
+    syncthingService.debugFile(req, res);
+  });
 
   // GET PROTECTED API - ZelNode Owner
   app.get('/daemon/stop', (req, res) => {
@@ -1065,7 +1119,7 @@ module.exports = (app, expressWs) => {
     daemonServiceMiningRpcs.submitBlockPost(req, res);
   });
 
-  app.post('/apps/checkdockerexistance', async (req, res) => {
+  app.post('/apps/checkdockerexistance', (req, res) => {
     appsService.checkDockerAccessibility(req, res);
   });
   app.post('/apps/appregister', (req, res) => {
@@ -1108,54 +1162,6 @@ module.exports = (app, expressWs) => {
     benchmarkService.signFluxTransactionPost(req, res);
   });
 
-  app.post('/syncthing/config/folders', (req, res) => {
-    syncthingService.postConfigFolders(req, res);
-  });
-
-  app.post('/syncthing/config/devices', (req, res) => {
-    syncthingService.postConfigDevices(req, res);
-  });
-
-  app.post('/syncthing/config/folders', (req, res) => {
-    syncthingService.putConfigFolders(req, res);
-  });
-
-  app.post('/syncthing/config/devices', (req, res) => {
-    syncthingService.putConfigDevices(req, res);
-  });
-
-  app.post('/syncthing/config/folders', (req, res) => {
-    syncthingService.patchConfigFolders(req, res);
-  });
-
-  app.post('/syncthing/config/devices', (req, res) => {
-    syncthingService.patchConfigDevices(req, res);
-  });
-
-  app.post('/syncthing/config/folders', (req, res) => {
-    syncthingService.deleteConfigFolders(req, res);
-  });
-
-  app.post('/syncthing/config/devices', (req, res) => {
-    syncthingService.deleteConfigDevices(req, res);
-  });
-
-  app.post('/syncthing/config/options', (req, res) => {
-    syncthingService.putConfigOptions(req, res);
-  });
-
-  app.post('/syncthing/config/options', (req, res) => {
-    syncthingService.patchConfigOptions(req, res);
-  });
-
-  app.post('/syncthing/config/gui', (req, res) => {
-    syncthingService.putConfigGui(req, res);
-  });
-
-  app.post('/syncthing/config/gui', (req, res) => {
-    syncthingService.patchConfigGui(req, res);
-  });
-
   // POST PROTECTED API - FluxTeam
   app.post('/flux/broadcastmessage', (req, res) => {
     fluxCommunicationMessagesSender.broadcastMessageFromUserPost(req, res);
@@ -1167,37 +1173,37 @@ module.exports = (app, expressWs) => {
     fluxCommunicationMessagesSender.broadcastMessageToIncomingFromUserPost(req, res);
   });
 
-  app.post('/syncthing/system/error', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/system/error', (req, res) => {
     syncthingService.postSystemError(req, res);
   });
-  app.get('/syncthing/system/upgrade', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/system/upgrade', (req, res) => {
     syncthingService.postSystemUpgrade(req, res);
   });
   app.post('/syncthing/config', (req, res) => {
     syncthingService.postConfig(req, res);
   });
-  app.post('/syncthing/config/folders', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/config/folders', (req, res) => {
     syncthingService.postConfigFolders(req, res);
   });
-  app.post('/syncthing/config/devices', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/config/devices', (req, res) => {
     syncthingService.postConfigDevices(req, res);
   });
-  app.post('/syncthing/config/defaults/folder', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/config/defaults/folder', (req, res) => {
     syncthingService.postConfigDefaultsFolder(req, res);
   });
-  app.post('/syncthing/config/defaults/device', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/config/defaults/device', (req, res) => {
     syncthingService.postConfigDefaultsDevice(req, res);
   });
-  app.post('/syncthing/config/defaults/ignores', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/config/defaults/ignores', (req, res) => {
     syncthingService.postConfigDefaultsIgnores(req, res);
   });
-  app.post('/syncthing/config/options', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/config/options', (req, res) => {
     syncthingService.postConfigOptions(req, res);
   });
-  app.post('/syncthing/config/gui', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/config/gui', (req, res) => {
     syncthingService.postConfigGui(req, res);
   });
-  app.post('/syncthing/config/ldap', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/config/ldap', (req, res) => {
     syncthingService.postConfigLdap(req, res);
   });
 
