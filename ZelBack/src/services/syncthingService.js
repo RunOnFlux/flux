@@ -1075,6 +1075,59 @@ async function postDbScan(req, res) {
   });
 }
 
+// === DEBUG ===
+
+async function debugPeerCompletion(req, res) {
+  const response = await performRequest('get', '/rest/debug/peerCompletion');
+  return res ? res.json(response) : response;
+}
+
+async function debugHttpmetrics(req, res) {
+  const response = await performRequest('get', '/rest/debug/httpmetrics');
+  return res ? res.json(response) : response;
+}
+
+async function debugCpuprof(req, res) {
+  const response = await performRequest('get', '/rest/debug/cpuprof');
+  return res ? res.json(response) : response;
+}
+
+async function debugPeapprof(req, res) {
+  const response = await performRequest('get', '/rest/debug/heapprof');
+  return res ? res.json(response) : response;
+}
+
+async function debugSupport(req, res) {
+  const response = await performRequest('get', '/rest/debug/support');
+  return res ? res.json(response) : response;
+}
+
+async function debugFile(req, res) {
+  let { folder } = req.params;
+  folder = folder || req.query.folder;
+  let { file } = req.params;
+  file = file || req.query.file;
+  let apiPath = '/rest/debug/file';
+  try {
+    if (folder) {
+      apiPath += `?folder=${folder}`;
+    } else {
+      throw new Error('folder parameter is mandatory');
+    }
+    if (file) {
+      apiPath += `&file=${file}`;
+    } else {
+      throw new Error('file parameter is mandatory');
+    }
+    const response = await performRequest('get', apiPath);
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
 // === EVENT ENDPOINTS ===
 
 async function getEvents(req, res) {
@@ -1317,4 +1370,11 @@ module.exports = {
   getSvcDeviceID,
   getSvcRandomString,
   getSvcReport,
+  // DEBUG
+  debugCpuprof,
+  debugFile,
+  debugHttpmetrics,
+  debugPeapprof,
+  debugPeerCompletion,
+  debugSupport,
 };
