@@ -322,6 +322,13 @@ async function getConfigRestartRequired(req, res) {
 }
 
 async function getConfigFolders(req, res) {
+  if (!req) {
+    // eslint-disable-next-line no-param-reassign
+    req = {
+      params: {},
+      query: {},
+    };
+  }
   let { id } = req.params;
   id = id || req.query.id;
   let apiPath = '/rest/config/folders';
@@ -333,6 +340,13 @@ async function getConfigFolders(req, res) {
 }
 
 async function getConfigDevices(req, res) {
+  if (!req) {
+    // eslint-disable-next-line no-param-reassign
+    req = {
+      params: {},
+      query: {},
+    };
+  }
   let { id } = req.params;
   id = id || req.query.id;
   let apiPath = '/rest/config/devices';
