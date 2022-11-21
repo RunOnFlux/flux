@@ -8215,7 +8215,7 @@ async function syncthingApps() {
     // const devicesToKeep = [];
     // const foldersToKeep = [];
     // eslint-disable-next-line no-restricted-syntax
-    for (const installedApp of appsInstalled) {
+    for (const installedApp of appsInstalled.data) {
       if (installedApp.version <= 3) {
         const containerDataFlags = installedApp.containerData.split(':')[1] ? installedApp.containerData.split(':')[0] : '';
         if (containerDataFlags.includes('s')) {

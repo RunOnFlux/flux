@@ -1065,7 +1065,7 @@ module.exports = (app, expressWs) => {
     daemonServiceMiningRpcs.submitBlockPost(req, res);
   });
 
-  app.post('/apps/checkdockerexistance', async (req, res) => {
+  app.post('/apps/checkdockerexistance', (req, res) => {
     appsService.checkDockerAccessibility(req, res);
   });
   app.post('/apps/appregister', (req, res) => {
