@@ -297,9 +297,9 @@ async function postConfig(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
     try {
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
       const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       let response = null;
       if (authorized === true) {
@@ -372,11 +372,11 @@ async function postConfigFolders(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
-    const { id } = processedBody;
-    const method = (processedBody.method || 'post').toLowerCase();
     try {
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
+      const { id } = processedBody;
+      const method = (processedBody.method || 'post').toLowerCase();
       const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       let response = null;
       if (authorized === true) {
@@ -408,11 +408,11 @@ async function postConfigDevices(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
-    const { id } = processedBody;
-    const method = (processedBody.method || 'post').toLowerCase();
     try {
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
+      const { id } = processedBody;
+      const method = (processedBody.method || 'post').toLowerCase();
       const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       let response = null;
       if (authorized === true) {
@@ -452,10 +452,10 @@ async function postConfigDefaultsFolder(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
-    const method = (processedBody.method || 'put').toLowerCase();
     try {
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
+      const method = (processedBody.method || 'put').toLowerCase();
       const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       let response = null;
       if (authorized === true) {
@@ -478,10 +478,10 @@ async function postConfigDefaultsDevice(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
-    const method = (processedBody.method || 'put').toLowerCase();
     try {
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
+      const method = (processedBody.method || 'put').toLowerCase();
       const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       let response = null;
       if (authorized === true) {
@@ -509,10 +509,10 @@ async function postConfigDefaultsIgnores(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
-    const method = 'put';
     try {
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
+      const method = 'put';
       const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       let response = null;
       if (authorized === true) {
@@ -557,10 +557,10 @@ async function postConfigOptions(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
-    const method = (processedBody.method || 'put').toLowerCase();
     try {
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
+      const method = (processedBody.method || 'put').toLowerCase();
       const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       let response = null;
       if (authorized === true) {
@@ -583,10 +583,10 @@ async function postConfigGui(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
-    const method = (processedBody.method || 'put').toLowerCase();
     try {
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
+      const method = (processedBody.method || 'put').toLowerCase();
       const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       let response = null;
       if (authorized === true) {
@@ -609,10 +609,10 @@ async function postConfigLdap(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
-    const method = (processedBody.method || 'put').toLowerCase();
     try {
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
+      const method = (processedBody.method || 'put').toLowerCase();
       const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       let response = null;
       if (authorized === true) {
