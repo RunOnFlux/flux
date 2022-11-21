@@ -598,6 +598,8 @@ async function postConfigLdap(req, res) {
   });
 }
 
+// === CLUSTER ENDPOINTS ===
+
 async function getClusterPendigDevices(req, res) {
   const response = await performRequest('get', '/rest/cluster/pending/devices');
   return res ? res.json(response) : response;
@@ -651,6 +653,77 @@ async function postClusterPendigFolders(req, res) {
     const method = (processedBody.method || 'delete').toLowerCase();
     try {
       let apiPath = '/rest/cluster/pending/folders';
+      if (folder) {
+        apiPath += `?folder=${folder}`;
+      }
+      const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      let response = null;
+      if (authorized === true) {
+        response = await performRequest(method, apiPath, newConfig);
+      } else {
+        response = messageHelper.errUnauthorizedMessage();
+      }
+      return res ? res.json(response) : response;
+    } catch (error) {
+      log.error(error);
+      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+      return res ? res.json(errorResponse) : errorResponse;
+    }
+  });
+}
+
+// === FOLDER ENDPOINTS ===
+
+async function folderErrors(req, res) {
+  let { folder } = req.params;
+  folder = folder || req.query.folder;
+  let apiPath = '/rest/folder/errors';
+  try {
+    if (folder) {
+      apiPath += `?folder=${folder}`;
+    } else {
+      throw new Error('folder parameter is mandatory');
+    }
+    const response = await performRequest('get', apiPath);
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+async function folderVersions(req, res) {
+  let { folder } = req.params;
+  folder = folder || req.query.folder;
+  let apiPath = '/rest/folder/versions';
+  try {
+    if (folder) {
+      apiPath += `?folder=${folder}`;
+    } else {
+      throw new Error('folder parameter is mandatory');
+    }
+    const response = await performRequest('get', apiPath);
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+async function postFolderVersions(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const newConfig = processedBody.config;
+    const { folder } = processedBody;
+    const method = (processedBody.method || 'post').toLowerCase();
+    try {
+      let apiPath = '/rest/folder/versions';
       if (folder) {
         apiPath += `?folder=${folder}`;
       }
@@ -803,4 +876,8 @@ module.exports = {
   postClusterPendigDevices,
   getClusterPendigFolders,
   postClusterPendigFolders,
+  // Folder
+  folderErrors,
+  folderVersions,
+  postFolderVersions,
 };
