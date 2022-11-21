@@ -1184,7 +1184,7 @@ async function stopAppMonitoringAPI(req, res) {
       }
       const monitoringResponse = messageHelper.createSuccessMessage(successMessage);
       res.json(monitoringResponse);
-    // 2. Stop a specific app
+      // 2. Stop a specific app
     } else {
       const mainAppName = appname.split('_')[1] || appname;
       const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
@@ -8166,19 +8166,24 @@ async function stopSyncthingApp(appComponentName, res) {
     if (allSyncthingFolders.status === 'error') {
       return;
     }
-    let folderIsBeingSynced = false;
+    let folderId = null;
     allSyncthingFolders.data.forEach((syncthingFolder) => {
       if (syncthingFolder.path === folder) {
-        folderIsBeingSynced = true;
+        folderId = syncthingFolder.id;
       }
     });
-    if (!folderIsBeingSynced) {
+    if (!folderId) {
       return;
     }
     const adjustSyncthingA = {
       status: 'Adjusting Syncthing...',
     };
-    // TODO remove folder from syncing
+    // remove folder from syncthing
+    await syncthingService.adjustConfigFolders('delete', undefined, folderId);
+    const restartRequired = await syncthingService.getConfigRestartRequired();
+    if (restartRequired.status === 'success' && restartRequired.data.requiresRestart === true) {
+      await syncthingService.systemRestart();
+    }
     const adjustSyncthingB = {
       status: 'Syncthing adjusted',
     };
@@ -8197,7 +8202,7 @@ async function stopSyncthingApp(appComponentName, res) {
 // update syncthing configuration for locally installed apps
 async function syncthingApps() {
   try {
-  // do not run if installationInProgress or removalInProgress
+    // do not run if installationInProgress or removalInProgress
     if (installationInProgress || removalInProgress) {
       return;
     }
@@ -8206,27 +8211,33 @@ async function syncthingApps() {
     if (appsInstalled.status === 'error') {
       return;
     }
-    const configHasChanged = false;
     // go through every containerData of all components of every app
+    // const devicesToKeep = [];
+    // const foldersToKeep = [];
     // eslint-disable-next-line no-restricted-syntax
-    for (const installedApp of appsInstalled) {
+    for (const installedApp of appsInstalled.data) {
       if (installedApp.version <= 3) {
         const containerDataFlags = installedApp.containerData.split(':')[1] ? installedApp.containerData.split(':')[0] : '';
         if (containerDataFlags.includes('s')) {
-        // TODO do magic, this is syncthing
+          // TODO do magic, this is syncthing
+          // get list of app running locations
+          // ask those app locations for syncthing device id
+          // add those devices to our devices list
+          // adjust activated folders
         }
       } else {
         // eslint-disable-next-line no-restricted-syntax
         for (const installedComponent of installedApp) {
           const containerDataFlags = installedComponent.containerData.split(':')[1] ? installedComponent.containerData.split(':')[0] : '';
           if (containerDataFlags.includes('s')) {
-          // TODO do magic, this is syncthing
+            // TODO do magic, this is syncthing
           }
         }
       }
     }
-    if (configHasChanged) {
-    // TODO reload syncthing? Or above was done through some magic and no reload needed?
+    const restartRequired = await syncthingService.getConfigRestartRequired();
+    if (restartRequired.status === 'success' && restartRequired.data.requiresRestart === true) {
+      await syncthingService.systemRestart();
     }
   } catch (error) {
     log.error(error);

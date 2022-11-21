@@ -297,9 +297,9 @@ async function postConfig(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
     try {
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
       const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       let response = null;
       if (authorized === true) {
@@ -322,6 +322,13 @@ async function getConfigRestartRequired(req, res) {
 }
 
 async function getConfigFolders(req, res) {
+  if (!req) {
+    // eslint-disable-next-line no-param-reassign
+    req = {
+      params: {},
+      query: {},
+    };
+  }
   let { id } = req.params;
   id = id || req.query.id;
   let apiPath = '/rest/config/folders';
@@ -333,6 +340,13 @@ async function getConfigFolders(req, res) {
 }
 
 async function getConfigDevices(req, res) {
+  if (!req) {
+    // eslint-disable-next-line no-param-reassign
+    req = {
+      params: {},
+      query: {},
+    };
+  }
   let { id } = req.params;
   id = id || req.query.id;
   let apiPath = '/rest/config/devices';
@@ -343,25 +357,30 @@ async function getConfigDevices(req, res) {
   return res ? res.json(response) : response;
 }
 
+async function adjustConfigFolders(method, newConfig, id) {
+  let apiPath = '/rest/config/folders';
+  if (id) {
+    apiPath += `/${id}`;
+  }
+  const response = await performRequest(method, apiPath, newConfig);
+  return response;
+}
+
 async function postConfigFolders(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
-    const { id } = processedBody;
-    const method = (processedBody.method || 'post').toLowerCase();
     try {
-      let apiPath = '/rest/config/folders';
-      if (id) {
-        apiPath += `/${id}`;
-      }
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
+      const { id } = processedBody;
+      const method = (processedBody.method || 'post').toLowerCase();
       const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       let response = null;
       if (authorized === true) {
-        response = await performRequest(method, apiPath, newConfig);
+        response = await adjustConfigFolders(method, newConfig, id);
       } else {
         response = messageHelper.errUnauthorizedMessage();
       }
@@ -374,25 +393,30 @@ async function postConfigFolders(req, res) {
   });
 }
 
+async function adjustConfigDevices(method, newConfig, id) {
+  let apiPath = '/rest/config/devices';
+  if (id) {
+    apiPath += `/${id}`;
+  }
+  const response = await performRequest(method, apiPath, newConfig);
+  return response;
+}
+
 async function postConfigDevices(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
-    const { id } = processedBody;
-    const method = (processedBody.method || 'post').toLowerCase();
     try {
-      let apiPath = '/rest/config/devices';
-      if (id) {
-        apiPath += `/${id}`;
-      }
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
+      const { id } = processedBody;
+      const method = (processedBody.method || 'post').toLowerCase();
       const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       let response = null;
       if (authorized === true) {
-        response = await performRequest(method, apiPath, newConfig);
+        response = await adjustConfigDevices(method, newConfig, id);
       } else {
         response = messageHelper.errUnauthorizedMessage();
       }
@@ -415,20 +439,27 @@ async function getConfigDefaultsDevice(req, res) {
   return res ? res.json(response) : response;
 }
 
+async function adjustConfigDefaultsFolder(method, newConfig) {
+  log.info('Patching Syncthing defaults for folder configuration...');
+  const response = await performRequest(method, '/rest/config/defaults/folder', newConfig);
+  log.info('Syncthing defaults for folder configuration patched...');
+  return response;
+}
+
 async function postConfigDefaultsFolder(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
-    const method = (processedBody.method || 'put').toLowerCase();
     try {
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
+      const method = (processedBody.method || 'put').toLowerCase();
       const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       let response = null;
       if (authorized === true) {
-        response = await performRequest(method, '/rest/config/defaults/folder', newConfig);
+        response = await adjustConfigDefaultsFolder(method, newConfig);
       } else {
         response = messageHelper.errUnauthorizedMessage();
       }
@@ -447,10 +478,10 @@ async function postConfigDefaultsDevice(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
-    const method = (processedBody.method || 'put').toLowerCase();
     try {
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
+      const method = (processedBody.method || 'put').toLowerCase();
       const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       let response = null;
       if (authorized === true) {
@@ -478,10 +509,10 @@ async function postConfigDefaultsIgnores(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
-    const method = 'put';
     try {
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
+      const method = 'put';
       const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       let response = null;
       if (authorized === true) {
@@ -526,10 +557,10 @@ async function postConfigOptions(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
-    const method = (processedBody.method || 'put').toLowerCase();
     try {
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
+      const method = (processedBody.method || 'put').toLowerCase();
       const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       let response = null;
       if (authorized === true) {
@@ -552,10 +583,10 @@ async function postConfigGui(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
-    const method = (processedBody.method || 'put').toLowerCase();
     try {
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
+      const method = (processedBody.method || 'put').toLowerCase();
       const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       let response = null;
       if (authorized === true) {
@@ -578,10 +609,10 @@ async function postConfigLdap(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
-    const method = (processedBody.method || 'put').toLowerCase();
     try {
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
+      const method = (processedBody.method || 'put').toLowerCase();
       const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       let response = null;
       if (authorized === true) {
@@ -1263,6 +1294,7 @@ async function startSyncthing() {
       }
     } else {
       const currentConfigOptions = await getConfigOptions();
+      const currentDefaultsFolderOptions = await getConfigDefaultsFolder();
       const apiPort = userconfig.initial.apiport || config.server.apiport;
       const myPort = apiPort + 2; // end with 9 eg 16139
       // adjust configuration
@@ -1271,17 +1303,40 @@ async function startSyncthing() {
         localAnnounceEnabled: false,
         listenAddresses: [`tcp://:${myPort}`, `quic://:${myPort}`],
       };
+      const newConfigDefaultFolders = {
+        syncOwnership: true,
+        sendOwnership: true,
+        syncXattrs: true,
+        sendXattrs: true,
+      };
       if (currentConfigOptions.status === 'success') {
         if (currentConfigOptions.data.globalAnnounceEnabled !== newConfig.globalAnnounceEnabled
           || currentConfigOptions.data.localAnnounceEnabled !== newConfig.localAnnounceEnabled
-          || currentConfigOptions.data.listenAddresses !== newConfig.listenAddresses) {
+          || serviceHelper.ensureString(currentConfigOptions.data.listenAddresses) !== serviceHelper.ensureString(newConfig.listenAddresse)) {
           // patch our config
           await adjustConfigOptions('patch', newConfig);
-          const restartRequired = await getConfigRestartRequired();
-          if (restartRequired.status === 'success' && restartRequired.data.requiresRestart === true) {
-            await systemRestart();
-          }
         }
+      }
+      if (currentDefaultsFolderOptions.status === 'success') {
+        if (currentDefaultsFolderOptions.data.syncOwnership !== newConfigDefaultFolders.syncOwnership
+          || currentDefaultsFolderOptions.data.sendOwnership !== newConfigDefaultFolders.sendOwnership
+          || currentDefaultsFolderOptions.data.syncXattrs !== newConfigDefaultFolders.syncXattrs
+          || currentDefaultsFolderOptions.data.sendXattrs !== newConfigDefaultFolders.sendXattrs) {
+          // patch our defaults folder config
+          await adjustConfigDefaultsFolder('patch', newConfigDefaultFolders);
+        }
+      }
+      // TODO uncomment remove default folder
+      const allFolders = await getConfigFolders();
+      if (allFolders.status === 'success') {
+        const defaultFolderExists = allFolders.data.find((syncthingFolder) => syncthingFolder.id === 'default');
+        if (defaultFolderExists) {
+          // await adjustConfigFolders('delete', undefined, 'default');
+        }
+      }
+      const restartRequired = await getConfigRestartRequired();
+      if (restartRequired.status === 'success' && restartRequired.data.requiresRestart === true) {
+        await systemRestart();
       }
     }
     await serviceHelper.delay(8 * 60 * 1000);
@@ -1377,4 +1432,7 @@ module.exports = {
   debugPeapprof,
   debugPeerCompletion,
   debugSupport,
+  // helpers
+  adjustConfigFolders,
+  adjustConfigDevices,
 };
