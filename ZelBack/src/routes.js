@@ -1206,28 +1206,28 @@ module.exports = (app, expressWs) => {
   app.post('/syncthing/config/ldap', (req, res) => {
     syncthingService.postConfigLdap(req, res);
   });
-  app.post('/syncthing/cluster/pending/devices', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/cluster/pending/devices', (req, res) => {
     syncthingService.postClusterPendigDevices(req, res);
   });
-  app.post('/syncthing/cluster/pending/folders', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/cluster/pending/folders', (req, res) => {
     syncthingService.postClusterPendigFolders(req, res);
   });
-  app.post('/syncthing/folder/versions', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/folder/versions', (req, res) => {
     syncthingService.postFolderVersions(req, res);
   });
-  app.post('/syncthing/db/ignores', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/db/ignores', (req, res) => {
     syncthingService.postDbIgnores(req, res);
   });
-  app.post('/syncthing/db/override', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/db/override', (req, res) => {
     syncthingService.postDbOverride(req, res);
   });
-  app.post('/syncthing/db/prio', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/db/prio', (req, res) => {
     syncthingService.postDbPrio(req, res);
   });
-  app.post('/syncthing/db/revert', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/db/revert', (req, res) => {
     syncthingService.postDbRevert(req, res);
   });
-  app.post('/syncthing/db/scan', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/db/scan', (req, res) => {
     syncthingService.postDbScan(req, res);
   });
 
