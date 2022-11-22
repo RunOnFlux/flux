@@ -450,5 +450,6 @@
    "v2ray/official",
    "digiminer/ubuntu-kryptokrona:latest",
    "byblaaz/mamaki-node:latest",
+   "keyoxide/doip-proxy",
    "keyoxide/keyoxide"
 ]
