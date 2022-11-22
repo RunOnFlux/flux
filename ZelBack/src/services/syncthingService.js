@@ -629,6 +629,620 @@ async function postConfigLdap(req, res) {
   });
 }
 
+// === CLUSTER ENDPOINTS ===
+
+async function getClusterPendigDevices(req, res) {
+  const response = await performRequest('get', '/rest/cluster/pending/devices');
+  return res ? res.json(response) : response;
+}
+
+async function postClusterPendigDevices(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const newConfig = processedBody.config;
+    const { device } = processedBody;
+    const method = (processedBody.method || 'delete').toLowerCase();
+    try {
+      let apiPath = '/rest/cluster/pending/devices';
+      if (device) {
+        apiPath += `?device=${device}`;
+      }
+      const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      let response = null;
+      if (authorized === true) {
+        response = await performRequest(method, apiPath, newConfig);
+      } else {
+        response = messageHelper.errUnauthorizedMessage();
+      }
+      return res ? res.json(response) : response;
+    } catch (error) {
+      log.error(error);
+      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+      return res ? res.json(errorResponse) : errorResponse;
+    }
+  });
+}
+
+async function getClusterPendigFolders(req, res) {
+  const response = await performRequest('get', '/rest/cluster/pending/folders');
+  return res ? res.json(response) : response;
+}
+
+async function postClusterPendigFolders(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const newConfig = processedBody.config;
+    const { folder } = processedBody;
+    const method = (processedBody.method || 'delete').toLowerCase();
+    try {
+      let apiPath = '/rest/cluster/pending/folders';
+      if (folder) {
+        apiPath += `?folder=${folder}`;
+      }
+      const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      let response = null;
+      if (authorized === true) {
+        response = await performRequest(method, apiPath, newConfig);
+      } else {
+        response = messageHelper.errUnauthorizedMessage();
+      }
+      return res ? res.json(response) : response;
+    } catch (error) {
+      log.error(error);
+      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+      return res ? res.json(errorResponse) : errorResponse;
+    }
+  });
+}
+
+// === FOLDER ENDPOINTS ===
+
+async function getFolderErrors(req, res) {
+  let { folder } = req.params;
+  folder = folder || req.query.folder;
+  let apiPath = '/rest/folder/errors';
+  try {
+    if (folder) {
+      apiPath += `?folder=${folder}`;
+    } else {
+      throw new Error('folder parameter is mandatory');
+    }
+    const response = await performRequest('get', apiPath);
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+async function getFolderVersions(req, res) {
+  let { folder } = req.params;
+  folder = folder || req.query.folder;
+  let apiPath = '/rest/folder/versions';
+  try {
+    if (folder) {
+      apiPath += `?folder=${folder}`;
+    } else {
+      throw new Error('folder parameter is mandatory');
+    }
+    const response = await performRequest('get', apiPath);
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+async function postFolderVersions(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const newConfig = processedBody.config;
+    const { folder } = processedBody;
+    const method = (processedBody.method || 'post').toLowerCase();
+    try {
+      let apiPath = '/rest/folder/versions';
+      if (folder) {
+        apiPath += `?folder=${folder}`;
+      }
+      const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      let response = null;
+      if (authorized === true) {
+        response = await performRequest(method, apiPath, newConfig);
+      } else {
+        response = messageHelper.errUnauthorizedMessage();
+      }
+      return res ? res.json(response) : response;
+    } catch (error) {
+      log.error(error);
+      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+      return res ? res.json(errorResponse) : errorResponse;
+    }
+  });
+}
+
+// === DATABASE ENDPOINTS ===
+
+async function getDbBrowse(req, res) {
+  let { folder } = req.params;
+  folder = folder || req.query.folder;
+  let { levels } = req.params;
+  levels = levels || req.query.levels;
+  let { prefix } = req.params;
+  prefix = prefix || req.query.prefix;
+  let apiPath = '/rest/db/browse';
+  try {
+    if (folder) {
+      apiPath += `?folder=${folder}`;
+    } else {
+      throw new Error('folder parameter is mandatory');
+    }
+    if (levels) apiPath += `&levels=${levels}`;
+    if (prefix) apiPath += `&prefix=${prefix}`;
+    const response = await performRequest('get', apiPath);
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+async function getDbCompletion(req, res) {
+  let { folder } = req.params;
+  folder = folder || req.query.folder;
+  let { device } = req.params;
+  device = device || req.query.device;
+  let apiPath = '/rest/db/completion';
+  try {
+    if (folder || device) apiPath += '?';
+    if (folder) apiPath += `folder=${folder}&`;
+    if (device) apiPath += `device=${device}`;
+    const response = await performRequest('get', apiPath);
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+async function getDbFile(req, res) {
+  let { folder } = req.params;
+  folder = folder || req.query.folder;
+  let { file } = req.params;
+  file = file || req.query.file;
+  let apiPath = '/rest/db/file';
+  try {
+    if (folder || file) apiPath += '?';
+    if (folder) apiPath += `folder=${folder}&`;
+    if (file) apiPath += `device=${file}`;
+    const response = await performRequest('get', apiPath);
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+async function getDbIgnores(req, res) {
+  let { folder } = req.params;
+  folder = folder || req.query.folder;
+  let apiPath = '/rest/db/ignores';
+  try {
+    if (folder) apiPath += `?folder=${folder}`;
+    const response = await performRequest('get', apiPath);
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+async function getDbLocalchanged(req, res) {
+  let { folder } = req.params;
+  folder = folder || req.query.folder;
+  let apiPath = '/rest/db/localchanged';
+  try {
+    if (folder) {
+      apiPath += `?folder=${folder}`;
+    } else {
+      throw new Error('folder parameter is mandatory');
+    }
+    const response = await performRequest('get', apiPath);
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+async function getDbNeed(req, res) {
+  let { folder } = req.params;
+  folder = folder || req.query.folder;
+  let apiPath = '/rest/db/need';
+  try {
+    if (folder) {
+      apiPath += `?folder=${folder}`;
+    } else {
+      throw new Error('folder parameter is mandatory');
+    }
+    const response = await performRequest('get', apiPath);
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+async function getDbRemoteNeed(req, res) {
+  let { folder } = req.params;
+  folder = folder || req.query.folder;
+  let { device } = req.params;
+  device = device || req.query.device;
+  let apiPath = '/rest/db/remoteneed';
+  try {
+    if (folder) {
+      apiPath += `?folder=${folder}`;
+    } else {
+      throw new Error('folder parameter is mandatory');
+    }
+    if (device) {
+      apiPath += `&device=${device}`;
+    } else {
+      throw new Error('device parameter is mandatory');
+    }
+    const response = await performRequest('get', apiPath);
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+async function getDbStatus(req, res) {
+  let { folder } = req.params;
+  folder = folder || req.query.folder;
+  let apiPath = '/rest/db/status';
+  try {
+    if (folder) {
+      apiPath += `?folder=${folder}`;
+    } else {
+      throw new Error('folder parameter is mandatory');
+    }
+    const response = await performRequest('get', apiPath);
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+async function postDbIgnores(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const newConfig = processedBody.config;
+    const { folder } = processedBody;
+    const method = (processedBody.method || 'post').toLowerCase();
+    try {
+      let apiPath = '/rest/db/ignores';
+      if (folder) {
+        apiPath += `?folder=${folder}`;
+      }
+      const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      let response = null;
+      if (authorized === true) {
+        response = await performRequest(method, apiPath, newConfig);
+      } else {
+        response = messageHelper.errUnauthorizedMessage();
+      }
+      return res ? res.json(response) : response;
+    } catch (error) {
+      log.error(error);
+      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+      return res ? res.json(errorResponse) : errorResponse;
+    }
+  });
+}
+
+async function postDbOverride(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const newConfig = processedBody.config;
+    const { folder } = processedBody;
+    const method = (processedBody.method || 'post').toLowerCase();
+    try {
+      let apiPath = '/rest/db/override';
+      if (folder) {
+        apiPath += `?folder=${folder}`;
+      } else {
+        throw new Error('folder parameter is mandatory');
+      }
+      const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      let response = null;
+      if (authorized === true) {
+        response = await performRequest(method, apiPath, newConfig);
+      } else {
+        response = messageHelper.errUnauthorizedMessage();
+      }
+      return res ? res.json(response) : response;
+    } catch (error) {
+      log.error(error);
+      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+      return res ? res.json(errorResponse) : errorResponse;
+    }
+  });
+}
+
+async function postDbPrio(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const newConfig = processedBody.config;
+    const { folder } = processedBody;
+    const { file } = processedBody;
+    const method = (processedBody.method || 'post').toLowerCase();
+    try {
+      let apiPath = '/rest/db/prio';
+      if (folder) {
+        apiPath += `?folder=${folder}`;
+      } else {
+        throw new Error('folder parameter is mandatory');
+      }
+      if (file) {
+        apiPath += `&file=${file}`;
+      } else {
+        throw new Error('file parameter is mandatory');
+      }
+      const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      let response = null;
+      if (authorized === true) {
+        response = await performRequest(method, apiPath, newConfig);
+      } else {
+        response = messageHelper.errUnauthorizedMessage();
+      }
+      return res ? res.json(response) : response;
+    } catch (error) {
+      log.error(error);
+      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+      return res ? res.json(errorResponse) : errorResponse;
+    }
+  });
+}
+
+async function postDbRevert(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const newConfig = processedBody.config;
+    const { folder } = processedBody;
+    const method = (processedBody.method || 'post').toLowerCase();
+    try {
+      let apiPath = '/rest/db/revert';
+      if (folder) {
+        apiPath += `?folder=${folder}`;
+      } else {
+        throw new Error('folder parameter is mandatory');
+      }
+      const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      let response = null;
+      if (authorized === true) {
+        response = await performRequest(method, apiPath, newConfig);
+      } else {
+        response = messageHelper.errUnauthorizedMessage();
+      }
+      return res ? res.json(response) : response;
+    } catch (error) {
+      log.error(error);
+      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+      return res ? res.json(errorResponse) : errorResponse;
+    }
+  });
+}
+
+async function postDbScan(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const newConfig = processedBody.config;
+    const { folder } = processedBody;
+    const { sub } = processedBody;
+    const { next } = processedBody;
+    const method = (processedBody.method || 'post').toLowerCase();
+    try {
+      let apiPath = '/rest/db/scan?';
+      if (folder) apiPath += `folder=${folder}&`;
+      if (sub) apiPath += `sub=${sub}&`;
+      if (next) apiPath += `next=${next}`;
+      const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      let response = null;
+      if (authorized === true) {
+        response = await performRequest(method, apiPath, newConfig);
+      } else {
+        response = messageHelper.errUnauthorizedMessage();
+      }
+      return res ? res.json(response) : response;
+    } catch (error) {
+      log.error(error);
+      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+      return res ? res.json(errorResponse) : errorResponse;
+    }
+  });
+}
+
+// === DEBUG ===
+
+async function debugPeerCompletion(req, res) {
+  const response = await performRequest('get', '/rest/debug/peerCompletion');
+  return res ? res.json(response) : response;
+}
+
+async function debugHttpmetrics(req, res) {
+  const response = await performRequest('get', '/rest/debug/httpmetrics');
+  return res ? res.json(response) : response;
+}
+
+async function debugCpuprof(req, res) {
+  const response = await performRequest('get', '/rest/debug/cpuprof');
+  return res ? res.json(response) : response;
+}
+
+async function debugPeapprof(req, res) {
+  const response = await performRequest('get', '/rest/debug/heapprof');
+  return res ? res.json(response) : response;
+}
+
+async function debugSupport(req, res) {
+  const response = await performRequest('get', '/rest/debug/support');
+  return res ? res.json(response) : response;
+}
+
+async function debugFile(req, res) {
+  let { folder } = req.params;
+  folder = folder || req.query.folder;
+  let { file } = req.params;
+  file = file || req.query.file;
+  let apiPath = '/rest/debug/file';
+  try {
+    if (folder) {
+      apiPath += `?folder=${folder}`;
+    } else {
+      throw new Error('folder parameter is mandatory');
+    }
+    if (file) {
+      apiPath += `&file=${file}`;
+    } else {
+      throw new Error('file parameter is mandatory');
+    }
+    const response = await performRequest('get', apiPath);
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+// === EVENT ENDPOINTS ===
+
+async function getEvents(req, res) {
+  let { events } = req.params;
+  events = events || req.query.events;
+  let { since } = req.params;
+  since = since || req.query.device;
+  let { limit } = req.params;
+  limit = limit || req.query.limit;
+  let apiPath = '/rest/events?';
+  try {
+    if (events) apiPath += `events=${events}&`;
+    if (since) apiPath += `since=${since}&`;
+    if (limit) apiPath += `limit=${limit}`;
+
+    const response = await performRequest('get', apiPath);
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+async function getEventsDisk(req, res) {
+  try {
+    const response = await performRequest('get', '/rest/events/disk');
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+// === MICS SERVICES ENDPOINTS ===
+
+async function getSvcDeviceID(req, res) {
+  let { id } = req.params;
+  id = id || req.query.id;
+  let apiPath = '/rest/svc/deviceid';
+  try {
+    if (id) {
+      apiPath += `?id=${id}`;
+    } else {
+      throw new Error('id parameter is mandatory');
+    }
+    const response = await performRequest('get', apiPath);
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+async function getSvcRandomString(req, res) {
+  let { length } = req.params;
+  length = length || req.query.length;
+  let apiPath = '/rest/svc/random/string';
+  try {
+    if (length) {
+      apiPath += `?length=${length}`;
+    }
+    const response = await performRequest('get', apiPath);
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+async function getSvcReport(req, res) {
+  try {
+    const response = await performRequest('get', '/rest/svc/report');
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
 // === CUSTOM ===
 // our device id and also test that syncthing is installed and running and we have api key
 async function getDeviceID(req, res) {
@@ -781,6 +1395,43 @@ module.exports = {
   postConfigOptions,
   postConfigGui,
   postConfigLdap,
+  // Cluster
+  getClusterPendigDevices,
+  postClusterPendigDevices,
+  getClusterPendigFolders,
+  postClusterPendigFolders,
+  // Folder
+  getFolderErrors,
+  getFolderVersions,
+  postFolderVersions,
+  // DATABASE ENDPOINTS
+  getDbBrowse,
+  getDbCompletion,
+  getDbFile,
+  getDbIgnores,
+  getDbLocalchanged,
+  getDbNeed,
+  getDbRemoteNeed,
+  getDbStatus,
+  postDbIgnores,
+  postDbOverride,
+  postDbPrio,
+  postDbRevert,
+  postDbScan,
+  // EVENTS
+  getEvents,
+  getEventsDisk,
+  // MISC
+  getSvcDeviceID,
+  getSvcRandomString,
+  getSvcReport,
+  // DEBUG
+  debugCpuprof,
+  debugFile,
+  debugHttpmetrics,
+  debugPeapprof,
+  debugPeerCompletion,
+  debugSupport,
   // helpers
   adjustConfigFolders,
   adjustConfigDevices,

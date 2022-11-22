@@ -515,6 +515,60 @@ module.exports = (app, expressWs) => {
   app.get('/syncthing/stats/folder', cache('30 seconds'), (req, res) => {
     syncthingService.statsFolder(req, res);
   });
+  app.get('/syncthing/cluster/pending/devices', cache('30 seconds'), (req, res) => {
+    syncthingService.getClusterPendigDevices(req, res);
+  });
+  app.get('/syncthing/cluster/pending/folders', cache('30 seconds'), (req, res) => {
+    syncthingService.getClusterPendigFolders(req, res);
+  });
+  app.get('/syncthing/folder/errors', cache('30 seconds'), (req, res) => {
+    syncthingService.getFolderErrors(req, res);
+  });
+  app.get('/syncthing/folder/versions', cache('30 seconds'), (req, res) => {
+    syncthingService.getFolderVersions(req, res);
+  });
+  app.get('/syncthing/db/browse', cache('30 seconds'), (req, res) => {
+    syncthingService.getDbBrowse(req, res);
+  });
+  app.get('/syncthing/db/completion', cache('30 seconds'), (req, res) => {
+    syncthingService.getDbCompletion(req, res);
+  });
+  app.get('/syncthing/db/file', cache('30 seconds'), (req, res) => {
+    syncthingService.getDbFile(req, res);
+  });
+  app.get('/syncthing/db/ignores', cache('30 seconds'), (req, res) => {
+    syncthingService.getDbIgnores(req, res);
+  });
+  app.get('/syncthing/db/getDbLocalchanged', cache('30 seconds'), (req, res) => {
+    syncthingService.getDbIgnores(req, res);
+  });
+  app.get('/syncthing/db/need', cache('30 seconds'), (req, res) => {
+    syncthingService.getDbNeed(req, res);
+  });
+  app.get('/syncthing/db/remoteneed', cache('30 seconds'), (req, res) => {
+    syncthingService.getDbRemoteNeed(req, res);
+  });
+  app.get('/syncthing/db/status', cache('30 seconds'), (req, res) => {
+    syncthingService.getDbStatus(req, res);
+  });
+  app.get('/syncthing/debug/peerCompletion', cache('30 seconds'), (req, res) => {
+    syncthingService.debugPeerCompletion(req, res);
+  });
+  app.get('/syncthing/debug/httpmetrics', cache('30 seconds'), (req, res) => {
+    syncthingService.debugHttpmetrics(req, res);
+  });
+  app.get('/syncthing/debug/cpuprof', cache('30 seconds'), (req, res) => {
+    syncthingService.debugCpuprof(req, res);
+  });
+  app.get('/syncthing/debug/heapprof', cache('30 seconds'), (req, res) => {
+    syncthingService.debugPeapprof(req, res);
+  });
+  app.get('/syncthing/debug/support', cache('30 seconds'), (req, res) => {
+    syncthingService.debugSupport(req, res);
+  });
+  app.get('/syncthing/debug/file', cache('30 seconds'), (req, res) => {
+    syncthingService.debugFile(req, res);
+  });
 
   // GET PROTECTED API - ZelNode Owner
   app.get('/daemon/stop', (req, res) => {
@@ -1151,6 +1205,30 @@ module.exports = (app, expressWs) => {
   });
   app.post('/syncthing/config/ldap', (req, res) => {
     syncthingService.postConfigLdap(req, res);
+  });
+  app.post('/syncthing/cluster/pending/devices', cache('30 seconds'), (req, res) => {
+    syncthingService.postClusterPendigDevices(req, res);
+  });
+  app.post('/syncthing/cluster/pending/folders', cache('30 seconds'), (req, res) => {
+    syncthingService.postClusterPendigFolders(req, res);
+  });
+  app.post('/syncthing/folder/versions', cache('30 seconds'), (req, res) => {
+    syncthingService.postFolderVersions(req, res);
+  });
+  app.post('/syncthing/db/ignores', cache('30 seconds'), (req, res) => {
+    syncthingService.postDbIgnores(req, res);
+  });
+  app.post('/syncthing/db/override', cache('30 seconds'), (req, res) => {
+    syncthingService.postDbOverride(req, res);
+  });
+  app.post('/syncthing/db/prio', cache('30 seconds'), (req, res) => {
+    syncthingService.postDbPrio(req, res);
+  });
+  app.post('/syncthing/db/revert', cache('30 seconds'), (req, res) => {
+    syncthingService.postDbRevert(req, res);
+  });
+  app.post('/syncthing/db/scan', cache('30 seconds'), (req, res) => {
+    syncthingService.postDbScan(req, res);
   });
 
   // WebSockets PUBLIC
