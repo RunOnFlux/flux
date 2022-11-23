@@ -8363,7 +8363,9 @@ async function syncthingApps() {
                   addresses,
                 };
                 devicesIds.push(deviceID);
-                devicesConfiguration.push(newDevice);
+                if (deviceID !== myDeviceID.data) {
+                  devicesConfiguration.push(newDevice);
+                }
               }
             }
           }
@@ -8406,7 +8408,9 @@ async function syncthingApps() {
                     addresses,
                   };
                   devicesIds.push(deviceID);
-                  devicesConfiguration.push(newDevice);
+                  if (deviceID !== myDeviceID.data) {
+                    devicesConfiguration.push(newDevice);
+                  }
                 }
               }
             }
@@ -8423,6 +8427,7 @@ async function syncthingApps() {
     }
     // now we have new accurate devicesConfiguration and foldersConfiguration
     // add more of current devices
+    // excludes our current deviceID adjustment
     await syncthingService.adjustConfigDevices('put', devicesConfiguration);
     // add more of current folders
     await syncthingService.adjustConfigFolders('put', foldersConfiguration);
@@ -8439,8 +8444,11 @@ async function syncthingApps() {
     const nonUsedDevices = allDevicesResp.data.filter((syncthingDevice) => !devicesIds.includes(syncthingDevice.deviceID));
     // eslint-disable-next-line no-restricted-syntax
     for (const nonUsedDevice of nonUsedDevices) {
-      // eslint-disable-next-line no-await-in-loop
-      await syncthingService.adjustConfigDevices('delete', undefined, nonUsedDevice.deviceID);
+      // exclude our deviceID
+      if (nonUsedDevice.deviceID !== myDeviceID.data) {
+        // eslint-disable-next-line no-await-in-loop
+        await syncthingService.adjustConfigDevices('delete', undefined, nonUsedDevice.deviceID);
+      }
     }
     // all configuration changes applied
     // check if restart is needed
