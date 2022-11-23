@@ -297,9 +297,9 @@ async function postConfig(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
     try {
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
       const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       let response = null;
       if (authorized === true) {
@@ -322,6 +322,13 @@ async function getConfigRestartRequired(req, res) {
 }
 
 async function getConfigFolders(req, res) {
+  if (!req) {
+    // eslint-disable-next-line no-param-reassign
+    req = {
+      params: {},
+      query: {},
+    };
+  }
   let { id } = req.params;
   id = id || req.query.id;
   let apiPath = '/rest/config/folders';
@@ -333,6 +340,13 @@ async function getConfigFolders(req, res) {
 }
 
 async function getConfigDevices(req, res) {
+  if (!req) {
+    // eslint-disable-next-line no-param-reassign
+    req = {
+      params: {},
+      query: {},
+    };
+  }
   let { id } = req.params;
   id = id || req.query.id;
   let apiPath = '/rest/config/devices';
@@ -343,25 +357,30 @@ async function getConfigDevices(req, res) {
   return res ? res.json(response) : response;
 }
 
+async function adjustConfigFolders(method, newConfig, id) {
+  let apiPath = '/rest/config/folders';
+  if (id) {
+    apiPath += `/${id}`;
+  }
+  const response = await performRequest(method, apiPath, newConfig);
+  return response;
+}
+
 async function postConfigFolders(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
-    const { id } = processedBody;
-    const method = (processedBody.method || 'post').toLowerCase();
     try {
-      let apiPath = '/rest/config/folders';
-      if (id) {
-        apiPath += `/${id}`;
-      }
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
+      const { id } = processedBody;
+      const method = (processedBody.method || 'post').toLowerCase();
       const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       let response = null;
       if (authorized === true) {
-        response = await performRequest(method, apiPath, newConfig);
+        response = await adjustConfigFolders(method, newConfig, id);
       } else {
         response = messageHelper.errUnauthorizedMessage();
       }
@@ -374,25 +393,30 @@ async function postConfigFolders(req, res) {
   });
 }
 
+async function adjustConfigDevices(method, newConfig, id) {
+  let apiPath = '/rest/config/devices';
+  if (id) {
+    apiPath += `/${id}`;
+  }
+  const response = await performRequest(method, apiPath, newConfig);
+  return response;
+}
+
 async function postConfigDevices(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
-    const { id } = processedBody;
-    const method = (processedBody.method || 'post').toLowerCase();
     try {
-      let apiPath = '/rest/config/devices';
-      if (id) {
-        apiPath += `/${id}`;
-      }
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
+      const { id } = processedBody;
+      const method = (processedBody.method || 'post').toLowerCase();
       const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       let response = null;
       if (authorized === true) {
-        response = await performRequest(method, apiPath, newConfig);
+        response = await adjustConfigDevices(method, newConfig, id);
       } else {
         response = messageHelper.errUnauthorizedMessage();
       }
@@ -415,20 +439,27 @@ async function getConfigDefaultsDevice(req, res) {
   return res ? res.json(response) : response;
 }
 
+async function adjustConfigDefaultsFolder(method, newConfig) {
+  log.info('Patching Syncthing defaults for folder configuration...');
+  const response = await performRequest(method, '/rest/config/defaults/folder', newConfig);
+  log.info('Syncthing defaults for folder configuration patched...');
+  return response;
+}
+
 async function postConfigDefaultsFolder(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
-    const method = (processedBody.method || 'put').toLowerCase();
     try {
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
+      const method = (processedBody.method || 'put').toLowerCase();
       const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       let response = null;
       if (authorized === true) {
-        response = await performRequest(method, '/rest/config/defaults/folder', newConfig);
+        response = await adjustConfigDefaultsFolder(method, newConfig);
       } else {
         response = messageHelper.errUnauthorizedMessage();
       }
@@ -447,10 +478,10 @@ async function postConfigDefaultsDevice(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
-    const method = (processedBody.method || 'put').toLowerCase();
     try {
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
+      const method = (processedBody.method || 'put').toLowerCase();
       const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       let response = null;
       if (authorized === true) {
@@ -478,10 +509,10 @@ async function postConfigDefaultsIgnores(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
-    const method = 'put';
     try {
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
+      const method = 'put';
       const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       let response = null;
       if (authorized === true) {
@@ -526,10 +557,10 @@ async function postConfigOptions(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
-    const method = (processedBody.method || 'put').toLowerCase();
     try {
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
+      const method = (processedBody.method || 'put').toLowerCase();
       const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       let response = null;
       if (authorized === true) {
@@ -552,10 +583,10 @@ async function postConfigGui(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
-    const method = (processedBody.method || 'put').toLowerCase();
     try {
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
+      const method = (processedBody.method || 'put').toLowerCase();
       const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       let response = null;
       if (authorized === true) {
@@ -578,10 +609,10 @@ async function postConfigLdap(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
-    const method = (processedBody.method || 'put').toLowerCase();
     try {
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
+      const method = (processedBody.method || 'put').toLowerCase();
       const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       let response = null;
       if (authorized === true) {
@@ -599,7 +630,6 @@ async function postConfigLdap(req, res) {
 }
 
 // === CLUSTER ENDPOINTS ===
-
 async function getClusterPendigDevices(req, res) {
   const response = await performRequest('get', '/rest/cluster/pending/devices');
   return res ? res.json(response) : response;
@@ -611,11 +641,11 @@ async function postClusterPendigDevices(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
-    const { device } = processedBody;
-    const method = (processedBody.method || 'delete').toLowerCase();
     try {
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
+      const { device } = processedBody;
+      const method = (processedBody.method || 'delete').toLowerCase();
       let apiPath = '/rest/cluster/pending/devices';
       if (device) {
         apiPath += `?device=${device}`;
@@ -647,11 +677,11 @@ async function postClusterPendigFolders(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
-    const { folder } = processedBody;
-    const method = (processedBody.method || 'delete').toLowerCase();
     try {
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
+      const { folder } = processedBody;
+      const method = (processedBody.method || 'delete').toLowerCase();
       let apiPath = '/rest/cluster/pending/folders';
       if (folder) {
         apiPath += `?folder=${folder}`;
@@ -673,12 +703,11 @@ async function postClusterPendigFolders(req, res) {
 }
 
 // === FOLDER ENDPOINTS ===
-
 async function getFolderErrors(req, res) {
-  let { folder } = req.params;
-  folder = folder || req.query.folder;
-  let apiPath = '/rest/folder/errors';
   try {
+    let { folder } = req.params;
+    folder = folder || req.query.folder;
+    let apiPath = '/rest/folder/errors';
     if (folder) {
       apiPath += `?folder=${folder}`;
     } else {
@@ -694,10 +723,10 @@ async function getFolderErrors(req, res) {
 }
 
 async function getFolderVersions(req, res) {
-  let { folder } = req.params;
-  folder = folder || req.query.folder;
-  let apiPath = '/rest/folder/versions';
   try {
+    let { folder } = req.params;
+    folder = folder || req.query.folder;
+    let apiPath = '/rest/folder/versions';
     if (folder) {
       apiPath += `?folder=${folder}`;
     } else {
@@ -718,11 +747,11 @@ async function postFolderVersions(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
-    const { folder } = processedBody;
-    const method = (processedBody.method || 'post').toLowerCase();
     try {
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
+      const { folder } = processedBody;
+      const method = (processedBody.method || 'post').toLowerCase();
       let apiPath = '/rest/folder/versions';
       if (folder) {
         apiPath += `?folder=${folder}`;
@@ -744,16 +773,15 @@ async function postFolderVersions(req, res) {
 }
 
 // === DATABASE ENDPOINTS ===
-
 async function getDbBrowse(req, res) {
-  let { folder } = req.params;
-  folder = folder || req.query.folder;
-  let { levels } = req.params;
-  levels = levels || req.query.levels;
-  let { prefix } = req.params;
-  prefix = prefix || req.query.prefix;
-  let apiPath = '/rest/db/browse';
   try {
+    let { folder } = req.params;
+    folder = folder || req.query.folder;
+    let { levels } = req.params;
+    levels = levels || req.query.levels;
+    let { prefix } = req.params;
+    prefix = prefix || req.query.prefix;
+    let apiPath = '/rest/db/browse';
     if (folder) {
       apiPath += `?folder=${folder}`;
     } else {
@@ -771,12 +799,12 @@ async function getDbBrowse(req, res) {
 }
 
 async function getDbCompletion(req, res) {
-  let { folder } = req.params;
-  folder = folder || req.query.folder;
-  let { device } = req.params;
-  device = device || req.query.device;
-  let apiPath = '/rest/db/completion';
   try {
+    let { folder } = req.params;
+    folder = folder || req.query.folder;
+    let { device } = req.params;
+    device = device || req.query.device;
+    let apiPath = '/rest/db/completion';
     if (folder || device) apiPath += '?';
     if (folder) apiPath += `folder=${folder}&`;
     if (device) apiPath += `device=${device}`;
@@ -790,12 +818,12 @@ async function getDbCompletion(req, res) {
 }
 
 async function getDbFile(req, res) {
-  let { folder } = req.params;
-  folder = folder || req.query.folder;
-  let { file } = req.params;
-  file = file || req.query.file;
-  let apiPath = '/rest/db/file';
   try {
+    let { folder } = req.params;
+    folder = folder || req.query.folder;
+    let { file } = req.params;
+    file = file || req.query.file;
+    let apiPath = '/rest/db/file';
     if (folder || file) apiPath += '?';
     if (folder) apiPath += `folder=${folder}&`;
     if (file) apiPath += `device=${file}`;
@@ -809,10 +837,10 @@ async function getDbFile(req, res) {
 }
 
 async function getDbIgnores(req, res) {
-  let { folder } = req.params;
-  folder = folder || req.query.folder;
-  let apiPath = '/rest/db/ignores';
   try {
+    let { folder } = req.params;
+    folder = folder || req.query.folder;
+    let apiPath = '/rest/db/ignores';
     if (folder) apiPath += `?folder=${folder}`;
     const response = await performRequest('get', apiPath);
     return res ? res.json(response) : response;
@@ -824,10 +852,10 @@ async function getDbIgnores(req, res) {
 }
 
 async function getDbLocalchanged(req, res) {
-  let { folder } = req.params;
-  folder = folder || req.query.folder;
-  let apiPath = '/rest/db/localchanged';
   try {
+    let { folder } = req.params;
+    folder = folder || req.query.folder;
+    let apiPath = '/rest/db/localchanged';
     if (folder) {
       apiPath += `?folder=${folder}`;
     } else {
@@ -843,10 +871,10 @@ async function getDbLocalchanged(req, res) {
 }
 
 async function getDbNeed(req, res) {
-  let { folder } = req.params;
-  folder = folder || req.query.folder;
-  let apiPath = '/rest/db/need';
   try {
+    let { folder } = req.params;
+    folder = folder || req.query.folder;
+    let apiPath = '/rest/db/need';
     if (folder) {
       apiPath += `?folder=${folder}`;
     } else {
@@ -862,12 +890,12 @@ async function getDbNeed(req, res) {
 }
 
 async function getDbRemoteNeed(req, res) {
-  let { folder } = req.params;
-  folder = folder || req.query.folder;
-  let { device } = req.params;
-  device = device || req.query.device;
-  let apiPath = '/rest/db/remoteneed';
   try {
+    let { folder } = req.params;
+    folder = folder || req.query.folder;
+    let { device } = req.params;
+    device = device || req.query.device;
+    let apiPath = '/rest/db/remoteneed';
     if (folder) {
       apiPath += `?folder=${folder}`;
     } else {
@@ -888,10 +916,10 @@ async function getDbRemoteNeed(req, res) {
 }
 
 async function getDbStatus(req, res) {
-  let { folder } = req.params;
-  folder = folder || req.query.folder;
-  let apiPath = '/rest/db/status';
   try {
+    let { folder } = req.params;
+    folder = folder || req.query.folder;
+    let apiPath = '/rest/db/status';
     if (folder) {
       apiPath += `?folder=${folder}`;
     } else {
@@ -912,11 +940,11 @@ async function postDbIgnores(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
-    const { folder } = processedBody;
-    const method = (processedBody.method || 'post').toLowerCase();
     try {
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
+      const { folder } = processedBody;
+      const method = (processedBody.method || 'post').toLowerCase();
       let apiPath = '/rest/db/ignores';
       if (folder) {
         apiPath += `?folder=${folder}`;
@@ -943,11 +971,11 @@ async function postDbOverride(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
-    const { folder } = processedBody;
-    const method = (processedBody.method || 'post').toLowerCase();
     try {
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
+      const { folder } = processedBody;
+      const method = (processedBody.method || 'post').toLowerCase();
       let apiPath = '/rest/db/override';
       if (folder) {
         apiPath += `?folder=${folder}`;
@@ -976,12 +1004,12 @@ async function postDbPrio(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
-    const { folder } = processedBody;
-    const { file } = processedBody;
-    const method = (processedBody.method || 'post').toLowerCase();
     try {
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
+      const { folder } = processedBody;
+      const { file } = processedBody;
+      const method = (processedBody.method || 'post').toLowerCase();
       let apiPath = '/rest/db/prio';
       if (folder) {
         apiPath += `?folder=${folder}`;
@@ -1015,11 +1043,11 @@ async function postDbRevert(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
-    const { folder } = processedBody;
-    const method = (processedBody.method || 'post').toLowerCase();
     try {
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
+      const { folder } = processedBody;
+      const method = (processedBody.method || 'post').toLowerCase();
       let apiPath = '/rest/db/revert';
       if (folder) {
         apiPath += `?folder=${folder}`;
@@ -1048,13 +1076,13 @@ async function postDbScan(req, res) {
     body += data;
   });
   req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const newConfig = processedBody.config;
-    const { folder } = processedBody;
-    const { sub } = processedBody;
-    const { next } = processedBody;
-    const method = (processedBody.method || 'post').toLowerCase();
     try {
+      const processedBody = serviceHelper.ensureObject(body);
+      const newConfig = processedBody.config;
+      const { folder } = processedBody;
+      const { sub } = processedBody;
+      const { next } = processedBody;
+      const method = (processedBody.method || 'post').toLowerCase();
       let apiPath = '/rest/db/scan?';
       if (folder) apiPath += `folder=${folder}&`;
       if (sub) apiPath += `sub=${sub}&`;
@@ -1076,7 +1104,6 @@ async function postDbScan(req, res) {
 }
 
 // === DEBUG ===
-
 async function debugPeerCompletion(req, res) {
   const response = await performRequest('get', '/rest/debug/peerCompletion');
   return res ? res.json(response) : response;
@@ -1103,12 +1130,12 @@ async function debugSupport(req, res) {
 }
 
 async function debugFile(req, res) {
-  let { folder } = req.params;
-  folder = folder || req.query.folder;
-  let { file } = req.params;
-  file = file || req.query.file;
-  let apiPath = '/rest/debug/file';
   try {
+    let { folder } = req.params;
+    folder = folder || req.query.folder;
+    let { file } = req.params;
+    file = file || req.query.file;
+    let apiPath = '/rest/debug/file';
     if (folder) {
       apiPath += `?folder=${folder}`;
     } else {
@@ -1129,16 +1156,15 @@ async function debugFile(req, res) {
 }
 
 // === EVENT ENDPOINTS ===
-
 async function getEvents(req, res) {
-  let { events } = req.params;
-  events = events || req.query.events;
-  let { since } = req.params;
-  since = since || req.query.device;
-  let { limit } = req.params;
-  limit = limit || req.query.limit;
-  let apiPath = '/rest/events?';
   try {
+    let { events } = req.params;
+    events = events || req.query.events;
+    let { since } = req.params;
+    since = since || req.query.device;
+    let { limit } = req.params;
+    limit = limit || req.query.limit;
+    let apiPath = '/rest/events?';
     if (events) apiPath += `events=${events}&`;
     if (since) apiPath += `since=${since}&`;
     if (limit) apiPath += `limit=${limit}`;
@@ -1164,12 +1190,11 @@ async function getEventsDisk(req, res) {
 }
 
 // === MICS SERVICES ENDPOINTS ===
-
 async function getSvcDeviceID(req, res) {
-  let { id } = req.params;
-  id = id || req.query.id;
-  let apiPath = '/rest/svc/deviceid';
   try {
+    let { id } = req.params;
+    id = id || req.query.id;
+    let apiPath = '/rest/svc/deviceid';
     if (id) {
       apiPath += `?id=${id}`;
     } else {
@@ -1263,6 +1288,7 @@ async function startSyncthing() {
       }
     } else {
       const currentConfigOptions = await getConfigOptions();
+      const currentDefaultsFolderOptions = await getConfigDefaultsFolder();
       const apiPort = userconfig.initial.apiport || config.server.apiport;
       const myPort = apiPort + 2; // end with 9 eg 16139
       // adjust configuration
@@ -1271,17 +1297,40 @@ async function startSyncthing() {
         localAnnounceEnabled: false,
         listenAddresses: [`tcp://:${myPort}`, `quic://:${myPort}`],
       };
+      const newConfigDefaultFolders = {
+        syncOwnership: true,
+        sendOwnership: true,
+        syncXattrs: true,
+        sendXattrs: true,
+      };
       if (currentConfigOptions.status === 'success') {
         if (currentConfigOptions.data.globalAnnounceEnabled !== newConfig.globalAnnounceEnabled
           || currentConfigOptions.data.localAnnounceEnabled !== newConfig.localAnnounceEnabled
-          || currentConfigOptions.data.listenAddresses !== newConfig.listenAddresses) {
+          || serviceHelper.ensureString(currentConfigOptions.data.listenAddresses) !== serviceHelper.ensureString(newConfig.listenAddresse)) {
           // patch our config
           await adjustConfigOptions('patch', newConfig);
-          const restartRequired = await getConfigRestartRequired();
-          if (restartRequired.status === 'success' && restartRequired.data.requiresRestart === true) {
-            await systemRestart();
-          }
         }
+      }
+      if (currentDefaultsFolderOptions.status === 'success') {
+        if (currentDefaultsFolderOptions.data.syncOwnership !== newConfigDefaultFolders.syncOwnership
+          || currentDefaultsFolderOptions.data.sendOwnership !== newConfigDefaultFolders.sendOwnership
+          || currentDefaultsFolderOptions.data.syncXattrs !== newConfigDefaultFolders.syncXattrs
+          || currentDefaultsFolderOptions.data.sendXattrs !== newConfigDefaultFolders.sendXattrs) {
+          // patch our defaults folder config
+          await adjustConfigDefaultsFolder('patch', newConfigDefaultFolders);
+        }
+      }
+      // remove default folder
+      const allFolders = await getConfigFolders();
+      if (allFolders.status === 'success') {
+        const defaultFolderExists = allFolders.data.find((syncthingFolder) => syncthingFolder.id === 'default');
+        if (defaultFolderExists) {
+          await adjustConfigFolders('delete', undefined, 'default');
+        }
+      }
+      const restartRequired = await getConfigRestartRequired();
+      if (restartRequired.status === 'success' && restartRequired.data.requiresRestart === true) {
+        await systemRestart();
       }
     }
     await serviceHelper.delay(8 * 60 * 1000);
@@ -1377,4 +1426,7 @@ module.exports = {
   debugPeapprof,
   debugPeerCompletion,
   debugSupport,
+  // helpers
+  adjustConfigFolders,
+  adjustConfigDevices,
 };

@@ -1119,7 +1119,7 @@ module.exports = (app, expressWs) => {
     daemonServiceMiningRpcs.submitBlockPost(req, res);
   });
 
-  app.post('/apps/checkdockerexistance', async (req, res) => {
+  app.post('/apps/checkdockerexistance', (req, res) => {
     appsService.checkDockerAccessibility(req, res);
   });
   app.post('/apps/appregister', (req, res) => {
@@ -1173,61 +1173,61 @@ module.exports = (app, expressWs) => {
     fluxCommunicationMessagesSender.broadcastMessageToIncomingFromUserPost(req, res);
   });
 
-  app.post('/syncthing/system/error', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/system/error', (req, res) => {
     syncthingService.postSystemError(req, res);
   });
-  app.get('/syncthing/system/upgrade', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/system/upgrade', (req, res) => {
     syncthingService.postSystemUpgrade(req, res);
   });
   app.post('/syncthing/config', (req, res) => {
     syncthingService.postConfig(req, res);
   });
-  app.post('/syncthing/config/folders', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/config/folders', (req, res) => {
     syncthingService.postConfigFolders(req, res);
   });
-  app.post('/syncthing/config/devices', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/config/devices', (req, res) => {
     syncthingService.postConfigDevices(req, res);
   });
-  app.post('/syncthing/config/defaults/folder', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/config/defaults/folder', (req, res) => {
     syncthingService.postConfigDefaultsFolder(req, res);
   });
-  app.post('/syncthing/config/defaults/device', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/config/defaults/device', (req, res) => {
     syncthingService.postConfigDefaultsDevice(req, res);
   });
-  app.post('/syncthing/config/defaults/ignores', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/config/defaults/ignores', (req, res) => {
     syncthingService.postConfigDefaultsIgnores(req, res);
   });
-  app.post('/syncthing/config/options', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/config/options', (req, res) => {
     syncthingService.postConfigOptions(req, res);
   });
-  app.post('/syncthing/config/gui', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/config/gui', (req, res) => {
     syncthingService.postConfigGui(req, res);
   });
-  app.post('/syncthing/config/ldap', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/config/ldap', (req, res) => {
     syncthingService.postConfigLdap(req, res);
   });
-  app.post('/syncthing/cluster/pending/devices', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/cluster/pending/devices', (req, res) => {
     syncthingService.postClusterPendigDevices(req, res);
   });
-  app.post('/syncthing/cluster/pending/folders', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/cluster/pending/folders', (req, res) => {
     syncthingService.postClusterPendigFolders(req, res);
   });
-  app.post('/syncthing/folder/versions', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/folder/versions', (req, res) => {
     syncthingService.postFolderVersions(req, res);
   });
-  app.post('/syncthing/db/ignores', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/db/ignores', (req, res) => {
     syncthingService.postDbIgnores(req, res);
   });
-  app.post('/syncthing/db/override', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/db/override', (req, res) => {
     syncthingService.postDbOverride(req, res);
   });
-  app.post('/syncthing/db/prio', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/db/prio', (req, res) => {
     syncthingService.postDbPrio(req, res);
   });
-  app.post('/syncthing/db/revert', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/db/revert', (req, res) => {
     syncthingService.postDbRevert(req, res);
   });
-  app.post('/syncthing/db/scan', cache('30 seconds'), (req, res) => {
+  app.post('/syncthing/db/scan', (req, res) => {
     syncthingService.postDbScan(req, res);
   });
 
