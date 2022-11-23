@@ -8349,7 +8349,7 @@ async function syncthingApps() {
           for (const appInstance of locations) {
             const ip = appInstance.ip.split(':')[0];
             const port = appInstance.ip.split(':')[1] || 16127;
-            const addresses = [`tcp://${ip}:${port + 2}`, `quic://${ip}:${port + 2}`];
+            const addresses = [`tcp://${ip}:${+port + 2}`, `quic://${ip}:${+port + 2}`];
             const name = `${ip}:${port}`;
             // eslint-disable-next-line no-await-in-loop
             const deviceID = await getDeviceID(name);
@@ -8392,7 +8392,7 @@ async function syncthingApps() {
             for (const appInstance of locations) {
               const ip = appInstance.ip.split(':')[0];
               const port = appInstance.ip.split(':')[1] || 16127;
-              const addresses = [`tcp://${ip}:${port + 2}`, `quic://${ip}:${port + 2}`];
+              const addresses = [`tcp://${ip}:${+port + 2}`, `quic://${ip}:${+port + 2}`];
               const name = `${ip}:${port}`;
               // eslint-disable-next-line no-await-in-loop
               const deviceID = await getDeviceID(name);
