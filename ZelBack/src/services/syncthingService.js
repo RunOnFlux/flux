@@ -1272,20 +1272,19 @@ async function startSyncthing() {
     const myDevice = await getDeviceID();
     if (myDevice.status === 'error') {
       const exec = 'syncthing --allow-newer-config --no-browser';
-      try {
-        log.info('Spawning Syncthing instance...');
-        cmdAsync(exec);
-        await serviceHelper.delay(30 * 1000);
-        startSyncthing();
-        return;
-      } catch (error) {
-        log.error(error);
-        log.info('Syncthing is not installed, proceeding with installation');
-        await installSyncthing();
-        await serviceHelper.delay(1 * 60 * 1000);
-        startSyncthing();
-        return;
-      }
+      log.info('Spawning Syncthing instance...');
+      nodecmd.get(exec, async (err) => {
+        if (err) {
+          log.error(err);
+          log.info('Syncthing is not installed, proceeding with installation');
+          await installSyncthing();
+          await serviceHelper.delay(1 * 60 * 1000);
+          startSyncthing();
+        } else {
+          await serviceHelper.delay(30 * 1000);
+          startSyncthing();
+        }
+      });
     } else {
       const currentConfigOptions = await getConfigOptions();
       const currentDefaultsFolderOptions = await getConfigDefaultsFolder();
@@ -1332,9 +1331,9 @@ async function startSyncthing() {
       if (restartRequired.status === 'success' && restartRequired.data.requiresRestart === true) {
         await systemRestart();
       }
+      await serviceHelper.delay(8 * 60 * 1000);
+      startSyncthing();
     }
-    await serviceHelper.delay(8 * 60 * 1000);
-    startSyncthing();
   } catch (error) {
     log.error(error);
     await serviceHelper.delay(2 * 60 * 1000);
