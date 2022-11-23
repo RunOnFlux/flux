@@ -452,5 +452,6 @@
    "byblaaz/mamaki-node:latest",
    "cryptochefs/crypto:latest",
    "keyoxide/doip-proxy",
-   "keyoxide/keyoxide"
+   "keyoxide/keyoxide",
+   "cryptochefs/cryptonaire:latest"
 ]
