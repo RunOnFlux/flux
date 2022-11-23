@@ -3702,6 +3702,87 @@ async function availableApps(req, res) {
       hash: 'localSpecificationsFoldingVersion1', // hash of app message
       height: 0, // height of tx on which it was
     },
+    {
+      name: 'websiteSync',
+      commands: [],
+      containerData: 's:/website',
+      containerPorts: [
+        '80',
+      ],
+      cpu: 0.2,
+      description: 'Global Deployment of the RunOnFlux.io website',
+      domains: [
+        'runonflux.io',
+      ],
+      enviromentParameters: [],
+      hash: 'afdfdsfdsafdfds',
+      hdd: 1,
+      height: 12419384,
+      owner: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
+      ports: [
+        '31001',
+      ],
+      ram: 200,
+      repotag: 'runonflux/website:latest',
+      tiered: false,
+      version: 3,
+      instances: 5,
+    },
+    {
+      name: 'websiteSync2',
+      compose: [
+        {
+          name: 'comp1',
+          commands: [],
+          containerData: 's:/website',
+          containerPorts: [
+            '80',
+          ],
+          cpu: 0.2,
+          description: 'TEST',
+          domains: [
+            '',
+          ],
+          enviromentParameters: [],
+          hdd: 1,
+          ports: [
+            '31002',
+          ],
+          ram: 200,
+          repotag: 'runonflux/website:latest',
+          tiered: false,
+        },
+        {
+          name: 'comp2',
+          commands: [],
+          containerData: 's:/website',
+          containerPorts: [
+            '80',
+          ],
+          cpu: 0.2,
+          description: 'Global Deployment of the RunOnFlux.io website',
+          domains: [
+            '',
+          ],
+          enviromentParameters: [],
+          hdd: 1,
+          ports: [
+            '31003',
+          ],
+          ram: 200,
+          repotag: 'runonflux/website:latest',
+          tiered: false,
+        },
+      ],
+      contacts: [],
+      description: 'TEST',
+      geolocation: [],
+      hash: 'asdasdasd',
+      height: 12391464,
+      instances: 5,
+      owner: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
+      version: 5,
+    },
   ];
 
   const dataResponse = messageHelper.createDataMessage(apps);
