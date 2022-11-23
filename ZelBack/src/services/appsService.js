@@ -1184,7 +1184,7 @@ async function stopAppMonitoringAPI(req, res) {
       }
       const monitoringResponse = messageHelper.createSuccessMessage(successMessage);
       res.json(monitoringResponse);
-    // 2. Stop a specific app
+      // 2. Stop a specific app
     } else {
       const mainAppName = appname.split('_')[1] || appname;
       const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
@@ -8166,19 +8166,24 @@ async function stopSyncthingApp(appComponentName, res) {
     if (allSyncthingFolders.status === 'error') {
       return;
     }
-    let folderIsBeingSynced = false;
+    let folderId = null;
     allSyncthingFolders.data.forEach((syncthingFolder) => {
       if (syncthingFolder.path === folder) {
-        folderIsBeingSynced = true;
+        folderId = syncthingFolder.id;
       }
     });
-    if (!folderIsBeingSynced) {
+    if (!folderId) {
       return;
     }
     const adjustSyncthingA = {
       status: 'Adjusting Syncthing...',
     };
-    // TODO remove folder from syncing
+    // remove folder from syncthing
+    await syncthingService.adjustConfigFolders('delete', undefined, folderId);
+    const restartRequired = await syncthingService.getConfigRestartRequired();
+    if (restartRequired.status === 'success' && restartRequired.data.requiresRestart === true) {
+      await syncthingService.systemRestart();
+    }
     const adjustSyncthingB = {
       status: 'Syncthing adjusted',
     };
@@ -8194,10 +8199,23 @@ async function stopSyncthingApp(appComponentName, res) {
   }
 }
 
+async function getDeviceID(fluxIP) {
+  try {
+    const axiosConfig = {
+      timeout: 5000,
+    };
+    const response = await axios.get(`http://${fluxIP}/syncthing/deviceid`, axiosConfig);
+    return response.data.data;
+  } catch (error) {
+    log.error(error);
+    return null;
+  }
+}
+
 // update syncthing configuration for locally installed apps
 async function syncthingApps() {
   try {
-  // do not run if installationInProgress or removalInProgress
+    // do not run if installationInProgress or removalInProgress
     if (installationInProgress || removalInProgress) {
       return;
     }
@@ -8206,27 +8224,127 @@ async function syncthingApps() {
     if (appsInstalled.status === 'error') {
       return;
     }
-    const configHasChanged = false;
     // go through every containerData of all components of every app
+    const devicesIds = [];
+    const devicesConfiguration = [];
+    const folderIds = [];
+    const foldersConfiguration = [];
+    const myDeviceID = await syncthingService.getDeviceID();
     // eslint-disable-next-line no-restricted-syntax
-    for (const installedApp of appsInstalled) {
+    for (const installedApp of appsInstalled.data) {
       if (installedApp.version <= 3) {
         const containerDataFlags = installedApp.containerData.split(':')[1] ? installedApp.containerData.split(':')[0] : '';
         if (containerDataFlags.includes('s')) {
-        // TODO do magic, this is syncthing
+          const identifier = installedApp.name;
+          const appId = dockerService.getAppIdentifier(identifier);
+          const folder = `${appsFolder + appId}`;
+          const id = appId;
+          const label = appId;
+          const devices = [{ deviceID: myDeviceID.data }];
+          // eslint-disable-next-line no-await-in-loop
+          const locations = await appLocation(installedApp.name);
+          // eslint-disable-next-line no-restricted-syntax
+          for (const appInstance of locations) {
+            const ip = appInstance.ip.split(':')[0];
+            const port = appInstance.ip.split(':')[1] || 16127;
+            const addresses = [`tcp://${ip}:${port + 2}`, `quic://${ip}:${port + 2}`];
+            const name = `${ip}:${port}`;
+            // eslint-disable-next-line no-await-in-loop
+            const deviceID = await getDeviceID(`http://${name}`);
+            if (deviceID) {
+              devices.push({ deviceID });
+              const deviceExists = devicesConfiguration.find((device) => device.name === name);
+              if (!deviceExists) {
+                const newDevice = {
+                  deviceID,
+                  name,
+                  addresses,
+                };
+                devicesIds.push(deviceID);
+                devicesConfiguration.push(newDevice);
+              }
+            }
+          }
+          folderIds.push(id);
+          foldersConfiguration.push({
+            id,
+            label,
+            path: folder,
+            devices,
+          });
         }
       } else {
         // eslint-disable-next-line no-restricted-syntax
-        for (const installedComponent of installedApp) {
+        for (const installedComponent of installedApp.compose) {
           const containerDataFlags = installedComponent.containerData.split(':')[1] ? installedComponent.containerData.split(':')[0] : '';
           if (containerDataFlags.includes('s')) {
-          // TODO do magic, this is syncthing
+            const identifier = `${installedComponent.name}_${installedApp.name}`;
+            const appId = dockerService.getAppIdentifier(identifier);
+            const folder = `${appsFolder + appId}`;
+            const id = appId;
+            const label = appId;
+            const devices = [{ deviceID: myDeviceID.data }];
+            // eslint-disable-next-line no-await-in-loop
+            const locations = await appLocation(installedApp.name);
+            // eslint-disable-next-line no-restricted-syntax
+            for (const appInstance of locations) {
+              const ip = appInstance.ip.split(':')[0];
+              const port = appInstance.ip.split(':')[1] || 16127;
+              const addresses = [`tcp://${ip}:${port + 2}`, `quic://${ip}:${port + 2}`];
+              const name = `${ip}:${port}`;
+              // eslint-disable-next-line no-await-in-loop
+              const deviceID = await getDeviceID(`http://${name}`);
+              if (deviceID) {
+                devices.push({ deviceID });
+                const deviceExists = devicesConfiguration.find((device) => device.name === name);
+                if (!deviceExists) {
+                  const newDevice = {
+                    deviceID,
+                    name,
+                    addresses,
+                  };
+                  devicesIds.push(deviceID);
+                  devicesConfiguration.push(newDevice);
+                }
+              }
+            }
+            folderIds.push(id);
+            foldersConfiguration.push({
+              id,
+              label,
+              path: folder,
+              devices,
+            });
           }
         }
       }
     }
-    if (configHasChanged) {
-    // TODO reload syncthing? Or above was done through some magic and no reload needed?
+    // now we have new accurate devicesConfiguration and foldersConfiguration
+    // add more of current devices
+    await syncthingService.adjustConfigDevices('put', devicesConfiguration);
+    // add more of current folders
+    await syncthingService.adjustConfigFolders('put', foldersConfiguration);
+    // remove folders that should not be synced anymore (this shall actually not trigger)
+    const allFoldersResp = await syncthingService.getConfigFolders();
+    const nonUsedFolders = allFoldersResp.data.filter((syncthingFolder) => !folderIds.includes(syncthingFolder.id));
+    // eslint-disable-next-line no-restricted-syntax
+    for (const nonUsedFolder of nonUsedFolders) {
+      // eslint-disable-next-line no-await-in-loop
+      await syncthingService.adjustConfigFolders('delete', undefined, nonUsedFolder.id);
+    }
+    // remove obsolete devices
+    const allDevicesResp = await syncthingService.getConfigDevices();
+    const nonUsedDevices = allDevicesResp.data.filter((syncthingDevice) => !devicesIds.includes(syncthingDevice.deviceID));
+    // eslint-disable-next-line no-restricted-syntax
+    for (const nonUsedDevice of nonUsedDevices) {
+      // eslint-disable-next-line no-await-in-loop
+      await syncthingService.adjustConfigDevices('delete', undefined, nonUsedDevice.deviceID);
+    }
+    // all configuration changes applied
+    // check if restart is needed
+    const restartRequired = await syncthingService.getConfigRestartRequired();
+    if (restartRequired.status === 'success' && restartRequired.data.requiresRestart === true) {
+      await syncthingService.systemRestart();
     }
   } catch (error) {
     log.error(error);
