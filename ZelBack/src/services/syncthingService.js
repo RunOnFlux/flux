@@ -1273,18 +1273,20 @@ async function startSyncthing() {
     if (myDevice.status === 'error') {
       const exec = 'syncthing --allow-newer-config --no-browser';
       log.info('Spawning Syncthing instance...');
+      let errored = false;
       nodecmd.get(exec, async (err) => {
         if (err) {
+          errored = true;
           log.error(err);
           log.info('Syncthing is not installed, proceeding with installation');
-          await installSyncthing();
-          await serviceHelper.delay(1 * 60 * 1000);
-          startSyncthing();
-        } else {
-          await serviceHelper.delay(30 * 1000);
-          startSyncthing();
         }
       });
+      await serviceHelper.delay(30 * 1000);
+      if (errored) {
+        await installSyncthing();
+        await serviceHelper.delay(60 * 1000);
+      }
+      startSyncthing();
     } else {
       const currentConfigOptions = await getConfigOptions();
       const currentDefaultsFolderOptions = await getConfigDefaultsFolder();
