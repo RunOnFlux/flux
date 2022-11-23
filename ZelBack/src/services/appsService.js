@@ -3755,7 +3755,7 @@ async function availableApps(req, res) {
         {
           name: 'comp2',
           commands: [],
-          containerData: 's:/website',
+          containerData: '/website',
           containerPorts: [
             '80',
           ],
@@ -3768,6 +3768,27 @@ async function availableApps(req, res) {
           hdd: 1,
           ports: [
             '31003',
+          ],
+          ram: 200,
+          repotag: 'runonflux/website:latest',
+          tiered: false,
+        },
+        {
+          name: 'comp3',
+          commands: [],
+          containerData: 's:/website',
+          containerPorts: [
+            '80',
+          ],
+          cpu: 0.2,
+          description: 'Global Deployment of the RunOnFlux.io website',
+          domains: [
+            '',
+          ],
+          enviromentParameters: [],
+          hdd: 1,
+          ports: [
+            '31004',
           ],
           ram: 200,
           repotag: 'runonflux/website:latest',
