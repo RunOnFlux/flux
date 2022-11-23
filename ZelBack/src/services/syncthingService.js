@@ -1320,12 +1320,12 @@ async function startSyncthing() {
           await adjustConfigDefaultsFolder('patch', newConfigDefaultFolders);
         }
       }
-      // TODO uncomment remove default folder
+      // remove default folder
       const allFolders = await getConfigFolders();
       if (allFolders.status === 'success') {
         const defaultFolderExists = allFolders.data.find((syncthingFolder) => syncthingFolder.id === 'default');
         if (defaultFolderExists) {
-          // await adjustConfigFolders('delete', undefined, 'default');
+          await adjustConfigFolders('delete', undefined, 'default');
         }
       }
       const restartRequired = await getConfigRestartRequired();
