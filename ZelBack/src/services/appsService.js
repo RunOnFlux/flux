@@ -8225,7 +8225,9 @@ async function syncthingApps() {
       return;
     }
     // go through every containerData of all components of every app
+    const devicesIds = [];
     const devicesConfiguration = [];
+    const folderIds = [];
     const foldersConfiguration = [];
     const myDeviceID = await syncthingService.getDeviceID();
     // eslint-disable-next-line no-restricted-syntax
@@ -8258,10 +8260,12 @@ async function syncthingApps() {
                   name,
                   addresses,
                 };
+                devicesIds.push(deviceID);
                 devicesConfiguration.push(newDevice);
               }
             }
           }
+          folderIds.push(id);
           foldersConfiguration.push({
             id,
             label,
@@ -8299,10 +8303,12 @@ async function syncthingApps() {
                     name,
                     addresses,
                   };
+                  devicesIds.push(deviceID);
                   devicesConfiguration.push(newDevice);
                 }
               }
             }
+            folderIds.push(id);
             foldersConfiguration.push({
               id,
               label,
@@ -8314,7 +8320,28 @@ async function syncthingApps() {
       }
     }
     // now we have new accurate devicesConfiguration and foldersConfiguration
-    // TODO apply configurations safely
+    // add more of current devices
+    await syncthingService.adjustConfigDevices('put', devicesConfiguration);
+    // add more of current folders
+    await syncthingService.adjustConfigFolders('put', foldersConfiguration);
+    // remove folders that should not be synced anymore (this shall actually not trigger)
+    const allFoldersResp = await syncthingService.getConfigFolders();
+    const nonUsedFolders = allFoldersResp.data.filter((syncthingFolder) => !folderIds.includes(syncthingFolder.id));
+    // eslint-disable-next-line no-restricted-syntax
+    for (const nonUsedFolder of nonUsedFolders) {
+      // eslint-disable-next-line no-await-in-loop
+      await syncthingService.adjustConfigFolders('delete', undefined, nonUsedFolder.id);
+    }
+    // remove obsolete devices
+    const allDevicesResp = await syncthingService.getConfigDevices();
+    const nonUsedDevices = allDevicesResp.data.filter((syncthingDevice) => !devicesIds.includes(syncthingDevice.deviceID));
+    // eslint-disable-next-line no-restricted-syntax
+    for (const nonUsedDevice of nonUsedDevices) {
+      // eslint-disable-next-line no-await-in-loop
+      await syncthingService.adjustConfigDevices('delete', undefined, nonUsedDevice.deviceID);
+    }
+    // all configuration changes applied
+    // check if restart is needed
     const restartRequired = await syncthingService.getConfigRestartRequired();
     if (restartRequired.status === 'success' && restartRequired.data.requiresRestart === true) {
       await syncthingService.systemRestart();
