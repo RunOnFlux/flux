@@ -102,7 +102,13 @@ async function systemBrowse(req, res) {
   if (current) {
     apiPath += `?current=${current}`;
   }
-  const response = await performRequest('get', apiPath);
+  const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  let response = null;
+  if (authorized === true) {
+    response = await performRequest('get', apiPath);
+  } else {
+    response = messageHelper.errUnauthorizedMessage();
+  }
   return res ? res.json(response) : response;
 }
 
@@ -128,7 +134,13 @@ async function systemDebug(req, res) {
   } else if (disable) {
     apiPath += `?disable=${disable}`;
   }
-  const response = await performRequest(method, apiPath);
+  const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  let response = null;
+  if (authorized === true) {
+    response = await performRequest(method, apiPath);
+  } else {
+    response = messageHelper.errUnauthorizedMessage();
+  }
   return res ? res.json(response) : response;
 }
 
@@ -146,12 +158,24 @@ async function systemDiscovery(req, res) {
     method = 'post';
     apiPath += `?device=${device}&addr=${addr}`;
   }
-  const response = await performRequest(method, apiPath);
+  const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  let response = null;
+  if (authorized === true) {
+    response = await performRequest(method, apiPath);
+  } else {
+    response = messageHelper.errUnauthorizedMessage();
+  }
   return res ? res.json(response) : response;
 }
 
 async function systemErrorClear(req, res) {
-  const response = await performRequest('post', '/rest/system/error/clear');
+  const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  let response = null;
+  if (authorized === true) {
+    response = await performRequest('post', '/rest/system/error/clear');
+  } else {
+    response = messageHelper.errUnauthorizedMessage();
+  }
   return res ? res.json(response) : response;
 }
 
@@ -163,7 +187,13 @@ async function systemError(req, res) {
   if (message) {
     method = 'post';
   }
-  const response = await performRequest(method, apiPath, message);
+  const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  let response = null;
+  if (authorized === true) {
+    response = await performRequest(method, apiPath, message);
+  } else {
+    response = messageHelper.errUnauthorizedMessage();
+  }
   return res ? res.json(response) : response;
 }
 
@@ -175,7 +205,13 @@ async function postSystemError(req, res) {
   req.on('end', async () => {
     const message = serviceHelper.ensureObject(body);
     try {
-      const response = await performRequest('post', '/rest/system/error', message);
+      const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      let response = null;
+      if (authorized === true) {
+        response = await performRequest('post', '/rest/system/error', message);
+      } else {
+        response = messageHelper.errUnauthorizedMessage();
+      }
       return res ? res.json(response) : response;
     } catch (error) {
       log.error(error);
@@ -192,7 +228,13 @@ async function systemLog(req, res) {
   if (since) {
     apiPath += `?since=${since}`;
   }
-  const response = await performRequest('get', apiPath);
+  const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  let response = null;
+  if (authorized === true) {
+    response = await performRequest('get', apiPath);
+  } else {
+    response = messageHelper.errUnauthorizedMessage();
+  }
   return res ? res.json(response) : response;
 }
 
@@ -203,12 +245,24 @@ async function systemLogTxt(req, res) {
   if (since) {
     apiPath += `?since=${since}`;
   }
-  const response = await performRequest('get', apiPath);
+  const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  let response = null;
+  if (authorized === true) {
+    response = await performRequest('get', apiPath);
+  } else {
+    response = messageHelper.errUnauthorizedMessage();
+  }
   return res ? res.json(response) : response;
 }
 
 async function systemPaths(req, res) {
-  const response = await performRequest('get', '/rest/system/paths');
+  const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  let response = null;
+  if (authorized === true) {
+    response = await performRequest('get', '/rest/system/paths');
+  } else {
+    response = messageHelper.errUnauthorizedMessage();
+  }
   return res ? res.json(response) : response;
 }
 
@@ -219,12 +273,24 @@ async function systemPause(req, res) {
   if (device) {
     apiPath += `?device=${device}`;
   }
-  const response = await performRequest('post', apiPath);
+  const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  let response = null;
+  if (authorized === true) {
+    response = await performRequest('post', apiPath);
+  } else {
+    response = messageHelper.errUnauthorizedMessage();
+  }
   return res ? res.json(response) : response;
 }
 
 async function systemPing(req, res) {
-  const response = await performRequest('get', '/rest/system/ping'); // can also be 'post', same
+  const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  let response = null;
+  if (authorized === true) {
+    response = await performRequest('get', '/rest/system/ping'); // can also be 'post', same
+  } else {
+    response = messageHelper.errUnauthorizedMessage();
+  }
   return res ? res.json(response) : response;
 }
 
@@ -236,7 +302,13 @@ async function systemReset(req, res) {
   if (folder) {
     apiPath += `?folder=${folder}`;
   }
-  const response = await performRequest('post', apiPath);
+  const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  let response = null;
+  if (authorized === true) {
+    response = await performRequest('post', apiPath);
+  } else {
+    response = messageHelper.errUnauthorizedMessage();
+  }
   return res ? res.json(response) : response;
 }
 
@@ -255,13 +327,25 @@ async function systemResume(req, res) {
   if (device) {
     apiPath += `?device=${device}`;
   }
-  const response = await performRequest('post', apiPath);
+  const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  let response = null;
+  if (authorized === true) {
+    response = await performRequest('post', apiPath);
+  } else {
+    response = messageHelper.errUnauthorizedMessage();
+  }
   return res ? res.json(response) : response;
 }
 
 // shutsdown syncthing
 async function systemShutdown(req, res) {
-  const response = await performRequest('post', '/rest/system/shutdown');
+  const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  let response = null;
+  if (authorized === true) {
+    response = await performRequest('post', '/rest/system/shutdown');
+  } else {
+    response = messageHelper.errUnauthorizedMessage();
+  }
   return res ? res.json(response) : response;
 }
 
@@ -271,12 +355,24 @@ async function systemStatus(req, res) {
 }
 
 async function systemUpgrade(req, res) {
-  const response = await performRequest('get', '/rest/system/upgrade');
+  const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  let response = null;
+  if (authorized === true) {
+    response = await performRequest('get', '/rest/system/upgrade');
+  } else {
+    response = messageHelper.errUnauthorizedMessage();
+  }
   return res ? res.json(response) : response;
 }
 
 async function postSystemUpgrade(req, res) {
-  const response = await performRequest('post', '/rest/system/upgrade');
+  const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  let response = null;
+  if (authorized === true) {
+    response = await performRequest('post', '/rest/system/upgrade');
+  } else {
+    response = messageHelper.errUnauthorizedMessage();
+  }
   return res ? res.json(response) : response;
 }
 
@@ -287,7 +383,13 @@ async function systemVersion(req, res) {
 
 // === CONFIG ENDPOINTS ===
 async function getConfig(req, res) {
-  const response = await performRequest('get', '/rest/config');
+  const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  let response = null;
+  if (authorized === true) {
+    response = await performRequest('get', '/rest/config');
+  } else {
+    response = messageHelper.errUnauthorizedMessage();
+  }
   return res ? res.json(response) : response;
 }
 
