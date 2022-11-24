@@ -561,7 +561,7 @@ module.exports = (app, expressWs) => {
     syncthingService.debugCpuprof(req, res);
   });
   app.get('/syncthing/debug/heapprof', cache('30 seconds'), (req, res) => {
-    syncthingService.debugPeapprof(req, res);
+    syncthingService.debugHeapprof(req, res);
   });
   app.get('/syncthing/debug/support', cache('30 seconds'), (req, res) => {
     syncthingService.debugSupport(req, res);
