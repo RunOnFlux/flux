@@ -1272,25 +1272,26 @@ async function startSyncthing() {
     const myDevice = await getDeviceID();
     if (myDevice.status === 'error') {
       const exec = 'syncthing --allow-newer-config --no-browser';
-      try {
-        log.info('Spawning Syncthing instance...');
-        cmdAsync(exec);
-        await serviceHelper.delay(30 * 1000);
-        startSyncthing();
-        return;
-      } catch (error) {
-        log.error(error);
-        log.info('Syncthing is not installed, proceeding with installation');
+      log.info('Spawning Syncthing instance...');
+      let errored = false;
+      nodecmd.get(exec, async (err) => {
+        if (err) {
+          errored = true;
+          log.error(err);
+          log.info('Syncthing is not installed, proceeding with installation');
+        }
+      });
+      await serviceHelper.delay(30 * 1000);
+      if (errored) {
         await installSyncthing();
-        await serviceHelper.delay(1 * 60 * 1000);
-        startSyncthing();
-        return;
+        await serviceHelper.delay(60 * 1000);
       }
+      startSyncthing();
     } else {
       const currentConfigOptions = await getConfigOptions();
       const currentDefaultsFolderOptions = await getConfigDefaultsFolder();
       const apiPort = userconfig.initial.apiport || config.server.apiport;
-      const myPort = apiPort + 2; // end with 9 eg 16139
+      const myPort = +apiPort + 2; // end with 9 eg 16139
       // adjust configuration
       const newConfig = {
         globalAnnounceEnabled: false,
@@ -1332,9 +1333,9 @@ async function startSyncthing() {
       if (restartRequired.status === 'success' && restartRequired.data.requiresRestart === true) {
         await systemRestart();
       }
+      await serviceHelper.delay(8 * 60 * 1000);
+      startSyncthing();
     }
-    await serviceHelper.delay(8 * 60 * 1000);
-    startSyncthing();
   } catch (error) {
     log.error(error);
     await serviceHelper.delay(2 * 60 * 1000);

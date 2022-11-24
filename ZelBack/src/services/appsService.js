@@ -3702,6 +3702,108 @@ async function availableApps(req, res) {
       hash: 'localSpecificationsFoldingVersion1', // hash of app message
       height: 0, // height of tx on which it was
     },
+    {
+      name: 'websiteSync',
+      commands: [],
+      containerData: 's:/website',
+      containerPorts: [
+        '80',
+      ],
+      cpu: 0.2,
+      description: 'Global Deployment of the RunOnFlux.io website',
+      domains: [
+        'runonflux.io',
+      ],
+      enviromentParameters: [],
+      hash: 'afdfdsfdsafdfds',
+      hdd: 1,
+      height: 12419384,
+      owner: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
+      ports: [
+        '31001',
+      ],
+      ram: 200,
+      repotag: 'runonflux/website:latest',
+      tiered: false,
+      version: 3,
+      instances: 5,
+    },
+    {
+      name: 'websiteSync2',
+      compose: [
+        {
+          name: 'comp1',
+          commands: [],
+          containerData: 's:/website',
+          containerPorts: [
+            '80',
+          ],
+          cpu: 0.2,
+          description: 'TEST',
+          domains: [
+            '',
+          ],
+          enviromentParameters: [],
+          hdd: 1,
+          ports: [
+            '31002',
+          ],
+          ram: 200,
+          repotag: 'runonflux/website:latest',
+          tiered: false,
+        },
+        {
+          name: 'comp2',
+          commands: [],
+          containerData: '/website',
+          containerPorts: [
+            '80',
+          ],
+          cpu: 0.2,
+          description: 'Global Deployment of the RunOnFlux.io website',
+          domains: [
+            '',
+          ],
+          enviromentParameters: [],
+          hdd: 1,
+          ports: [
+            '31003',
+          ],
+          ram: 200,
+          repotag: 'runonflux/website:latest',
+          tiered: false,
+        },
+        {
+          name: 'comp3',
+          commands: [],
+          containerData: 's:/website',
+          containerPorts: [
+            '80',
+          ],
+          cpu: 0.2,
+          description: 'Global Deployment of the RunOnFlux.io website',
+          domains: [
+            '',
+          ],
+          enviromentParameters: [],
+          hdd: 1,
+          ports: [
+            '31004',
+          ],
+          ram: 200,
+          repotag: 'runonflux/website:latest',
+          tiered: false,
+        },
+      ],
+      contacts: [],
+      description: 'TEST',
+      geolocation: [],
+      hash: 'asdasdasd',
+      height: 12391464,
+      instances: 5,
+      owner: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
+      version: 5,
+    },
   ];
 
   const dataResponse = messageHelper.createDataMessage(apps);
@@ -3784,6 +3886,11 @@ async function verifyRepository(repotag) {
   if (typeof repotag !== 'string') {
     throw new Error('Invalid repotag');
   }
+
+  if (/\s/.test(repotag)) {
+    throw new Error(`Repository "${repotag}" should not contain space characters.`);
+  }
+
   const splittedRepo = repotag.split(':');
   if (splittedRepo[0] && splittedRepo[1] && !splittedRepo[2]) {
     let repoToFetch = splittedRepo[0];
@@ -8247,10 +8354,10 @@ async function syncthingApps() {
           for (const appInstance of locations) {
             const ip = appInstance.ip.split(':')[0];
             const port = appInstance.ip.split(':')[1] || 16127;
-            const addresses = [`tcp://${ip}:${port + 2}`, `quic://${ip}:${port + 2}`];
+            const addresses = [`tcp://${ip}:${+port + 2}`, `quic://${ip}:${+port + 2}`];
             const name = `${ip}:${port}`;
             // eslint-disable-next-line no-await-in-loop
-            const deviceID = await getDeviceID(`http://${name}`);
+            const deviceID = await getDeviceID(name);
             if (deviceID) {
               devices.push({ deviceID });
               const deviceExists = devicesConfiguration.find((device) => device.name === name);
@@ -8261,7 +8368,9 @@ async function syncthingApps() {
                   addresses,
                 };
                 devicesIds.push(deviceID);
-                devicesConfiguration.push(newDevice);
+                if (deviceID !== myDeviceID.data) {
+                  devicesConfiguration.push(newDevice);
+                }
               }
             }
           }
@@ -8290,10 +8399,10 @@ async function syncthingApps() {
             for (const appInstance of locations) {
               const ip = appInstance.ip.split(':')[0];
               const port = appInstance.ip.split(':')[1] || 16127;
-              const addresses = [`tcp://${ip}:${port + 2}`, `quic://${ip}:${port + 2}`];
+              const addresses = [`tcp://${ip}:${+port + 2}`, `quic://${ip}:${+port + 2}`];
               const name = `${ip}:${port}`;
               // eslint-disable-next-line no-await-in-loop
-              const deviceID = await getDeviceID(`http://${name}`);
+              const deviceID = await getDeviceID(name);
               if (deviceID) {
                 devices.push({ deviceID });
                 const deviceExists = devicesConfiguration.find((device) => device.name === name);
@@ -8304,7 +8413,9 @@ async function syncthingApps() {
                     addresses,
                   };
                   devicesIds.push(deviceID);
-                  devicesConfiguration.push(newDevice);
+                  if (deviceID !== myDeviceID.data) {
+                    devicesConfiguration.push(newDevice);
+                  }
                 }
               }
             }
@@ -8321,6 +8432,7 @@ async function syncthingApps() {
     }
     // now we have new accurate devicesConfiguration and foldersConfiguration
     // add more of current devices
+    // excludes our current deviceID adjustment
     await syncthingService.adjustConfigDevices('put', devicesConfiguration);
     // add more of current folders
     await syncthingService.adjustConfigFolders('put', foldersConfiguration);
@@ -8337,8 +8449,11 @@ async function syncthingApps() {
     const nonUsedDevices = allDevicesResp.data.filter((syncthingDevice) => !devicesIds.includes(syncthingDevice.deviceID));
     // eslint-disable-next-line no-restricted-syntax
     for (const nonUsedDevice of nonUsedDevices) {
-      // eslint-disable-next-line no-await-in-loop
-      await syncthingService.adjustConfigDevices('delete', undefined, nonUsedDevice.deviceID);
+      // exclude our deviceID
+      if (nonUsedDevice.deviceID !== myDeviceID.data) {
+        // eslint-disable-next-line no-await-in-loop
+        await syncthingService.adjustConfigDevices('delete', undefined, nonUsedDevice.deviceID);
+      }
     }
     // all configuration changes applied
     // check if restart is needed
