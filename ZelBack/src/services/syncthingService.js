@@ -1119,7 +1119,7 @@ async function debugCpuprof(req, res) {
   return res ? res.json(response) : response;
 }
 
-async function debugPeapprof(req, res) {
+async function debugHeapprof(req, res) {
   const response = await performRequest('get', '/rest/debug/heapprof');
   return res ? res.json(response) : response;
 }
@@ -1424,7 +1424,7 @@ module.exports = {
   debugCpuprof,
   debugFile,
   debugHttpmetrics,
-  debugPeapprof,
+  debugHeapprof,
   debugPeerCompletion,
   debugSupport,
   // helpers
