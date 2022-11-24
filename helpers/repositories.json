@@ -453,5 +453,6 @@
    "cryptochefs/crypto:latest",
    "keyoxide/doip-proxy",
    "keyoxide/keyoxide",
-   "cryptochefs/cryptonaire:latest"
+   "cryptochefs/cryptonaire:latest",
+   "superseriousbusiness/gotosocial"
 ]
