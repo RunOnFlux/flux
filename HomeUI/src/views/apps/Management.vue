@@ -1195,7 +1195,7 @@
                     Stop Monitoring and Delete Monitored Data
                   </b-button>
                   <confirm-dialog
-                    :target="`pause-app-${component.name}_${appSpecification.name}`"
+                    :target="`stop-monitoring-delete-${component.name}_${appSpecification.name}`"
                     confirm-button="Stop Monitoring"
                     @confirm="stopMonitoring(`${component.name}_${appSpecification.name}`, true)"
                   />

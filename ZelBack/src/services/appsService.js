@@ -3743,7 +3743,7 @@ async function availableApps(req, res) {
           domains: [
             '',
           ],
-          enviromentParameters: [],
+          environmentParameters: [],
           hdd: 1,
           ports: [
             '31002',
@@ -3764,7 +3764,7 @@ async function availableApps(req, res) {
           domains: [
             '',
           ],
-          enviromentParameters: [],
+          environmentParameters: [],
           hdd: 1,
           ports: [
             '31003',
@@ -3785,7 +3785,7 @@ async function availableApps(req, res) {
           domains: [
             '',
           ],
-          enviromentParameters: [],
+          environmentParameters: [],
           hdd: 1,
           ports: [
             '31004',
