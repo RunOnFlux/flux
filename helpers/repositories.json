@@ -553,5 +553,6 @@
    "keyoxide/doip-proxy",
    "keyoxide/keyoxide",
    "cryptochefs/cryptonaire:latest",
-   "superseriousbusiness/gotosocial"
+   "superseriousbusiness/gotosocial",
+   "mkreider/sun-fun.net:latest"
 ]
