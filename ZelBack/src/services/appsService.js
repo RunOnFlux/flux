@@ -1152,6 +1152,29 @@ async function stopAppMonitoringAPI(req, res) {
 }
 
 /**
+ * Created for testing purposes - sets appMonitored
+ *
+ * @param {object} appData
+ */
+
+function setAppsMonitored(appData) {
+  appsMonitored[appData.appName] = appData;
+}
+
+/**
+ * Created for testing purposes - clears appMonitored
+ *
+ * @param {object} appData
+ */
+
+function clearAppsMonitored() {
+  // eslint-disable-next-line no-restricted-syntax
+  for (const prop of Object.getOwnPropertyNames(appsMonitored)) {
+    delete appsMonitored[prop];
+  }
+}
+
+/**
  * To show filesystem changes for an app's Docker container. Only accessible by app owner, admins and flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -8114,4 +8137,8 @@ module.exports = {
   forceAppRemovals,
   getAllGlobalApplicationsNames,
   getAllGlobalApplicationsNamesWithLocation,
+
+  // exports for testing purposes
+  setAppsMonitored,
+  clearAppsMonitored,
 };

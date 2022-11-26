@@ -2408,7 +2408,7 @@ describe.only('appsService tests', () => {
     });
   });
 
-  describe.only('appStats tests', () => {
+  describe('appStats tests', () => {
     let verificationHelperStub;
     let logSpy;
     const generateResponse = () => {
@@ -2514,6 +2514,124 @@ describe.only('appsService tests', () => {
       const res = generateResponse();
 
       await appsService.appStats(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'success',
+        data: 'some data',
+      });
+      sinon.assert.notCalled(logSpy);
+      sinon.assert.calledOnceWithExactly(dockerStub, 'myappname');
+    });
+  });
+
+  describe.only('appMonitor tests', () => {
+    let verificationHelperStub;
+    let logSpy;
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.stub().returns(res);
+      return res;
+    };
+
+    beforeEach(() => {
+      verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+      logSpy = sinon.spy(log, 'error');
+    });
+
+    afterEach(() => {
+      appsService.clearAppsMonitored();
+      sinon.restore();
+    });
+
+    it('should return error if no app name was passed', async () => {
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      const res = generateResponse();
+
+      await appsService.appMonitor(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'No Flux App specified',
+        },
+      });
+      sinon.assert.calledOnce(logSpy);
+    });
+
+    it('should return error if user has no appowner privileges', async () => {
+      const req = {
+        params: {
+          appname: 'test_myappname',
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      const res = generateResponse();
+      verificationHelperStub.returns(false);
+
+      await appsService.appMonitor(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: {
+          code: 401,
+          name: 'Unauthorized',
+          message: 'Unauthorized. Access denied.',
+        },
+      });
+      sinon.assert.notCalled(logSpy);
+    });
+
+    it('should return app stats, underscore in the name', async () => {
+      const req = {
+        params: {
+          appname: 'test_myappname',
+          lines: [10, 11, 12],
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      verificationHelperStub.returns(true);
+      const dockerStub = sinon.stub(dockerService, 'dockerContainerStats').returns('some data');
+      const res = generateResponse();
+
+      await appsService.appMonitor(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'success',
+        data: 'some data',
+      });
+      sinon.assert.notCalled(logSpy);
+      sinon.assert.calledOnceWithExactly(dockerStub, 'test_myappname');
+    });
+
+    it('should return app stats, no underscore in the name', async () => {
+      const req = {
+        params: {
+          appname: 'myappname',
+          lines: [10, 11, 12],
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      verificationHelperStub.returns(true);
+      const dockerStub = sinon.stub(dockerService, 'dockerContainerStats').returns('some data');
+      const res = generateResponse();
+
+      await appsService.appMonitor(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
