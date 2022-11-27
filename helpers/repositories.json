@@ -373,6 +373,7 @@
    "haileypdll/cyti-minter:latest",
    "obolflip/obolflip-client:latest",
    "freeir/ss-obfs",
+   "fabreeze/flux-proxy-test:latest",
    "subdirectory/subshell",
    "adarshtjc/ergonames-ui-testnet",
    "myecoria/paw-node:latest",
