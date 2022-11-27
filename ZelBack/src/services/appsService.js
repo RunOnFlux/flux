@@ -3941,23 +3941,31 @@ async function checkApplicationImagesComplience(appSpecs) {
 
   const repos = resBlockedRepo.data;
 
-  const pureImagesRepos = [];
+  const pureImagesOrOrganisationsRepos = [];
   repos.forEach((repo) => {
-    pureImagesRepos.push(repo.split(':')[0]);
+    pureImagesOrOrganisationsRepos.push(repo.split(':')[0]);
   });
 
   const images = [];
+  const organisations = [];
   if (appSpecs.version <= 3) {
     images.push(appSpecs.repotag.split(':')[0]);
+    organisations.push(appSpecs.repotag.split(':')[0].split('/')[0]);
   } else {
     appSpecs.compose.forEach((component) => {
       images.push(component.repotag.split(':')[0]);
+      organisations.push(component.repotag.split(':')[0].split('/')[0]);
     });
   }
 
   images.forEach((image) => {
-    if (pureImagesRepos.includes(image)) {
+    if (pureImagesOrOrganisationsRepos.includes(image)) {
       throw new Error(`Image ${image} is blocked. Application ${appSpecs.name} connot be spawned.`);
+    }
+  });
+  organisations.forEach((org) => {
+    if (pureImagesOrOrganisationsRepos.includes(org)) {
+      throw new Error(`Organisation ${org} is blocked. Application ${appSpecs.name} connot be spawned.`);
     }
   });
 
