@@ -4699,7 +4699,13 @@ export default {
         if (locFound) {
           instances += locFound.instances;
         }
+        if (location === 'ALL') {
+          instances += 100;
+        }
       });
+      if (!positiveLocations.length) {
+        instances += 100;
+      }
       console.log(instances);
       instances = instances > 3 ? instances : 3;
       const maxInstances = instances > 100 ? 100 : instances;
