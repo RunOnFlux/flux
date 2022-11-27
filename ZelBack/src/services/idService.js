@@ -11,6 +11,7 @@ const dbHelper = require('./dbHelper');
 const verificationHelper = require('./verificationHelper');
 const generalService = require('./generalService');
 const dockerService = require('./dockerService');
+const syncthingService = require('./syncthingService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 
 const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/;
@@ -94,6 +95,11 @@ async function loginPhrase(req, res) {
   try {
     // check docker availablility
     await dockerService.dockerListImages();
+    // check synthing availability
+    const syncthingDeviceID = await syncthingService.getDeviceID();
+    if (syncthingDeviceID.status === 'error') {
+      throw new Error('Syncthing is not running properly');
+    }
     // check Node Hardware Requirements are ok.
     const hwPassed = await confirmNodeTierHardware();
     if (hwPassed === false) {

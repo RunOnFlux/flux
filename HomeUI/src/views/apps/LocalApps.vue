@@ -2048,16 +2048,6 @@ export default {
     },
     async removeApp(app) {
       const appName = this.getAppName(app);
-      const okAppsForAdmin = [
-        'FoldingAtHomeB',
-        'KadenaChainWebNode',
-        'KadenaChainWebData',
-        'FoldingAtHomeArm64',
-      ];
-      if (!okAppsForAdmin.includes(appName) && this.privilege === 'admin') { // node owner but app is a global app
-        this.showToast('danger', `This application ${appName} cannot be removed by node owner`);
-        return;
-      }
       const self = this;
       this.output = '';
       this.showToast('warning', `Removing ${appName}`);

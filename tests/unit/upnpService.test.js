@@ -150,6 +150,9 @@ describe('upnpService tests', () => {
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 122, private: 122, ttl: 0, description: 'Flux_Home_UI',
       });
+      sinon.assert.calledWithExactly(createMappingSpy, {
+        public: 125, private: 125, ttl: 0, description: 'Flux_Syncthing',
+      });
     });
 
     it('should return true if all client responses are valid, no parameter passed', async () => {
@@ -165,6 +168,9 @@ describe('upnpService tests', () => {
       });
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 5549, private: 5549, ttl: 0, description: 'Flux_Home_UI',
+      });
+      sinon.assert.calledWithExactly(createMappingSpy, {
+        public: 5552, private: 5552, ttl: 0, description: 'Flux_Syncthing',
       });
     });
 

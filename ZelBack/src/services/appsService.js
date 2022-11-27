@@ -25,6 +25,7 @@ const dockerService = require('./dockerService');
 const generalService = require('./generalService');
 const upnpService = require('./upnpService');
 const geolocationService = require('./geolocationService');
+const syncthingService = require('./syncthingService');
 const log = require('../lib/log');
 const userconfig = require('../../../config/userconfig');
 
@@ -1183,7 +1184,7 @@ async function stopAppMonitoringAPI(req, res) {
       }
       const monitoringResponse = messageHelper.createSuccessMessage(successMessage);
       res.json(monitoringResponse);
-    // 2. Stop a specific app
+      // 2. Stop a specific app
     } else {
       const mainAppName = appname.split('_')[1] || appname;
       const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
@@ -1786,9 +1787,9 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     if (useThisVolume.mount === '/') {
       execRemoveAlloc = `sudo rm -rf ${fluxDirPath}appvolumes/${appId}FLUXFSVOL`;
     }
-    await cmdAsync(execRemoveAlloc);
-    const execFinal = `sudo rm -rf ${appsFolder + appId}/${appId}VERTEMP`;
-    await cmdAsync(execFinal);
+    await cmdAsync(execRemoveAlloc).catch((e) => log.error(e));
+    const execFinal = `sudo rm -rf ${appsFolder + appId}`;
+    await cmdAsync(execFinal).catch((e) => log.error(e));
     const aloocationRemoval2 = {
       status: 'Pre-removal cleaning completed. Forcing removal.',
     };
@@ -1838,6 +1839,9 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   if (res) {
     res.write(serviceHelper.ensureString(stopStatus2));
   }
+
+  // eslint-disable-next-line no-use-before-define
+  await stopSyncthingApp(monitoredName, res);
 
   const removeStatus = {
     status: isComponent ? `Removing Flux App component ${appSpecifications.name} container...` : `Removing Flux App ${appName} container...`,
@@ -2283,6 +2287,9 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   if (res) {
     res.write(serviceHelper.ensureString(stopStatus2));
   }
+
+  // eslint-disable-next-line no-use-before-define
+  await stopSyncthingApp(monitoredName, res);
 
   const removeStatus = {
     status: isComponent ? `Removing Flux App component ${appSpecifications.name} container...` : `Removing Flux App ${appName} container...`,
@@ -3694,6 +3701,108 @@ async function availableApps(req, res) {
       containerData: '/config',
       hash: 'localSpecificationsFoldingVersion1', // hash of app message
       height: 0, // height of tx on which it was
+    },
+    {
+      name: 'websiteSync',
+      commands: [],
+      containerData: 's:/website',
+      containerPorts: [
+        '80',
+      ],
+      cpu: 0.2,
+      description: 'Global Deployment of the RunOnFlux.io website',
+      domains: [
+        'runonflux.io',
+      ],
+      enviromentParameters: [],
+      hash: 'afdfdsfdsafdfds',
+      hdd: 1,
+      height: 12419384,
+      owner: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
+      ports: [
+        '31001',
+      ],
+      ram: 200,
+      repotag: 'runonflux/website:latest',
+      tiered: false,
+      version: 3,
+      instances: 5,
+    },
+    {
+      name: 'websiteSync2',
+      compose: [
+        {
+          name: 'comp1',
+          commands: [],
+          containerData: 's:/website',
+          containerPorts: [
+            '80',
+          ],
+          cpu: 0.2,
+          description: 'TEST',
+          domains: [
+            '',
+          ],
+          environmentParameters: [],
+          hdd: 1,
+          ports: [
+            '31002',
+          ],
+          ram: 200,
+          repotag: 'runonflux/website:latest',
+          tiered: false,
+        },
+        {
+          name: 'comp2',
+          commands: [],
+          containerData: '/website',
+          containerPorts: [
+            '80',
+          ],
+          cpu: 0.2,
+          description: 'Global Deployment of the RunOnFlux.io website',
+          domains: [
+            '',
+          ],
+          environmentParameters: [],
+          hdd: 1,
+          ports: [
+            '31003',
+          ],
+          ram: 200,
+          repotag: 'runonflux/website:latest',
+          tiered: false,
+        },
+        {
+          name: 'comp3',
+          commands: [],
+          containerData: 's:/website',
+          containerPorts: [
+            '80',
+          ],
+          cpu: 0.2,
+          description: 'Global Deployment of the RunOnFlux.io website',
+          domains: [
+            '',
+          ],
+          environmentParameters: [],
+          hdd: 1,
+          ports: [
+            '31004',
+          ],
+          ram: 200,
+          repotag: 'runonflux/website:latest',
+          tiered: false,
+        },
+      ],
+      contacts: [],
+      description: 'TEST',
+      geolocation: [],
+      hash: 'asdasdasd',
+      height: 12391464,
+      instances: 5,
+      owner: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
+      version: 5,
     },
   ];
 
@@ -8155,6 +8264,208 @@ async function forceAppRemovals() {
   }
 }
 
+async function stopSyncthingApp(appComponentName, res) {
+  try {
+    const identifier = appComponentName;
+    const appId = dockerService.getAppIdentifier(identifier);
+    const folder = `${appsFolder + appId}`;
+    const allSyncthingFolders = await syncthingService.getConfigFolders();
+    if (allSyncthingFolders.status === 'error') {
+      return;
+    }
+    let folderId = null;
+    allSyncthingFolders.data.forEach((syncthingFolder) => {
+      if (syncthingFolder.path === folder) {
+        folderId = syncthingFolder.id;
+      }
+    });
+    if (!folderId) {
+      return;
+    }
+    const adjustSyncthingA = {
+      status: 'Adjusting Syncthing...',
+    };
+    // remove folder from syncthing
+    await syncthingService.adjustConfigFolders('delete', undefined, folderId);
+    const restartRequired = await syncthingService.getConfigRestartRequired();
+    if (restartRequired.status === 'success' && restartRequired.data.requiresRestart === true) {
+      await syncthingService.systemRestart();
+    }
+    const adjustSyncthingB = {
+      status: 'Syncthing adjusted',
+    };
+    log.info(adjustSyncthingA);
+    if (res) {
+      res.write(serviceHelper.ensureString(adjustSyncthingA));
+    }
+    if (res) {
+      res.write(serviceHelper.ensureString(adjustSyncthingB));
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+async function getDeviceID(fluxIP) {
+  try {
+    const axiosConfig = {
+      timeout: 5000,
+    };
+    const response = await axios.get(`http://${fluxIP}/syncthing/deviceid`, axiosConfig);
+    return response.data.data;
+  } catch (error) {
+    log.error(error);
+    return null;
+  }
+}
+
+// update syncthing configuration for locally installed apps
+async function syncthingApps() {
+  try {
+    // do not run if installationInProgress or removalInProgress
+    if (installationInProgress || removalInProgress) {
+      return;
+    }
+    // get list of all installed apps
+    const appsInstalled = await installedApps();
+    if (appsInstalled.status === 'error') {
+      return;
+    }
+    // go through every containerData of all components of every app
+    const devicesIds = [];
+    const devicesConfiguration = [];
+    const folderIds = [];
+    const foldersConfiguration = [];
+    const myDeviceID = await syncthingService.getDeviceID();
+    // eslint-disable-next-line no-restricted-syntax
+    for (const installedApp of appsInstalled.data) {
+      if (installedApp.version <= 3) {
+        const containerDataFlags = installedApp.containerData.split(':')[1] ? installedApp.containerData.split(':')[0] : '';
+        if (containerDataFlags.includes('s')) {
+          const identifier = installedApp.name;
+          const appId = dockerService.getAppIdentifier(identifier);
+          const folder = `${appsFolder + appId}`;
+          const id = appId;
+          const label = appId;
+          const devices = [{ deviceID: myDeviceID.data }];
+          // eslint-disable-next-line no-await-in-loop
+          const locations = await appLocation(installedApp.name);
+          // eslint-disable-next-line no-restricted-syntax
+          for (const appInstance of locations) {
+            const ip = appInstance.ip.split(':')[0];
+            const port = appInstance.ip.split(':')[1] || 16127;
+            const addresses = [`tcp://${ip}:${+port + 2}`, `quic://${ip}:${+port + 2}`];
+            const name = `${ip}:${port}`;
+            // eslint-disable-next-line no-await-in-loop
+            const deviceID = await getDeviceID(name);
+            if (deviceID) {
+              devices.push({ deviceID });
+              const deviceExists = devicesConfiguration.find((device) => device.name === name);
+              if (!deviceExists) {
+                const newDevice = {
+                  deviceID,
+                  name,
+                  addresses,
+                };
+                devicesIds.push(deviceID);
+                if (deviceID !== myDeviceID.data) {
+                  devicesConfiguration.push(newDevice);
+                }
+              }
+            }
+          }
+          folderIds.push(id);
+          foldersConfiguration.push({
+            id,
+            label,
+            path: folder,
+            devices,
+          });
+        }
+      } else {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const installedComponent of installedApp.compose) {
+          const containerDataFlags = installedComponent.containerData.split(':')[1] ? installedComponent.containerData.split(':')[0] : '';
+          if (containerDataFlags.includes('s')) {
+            const identifier = `${installedComponent.name}_${installedApp.name}`;
+            const appId = dockerService.getAppIdentifier(identifier);
+            const folder = `${appsFolder + appId}`;
+            const id = appId;
+            const label = appId;
+            const devices = [{ deviceID: myDeviceID.data }];
+            // eslint-disable-next-line no-await-in-loop
+            const locations = await appLocation(installedApp.name);
+            // eslint-disable-next-line no-restricted-syntax
+            for (const appInstance of locations) {
+              const ip = appInstance.ip.split(':')[0];
+              const port = appInstance.ip.split(':')[1] || 16127;
+              const addresses = [`tcp://${ip}:${+port + 2}`, `quic://${ip}:${+port + 2}`];
+              const name = `${ip}:${port}`;
+              // eslint-disable-next-line no-await-in-loop
+              const deviceID = await getDeviceID(name);
+              if (deviceID) {
+                devices.push({ deviceID });
+                const deviceExists = devicesConfiguration.find((device) => device.name === name);
+                if (!deviceExists) {
+                  const newDevice = {
+                    deviceID,
+                    name,
+                    addresses,
+                  };
+                  devicesIds.push(deviceID);
+                  if (deviceID !== myDeviceID.data) {
+                    devicesConfiguration.push(newDevice);
+                  }
+                }
+              }
+            }
+            folderIds.push(id);
+            foldersConfiguration.push({
+              id,
+              label,
+              path: folder,
+              devices,
+            });
+          }
+        }
+      }
+    }
+    // now we have new accurate devicesConfiguration and foldersConfiguration
+    // add more of current devices
+    // excludes our current deviceID adjustment
+    await syncthingService.adjustConfigDevices('put', devicesConfiguration);
+    // add more of current folders
+    await syncthingService.adjustConfigFolders('put', foldersConfiguration);
+    // remove folders that should not be synced anymore (this shall actually not trigger)
+    const allFoldersResp = await syncthingService.getConfigFolders();
+    const nonUsedFolders = allFoldersResp.data.filter((syncthingFolder) => !folderIds.includes(syncthingFolder.id));
+    // eslint-disable-next-line no-restricted-syntax
+    for (const nonUsedFolder of nonUsedFolders) {
+      // eslint-disable-next-line no-await-in-loop
+      await syncthingService.adjustConfigFolders('delete', undefined, nonUsedFolder.id);
+    }
+    // remove obsolete devices
+    const allDevicesResp = await syncthingService.getConfigDevices();
+    const nonUsedDevices = allDevicesResp.data.filter((syncthingDevice) => !devicesIds.includes(syncthingDevice.deviceID));
+    // eslint-disable-next-line no-restricted-syntax
+    for (const nonUsedDevice of nonUsedDevices) {
+      // exclude our deviceID
+      if (nonUsedDevice.deviceID !== myDeviceID.data) {
+        // eslint-disable-next-line no-await-in-loop
+        await syncthingService.adjustConfigDevices('delete', undefined, nonUsedDevice.deviceID);
+      }
+    }
+    // all configuration changes applied
+    // check if restart is needed
+    const restartRequired = await syncthingService.getConfigRestartRequired();
+    if (restartRequired.status === 'success' && restartRequired.data.requiresRestart === true) {
+      await syncthingService.systemRestart();
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
 module.exports = {
   listRunningApps,
   listAllApps,
@@ -8243,4 +8554,5 @@ module.exports = {
   forceAppRemovals,
   getAllGlobalApplicationsNames,
   getAllGlobalApplicationsNamesWithLocation,
+  syncthingApps,
 };
