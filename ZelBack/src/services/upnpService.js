@@ -96,6 +96,12 @@ async function setupUPNP(apiport = config.apiport) { // todo evaluate adding ssl
       ttl: 0,
       description: 'Flux_Home_UI',
     });
+    await client.createMapping({
+      public: +apiport + 2,
+      private: +apiport + 2,
+      ttl: 0,
+      description: 'Flux_Syncthing',
+    });
     return true;
   } catch (error) {
     log.error(error);

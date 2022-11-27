@@ -1796,7 +1796,7 @@ describe('fluxNetworkHelper tests', () => {
     let utilStub;
     let funcStub;
     let logSpy;
-    const ports = [16127, 16126, 80, 443, 16125, 11, 13];
+    const ports = [16127, 16126, 16129, 80, 443, 16125, 11, 13];
     beforeEach(() => {
       utilStub = sinon.stub(util, 'promisify');
       logSpy = sinon.spy(log, 'info');
