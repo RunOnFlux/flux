@@ -4399,7 +4399,7 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
       }
       // furthermore name cannot contain any special character
       if (!appComponent.name.match(/^[a-zA-Z0-9]+$/)) {
-        throw new Error('Flux App name contains special characters. Only a-z, A-Z and 0-9 are allowed');
+        throw new Error('Flux App component name contains special characters. Only a-z, A-Z and 0-9 are allowed');
       }
       if (usedNames.includes(appComponent.name)) {
         throw new Error(`Flux App component ${appComponent.name} already assigned. Use different name.`);
