@@ -6709,7 +6709,6 @@ async function continuousFluxAppHashesCheck() {
       },
     };
     const results = await dbHelper.findInDatabase(database, appsHashesCollection, query, projection);
-    dbHelper.deletedata
     // eslint-disable-next-line no-restricted-syntax
     for (const result of results) {
       if (!knownWrongTxids.includes(result.txid)) { // wrong data, can be later removed
