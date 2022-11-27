@@ -6,7 +6,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const util = require('util');
-// const verificationHelper = require('./verificationHelper');
+const qs = require('qs');
+const verificationHelper = require('./verificationHelper');
 // eslint-disable-next-line import/no-extraneous-dependencies
 
 const cmdAsync = util.promisify(nodecmd.get);
@@ -102,7 +103,7 @@ async function systemBrowse(req, res) {
   if (current) {
     apiPath += `?current=${current}`;
   }
-  const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest('get', apiPath);
@@ -134,7 +135,7 @@ async function systemDebug(req, res) {
   } else if (disable) {
     apiPath += `?disable=${disable}`;
   }
-  const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest(method, apiPath);
@@ -158,7 +159,7 @@ async function systemDiscovery(req, res) {
     method = 'post';
     apiPath += `?device=${device}&addr=${addr}`;
   }
-  const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest(method, apiPath);
@@ -169,7 +170,7 @@ async function systemDiscovery(req, res) {
 }
 
 async function systemErrorClear(req, res) {
-  const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest('post', '/rest/system/error/clear');
@@ -187,7 +188,7 @@ async function systemError(req, res) {
   if (message) {
     method = 'post';
   }
-  const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest(method, apiPath, message);
@@ -205,7 +206,7 @@ async function postSystemError(req, res) {
   req.on('end', async () => {
     const message = serviceHelper.ensureObject(body);
     try {
-      const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
       let response = null;
       if (authorized === true) {
         response = await performRequest('post', '/rest/system/error', message);
@@ -228,7 +229,7 @@ async function systemLog(req, res) {
   if (since) {
     apiPath += `?since=${since}`;
   }
-  const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest('get', apiPath);
@@ -245,7 +246,7 @@ async function systemLogTxt(req, res) {
   if (since) {
     apiPath += `?since=${since}`;
   }
-  const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest('get', apiPath);
@@ -256,7 +257,7 @@ async function systemLogTxt(req, res) {
 }
 
 async function systemPaths(req, res) {
-  const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest('get', '/rest/system/paths');
@@ -273,7 +274,7 @@ async function systemPause(req, res) {
   if (device) {
     apiPath += `?device=${device}`;
   }
-  const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest('post', apiPath);
@@ -284,13 +285,7 @@ async function systemPause(req, res) {
 }
 
 async function systemPing(req, res) {
-  const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  let response = null;
-  if (authorized === true) {
-    response = await performRequest('get', '/rest/system/ping'); // can also be 'post', same
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
+  const response = await performRequest('get', '/rest/system/ping'); // can also be 'post', same
   return res ? res.json(response) : response;
 }
 
@@ -302,7 +297,7 @@ async function systemReset(req, res) {
   if (folder) {
     apiPath += `?folder=${folder}`;
   }
-  const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest('post', apiPath);
@@ -315,7 +310,13 @@ async function systemReset(req, res) {
 // restarts syncthing
 async function systemRestart(req, res) {
   log.info('Restarting Syncthing...');
-  const response = await performRequest('post', '/rest/system/restart');
+  const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
+  let response = null;
+  if (authorized === true) {
+    response = await performRequest('post', '/rest/system/restart');
+  } else {
+    response = messageHelper.errUnauthorizedMessage();
+  }
   log.info('Syncthing restarted');
   return res ? res.json(response) : response;
 }
@@ -327,7 +328,7 @@ async function systemResume(req, res) {
   if (device) {
     apiPath += `?device=${device}`;
   }
-  const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest('post', apiPath);
@@ -339,7 +340,7 @@ async function systemResume(req, res) {
 
 // shutsdown syncthing
 async function systemShutdown(req, res) {
-  const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest('post', '/rest/system/shutdown');
@@ -355,7 +356,7 @@ async function systemStatus(req, res) {
 }
 
 async function systemUpgrade(req, res) {
-  const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest('get', '/rest/system/upgrade');
@@ -366,7 +367,7 @@ async function systemUpgrade(req, res) {
 }
 
 async function postSystemUpgrade(req, res) {
-  const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
   if (authorized === true) {
     response = await performRequest('post', '/rest/system/upgrade');
@@ -383,13 +384,7 @@ async function systemVersion(req, res) {
 
 // === CONFIG ENDPOINTS ===
 async function getConfig(req, res) {
-  const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  let response = null;
-  if (authorized === true) {
-    response = await performRequest('get', '/rest/config');
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
+  const response = await performRequest('get', '/rest/config');
   return res ? res.json(response) : response;
 }
 
@@ -402,7 +397,7 @@ async function postConfig(req, res) {
     try {
       const processedBody = serviceHelper.ensureObject(body);
       const newConfig = processedBody.config;
-      const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
       let response = null;
       if (authorized === true) {
         response = await performRequest('put', '/rest/config', newConfig);
@@ -479,7 +474,7 @@ async function postConfigFolders(req, res) {
       const newConfig = processedBody.config;
       const { id } = processedBody;
       const method = (processedBody.method || 'post').toLowerCase();
-      const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
       let response = null;
       if (authorized === true) {
         response = await adjustConfigFolders(method, newConfig, id);
@@ -515,7 +510,7 @@ async function postConfigDevices(req, res) {
       const newConfig = processedBody.config;
       const { id } = processedBody;
       const method = (processedBody.method || 'post').toLowerCase();
-      const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
       let response = null;
       if (authorized === true) {
         response = await adjustConfigDevices(method, newConfig, id);
@@ -558,7 +553,7 @@ async function postConfigDefaultsFolder(req, res) {
       const processedBody = serviceHelper.ensureObject(body);
       const newConfig = processedBody.config;
       const method = (processedBody.method || 'put').toLowerCase();
-      const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
       let response = null;
       if (authorized === true) {
         response = await adjustConfigDefaultsFolder(method, newConfig);
@@ -584,7 +579,7 @@ async function postConfigDefaultsDevice(req, res) {
       const processedBody = serviceHelper.ensureObject(body);
       const newConfig = processedBody.config;
       const method = (processedBody.method || 'put').toLowerCase();
-      const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
       let response = null;
       if (authorized === true) {
         response = await performRequest(method, '/rest/config/defaults/device', newConfig);
@@ -615,7 +610,7 @@ async function postConfigDefaultsIgnores(req, res) {
       const processedBody = serviceHelper.ensureObject(body);
       const newConfig = processedBody.config;
       const method = 'put';
-      const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
       let response = null;
       if (authorized === true) {
         response = await performRequest(method, '/rest/config/defaults/ignores', newConfig);
@@ -663,7 +658,7 @@ async function postConfigOptions(req, res) {
       const processedBody = serviceHelper.ensureObject(body);
       const newConfig = processedBody.config;
       const method = (processedBody.method || 'put').toLowerCase();
-      const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
       let response = null;
       if (authorized === true) {
         response = await adjustConfigOptions(method, newConfig);
@@ -689,7 +684,7 @@ async function postConfigGui(req, res) {
       const processedBody = serviceHelper.ensureObject(body);
       const newConfig = processedBody.config;
       const method = (processedBody.method || 'put').toLowerCase();
-      const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
       let response = null;
       if (authorized === true) {
         response = await performRequest(method, '/rest/config/gui', newConfig);
@@ -715,7 +710,7 @@ async function postConfigLdap(req, res) {
       const processedBody = serviceHelper.ensureObject(body);
       const newConfig = processedBody.config;
       const method = (processedBody.method || 'put').toLowerCase();
-      const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
       let response = null;
       if (authorized === true) {
         response = await performRequest(method, '/rest/config/ldap', newConfig);
@@ -752,7 +747,7 @@ async function postClusterPendigDevices(req, res) {
       if (device) {
         apiPath += `?device=${device}`;
       }
-      const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
       let response = null;
       if (authorized === true) {
         response = await performRequest(method, apiPath, newConfig);
@@ -788,7 +783,7 @@ async function postClusterPendigFolders(req, res) {
       if (folder) {
         apiPath += `?folder=${folder}`;
       }
-      const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
       let response = null;
       if (authorized === true) {
         response = await performRequest(method, apiPath, newConfig);
@@ -858,7 +853,7 @@ async function postFolderVersions(req, res) {
       if (folder) {
         apiPath += `?folder=${folder}`;
       }
-      const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
       let response = null;
       if (authorized === true) {
         response = await performRequest(method, apiPath, newConfig);
@@ -884,13 +879,16 @@ async function getDbBrowse(req, res) {
     let { prefix } = req.params;
     prefix = prefix || req.query.prefix;
     let apiPath = '/rest/db/browse';
-    if (folder) {
-      apiPath += `?folder=${folder}`;
-    } else {
+    if (!folder) {
       throw new Error('folder parameter is mandatory');
     }
-    if (levels) apiPath += `&levels=${levels}`;
-    if (prefix) apiPath += `&prefix=${prefix}`;
+    const qq = {
+      folder,
+      levels,
+      prefix,
+    };
+    const qqStr = qs.stringify(qq);
+    apiPath += `?${qqStr};`;
     const response = await performRequest('get', apiPath);
     return res ? res.json(response) : response;
   } catch (error) {
@@ -908,8 +906,12 @@ async function getDbCompletion(req, res) {
     device = device || req.query.device;
     let apiPath = '/rest/db/completion';
     if (folder || device) apiPath += '?';
-    if (folder) apiPath += `folder=${folder}&`;
-    if (device) apiPath += `device=${device}`;
+    const qq = {
+      folder,
+      device,
+    };
+    const qqStr = qs.stringify(qq);
+    apiPath += `${qqStr};`;
     const response = await performRequest('get', apiPath);
     return res ? res.json(response) : response;
   } catch (error) {
@@ -927,8 +929,12 @@ async function getDbFile(req, res) {
     file = file || req.query.file;
     let apiPath = '/rest/db/file';
     if (folder || file) apiPath += '?';
-    if (folder) apiPath += `folder=${folder}&`;
-    if (file) apiPath += `device=${file}`;
+    const qq = {
+      folder,
+      file,
+    };
+    const qqStr = qs.stringify(qq);
+    apiPath += `${qqStr};`;
     const response = await performRequest('get', apiPath);
     return res ? res.json(response) : response;
   } catch (error) {
@@ -1051,7 +1057,7 @@ async function postDbIgnores(req, res) {
       if (folder) {
         apiPath += `?folder=${folder}`;
       }
-      const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
       let response = null;
       if (authorized === true) {
         response = await performRequest(method, apiPath, newConfig);
@@ -1084,7 +1090,7 @@ async function postDbOverride(req, res) {
       } else {
         throw new Error('folder parameter is mandatory');
       }
-      const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
       let response = null;
       if (authorized === true) {
         response = await performRequest(method, apiPath, newConfig);
@@ -1123,7 +1129,7 @@ async function postDbPrio(req, res) {
       } else {
         throw new Error('file parameter is mandatory');
       }
-      const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
       let response = null;
       if (authorized === true) {
         response = await performRequest(method, apiPath, newConfig);
@@ -1156,7 +1162,7 @@ async function postDbRevert(req, res) {
       } else {
         throw new Error('folder parameter is mandatory');
       }
-      const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
       let response = null;
       if (authorized === true) {
         response = await performRequest(method, apiPath, newConfig);
@@ -1185,11 +1191,16 @@ async function postDbScan(req, res) {
       const { sub } = processedBody;
       const { next } = processedBody;
       const method = (processedBody.method || 'post').toLowerCase();
-      let apiPath = '/rest/db/scan?';
-      if (folder) apiPath += `folder=${folder}&`;
-      if (sub) apiPath += `sub=${sub}&`;
-      if (next) apiPath += `next=${next}`;
-      const authorized = true; // await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      let apiPath = '/rest/db/scan';
+      if (folder || sub || next) apiPath += '?';
+      const qq = {
+        folder,
+        sub,
+        next,
+      };
+      const qqStr = qs.stringify(qq);
+      apiPath += `${qqStr};`;
+      const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
       let response = null;
       if (authorized === true) {
         response = await performRequest(method, apiPath, newConfig);
@@ -1263,14 +1274,21 @@ async function getEvents(req, res) {
     let { events } = req.params;
     events = events || req.query.events;
     let { since } = req.params;
-    since = since || req.query.device;
+    since = since || req.query.since;
     let { limit } = req.params;
     limit = limit || req.query.limit;
-    let apiPath = '/rest/events?';
-    if (events) apiPath += `events=${events}&`;
-    if (since) apiPath += `since=${since}&`;
-    if (limit) apiPath += `limit=${limit}`;
-
+    let { timeout } = req.params;
+    timeout = timeout || req.query.timeout;
+    let apiPath = '/rest/events';
+    if (events || since || limit || timeout) apiPath += '?';
+    const qq = {
+      events,
+      since,
+      limit,
+      timeout,
+    };
+    const qqStr = qs.stringify(qq);
+    apiPath += `${qqStr};`;
     const response = await performRequest('get', apiPath);
     return res ? res.json(response) : response;
   } catch (error) {

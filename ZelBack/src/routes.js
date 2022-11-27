@@ -521,35 +521,50 @@ module.exports = (app, expressWs) => {
   app.get('/syncthing/cluster/pending/folders', cache('30 seconds'), (req, res) => {
     syncthingService.getClusterPendigFolders(req, res);
   });
-  app.get('/syncthing/folder/errors', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/folder/errors/:folder?', cache('30 seconds'), (req, res) => {
     syncthingService.getFolderErrors(req, res);
   });
-  app.get('/syncthing/folder/versions', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/folder/versions/:folder?', cache('30 seconds'), (req, res) => {
     syncthingService.getFolderVersions(req, res);
   });
-  app.get('/syncthing/db/browse', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/db/browse/:folder?/:levels?/:prefix?', cache('30 seconds'), (req, res) => {
     syncthingService.getDbBrowse(req, res);
   });
-  app.get('/syncthing/db/completion', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/db/completion/:folder?/:device?', cache('30 seconds'), (req, res) => {
     syncthingService.getDbCompletion(req, res);
   });
-  app.get('/syncthing/db/file', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/db/file/:folder?/:file?', cache('30 seconds'), (req, res) => {
     syncthingService.getDbFile(req, res);
   });
-  app.get('/syncthing/db/ignores', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/db/ignores/:folder?', cache('30 seconds'), (req, res) => {
     syncthingService.getDbIgnores(req, res);
   });
-  app.get('/syncthing/db/getDbLocalchanged', cache('30 seconds'), (req, res) => {
-    syncthingService.getDbIgnores(req, res);
+  app.get('/syncthing/db/localchanged/:folder?', cache('30 seconds'), (req, res) => {
+    syncthingService.getDbLocalchanged(req, res);
   });
-  app.get('/syncthing/db/need', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/db/need/:folder?', cache('30 seconds'), (req, res) => {
     syncthingService.getDbNeed(req, res);
   });
-  app.get('/syncthing/db/remoteneed', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/db/remoteneed/:folder?/:device?', cache('30 seconds'), (req, res) => {
     syncthingService.getDbRemoteNeed(req, res);
   });
-  app.get('/syncthing/db/status', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/db/status/:folder?', cache('30 seconds'), (req, res) => {
     syncthingService.getDbStatus(req, res);
+  });
+  app.get('/syncthing/events/disk', cache('30 seconds'), (req, res) => {
+    syncthingService.getEventsDisk(req, res);
+  });
+  app.get('/syncthing/events/:events?/:since?/:limit?/:timeout?', cache('30 seconds'), (req, res) => {
+    syncthingService.getEvents(req, res);
+  });
+  app.get('/syncthing/svc/random/string/:length?', cache('30 seconds'), (req, res) => {
+    syncthingService.getSvcRandomString(req, res);
+  });
+  app.get('/syncthing/svc/report', cache('30 seconds'), (req, res) => {
+    syncthingService.getSvcReport(req, res);
+  });
+  app.get('/syncthing/svc/:deviceid?', cache('30 seconds'), (req, res) => {
+    syncthingService.getSvcDeviceID(req, res);
   });
   app.get('/syncthing/debug/peerCompletion', cache('30 seconds'), (req, res) => {
     syncthingService.debugPeerCompletion(req, res);
