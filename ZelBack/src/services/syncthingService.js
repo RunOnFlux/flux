@@ -29,6 +29,10 @@ const parserOptions = {
 };
 const parser = new XMLParser(parserOptions);
 
+/**
+ * To get syncthing config xml file
+ * @returns {string} config gile (XML).
+ */
 async function getConfigFile() {
   try {
     const homedir = os.homedir();
@@ -40,6 +44,10 @@ async function getConfigFile() {
   }
 }
 
+/**
+ * To get syncthing Api key
+ * @returns {string} Api key.
+ */
 async function getSyncthingApiKey() { // can throw
   const fileRead = await getConfigFile();
   if (!fileRead) {
@@ -50,6 +58,13 @@ async function getSyncthingApiKey() { // can throw
   return apiKey;
 }
 
+/**
+ * To perform http request
+ * @param {string} method Method.
+ * @param {string} urlpath URL to be called.
+ * @param {object} data Request data.
+ * @returns {object} Message.
+ */
 async function performRequest(method = 'get', urlpath = '', data) {
   try {
     if (!syncthingApiKey) {
@@ -72,30 +87,62 @@ async function performRequest(method = 'get', urlpath = '', data) {
     return errorResponse;
   }
 }
-
+/**
+ * To get meta
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getMeta(req, res) {
   // does not require authentication
   const response = await performRequest('get', '/meta.js');
   // "var metadata = {\"deviceID\":\"K6VOO4G-5RLTF3B-JTUFMHH-JWITKGM-63DTTMT-I6BMON6-7E3LVFW-V5WAIAO\"};\n"
   return res ? res.json(response) : response;
 }
+
+/**
+ * To get Syhcthing health
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} System health, {"status": "OK"}.
+ */
 async function getHealth(req, res) {
   const response = await performRequest('get', '/rest/noauth/health');
   return res ? res.json(response) : response;
 }
 
 // === STATISTICS ENDPOINTS ===
+
+/**
+ * To get device statistics
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} General statistics about devices.
+ */
 async function statsDevice(req, res) {
   const response = await performRequest('get', '/rest/stats/device');
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get folder statistics
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} General statistics about folders.
+ */
 async function statsFolder(req, res) {
   const response = await performRequest('get', '/rest/stats/folder');
   return res ? res.json(response) : response;
 }
 
 // === SYSTEM ENDPOINTS ===
+
+/**
+ * To get list of directories matching the path given by the optional parameter current
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} List of directories in json array format.
+ */
 async function systemBrowse(req, res) {
   let { current } = req.params;
   current = current || req.query.current;
@@ -113,11 +160,23 @@ async function systemBrowse(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get the list of configured devices and some metadata associated with them. The list also contains the local device itself as not connected.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} List of configured devices and some metadata in json format.
+ */
 async function systemConnections(req, res) {
   const response = await performRequest('get', '/rest/system/connections');
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get the set of debug facilities and which of them are currently enabled.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} List of debug facilities and which of them are currently enabled.
+ */
 async function systemDebug(req, res) {
   let method = 'get';
   let { disable } = req.params;
@@ -145,6 +204,12 @@ async function systemDebug(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get the contents of the local discovery cache
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Contents of the local discovery cache
+ */
 async function systemDiscovery(req, res) {
   let method = 'get';
   let { device } = req.params;
@@ -169,6 +234,12 @@ async function systemDiscovery(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * Post with empty body to remove all recent errors.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function systemErrorClear(req, res) {
   const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
@@ -180,6 +251,12 @@ async function systemErrorClear(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * Returns the list of recent errors. Post with an error message in the body (plain text) to register a new error.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function systemError(req, res) {
   let method = 'get';
   let { message } = req.params;
@@ -198,6 +275,12 @@ async function systemError(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * Post with an error message in the body (plain text) to register a new error.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postSystemError(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -222,6 +305,12 @@ async function postSystemError(req, res) {
   });
 }
 
+/**
+ * To get the list of recent log entries. The optional {since} parameter limits the results to message newer than the given timestamp in RFC 3339 format.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function systemLog(req, res) {
   let { since } = req.params;
   since = since || req.query.since;
@@ -239,6 +328,12 @@ async function systemLog(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get the list of recent log entries formatted as a text log instead of a JSON object. The optional {since} parameter limits the results to message newer than the given timestamp in RFC 3339 format.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function systemLogTxt(req, res) {
   let { since } = req.params;
   since = since || req.query.since;
@@ -256,6 +351,12 @@ async function systemLogTxt(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get the path locations used internally for storing configuration, database, and others.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function systemPaths(req, res) {
   const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
@@ -267,6 +368,12 @@ async function systemPaths(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To pause the given device or all devices. Takes the optional parameter {device} (device ID). When omitted, pauses all devices.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function systemPause(req, res) {
   let { device } = req.params;
   device = device || req.query.device;
@@ -284,11 +391,23 @@ async function systemPause(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * Returns a {"ping": "pong"} object.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function systemPing(req, res) {
   const response = await performRequest('get', '/rest/system/ping'); // can also be 'post', same
   return res ? res.json(response) : response;
 }
 
+/**
+ * To erase the current index database and restart Syncthing. With no query parameters, the entire database is erased from disk. By specifying the {folder} parameter with a valid folder ID, only information for that folder will be erased.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function systemReset(req, res) {
   // note: scary call
   let { folder } = req.params;
@@ -307,7 +426,12 @@ async function systemReset(req, res) {
   return res ? res.json(response) : response;
 }
 
-// restarts syncthing
+/**
+ * To immediately restart Syncthing
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function systemRestart(req, res) {
   log.info('Restarting Syncthing...');
   const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
@@ -321,6 +445,12 @@ async function systemRestart(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To resume the given device or all devices. Takes the optional parameter {device} (device ID). When omitted, resumes all devices
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function systemResume(req, res) {
   let { device } = req.params;
   device = device || req.query.device;
@@ -338,7 +468,12 @@ async function systemResume(req, res) {
   return res ? res.json(response) : response;
 }
 
-// shutsdown syncthing
+/**
+ * To cause Syncthing to exit and not restart.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function systemShutdown(req, res) {
   const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
@@ -350,11 +485,23 @@ async function systemShutdown(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * Returns information about current system status and resource usage.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function systemStatus(req, res) {
   const response = await performRequest('get', '/rest/system/status');
   return res ? res.json(response) : response;
 }
 
+/**
+ * To Check for a possible upgrade, returns an object describing the newest version and upgrade possibility.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function systemUpgrade(req, res) {
   const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
@@ -366,6 +513,12 @@ async function systemUpgrade(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To perform an upgrade to the newest released version and restart.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postSystemUpgrade(req, res) {
   const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
@@ -377,6 +530,12 @@ async function postSystemUpgrade(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * Returns the current Syncthing version information.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function systemVersion(req, res) {
   const response = await performRequest('get', '/rest/system/version');
   return res ? res.json(response) : response;
