@@ -542,11 +542,24 @@ async function systemVersion(req, res) {
 }
 
 // === CONFIG ENDPOINTS ===
+
+/**
+ * Returns the entire config.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getConfig(req, res) {
   const response = await performRequest('get', '/rest/config');
   return res ? res.json(response) : response;
 }
 
+/**
+ * Replaces the entire config.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postConfig(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -572,11 +585,23 @@ async function postConfig(req, res) {
   });
 }
 
+/**
+ * Returns whether a restart of Syncthing is required for the current config to take effect.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getConfigRestartRequired(req, res) {
   const response = await performRequest('get', '/rest/config/restart-required');
   return res ? res.json(response) : response;
 }
 
+/**
+ * Returns the folder for the given ID.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getConfigFolders(req, res) {
   if (!req) {
     // eslint-disable-next-line no-param-reassign
@@ -595,6 +620,12 @@ async function getConfigFolders(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * Returns the device for the given ID.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getConfigDevices(req, res) {
   if (!req) {
     // eslint-disable-next-line no-param-reassign
@@ -613,6 +644,13 @@ async function getConfigDevices(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To modify config for folders. PUT replaces the entire config, PATCH replaces only the given child objects and DELETE removes the folder
+ * @param {string} method Request method.
+ * @param {string} newConfig new config to be replaced.
+ * @param {string} id folder ID.
+ * @returns {object} Message
+ */
 async function adjustConfigFolders(method, newConfig, id) {
   let apiPath = '/rest/config/folders';
   if (id) {
@@ -622,6 +660,12 @@ async function adjustConfigFolders(method, newConfig, id) {
   return response;
 }
 
+/**
+ * To modify config for folders. PUT replaces the entire config, PATCH replaces only the given child objects and DELETE removes the folder
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postConfigFolders(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -649,6 +693,13 @@ async function postConfigFolders(req, res) {
   });
 }
 
+/**
+ * To modify config for devices. PUT replaces the entire config, PATCH replaces only the given child objects and DELETE removes the device
+ * @param {string} method Request method.
+ * @param {string} newConfig new config.
+ * @param {string} id device ID.
+ * @returns {object} Message
+ */
 async function adjustConfigDevices(method, newConfig, id) {
   let apiPath = '/rest/config/devices';
   if (id) {
@@ -658,6 +709,12 @@ async function adjustConfigDevices(method, newConfig, id) {
   return response;
 }
 
+/**
+ * To modify config for devices. PUT replaces the entire config, PATCH replaces only the given child objects and DELETE removes the devices
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postConfigDevices(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -685,16 +742,34 @@ async function postConfigDevices(req, res) {
   });
 }
 
+/**
+ * Returns a template folder configuration object with all default values, which only needs a unique ID to be applied
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getConfigDefaultsFolder(req, res) {
   const response = await performRequest('get', '/rest/config/defaults/folder');
   return res ? res.json(response) : response;
 }
 
+/**
+ * Returns a template device configuration object with all default values, which only needs a unique ID to be applied
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getConfigDefaultsDevice(req, res) {
   const response = await performRequest('get', '/rest/config/defaults/device');
   return res ? res.json(response) : response;
 }
 
+/**
+ * To modify config for defult values for folders, PUT replaces the default config (omitted values are reset to the hard-coded defaults), PATCH replaces only the given child objects.
+ * @param {string} method Request method.
+ * @param {object} newConfig new config.
+ * @returns {object} Message
+ */
 async function adjustConfigDefaultsFolder(method, newConfig) {
   log.info('Patching Syncthing defaults for folder configuration...');
   const response = await performRequest(method, '/rest/config/defaults/folder', newConfig);
@@ -702,6 +777,12 @@ async function adjustConfigDefaultsFolder(method, newConfig) {
   return response;
 }
 
+/**
+ * To modify config for defult values for folders, PUT replaces the default config (omitted values are reset to the hard-coded defaults), PATCH replaces only the given child objects.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postConfigDefaultsFolder(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -728,6 +809,12 @@ async function postConfigDefaultsFolder(req, res) {
   });
 }
 
+/**
+ * To modify config for defult values for devices, PUT replaces the default config (omitted values are reset to the hard-coded defaults), PATCH replaces only the given child objects.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postConfigDefaultsDevice(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -754,11 +841,23 @@ async function postConfigDefaultsDevice(req, res) {
   });
 }
 
+/**
+ * returns an object listing ignore patterns to be used by default on folders, as an array of single-line strings
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getConfigDefaultsIgnores(req, res) {
   const response = await performRequest('get', '/rest/config/defaults/ignores');
   return res ? res.json(response) : response;
 }
 
+/**
+ * To replace the default ignore patterns from an object of the same format
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postConfigDefaultsIgnores(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -785,21 +884,45 @@ async function postConfigDefaultsIgnores(req, res) {
   });
 }
 
+/**
+ * Returns the options object
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getConfigOptions(req, res) {
   const response = await performRequest('get', '/rest/config/options');
   return res ? res.json(response) : response;
 }
 
+/**
+ * Returns the gui object
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getConfigGui(req, res) {
   const response = await performRequest('get', '/rest/config/gui');
   return res ? res.json(response) : response;
 }
 
+/**
+ * Returns the ldap object
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getConfigLdap(req, res) {
   const response = await performRequest('get', '/rest/config/ldap');
   return res ? res.json(response) : response;
 }
 
+/**
+ * To modify options object, PUT replaces the entire object and PATCH replaces only the given child objects.
+ * @param {string} method Request.
+ * @param {object} newConfig Response.
+ * @returns {object} Message
+ */
 async function adjustConfigOptions(method, newConfig) {
   log.info('Patching Syncthing configuration...');
   const response = await performRequest(method, '/rest/config/options', newConfig);
@@ -807,6 +930,12 @@ async function adjustConfigOptions(method, newConfig) {
   return response;
 }
 
+/**
+ * To modify options object, PUT replaces the entire object and PATCH replaces only the given child objects.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postConfigOptions(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -833,6 +962,12 @@ async function postConfigOptions(req, res) {
   });
 }
 
+/**
+ * To modify gui object, PUT replaces the entire object and PATCH replaces only the given child objects.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postConfigGui(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -859,6 +994,12 @@ async function postConfigGui(req, res) {
   });
 }
 
+/**
+ * To modify ldap object, PUT replaces the entire object and PATCH replaces only the given child objects.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postConfigLdap(req, res) {
   let body = '';
   req.on('data', (data) => {
