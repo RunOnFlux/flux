@@ -1797,7 +1797,14 @@ async function getEventsDisk(req, res) {
   }
 }
 
-// === MICS SERVICES ENDPOINTS ===
+// === MISC SERVICES ENDPOINTS ===
+
+/**
+ * Verifies and formats a device ID. Takes one parameter, {id}.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getSvcDeviceID(req, res) {
   try {
     let { id } = req.params;
@@ -1817,6 +1824,12 @@ async function getSvcDeviceID(req, res) {
   }
 }
 
+/**
+ * Returns a strong random generated string (alphanumeric) of the specified length. Takes the {length} parameter.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getSvcRandomString(req, res) {
   let { length } = req.params;
   length = length || req.query.length;
@@ -1834,6 +1847,12 @@ async function getSvcRandomString(req, res) {
   }
 }
 
+/**
+ * Returns the data sent in the anonymous usage report.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getSvcReport(req, res) {
   try {
     const response = await performRequest('get', '/rest/svc/report');
@@ -1846,7 +1865,13 @@ async function getSvcReport(req, res) {
 }
 
 // === CUSTOM ===
-// our device id and also test that syncthing is installed and running and we have api key
+
+/**
+ * Returns device id, also checks that syncthing is installed and running and we have the api key.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getDeviceID(req, res) {
   try {
     const meta = await getMeta();
@@ -1867,6 +1892,9 @@ async function getDeviceID(req, res) {
   }
 }
 
+/**
+ * To install Syncthing
+ */
 async function installSyncthing() { // can throw
   const nodedpath = path.join(__dirname, '../../../helpers');
   const exec = `cd ${nodedpath} && bash installSyncthing.sh`;
@@ -1874,6 +1902,9 @@ async function installSyncthing() { // can throw
   log.info('Syncthing installed');
 }
 
+/**
+ * To Start Syncthing
+ */
 async function startSyncthing() {
   try {
     // check wether syncthing is running or not
