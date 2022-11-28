@@ -1640,31 +1640,68 @@ async function postDbScan(req, res) {
 }
 
 // === DEBUG ===
+
+/**
+ * Summarizes the completion precentage for each remote device.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function debugPeerCompletion(req, res) {
   const response = await performRequest('get', '/rest/debug/peerCompletion');
   return res ? res.json(response) : response;
 }
 
+/**
+ * Returns statistics about each served REST API endpoint, to diagnose how much time was spent generating the responses.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function debugHttpmetrics(req, res) {
   const response = await performRequest('get', '/rest/debug/httpmetrics');
   return res ? res.json(response) : response;
 }
 
+/**
+ * To capture a profile of what Syncthing is doing on the CPU
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function debugCpuprof(req, res) {
   const response = await performRequest('get', '/rest/debug/cpuprof');
   return res ? res.json(response) : response;
 }
 
+/**
+ * To capture a profile of what Syncthing is doing with the heap memory.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function debugHeapprof(req, res) {
   const response = await performRequest('get', '/rest/debug/heapprof');
   return res ? res.json(response) : response;
 }
 
+/**
+ * To Collect information about the running instance for troubleshooting purposes.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function debugSupport(req, res) {
   const response = await performRequest('get', '/rest/debug/support');
   return res ? res.json(response) : response;
 }
 
+/**
+ * To Show diagnostics about a certain file in a shared folder. Takes the {folder} and {file} parameters.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function debugFile(req, res) {
   try {
     let { folder } = req.params;
