@@ -1729,6 +1729,13 @@ async function debugFile(req, res) {
 }
 
 // === EVENT ENDPOINTS ===
+
+/**
+ * To receive Syncthing events. takes {events}, {since}, {limit} and {timeout} parameters to filter the result.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getEvents(req, res) {
   try {
     let { events } = req.params;
@@ -1758,9 +1765,30 @@ async function getEvents(req, res) {
   }
 }
 
+/**
+ * To receive LocalChangeDetected and RemoteChangeDetected event types. takes {since}, {limit} and {timeout} parameters to filter the result.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getEventsDisk(req, res) {
   try {
-    const response = await performRequest('get', '/rest/events/disk');
+    let { since } = req.params;
+    since = since || req.query.since;
+    let { limit } = req.params;
+    limit = limit || req.query.limit;
+    let { timeout } = req.params;
+    timeout = timeout || req.query.timeout;
+    let apiPath = '/rest/events/disk';
+    if (since || limit || timeout) apiPath += '?';
+    const qq = {
+      since,
+      limit,
+      timeout,
+    };
+    const qqStr = qs.stringify(qq);
+    apiPath += `${qqStr};`;
+    const response = await performRequest('get', apiPath);
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
