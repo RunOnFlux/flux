@@ -9,6 +9,7 @@ const LRU = require('lru-cache');
 const systemcrontab = require('crontab');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
+const fluxCommunication = require('./fluxCommunication');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const {
@@ -61,6 +62,8 @@ const trySpawningGlobalAppCache = new LRU(GlobalAppsSpawnLRUoptions);
 let removalInProgress = false;
 let installationInProgress = false;
 let reinstallationOfOldAppsInProgress = false;
+
+const hashesNumberOfSearchs = new Map();
 
 const nodeSpecs = {
   cpuCores: 0,
@@ -6269,6 +6272,21 @@ async function appHashHasMessage(hash) {
 }
 
 /**
+ * To update the database that an app hash has a message not found on network.
+ * @param {object} hash Hash object containing app information.
+ * @returns {boolean} True.
+ */
+ async function appHashHasMessageNotFound(hash) {
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.daemon.database);
+  const query = { hash };
+  const update = { $set: { messageNotFound: true } };
+  const options = {};
+  await dbHelper.updateOneInDatabase(database, appsHashesCollection, query, update, options);
+  return true;
+}
+
+/**
  * To check and request an app. Handles fluxappregister type and fluxappupdate type.
  * @param {object} hash Hash object containing app information.
  * @param {string} txid Transaction ID.
@@ -6694,6 +6712,12 @@ async function continuousFluxAppHashesCheck() {
   try {
     const knownWrongTxids = ['e56e08a8dbe9523ad10ca328fca84ee1da775ea5f466abed06ec357daa192940'];
     log.info('Requesting missing Flux App messages');
+
+    const numberOfPeers = fluxCommunication.getNumberOfPeers();
+    if(numberOfPeers < 10){
+      log.info('Not enough connected peers to request missing Flux App messages');
+      return;
+    }
     // get flux app hashes that do not have a message;
     const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
@@ -6706,15 +6730,25 @@ async function continuousFluxAppHashesCheck() {
         height: 1,
         value: 1,
         message: 1,
+        messageNotFound: 1,
       },
     };
     const results = await dbHelper.findInDatabase(database, appsHashesCollection, query, projection);
     // eslint-disable-next-line no-restricted-syntax
     for (const result of results) {
-      if (!knownWrongTxids.includes(result.txid)) { // wrong data, can be later removed
-        checkAndRequestApp(result.hash, result.txid, result.height, result.value);
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(1234);
+      if (!knownWrongTxids.includes(result.txid) || !result.messageNotFound) { // wrong data, can be later removed
+        let numberOfSearches = 1;
+        if(hashesNumberOfSearchs.has(result.hash)){
+          numberOfSearches = hashesNumberOfSearchs.get(result.hash) + 1;
+        } 
+        hashesNumberOfSearchs.set(result.hash, numberOfSearches);
+        if(numberOfSearches < 4) {
+          checkAndRequestApp(result.hash, result.txid, result.height, result.value);
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.delay(1234);
+        } else {
+          await appHashHasMessageNotFound(result.hash);
+        }
       }
     }
   } catch (error) {

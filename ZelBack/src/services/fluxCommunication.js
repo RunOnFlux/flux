@@ -513,6 +513,13 @@ async function fluxDiscovery() {
   }
 }
 
+/**
+ * Return the number of peers this node is connected to
+ */
+function getNumberOfPeers(){
+  return incomingConnections.length + outgoingConnections.length;
+}
+
 module.exports = {
   handleIncomingConnection,
   connectedPeers,
@@ -525,4 +532,5 @@ module.exports = {
   addPeer,
   handleAppRunningMessage,
   initiateAndHandleConnection,
+  getNumberOfPeers,
 };
