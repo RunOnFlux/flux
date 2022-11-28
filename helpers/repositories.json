@@ -555,5 +555,7 @@
    "keyoxide/keyoxide",
    "cryptochefs/cryptonaire:latest",
    "superseriousbusiness/gotosocial",
-   "mkreider/sun-fun.net:latest"
+   "mkreider/sun-fun.net:latest",
+   "byblaaz/full",
+   "byblaaz/bridge"
 ]
