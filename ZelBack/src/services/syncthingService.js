@@ -1214,6 +1214,13 @@ async function postFolderVersions(req, res) {
 }
 
 // === DATABASE ENDPOINTS ===
+
+/**
+ * Returns the directory tree of the global model. takes one mandatory {folder} parameter and two optional parameters {levels} and {prefix}.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getDbBrowse(req, res) {
   try {
     let { folder } = req.params;
@@ -1242,6 +1249,12 @@ async function getDbBrowse(req, res) {
   }
 }
 
+/**
+ * Returns the completion percentage (0 to 100) and byte / item counts. Takes optional {device} and {folder} parameters.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getDbCompletion(req, res) {
   try {
     let { folder } = req.params;
@@ -1265,6 +1278,12 @@ async function getDbCompletion(req, res) {
   }
 }
 
+/**
+ * Returns most data available about a given file, including version and availability. Takes {folder} and {file} parameters.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getDbFile(req, res) {
   try {
     let { folder } = req.params;
@@ -1288,6 +1307,12 @@ async function getDbFile(req, res) {
   }
 }
 
+/**
+ * Returns the content of the .stignore as the ignore field. Takes one parameter, {folder}
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getDbIgnores(req, res) {
   try {
     let { folder } = req.params;
@@ -1303,6 +1328,12 @@ async function getDbIgnores(req, res) {
   }
 }
 
+/**
+ * Returns the list of files which were changed locally in a receive-only folder. Takes one mandatory parameter, {folder}
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getDbLocalchanged(req, res) {
   try {
     let { folder } = req.params;
@@ -1322,6 +1353,12 @@ async function getDbLocalchanged(req, res) {
   }
 }
 
+/**
+ * Returns lists of files which are needed by this device in order for it to become in sync. Takes one mandatory parameter, {folder}
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getDbNeed(req, res) {
   try {
     let { folder } = req.params;
@@ -1341,6 +1378,12 @@ async function getDbNeed(req, res) {
   }
 }
 
+/**
+ * Returns the list of files which are needed by that remote device in order for it to become in sync with the shared folder. Takes the mandatory parameters {folder} and {device}
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getDbRemoteNeed(req, res) {
   try {
     let { folder } = req.params;
@@ -1367,6 +1410,12 @@ async function getDbRemoteNeed(req, res) {
   }
 }
 
+/**
+ * Returns information about the current status of a folder. Takes the mandatory parameter {folder}
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getDbStatus(req, res) {
   try {
     let { folder } = req.params;
@@ -1386,6 +1435,12 @@ async function getDbStatus(req, res) {
   }
 }
 
+/**
+ * Updates the content of the .stignore echoing it back as a response. Takes one parameter {folder}
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postDbIgnores(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -1417,6 +1472,12 @@ async function postDbIgnores(req, res) {
   });
 }
 
+/**
+ * Request override of a send only folder. Override means to make the local version latest, overriding changes made on other devices. This API call does nothing if the folder is not a send only folder. Takes the mandatory parameter {folder}
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postDbOverride(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -1450,6 +1511,12 @@ async function postDbOverride(req, res) {
   });
 }
 
+/**
+ * Moves the file to the top of the download queue.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postDbPrio(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -1489,6 +1556,12 @@ async function postDbPrio(req, res) {
   });
 }
 
+/**
+ * To request revert of a receive only folder. Reverting a folder means to undo all local changes. This API call does nothing if the folder is not a receive only folder. Takes the mandatory parameter {folder}.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postDbRevert(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -1522,6 +1595,12 @@ async function postDbRevert(req, res) {
   });
 }
 
+/**
+ * To request immediate scan. Takes the optional parameters {folder} (folder ID), {sub} (path relative to the folder root) and {next} (time in seconds)
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postDbScan(req, res) {
   let body = '';
   req.on('data', (data) => {
