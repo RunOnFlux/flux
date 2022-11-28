@@ -1125,6 +1125,13 @@ async function postClusterPendigFolders(req, res) {
 }
 
 // === FOLDER ENDPOINTS ===
+
+/**
+ * Returns the list of errors encountered during scanning or pulling. Takes one mandatory parameter {folder}
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getFolderErrors(req, res) {
   try {
     let { folder } = req.params;
@@ -1144,6 +1151,12 @@ async function getFolderErrors(req, res) {
   }
 }
 
+/**
+ * Returns the list of archived files that could be recovered. Takes one mandatory parameter {folder}
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getFolderVersions(req, res) {
   try {
     let { folder } = req.params;
@@ -1163,6 +1176,12 @@ async function getFolderVersions(req, res) {
   }
 }
 
+/**
+ * To restore archived versions of a given set of files. Expects an object with attributes named after the relative file paths, with timestamps as values matching valid versionTime entries in the corresponding getFolderVersions() response object. Takes one mandatory parameter {folder}
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postFolderVersions(req, res) {
   let body = '';
   req.on('data', (data) => {
