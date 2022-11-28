@@ -1027,11 +1027,24 @@ async function postConfigLdap(req, res) {
 }
 
 // === CLUSTER ENDPOINTS ===
+
+/**
+ * Lists remote devices which have tried to connect, but are not yet configured in the instance.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getClusterPendigDevices(req, res) {
   const response = await performRequest('get', '/rest/cluster/pending/devices');
   return res ? res.json(response) : response;
 }
 
+/**
+ * To remove records about a pending remote device which tried to connect.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postClusterPendigDevices(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -1063,11 +1076,23 @@ async function postClusterPendigDevices(req, res) {
   });
 }
 
+/**
+ * Lists folders which remote devices have offered to us, but are not yet shared from our instance to them. Takes the optional {device} parameter to only return folders offered by a specific remote device.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getClusterPendigFolders(req, res) {
   const response = await performRequest('get', '/rest/cluster/pending/folders');
   return res ? res.json(response) : response;
 }
 
+/**
+ * To remove records about a pending folder announced from a remote device.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postClusterPendigFolders(req, res) {
   let body = '';
   req.on('data', (data) => {
