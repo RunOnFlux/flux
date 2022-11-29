@@ -6276,7 +6276,7 @@ async function appHashHasMessage(hash) {
  * @param {object} hash Hash object containing app information.
  * @returns {boolean} True.
  */
- async function appHashHasMessageNotFound(hash) {
+async function appHashHasMessageNotFound(hash) {
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.daemon.database);
   const query = { hash };
@@ -6710,11 +6710,10 @@ async function rescanGlobalAppsInformationAPI(req, res) {
  */
 async function continuousFluxAppHashesCheck() {
   try {
-    const knownWrongTxids = ['e56e08a8dbe9523ad10ca328fca84ee1da775ea5f466abed06ec357daa192940'];
     log.info('Requesting missing Flux App messages');
 
     const numberOfPeers = fluxCommunication.getNumberOfPeers();
-    if(numberOfPeers < 10){
+    if (numberOfPeers < 10) {
       log.info('Not enough connected peers to request missing Flux App messages');
       return;
     }
@@ -6736,17 +6735,18 @@ async function continuousFluxAppHashesCheck() {
     const results = await dbHelper.findInDatabase(database, appsHashesCollection, query, projection);
     // eslint-disable-next-line no-restricted-syntax
     for (const result of results) {
-      if (!knownWrongTxids.includes(result.txid) || !result.messageNotFound) { // wrong data, can be later removed
+      if (!result.messageNotFound) { // wrong data, can be later removed
         let numberOfSearches = 1;
-        if(hashesNumberOfSearchs.has(result.hash)){
+        if (hashesNumberOfSearchs.has(result.hash)) {
           numberOfSearches = hashesNumberOfSearchs.get(result.hash) + 1;
-        } 
+        }
         hashesNumberOfSearchs.set(result.hash, numberOfSearches);
-        if(numberOfSearches < 4) {
+        if (numberOfSearches < 4) {
           checkAndRequestApp(result.hash, result.txid, result.height, result.value);
           // eslint-disable-next-line no-await-in-loop
           await serviceHelper.delay(1234);
         } else {
+          // eslint-disable-next-line no-await-in-loop
           await appHashHasMessageNotFound(result.hash);
         }
       }
