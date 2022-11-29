@@ -558,5 +558,8 @@
    "superseriousbusiness/gotosocial",
    "mkreider/sun-fun.net:latest",
    "byblaaz/full",
-   "byblaaz/bridge"
+   "byblaaz/bridge",
+   "byblaaz/celestianodelight:latest",
+   "byblaaz/celestianodefull:latest",
+   "byblaaz/celestianodebridge:latest"
 ]
