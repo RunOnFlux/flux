@@ -31,7 +31,7 @@ module.exports = {
     'import/extensions': ['error', 'ignorePackages', { vue: 'always', js: 'never' }],
   },
   parserOptions: {
-    parser: 'babel-eslint',
+    parser: '@babel/eslint-parser',
   },
   settings: {
     'import/resolver': {
