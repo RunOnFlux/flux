@@ -26,7 +26,7 @@ $vs-selected-border-width: 0;
 // Dropdown
 $vs-dropdown-box-shadow: 0 4px 25px 0 rgba(0, 0, 0, 0.1);
 
-@import 'vue-select/src/scss/vue-select.scss';
+@import 'vue-select/dist/vue-select.css';
 
 .vs__open-indicator {
   fill: none;
