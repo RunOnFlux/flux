@@ -4729,8 +4729,8 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
  */
 async function assignedPortsInstalledApps() {
   // construct object ob app name and ports array
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appslocal.database);
+  const dbopen = dbHelper.databaseConnection();
+  const database = dbopen.db(config.database.appslocal.database);
   const query = {};
   const projection = { projection: { _id: 0 } };
   const results = await dbHelper.findInDatabase(database, localAppsInformation, query, projection);
