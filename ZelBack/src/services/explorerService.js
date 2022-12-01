@@ -468,8 +468,6 @@ async function processStandard(blockDataVerbose, database) {
   // utxoDetail = { txid, vout, height, address, satoshis, scriptPubKey )
   // and can create addressTransactionIndex.
   // amount in address can be calculated from utxos. We do not need to store it.
-  const transactionsInsert = [];
-  const appsTransactionsInsert = [];
   await Promise.all(transactions.map(async (tx) => {
     // normal transactions
     if (tx.version < 5 && tx.version > 0) {
@@ -529,7 +527,7 @@ async function processStandard(blockDataVerbose, database) {
           };
           const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, querySearch, projectionSearch); // this search can be later removed if nodes rescan apps and reconstruct the index for unique
           if (!result) {
-            appsTransactionsInsert.push(appTxRecord);
+            await dbHelper.insertOneToDatabase(database, appsHashesCollection, appTxRecord);
             appsService.checkAndRequestApp(message, tx.txid, blockDataVerbose.height, isFluxAppMessageValue);
           } else {
             throw new Error(`Found an existing hash app ${serviceHelper.ensureString(result)}`);
@@ -560,18 +558,9 @@ async function processStandard(blockDataVerbose, database) {
         lockedAmount: senderInfo.satoshis || senderInfo.lockedAmount,
         height: blockDataVerbose.height,
       };
-      transactionsInsert.push(fluxTxData);
+      await dbHelper.insertOneToDatabase(database, fluxTransactionCollection, fluxTxData);
     }
   }));
-  const options = {
-    ordered: false, // If false, continue with remaining inserts when one fails.
-  };
-  if (appsTransactionsInsert.length > 0) {
-    await dbHelper.insertManyToDatabase(database, appsHashesCollection, appsTransactionsInsert, options);
-  }
-  if (transactionsInsert.length > 0) {
-    await dbHelper.insertManyToDatabase(database, fluxTransactionCollection, transactionsInsert, options);
-  }
 }
 
 /**

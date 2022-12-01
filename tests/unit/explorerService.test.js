@@ -2384,8 +2384,7 @@ describe('explorerService tests', () => {
       findInDatabaseStub.returns({ generalScannedHeight: 1000 });
       dropCollectionStub.resolves(true);
       const createIndexFake = sinon.fake.resolves(true);
-      const findFake = sinon.fake.resolves([]);
-      const collectionFake = sinon.fake.returns({ createIndex: createIndexFake, find: findFake });
+      const collectionFake = sinon.fake.returns({ createIndex: createIndexFake });
       const dbFake = sinon.fake.returns({ collection: collectionFake });
       sinon.stub(dbHelper, 'databaseConnection').returns({ db: dbFake });
       getInfoStub.returns({
@@ -2415,8 +2414,7 @@ describe('explorerService tests', () => {
       findInDatabaseStub.returns({ generalScannedHeight: 0 });
       dropCollectionStub.resolves(true);
       const createIndexFake = sinon.fake.resolves(true);
-      const findFake = sinon.fake.resolves([]);
-      const collectionFake = sinon.fake.returns({ createIndex: createIndexFake, find: findFake });
+      const collectionFake = sinon.fake.returns({ createIndex: createIndexFake });
       const dbFake = sinon.fake.returns({ collection: collectionFake });
       sinon.stub(dbHelper, 'databaseConnection').returns({ db: dbFake });
       getInfoStub.returns({
