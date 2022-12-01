@@ -218,8 +218,8 @@ async function checkWhitelistedRepository(repotag) {
     const pureOrganisation = imageTag.split(':')[0].split('/')[0];
     pureOrganisations.push(pureOrganisation);
   });
-  const whitelisted = pureOrganisations.includes(splittedRepo[0]);
-  if (!whitelisted) { // not exact match and general image not whitelisted either
+  const isWhitelisted = pureOrganisations.includes(splittedRepo[0].split('/')[0]);
+  if (!isWhitelisted) { // not exact match and general image not whitelisted either
     throw new Error('Repository is not whitelisted. Please contact Flux Team.');
   }
 

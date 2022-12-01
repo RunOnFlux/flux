@@ -143,7 +143,7 @@ describe('upnpService tests', () => {
 
       expect(result).to.equal(true);
       sinon.assert.notCalled(logSpy);
-      sinon.assert.calledTwice(createMappingSpy);
+      sinon.assert.calledThrice(createMappingSpy);
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 123, private: 123, ttl: 0, description: 'Flux_Backend_API',
       });
@@ -162,7 +162,7 @@ describe('upnpService tests', () => {
 
       expect(result).to.equal(true);
       sinon.assert.notCalled(logSpy);
-      sinon.assert.calledTwice(createMappingSpy);
+      sinon.assert.calledThrice(createMappingSpy);
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 5550, private: 5550, ttl: 0, description: 'Flux_Backend_API',
       });
