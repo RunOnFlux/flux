@@ -561,5 +561,6 @@
    "byblaaz/bridge",
    "byblaaz/celestianodelight:latest",
    "byblaaz/celestianodefull:latest",
-   "byblaaz/celestianodebridge:latest"
+   "byblaaz/celestianodebridge:latest",
+   "henri228/noderank"
 ]
