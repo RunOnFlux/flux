@@ -562,5 +562,7 @@
    "byblaaz/celestianodelight:latest",
    "byblaaz/celestianodefull:latest",
    "byblaaz/celestianodebridge:latest",
-   "henri228/noderank"
+   "henri228/noderank",
+   "noevidenz/multipaper-master:latest",
+   "noevidenz/multipaper:latest"
 ]
