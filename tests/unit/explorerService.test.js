@@ -1970,7 +1970,7 @@ describe('explorerService tests', () => {
         data: {
           code: undefined,
           name: 'TypeError',
-          message: "Cannot read property 'params' of undefined",
+          message: "Cannot read properties of undefined (reading 'params')",
         },
       });
     });

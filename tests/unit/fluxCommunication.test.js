@@ -929,7 +929,7 @@ describe('fluxCommunication tests', () => {
       sinon.assert.calledWith(logSpy, 'Connection 127.0.0.2 removed from outgoingPeers');
     });
 
-    const appRequestCommands = ['zelapprequest', 'fluxapprequest'];
+    const appRequestCommands = ['fluxapprequest'];
     // eslint-disable-next-line no-restricted-syntax
     for (const command of appRequestCommands) {
       // eslint-disable-next-line no-loop-func
@@ -1007,7 +1007,7 @@ describe('fluxCommunication tests', () => {
       });
     }
 
-    const appRunningMessageList = ['zelapprunning', 'fluxapprunning'];
+    const appRunningMessageList = ['fluxapprunning'];
     // eslint-disable-next-line no-restricted-syntax
     for (const command of appRunningMessageList) {
       // eslint-disable-next-line no-loop-func

@@ -490,7 +490,7 @@
                 <label class="col-3 col-form-label">
                   Cont. Data
                   <v-icon
-                    v-b-tooltip.hover.top="'Data folder that is shared by application to App volume'"
+                    v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with s: for synced data between instances. Eg. s:/data'"
                     name="info-circle"
                     class="mr-1"
                   />
@@ -849,7 +849,7 @@
               <label class="col-3 col-form-label">
                 Cont. Data
                 <v-icon
-                  v-b-tooltip.hover.top="'Data folder that is shared by application to App volume'"
+                  v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with s: for synced data between instances. Eg. s:/data'"
                   name="info-circle"
                   class="mr-1"
                 />
@@ -1823,7 +1823,13 @@ export default {
         if (locFound) {
           instances += locFound.instances;
         }
+        if (location === 'ALL') {
+          instances += 100;
+        }
       });
+      if (!positiveLocations.length) {
+        instances += 100;
+      }
       console.log(instances);
       instances = instances > 3 ? instances : 3;
       const maxInstances = instances > 100 ? 100 : instances;

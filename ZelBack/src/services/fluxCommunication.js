@@ -17,7 +17,7 @@ const {
 let response = messageHelper.createErrorMessage();
 // default cache
 const LRUoptions = {
-  max: 12000, // currently 12000 nodes
+  max: 20000, // currently 20000 nodes
   maxAge: 1000 * 150, // 150 seconds slightly over average blocktime. Allowing 1 block expired too.
 };
 
@@ -129,9 +129,9 @@ function handleIncomingConnection(ws, req, expressWS) {
           const msgObj = serviceHelper.ensureObject(msg);
           if (msgObj.data.type === 'zelappregister' || msgObj.data.type === 'zelappupdate' || msgObj.data.type === 'fluxappregister' || msgObj.data.type === 'fluxappupdate') {
             handleAppMessages(msgObj, peer.ip.replace('::ffff:', ''));
-          } else if (msgObj.data.type === 'zelapprequest' || msgObj.data.type === 'fluxapprequest') {
+          } else if (msgObj.data.type === 'fluxapprequest') {
             fluxCommunicationMessagesSender.respondWithAppMessage(msgObj, ws);
-          } else if (msgObj.data.type === 'zelapprunning' || msgObj.data.type === 'fluxapprunning') {
+          } else if (msgObj.data.type === 'fluxapprunning') {
             handleAppRunningMessage(msgObj, peer.ip.replace('::ffff:', ''));
           } else {
             log.warn(`Unrecognised message type of ${msgObj.data.type}`);
@@ -358,9 +358,9 @@ async function initiateAndHandleConnection(connection) {
     if (messageOK === true) {
       if (msgObj.data.type === 'zelappregister' || msgObj.data.type === 'zelappupdate' || msgObj.data.type === 'fluxappregister' || msgObj.data.type === 'fluxappupdate') {
         handleAppMessages(msgObj, ip);
-      } else if (msgObj.data.type === 'zelapprequest' || msgObj.data.type === 'fluxapprequest') {
+      } else if (msgObj.data.type === 'fluxapprequest') {
         fluxCommunicationMessagesSender.respondWithAppMessage(msgObj, websocket);
-      } else if (msgObj.data.type === 'zelapprunning' || msgObj.data.type === 'fluxapprunning') {
+      } else if (msgObj.data.type === 'fluxapprunning') {
         handleAppRunningMessage(msgObj, ip);
       }
     } else {
@@ -513,6 +513,13 @@ async function fluxDiscovery() {
   }
 }
 
+/**
+ * Return the number of peers this node is connected to
+ */
+function getNumberOfPeers() {
+  return incomingConnections.length + outgoingConnections.length;
+}
+
 module.exports = {
   handleIncomingConnection,
   connectedPeers,
@@ -525,4 +532,5 @@ module.exports = {
   addPeer,
   handleAppRunningMessage,
   initiateAndHandleConnection,
+  getNumberOfPeers,
 };

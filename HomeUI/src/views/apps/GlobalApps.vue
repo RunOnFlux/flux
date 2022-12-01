@@ -199,7 +199,7 @@
                           />
                           <list-entry
                             title="Automatic Domains"
-                            :data="constructAutomaticDomains(component.ports, component.name, row.item.name).toString()"
+                            :data="constructAutomaticDomains(component.ports, component.name, row.item.name, index).toString()"
                           />
                           <list-entry
                             title="Ports"
@@ -516,7 +516,7 @@
                           />
                           <list-entry
                             title="Automatic Domains"
-                            :data="constructAutomaticDomains(component.ports, component.name, row.item.name).toString()"
+                            :data="constructAutomaticDomains(component.ports, component.name, row.item.name, index).toString()"
                           />
                           <list-entry
                             title="Ports"
@@ -874,11 +874,14 @@ export default {
         },
       });
     },
-    constructAutomaticDomains(ports, componentName = '', appName) {
+    constructAutomaticDomains(ports, componentName = '', appName, index = 0) {
       const lowerCaseName = appName.toLowerCase();
       const lowerCaseCopmonentName = componentName.toLowerCase();
       if (!lowerCaseCopmonentName) {
-        const domains = [`${lowerCaseName}.app.runonflux.io`];
+        const domains = [];
+        if (index === 0) {
+          domains.push(`${lowerCaseName}.app.runonflux.io`);
+        }
         // flux specs dont allow more than 10 ports so domainString is enough
         for (let i = 0; i < ports.length; i += 1) {
           const portDomain = `${lowerCaseName}_${ports[i]}.app.runonflux.io`;
@@ -886,7 +889,10 @@ export default {
         }
         return domains;
       }
-      const domains = [`${lowerCaseName}.app.runonflux.io`];
+      const domains = [];
+      if (index === 0) {
+        domains.push(`${lowerCaseName}.app.runonflux.io`);
+      }
       // flux specs dont allow more than 10 ports so domainString is enough
       for (let i = 0; i < ports.length; i += 1) {
         const portDomain = `${lowerCaseName}_${ports[i]}.app.runonflux.io`;

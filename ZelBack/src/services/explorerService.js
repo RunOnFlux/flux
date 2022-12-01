@@ -28,7 +28,7 @@ let initBPfromErrorTimeout;
 
 // cache for nodes
 const LRUoptions = {
-  max: 12000, // store 12k of nodes value forever, no ttl
+  max: 20000, // store 20k of nodes value forever, no ttl
 };
 
 const nodeCollateralCache = new LRU(LRUoptions);
