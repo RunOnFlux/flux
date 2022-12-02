@@ -1107,7 +1107,7 @@ async function stopAppMonitoringAPI(req, res) {
       }
       const monitoringResponse = messageHelper.createSuccessMessage(successMessage);
       res.json(monitoringResponse);
-    // 2. Stop a specific app
+      // 2. Stop a specific app
     } else {
       const mainAppName = appname.split('_')[1] || appname;
       const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
