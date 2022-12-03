@@ -10,10 +10,11 @@ module.exports = {
     '@vue/eslint-config-airbnb',
   ],
   rules: {
-    'max-len': [
+    'vue/max-len': [
       'error',
       {
         code: 300,
+        ignoreComments: true,
         ignoreUrls: true,
         ignoreTrailingComments: true,
       },
