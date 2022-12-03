@@ -69,6 +69,7 @@ module.exports = {
     },
   },
   chainWebpack: (config) => {
+    config.resolve.alias.set('vue', '@vue/compat')
     config.module
       .rule('vue')
       .use('vue-loader')
@@ -86,6 +87,11 @@ module.exports = {
           'b-card-img-lazy': ['src', 'blank-src'],
           'b-carousel-slide': 'img-src',
           'b-embed': 'src',
+          compilerOptions: {
+            compatConfig: {
+              MODE: 2
+            }
+          }
         };
         return options;
       });
