@@ -7,7 +7,6 @@ const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/;
 if (fs.existsSync(path)) {
   console.log('Configuration file found. You can change your configuration in ./config/userconfig.js');
   console.log('Starting Flux...');
-  return;
 }
 
 const questions = [

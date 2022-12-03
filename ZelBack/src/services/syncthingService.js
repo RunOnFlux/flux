@@ -50,7 +50,7 @@ async function getSyncthingApiKey() { // can throw
   return apiKey;
 }
 
-async function performRequest(method = 'get', urlpath = '', data) {
+async function performRequest(data, method = 'get', urlpath = '') {
   try {
     if (!syncthingApiKey) {
       const apiKey = await getSyncthingApiKey();
