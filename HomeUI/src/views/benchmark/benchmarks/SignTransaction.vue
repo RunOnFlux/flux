@@ -37,9 +37,9 @@
       </div>
       <b-popover
         ref="popover"
+        v-model:show="popoverShow"
         target="sign-transaction"
         triggers="click"
-        :show.sync="popoverShow"
         placement="auto"
         container="my-container"
       >

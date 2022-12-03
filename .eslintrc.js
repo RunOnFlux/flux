@@ -56,8 +56,8 @@ module.exports = {
     {
       files: ['*.html'],
       rules: {
-        'vue/comment-directive': 'off'
-      }
-    }
+        'vue/comment-directive': 'off',
+      },
+    },
   ],
 };

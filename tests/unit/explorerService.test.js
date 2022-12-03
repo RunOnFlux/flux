@@ -183,13 +183,17 @@ describe('explorerService tests', () => {
       expect(result).to.equal(txContent);
       sinon.assert.calledOnceWithExactly(lruStubGet, `${txid}-${vout}`);
       sinon.assert.calledOnceWithExactly(lruStubSet, `${txid}-${vout}`, txContent);
-      sinon.assert.calledOnceWithMatch(dbStub, sinon.match.object, 'utxoindex',
+      sinon.assert.calledOnceWithMatch(
+        dbStub,
+        sinon.match.object,
+        'utxoindex',
         { txid: '12345', vout: '444' },
         {
           projection: {
             _id: 0, txid: 1, address: 1, satoshis: 1,
           },
-        });
+        },
+      );
     });
 
     it('should set cache and return sender if there is an entry in the db found by fluxTransactionCollection', async () => {
@@ -207,20 +211,28 @@ describe('explorerService tests', () => {
       expect(result).to.equal(txContent);
       sinon.assert.calledOnceWithExactly(lruStubGet, `${txid}-${vout}`);
       sinon.assert.calledOnceWithExactly(lruStubSet, `${txid}-${vout}`, txContent);
-      sinon.assert.calledWithMatch(dbStub, sinon.match.object, 'utxoindex',
+      sinon.assert.calledWithMatch(
+        dbStub,
+        sinon.match.object,
+        'utxoindex',
         { txid: '12345', vout: '444' },
         {
           projection: {
             _id: 0, txid: 1, address: 1, satoshis: 1,
           },
-        });
-      sinon.assert.calledWithMatch(dbStub, sinon.match.object, 'zelnodetransactions',
+        },
+      );
+      sinon.assert.calledWithMatch(
+        dbStub,
+        sinon.match.object,
+        'zelnodetransactions',
         { collateralHash: '12345', collateralIndex: '444' },
         {
           projection: {
             _id: 0, collateralHash: 1, zelAddress: 1, lockedAmount: 1,
           },
-        });
+        },
+      );
     });
   });
 
@@ -277,9 +289,13 @@ describe('explorerService tests', () => {
 
       expect(result).to.eql({ address: '1ZACDE1234567' });
       sinon.assert.calledOnceWithExactly(daemonServiceTransactionRpcsStub, { params: { txid: '12345', verbose: 1 } });
-      sinon.assert.calledOnceWithMatch(dbStub, sinon.match.object, 'utxoindex',
+      sinon.assert.calledOnceWithMatch(
+        dbStub,
+        sinon.match.object,
+        'utxoindex',
         { $and: [{ txid: '12345' }, { vout: '444' }] },
-        { projection: { _id: 0, address: 1 } });
+        { projection: { _id: 0, address: 1 } },
+      );
     });
   });
 
@@ -396,7 +412,10 @@ describe('explorerService tests', () => {
       expect(result.txid).to.equal(11222233333);
       expect(result.vin).to.eql([{ txid: 1, vout: 12345 }, { txid: 2, vout: 555454 }]);
       expect(result.senders).to.eql(['my test value', 'my test value']);
-      sinon.assert.calledOnceWithMatch(dbStubInsert, sinon.match.object, 'utxoindex',
+      sinon.assert.calledOnceWithMatch(
+        dbStubInsert,
+        sinon.match.object,
+        'utxoindex',
         {
           txid: 11222233333,
           vout: 0,
@@ -405,7 +424,8 @@ describe('explorerService tests', () => {
           satoshis: 555,
           scriptPubKey: 110591,
           coinbase: false,
-        });
+        },
+      );
     });
   });
 
@@ -823,14 +843,18 @@ describe('explorerService tests', () => {
 
       await explorerService.processStandard(blockVerbose, database);
 
-      sinon.assert.calledWithMatch(updateStub, sinon.match.object, 'addresstransactionindex',
+      sinon.assert.calledWithMatch(
+        updateStub,
+        sinon.match.object,
+        'addresstransactionindex',
         { address: undefined, count: { $lt: 10000 } },
         {
           $set: { address: undefined },
           $push: { transactions: { txid: 11222233333, height: 829000 } },
           $inc: { count: 1 },
         },
-        { upsert: true });
+        { upsert: true },
+      );
     });
 
     it('should save to db if version is >0 and <5 and data is correct and contains app message', async () => {
@@ -888,7 +912,10 @@ describe('explorerService tests', () => {
 
       await explorerService.processStandard(blockVerbose, database);
 
-      sinon.assert.calledWithMatch(dbStubInsert, sinon.match.object, 'utxoindex',
+      sinon.assert.calledWithMatch(
+        dbStubInsert,
+        sinon.match.object,
+        'utxoindex',
         {
           txid: 11222233333,
           vout: 0,
@@ -897,15 +924,20 @@ describe('explorerService tests', () => {
           satoshis: 200000000,
           scriptPubKey: 110591,
           coinbase: false,
-        });
-      sinon.assert.calledWithMatch(dbStubInsert, sinon.match.object, 'zelappshashes',
+        },
+      );
+      sinon.assert.calledWithMatch(
+        dbStubInsert,
+        sinon.match.object,
+        'zelappshashes',
         {
           txid: 11222233333,
           height: 829000,
           hash: 'This string is exactly 64 characters long. Including this string',
           value: 200000000,
           message: false,
-        });
+        },
+      );
     });
 
     it('should log error if version is >0 and <5 and data is correct and contains app message, but exists in db', async () => {
@@ -963,7 +995,10 @@ describe('explorerService tests', () => {
 
       await explorerService.processStandard(blockVerbose, database);
 
-      sinon.assert.calledWithMatch(dbStubInsert, sinon.match.object, 'utxoindex',
+      sinon.assert.calledWithMatch(
+        dbStubInsert,
+        sinon.match.object,
+        'utxoindex',
         {
           txid: 11222233333,
           vout: 0,
@@ -972,7 +1007,8 @@ describe('explorerService tests', () => {
           satoshis: 200000000,
           scriptPubKey: 110591,
           coinbase: false,
-        });
+        },
+      );
       sinon.assert.calledWithMatch(logErrorSpy, 'Hash This string is exactly 64 characters long. Including this string already exists. Not adding at height 829000');
     });
 
@@ -1151,10 +1187,14 @@ describe('explorerService tests', () => {
       sinon.assert.notCalled(checkAndRemoveApplicationInstanceStub);
       sinon.assert.notCalled(reinstallOldApplicationsStub);
       sinon.assert.calledOnce(restorePortsSupportStub);
-      sinon.assert.calledOnceWithMatch(dbStubUpdate, sinon.match.object, 'scannedheight',
+      sinon.assert.calledOnceWithMatch(
+        dbStubUpdate,
+        sinon.match.object,
+        'scannedheight',
         { generalScannedHeight: { $gte: 0 } },
         { $set: { generalScannedHeight: 695000 } },
-        { upsert: true });
+        { upsert: true },
+      );
       sinon.assert.calledWith(logInfoSpy, 'Processing Explorer Block Height: 695000');
       sinon.assert.calledWith(logInfoSpy, 'FLUX documents: 10000, 15, 1111');
     });
@@ -1212,10 +1252,14 @@ describe('explorerService tests', () => {
       sinon.assert.calledOnce(checkAndRemoveApplicationInstanceStub);
       sinon.assert.calledOnce(reinstallOldApplicationsStub);
       sinon.assert.notCalled(restorePortsSupportStub);
-      sinon.assert.calledOnceWithMatch(dbStubUpdate, sinon.match.object, 'scannedheight',
+      sinon.assert.calledOnceWithMatch(
+        dbStubUpdate,
+        sinon.match.object,
+        'scannedheight',
         { generalScannedHeight: { $gte: 0 } },
         { $set: { generalScannedHeight: 900009 } },
-        { upsert: true });
+        { upsert: true },
+      );
     });
 
     it('should update db if all parameters are passed correctly, height == 9000259', async () => {
@@ -1271,10 +1315,14 @@ describe('explorerService tests', () => {
       sinon.assert.notCalled(checkAndRemoveApplicationInstanceStub);
       sinon.assert.notCalled(reinstallOldApplicationsStub);
       sinon.assert.calledOnce(restorePortsSupportStub);
-      sinon.assert.calledOnceWithMatch(dbStubUpdate, sinon.match.object, 'scannedheight',
+      sinon.assert.calledOnceWithMatch(
+        dbStubUpdate,
+        sinon.match.object,
+        'scannedheight',
         { generalScannedHeight: { $gte: 0 } },
         { $set: { generalScannedHeight: 900025 } },
-        { upsert: true });
+        { upsert: true },
+      );
     });
   });
 

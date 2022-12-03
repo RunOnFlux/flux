@@ -1,9 +1,9 @@
 <template>
   <b-popover
     ref="popover"
+    v-model:show="show"
     :target="`${target}`"
     triggers="click blur"
-    :show.sync="show"
     placement="auto"
     container="my-container"
     :custom-class="`confirm-dialog-${width}`"

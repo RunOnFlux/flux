@@ -35,9 +35,9 @@
         </div>
         <b-popover
           ref="popover"
+          v-model:show="downloadPopoverShow"
           target="start-download"
           triggers="click"
-          :show.sync="downloadPopoverShow"
           placement="auto"
           container="my-container"
         >
@@ -104,9 +104,9 @@
         />
         <b-popover
           ref="popover"
+          v-model:show="tailPopoverShow"
           target="start-tail"
           triggers="click"
-          :show.sync="tailPopoverShow"
           placement="auto"
           container="my-container"
         >

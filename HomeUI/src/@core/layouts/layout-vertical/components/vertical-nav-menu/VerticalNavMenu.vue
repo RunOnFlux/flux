@@ -2,8 +2,8 @@
   <div
     class="main-menu menu-fixed menu-accordion menu-shadow"
     :class="[
-      { 'expanded': !isVerticalMenuCollapsed || (isVerticalMenuCollapsed && isMouseHovered) },
-      skin === 'semi-dark' ? 'menu-dark' : 'menu-light'
+      { expanded: !isVerticalMenuCollapsed || (isVerticalMenuCollapsed && isMouseHovered) },
+      skin === 'semi-dark' ? 'menu-dark' : 'menu-light',
     ]"
     @mouseenter="updateMouseHovered(true)"
     @mouseleave="updateMouseHovered(false)"
@@ -12,9 +12,9 @@
     <div class="navbar-header expanded">
       <slot
         name="header"
-        :toggleVerticalMenuActive="toggleVerticalMenuActive"
-        :toggleCollapsed="toggleCollapsed"
-        :collapseTogglerIcon="collapseTogglerIcon"
+        :toggle-vertical-menu-active="toggleVerticalMenuActive"
+        :toggle-collapsed="toggleCollapsed"
+        :collapse-toggler-icon="collapseTogglerIcon"
       >
         <ul class="nav navbar-nav flex-row">
           <!-- Logo & Text -->
@@ -60,7 +60,7 @@
 
     <!-- Shadow -->
     <div
-      :class="{'d-block': shallShadowBottom}"
+      :class="{ 'd-block': shallShadowBottom }"
       class="shadow-bottom"
     />
 

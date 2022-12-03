@@ -42,7 +42,7 @@
         <vue-perfect-scrollbar
           :settings="perfectScrollbarSettings"
           class="search-list search-list-bookmark scroll-area"
-          :class="{'show': filteredData.pages && filteredData.pages.length }"
+          :class="{ show: filteredData.pages && filteredData.pages.length }"
           tagname="ul"
         >
           <b-dropdown-item
@@ -63,7 +63,7 @@
               icon="StarIcon"
               class="ml-auto"
               size="16"
-              :class="{'text-warning': suggestion.isBookmarked}"
+              :class="{ 'text-warning': suggestion.isBookmarked }"
               @click.stop.prevent="toggleBookmarked(suggestion)"
             />
           </b-dropdown-item>

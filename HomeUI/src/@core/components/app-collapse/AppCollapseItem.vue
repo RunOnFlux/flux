@@ -1,13 +1,13 @@
 <template>
   <b-card
     no-body
-    :class="{'open': visible}"
+    :class="{ open: visible }"
     @mouseenter="collapseOpen"
     @mouseleave="collapseClose"
   >
     <b-card-header
 
-      :class="{'collapsed': !visible}"
+      :class="{ collapsed: !visible }"
       :aria-expanded="visible ? 'true' : 'false'"
       :aria-controls="collapseItemID"
       role="tab"

@@ -494,8 +494,11 @@ describe('daemonServiceMiningRpcs tests', () => {
       const result = await daemonServiceMiningRpcs.prioritiseTransaction(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
-        'prioritiseTransaction', [req.params.txid, +req.params.prioritydelta, +req.params.feedelta]);
+      sinon.assert.calledOnceWithExactly(
+        daemonServiceUtilsStub,
+        'prioritiseTransaction',
+        [req.params.txid, +req.params.prioritydelta, +req.params.feedelta],
+      );
     });
 
     it('should trigger rpc with dns parameter when no txid is passed, no response passed', async () => {
@@ -515,8 +518,11 @@ describe('daemonServiceMiningRpcs tests', () => {
       const result = await daemonServiceMiningRpcs.prioritiseTransaction(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
-        'prioritiseTransaction', []);
+      sinon.assert.calledOnceWithExactly(
+        daemonServiceUtilsStub,
+        'prioritiseTransaction',
+        [],
+      );
     });
 
     it('should trigger rpc with dns parameter when no feedelta is passed, no response passed', async () => {
@@ -536,8 +542,11 @@ describe('daemonServiceMiningRpcs tests', () => {
       const result = await daemonServiceMiningRpcs.prioritiseTransaction(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
-        'prioritiseTransaction', []);
+      sinon.assert.calledOnceWithExactly(
+        daemonServiceUtilsStub,
+        'prioritiseTransaction',
+        [],
+      );
     });
 
     it('should trigger rpc without parameters if no prioritydelta is passed, no response passed', async () => {
@@ -557,8 +566,11 @@ describe('daemonServiceMiningRpcs tests', () => {
       const result = await daemonServiceMiningRpcs.prioritiseTransaction(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
-        'prioritiseTransaction', []);
+      sinon.assert.calledOnceWithExactly(
+        daemonServiceUtilsStub,
+        'prioritiseTransaction',
+        [],
+      );
     });
 
     it('should trigger rpc, all parameters passed in query, no response passed', async () => {
@@ -579,8 +591,11 @@ describe('daemonServiceMiningRpcs tests', () => {
       const result = await daemonServiceMiningRpcs.prioritiseTransaction(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
-        'prioritiseTransaction', [req.query.txid, +req.query.prioritydelta, +req.query.feedelta]);
+      sinon.assert.calledOnceWithExactly(
+        daemonServiceUtilsStub,
+        'prioritiseTransaction',
+        [req.query.txid, +req.query.prioritydelta, +req.query.feedelta],
+      );
     });
 
     it('should trigger rpc, even without params', async () => {
@@ -620,8 +635,11 @@ describe('daemonServiceMiningRpcs tests', () => {
 
       expect(result).to.equal(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
-        'prioritiseTransaction', [req.params.txid, +req.params.prioritydelta, +req.params.feedelta]);
+      sinon.assert.calledOnceWithExactly(
+        daemonServiceUtilsStub,
+        'prioritiseTransaction',
+        [req.params.txid, +req.params.prioritydelta, +req.params.feedelta],
+      );
     });
   });
 
@@ -683,8 +701,11 @@ describe('daemonServiceMiningRpcs tests', () => {
       const result = await daemonServiceMiningRpcs.submitBlock(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
-        'submitBlock', [req.params.hexdata, jsonObject]);
+      sinon.assert.calledOnceWithExactly(
+        daemonServiceUtilsStub,
+        'submitBlock',
+        [req.params.hexdata, jsonObject],
+      );
     });
 
     it('should trigger rpc with hexdata parameter when no jsonObject is passed, no response passed', async () => {
@@ -703,8 +724,11 @@ describe('daemonServiceMiningRpcs tests', () => {
       const result = await daemonServiceMiningRpcs.submitBlock(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
-        'submitBlock', [req.params.hexdata]);
+      sinon.assert.calledOnceWithExactly(
+        daemonServiceUtilsStub,
+        'submitBlock',
+        [req.params.hexdata],
+      );
     });
 
     it('should trigger rpc without parameters if no hexdata is passed, no response passed', async () => {
@@ -727,8 +751,11 @@ describe('daemonServiceMiningRpcs tests', () => {
       const result = await daemonServiceMiningRpcs.submitBlock(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
-        'submitBlock', []);
+      sinon.assert.calledOnceWithExactly(
+        daemonServiceUtilsStub,
+        'submitBlock',
+        [],
+      );
     });
 
     it('should trigger rpc, all parameters passed in query, no response passed', async () => {
@@ -752,8 +779,11 @@ describe('daemonServiceMiningRpcs tests', () => {
       const result = await daemonServiceMiningRpcs.submitBlock(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
-        'submitBlock', [req.query.hexdata, jsonObject]);
+      sinon.assert.calledOnceWithExactly(
+        daemonServiceUtilsStub,
+        'submitBlock',
+        [req.query.hexdata, jsonObject],
+      );
     });
 
     it('should trigger rpc, even without params', async () => {
@@ -795,8 +825,11 @@ describe('daemonServiceMiningRpcs tests', () => {
 
       expect(result).to.equal(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
-        'submitBlock', [req.params.hexdata, jsonObject]);
+      sinon.assert.calledOnceWithExactly(
+        daemonServiceUtilsStub,
+        'submitBlock',
+        [req.params.hexdata, jsonObject],
+      );
     });
   });
 

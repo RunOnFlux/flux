@@ -1805,6 +1805,8 @@
 
           <b-col cols="12">
             <b-table
+              v-model:sort-by="instances.sortBy"
+              v-model:sort-desc="instances.sortDesc"
               class="app-instances-table"
               striped
               hover
@@ -1813,8 +1815,6 @@
               :current-page="instances.currentPage"
               :items="instances.data"
               :fields="instances.fields"
-              :sort-by.sync="instances.sortBy"
-              :sort-desc.sync="instances.sortDesc"
               :sort-direction="instances.sortDirection"
               :filter="instances.filter"
               :filter-included-fields="instances.filterOn"

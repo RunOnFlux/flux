@@ -2,7 +2,7 @@
   <div style="height: inherit">
     <div
       class="body-content-overlay"
-      :class="{'show': showDetailSidebar}"
+      :class="{ show: showDetailSidebar }"
       @click="showDetailSidebar = false"
     />
     <div class="xdao-proposal-list">
@@ -175,7 +175,7 @@
         </ul>
         <div
           class="no-results"
-          :class="{'show': filteredProposals.length === 0}"
+          :class="{ show: filteredProposals.length === 0 }"
         >
           <h5>No Proposals Found</h5>
         </div>
@@ -184,14 +184,14 @@
 
     <!-- Add Proposal View -->
     <add-proposal-view
-      :class="{'show': isAddProposalViewActive}"
+      :class="{ show: isAddProposalViewActive }"
       :zelid="zelid"
       @close-add-proposal-view="isAddProposalViewActive = false"
     />
 
     <!-- Proposal View/Detail -->
     <proposal-view
-      :class="{'show': isProposalViewActive}"
+      :class="{ show: isProposalViewActive }"
       :proposal-view-data="proposal"
       :zelid="zelid"
       :has-next-proposal="true"
@@ -202,7 +202,7 @@
     <!-- Sidebar -->
     <portal to="content-renderer-sidebar-left">
       <proposal-sidebar
-        :class="{'show': showDetailSidebar}"
+        :class="{ show: showDetailSidebar }"
         @close-left-sidebar="showDetailSidebar = false"
         @close-proposal-view="isProposalViewActive = false; isAddProposalViewActive = false"
         @open-add-proposal-view="isAddProposalViewActive = true"

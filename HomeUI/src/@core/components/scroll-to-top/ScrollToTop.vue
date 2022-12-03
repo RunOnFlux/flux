@@ -1,7 +1,7 @@
 <template>
   <div
     class="btn-scroll-to-top"
-    :class="{'show': y > 250}"
+    :class="{ show: y > 250 }"
   >
     <!-- We have wrapper because ripple effect give position relative to this absolute positioned btn -->
     <!-- Hence due to that our btn get lost -->

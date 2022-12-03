@@ -12,7 +12,7 @@
     name="vuexyTour"
     :steps="steps"
   >
-    <template slot-scope="tour">
+    <template #default="tour">
       <transition name="fade">
         <!-- eslint-disable vue/no-use-v-if-with-v-for -->
         <v-step

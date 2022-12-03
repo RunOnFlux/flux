@@ -15,7 +15,7 @@
     <!-- Input -->
     <div
       class="search-input"
-      :class="{'open': showSearchBar}"
+      :class="{ open: showSearchBar }"
     >
       <div class="search-input-icon">
         <feather-icon icon="SearchIcon" />
@@ -46,7 +46,7 @@
       <vue-perfect-scrollbar
         :settings="perfectScrollbarSettings"
         class="search-list search-list-main scroll-area overflow-hidden"
-        :class="{'show': searchQuery}"
+        :class="{ show: searchQuery }"
         tagname="ul"
       >
         <li
@@ -67,7 +67,7 @@
               v-for="(suggestion, index) in suggestion_list"
               :key="index"
               class="suggestion-group-suggestion cursor-pointer"
-              :class="{'suggestion-current-selected': currentSelected === `${grp_index}.${index}`}"
+              :class="{ 'suggestion-current-selected': currentSelected === `${grp_index}.${index}` }"
               @mouseenter="currentSelected = `${grp_index}.${index}`"
               @mousedown.prevent="suggestionSelected(grp_name, suggestion)"
             >

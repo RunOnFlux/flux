@@ -54,6 +54,8 @@
 
         <b-col cols="12">
           <b-table
+            v-model:sort-by="sortBy"
+            v-model:sort-desc="sortDesc"
             class="fluxnode-table"
             striped
             hover
@@ -62,8 +64,6 @@
             :current-page="currentPage"
             :items="items"
             :fields="fields"
-            :sort-by.sync="sortBy"
-            :sort-desc.sync="sortDesc"
             :sort-direction="sortDirection"
             :filter="filter"
             :filter-included-fields="filterOn"

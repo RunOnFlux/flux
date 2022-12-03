@@ -26,8 +26,10 @@ const adminConfig = {
   },
 };
 
-const idService = proxyquire('../../ZelBack/src/services/idService',
-  { '../../../config/userconfig': adminConfig });
+const idService = proxyquire(
+  '../../ZelBack/src/services/idService',
+  { '../../../config/userconfig': adminConfig },
+);
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
@@ -1342,8 +1344,10 @@ describe('idService tests', () => {
       await idService.wsRespondLoginPhrase(ws, req);
       await serviceHelper.delay(150);
 
-      sinon.assert.calledOnceWithExactly(ws.send,
-        'status=success&data%5Bmessage%5D=Successfully%20logged%20in&data%5Bzelid%5D=1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC&data%5BloginPhrase%5D=12333345656&data%5Bsignature%5D=signature1&data%5Bprivilage%5D=admin&data%5BcreatedAt%5D=168450311&data%5BexpireAt%5D=168460311');
+      sinon.assert.calledOnceWithExactly(
+        ws.send,
+        'status=success&data%5Bmessage%5D=Successfully%20logged%20in&data%5Bzelid%5D=1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC&data%5BloginPhrase%5D=12333345656&data%5Bsignature%5D=signature1&data%5Bprivilage%5D=admin&data%5BcreatedAt%5D=168450311&data%5BexpireAt%5D=168460311',
+      );
     });
 
     it('should return error message if 2nd db call throws error', async () => {
@@ -1359,8 +1363,10 @@ describe('idService tests', () => {
       await idService.wsRespondLoginPhrase(ws, req);
       await serviceHelper.delay(150);
 
-      sinon.assert.calledOnceWithExactly(ws.send,
-        'status=error&data%5Bname%5D=error%20message&data%5Bmessage%5D=Unknown%20error');
+      sinon.assert.calledOnceWithExactly(
+        ws.send,
+        'status=error&data%5Bname%5D=error%20message&data%5Bmessage%5D=Unknown%20error',
+      );
     });
   });
 

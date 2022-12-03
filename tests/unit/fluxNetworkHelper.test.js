@@ -30,8 +30,10 @@ const userconfig = {
     testnet: true,
   },
 };
-const fluxNetworkHelper = proxyquire('../../ZelBack/src/services/fluxNetworkHelper',
-  { '../../../config/userconfig': userconfig });
+const fluxNetworkHelper = proxyquire(
+  '../../ZelBack/src/services/fluxNetworkHelper',
+  { '../../../config/userconfig': userconfig },
+);
 
 chai.use(chaiAsPromised);
 const { expect } = chai;

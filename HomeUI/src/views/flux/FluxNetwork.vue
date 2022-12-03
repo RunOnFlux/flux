@@ -59,6 +59,8 @@
 
             <b-col cols="12">
               <b-table
+                v-model:sort-by="config.outgoing.sortBy"
+                v-model:sort-desc="config.outgoing.sortDesc"
                 class="fluxnetwork-outgoing-table"
                 striped
                 hover
@@ -67,8 +69,6 @@
                 :current-page="config.outgoing.currentPage"
                 :items="config.outgoing.connectedPeers"
                 :fields="config.outgoing.fields"
-                :sort-by.sync="config.outgoing.sortBy"
-                :sort-desc.sync="config.outgoing.sortDesc"
                 :sort-direction="config.outgoing.sortDirection"
                 :filter="config.outgoing.filter"
                 :filter-included-fields="config.outgoing.filterOn"
@@ -194,6 +194,8 @@
 
             <b-col cols="12">
               <b-table
+                v-model:sort-by="config.incoming.sortBy"
+                v-model:sort-desc="config.incoming.sortDesc"
                 class="fluxnetwork-incoming-table"
                 striped
                 hover
@@ -202,8 +204,6 @@
                 :current-page="config.incoming.currentPage"
                 :items="config.incoming.incomingConnections"
                 :fields="config.incoming.fields"
-                :sort-by.sync="config.incoming.sortBy"
-                :sort-desc.sync="config.incoming.sortDesc"
                 :sort-direction="config.incoming.sortDirection"
                 :filter="config.incoming.filter"
                 :filter-included-fields="config.incoming.filterOn"

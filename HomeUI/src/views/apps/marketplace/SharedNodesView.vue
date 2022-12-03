@@ -179,7 +179,7 @@
                         {{ lockup.name }}
                       </h2>
                       <h1>
-                        ~{{ (lockup.apr*100).toFixed(2) }}%
+                        ~{{ (lockup.apr * 100).toFixed(2) }}%
                       </h1>
                     </div>
                   </div>
@@ -331,7 +331,7 @@
                             {{ lockup.name }}
                           </h4>
                           <h4>
-                            ~{{ (lockup.apr*100).toFixed(2) }}%
+                            ~{{ (lockup.apr * 100).toFixed(2) }}%
                           </h4>
                         </div>
                       </div>
@@ -496,16 +496,16 @@
                             </div>
                             <div class="d-flex flex-column seat-column col">
                               <h4
-                                v-b-tooltip.hover.top="new Date(stake.timestamp*1000).toLocaleString(timeoptions)"
+                                v-b-tooltip.hover.top="new Date(stake.timestamp * 1000).toLocaleString(timeoptions)"
                                 class="mr-auto ml-auto text-center"
                               >
-                                Start Date: {{ new Date(stake.timestamp*1000).toLocaleDateString() }}
+                                Start Date: {{ new Date(stake.timestamp * 1000).toLocaleDateString() }}
                               </h4>
                               <h5
-                                v-b-tooltip.hover.top="new Date(stake.expiry*1000).toLocaleString(timeoptions)"
+                                v-b-tooltip.hover.top="new Date(stake.expiry * 1000).toLocaleString(timeoptions)"
                                 class="mr-auto ml-auto text-center"
                               >
-                                End Date: {{ new Date(stake.expiry*1000).toLocaleDateString() }}
+                                End Date: {{ new Date(stake.expiry * 1000).toLocaleDateString() }}
                               </h5>
                             </div>
                             <div class="d-flex flex-column seat-column col">
@@ -585,16 +585,16 @@
                             </div>
                             <div class="d-flex flex-column seat-column col">
                               <h4
-                                v-b-tooltip.hover.top="new Date(stake.timestamp*1000).toLocaleString(timeoptions)"
+                                v-b-tooltip.hover.top="new Date(stake.timestamp * 1000).toLocaleString(timeoptions)"
                                 class="mr-auto ml-auto"
                               >
-                                Start Date: {{ new Date(stake.timestamp*1000).toLocaleDateString() }}
+                                Start Date: {{ new Date(stake.timestamp * 1000).toLocaleDateString() }}
                               </h4>
                               <h5
-                                v-b-tooltip.hover.top="new Date(stake.expiry*1000).toLocaleString(timeoptions)"
+                                v-b-tooltip.hover.top="new Date(stake.expiry * 1000).toLocaleString(timeoptions)"
                                 class="mr-auto ml-auto"
                               >
-                                End Date: {{ new Date(stake.expiry*1000).toLocaleDateString() }}
+                                End Date: {{ new Date(stake.expiry * 1000).toLocaleDateString() }}
                               </h5>
                             </div>
                             <div class="d-flex flex-column seat-column col">
@@ -1144,7 +1144,7 @@
                   :disabled="stakeRegistered || registeringStake || stakeRegisterFailed"
                   @click="selectLockup(index)"
                 >
-                  {{ lockup.name }} - ~{{ (lockup.apr*100).toFixed(2) }}%
+                  {{ lockup.name }} - ~{{ (lockup.apr * 100).toFixed(2) }}%
                 </b-button>
               </div>
             </div>
@@ -1467,7 +1467,7 @@
                   :disabled="stakeRegistered || registeringStake || stakeRegisterFailed"
                   @click="selectLockup(index)"
                 >
-                  {{ lockup.name }} - ~{{ (lockup.apr*100).toFixed(2) }}%
+                  {{ lockup.name }} - ~{{ (lockup.apr * 100).toFixed(2) }}%
                 </b-button>
               </div>
             </div>
@@ -1529,7 +1529,7 @@
                 <span class="text-danger">IMPORTANT:</span> Your funds will be locked until
               </h5>
               <h5>
-                <span class="text-warning">{{ new Date(new Date().getTime() + (getLockupDuration()*1000)).toLocaleString() }}</span>
+                <span class="text-warning">{{ new Date(new Date().getTime() + (getLockupDuration() * 1000)).toLocaleString() }}</span>
               </h5>
               <h5 class="mb-2">
                 You will not be able to withdraw your staked Flux until your stake has expired.
@@ -2384,7 +2384,7 @@ export default {
       return amount > titanConfig.value.redeemFee && amount <= parseFloat(toFixedLocaleString(totalReward.value, 2));
     };
 
-    const formatPaymentTooltip = (stake) => `Send a payment of ${stake.collateral} Flux to<br>${titanConfig.nodeAddress}<br>with a message<br>${stake.signatureHash}`;
+    const formatPaymentTooltip = (stake) => `Send a payment of ${stake.collateral} Flux to<br>${titanConfig.value.nodeAddress}<br>with a message<br>${stake.signatureHash}`;
 
     return {
 

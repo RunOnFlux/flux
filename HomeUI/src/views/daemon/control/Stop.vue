@@ -12,9 +12,9 @@
       </b-button>
       <b-popover
         ref="popover"
+        v-model:show="popoverShow"
         target="stop-daemon"
         triggers="click"
-        :show.sync="popoverShow"
         placement="auto"
         container="my-container"
       >

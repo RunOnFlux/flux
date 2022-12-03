@@ -20,7 +20,7 @@
         <b-button
           variant="primary"
           class="mb-2 btn-sm-block"
-          :to="{path:'/'}"
+          :to="{ path: '/' }"
         >
           Back to home
         </b-button>
