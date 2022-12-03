@@ -6,8 +6,8 @@ module.exports = {
     mocha: true,
   },
   extends: [
-    'plugin:vue/recommended',
-    '@vue/airbnb',
+    'plugin:vue/vue3-recommended',
+    '@vue/eslint-config-airbnb',
   ],
   rules: {
     'max-len': [
