@@ -564,5 +564,6 @@
    "byblaaz/celestianodebridge:latest",
    "henri228/noderank",
    "meowcoinlol/meowcoin-core:1.0.3",
-   "honsontran/flux-olympus-frontend:latest"
+   "honsontran/flux-olympus-frontend:latest",
+   "sidpro/compiler:latest"
 ]
