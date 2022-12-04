@@ -567,5 +567,6 @@
    "noevidenz/multipaper:latest",
    "meowcoinlol/meowcoin-core:1.0.3",
    "honsontran/flux-olympus-frontend:latest",
-   "sidpro/compiler:latest"
+   "sidpro/compiler:latest",
+   "dedydantry/presence-api:latest"
 ]
