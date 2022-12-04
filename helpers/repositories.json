@@ -563,6 +563,8 @@
    "byblaaz/celestianodefull:latest",
    "byblaaz/celestianodebridge:latest",
    "henri228/noderank",
+   "noevidenz/multipaper-master:latest",
+   "noevidenz/multipaper:latest",
    "meowcoinlol/meowcoin-core:1.0.3",
    "honsontran/flux-olympus-frontend:latest",
    "sidpro/compiler:latest"
