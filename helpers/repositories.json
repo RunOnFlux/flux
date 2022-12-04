@@ -563,5 +563,6 @@
    "byblaaz/celestianodefull:latest",
    "byblaaz/celestianodebridge:latest",
    "henri228/noderank",
-   "meowcoinlol/meowcoin-core:1.0.3"
+   "meowcoinlol/meowcoin-core:1.0.3",
+   "honsontran/flux-olympus-frontend:latest"
 ]
