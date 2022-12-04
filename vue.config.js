@@ -10,7 +10,12 @@ const CopyPlugin = require('copy-webpack-plugin');
 const plugins = [
   new CopyPlugin({
     patterns: [
-      { from: path.resolve(__dirname, 'HomeUI', 'public') },
+      { 
+        from: path.resolve(__dirname, 'HomeUI', 'public'),
+        globOptions: {
+          ignore: ["**/index.html"],
+        }
+      },
     ],
   }),
 ];

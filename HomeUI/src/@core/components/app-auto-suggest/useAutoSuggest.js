@@ -1,5 +1,3 @@
-import { ref, watch } from '@vue/composition-api';
-
 export default function useAutoSuggest(props) {
   const filteredData = ref({});
 

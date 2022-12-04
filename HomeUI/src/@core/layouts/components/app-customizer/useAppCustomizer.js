@@ -1,4 +1,3 @@
-import { ref } from '@vue/composition-api';
 import useAppConfig from '@core/app-config/useAppConfig';
 
 export default function useAppCustomizer() {

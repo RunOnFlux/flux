@@ -85,7 +85,6 @@
 </template>
 
 <script>
-import { onUnmounted } from '@vue/composition-api';
 import AppFooter from '@core/layouts/components/AppFooter.vue';
 import useAppConfig from '@core/app-config/useAppConfig';
 import { BNavbar } from 'bootstrap-vue';

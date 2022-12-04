@@ -1643,15 +1643,10 @@ import {
 } from 'vue-form-wizard';
 import VuePerfectScrollbar from 'vue-perfect-scrollbar';
 import Ripple from 'vue-ripple-directive';
-import { useToast } from 'vue-toastification/composition';
+import { useToast } from 'vue-toastification';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 
 import 'vue-form-wizard/dist/vue-form-wizard.min.css';
-
-import {
-  ref,
-  computed,
-} from '@vue/composition-api';
 
 import axios from 'axios';
 

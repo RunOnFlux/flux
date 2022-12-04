@@ -5,7 +5,6 @@ import {
   ToastPlugin,
   ModalPlugin,
 } from 'bootstrap-vue';
-import VueCompositionAPI from '@vue/composition-api';
 
 import router from './router';
 import store from './store';
@@ -16,7 +15,6 @@ import './global-components';
 
 // 3rd party plugins
 import '@axios';
-import '@/libs/portal-vue';
 import '@/libs/toastification';
 
 // BSV Plugin Registration

@@ -1,5 +1,3 @@
-import { ref, nextTick } from '@vue/composition-api';
-
 // ===========================================================
 // ! This is coupled with "veeValidate" plugin
 // ===========================================================
