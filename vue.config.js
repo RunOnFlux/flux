@@ -1,3 +1,4 @@
+/* eslint-disable */
 const path = require('path');
 const CopyPlugin = require('copy-webpack-plugin');
 // const CompressionPlugin = require('compression-webpack-plugin');
@@ -11,11 +12,8 @@ const plugins = [
   new CopyPlugin({
     patterns: [
       { 
-        from: path.resolve(__dirname, 'HomeUI', 'public'),
-        globOptions: {
-          ignore: ["**/index.html"],
-        }
-      },
+        from: path.resolve(__dirname, 'HomeUI', 'public')
+      }
     ],
   }),
 ];
@@ -74,7 +72,7 @@ module.exports = {
     },
   },
   chainWebpack: (config) => {
-    config.resolve.alias.set('vue', '@vue/compat');
+    config.resolve.alias.set('vue', '@vue/compat')
     config.module
       .rule('vue')
       .use('vue-loader')
@@ -92,13 +90,15 @@ module.exports = {
           'b-card-img-lazy': ['src', 'blank-src'],
           'b-carousel-slide': 'img-src',
           'b-embed': 'src',
+        };
+        return {
+          ...options,
           compilerOptions: {
             compatConfig: {
               MODE: 2,
             },
           },
-        };
-        return options;
+        }
       });
   },
   transpileDependencies: ['resize-detector'],
