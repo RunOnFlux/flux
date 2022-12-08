@@ -57,10 +57,6 @@ import { BListGroup, BListGroupItem } from 'bootstrap-vue';
 import { isDynamicRouteActive } from '@core/utils/utils';
 import Ripple from 'vue-ripple-directive';
 
-import {
-  ref,
-} from '@vue/composition-api';
-
 import { categories } from '../../../libs/marketplaceCategories';
 
 export default {

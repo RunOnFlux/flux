@@ -2,7 +2,7 @@
 @import '@core/scss/base/bootstrap-extended/include';
 // Overrides user variable
 @import '@core/scss/base/components/include';
-@import 'vue-select/src/scss/vue-select.scss';
+@import 'vue-select/dist/vue-select.css';
 
 //--------- Simple Number Wizard ----------//
 .vue-form-wizard {

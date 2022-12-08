@@ -1,5 +1,4 @@
 // eslint-disable-next-line object-curly-newline
-import { ref, watch, inject, computed } from '@vue/composition-api';
 import { isNavGroupActive } from '@core/layouts/utils';
 import store from '@/store';
 

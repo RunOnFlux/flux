@@ -4,7 +4,7 @@ $options-padding-y: 7px;
 @import '@core/scss/base/bootstrap-extended/include';
 // Overrides user variable
 @import '@core/scss/base/components/include';
-@import 'vue-select/src/scss/global/_variables.scss';
+// @import 'vue-select/src/scss/global/variables.scss';
 
 //  Global Component Variables
 $vs-component-line-height: 1.8;
@@ -26,7 +26,7 @@ $vs-selected-border-width: 0;
 // Dropdown
 $vs-dropdown-box-shadow: 0 4px 25px 0 rgba(0, 0, 0, 0.1);
 
-@import 'vue-select/src/scss/vue-select.scss';
+@import 'vue-select/dist/vue-select.css';
 
 .vs__open-indicator {
   fill: none;

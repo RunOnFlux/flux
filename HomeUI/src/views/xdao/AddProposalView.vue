@@ -199,12 +199,8 @@ import {
 } from 'bootstrap-vue';
 import VuePerfectScrollbar from 'vue-perfect-scrollbar';
 import Ripple from 'vue-ripple-directive';
-import { useToast } from 'vue-toastification/composition';
+import { useToast } from 'vue-toastification';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
-
-import {
-  ref,
-} from '@vue/composition-api';
 
 const axios = require('axios');
 const timeoptions = require('@/libs/dateFormat');

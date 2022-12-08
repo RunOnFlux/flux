@@ -385,16 +385,10 @@ import useAppConfig from '@core/app-config/useAppConfig';
 import VuePerfectScrollbar from 'vue-perfect-scrollbar';
 import VueApexCharts from 'vue-apexcharts';
 import Ripple from 'vue-ripple-directive';
-import { useToast } from 'vue-toastification/composition';
+import { useToast } from 'vue-toastification';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 
 import { $themeColors } from '@themeConfig';
-
-import {
-  ref,
-  watch,
-  computed,
-} from '@vue/composition-api';
 
 const axios = require('axios');
 const qs = require('qs');

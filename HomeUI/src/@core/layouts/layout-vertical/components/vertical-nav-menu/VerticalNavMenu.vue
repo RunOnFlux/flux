@@ -84,12 +84,6 @@
 <script>
 import VuePerfectScrollbar from 'vue-perfect-scrollbar';
 import { BLink, BImg } from 'bootstrap-vue';
-import {
-  provide,
-  computed,
-  ref,
-  onBeforeMount,
-} from '@vue/composition-api';
 import useAppConfig from '@core/app-config/useAppConfig';
 import { $themeConfig } from '@themeConfig';
 import navMenuItems from '@/navigation/vertical';
