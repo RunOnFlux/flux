@@ -1,4 +1,4 @@
-import config from 'ZelBack/config/default';
+import * as config from 'ZelBack/config/default';
 
 export default {
   namespaced: true,
