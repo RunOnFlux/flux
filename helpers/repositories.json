@@ -569,5 +569,6 @@
    "meowcoinlol/meowcoin-core:1.0.3",
    "honsontran/flux-olympus-frontend:latest",
    "sidpro/compiler:latest",
-   "medmrgh/flux-app"
+   "medmrgh/flux-app",
+   "little87/node"
 ]
