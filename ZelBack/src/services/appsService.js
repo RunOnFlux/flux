@@ -6619,7 +6619,7 @@ async function continuousFluxAppHashesCheck() {
           numberOfSearches = hashesNumberOfSearchs.get(result.hash) + 1;
         }
         hashesNumberOfSearchs.set(result.hash, numberOfSearches);
-        if (numberOfSearches < 4) {
+        if (numberOfSearches < 10) {
           checkAndRequestApp(result.hash, result.txid, result.height, result.value);
           // eslint-disable-next-line no-await-in-loop
           await serviceHelper.delay(1234);
