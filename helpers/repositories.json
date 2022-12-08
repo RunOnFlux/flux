@@ -572,5 +572,6 @@
    "dedydantry/presence-api:latest",
    "medmrgh/flux-app",
    "little87/node",
-   "brochain/celestia:latest"
+   "brochain/celestia:latest",
+   "lazzeruz/multipaperlazz:latest"
 ]
