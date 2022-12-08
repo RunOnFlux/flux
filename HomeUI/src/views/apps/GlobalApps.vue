@@ -791,10 +791,7 @@ export default {
       if (_port && _ip) {
         const ip = _ip;
         const port = _port;
-        let url = `http://${ip}:${port}`;
-        if (name === 'KadenaChainWebNode') {
-          url = `https://${ip}:${port}/chainweb/0.0/mainnet01/cut`;
-        }
+        const url = `http://${ip}:${port}`;
         this.openSite(url);
       } else {
         this.showToast('danger', 'Unable to open App :(');

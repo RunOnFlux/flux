@@ -1112,7 +1112,7 @@
                       <confirm-dialog
                         :target="`install-app-${row.item.name}`"
                         confirm-button="Install App"
-                        @confirm="installTemporaryLocalApp(row.item.name)"
+                        @confirm="installAppLocally(row.item.name)"
                       />
                     </template>
                   </b-table>
@@ -1935,10 +1935,7 @@ export default {
         const backendURL = store.get('backendURL') || `http://${this.userconfig.externalip}:${this.config.apiPort}`;
         const ip = _ip || backendURL.split(':')[1].split('//')[1];
         const port = _port || appInfo.port || appInfo.ports ? appInfo.ports[0] : appInfo.compose[0].ports[0];
-        let url = `http://${ip}:${port}`;
-        if (name === 'KadenaChainWebNode') {
-          url = `https://${ip}:${port}/chainweb/0.0/mainnet01/cut`;
-        }
+        const url = `http://${ip}:${port}`;
         this.openSite(url);
       } else {
         this.showToast('danger', 'Unable to open App :(');
@@ -2078,19 +2075,15 @@ export default {
         }, 5000);
       }
     },
-    async installTemporaryLocalApp(app) { // todo rewrite to installApp later
+    async installAppLocally(app) { // todo rewrite to installApp later
       const appName = this.getAppName(app);
       const self = this;
       this.output = [];
       this.downloadOutput = {};
       this.downloading = true;
       this.showToast('warning', `Installing ${appName}`);
-      if (appName === 'KadenaChainWebNode' || appName === 'KadenaChainWebData') {
-        this.showToast('danger', 'Kadena application is now a Global applicaiton. Local installation is no longer possible');
-        return;
-      }
       const zelidauth = localStorage.getItem('zelidauth');
-      // const response = await AppsService.installTemporaryLocalApp(zelidauth, app);
+      // const response = await AppsService.installAppLocally(zelidauth, app);
       const axiosConfig = {
         headers: {
           zelidauth,
@@ -2100,7 +2093,7 @@ export default {
           self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
         },
       };
-      const response = await AppsService.justAPI().get(`/apps/installtemporarylocalapp/${app}`, axiosConfig);
+      const response = await AppsService.justAPI().get(`/apps/installapplocally/${app}`, axiosConfig);
       if (response.data.status === 'error') {
         this.showToast('danger', response.data.data.message || response.data.data);
       } else {
