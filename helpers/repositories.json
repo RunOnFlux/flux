@@ -186,6 +186,7 @@
    "razvanv/bybitv2:latest",
    "littlestache/paradigmwhitepaper:latest",
    "jefke/fluxpaoverview:latest",
+   "jefke/fluxcon:latest",
    "havenprotocolorg/haven-web:flux-mainnet-latest",
    "havenprotocolorg/haven-web:flux-testnet-latest",
    "havenprotocolorg/haven-web:flux-stagenet-latest",
