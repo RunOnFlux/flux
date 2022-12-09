@@ -574,5 +574,9 @@
    "little87/node",
    "brochain/celestia:latest",
    "lazzeruz/multipaperlazz:latest",
+   "brochain/osmosis:latest",
+   "kyuubi2709/test:latest,
+   "kyuubi2709/test2:latest,
+   "pocketfoundation/fantom:v1.1.1-rc.2",
    "strapi/strapi:latest"
 ]
