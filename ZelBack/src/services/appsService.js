@@ -1160,6 +1160,13 @@ async function stopAppMonitoringAPI(req, res) {
 function setAppsMonitored(appData) {
   appsMonitored[appData.appName] = appData;
 }
+/**
+ * Created for testing purposes - gets appMonitored
+ */
+
+function getAppsMonitored() {
+  return appsMonitored;
+}
 
 /**
  * Created for testing purposes - clears appMonitored
@@ -8140,5 +8147,9 @@ module.exports = {
 
   // exports for testing purposes
   setAppsMonitored,
+  getAppsMonitored,
   clearAppsMonitored,
+  getAppFolderSize,
+  startAppMonitoring,
+  stopMonitoringOfApps,
 };

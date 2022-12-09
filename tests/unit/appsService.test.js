@@ -1,6 +1,7 @@
 const chai = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire');
+const path = require('path');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const dockerService = require('../../ZelBack/src/services/dockerService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
@@ -2674,7 +2675,7 @@ describe.only('appsService tests', () => {
     });
   });
 
-  describe.only('appMonitorStream tests', () => {
+  describe('appMonitorStream tests', () => {
     let verificationHelperStub;
     let logSpy;
     const generateResponse = () => {
@@ -2691,7 +2692,6 @@ describe.only('appsService tests', () => {
     });
 
     afterEach(() => {
-      appsService.clearAppsMonitored();
       sinon.restore();
     });
 
@@ -2744,7 +2744,7 @@ describe.only('appsService tests', () => {
       sinon.assert.notCalled(logSpy);
     });
 
-    it.only('should return app monitor data, underscore in the name', async () => {
+    it('should return app monitor stream, underscore in the name', async () => {
       const req = {
         params: {
           appname: 'test_myappname',
@@ -2756,22 +2756,20 @@ describe.only('appsService tests', () => {
       };
       verificationHelperStub.returns(true);
       const res = generateResponse();
-      appsService.setAppsMonitored(
-        {
-          appName: 'test_myappname',
-          oneMinuteStatsStore: 1000,
-          fifteenMinStatsStore: 100000,
-        },
-      );
 
       await appsService.appMonitorStream(req, res);
 
       sinon.assert.calledOnce(res.end);
-      sinon.assert.calledOnceWithExactly(fakeFunc, { status: 'success', data: { lastHour: 1000, lastDay: 100000 } });
+      sinon.assert.calledWithExactly(fakeFunc,
+        'test_myappname',
+        {
+          params: { appname: 'test_myappname', lines: [10, 11, 12] },
+          query: { test2: 'test2' },
+        }, res);
       sinon.assert.notCalled(logSpy);
     });
 
-    it('should return app monitor data, no underscore in the name', async () => {
+    it('should return app monitor stream, no underscore in the name', async () => {
       const req = {
         params: {
           appname: 'myappname',
@@ -2783,40 +2781,798 @@ describe.only('appsService tests', () => {
       };
       verificationHelperStub.returns(true);
       const res = generateResponse();
+
+      await appsService.appMonitorStream(req, res);
+
+      sinon.assert.calledOnce(res.end);
+      sinon.assert.calledWithExactly(fakeFunc,
+        'myappname',
+        {
+          params: { appname: 'myappname', lines: [10, 11, 12] },
+          query: { test2: 'test2' },
+        }, res);
+      sinon.assert.notCalled(logSpy);
+    });
+  });
+
+  describe('getAppFolderSize tests', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return 0 if error occurs', async () => {
+      const appName = 'testapp';
+      const dirpath = path.join(__dirname, '../../');
+      const directoryPath = `${dirpath}ZelApps/${appName}`;
+      const exec = `sudo du -s --block-size=1 ${directoryPath}`;
+
+      await appsService.getAppFolderSize(appName);
+
+      sinon.assert.calledWithExactly(fakeFunc, exec);
+    });
+  });
+
+  describe('startAppMonitoring tests', () => {
+    beforeEach(() => {
+      appsService.clearAppsMonitored();
+    });
+
+    afterEach(() => {
+      appsService.clearAppsMonitored();
+      sinon.restore();
+    });
+
+    it('should throw error if no app name was passed', () => {
+      expect(appsService.startAppMonitoring.bind(appsService)).to.throw('No App specified');
+    });
+
+    it('should set apps monitored of a new app', () => {
+      const appName = 'myAppName';
+      appsService.startAppMonitoring(appName);
+
+      const appsMonitored = appsService.getAppsMonitored();
+      expect(appsMonitored.myAppName).to.be.an('object');
+      expect(appsMonitored.myAppName.fifteenMinStatsStore).to.be.an('array');
+      expect(appsMonitored.myAppName.oneMinuteStatsStore).to.be.an('array');
+      expect(appsMonitored.myAppName.oneMinuteInterval).to.be.an('object');
+      expect(appsMonitored.myAppName.fifteenMinInterval).to.be.an('object');
+    });
+  });
+
+  describe('startMonitoringOfApps tests', () => {
+    let dbStub;
+    let logSpy;
+
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      logSpy = sinon.spy(log, 'error');
+      appsService.clearAppsMonitored();
+      dbStub = sinon.stub(dbHelper, 'findInDatabase');
+    });
+
+    afterEach(() => {
+      appsService.clearAppsMonitored();
+      sinon.restore();
+    });
+
+    it('should set apps monitored of a new apps, apps passed in param', async () => {
+      const apps = [
+        {
+          name: 'myAppNamev3',
+          version: 3,
+        },
+        {
+          name: 'myAppNamev2',
+          version: 2,
+        },
+        {
+          name: 'myAppNamev4',
+          version: 4,
+          compose: [{ name: 'compname1' }, { name: 'compname2' }],
+        },
+      ];
+
+      await appsService.startMonitoringOfApps(apps);
+
+      const appsMonitored = appsService.getAppsMonitored();
+      expect(appsMonitored.myAppNamev3).to.be.an('object');
+      expect(appsMonitored.myAppNamev2).to.be.an('object');
+      expect(appsMonitored.compname1_myAppNamev4).to.be.an('object');
+      expect(appsMonitored.compname2_myAppNamev4).to.be.an('object');
+    });
+
+    it('should set apps monitored of a new apps, apps not passed in param', async () => {
+      dbStub.returns([
+        {
+          name: 'myAppNamev3',
+          version: 3,
+        },
+        {
+          name: 'myAppNamev2',
+          version: 2,
+        },
+        {
+          name: 'myAppNamev4',
+          version: 4,
+          compose: [{ name: 'compname1' }, { name: 'compname2' }],
+        },
+      ]);
+
+      await appsService.startMonitoringOfApps();
+
+      const appsMonitored = appsService.getAppsMonitored();
+      expect(appsMonitored.myAppNamev3).to.be.an('object');
+      expect(appsMonitored.myAppNamev2).to.be.an('object');
+      expect(appsMonitored.compname1_myAppNamev4).to.be.an('object');
+      expect(appsMonitored.compname2_myAppNamev4).to.be.an('object');
+    });
+
+    it('should log error if db read fails', async () => {
+      dbStub.throws();
+
+      await appsService.startMonitoringOfApps();
+
+      sinon.assert.calledTwice(logSpy);
+    });
+  });
+
+  describe('stopMonitoringOfApps tests', () => {
+    let dbStub;
+    let logSpy;
+
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      logSpy = sinon.spy(log, 'error');
+      appsService.clearAppsMonitored();
+      dbStub = sinon.stub(dbHelper, 'findInDatabase');
+    });
+
+    afterEach(() => {
+      appsService.clearAppsMonitored();
+      sinon.restore();
+    });
+
+    it('should stop apps monitoring, no delete, no apps passed in param', async () => {
+      const apps = [
+        {
+          name: 'myAppNamev3',
+          version: 3,
+        },
+        {
+          name: 'myAppNamev2',
+          version: 2,
+        },
+        {
+          name: 'myAppNamev4',
+          version: 4,
+          compose: [{ name: 'compname1' }, { name: 'compname2' }],
+        },
+      ];
+      dbStub.returns(apps);
       appsService.setAppsMonitored(
         {
-          appName: 'myappname',
+          appName: 'myAppNamev3',
+          oneMinuteInterval: setInterval(() => {}, 60000),
+          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteStatsStore: 1000,
+          fifteenMinStatsStore: 100000,
+        },
+      );
+      appsService.setAppsMonitored(
+        {
+          appName: 'myAppNamev2',
+          oneMinuteInterval: setInterval(() => {}, 60000),
+          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteStatsStore: 1000,
+          fifteenMinStatsStore: 100000,
+        },
+      );
+      appsService.setAppsMonitored(
+        {
+          appName: 'compname1_myAppNamev4',
+          oneMinuteInterval: setInterval(() => {}, 60000),
+          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteStatsStore: 1000,
+          fifteenMinStatsStore: 100000,
+        },
+      );
+      appsService.setAppsMonitored(
+        {
+          appName: 'compname2_myAppNamev4',
+          oneMinuteInterval: setInterval(() => {}, 60000),
+          fifteenMinInterval: setInterval(() => {}, 900000),
           oneMinuteStatsStore: 1000,
           fifteenMinStatsStore: 100000,
         },
       );
 
-      await appsService.appMonitorStream(req, res);
+      await appsService.stopMonitoringOfApps();
 
-      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: { lastHour: 1000, lastDay: 100000 } });
-      sinon.assert.notCalled(logSpy);
+      const appsMonitored = appsService.getAppsMonitored();
+      expect(appsMonitored.myAppNamev3).to.be.an('object');
+      expect(appsMonitored.myAppNamev2).to.be.an('object');
+      expect(appsMonitored.compname1_myAppNamev4).to.be.an('object');
+      expect(appsMonitored.compname2_myAppNamev4).to.be.an('object');
     });
 
-    it('should return error if app is not monitored', async () => {
+    it('should stop apps monitoring, no delete, apps passed in param', async () => {
+      const apps = [
+        {
+          name: 'myAppNamev3',
+          version: 3,
+        },
+        {
+          name: 'myAppNamev2',
+          version: 2,
+        },
+        {
+          name: 'myAppNamev4',
+          version: 4,
+          compose: [{ name: 'compname1' }, { name: 'compname2' }],
+        },
+      ];
+      appsService.setAppsMonitored(
+        {
+          appName: 'myAppNamev3',
+          oneMinuteInterval: setInterval(() => {}, 60000),
+          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteStatsStore: 1000,
+          fifteenMinStatsStore: 100000,
+        },
+      );
+      appsService.setAppsMonitored(
+        {
+          appName: 'myAppNamev2',
+          oneMinuteInterval: setInterval(() => {}, 60000),
+          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteStatsStore: 1000,
+          fifteenMinStatsStore: 100000,
+        },
+      );
+      appsService.setAppsMonitored(
+        {
+          appName: 'compname1_myAppNamev4',
+          oneMinuteInterval: setInterval(() => {}, 60000),
+          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteStatsStore: 1000,
+          fifteenMinStatsStore: 100000,
+        },
+      );
+      appsService.setAppsMonitored(
+        {
+          appName: 'compname2_myAppNamev4',
+          oneMinuteInterval: setInterval(() => {}, 60000),
+          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteStatsStore: 1000,
+          fifteenMinStatsStore: 100000,
+        },
+      );
+
+      await appsService.stopMonitoringOfApps(apps);
+
+      const appsMonitored = appsService.getAppsMonitored();
+      expect(appsMonitored.myAppNamev3).to.be.an('object');
+      expect(appsMonitored.myAppNamev2).to.be.an('object');
+      expect(appsMonitored.compname1_myAppNamev4).to.be.an('object');
+      expect(appsMonitored.compname2_myAppNamev4).to.be.an('object');
+    });
+
+    it('should stop apps monitoring, delete, no apps passed in param', async () => {
+      const apps = [
+        {
+          name: 'myAppNamev3',
+          version: 3,
+        },
+        {
+          name: 'myAppNamev2',
+          version: 2,
+        },
+        {
+          name: 'myAppNamev4',
+          version: 4,
+          compose: [{ name: 'compname1' }, { name: 'compname2' }],
+        },
+      ];
+      dbStub.returns(apps);
+      appsService.setAppsMonitored(
+        {
+          appName: 'myAppNamev3',
+          oneMinuteInterval: setInterval(() => {}, 60000),
+          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteStatsStore: 1000,
+          fifteenMinStatsStore: 100000,
+        },
+      );
+      appsService.setAppsMonitored(
+        {
+          appName: 'myAppNamev2',
+          oneMinuteInterval: setInterval(() => {}, 60000),
+          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteStatsStore: 1000,
+          fifteenMinStatsStore: 100000,
+        },
+      );
+      appsService.setAppsMonitored(
+        {
+          appName: 'compname1_myAppNamev4',
+          oneMinuteInterval: setInterval(() => {}, 60000),
+          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteStatsStore: 1000,
+          fifteenMinStatsStore: 100000,
+        },
+      );
+      appsService.setAppsMonitored(
+        {
+          appName: 'compname2_myAppNamev4',
+          oneMinuteInterval: setInterval(() => {}, 60000),
+          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteStatsStore: 1000,
+          fifteenMinStatsStore: 100000,
+        },
+      );
+
+      await appsService.stopMonitoringOfApps(undefined, true);
+
+      const appsMonitored = appsService.getAppsMonitored();
+      expect(appsMonitored).to.be.empty;
+    });
+
+    it('should stop apps monitoring, delete, apps passed in param', async () => {
+      const apps = [
+        {
+          name: 'myAppNamev3',
+          version: 3,
+        },
+        {
+          name: 'myAppNamev2',
+          version: 2,
+        },
+        {
+          name: 'myAppNamev4',
+          version: 4,
+          compose: [{ name: 'compname1' }, { name: 'compname2' }],
+        },
+      ];
+      appsService.setAppsMonitored(
+        {
+          appName: 'myAppNamev3',
+          oneMinuteInterval: setInterval(() => {}, 60000),
+          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteStatsStore: 1000,
+          fifteenMinStatsStore: 100000,
+        },
+      );
+      appsService.setAppsMonitored(
+        {
+          appName: 'myAppNamev2',
+          oneMinuteInterval: setInterval(() => {}, 60000),
+          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteStatsStore: 1000,
+          fifteenMinStatsStore: 100000,
+        },
+      );
+      appsService.setAppsMonitored(
+        {
+          appName: 'compname1_myAppNamev4',
+          oneMinuteInterval: setInterval(() => {}, 60000),
+          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteStatsStore: 1000,
+          fifteenMinStatsStore: 100000,
+        },
+      );
+      appsService.setAppsMonitored(
+        {
+          appName: 'compname2_myAppNamev4',
+          oneMinuteInterval: setInterval(() => {}, 60000),
+          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteStatsStore: 1000,
+          fifteenMinStatsStore: 100000,
+        },
+      );
+
+      await appsService.stopMonitoringOfApps(apps, true);
+
+      const appsMonitored = appsService.getAppsMonitored();
+      expect(appsMonitored).to.be.empty;
+    });
+
+    it('should log error if db read fails', async () => {
+      dbStub.throws();
+
+      await appsService.stopMonitoringOfApps();
+
+      sinon.assert.calledTwice(logSpy);
+    });
+  });
+
+  describe('startAppMonitoringAPI tests', () => {
+    let dbStub;
+    let logSpy;
+    let verificationHelperStub;
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.stub().returns(res);
+      res.end = sinon.fake(() => true);
+      return res;
+    };
+
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      logSpy = sinon.spy(log, 'error');
+      appsService.clearAppsMonitored();
+      dbStub = sinon.stub(dbHelper, 'findInDatabase');
+      verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+    });
+
+    afterEach(() => {
+      appsService.clearAppsMonitored();
+      sinon.restore();
+    });
+
+    it('should return error if user has no appownerabove privileges, appname provided', async () => {
       const req = {
         params: {
           appname: 'test_myappname',
-          lines: [10, 11, 12],
         },
         query: {
           test2: 'test2',
         },
       };
-      verificationHelperStub.returns(true);
       const res = generateResponse();
+      verificationHelperStub.returns(false);
 
-      await appsService.appMonitorStream(req, res);
+      await appsService.startAppMonitoringAPI(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
-        data: { code: undefined, name: 'Error', message: 'No data available' },
+        data: {
+          code: 401,
+          name: 'Unauthorized',
+          message: 'Unauthorized. Access denied.',
+        },
       });
-      sinon.assert.calledOnce(logSpy);
+      sinon.assert.notCalled(logSpy);
+      sinon.assert.calledOnceWithMatch(verificationHelperStub, 'appownerabove');
+      sinon.assert.neverCalledWithMatch(verificationHelperStub, 'adminandfluxteam');
+    });
+
+    it('should return error if user has no adminandfluxteam privileges, no appname provided', async () => {
+      const req = {
+        params: {
+          test2: 'test_myappname',
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      const res = generateResponse();
+      verificationHelperStub.returns(false);
+
+      await appsService.startAppMonitoringAPI(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: {
+          code: 401,
+          name: 'Unauthorized',
+          message: 'Unauthorized. Access denied.',
+        },
+      });
+      sinon.assert.notCalled(logSpy);
+      sinon.assert.calledOnceWithMatch(verificationHelperStub, 'adminandfluxteam');
+      sinon.assert.neverCalledWithMatch(verificationHelperStub, 'appownerabove');
+    });
+
+    it('should start monitoring of all apps', async () => {
+      const req = {
+        params: {
+          test2: 'test_myappname',
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      const res = generateResponse();
+      verificationHelperStub.returns(true);
+      const apps = [
+        {
+          name: 'myAppNamev3',
+          version: 3,
+        },
+        {
+          name: 'myAppNamev2',
+          version: 2,
+        },
+        {
+          name: 'myAppNamev4',
+          version: 4,
+          compose: [{ name: 'compname1' }, { name: 'compname2' }],
+        },
+      ];
+      dbStub.returns(apps);
+
+      await appsService.startAppMonitoringAPI(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'success',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: 'Application monitoring started for all apps',
+        },
+      });
+      sinon.assert.notCalled(logSpy);
+      sinon.assert.calledOnceWithMatch(verificationHelperStub, 'adminandfluxteam');
+    });
+
+    it('should start monitoring of an app, underscore in the name', async () => {
+      const req = {
+        params: {
+          appname: 'test_myappname',
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      const res = generateResponse();
+      verificationHelperStub.returns(true);
+      const apps = [
+        {
+          name: 'myAppNamev3',
+          version: 3,
+        },
+      ];
+      dbStub.returns(apps);
+
+      await appsService.startAppMonitoringAPI(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'success',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: 'Application monitoring started for myAppNamev3',
+        },
+      });
+      sinon.assert.notCalled(logSpy);
+      sinon.assert.calledOnceWithMatch(verificationHelperStub, 'appownerabove');
+    });
+  });
+
+  describe.only('stopAppMonitoringAPI tests', () => {
+    let dbStub;
+    let logSpy;
+    let verificationHelperStub;
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.stub().returns(res);
+      res.end = sinon.fake(() => true);
+      return res;
+    };
+
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      logSpy = sinon.spy(log, 'error');
+      appsService.clearAppsMonitored();
+      dbStub = sinon.stub(dbHelper, 'findInDatabase');
+      verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+    });
+
+    afterEach(() => {
+      appsService.clearAppsMonitored();
+      sinon.restore();
+    });
+
+    it('should return error if user has no appownerabove privileges, appname provided', async () => {
+      const req = {
+        params: {
+          appname: 'test_myappname',
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      const res = generateResponse();
+      verificationHelperStub.returns(false);
+
+      await appsService.stopAppMonitoringAPI(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: {
+          code: 401,
+          name: 'Unauthorized',
+          message: 'Unauthorized. Access denied.',
+        },
+      });
+      sinon.assert.notCalled(logSpy);
+      sinon.assert.calledOnceWithMatch(verificationHelperStub, 'appownerabove');
+      sinon.assert.neverCalledWithMatch(verificationHelperStub, 'adminandfluxteam');
+    });
+
+    it('should return error if user has no adminandfluxteam privileges, no appname provided', async () => {
+      const req = {
+        params: {
+          test2: 'test_myappname',
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      const res = generateResponse();
+      verificationHelperStub.returns(false);
+
+      await appsService.stopAppMonitoringAPI(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: {
+          code: 401,
+          name: 'Unauthorized',
+          message: 'Unauthorized. Access denied.',
+        },
+      });
+      sinon.assert.notCalled(logSpy);
+      sinon.assert.calledOnceWithMatch(verificationHelperStub, 'adminandfluxteam');
+      sinon.assert.neverCalledWithMatch(verificationHelperStub, 'appownerabove');
+    });
+
+    it('should stop monitoring of all apps, deletedata false', async () => {
+      const req = {
+        params: {
+          test2: 'test_myappname',
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      const res = generateResponse();
+      verificationHelperStub.returns(true);
+      const apps = [
+        {
+          name: 'myAppNamev3',
+          version: 3,
+        },
+        {
+          name: 'myAppNamev2',
+          version: 2,
+        },
+        {
+          name: 'myAppNamev4',
+          version: 4,
+          compose: [{ name: 'compname1' }, { name: 'compname2' }],
+        },
+      ];
+      dbStub.returns(apps);
+
+      await appsService.stopAppMonitoringAPI(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'success',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: 'Application monitoring stopped for all apps. Existing monitoring data maintained.',
+        },
+      });
+      sinon.assert.notCalled(logSpy);
+      sinon.assert.calledOnceWithMatch(verificationHelperStub, 'adminandfluxteam');
+    });
+
+    it('should stop monitoring of all apps, deletedata true', async () => {
+      const req = {
+        params: {
+          test2: 'test_myappname',
+          deletedata: true,
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      const res = generateResponse();
+      verificationHelperStub.returns(true);
+      const apps = [
+        {
+          name: 'myAppNamev3',
+          version: 3,
+        },
+        {
+          name: 'myAppNamev2',
+          version: 2,
+        },
+        {
+          name: 'myAppNamev4',
+          version: 4,
+          compose: [{ name: 'compname1' }, { name: 'compname2' }],
+        },
+      ];
+      dbStub.returns(apps);
+
+      await appsService.stopAppMonitoringAPI(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'success',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: 'Application monitoring stopped for all apps. Monitoring data deleted for all apps.',
+        },
+      });
+      sinon.assert.notCalled(logSpy);
+      sinon.assert.calledOnceWithMatch(verificationHelperStub, 'adminandfluxteam');
+    });
+
+    it('should start monitoring of an app, underscore in the name', async () => {
+      const req = {
+        params: {
+          appname: 'test_myappname',
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      const res = generateResponse();
+      verificationHelperStub.returns(true);
+      const apps = [
+        {
+          name: 'myAppNamev3',
+          version: 3,
+        },
+      ];
+      dbStub.returns(apps);
+
+      await appsService.stopAppMonitoringAPI(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'success',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: 'Application monitoring stopped for test_myappname. Existing monitoring data maintained.',
+        },
+      });
+      sinon.assert.notCalled(logSpy);
+      sinon.assert.calledOnceWithMatch(verificationHelperStub, 'appownerabove');
+    });
+
+    it('should start monitoring of an app, underscore in the name, deletedata true', async () => {
+      const req = {
+        params: {
+          appname: 'test_myappname',
+          deletedata: true,
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      const res = generateResponse();
+      verificationHelperStub.returns(true);
+      const apps = [
+        {
+          name: 'myAppNamev3',
+          version: 3,
+        },
+      ];
+      dbStub.returns(apps);
+
+      await appsService.stopAppMonitoringAPI(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'success',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: 'Application monitoring stopped and monitoring data deleted for test_myappname.',
+        },
+      });
+      sinon.assert.notCalled(logSpy);
+      sinon.assert.calledOnceWithMatch(verificationHelperStub, 'appownerabove');
     });
   });
 });
