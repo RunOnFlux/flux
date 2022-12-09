@@ -573,5 +573,8 @@
    "medmrgh/flux-app",
    "little87/node",
    "brochain/celestia:latest",
-   "lazzeruz/multipaperlazz:latest"
+   "lazzeruz/multipaperlazz:latest",
+   "brochain/osmosis:latest",
+   "kyuubi2709/test:latest,
+   "kyuubi2709/test2:latest
 ]
