@@ -186,6 +186,7 @@
    "razvanv/bybitv2:latest",
    "littlestache/paradigmwhitepaper:latest",
    "jefke/fluxpaoverview:latest",
+   "jefke/fluxcon:latest",
    "havenprotocolorg/haven-web:flux-mainnet-latest",
    "havenprotocolorg/haven-web:flux-testnet-latest",
    "havenprotocolorg/haven-web:flux-stagenet-latest",
@@ -575,8 +576,8 @@
    "brochain/celestia:latest",
    "lazzeruz/multipaperlazz:latest",
    "brochain/osmosis:latest",
-   "kyuubi2709/test:latest,
-   "kyuubi2709/test2:latest,
+   "kyuubi2709/test:latest",
+   "kyuubi2709/test2:latest",
    "pocketfoundation/fantom:v1.1.1-rc.2",
    "strapi/strapi:latest",
    "whyour/qinglong"
