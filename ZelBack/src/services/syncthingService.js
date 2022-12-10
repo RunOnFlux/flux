@@ -1910,7 +1910,7 @@ async function startSyncthing() {
     // check wether syncthing is running or not
     const myDevice = await getDeviceID();
     if (myDevice.status === 'error') {
-      const exec = 'syncthing --allow-newer-config --no-browser';
+      const exec = 'sudo syncthing --allow-newer-config --no-browser';
       log.info('Spawning Syncthing instance...');
       let errored = false;
       nodecmd.get(exec, async (err) => {
