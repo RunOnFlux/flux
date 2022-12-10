@@ -2288,8 +2288,8 @@ export default {
         const continentCode = locations[0];
         const countryCode = locations[1];
         const regionName = locations[2];
-        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode);
-        const countryExists = geolocations.countries.find((country) => country.code === countryCode);
+        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode) || { name: 'ALL' };
+        const countryExists = geolocations.countries.find((country) => country.code === countryCode) || { name: 'ALL' };
         let locationString = `Allowed location: Continent: ${continentExists.name}`;
         if (countryCode) {
           locationString += `, Country: ${countryExists.name}`;
@@ -2305,8 +2305,8 @@ export default {
         const continentCode = locations[0];
         const countryCode = locations[1];
         const regionName = locations[2];
-        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode);
-        const countryExists = geolocations.countries.find((country) => country.code === countryCode);
+        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode) || { name: 'ALL' };
+        const countryExists = geolocations.countries.find((country) => country.code === countryCode) || { name: 'ALL' };
         let locationString = `Forbidden location: Continent: ${continentExists.name}`;
         if (countryCode) {
           locationString += `, Country: ${countryExists.name}`;
