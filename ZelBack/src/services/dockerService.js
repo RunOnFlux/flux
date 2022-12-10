@@ -455,6 +455,17 @@ async function appDockerCreate(appSpecifications, appName, isComponent) {
     },
   };
 
+  if (options.Env.length) {
+    const fluxStorageEnv = options.Env.find((env) => env.startsWith(('FLUX_STORE_ENV=https://store.runonflux.io/v1/env/')));
+    if (fluxStorageEnv) {
+      const resStorage = await serviceHelper.axiosGet(fluxStorageEnv).catch(() => {
+        throw new Error(`Environment parameters from Flux Store ${fluxStorageEnv} failed to be obtained`);
+      });
+      const envVars = resStorage.data;
+      options.Env = options.Env.concat(envVars);
+    }
+  }
+
   const app = await docker.createContainer(options).catch((error) => {
     log.error(error);
     throw error;
