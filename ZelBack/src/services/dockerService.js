@@ -456,22 +456,22 @@ async function appDockerCreate(appSpecifications, appName, isComponent) {
   };
 
   if (options.Env.length) {
-    const fluxStorageEnv = options.Env.find((env) => env.startsWith(('FLUX_STORE_ENV=https://store.runonflux.io/v1/env/')));
+    const fluxStorageEnv = options.Env.find((env) => env.startsWith(('FLUX_STORAGE_ENV=')));
     if (fluxStorageEnv) {
-      const resStorage = await serviceHelper.axiosGet(fluxStorageEnv).catch(() => {
-        throw new Error(`Environment parameters from Flux Store ${fluxStorageEnv} failed to be obtained`);
+      const resStorage = await serviceHelper.axiosGet(fluxStorageEnv.split('FLUX_STORAGE_ENV=')[1]).catch(() => {
+        throw new Error(`Environment parameters from Flux Storage ${fluxStorageEnv} failed to be obtained`);
       });
       const envVars = resStorage.data;
       if (Array.isArray(envVars) && envVars.length < 200) {
         envVars.forEach((parameter) => {
           if (typeof parameter !== 'string' || parameter.length > 5000000) {
-            throw new Error(`Environment parameters from Flux Store ${fluxStorageEnv} is invalid`);
+            throw new Error(`Environment parameters from Flux Storage ${fluxStorageEnv} are invalid`);
           } else {
             options.Env.push(parameter);
           }
         });
       } else {
-        throw new Error(`Environment parameters from Flux Store ${fluxStorageEnv} is invalid`);
+        throw new Error(`Environment parameters from Flux Storage ${fluxStorageEnv} are invalid`);
       }
     }
   }
