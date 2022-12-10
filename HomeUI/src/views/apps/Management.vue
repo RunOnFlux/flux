@@ -4504,8 +4504,8 @@ export default {
         const countryCode = locations[1];
         const regionName = locations[2];
         this.forbiddenGeolocations[`selectedContinent${i}`] = continentCode;
-        this.forbiddenGeolocations[`selectedCountry${i}`] = countryCode || 'NONE';
-        this.forbiddenGeolocations[`selectedRegion${i}`] = regionName || 'NONE';
+        this.forbiddenGeolocations[`selectedCountry${i}`] = countryCode || 'ALL';
+        this.forbiddenGeolocations[`selectedRegion${i}`] = regionName || 'ALL';
       }
     },
     async getGeolocationData() {
@@ -4576,7 +4576,7 @@ export default {
       this.possibleLocations = possibleLocations;
     },
     continentsOptions(isNegative) {
-      const continents = [{ value: isNegative ? 'NONE' : 'ALL', text: isNegative ? 'NONE' : 'ALL' }];
+      const continents = [{ value: isNegative ? 'ALL' : 'ALL', text: isNegative ? 'ALL' : 'ALL' }];
       this.possibleLocations.filter((options) => options.instances > (isNegative ? -1 : 3)).forEach((location) => {
         if (!location.value.includes('_')) {
           const existingContinent = geolocations.continents.find((continent) => continent.code === location.value);
@@ -4586,7 +4586,7 @@ export default {
       return continents;
     },
     countriesOptions(continentCode, isNegative) {
-      const countries = [{ value: isNegative ? 'NONE' : 'ALL', text: isNegative ? 'NONE' : 'ALL' }];
+      const countries = [{ value: isNegative ? 'ALL' : 'ALL', text: isNegative ? 'ALL' : 'ALL' }];
       this.possibleLocations.filter((options) => options.instances > (isNegative ? -1 : 3)).forEach((location) => {
         if (!location.value.split('_')[2] && location.value.startsWith(`${continentCode}_`)) {
           const existingCountry = geolocations.countries.find((country) => country.code === location.value.split('_')[1]);
@@ -4596,7 +4596,7 @@ export default {
       return countries;
     },
     regionsOptions(continentCode, countryCode, isNegative) {
-      const regions = [{ value: isNegative ? 'NONE' : 'ALL', text: isNegative ? 'NONE' : 'ALL' }];
+      const regions = [{ value: isNegative ? 'ALL' : 'ALL', text: isNegative ? 'ALL' : 'ALL' }];
       this.possibleLocations.filter((options) => options.instances > (isNegative ? -1 : 3)).forEach((location) => {
         if (location.value.startsWith(`${continentCode}_${countryCode}_`)) {
           regions.push({ value: location.value.split('_')[2], text: location.value.split('_')[2] });
@@ -4625,11 +4625,11 @@ export default {
         const continent = this.forbiddenGeolocations[`selectedContinent${i}`];
         const country = this.forbiddenGeolocations[`selectedCountry${i}`];
         const region = this.forbiddenGeolocations[`selectedRegion${i}`];
-        if (continent && continent !== 'NONE') {
+        if (continent && continent !== 'ALL') {
           let geolocation = `a!c${continent}`;
-          if (country && country !== 'NONE') {
+          if (country && country !== 'ALL') {
             geolocation += `_${country}`;
-            if (region && region !== 'NONE') {
+            if (region && region !== 'ALL') {
               geolocation += `_${region}`;
             }
           }
@@ -4656,8 +4656,8 @@ export default {
         const continentCode = locations[0];
         const countryCode = locations[1];
         const regionName = locations[2];
-        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode);
-        const countryExists = geolocations.countries.find((country) => country.code === countryCode);
+        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode) || { name: 'ALL' };
+        const countryExists = geolocations.countries.find((country) => country.code === countryCode) || { name: 'ALL' };
         let locationString = `Allowed location: Continent: ${continentExists.name}`;
         if (countryCode) {
           locationString += `, Country: ${countryExists.name}`;
@@ -4673,8 +4673,8 @@ export default {
         const continentCode = locations[0];
         const countryCode = locations[1];
         const regionName = locations[2];
-        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode);
-        const countryExists = geolocations.countries.find((country) => country.code === countryCode);
+        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode) || { name: 'ALL' };
+        const countryExists = geolocations.countries.find((country) => country.code === countryCode) || { name: 'ALL' };
         let locationString = `Forbidden location: Continent: ${continentExists.name}`;
         if (countryCode) {
           locationString += `, Country: ${countryExists.name}`;
