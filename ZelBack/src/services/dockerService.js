@@ -462,7 +462,17 @@ async function appDockerCreate(appSpecifications, appName, isComponent) {
         throw new Error(`Environment parameters from Flux Store ${fluxStorageEnv} failed to be obtained`);
       });
       const envVars = resStorage.data;
-      options.Env = options.Env.concat(envVars);
+      if (Array.isArray(envVars) && envVars.length < 200) {
+        envVars.forEach((parameter) => {
+          if (typeof parameter !== 'string' || parameter.length > 5000000) {
+            throw new Error(`Environment parameters from Flux Store ${fluxStorageEnv} is invalid`);
+          } else {
+            options.Env.push(parameter);
+          }
+        });
+      } else {
+        throw new Error(`Environment parameters from Flux Store ${fluxStorageEnv} is invalid`);
+      }
     }
   }
 
