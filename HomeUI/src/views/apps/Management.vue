@@ -4639,15 +4639,15 @@ export default {
       return geo;
     },
     getGeolocation(geo) {
-      if (geo.startsWith('a') && !geo.startsWith('ac') && geo.startsWith('a!c')) {
+      if (geo.startsWith('a') && !geo.startsWith('ac') && !geo.startsWith('a!c')) {
         // specific continent
         const continentCode = geo.slice(1);
-        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode);
+        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode) || { name: 'ALL' };
         return `Continent: ${continentExists.name || 'Unkown'}`;
       } if (geo.startsWith('b')) {
         // specific country
         const countryCode = geo.slice(1);
-        const countryExists = geolocations.countries.find((country) => country.code === countryCode);
+        const countryExists = geolocations.countries.find((country) => country.code === countryCode) || { name: 'ALL' };
         return `Country: ${countryExists.name || 'Unkown'}`;
       } if (geo.startsWith('ac')) {
         // allowed location

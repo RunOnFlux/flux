@@ -314,6 +314,21 @@
                       Visit
                     </b-button>
                   </template>
+                  <template #cell(manage)="row">
+                    <b-button
+                      :id="`manage-installed-app-${row.item.name}`"
+                      size="sm"
+                      class="mr-0"
+                      variant="danger"
+                    >
+                      Managed
+                    </b-button>
+                    <confirm-dialog
+                      :target="`manage-installed-app-${row.item.name}`"
+                      confirm-button="Manage App"
+                      @confirm="openAppManagement(row.item.name)"
+                    />
+                  </template>
                 </b-table>
               </b-col>
             </b-row>
@@ -922,12 +937,12 @@ export default {
       if (geo.startsWith('a') && !geo.startsWith('ac') && !geo.startsWith('a!c')) {
         // specific continent
         const continentCode = geo.slice(1);
-        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode);
+        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode) || { name: 'ALL' };
         return `Continent: ${continentExists.name || 'Unkown'}`;
       } if (geo.startsWith('b')) {
         // specific country
         const countryCode = geo.slice(1);
-        const countryExists = geolocations.countries.find((country) => country.code === countryCode);
+        const countryExists = geolocations.countries.find((country) => country.code === countryCode) || { name: 'ALL' };
         return `Country: ${countryExists.name || 'Unkown'}`;
       } if (geo.startsWith('ac')) {
         // allowed location
