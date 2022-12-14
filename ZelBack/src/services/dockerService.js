@@ -458,7 +458,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent) {
     HostConfig: {
       NanoCPUs: appSpecifications.cpu * 1e9,
       Memory: appSpecifications.ram * 1024 * 1024,
-      Binds: [`${appsFolder + getAppIdentifier(identifier)}:${containerData}:rwx`],
+      Binds: [`${appsFolder + getAppIdentifier(identifier)}/appdata:${containerData}`],
       Ulimits: [
         {
           Name: 'nofile',

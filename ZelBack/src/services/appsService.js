@@ -1688,7 +1688,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     if (res) {
       res.write(serviceHelper.ensureString(makeDirectory));
     }
-    const execDIR = `sudo mkdir -p ${appsFolder + appId}`;
+    const execDIR = `sudo mkdir -p ${appsFolder + appId}/appdata`;
     await cmdAsync(execDIR);
     const makeDirectory2 = {
       status: 'Directory made',
