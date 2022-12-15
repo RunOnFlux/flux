@@ -314,21 +314,6 @@
                       Visit
                     </b-button>
                   </template>
-                  <template #cell(manage)="row">
-                    <b-button
-                      :id="`manage-installed-app-${row.item.name}`"
-                      size="sm"
-                      class="mr-0"
-                      variant="danger"
-                    >
-                      Managed
-                    </b-button>
-                    <confirm-dialog
-                      :target="`manage-installed-app-${row.item.name}`"
-                      confirm-button="Manage App"
-                      @confirm="openAppManagement(row.item.name)"
-                    />
-                  </template>
                 </b-table>
               </b-col>
             </b-row>
@@ -747,7 +732,6 @@ export default {
             { key: 'name', label: 'Name', sortable: true },
             { key: 'description', label: 'Description', sortable: true },
             { key: 'visit', label: 'Visit' },
-            { key: 'manage', label: 'Manage' },
           ],
           loading: true,
         },
