@@ -582,5 +582,6 @@
    "strapi/strapi:latest",
    "modotech/fluxtestrepo",
    "whyour/qinglong",
+   "plausible/analytics:latest",
    "wirewrex/bulk-crop-tool:latest"
 ]
