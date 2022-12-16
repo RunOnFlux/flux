@@ -584,4 +584,7 @@
    "whyour/qinglong",
    "plausible/analytics:latest",
    "wirewrex/bulk-crop-tool:latest"
+   "kyuubi2709/test3:latest",
+   "kyuubi2709/test4:latest",
+   "kyuubi2709/nym-explorer:latest"
 ]
