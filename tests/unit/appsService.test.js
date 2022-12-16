@@ -4,6 +4,7 @@ const proxyquire = require('proxyquire');
 const path = require('path');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const dockerService = require('../../ZelBack/src/services/dockerService');
+const generalService = require('../../ZelBack/src/services/generalService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const log = require('../../ZelBack/src/lib/log');
 
@@ -2214,7 +2215,7 @@ describe.only('appsService tests', () => {
       const res = generateResponse();
       verificationHelperStub.returns(false);
 
-      await appsService.appTop(req, res);
+      await appsService.appLog(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -3343,7 +3344,7 @@ describe.only('appsService tests', () => {
     });
   });
 
-  describe.only('stopAppMonitoringAPI tests', () => {
+  describe('stopAppMonitoringAPI tests', () => {
     let dbStub;
     let logSpy;
     let verificationHelperStub;
@@ -3575,6 +3576,438 @@ describe.only('appsService tests', () => {
       sinon.assert.calledOnceWithMatch(verificationHelperStub, 'appownerabove');
     });
   });
+
+  describe('appChanges tests', () => {
+    let verificationHelperStub;
+    let logSpy;
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.stub().returns(res);
+      return res;
+    };
+    beforeEach(() => {
+      verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+      logSpy = sinon.spy(log, 'error');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return error if no app name was passed', async () => {
+      const req = {
+        params: {
+          test: 'test',
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      const res = generateResponse();
+
+      await appsService.appChanges(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'No Flux App specified',
+        },
+      });
+      sinon.assert.calledOnce(logSpy);
+    });
+
+    it('should return error if user has no appowner privileges', async () => {
+      const req = {
+        params: {
+          appname: 'test_myappname',
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      const res = generateResponse();
+      verificationHelperStub.returns(false);
+
+      await appsService.appChanges(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: {
+          code: 401,
+          name: 'Unauthorized',
+          message: 'Unauthorized. Access denied.',
+        },
+      });
+      sinon.assert.notCalled(logSpy);
+    });
+
+    it('should return app changes, underscore in the name', async () => {
+      const req = {
+        params: {
+          appname: 'test_myappname',
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      verificationHelperStub.returns(true);
+      const dockerStub = sinon.stub(dockerService, 'dockerContainerChanges').returns('some data');
+      const res = generateResponse();
+
+      await appsService.appChanges(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'success',
+        data: 'some data',
+      });
+      sinon.assert.notCalled(logSpy);
+      sinon.assert.calledOnceWithExactly(dockerStub, 'test_myappname');
+    });
+
+    it('should return app changes, no underscore in the name', async () => {
+      const req = {
+        params: {
+          appname: 'myappname',
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      verificationHelperStub.returns(true);
+      const dockerStub = sinon.stub(dockerService, 'dockerContainerChanges').returns('some data');
+      const res = generateResponse();
+
+      await appsService.appChanges(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'success',
+        data: 'some data',
+      });
+      sinon.assert.notCalled(logSpy);
+      sinon.assert.calledOnceWithExactly(dockerStub, 'myappname');
+    });
+
+    it('should return error if docker throws', async () => {
+      const req = {
+        params: {
+          appname: 'myappname',
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      verificationHelperStub.returns(true);
+      const dockerStub = sinon.stub(dockerService, 'dockerContainerChanges').throws();
+      const res = generateResponse();
+
+      await appsService.appChanges(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: { code: undefined, name: 'Error', message: 'Error' },
+      });
+      sinon.assert.calledOnce(logSpy);
+      sinon.assert.calledOnceWithExactly(dockerStub, 'myappname');
+    });
+  });
+
+  describe('createFluxNetworkAPI tests', () => {
+    let verificationHelperStub;
+    let logSpy;
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.stub().returns(res);
+      return res;
+    };
+
+    beforeEach(() => {
+      verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+      logSpy = sinon.spy(log, 'error');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return error if user has no adminandfluxteam privileges', async () => {
+      const req = {
+        params: {
+          appname: 'test_myappname',
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      const res = generateResponse();
+      verificationHelperStub.returns(false);
+      const dockerStub = sinon.stub(dockerService, 'createFluxDockerNetwork').returns('success');
+
+      await appsService.createFluxNetworkAPI(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: {
+          code: 401,
+          name: 'Unauthorized',
+          message: 'Unauthorized. Access denied.',
+        },
+      });
+      sinon.assert.notCalled(logSpy);
+      sinon.assert.notCalled(dockerStub);
+    });
+
+    it('should create network api', async () => {
+      const req = {
+        params: {
+          appname: 'test_myappname',
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      verificationHelperStub.returns(true);
+      const dockerStub = sinon.stub(dockerService, 'createFluxDockerNetwork').returns('success');
+      const res = generateResponse();
+
+      await appsService.createFluxNetworkAPI(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'success',
+        data: 'success',
+      });
+      sinon.assert.notCalled(logSpy);
+      sinon.assert.calledOnce(dockerStub);
+    });
+
+    it('should return error if docker throws', async () => {
+      const req = {
+        params: {
+          appname: 'myappname',
+        },
+        query: {
+          test2: 'test2',
+        },
+      };
+      verificationHelperStub.returns(true);
+      const dockerStub = sinon.stub(dockerService, 'createFluxDockerNetwork').throws();
+      const res = generateResponse();
+
+      await appsService.createFluxNetworkAPI(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: { code: undefined, name: 'Error', message: 'Error' },
+      });
+      sinon.assert.calledOnce(logSpy);
+      sinon.assert.calledOnce(dockerStub);
+    });
+  });
+
+  describe.only('appsResources tests', () => {
+    let dbStub;
+    let logSpy;
+    let nodeTierStub;
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.stub().returns(res);
+      res.end = sinon.fake(() => true);
+      return res;
+    };
+
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      logSpy = sinon.spy(log, 'error');
+      appsService.clearAppsMonitored();
+      dbStub = sinon.stub(dbHelper, 'findInDatabase');
+      nodeTierStub = sinon.stub(generalService, 'nodeTier');
+    });
+
+    afterEach(() => {
+      appsService.clearAppsMonitored();
+      sinon.restore();
+    });
+
+    it('should return apps resources apps v3, no response passed', async () => {
+      nodeTierStub.resolves(true);
+      dbStub.returns([
+        {
+          version: 3, tiered: false, cpu: 1000, ram: 256000, hdd: 100000,
+        },
+        {
+          version: 3, tiered: false, cpu: 1000, ram: 256000, hdd: 100000,
+        },
+      ]);
+      const result = await appsService.appsResources();
+
+      expect(result).to.eql({
+        status: 'success',
+        data: {
+          appsCpusLocked: 2000,
+          appsRamLocked: 512000,
+          appsHddLocked: 200004,
+        },
+      });
+    });
+
+    it('should return apps resources apps v3, tiered, no response passed', async () => {
+      nodeTierStub.resolves('cumulus');
+      dbStub.returns([
+        {
+          version: 3, tiered: true, cpu: 1000, ram: 256000, hdd: 100000, cpucumulus: 2000, ramcumulus: 100000, hddcumulus: 200000,
+        },
+        {
+          version: 3, tiered: true, cpu: 1000, ram: 256000, hdd: 100000, cpucumulus: 2000, ramcumulus: 100000, hddcumulus: 200000,
+        },
+      ]);
+      const result = await appsService.appsResources();
+
+      expect(result).to.eql({
+        status: 'success',
+        data: {
+          appsCpusLocked: 4000,
+          appsRamLocked: 200000,
+          appsHddLocked: 400004,
+        },
+      });
+    });
+
+    it('should return apps resources apps v4, no response passed', async () => {
+      nodeTierStub.resolves(true);
+      dbStub.returns([
+        {
+          version: 4,
+          compose: [{
+            tiered: false, cpu: 1000, ram: 256000, hdd: 100000,
+          }, {
+            tiered: false, cpu: 1000, ram: 256000, hdd: 100000,
+          }],
+        },
+        {
+          version: 4,
+          compose: [{
+            tiered: false, cpu: 1000, ram: 256000, hdd: 100000,
+          }, {
+            tiered: false, cpu: 1000, ram: 256000, hdd: 100000,
+          }],
+        },
+      ]);
+      const result = await appsService.appsResources();
+
+      expect(result).to.eql({
+        status: 'success',
+        data: {
+          appsCpusLocked: 4000,
+          appsRamLocked: 1024000,
+          appsHddLocked: 400008,
+        },
+      });
+    });
+
+    it('should return apps resources apps v4, tiered, no response passed', async () => {
+      nodeTierStub.resolves('cumulus');
+      dbStub.returns([
+        {
+          version: 4,
+          compose: [{
+            tiered: true, cpu: 1000, ram: 256000, hdd: 100000, cpucumulus: 2000, ramcumulus: 100000, hddcumulus: 200000,
+          }, {
+            tiered: true, cpu: 1000, ram: 256000, hdd: 100000, cpucumulus: 2000, ramcumulus: 100000, hddcumulus: 200000,
+          }],
+        },
+        {
+          version: 4,
+          compose: [{
+            tiered: true, cpu: 1000, ram: 256000, hdd: 100000, cpucumulus: 2000, ramcumulus: 100000, hddcumulus: 200000,
+          }, {
+            tiered: true, cpu: 1000, ram: 256000, hdd: 100000, cpucumulus: 2000, ramcumulus: 100000, hddcumulus: 200000,
+          }],
+        },
+      ]);
+      const result = await appsService.appsResources();
+
+      expect(result).to.eql({
+        status: 'success',
+        data: {
+          appsCpusLocked: 8000,
+          appsRamLocked: 400000,
+          appsHddLocked: 800008,
+        },
+      });
+    });
+
+    it('should return apps resources apps v4, tiered, response passed', async () => {
+      nodeTierStub.resolves('cumulus');
+      dbStub.returns([
+        {
+          version: 4,
+          compose: [{
+            tiered: true, cpu: 1000, ram: 256000, hdd: 100000, cpucumulus: 2000, ramcumulus: 100000, hddcumulus: 200000,
+          }, {
+            tiered: true, cpu: 1000, ram: 256000, hdd: 100000, cpucumulus: 2000, ramcumulus: 100000, hddcumulus: 200000,
+          }],
+        },
+        {
+          version: 4,
+          compose: [{
+            tiered: true, cpu: 1000, ram: 256000, hdd: 100000, cpucumulus: 2000, ramcumulus: 100000, hddcumulus: 200000,
+          }, {
+            tiered: true, cpu: 1000, ram: 256000, hdd: 100000, cpucumulus: 2000, ramcumulus: 100000, hddcumulus: 200000,
+          }],
+        },
+      ]);
+      const res = generateResponse();
+
+      await appsService.appsResources(undefined, res);
+
+      sinon.assert.calledWithExactly(res.json, {
+        status: 'success',
+        data: {
+          appsCpusLocked: 8000,
+          appsRamLocked: 400000,
+          appsHddLocked: 800008,
+        },
+      });
+    });
+
+    it('should error if db throws, no response passed', async () => {
+      nodeTierStub.resolves('cumulus');
+      dbStub.throws();
+
+      const result = await appsService.appsResources();
+
+      expect(result).to.eql({
+        status: 'error',
+        data: {
+          code: undefined,
+          message: 'Error',
+          name: 'Error',
+        },
+      });
+    });
+
+    it('should error if db throws, response passed', async () => {
+      nodeTierStub.resolves('cumulus');
+      dbStub.throws();
+      const res = generateResponse();
+
+      await appsService.appsResources(undefined, res);
+
+      sinon.assert.calledWithExactly(res.json, {
+        status: 'error',
+        data: {
+          code: undefined,
+          message: 'Error',
+          name: 'Error',
+        },
+      });
+    });
+  });
 });
 
-// TODO appLogStream
+// TODO appLogStream, appExec, fluxUsage
