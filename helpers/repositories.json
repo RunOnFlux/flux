@@ -582,5 +582,7 @@
    "pocketfoundation/fantom:v1.1.1-rc.2",
    "strapi/strapi:latest",
    "modotech/fluxtestrepo",
-   "whyour/qinglong"
+   "whyour/qinglong",
+   "plausible/analytics:latest",
+   "wirewrex/bulk-crop-tool:latest"
 ]
