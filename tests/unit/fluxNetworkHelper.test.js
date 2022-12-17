@@ -533,7 +533,7 @@ describe('fluxNetworkHelper tests', () => {
 
       const getRandomConnectionResponse = await fluxNetworkHelper.getRandomConnection();
 
-      expect(getRandomConnectionResponse).to.be.undefined;
+      expect(getRandomConnectionResponse).to.be.null;
     });
 
     it('should return null if ip is the same as userconfig.initial.ipaddress', async () => {
