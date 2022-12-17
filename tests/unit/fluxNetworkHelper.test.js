@@ -495,6 +495,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       ];
       deterministicFluxListStub = sinon.stub(fluxCommunicationUtils, 'deterministicFluxList');
+      fluxNetworkHelper.setMyFluxIp('83.52.214.240:16167');
     });
 
     afterEach(() => {
