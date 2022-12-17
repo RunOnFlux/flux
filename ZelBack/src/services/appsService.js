@@ -1688,7 +1688,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     if (res) {
       res.write(serviceHelper.ensureString(makeDirectory));
     }
-    const execDIR = `sudo mkdir -p ${appsFolder + appId}`;
+    const execDIR = `sudo mkdir -p ${appsFolder + appId}/appdata`;
     await cmdAsync(execDIR);
     const makeDirectory2 = {
       status: 'Directory made',
@@ -1733,6 +1733,27 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     log.info(permissionsDirectory2);
     if (res) {
       res.write(serviceHelper.ensureString(permissionsDirectory2));
+    }
+
+    // if s flag create .stfolder
+    const containerDataFlags = appSpecifications.containerData.split(':')[1] ? appSpecifications.containerData.split(':')[0] : '';
+    if (containerDataFlags.includes('s')) {
+      const stFolderCreation = {
+        status: 'Creating .stfolder for syncthing...',
+      };
+      log.info(stFolderCreation);
+      if (res) {
+        res.write(serviceHelper.ensureString(stFolderCreation));
+      }
+      const execDIRst = `sudo mkdir -p ${appsFolder + appId}/.stfolder`;
+      await cmdAsync(execDIRst);
+      const stFolderCreation2 = {
+        status: '.stfolder created',
+      };
+      log.info(stFolderCreation2);
+      if (res) {
+        res.write(serviceHelper.ensureString(stFolderCreation2));
+      }
     }
 
     const cronStatus = {
@@ -3636,47 +3657,6 @@ async function availableApps(req, res) {
       hash: 'localappinstancehashABCDEF', // hash of app message
       height: 0, // height of tx on which it was
     },
-    {
-      version: 2,
-      name: 'KadenaChainWebNode', // corresponds to docker name and this name is stored in apps mongo database
-      description: 'Kadena is a fast, secure, and scalable blockchain using the Chainweb consensus protocol. '
-        + 'Chainweb is a braided, parallelized Proof Of Work consensus mechanism that improves throughput and scalability in executing transactions on the blockchain while maintaining the security and integrity found in Bitcoin. '
-        + 'The healthy information tells you if your node is running and synced. If you just installed the docker it can say unhealthy for long time because on first run a bootstrap is downloaded and extracted to make your node sync faster before the node is started. '
-        + 'Do not stop or restart the docker in the first hour after installation. You can also check if your kadena node is synced, by going to running apps and press visit button on kadena and compare your node height with Kadena explorer. Thank you.',
-      repotag: 'runonflux/kadena-chainweb-node:2.13.0',
-      owner: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
-      ports: [30004, 30005],
-      containerPorts: [30004, 30005],
-      domains: ['', ''],
-      tiered: false,
-      cpu: 2.5, // true resource registered for app. If not tiered only this is available
-      ram: 4000, // true resource registered for app
-      hdd: 120, // true resource registered for app
-      enviromentParameters: ['CHAINWEB_P2P_PORT=30004', 'CHAINWEB_SERVICE_PORT=30005', 'LOGLEVEL=warn'],
-      commands: ['/bin/bash', '-c', '(test -d /data/chainweb-db/0 && ./run-chainweb-node.sh) || (/chainweb/initialize-db.sh && ./run-chainweb-node.sh)'],
-      containerData: '/data', // cannot be root todo in verification
-      hash: 'localSpecificationsVersion17', // hash of app message
-      height: 680000, // height of tx on which it was
-    },
-    {
-      version: 2,
-      name: 'KadenaChainWebData', // corresponds to docker name and this name is stored in apps mongo database
-      description: 'Kadena Chainweb Data is extension to Chainweb Node offering additional data about Kadena blockchain. Chainweb Data offers statistics, coins circulation and mainly transaction history and custom searching through transactions',
-      repotag: 'runonflux/kadena-chainweb-data:v1.1.0',
-      owner: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
-      ports: [30006],
-      containerPorts: [8888],
-      domains: [''],
-      tiered: false,
-      cpu: 3, // true resource registered for app. If not tiered only this is available
-      ram: 6000, // true resource registered for app
-      hdd: 60, // true resource registered for app
-      enviromentParameters: [],
-      commands: [],
-      containerData: '/var/lib/postgresql/data', // cannot be root todo in verification
-      hash: 'chainwebDataLocalSpecificationsVersion3', // hash of app message
-      height: 900000, // height of tx on which it was
-    },
     { // app specifications
       version: 2,
       name: 'FoldingAtHomeArm64',
@@ -3704,108 +3684,6 @@ async function availableApps(req, res) {
       containerData: '/config',
       hash: 'localSpecificationsFoldingVersion1', // hash of app message
       height: 0, // height of tx on which it was
-    },
-    {
-      name: 'websiteSync',
-      commands: [],
-      containerData: 's:/website',
-      containerPorts: [
-        '80',
-      ],
-      cpu: 0.2,
-      description: 'Global Deployment of the RunOnFlux.io website',
-      domains: [
-        'runonflux.io',
-      ],
-      enviromentParameters: [],
-      hash: 'afdfdsfdsafdfds',
-      hdd: 1,
-      height: 12419384,
-      owner: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
-      ports: [
-        '31001',
-      ],
-      ram: 200,
-      repotag: 'runonflux/website:latest',
-      tiered: false,
-      version: 3,
-      instances: 5,
-    },
-    {
-      name: 'websiteSync2',
-      compose: [
-        {
-          name: 'comp1',
-          commands: [],
-          containerData: 's:/website',
-          containerPorts: [
-            '80',
-          ],
-          cpu: 0.2,
-          description: 'TEST',
-          domains: [
-            '',
-          ],
-          environmentParameters: [],
-          hdd: 1,
-          ports: [
-            '31002',
-          ],
-          ram: 200,
-          repotag: 'runonflux/website:latest',
-          tiered: false,
-        },
-        {
-          name: 'comp2',
-          commands: [],
-          containerData: '/website',
-          containerPorts: [
-            '80',
-          ],
-          cpu: 0.2,
-          description: 'Global Deployment of the RunOnFlux.io website',
-          domains: [
-            '',
-          ],
-          environmentParameters: [],
-          hdd: 1,
-          ports: [
-            '31003',
-          ],
-          ram: 200,
-          repotag: 'runonflux/website:latest',
-          tiered: false,
-        },
-        {
-          name: 'comp3',
-          commands: [],
-          containerData: 's:/website',
-          containerPorts: [
-            '80',
-          ],
-          cpu: 0.2,
-          description: 'Global Deployment of the RunOnFlux.io website',
-          domains: [
-            '',
-          ],
-          environmentParameters: [],
-          hdd: 1,
-          ports: [
-            '31004',
-          ],
-          ram: 200,
-          repotag: 'runonflux/website:latest',
-          tiered: false,
-        },
-      ],
-      contacts: [],
-      description: 'TEST',
-      geolocation: [],
-      hash: 'asdasdasd',
-      height: 12391464,
-      instances: 5,
-      owner: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
-      version: 5,
     },
   ];
 
@@ -6012,11 +5890,13 @@ async function updateAppGlobalyApi(req, res) {
 }
 
 /**
- * To install temporary local app. Checks that the app is installable on the machine (i.e. the machine has a suitable node tier status and any required dependency apps are installed). Only accessible by admins and Flux team members.
+ * To install any app locally Checks that the app is installable on the machine (i.e. the machine has a suitable space. Only accessible by admins and Flux team members.
+ * Possible to install any locally present app and currently present global app
+ * This has intentionally less check then automated global installation. Node op should know what is doing, great for testing.
  * @param {object} req Request.
  * @param {object} res Response.
  */
-async function installTemporaryLocalApplication(req, res) {
+async function installAppLocally(req, res) {
   try {
     let { appname } = req.params;
     appname = appname || req.query.appname;
@@ -6027,27 +5907,46 @@ async function installTemporaryLocalApplication(req, res) {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized) {
       const allApps = await availableApps();
-      const appSpecifications = allApps.find((app) => app.name === appname);
+      let appSpecifications = allApps.find((app) => app.name === appname);
       if (!appSpecifications) {
-        throw new Error('Application Specifications not found');
+        // eslint-disable-next-line no-use-before-define
+        appSpecifications = await getApplicationGlobalSpecifications(appname);
+        if (!appSpecifications) {
+          throw new Error(`Application Specifications of ${appname} not found`);
+        }
       }
-      const tier = await generalService.nodeTier();
-      if (appname === 'KadenaChainWebNode' && tier === 'basic') {
-        throw new Error('KadenaChainWebNode can only be installed on NIMBUS and STRATUS');
-      } else if (appname === 'KadenaChainWebData' && (tier === 'basic' || tier === 'super')) {
-        throw new Error('KadenaChainWebData can only be installed on STRATUS');
-      } else if (appname === 'KadenaChainWebData') {
-        // this app can only be installed if KadenaChainWebNode is installed
-        // check if they are running?
-        const installedAppsRes = await installedApps();
-        if (installedAppsRes.status !== 'success') {
-          throw new Error('Failed to get installed Apps');
+      // get current height
+      const dbopen = dbHelper.databaseConnection();
+      if (!appSpecifications.height && appSpecifications.height !== 0) {
+        // precaution for old temporary apps. Set up for custom test specifications.
+        const database = dbopen.db(config.database.daemon.database);
+        const query = { generalScannedHeight: { $gte: 0 } };
+        const projection = {
+          projection: {
+            _id: 0,
+            generalScannedHeight: 1,
+          },
+        };
+        const result = await dbHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
+        if (!result) {
+          throw new Error('Scanning not initiated');
         }
-        const appsInstalled = installedAppsRes.data;
-        const chainwebNode = appsInstalled.find((app) => app.name === 'KadenaChainWebNode');
-        if (!chainwebNode) {
-          throw new Error('KadenaChainWebNode must be installed first');
-        }
+        const explorerHeight = serviceHelper.ensureNumber(result.generalScannedHeight);
+        appSpecifications.height = explorerHeight - config.fluxapps.blocksLasting + (10 * config.fluxapps.expireFluxAppsPeriod); // allow running for 1000 blocks
+      }
+
+      const appsDatabase = dbopen.db(config.database.appslocal.database);
+      const appsQuery = {}; // all
+      const appsProjection = {
+        projection: {
+          _id: 0,
+          name: 1,
+        },
+      };
+      const apps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+      const appExists = apps.find((app) => app.name === appSpecifications.name);
+      if (appExists) { // double checked in installation process.
+        throw new Error(`Application ${appname} is already installed`);
       }
 
       await checkAppRequirements(appSpecifications); // entire app
@@ -6741,7 +6640,7 @@ async function continuousFluxAppHashesCheck() {
           numberOfSearches = hashesNumberOfSearchs.get(result.hash) + 1;
         }
         hashesNumberOfSearchs.set(result.hash, numberOfSearches);
-        if (numberOfSearches < 4) {
+        if (numberOfSearches < 10) {
           checkAndRequestApp(result.hash, result.txid, result.height, result.value);
           // eslint-disable-next-line no-await-in-loop
           await serviceHelper.delay(1234);
@@ -7543,7 +7442,7 @@ async function expireGlobalApplications() {
     // find applications that have specifications height lower than expirationHeight
     const databaseApps = dbopen.db(config.database.appsglobal.database);
     const queryApps = { height: { $lt: expirationHeight } };
-    const projectionApps = { projection: { _id: 0, name: 1, hash: 1 } }; // todo look into correction for checking hash of app
+    const projectionApps = { projection: { _id: 0, name: 1, hash: 1 } };
     const results = await dbHelper.findInDatabase(databaseApps, globalAppsInformation, queryApps, projectionApps);
     const appNamesToExpire = results.map((res) => res.name);
     // remove appNamesToExpire apps from global database
@@ -7560,7 +7459,8 @@ async function expireGlobalApplications() {
       throw new Error('Failed to get installed Apps');
     }
     const appsInstalled = installedAppsRes.data;
-    const appsToRemove = appsInstalled.filter((app) => appNamesToExpire.includes(app.name));
+    // remove any installed app which height is lower (or not present) but is not infinite app
+    const appsToRemove = appsInstalled.filter((app) => appNamesToExpire.includes(app.name) || (app.height !== 0 && (app.height < expirationHeight || !app.height)));
     const appsToRemoveNames = appsToRemove.map((app) => app.name);
     // remove appsToRemoveNames apps from locally running
     // eslint-disable-next-line no-restricted-syntax
@@ -8574,7 +8474,7 @@ module.exports = {
   reindexGlobalAppsInformationAPI,
   reindexGlobalAppsLocationAPI,
   expireGlobalApplications,
-  installTemporaryLocalApplication,
+  installAppLocally,
   updateAppGlobalyApi,
   getAppPrice,
   reinstallOldApplications,

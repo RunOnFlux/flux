@@ -120,7 +120,7 @@
                     </b-form-select>
                   </b-form-group>
                   <b-form-group
-                    v-if="allowedGeolocations[`selectedContinent${n}`]"
+                    v-if="allowedGeolocations[`selectedContinent${n}`] && allowedGeolocations[`selectedContinent${n}`] !== 'ALL'"
                     label-cols="3"
                     label-cols-lg="1"
                     :label="'Country - ' + n"
@@ -143,7 +143,7 @@
                     </b-form-select>
                   </b-form-group>
                   <b-form-group
-                    v-if="allowedGeolocations[`selectedCountry${n}`]"
+                    v-if="allowedGeolocations[`selectedContinent${n}`] && allowedGeolocations[`selectedContinent${n}`] !== 'ALL' && allowedGeolocations[`selectedCountry${n}`] && allowedGeolocations[`selectedCountry${n}`] !== 'ALL'"
                     label-cols="3"
                     label-cols-lg="1"
                     :label="'Region - ' + n"
@@ -220,7 +220,7 @@
                     </b-form-select>
                   </b-form-group>
                   <b-form-group
-                    v-if="forbiddenGeolocations[`selectedContinent${n}`]"
+                    v-if="forbiddenGeolocations[`selectedContinent${n}`] && forbiddenGeolocations[`selectedContinent${n}`] !== 'NONE'"
                     label-cols="3"
                     label-cols-lg="1"
                     :label="'Country - ' + n"
@@ -242,7 +242,7 @@
                     </b-form-select>
                   </b-form-group>
                   <b-form-group
-                    v-if="forbiddenGeolocations[`selectedCountry${n}`]"
+                    v-if="forbiddenGeolocations[`selectedContinent${n}`] && forbiddenGeolocations[`selectedContinent${n}`] !== 'NONE' && forbiddenGeolocations[`selectedCountry${n}`] && forbiddenGeolocations[`selectedCountry${n}`] !== 'ALL'"
                     label-cols="3"
                     label-cols-lg="1"
                     :label="'Region - ' + n"
@@ -1761,7 +1761,7 @@ export default {
       return continents;
     },
     countriesOptions(continentCode, isNegative) {
-      const countries = [{ value: isNegative ? 'NONE' : 'ALL', text: isNegative ? 'NONE' : 'ALL' }];
+      const countries = [{ value: isNegative ? 'ALL' : 'ALL', text: isNegative ? 'ALL' : 'ALL' }];
       this.possibleLocations.filter((options) => options.instances > (isNegative ? -1 : 3)).forEach((location) => {
         if (!location.value.split('_')[2] && location.value.startsWith(`${continentCode}_`)) {
           const existingCountry = geolocations.countries.find((country) => country.code === location.value.split('_')[1]);
@@ -1771,7 +1771,7 @@ export default {
       return countries;
     },
     regionsOptions(continentCode, countryCode, isNegative) {
-      const regions = [{ value: isNegative ? 'NONE' : 'ALL', text: isNegative ? 'NONE' : 'ALL' }];
+      const regions = [{ value: isNegative ? 'ALL' : 'ALL', text: isNegative ? 'ALL' : 'ALL' }];
       this.possibleLocations.filter((options) => options.instances > (isNegative ? -1 : 3)).forEach((location) => {
         if (location.value.startsWith(`${continentCode}_${countryCode}_`)) {
           regions.push({ value: location.value.split('_')[2], text: location.value.split('_')[2] });
@@ -1802,9 +1802,9 @@ export default {
         const region = this.forbiddenGeolocations[`selectedRegion${i}`];
         if (continent && continent !== 'NONE') {
           let geolocation = `a!c${continent}`;
-          if (country && country !== 'NONE') {
+          if (country && country !== 'ALL') {
             geolocation += `_${country}`;
-            if (region && region !== 'NONE') {
+            if (region && region !== 'ALL') {
               geolocation += `_${region}`;
             }
           }

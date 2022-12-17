@@ -2,6 +2,7 @@ const stream = require('stream');
 const Docker = require('dockerode');
 const path = require('path');
 const serviceHelper = require('./serviceHelper');
+const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
 const log = require('../lib/log');
 
 const fluxDirPath = path.join(__dirname, '../../../');
@@ -364,6 +365,31 @@ async function dockerContainerLogs(idOrName, lines) {
   return logs.toString();
 }
 
+async function obtainPayloadFromStorage(url) {
+  try {
+    // do a signed request in headers
+    // we want to be able to fetch even from unsecure storages that may not have all the auths
+    // and so this is only basic auth where timestamp is important
+    // server should verify valid signature based on publicKey that server can get from
+    // deterministic node list of ip address that did this request
+    const version = 1;
+    const timestamp = Date.now();
+    const message = version + url + timestamp;
+    const signature = await fluxCommunicationMessagesSender.getFluxMessageSignature(message);
+    const axiosConfig = {
+      headers: {
+        'flux-message': message,
+        'flux-signature': signature,
+      },
+    };
+    const response = await serviceHelper.axiosGet(url, axiosConfig);
+    return response.data;
+  } catch (error) {
+    log.error(error);
+    throw new Error(`Parameters from Flux Storage ${url} failed to be obtained`);
+  }
+}
+
 /**
  * Creates an app container.
  *
@@ -432,7 +458,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent) {
     HostConfig: {
       NanoCPUs: appSpecifications.cpu * 1e9,
       Memory: appSpecifications.ram * 1024 * 1024,
-      Binds: [`${appsFolder + getAppIdentifier(identifier)}:${containerData}`],
+      Binds: [`${appsFolder + getAppIdentifier(identifier)}/appdata:${containerData}`],
       Ulimits: [
         {
           Name: 'nofile',
@@ -454,6 +480,25 @@ async function appDockerCreate(appSpecifications, appName, isComponent) {
       },
     },
   };
+
+  if (options.Env.length) {
+    const fluxStorageEnv = options.Env.find((env) => env.startsWith(('FLUX_STORAGE_ENV=')));
+    if (fluxStorageEnv) {
+      const url = fluxStorageEnv.split('FLUX_STORAGE_ENV=')[1];
+      const envVars = await obtainPayloadFromStorage(url);
+      if (Array.isArray(envVars) && envVars.length < 200) {
+        envVars.forEach((parameter) => {
+          if (typeof parameter !== 'string' || parameter.length > 5000000) {
+            throw new Error(`Environment parameters from Flux Storage ${fluxStorageEnv} are invalid`);
+          } else {
+            options.Env.push(parameter);
+          }
+        });
+      } else {
+        throw new Error(`Environment parameters from Flux Storage ${fluxStorageEnv} are invalid`);
+      }
+    }
+  }
 
   const app = await docker.createContainer(options).catch((error) => {
     log.error(error);

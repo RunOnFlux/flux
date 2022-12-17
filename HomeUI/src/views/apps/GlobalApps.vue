@@ -791,10 +791,7 @@ export default {
       if (_port && _ip) {
         const ip = _ip;
         const port = _port;
-        let url = `http://${ip}:${port}`;
-        if (name === 'KadenaChainWebNode') {
-          url = `https://${ip}:${port}/chainweb/0.0/mainnet01/cut`;
-        }
+        const url = `http://${ip}:${port}`;
         this.openSite(url);
       } else {
         this.showToast('danger', 'Unable to open App :(');
@@ -924,12 +921,12 @@ export default {
       if (geo.startsWith('a') && !geo.startsWith('ac') && !geo.startsWith('a!c')) {
         // specific continent
         const continentCode = geo.slice(1);
-        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode);
+        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode) || { name: 'ALL' };
         return `Continent: ${continentExists.name || 'Unkown'}`;
       } if (geo.startsWith('b')) {
         // specific country
         const countryCode = geo.slice(1);
-        const countryExists = geolocations.countries.find((country) => country.code === countryCode);
+        const countryExists = geolocations.countries.find((country) => country.code === countryCode) || { name: 'ALL' };
         return `Country: ${countryExists.name || 'Unkown'}`;
       } if (geo.startsWith('ac')) {
         // allowed location
@@ -938,8 +935,8 @@ export default {
         const continentCode = locations[0];
         const countryCode = locations[1];
         const regionName = locations[2];
-        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode);
-        const countryExists = geolocations.countries.find((country) => country.code === countryCode);
+        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode) || { name: 'ALL' };
+        const countryExists = geolocations.countries.find((country) => country.code === countryCode) || { name: 'ALL' };
         let locationString = `Allowed location: Continent: ${continentExists.name}`;
         if (countryCode) {
           locationString += `, Country: ${countryExists.name}`;
@@ -955,8 +952,8 @@ export default {
         const continentCode = locations[0];
         const countryCode = locations[1];
         const regionName = locations[2];
-        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode);
-        const countryExists = geolocations.countries.find((country) => country.code === countryCode);
+        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode) || { name: 'ALL' };
+        const countryExists = geolocations.countries.find((country) => country.code === countryCode) || { name: 'ALL' };
         let locationString = `Forbidden location: Continent: ${continentExists.name}`;
         if (countryCode) {
           locationString += `, Country: ${countryExists.name}`;

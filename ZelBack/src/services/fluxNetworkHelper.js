@@ -256,7 +256,7 @@ async function getRandomConnection() {
   const ip = nodeList[randomNode].ip || nodeList[randomNode].ipaddress;
   const apiPort = userconfig.initial.apiport || config.server.apiport;
 
-  if (ip === userconfig.initial.ipaddress || ip === myFluxIP || ip === `${userconfig.initial.ipaddress}:${apiPort}`) {
+  if (!ip || !myFluxIP || ip === userconfig.initial.ipaddress || ip === myFluxIP || ip === `${userconfig.initial.ipaddress}:${apiPort}` || ip.split(':')[0] === myFluxIP.split(':')[0]) {
     return null;
   }
   return ip;

@@ -660,7 +660,7 @@ describe('dockerService tests', () => {
           RestartPolicy: { Name: 'unless-stopped' },
           NetworkMode: 'fluxDockerNetwork',
           LogConfig: { Type: 'json-file', Config: { 'max-file': '1', 'max-size': '20m' } },
-          Binds: [`${appsFolder}fluxwebsite_fluxwebsite:/chaindata`],
+          Binds: [`${appsFolder}fluxwebsite_fluxwebsite/appdata:/chaindata`],
           PortBindings: {
             '30333/tcp': [{ HostPort: '31113' }],
             '30333/udp': [{ HostPort: '31113' }],
@@ -712,7 +712,7 @@ describe('dockerService tests', () => {
         HostConfig: {
           NanoCPUs: 800000000,
           Memory: 1887436800,
-          Binds: [`${appsFolder}fluxwebsite:/chaindata`],
+          Binds: [`${appsFolder}fluxwebsite/appdata:/chaindata`],
           Ulimits: [{ Name: 'nofile', Soft: 100000, Hard: 100000 }],
           PortBindings: {
             '30333/tcp': [{ HostPort: '31113' }],
@@ -749,7 +749,7 @@ describe('dockerService tests', () => {
         HostConfig: {
           NanoCPUs: 800000000,
           Memory: 1887436800,
-          Binds: [`${appsFolder}fluxwebsite_fluxwebsite:/chaindata`],
+          Binds: [`${appsFolder}fluxwebsite_fluxwebsite/appdata:/chaindata`],
           Ulimits: [{ Name: 'nofile', Soft: 100000, Hard: 100000 }],
           PortBindings: {
             '9933/tcp': [{ HostPort: '31112' }],

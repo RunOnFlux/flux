@@ -29,6 +29,10 @@ const parserOptions = {
 };
 const parser = new XMLParser(parserOptions);
 
+/**
+ * To get syncthing config xml file
+ * @returns {string} config gile (XML).
+ */
 async function getConfigFile() {
   try {
     const homedir = os.homedir();
@@ -40,6 +44,10 @@ async function getConfigFile() {
   }
 }
 
+/**
+ * To get syncthing Api key
+ * @returns {string} Api key.
+ */
 async function getSyncthingApiKey() { // can throw
   const fileRead = await getConfigFile();
   if (!fileRead) {
@@ -50,6 +58,13 @@ async function getSyncthingApiKey() { // can throw
   return apiKey;
 }
 
+/**
+ * To perform http request
+ * @param {string} method Method.
+ * @param {string} urlpath URL to be called.
+ * @param {object} data Request data.
+ * @returns {object} Message.
+ */
 async function performRequest(method = 'get', urlpath = '', data) {
   try {
     if (!syncthingApiKey) {
@@ -72,30 +87,62 @@ async function performRequest(method = 'get', urlpath = '', data) {
     return errorResponse;
   }
 }
-
+/**
+ * To get meta
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getMeta(req, res) {
   // does not require authentication
   const response = await performRequest('get', '/meta.js');
   // "var metadata = {\"deviceID\":\"K6VOO4G-5RLTF3B-JTUFMHH-JWITKGM-63DTTMT-I6BMON6-7E3LVFW-V5WAIAO\"};\n"
   return res ? res.json(response) : response;
 }
+
+/**
+ * To get Syhcthing health
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} System health, {"status": "OK"}.
+ */
 async function getHealth(req, res) {
   const response = await performRequest('get', '/rest/noauth/health');
   return res ? res.json(response) : response;
 }
 
 // === STATISTICS ENDPOINTS ===
+
+/**
+ * To get device statistics
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} General statistics about devices.
+ */
 async function statsDevice(req, res) {
   const response = await performRequest('get', '/rest/stats/device');
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get folder statistics
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} General statistics about folders.
+ */
 async function statsFolder(req, res) {
   const response = await performRequest('get', '/rest/stats/folder');
   return res ? res.json(response) : response;
 }
 
 // === SYSTEM ENDPOINTS ===
+
+/**
+ * To get list of directories matching the path given by the optional parameter current
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} List of directories in json array format.
+ */
 async function systemBrowse(req, res) {
   let { current } = req.params;
   current = current || req.query.current;
@@ -113,11 +160,23 @@ async function systemBrowse(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get the list of configured devices and some metadata associated with them. The list also contains the local device itself as not connected.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} List of configured devices and some metadata in json format.
+ */
 async function systemConnections(req, res) {
   const response = await performRequest('get', '/rest/system/connections');
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get the set of debug facilities and which of them are currently enabled.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} List of debug facilities and which of them are currently enabled.
+ */
 async function systemDebug(req, res) {
   let method = 'get';
   let { disable } = req.params;
@@ -145,6 +204,12 @@ async function systemDebug(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get the contents of the local discovery cache
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Contents of the local discovery cache
+ */
 async function systemDiscovery(req, res) {
   let method = 'get';
   let { device } = req.params;
@@ -169,6 +234,12 @@ async function systemDiscovery(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * Post with empty body to remove all recent errors.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function systemErrorClear(req, res) {
   const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
@@ -180,6 +251,12 @@ async function systemErrorClear(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * Returns the list of recent errors. Post with an error message in the body (plain text) to register a new error.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function systemError(req, res) {
   let method = 'get';
   let { message } = req.params;
@@ -198,6 +275,12 @@ async function systemError(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * Post with an error message in the body (plain text) to register a new error.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postSystemError(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -222,6 +305,12 @@ async function postSystemError(req, res) {
   });
 }
 
+/**
+ * To get the list of recent log entries. The optional {since} parameter limits the results to message newer than the given timestamp in RFC 3339 format.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function systemLog(req, res) {
   let { since } = req.params;
   since = since || req.query.since;
@@ -239,6 +328,12 @@ async function systemLog(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get the list of recent log entries formatted as a text log instead of a JSON object. The optional {since} parameter limits the results to message newer than the given timestamp in RFC 3339 format.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function systemLogTxt(req, res) {
   let { since } = req.params;
   since = since || req.query.since;
@@ -256,6 +351,12 @@ async function systemLogTxt(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To get the path locations used internally for storing configuration, database, and others.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function systemPaths(req, res) {
   const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
@@ -267,6 +368,12 @@ async function systemPaths(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To pause the given device or all devices. Takes the optional parameter {device} (device ID). When omitted, pauses all devices.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function systemPause(req, res) {
   let { device } = req.params;
   device = device || req.query.device;
@@ -284,11 +391,23 @@ async function systemPause(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * Returns a {"ping": "pong"} object.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function systemPing(req, res) {
   const response = await performRequest('get', '/rest/system/ping'); // can also be 'post', same
   return res ? res.json(response) : response;
 }
 
+/**
+ * To erase the current index database and restart Syncthing. With no query parameters, the entire database is erased from disk. By specifying the {folder} parameter with a valid folder ID, only information for that folder will be erased.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function systemReset(req, res) {
   // note: scary call
   let { folder } = req.params;
@@ -307,7 +426,12 @@ async function systemReset(req, res) {
   return res ? res.json(response) : response;
 }
 
-// restarts syncthing
+/**
+ * To immediately restart Syncthing
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function systemRestart(req, res) {
   log.info('Restarting Syncthing...');
   const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
@@ -321,6 +445,12 @@ async function systemRestart(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To resume the given device or all devices. Takes the optional parameter {device} (device ID). When omitted, resumes all devices
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function systemResume(req, res) {
   let { device } = req.params;
   device = device || req.query.device;
@@ -338,7 +468,12 @@ async function systemResume(req, res) {
   return res ? res.json(response) : response;
 }
 
-// shutsdown syncthing
+/**
+ * To cause Syncthing to exit and not restart.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function systemShutdown(req, res) {
   const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
@@ -350,11 +485,23 @@ async function systemShutdown(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * Returns information about current system status and resource usage.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function systemStatus(req, res) {
   const response = await performRequest('get', '/rest/system/status');
   return res ? res.json(response) : response;
 }
 
+/**
+ * To Check for a possible upgrade, returns an object describing the newest version and upgrade possibility.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function systemUpgrade(req, res) {
   const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
@@ -366,6 +513,12 @@ async function systemUpgrade(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To perform an upgrade to the newest released version and restart.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postSystemUpgrade(req, res) {
   const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
@@ -377,17 +530,36 @@ async function postSystemUpgrade(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * Returns the current Syncthing version information.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function systemVersion(req, res) {
   const response = await performRequest('get', '/rest/system/version');
   return res ? res.json(response) : response;
 }
 
 // === CONFIG ENDPOINTS ===
+
+/**
+ * Returns the entire config.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getConfig(req, res) {
   const response = await performRequest('get', '/rest/config');
   return res ? res.json(response) : response;
 }
 
+/**
+ * Replaces the entire config.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postConfig(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -413,11 +585,23 @@ async function postConfig(req, res) {
   });
 }
 
+/**
+ * Returns whether a restart of Syncthing is required for the current config to take effect.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getConfigRestartRequired(req, res) {
   const response = await performRequest('get', '/rest/config/restart-required');
   return res ? res.json(response) : response;
 }
 
+/**
+ * Returns the folder for the given ID.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getConfigFolders(req, res) {
   if (!req) {
     // eslint-disable-next-line no-param-reassign
@@ -436,6 +620,12 @@ async function getConfigFolders(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * Returns the device for the given ID.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getConfigDevices(req, res) {
   if (!req) {
     // eslint-disable-next-line no-param-reassign
@@ -454,6 +644,13 @@ async function getConfigDevices(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To modify config for folders. PUT replaces the entire config, PATCH replaces only the given child objects and DELETE removes the folder
+ * @param {string} method Request method.
+ * @param {string} newConfig new config to be replaced.
+ * @param {string} id folder ID.
+ * @returns {object} Message
+ */
 async function adjustConfigFolders(method, newConfig, id) {
   let apiPath = '/rest/config/folders';
   if (id) {
@@ -463,6 +660,12 @@ async function adjustConfigFolders(method, newConfig, id) {
   return response;
 }
 
+/**
+ * To modify config for folders. PUT replaces the entire config, PATCH replaces only the given child objects and DELETE removes the folder
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postConfigFolders(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -490,6 +693,13 @@ async function postConfigFolders(req, res) {
   });
 }
 
+/**
+ * To modify config for devices. PUT replaces the entire config, PATCH replaces only the given child objects and DELETE removes the device
+ * @param {string} method Request method.
+ * @param {string} newConfig new config.
+ * @param {string} id device ID.
+ * @returns {object} Message
+ */
 async function adjustConfigDevices(method, newConfig, id) {
   let apiPath = '/rest/config/devices';
   if (id) {
@@ -499,6 +709,12 @@ async function adjustConfigDevices(method, newConfig, id) {
   return response;
 }
 
+/**
+ * To modify config for devices. PUT replaces the entire config, PATCH replaces only the given child objects and DELETE removes the devices
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postConfigDevices(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -526,16 +742,34 @@ async function postConfigDevices(req, res) {
   });
 }
 
+/**
+ * Returns a template folder configuration object with all default values, which only needs a unique ID to be applied
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getConfigDefaultsFolder(req, res) {
   const response = await performRequest('get', '/rest/config/defaults/folder');
   return res ? res.json(response) : response;
 }
 
+/**
+ * Returns a template device configuration object with all default values, which only needs a unique ID to be applied
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getConfigDefaultsDevice(req, res) {
   const response = await performRequest('get', '/rest/config/defaults/device');
   return res ? res.json(response) : response;
 }
 
+/**
+ * To modify config for defult values for folders, PUT replaces the default config (omitted values are reset to the hard-coded defaults), PATCH replaces only the given child objects.
+ * @param {string} method Request method.
+ * @param {object} newConfig new config.
+ * @returns {object} Message
+ */
 async function adjustConfigDefaultsFolder(method, newConfig) {
   log.info('Patching Syncthing defaults for folder configuration...');
   const response = await performRequest(method, '/rest/config/defaults/folder', newConfig);
@@ -543,6 +777,12 @@ async function adjustConfigDefaultsFolder(method, newConfig) {
   return response;
 }
 
+/**
+ * To modify config for defult values for folders, PUT replaces the default config (omitted values are reset to the hard-coded defaults), PATCH replaces only the given child objects.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postConfigDefaultsFolder(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -569,6 +809,12 @@ async function postConfigDefaultsFolder(req, res) {
   });
 }
 
+/**
+ * To modify config for defult values for devices, PUT replaces the default config (omitted values are reset to the hard-coded defaults), PATCH replaces only the given child objects.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postConfigDefaultsDevice(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -595,11 +841,23 @@ async function postConfigDefaultsDevice(req, res) {
   });
 }
 
+/**
+ * returns an object listing ignore patterns to be used by default on folders, as an array of single-line strings
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getConfigDefaultsIgnores(req, res) {
   const response = await performRequest('get', '/rest/config/defaults/ignores');
   return res ? res.json(response) : response;
 }
 
+/**
+ * To replace the default ignore patterns from an object of the same format
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postConfigDefaultsIgnores(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -626,21 +884,45 @@ async function postConfigDefaultsIgnores(req, res) {
   });
 }
 
+/**
+ * Returns the options object
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getConfigOptions(req, res) {
   const response = await performRequest('get', '/rest/config/options');
   return res ? res.json(response) : response;
 }
 
+/**
+ * Returns the gui object
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getConfigGui(req, res) {
   const response = await performRequest('get', '/rest/config/gui');
   return res ? res.json(response) : response;
 }
 
+/**
+ * Returns the ldap object
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getConfigLdap(req, res) {
   const response = await performRequest('get', '/rest/config/ldap');
   return res ? res.json(response) : response;
 }
 
+/**
+ * To modify options object, PUT replaces the entire object and PATCH replaces only the given child objects.
+ * @param {string} method Request.
+ * @param {object} newConfig Response.
+ * @returns {object} Message
+ */
 async function adjustConfigOptions(method, newConfig) {
   log.info('Patching Syncthing configuration...');
   const response = await performRequest(method, '/rest/config/options', newConfig);
@@ -648,6 +930,12 @@ async function adjustConfigOptions(method, newConfig) {
   return response;
 }
 
+/**
+ * To modify options object, PUT replaces the entire object and PATCH replaces only the given child objects.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postConfigOptions(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -674,6 +962,12 @@ async function postConfigOptions(req, res) {
   });
 }
 
+/**
+ * To modify gui object, PUT replaces the entire object and PATCH replaces only the given child objects.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postConfigGui(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -700,6 +994,12 @@ async function postConfigGui(req, res) {
   });
 }
 
+/**
+ * To modify ldap object, PUT replaces the entire object and PATCH replaces only the given child objects.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postConfigLdap(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -727,11 +1027,24 @@ async function postConfigLdap(req, res) {
 }
 
 // === CLUSTER ENDPOINTS ===
+
+/**
+ * Lists remote devices which have tried to connect, but are not yet configured in the instance.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getClusterPendigDevices(req, res) {
   const response = await performRequest('get', '/rest/cluster/pending/devices');
   return res ? res.json(response) : response;
 }
 
+/**
+ * To remove records about a pending remote device which tried to connect.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postClusterPendigDevices(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -763,11 +1076,23 @@ async function postClusterPendigDevices(req, res) {
   });
 }
 
+/**
+ * Lists folders which remote devices have offered to us, but are not yet shared from our instance to them. Takes the optional {device} parameter to only return folders offered by a specific remote device.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getClusterPendigFolders(req, res) {
   const response = await performRequest('get', '/rest/cluster/pending/folders');
   return res ? res.json(response) : response;
 }
 
+/**
+ * To remove records about a pending folder announced from a remote device.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postClusterPendigFolders(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -800,6 +1125,13 @@ async function postClusterPendigFolders(req, res) {
 }
 
 // === FOLDER ENDPOINTS ===
+
+/**
+ * Returns the list of errors encountered during scanning or pulling. Takes one mandatory parameter {folder}
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getFolderErrors(req, res) {
   try {
     let { folder } = req.params;
@@ -819,6 +1151,12 @@ async function getFolderErrors(req, res) {
   }
 }
 
+/**
+ * Returns the list of archived files that could be recovered. Takes one mandatory parameter {folder}
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getFolderVersions(req, res) {
   try {
     let { folder } = req.params;
@@ -838,6 +1176,12 @@ async function getFolderVersions(req, res) {
   }
 }
 
+/**
+ * To restore archived versions of a given set of files. Expects an object with attributes named after the relative file paths, with timestamps as values matching valid versionTime entries in the corresponding getFolderVersions() response object. Takes one mandatory parameter {folder}
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postFolderVersions(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -870,6 +1214,13 @@ async function postFolderVersions(req, res) {
 }
 
 // === DATABASE ENDPOINTS ===
+
+/**
+ * Returns the directory tree of the global model. takes one mandatory {folder} parameter and two optional parameters {levels} and {prefix}.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getDbBrowse(req, res) {
   try {
     let { folder } = req.params;
@@ -898,6 +1249,12 @@ async function getDbBrowse(req, res) {
   }
 }
 
+/**
+ * Returns the completion percentage (0 to 100) and byte / item counts. Takes optional {device} and {folder} parameters.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getDbCompletion(req, res) {
   try {
     let { folder } = req.params;
@@ -921,6 +1278,12 @@ async function getDbCompletion(req, res) {
   }
 }
 
+/**
+ * Returns most data available about a given file, including version and availability. Takes {folder} and {file} parameters.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getDbFile(req, res) {
   try {
     let { folder } = req.params;
@@ -944,6 +1307,12 @@ async function getDbFile(req, res) {
   }
 }
 
+/**
+ * Returns the content of the .stignore as the ignore field. Takes one parameter, {folder}
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getDbIgnores(req, res) {
   try {
     let { folder } = req.params;
@@ -959,6 +1328,12 @@ async function getDbIgnores(req, res) {
   }
 }
 
+/**
+ * Returns the list of files which were changed locally in a receive-only folder. Takes one mandatory parameter, {folder}
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getDbLocalchanged(req, res) {
   try {
     let { folder } = req.params;
@@ -978,6 +1353,12 @@ async function getDbLocalchanged(req, res) {
   }
 }
 
+/**
+ * Returns lists of files which are needed by this device in order for it to become in sync. Takes one mandatory parameter, {folder}
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getDbNeed(req, res) {
   try {
     let { folder } = req.params;
@@ -997,6 +1378,12 @@ async function getDbNeed(req, res) {
   }
 }
 
+/**
+ * Returns the list of files which are needed by that remote device in order for it to become in sync with the shared folder. Takes the mandatory parameters {folder} and {device}
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getDbRemoteNeed(req, res) {
   try {
     let { folder } = req.params;
@@ -1023,6 +1410,12 @@ async function getDbRemoteNeed(req, res) {
   }
 }
 
+/**
+ * Returns information about the current status of a folder. Takes the mandatory parameter {folder}
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getDbStatus(req, res) {
   try {
     let { folder } = req.params;
@@ -1042,6 +1435,12 @@ async function getDbStatus(req, res) {
   }
 }
 
+/**
+ * Updates the content of the .stignore echoing it back as a response. Takes one parameter {folder}
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postDbIgnores(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -1073,6 +1472,12 @@ async function postDbIgnores(req, res) {
   });
 }
 
+/**
+ * Request override of a send only folder. Override means to make the local version latest, overriding changes made on other devices. This API call does nothing if the folder is not a send only folder. Takes the mandatory parameter {folder}
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postDbOverride(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -1106,6 +1511,12 @@ async function postDbOverride(req, res) {
   });
 }
 
+/**
+ * Moves the file to the top of the download queue.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postDbPrio(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -1145,6 +1556,12 @@ async function postDbPrio(req, res) {
   });
 }
 
+/**
+ * To request revert of a receive only folder. Reverting a folder means to undo all local changes. This API call does nothing if the folder is not a receive only folder. Takes the mandatory parameter {folder}.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postDbRevert(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -1178,6 +1595,12 @@ async function postDbRevert(req, res) {
   });
 }
 
+/**
+ * To request immediate scan. Takes the optional parameters {folder} (folder ID), {sub} (path relative to the folder root) and {next} (time in seconds)
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function postDbScan(req, res) {
   let body = '';
   req.on('data', (data) => {
@@ -1217,31 +1640,68 @@ async function postDbScan(req, res) {
 }
 
 // === DEBUG ===
+
+/**
+ * Summarizes the completion precentage for each remote device.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function debugPeerCompletion(req, res) {
   const response = await performRequest('get', '/rest/debug/peerCompletion');
   return res ? res.json(response) : response;
 }
 
+/**
+ * Returns statistics about each served REST API endpoint, to diagnose how much time was spent generating the responses.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function debugHttpmetrics(req, res) {
   const response = await performRequest('get', '/rest/debug/httpmetrics');
   return res ? res.json(response) : response;
 }
 
+/**
+ * To capture a profile of what Syncthing is doing on the CPU
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function debugCpuprof(req, res) {
   const response = await performRequest('get', '/rest/debug/cpuprof');
   return res ? res.json(response) : response;
 }
 
+/**
+ * To capture a profile of what Syncthing is doing with the heap memory.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function debugHeapprof(req, res) {
   const response = await performRequest('get', '/rest/debug/heapprof');
   return res ? res.json(response) : response;
 }
 
+/**
+ * To Collect information about the running instance for troubleshooting purposes.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function debugSupport(req, res) {
   const response = await performRequest('get', '/rest/debug/support');
   return res ? res.json(response) : response;
 }
 
+/**
+ * To Show diagnostics about a certain file in a shared folder. Takes the {folder} and {file} parameters.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function debugFile(req, res) {
   try {
     let { folder } = req.params;
@@ -1269,6 +1729,13 @@ async function debugFile(req, res) {
 }
 
 // === EVENT ENDPOINTS ===
+
+/**
+ * To receive Syncthing events. takes {events}, {since}, {limit} and {timeout} parameters to filter the result.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getEvents(req, res) {
   try {
     let { events } = req.params;
@@ -1298,9 +1765,30 @@ async function getEvents(req, res) {
   }
 }
 
+/**
+ * To receive LocalChangeDetected and RemoteChangeDetected event types. takes {since}, {limit} and {timeout} parameters to filter the result.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getEventsDisk(req, res) {
   try {
-    const response = await performRequest('get', '/rest/events/disk');
+    let { since } = req.params;
+    since = since || req.query.since;
+    let { limit } = req.params;
+    limit = limit || req.query.limit;
+    let { timeout } = req.params;
+    timeout = timeout || req.query.timeout;
+    let apiPath = '/rest/events/disk';
+    if (since || limit || timeout) apiPath += '?';
+    const qq = {
+      since,
+      limit,
+      timeout,
+    };
+    const qqStr = qs.stringify(qq);
+    apiPath += `${qqStr};`;
+    const response = await performRequest('get', apiPath);
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
@@ -1309,7 +1797,14 @@ async function getEventsDisk(req, res) {
   }
 }
 
-// === MICS SERVICES ENDPOINTS ===
+// === MISC SERVICES ENDPOINTS ===
+
+/**
+ * Verifies and formats a device ID. Takes one parameter, {id}.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getSvcDeviceID(req, res) {
   try {
     let { id } = req.params;
@@ -1329,6 +1824,12 @@ async function getSvcDeviceID(req, res) {
   }
 }
 
+/**
+ * Returns a strong random generated string (alphanumeric) of the specified length. Takes the {length} parameter.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getSvcRandomString(req, res) {
   let { length } = req.params;
   length = length || req.query.length;
@@ -1346,6 +1847,12 @@ async function getSvcRandomString(req, res) {
   }
 }
 
+/**
+ * Returns the data sent in the anonymous usage report.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getSvcReport(req, res) {
   try {
     const response = await performRequest('get', '/rest/svc/report');
@@ -1358,7 +1865,13 @@ async function getSvcReport(req, res) {
 }
 
 // === CUSTOM ===
-// our device id and also test that syncthing is installed and running and we have api key
+
+/**
+ * Returns device id, also checks that syncthing is installed and running and we have the api key.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
 async function getDeviceID(req, res) {
   try {
     const meta = await getMeta();
@@ -1379,6 +1892,9 @@ async function getDeviceID(req, res) {
   }
 }
 
+/**
+ * To install Syncthing
+ */
 async function installSyncthing() { // can throw
   const nodedpath = path.join(__dirname, '../../../helpers');
   const exec = `cd ${nodedpath} && bash installSyncthing.sh`;
@@ -1386,12 +1902,15 @@ async function installSyncthing() { // can throw
   log.info('Syncthing installed');
 }
 
+/**
+ * To Start Syncthing
+ */
 async function startSyncthing() {
   try {
     // check wether syncthing is running or not
     const myDevice = await getDeviceID();
     if (myDevice.status === 'error') {
-      const exec = 'syncthing --allow-newer-config --no-browser';
+      const exec = 'sudo syncthing --allow-newer-config --no-browser --home=$HOME/.config/syncthing';
       log.info('Spawning Syncthing instance...');
       let errored = false;
       nodecmd.get(exec, async (err) => {
