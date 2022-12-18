@@ -1,10 +1,10 @@
 process.env.NODE_CONFIG_DIR = `${process.cwd()}/ZelBack/config/`;
 const request = require('supertest');
-const config = require('config');
+import { config } from '../../config/default.js';
 const chai = require('chai');
-const app = require('../../ZelBack/src/lib/server');
-const log = require('../../ZelBack/src/lib/log');
-const dbHelper = require('../../ZelBack/src/services/dbHelper');
+const app = require('../../ZelBack/src/lib/server').default;
+const log = require('../../ZelBack/src/lib/log').default;
+const dbHelper = require('../../ZelBack/src/services/dbHelper').default;
 
 const packageJson = require('../../package.json');
 

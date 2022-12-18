@@ -1,7 +1,7 @@
-const serviceHelper = require('../serviceHelper');
-const messageHelper = require('../messageHelper');
-const daemonServiceUtils = require('./daemonServiceUtils');
-const verificationHelper = require('../verificationHelper');
+import serviceHelper from '../serviceHelper.js';
+import messageHelper from '../messageHelper.js';
+import daemonServiceUtils from './daemonServiceUtils.js';
+import verificationHelper from '../verificationHelper.js';
 
 let response = messageHelper.createErrorMessage();
 
@@ -214,7 +214,7 @@ async function submitBlockPost(req, res) {
   });
 }
 
-module.exports = {
+export default {
   getBlockSubsidy,
   getBlockTemplate,
   getLocalSolPs,

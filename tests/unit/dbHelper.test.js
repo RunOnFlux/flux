@@ -1,8 +1,8 @@
 const { expect } = require('chai');
-const config = require('config');
+import { config } from '../../config/default.js';
 const { ObjectId } = require('mongodb');
 
-const dbHelper = require('../../ZelBack/src/services/dbHelper');
+const dbHelper = require('../../ZelBack/src/services/dbHelper').default;
 
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 

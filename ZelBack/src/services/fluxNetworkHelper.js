@@ -1,26 +1,26 @@
 /* eslint-disable no-underscore-dangle */
-const config = require('config');
-const zeltrezjs = require('zeltrezjs');
-const nodecmd = require('node-cmd');
-const fs = require('fs').promises;
-const path = require('path');
+import { config } from '../../config/default.js';
+import zeltrezjs from 'zeltrezjs';
+import nodecmd from 'node-cmd';
+import fs from 'fs';
+import path from 'path';
 // eslint-disable-next-line import/no-extraneous-dependencies
-const util = require('util');
-const log = require('../lib/log');
-const serviceHelper = require('./serviceHelper');
-const messageHelper = require('./messageHelper');
-const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
-const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
-const daemonServiceZelnodeRpcs = require('./daemonService/daemonServiceZelnodeRpcs');
-const daemonServiceBenchmarkRpcs = require('./daemonService/daemonServiceBenchmarkRpcs');
-const daemonServiceWalletRpcs = require('./daemonService/daemonServiceWalletRpcs');
-const benchmarkService = require('./benchmarkService');
-const verificationHelper = require('./verificationHelper');
-const fluxCommunicationUtils = require('./fluxCommunicationUtils');
-const userconfig = require('../../../config/userconfig');
-const {
+import util from 'util';
+import log from '../lib/log.js';
+import serviceHelper from './serviceHelper.js';
+import messageHelper from './messageHelper.js';
+import daemonServiceMiscRpcs from './daemonService/daemonServiceMiscRpcs.js';
+import daemonServiceUtils from './daemonService/daemonServiceUtils.js';
+import daemonServiceZelnodeRpcs from './daemonService/daemonServiceZelnodeRpcs.js';
+import daemonServiceBenchmarkRpcs from './daemonService/daemonServiceBenchmarkRpcs.js';
+import daemonServiceWalletRpcs from './daemonService/daemonServiceWalletRpcs.js';
+import benchmarkService from './benchmarkService.js';
+import verificationHelper from './verificationHelper.js';
+import fluxCommunicationUtils from './fluxCommunicationUtils.js';
+import userconfig from '../../../config/userconfig.js';
+import {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
-} = require('./utils/establishedConnections');
+} from './utils/establishedConnections.js';
 
 let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
@@ -859,7 +859,7 @@ async function adjustFirewall() {
   }
 }
 
-module.exports = {
+export default {
   minVersionSatisfy,
   isFluxAvailable,
   checkFluxAvailability,

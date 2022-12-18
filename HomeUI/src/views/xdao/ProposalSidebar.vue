@@ -42,7 +42,7 @@
 </template>
 
 <script>
-import VuePerfectScrollbar from 'vue-perfect-scrollbar';
+import VuePerfectScrollbar from 'vue3-perfect-scrollbar';
 import { BButton, BListGroup, BListGroupItem } from 'bootstrap-vue';
 import { isDynamicRouteActive } from '@core/utils/utils';
 import Ripple from 'vue-ripple-directive';

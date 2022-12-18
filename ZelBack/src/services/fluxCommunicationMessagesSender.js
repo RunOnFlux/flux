@@ -1,14 +1,15 @@
 /* eslint-disable no-underscore-dangle */
-const LRU = require('lru-cache');
-const WebSocket = require('ws');
-const log = require('../lib/log');
-const serviceHelper = require('./serviceHelper');
-const fluxNetworkHelper = require('./fluxNetworkHelper');
-const verificationHelper = require('./verificationHelper');
-const messageHelper = require('./messageHelper');
-const {
+import LRU from 'lru-cache';
+import WebSocket from 'ws';
+import log from '../lib/log.js';
+import appsService from './appsService.js';
+import serviceHelper from './serviceHelper.js';
+import fluxNetworkHelper from './fluxNetworkHelper.js';
+import verificationHelper from './verificationHelper.js';
+import messageHelper from './messageHelper.js';
+import {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
-} = require('./utils/establishedConnections');
+} from './utils/establishedConnections.js';
 
 const myMessageCache = new LRU(1000);
 
@@ -198,7 +199,6 @@ async function respondWithAppMessage(message, ws) {
   try {
     // check if we have it database of permanent appMessages
     // eslint-disable-next-line global-require
-    const appsService = require('./appsService');
     const tempMesResponse = myMessageCache.get(serviceHelper.ensureString(message));
     if (tempMesResponse) {
       sendMessageToWS(tempMesResponse, ws);
@@ -500,7 +500,7 @@ async function broadcastTemporaryAppMessage(message) {
   await broadcastMessageToIncoming(message); // every incoing peer AT LEAST 50ms. Suppose 50 incoming - 1 second
 }
 
-module.exports = {
+export default {
   sendToAllPeers,
   sendMessageToWS,
   sendToAllIncomingConnections,

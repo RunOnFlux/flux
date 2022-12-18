@@ -28,13 +28,13 @@ Vue.use(ToastPlugin);
 Vue.use(ModalPlugin);
 
 // Composition API
-Vue.use(VueCompositionAPI);
+// Vue.use(VueCompositionAPI);
 
 // import core styles
-require('@core/scss/core.scss');
+import '@core/scss/core.scss';
 
 // import assets styles
-require('@/assets/scss/style.scss');
+import '@/assets/scss/style.scss';
 
 Vue.config.productionTip = false;
 

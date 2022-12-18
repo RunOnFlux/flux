@@ -2,7 +2,7 @@
 process.env.NODE_CONFIG_DIR = `${process.cwd()}/ZelBack/config/`;
 const chai = require('chai');
 const appService = require('../../ZelBack/src/services/appsService');
-const generalService = require('../../ZelBack/src/services/generalService');
+const generalService = require('../../ZelBack/src/services/generalService').default;
 
 const { expect } = chai;
 

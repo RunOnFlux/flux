@@ -12,12 +12,10 @@ import apps from './routes/apps/apps';
 import fluxadmin from './routes/fluxadmin/fluxadmin';
 import xdao from './routes/xdao/xdao';
 
-const qs = require('qs');
+import qs from 'qs';
 
-Vue.use(VueRouter);
-
-const router = new VueRouter({
-  mode: 'history',
+const router = VueRouter.createRouter({
+  history: VueRouter.createWebHashHistory(),
   base: import.meta.env.BASE_URL,
   scrollBehavior() {
     return { x: 0, y: 0 };
@@ -67,7 +65,7 @@ const router = new VueRouter({
       },
     },
     {
-      path: '*',
+      path: '/',
       redirect: 'error-404',
     },
   ],
@@ -110,5 +108,9 @@ router.afterEach(() => {
     appLoading.style.display = 'none';
   }
 });
+
+const app = Vue.createApp({})
+app.use(router)
+app.mount('#app')
 
 export default router;

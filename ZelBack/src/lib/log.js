@@ -1,11 +1,15 @@
-const fs = require('fs');
-const path = require('path');
+import { statSync, createWriteStream } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 
-const homeDirPath = path.join(__dirname, '../../../');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+const homeDirPath = join(__dirname, '../../../');
 
 function getFilesizeInBytes(filename) {
   try {
-    const stats = fs.statSync(filename);
+    const stats = statSync(filename);
     const fileSizeInBytes = stats.size;
     return fileSizeInBytes;
   } catch (e) {
@@ -24,7 +28,7 @@ function writeToFile(filepath, args) {
   if (size > (25 * 1024 * 1024)) { // 25MB
     flag = 'w'; // rewrite file
   }
-  const stream = fs.createWriteStream(filepath, { flags: flag });
+  const stream = createWriteStream(filepath, { flags: flag });
   stream.write(`${new Date().toISOString()}          ${ensureString(args.message || args)}\n`);
   if (args.stack && typeof args.stack === 'string') {
     stream.write(`${args.stack}\n`);
@@ -83,7 +87,7 @@ function info(args) {
   }
 }
 
-module.exports = {
+export default {
   error,
   warn,
   info,

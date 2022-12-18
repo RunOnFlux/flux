@@ -1,9 +1,9 @@
 /* eslint-disable no-underscore-dangle */
-const LRU = require('lru-cache');
-const log = require('../lib/log');
-const serviceHelper = require('./serviceHelper');
-const verificationHelper = require('./verificationHelper');
-const daemonServiceZelnodeRpcs = require('./daemonService/daemonServiceZelnodeRpcs');
+import LRU from 'lru-cache';
+import log from '../lib/log.js';
+import serviceHelper from './serviceHelper.js';
+import verificationHelper from './verificationHelper.js';
+import daemonServiceZelnodeRpcs from './daemonService/daemonServiceZelnodeRpcs.js';
 // default cache
 const LRUoptions = {
   max: 12000, // currently 12000 nodes
@@ -148,7 +148,7 @@ async function verifyOriginalFluxBroadcast(data, obtainedFluxNodeList, currentTi
   return false;
 }
 
-module.exports = {
+export default {
   verifyTimestampInFluxBroadcast,
   verifyOriginalFluxBroadcast,
   deterministicFluxList,

@@ -1,6 +1,6 @@
-const messageHelper = require('../messageHelper');
-const daemonServiceUtils = require('./daemonServiceUtils');
-const verificationHelper = require('../verificationHelper');
+import messageHelper from '../messageHelper.js';
+import daemonServiceUtils from './daemonServiceUtils.js';
+import verificationHelper from '../verificationHelper.js';
 
 let response = messageHelper.createErrorMessage();
 
@@ -68,7 +68,7 @@ async function stopBenchmarkD(req, res) {
   return res ? res.json(response) : response;
 }
 
-module.exports = {
+export default {
   getBenchmarks,
   getBenchStatus,
   startBenchmarkD,

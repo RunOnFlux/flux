@@ -197,7 +197,7 @@ import {
   BLink,
   BRow,
 } from 'bootstrap-vue';
-import VuePerfectScrollbar from 'vue-perfect-scrollbar';
+import VuePerfectScrollbar from 'vue3-perfect-scrollbar';
 import Ripple from 'vue-ripple-directive';
 import { useToast } from 'vue-toastification';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';

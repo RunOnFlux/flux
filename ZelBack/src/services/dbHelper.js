@@ -2,10 +2,17 @@
  * @module Helper module used for all interactions with database
  */
 
-const mongodb = require('mongodb');
-const config = require('config');
+import mongodb from 'mongodb';
+import { config } from '../../config/default.js';
 
+// import pkg from 'config';
+
+// const { database: _database } = pkg;
 const { MongoClient } = mongodb;
+// Below line is throwing an error: TypeError: Cannot read property 'url' of undefined
+// This is because default.js is not exporting correctly - need to fix
+// const mongoUrl = `mongodb://${_database.url}:${_database.port}/`;
+// const mongoUrl = `mongodb://${'127.0.0.1'}:27017/`;
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 
 let openDBConnection = null;
@@ -249,7 +256,7 @@ async function collectionStats(database, collection) {
   return result;
 }
 
-module.exports = {
+export default {
   databaseConnection,
   connectMongoDb,
   initiateDB,

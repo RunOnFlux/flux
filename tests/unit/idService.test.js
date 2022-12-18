@@ -5,13 +5,13 @@ const os = require('os');
 const bitcoinMessage = require('bitcoinjs-message');
 const proxyquire = require('proxyquire');
 const { PassThrough } = require('stream');
-const log = require('../../ZelBack/src/lib/log');
+const log = require('../../ZelBack/src/lib/log').default;
 
-const dbHelper = require('../../ZelBack/src/services/dbHelper');
-const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+const dbHelper = require('../../ZelBack/src/services/dbHelper').default;
+const verificationHelper = require('../../ZelBack/src/services/verificationHelper').default;
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
-const generalService = require('../../ZelBack/src/services/generalService');
-const dockerService = require('../../ZelBack/src/services/dockerService');
+const generalService = require('../../ZelBack/src/services/generalService').default;
+const dockerService = require('../../ZelBack/src/services/dockerService').default;
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 
 const adminConfig = {

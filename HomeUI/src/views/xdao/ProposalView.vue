@@ -367,6 +367,7 @@
 </template>
 
 <script>
+import { computed } from 'vue';
 import {
   BBadge,
   BButton,
@@ -382,8 +383,8 @@ import {
   BTooltip,
 } from 'bootstrap-vue';
 import useAppConfig from '@core/app-config/useAppConfig';
-import VuePerfectScrollbar from 'vue-perfect-scrollbar';
-import VueApexCharts from 'vue-apexcharts';
+import VuePerfectScrollbar from 'vue3-perfect-scrollbar';
+import VueApexCharts from 'vue3-apexcharts';
 import Ripple from 'vue-ripple-directive';
 import { useToast } from 'vue-toastification';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
@@ -391,8 +392,8 @@ import ToastificationContent from '@core/components/toastification/Toastificatio
 import { $themeColors } from '@themeConfig';
 
 const axios = require('axios');
-const qs = require('qs');
-const store = require('store');
+import qs from 'qs';
+import store from 'store';
 const timeoptions = require('@/libs/dateFormat');
 
 export default {

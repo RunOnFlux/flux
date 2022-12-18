@@ -3,7 +3,7 @@ const chaiAsPromised = require('chai-as-promised');
 const Dockerode = require('dockerode');
 const sinon = require('sinon');
 const path = require('path');
-const dockerService = require('../../ZelBack/src/services/dockerService');
+const dockerService = require('../../ZelBack/src/services/dockerService').default;
 
 chai.use(chaiAsPromised);
 const { expect } = chai;

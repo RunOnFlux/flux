@@ -1,15 +1,20 @@
-import Vue from 'vue';
-import Vuex from 'vuex';
+import { createApp } from 'vue'
+import { createPinia, defineStore } from 'pinia'
 
 // Modules
-import app from './app';
+import App from './app'
 import appConfig from './app-config';
 import verticalMenu from './vertical-menu';
 import flux from './flux';
 
-Vue.use(Vuex);
+const app = createApp(App)
+const pinia = createPinia()
 
-export default new Vuex.Store({
+app.use(pinia) // Create the root store
+
+app.mount('#app')
+
+export default defineStore({
   modules: {
     app,
     appConfig,

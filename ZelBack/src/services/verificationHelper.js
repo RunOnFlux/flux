@@ -1,10 +1,10 @@
-const zeltrezjs = require('zeltrezjs');
-const bitcoinMessage = require('bitcoinjs-message');
-const { randomBytes } = require('crypto');
+import { address as _address } from 'zeltrezjs';
+import { verify, sign } from 'bitcoinjs-message';
+import { randomBytes } from 'crypto';
 
-const log = require('../lib/log');
+import log from '../lib/log.js';
 
-const verificationHelperUtils = require('./verificationHelperUtils');
+import { verifyAdminSession, verifyFluxTeamSession, verifyAdminAndFluxTeamSession, verifyAppOwnerOrHigherSession, verifyAppOwnerSession, verifyUserSession } from './verificationHelperUtils.js';
 
 /**
  * Verifies a specific privilege based on request headers.
@@ -18,22 +18,22 @@ async function verifyPrivilege(privilege, req, appName) {
   let authorized;
   switch (privilege) {
     case 'admin':
-      authorized = await verificationHelperUtils.verifyAdminSession(req.headers);
+      authorized = await verifyAdminSession(req.headers);
       break;
     case 'fluxteam':
-      authorized = await verificationHelperUtils.verifyFluxTeamSession(req.headers);
+      authorized = await verifyFluxTeamSession(req.headers);
       break;
     case 'adminandfluxteam':
-      authorized = await verificationHelperUtils.verifyAdminAndFluxTeamSession(req.headers);
+      authorized = await verifyAdminAndFluxTeamSession(req.headers);
       break;
     case 'appownerabove':
-      authorized = await verificationHelperUtils.verifyAppOwnerOrHigherSession(req.headers, appName);
+      authorized = await verifyAppOwnerOrHigherSession(req.headers, appName);
       break;
     case 'appowner':
-      authorized = await verificationHelperUtils.verifyAppOwnerSession(req.headers, appName);
+      authorized = await verifyAppOwnerSession(req.headers, appName);
       break;
     case 'user':
-      authorized = await verificationHelperUtils.verifyUserSession(req.headers);
+      authorized = await verifyUserSession(req.headers);
       break;
     default:
       authorized = false;
@@ -61,7 +61,7 @@ function verifyZelID(address) {
 
     if (address.length > 36) {
       const btcPubKeyHash = '00';
-      zeltrezjs.address.pubKeyToAddr(address, btcPubKeyHash);
+      _address.pubKeyToAddr(address, btcPubKeyHash);
     }
     isValid = true;
   } catch (e) {
@@ -92,10 +92,10 @@ function verifyMessage(message, address, signature, strMessageMagic, checkSegwit
 
     if (address.length > 36) {
       const btcPubKeyHash = '00';
-      const sigAddress = zeltrezjs.address.pubKeyToAddr(address, btcPubKeyHash);
+      const sigAddress = _address.pubKeyToAddr(address, btcPubKeyHash);
       signingAddress = sigAddress;
     }
-    isValid = bitcoinMessage.verify(message, signingAddress, signature, strMessageMagic, checkSegwitAlways);
+    isValid = verify(message, signingAddress, signature, strMessageMagic, checkSegwitAlways);
   } catch (e) {
     log.error(e);
     isValid = e;
@@ -114,11 +114,11 @@ function verifyMessage(message, address, signature, strMessageMagic, checkSegwit
 function signMessage(message, pk) {
   let signature;
   try {
-    const privateKey = zeltrezjs.address.WIFToPrivKey(pk);
+    const privateKey = _address.WIFToPrivKey(pk);
 
     const isCompressed = !pk.startsWith('5');
 
-    signature = bitcoinMessage.sign(message, Buffer.from(privateKey, 'hex'), isCompressed, { extraEntropy: randomBytes(32) });
+    signature = sign(message, Buffer.from(privateKey, 'hex'), isCompressed, { extraEntropy: randomBytes(32) });
     signature = signature.toString('base64');
     // => different (but valid) signature each time
   } catch (e) {
@@ -128,7 +128,7 @@ function signMessage(message, pk) {
   return signature;
 }
 
-module.exports = {
+export default {
   verifyPrivilege,
   verifyZelID,
   signMessage,

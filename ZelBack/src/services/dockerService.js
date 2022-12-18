@@ -1,10 +1,15 @@
-const stream = require('stream');
-const Docker = require('dockerode');
-const path = require('path');
-const serviceHelper = require('./serviceHelper');
-const log = require('../lib/log');
+import { PassThrough } from 'stream';
+import Docker from 'dockerode';
+import { join } from 'path';
+import serviceHelper from './serviceHelper.js';
+import log from '../lib/log.js';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 
-const fluxDirPath = path.join(__dirname, '../../../');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+const fluxDirPath = join(__dirname, '../../../');
 const appsFolder = `${fluxDirPath}ZelApps/`;
 
 const docker = new Docker();
@@ -306,7 +311,7 @@ async function dockerContainerLogsStream(idOrName, res, callback) {
     const containers = await dockerListContainers(true);
     const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
     const dockerContainer = docker.getContainer(myContainer.Id);
-    const logStream = new stream.PassThrough();
+    const logStream = new PassThrough();
     logStream.on('data', (chunk) => {
       res.write(serviceHelper.ensureString(chunk.toString('utf8')));
     });
@@ -616,7 +621,7 @@ async function createFluxDockerNetwork() {
   return response;
 }
 
-module.exports = {
+export default {
   getDockerContainer,
   getAppIdentifier,
   getAppDockerNameIdentifier,

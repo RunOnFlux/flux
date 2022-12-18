@@ -1,11 +1,11 @@
-const messageHelper = require('../messageHelper');
-const daemonServiceUtils = require('./daemonServiceUtils');
-const daemonServiceBlockchainRpcs = require('./daemonServiceBlockchainRpcs');
+import messageHelper from '../messageHelper.js';
+import daemonServiceUtils from './daemonServiceUtils.js';
+import daemonServiceBlockchainRpcs from './daemonServiceBlockchainRpcs.js';
 
-const log = require('../../lib/log');
-const userconfig = require('../../../../config/userconfig');
+import log from '../../lib/log.js';
+import { initial } from '../../../../config/userconfig.js';
 
-const isTestnet = userconfig.initial.testnet;
+const isTestnet = initial.testnet;
 
 let currentDaemonHeight = 0;
 let currentDaemonHeader = isTestnet === true ? 377006 : 1136836;
@@ -101,7 +101,7 @@ function getCurrentDaemonHeader() {
   return currentDaemonHeader;
 }
 
-module.exports = {
+export default {
   isInsightExplorer,
   // == NON Daemon ==
   isDaemonSynced,

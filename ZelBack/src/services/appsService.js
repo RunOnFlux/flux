@@ -1,32 +1,38 @@
-const config = require('config');
-const axios = require('axios');
+import { config } from '../../config/default.js';
+import axios from 'axios';
 // eslint-disable-next-line import/no-extraneous-dependencies
-const os = require('os');
-const path = require('path');
-const nodecmd = require('node-cmd');
-const df = require('node-df');
-const LRU = require('lru-cache');
-const systemcrontab = require('crontab');
+import os from 'os';
+import path from 'path';
+import nodecmd from 'node-cmd';
+import df from 'node-df';
+import LRU from 'lru-cache';
+import systemcrontab from 'crontab';
 // eslint-disable-next-line import/no-extraneous-dependencies
-const util = require('util');
-const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
-const fluxNetworkHelper = require('./fluxNetworkHelper');
-const {
+import util from 'util';
+import fluxCommunicationMessagesSender from './fluxCommunicationMessagesSender.js';
+import fluxNetworkHelper from './fluxNetworkHelper.js';
+import {
   outgoingPeers, incomingPeers,
-} = require('./utils/establishedConnections');
-const serviceHelper = require('./serviceHelper');
-const dbHelper = require('./dbHelper');
-const verificationHelper = require('./verificationHelper');
-const messageHelper = require('./messageHelper');
-const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
-const daemonServiceBenchmarkRpcs = require('./daemonService/daemonServiceBenchmarkRpcs');
-const benchmarkService = require('./benchmarkService');
-const dockerService = require('./dockerService');
-const generalService = require('./generalService');
-const upnpService = require('./upnpService');
-const geolocationService = require('./geolocationService');
-const log = require('../lib/log');
-const userconfig = require('../../../config/userconfig');
+} from './utils/establishedConnections.js';
+import serviceHelper from './serviceHelper.js';
+import dbHelper from './dbHelper.js';
+import verificationHelper from './verificationHelper.js';
+import messageHelper from './messageHelper.js';
+import daemonServiceMiscRpcs from './daemonService/daemonServiceMiscRpcs.js';
+import daemonServiceBenchmarkRpcs from './daemonService/daemonServiceBenchmarkRpcs.js';
+import benchmarkService from './benchmarkService.js';
+import dockerService from './dockerService.js';
+import generalService from './generalService.js';
+import upnpService from './upnpService.js';
+import geolocationService from './geolocationService.js';
+import log from '../lib/log.js';
+import userconfig from '../../../config/userconfig.js';
+
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const fluxDirPath = path.join(__dirname, '../../../');
 const appsFolder = `${fluxDirPath}ZelApps/`;
@@ -8150,7 +8156,7 @@ async function forceAppRemovals() {
   }
 }
 
-module.exports = {
+export default {
   listRunningApps,
   listAllApps,
   listAppsImages,

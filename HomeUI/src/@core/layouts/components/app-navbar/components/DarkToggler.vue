@@ -12,6 +12,7 @@
 </template>
 
 <script>
+import { computed } from 'vue';
 import useAppConfig from '@core/app-config/useAppConfig';
 import {
   BNavItem,

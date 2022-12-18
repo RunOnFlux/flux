@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const store = require('store');
+import store from 'store';
 
 const { protocol, hostname, port } = window.location;
 let mybackend = '';

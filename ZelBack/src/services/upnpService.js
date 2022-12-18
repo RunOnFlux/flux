@@ -1,12 +1,14 @@
-const config = require('config');
-const natUpnp = require('@runonflux/nat-upnp');
-const serviceHelper = require('./serviceHelper');
-const messageHelper = require('./messageHelper');
-const verificationHelper = require('./verificationHelper');
+import pkg from 'config';
+import { Client } from '@runonflux/nat-upnp';
+import serviceHelper from './serviceHelper.js';
+import messageHelper from './messageHelper.js';
+import verificationHelper from './verificationHelper.js';
 
-const log = require('../lib/log');
+import log from '../lib/log.js';
 
-const client = new natUpnp.Client();
+const { apiport: _apiport } = pkg;
+
+const client = new Client();
 
 let upnpMachine = false;
 
@@ -23,7 +25,7 @@ function isUPNP() {
  * @param {number} apiport Port number.
  * @returns {boolean} True if port mappings can be set. Otherwise false.
  */
-async function verifyUPNPsupport(apiport = config.apiport) {
+async function verifyUPNPsupport(apiport = _apiport) {
   try {
     // run test on apiport + 1
     await client.getPublicIp();
@@ -82,7 +84,7 @@ async function verifyUPNPsupport(apiport = config.apiport) {
  * @param {number} apiport Port number.
  * @returns {boolean} True if port mappings can be set. Otherwise false.
  */
-async function setupUPNP(apiport = config.apiport) { // todo evaluate adding ssl port of + 1
+async function setupUPNP(apiport = _apiport) { // todo evaluate adding ssl port of + 1
   try {
     await client.createMapping({
       public: +apiport,
@@ -277,15 +279,15 @@ async function getIpApi(req, res) {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized) {
       const ip = await client.getPublicIp();
-      const message = messageHelper.createDataMessage(ip);
+      const message = createDataMessage(ip);
       res.json(message);
     } else {
-      const errMessage = messageHelper.errUnauthorizedMessage();
+      const errMessage = errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
+    const errorResponse = createErrorMessage(
       error.message || error,
       error.name,
       error.code,
@@ -321,7 +323,7 @@ async function getGatewayApi(req, res) {
   }
 }
 
-module.exports = {
+export default {
   isUPNP,
   verifyUPNPsupport,
   setupUPNP,

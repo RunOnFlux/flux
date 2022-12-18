@@ -150,7 +150,7 @@
 </template>
 
 <script>
-// import { mapState } from 'vuex'
+// import { mapState } from 'pinia'
 import {
   BCard,
   BRow,
@@ -170,7 +170,7 @@ import FluxService from '@/services/FluxService';
 // import ExplorerService from '@/services/ExplorerService'
 // import AppsService from '@/services/AppsService'
 
-const qs = require('qs');
+import qs from 'qs';
 
 export default {
   components: {

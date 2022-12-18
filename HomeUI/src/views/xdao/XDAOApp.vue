@@ -212,6 +212,7 @@
 </template>
 
 <script>
+import { computed } from 'vue';
 import {
   BFormInput,
   BInputGroup,
@@ -235,13 +236,13 @@ import { useResponsiveAppLeftSidebarVisibility } from '@core/comp-functions/ui/a
 import Ripple from 'vue-ripple-directive';
 import { useToast } from 'vue-toastification';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
-import VuePerfectScrollbar from 'vue-perfect-scrollbar';
+import VuePerfectScrollbar from 'vue3-perfect-scrollbar';
 
 import AddProposalView from './AddProposalView.vue';
 import ProposalView from './ProposalView.vue';
 import ProposalSidebar from './ProposalSidebar.vue';
 
-const qs = require('qs');
+import qs from 'qs';
 const axios = require('axios');
 const timeoptions = require('@/libs/dateFormat');
 

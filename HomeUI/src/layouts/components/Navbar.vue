@@ -58,7 +58,7 @@
 </template>
 
 <script>
-import { mapState } from 'vuex';
+import { mapState } from 'pinia';
 import {
   BLink, BDropdown, BDropdownItemButton, BDropdownDivider, BNavbarNav, BButton, BFormInput, // BNavItemDropdown, BDropdownItem, BDropdownDivider, BAvatar,
 } from 'bootstrap-vue';
@@ -69,9 +69,9 @@ import Ripple from 'vue-ripple-directive';
 
 import IDService from '@/services/IDService';
 
-const qs = require('qs');
+import qs from 'qs';
 
-const store = require('store');
+import store from 'store';
 
 export default {
   components: {

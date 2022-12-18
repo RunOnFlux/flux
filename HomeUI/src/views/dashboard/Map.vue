@@ -62,7 +62,7 @@ import { Icon } from 'leaflet';
 import {
   LMap, LTileLayer, LMarker, LPopup,
 } from '@vue-leaflet/vue-leaflet';
-import VueApexCharts from 'vue-apexcharts';
+import VueApexCharts from 'vue3-apexcharts';
 import DashboardService from '@/services/DashboardService';
 import 'leaflet/dist/leaflet.css';
 

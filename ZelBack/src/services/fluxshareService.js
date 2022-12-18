@@ -1,18 +1,18 @@
-const config = require('config');
-const crypto = require('crypto');
-const path = require('path');
-const df = require('node-df');
-const fs = require('fs');
-const formidable = require('formidable');
-const archiver = require('archiver');
+import { config } from '../../config/default.js';
+import crypto from 'crypto';
+import path from 'path';
+import df from 'node-df';
+import fs from 'fs';
+import formidable from 'formidable';
+import archiver from 'archiver';
 // eslint-disable-next-line import/no-extraneous-dependencies
-const util = require('util');
-const serviceHelper = require('./serviceHelper');
-const messageHelper = require('./messageHelper');
-const dbHelper = require('./dbHelper');
-const verificationHelper = require('./verificationHelper');
-const generalService = require('./generalService');
-const log = require('../lib/log');
+import util from 'util';
+import serviceHelper from './serviceHelper.js';
+import messageHelper from './messageHelper.js';
+import dbHelper from './dbHelper.js';
+import verificationHelper from './verificationHelper.js';
+import generalService from './generalService.js';
+import log from '../lib/log.js';
 
 /**
  * Delete a specific FluxShare file.
@@ -890,7 +890,7 @@ async function fluxShareUpload(req, res) {
   }
 }
 
-module.exports = {
+export default {
   fluxShareDownloadFile,
   fluxShareGetFolder,
   fluxShareCreateFolder,

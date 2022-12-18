@@ -1,6 +1,6 @@
-const messageHelper = require('../messageHelper');
-const verificationHelper = require('../verificationHelper');
-const daemonServiceUtils = require('./daemonServiceUtils');
+import messageHelper from '../messageHelper.js';
+import verificationHelper from '../verificationHelper.js';
+import daemonServiceUtils from './daemonServiceUtils.js';
 
 let response = messageHelper.createErrorMessage();
 
@@ -63,7 +63,7 @@ async function stop(req, res) { // practically useless
   return res ? res.json(response) : response;
 }
 
-module.exports = {
+export default {
   help,
   getInfo,
   stop,

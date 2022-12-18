@@ -3,10 +3,10 @@ const chai = require('chai');
 const { expect } = chai;
 const sinon = require('sinon');
 
-const verificationHelperUtils = require('../../ZelBack/src/services/verificationHelperUtils');
+const verificationHelperUtils = require('../../ZelBack/src/services/verificationHelperUtils').default;
 const {
   verifyPrivilege, verifyZelID, verifyMessage, signMessage,
-} = require('../../ZelBack/src/services/verificationHelper');
+} = require('../../ZelBack/src/services/verificationHelper').default;
 
 // placeholders - verification functions are mocked, they have already been tested in verificationHelperUtils.test
 const req = {

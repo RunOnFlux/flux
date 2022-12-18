@@ -1610,6 +1610,7 @@
 </template>
 
 <script>
+import { computed } from 'vue';
 import {
   BAvatar,
   BButton,
@@ -1641,7 +1642,7 @@ import {
   FormWizard,
   TabContent,
 } from 'vue-form-wizard';
-import VuePerfectScrollbar from 'vue-perfect-scrollbar';
+import VuePerfectScrollbar from 'vue3-perfect-scrollbar';
 import Ripple from 'vue-ripple-directive';
 import { useToast } from 'vue-toastification';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
@@ -1653,8 +1654,8 @@ import axios from 'axios';
 import tierColors from '@/libs/colors';
 import DashboardService from '@/services/DashboardService';
 
-const qs = require('qs');
-const store = require('store');
+import qs from 'qs';
+import store from 'store';
 const timeoptions = require('@/libs/dateFormat');
 
 export default {

@@ -14,7 +14,7 @@ module.exports = {
       'error',
       {
         code: 300,
-        ignoreUrls: true,
+        ignoreStrings: true,
         ignoreTrailingComments: true,
       },
     ],

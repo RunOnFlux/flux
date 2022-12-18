@@ -82,7 +82,8 @@
 </template>
 
 <script>
-import VuePerfectScrollbar from 'vue-perfect-scrollbar';
+import { computed } from 'vue';
+import VuePerfectScrollbar from 'vue3-perfect-scrollbar';
 import { BLink, BImg } from 'bootstrap-vue';
 import useAppConfig from '@core/app-config/useAppConfig';
 import { $themeConfig } from '@themeConfig';
@@ -91,7 +92,7 @@ import navMenuItemsCollapsed from '@/navigation/vertical/index_collapsed';
 import VerticalNavMenuItems from './components/vertical-nav-menu-items/VerticalNavMenuItems.vue';
 import useVerticalNavMenu from './useVerticalNavMenu';
 
-const qs = require('qs');
+import qs from 'qs';
 const axios = require('axios');
 
 export default {

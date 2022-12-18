@@ -1,18 +1,18 @@
 /* eslint-disable no-underscore-dangle */
-const config = require('config');
-const LRU = require('lru-cache');
-const WebSocket = require('ws');
-const log = require('../lib/log');
-const serviceHelper = require('./serviceHelper');
-const verificationHelper = require('./verificationHelper');
-const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
-const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
-const fluxCommunicationUtils = require('./fluxCommunicationUtils');
-const fluxNetworkHelper = require('./fluxNetworkHelper');
-const messageHelper = require('./messageHelper');
-const {
+import { config } from '../../config/default.js';
+import LRU from 'lru-cache';
+import WebSocket from 'ws';
+import log from '../lib/log.js';
+import serviceHelper from './serviceHelper.js';
+import verificationHelper from './verificationHelper.js';
+import daemonServiceMiscRpcs from './daemonService/daemonServiceMiscRpcs.js';
+import fluxCommunicationMessagesSender from './fluxCommunicationMessagesSender.js';
+import fluxCommunicationUtils from './fluxCommunicationUtils.js';
+import fluxNetworkHelper from './fluxNetworkHelper.js';
+import messageHelper from './messageHelper.js';
+import {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
-} = require('./utils/establishedConnections');
+} from './utils/establishedConnections.js';
 
 let response = messageHelper.createErrorMessage();
 // default cache
@@ -513,7 +513,7 @@ async function fluxDiscovery() {
   }
 }
 
-module.exports = {
+export default {
   handleIncomingConnection,
   connectedPeers,
   removePeer,

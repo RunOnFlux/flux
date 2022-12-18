@@ -1,16 +1,16 @@
-const config = require('config');
-const log = require('../lib/log');
+import { config } from '../../config/default.js';
+import log from '../lib/log.js';
 
-const dbHelper = require('./dbHelper');
-const explorerService = require('./explorerService');
-const fluxCommunication = require('./fluxCommunication');
-const fluxNetworkHelper = require('./fluxNetworkHelper');
-const appsService = require('./appsService');
-const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
-const fluxService = require('./fluxService');
-const geolocationService = require('./geolocationService');
-const upnpService = require('./upnpService');
-const userconfig = require('../../../config/userconfig');
+import dbHelper from './dbHelper.js';
+import explorerService from './explorerService.js';
+import fluxCommunication from './fluxCommunication.js';
+import fluxNetworkHelper from './fluxNetworkHelper.js';
+import appsService from './appsService.js';
+import daemonServiceMiscRpcs from './daemonService/daemonServiceMiscRpcs.js';
+import fluxService from './fluxService.js';
+import geolocationService from './geolocationService.js';
+import upnpService from './upnpService.js';
+import userconfig from '../../../config/userconfig.js';
 
 const apiPort = userconfig.initial.apiport || config.server.apiport;
 
@@ -129,6 +129,6 @@ async function startFluxFunctions() {
   }
 }
 
-module.exports = {
+export default {
   startFluxFunctions,
 };

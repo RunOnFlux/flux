@@ -1,12 +1,12 @@
 const chai = require('chai');
 const sinon = require('sinon');
 const chaiAsPromised = require('chai-as-promised');
-const generalService = require('../../ZelBack/src/services/generalService');
-const dbHelper = require('../../ZelBack/src/services/dbHelper');
+const generalService = require('../../ZelBack/src/services/generalService').default;
+const dbHelper = require('../../ZelBack/src/services/dbHelper').default;
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
-const daemonServiceZelnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceZelnodeRpcs');
-const daemonServiceTransactionRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceTransactionRpcs');
-const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
+const daemonServiceZelnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceZelnodeRpcs').default;
+const daemonServiceTransactionRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceTransactionRpcs').default;
+const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs').default;
 
 chai.use(chaiAsPromised);
 const { expect } = chai;

@@ -1,11 +1,11 @@
 process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
 // Flux Home configuration
-const config = require('config');
+import { config } from '../../config/default.js';
 const compression = require('compression');
 const path = require('path');
 const express = require('express');
-const log = require('./ZelBack/src/lib/log');
-const upnpService = require('./ZelBack/src/services/upnpService');
+const log = require('./ZelBack/src/lib/log').default;
+const upnpService = require('./ZelBack/src/services/upnpService').default;
 
 const home = path.join(__dirname, './HomeUI/dist');
 

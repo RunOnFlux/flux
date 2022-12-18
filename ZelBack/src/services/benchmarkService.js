@@ -1,18 +1,26 @@
-const benchmarkrpc = require('daemonrpc');
-const config = require('config');
-const path = require('path');
-const fs = require('fs');
-const serviceHelper = require('./serviceHelper');
-const messageHelper = require('./messageHelper');
-const verificationHelper = require('./verificationHelper');
-const userconfig = require('../../../config/userconfig');
+import { Client } from 'daemonrpc';
+import pkg from 'config';
+const { benchmark } = pkg;
+import { join } from 'path';
+import { existsSync } from 'fs';
+import serviceHelper from './serviceHelper.js';
+import messageHelper from './messageHelper.js';
+import verificationHelper from './verificationHelper.js';
+import { initial } from '../../../config/userconfig.js';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 
-const isTestnet = userconfig.initial.testnet;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
-const rpcport = isTestnet === true ? config.benchmark.rpcporttestnet : config.benchmark.rpcport;
+const isTestnet = initial.testnet;
+// Below line is throwing errpr TypeError: Cannot read property 'rpcport' of undefined
+// This is because default.js is not exporting correctly - need to fix
+// const rpcport = isTestnet === true ? benchmark.rpcporttestnet : benchmark.rpcport;
+const rpcport = isTestnet === true ? 26224 : 16224;
 
-const homeDirPath = path.join(__dirname, '../../../../');
-const newBenchmarkPath = path.join(homeDirPath, '.fluxbenchmark');
+const homeDirPath = join(__dirname, '../../../../');
+const newBenchmarkPath = join(homeDirPath, '.fluxbenchmark');
 
 let response = messageHelper.createErrorMessage();
 
@@ -29,12 +37,12 @@ async function executeCall(rpc, params) {
   try {
     let rpcuser = 'zelbenchuser';
     let rpcpassword = 'zelbenchpassword';
-    if (fs.existsSync(newBenchmarkPath)) {
+    if (existsSync(newBenchmarkPath)) {
       rpcuser = 'fluxbenchuser';
       rpcpassword = 'fluxbenchpassword';
     }
 
-    const client = new benchmarkrpc.Client({
+    const client = new Client({
       port: rpcport,
       user: rpcuser,
       pass: rpcpassword,
@@ -219,7 +227,7 @@ async function getPublicIp(req, res) {
   return res ? res.json(response) : response;
 }
 
-module.exports = {
+export default {
   // == Export for testing purposes ==
   executeCall,
   // == Benchmarks ==

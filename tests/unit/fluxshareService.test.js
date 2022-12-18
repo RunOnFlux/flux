@@ -4,11 +4,11 @@ const chaiAsPromised = require('chai-as-promised');
 const proxyquire = require('proxyquire');
 const fs = require('fs');
 const util = require('util');
-const log = require('../../ZelBack/src/lib/log');
+const log = require('../../ZelBack/src/lib/log').default;
 
-const dbHelper = require('../../ZelBack/src/services/dbHelper');
-const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
-const generalService = require('../../ZelBack/src/services/generalService');
+const dbHelper = require('../../ZelBack/src/services/dbHelper').default;
+const verificationHelper = require('../../ZelBack/src/services/verificationHelper').default;
+const generalService = require('../../ZelBack/src/services/generalService').default;
 
 const adminConfig = {
   fluxTeamZelId: '1zasdfg',

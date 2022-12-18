@@ -290,7 +290,7 @@ import AppTimeline from '@core/components/app-timeline/AppTimeline.vue';
 import AppTimelineItem from '@core/components/app-timeline/AppTimelineItem.vue';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import Ripple from 'vue-ripple-directive';
-import VueApexCharts from 'vue-apexcharts';
+import VueApexCharts from 'vue3-apexcharts';
 
 import { $themeColors } from '@themeConfig';
 

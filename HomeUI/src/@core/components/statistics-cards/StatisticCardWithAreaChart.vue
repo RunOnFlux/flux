@@ -31,7 +31,7 @@
 
 <script>
 import { BCard, BCardBody, BAvatar } from 'bootstrap-vue';
-import VueApexCharts from 'vue-apexcharts';
+import VueApexCharts from 'vue3-apexcharts';
 import { $themeColors } from '@themeConfig';
 import { areaChartOptions } from './chartOptions';
 

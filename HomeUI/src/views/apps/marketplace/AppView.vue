@@ -474,6 +474,7 @@
 </template>
 
 <script>
+import { computed } from 'vue';
 import {
   BButton,
   BCard,
@@ -494,8 +495,8 @@ import {
   FormWizard,
   TabContent,
 } from 'vue-form-wizard';
-import VuePerfectScrollbar from 'vue-perfect-scrollbar';
-import VueApexCharts from 'vue-apexcharts';
+import VuePerfectScrollbar from 'vue3-perfect-scrollbar';
+import VueApexCharts from 'vue3-apexcharts';
 import Ripple from 'vue-ripple-directive';
 import { useToast } from 'vue-toastification';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
@@ -507,8 +508,8 @@ import ListEntry from '@/views/components/ListEntry.vue';
 import AppsService from '@/services/AppsService';
 import tierColors from '@/libs/colors';
 
-const qs = require('qs');
-const store = require('store');
+import qs from 'qs';
+import store from 'store';
 const timeoptions = require('@/libs/dateFormat');
 
 export default {

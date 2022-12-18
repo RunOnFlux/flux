@@ -112,7 +112,7 @@
 </template>
 
 <script>
-// import { mapState } from 'vuex'
+// import { mapState } from 'pinia'
 import {
   BCard,
   BRow,
@@ -128,7 +128,7 @@ import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
 import FluxService from '@/services/FluxService';
 import BenchmarkService from '@/services/BenchmarkService';
 
-const qs = require('qs');
+import qs from 'qs';
 
 export default {
   components: {

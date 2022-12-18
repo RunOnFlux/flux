@@ -4,8 +4,8 @@ const chai = require('chai');
 const natUpnp = require('@runonflux/nat-upnp');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire');
-const log = require('../../ZelBack/src/lib/log');
-const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+const log = require('../../ZelBack/src/lib/log').default;
+const verificationHelper = require('../../ZelBack/src/services/verificationHelper').default;
 
 const { expect } = chai;
 

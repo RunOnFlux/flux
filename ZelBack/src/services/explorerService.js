@@ -1,17 +1,16 @@
-const config = require('config');
-const LRU = require('lru-cache');
-
-const log = require('../lib/log');
-const serviceHelper = require('./serviceHelper');
-const dbHelper = require('./dbHelper');
-const verificationHelper = require('./verificationHelper');
-const messageHelper = require('./messageHelper');
-const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
-const daemonServiceAddressRpcs = require('./daemonService/daemonServiceAddressRpcs');
-const daemonServiceTransactionRpcs = require('./daemonService/daemonServiceTransactionRpcs');
-const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRpcs');
-const daemonServiceBlockchainRpcs = require('./daemonService/daemonServiceBlockchainRpcs');
-const appsService = require('./appsService');
+import { config } from '../../config/default.js';
+import LRU from 'lru-cache';
+import log from '../lib/log.js';
+import serviceHelper from './serviceHelper.js';
+import dbHelper from './dbHelper.js';
+import verificationHelper from './verificationHelper.js';
+import messageHelper from './messageHelper.js';
+import daemonServiceMiscRpcs from './daemonService/daemonServiceMiscRpcs.js';
+import daemonServiceAddressRpcs from './daemonService/daemonServiceAddressRpcs.js';
+import daemonServiceTransactionRpcs from './daemonService/daemonServiceTransactionRpcs.js';
+import daemonServiceControlRpcs from './daemonService/daemonServiceControlRpcs.js';
+import daemonServiceBlockchainRpcs from './daemonService/daemonServiceBlockchainRpcs.js';
+import appsService from './appsService.js';
 
 const coinbaseFusionIndexCollection = config.database.daemon.collections.coinbaseFusionIndex; // fusion
 const utxoIndexCollection = config.database.daemon.collections.utxoIndex;
@@ -1592,7 +1591,7 @@ function setIsInInitiationOfBP(value) {
   isInInitiationOfBP = value;
 }
 
-module.exports = {
+export default {
   initiateBlockProcessor,
   processBlock,
   reindexExplorer,

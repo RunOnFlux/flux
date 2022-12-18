@@ -1,8 +1,8 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import path from 'path'
 
 // https://vitejs.dev/config/
-const path = require("path");
 export default defineConfig({
   plugins: [vue({
     template: {
@@ -27,7 +27,13 @@ export default defineConfig({
       '@validations': path.resolve(__dirname, './HomeUI/src/@core/utils/validations/validations.js'),
       ZelBack: path.resolve(__dirname, './ZelBack'),
       Config: path.resolve(__dirname, './config'),
-      vue: '@vue/compat'
+      vue: '@vue/compat',
     },
+  },
+  output: {
+    libraryTarget: 'system',
+  },
+  preview: {
+    port: 16126,
   },
 })

@@ -93,7 +93,7 @@ function errUnauthorizedMessage() {
   return errMessage;
 }
 
-module.exports = {
+export default {
   createDataMessage,
   createErrorMessage,
   createSuccessMessage,

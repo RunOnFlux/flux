@@ -1,27 +1,28 @@
-const apicache = require('apicache');
+import pkg from 'apicache';
+const { middleware } = pkg;
 
-const daemonServiceAddressRpcs = require('./services/daemonService/daemonServiceAddressRpcs');
-const daemonServiceTransactionRpcs = require('./services/daemonService/daemonServiceTransactionRpcs');
-const daemonServiceBlockchainRpcs = require('./services/daemonService/daemonServiceBlockchainRpcs');
-const daemonServiceBenchmarkRpcs = require('./services/daemonService/daemonServiceBenchmarkRpcs');
-const daemonServiceMiningRpcs = require('./services/daemonService/daemonServiceMiningRpcs');
-const daemonServiceNetworkRpcs = require('./services/daemonService/daemonServiceNetworkRpcs');
-const daemonServiceZelnodeRpcs = require('./services/daemonService/daemonServiceZelnodeRpcs');
-const daemonServiceWalletRpcs = require('./services/daemonService/daemonServiceWalletRpcs');
-const daemonServiceUtilityRpcs = require('./services/daemonService/daemonServiceUtilityRpcs');
-const daemonServiceZcashRpcs = require('./services/daemonService/daemonServiceZcashRpcs');
-const daemonServiceControlRpcs = require('./services/daemonService/daemonServiceControlRpcs');
-const benchmarkService = require('./services/benchmarkService');
-const idService = require('./services/idService');
-const fluxService = require('./services/fluxService');
-const fluxCommunication = require('./services/fluxCommunication');
-const fluxCommunicationMessagesSender = require('./services/fluxCommunicationMessagesSender');
-const appsService = require('./services/appsService');
-const explorerService = require('./services/explorerService');
-const fluxshareService = require('./services/fluxshareService');
-const generalService = require('./services/generalService');
-const upnpService = require('./services/upnpService');
-const fluxNetworkHelper = require('./services/fluxNetworkHelper');
+import daemonServiceAddressRpcs from './services/daemonService/daemonServiceAddressRpcs.js';
+import daemonServiceTransactionRpcs from './services/daemonService/daemonServiceTransactionRpcs.js';
+import daemonServiceBlockchainRpcs from './services/daemonService/daemonServiceBlockchainRpcs.js';
+import daemonServiceBenchmarkRpcs from './services/daemonService/daemonServiceBenchmarkRpcs.js';
+import daemonServiceMiningRpcs from './services/daemonService/daemonServiceMiningRpcs.js';
+import daemonServiceNetworkRpcs from './services/daemonService/daemonServiceNetworkRpcs.js';
+import daemonServiceZelnodeRpcs from './services/daemonService/daemonServiceZelnodeRpcs.js';
+import daemonServiceWalletRpcs from './services/daemonService/daemonServiceWalletRpcs.js';
+import daemonServiceUtilityRpcs from './services/daemonService/daemonServiceUtilityRpcs.js';
+import daemonServiceZcashRpcs from './services/daemonService/daemonServiceZcashRpcs.js';
+import daemonServiceControlRpcs from './services/daemonService/daemonServiceControlRpcs.js';
+import benchmarkService from './services/benchmarkService.js';
+import idService from './services/idService.js';
+import fluxService from './services/fluxService.js';
+import fluxCommunication from './services/fluxCommunication.js';
+import fluxCommunicationMessagesSender from './services/fluxCommunicationMessagesSender.js';
+import appsService from './services/appsService.js';
+import explorerService from './services/explorerService.js';
+import fluxshareService from './services/fluxshareService.js';
+import generalService from './services/generalService.js';
+import upnpService from './services/upnpService.js';
+import fluxNetworkHelper from './services/fluxNetworkHelper.js';
 
 function isLocal(req, res, next) {
   const remote = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || req.headers['x-forwarded-for'];
@@ -29,9 +30,9 @@ function isLocal(req, res, next) {
   return res.status(401).send('Access denied');
 }
 
-const cache = apicache.middleware;
+const cache = middleware;
 
-module.exports = (app, expressWs) => {
+export default (app, expressWs) => {
   // GET PUBLIC methods
   app.get('/daemon/help/:command?', cache('1 hour'), (req, res) => { // accept both help/command and ?command=getinfo. If ommited, default help will be displayed. Other calls works in similar way
     daemonServiceControlRpcs.help(req, res);

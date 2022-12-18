@@ -1,6 +1,6 @@
-const log = require('../lib/log');
-const fluxNetworkHelper = require('./fluxNetworkHelper');
-const serviceHelper = require('./serviceHelper');
+import log from '../lib/log.js';
+import fluxNetworkHelper from './fluxNetworkHelper.js';
+import serviceHelper from './serviceHelper.js';
 
 let storedGeolocation = null;
 let storedIp = null;
@@ -56,7 +56,7 @@ function getNodeGeolocation() {
   return storedGeolocation;
 }
 
-module.exports = {
+export default {
   setNodeGeolocation,
   getNodeGeolocation,
 };

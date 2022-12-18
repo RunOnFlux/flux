@@ -111,7 +111,7 @@
 import {
   BNavItemDropdown, BBadge, BMedia, BLink, BAvatar, BButton, BFormCheckbox,
 } from 'bootstrap-vue';
-import VuePerfectScrollbar from 'vue-perfect-scrollbar';
+import VuePerfectScrollbar from 'vue3-perfect-scrollbar';
 import Ripple from 'vue-ripple-directive';
 
 export default {

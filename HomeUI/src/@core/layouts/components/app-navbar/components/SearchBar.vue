@@ -128,7 +128,7 @@
 import {
   BFormInput, BLink, BImg, BAvatar,
 } from 'bootstrap-vue';
-import VuePerfectScrollbar from 'vue-perfect-scrollbar';
+import VuePerfectScrollbar from 'vue3-perfect-scrollbar';
 import useAutoSuggest from '@core/components/app-auto-suggest/useAutoSuggest';
 import { title } from '@core/utils/filter';
 import router from '@/router';

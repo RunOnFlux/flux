@@ -1,13 +1,15 @@
-const inquirer = require('inquirer');
-const fs = require('fs');
+import pkg from 'inquirer';
+import { existsSync, createWriteStream } from 'fs';
+
+const { prompt } = pkg;
 
 const path = './config/userconfig.js';
 
 const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/;
-if (fs.existsSync(path)) {
+if (existsSync(path)) {
   console.log('Configuration file found. You can change your configuration in ./config/userconfig.js');
   console.log('Starting Flux...');
-  return;
+  // return;
 }
 
 const questions = [
@@ -24,7 +26,7 @@ const questions = [
 ];
 
 function showQuestions() {
-  inquirer.prompt(questions).then((answers) => {
+  prompt(questions).then((answers) => {
     console.log(`IP address: ${answers.ipaddr}`);
     console.log(`ZelID: ${answers.zelid}`);
     if (answers.ipaddr.length < 5 || (answers.ipaddr.indexOf('.') === -1 && answers.ipaddr.indexOf(':') === -1)) {
@@ -47,16 +49,28 @@ function showQuestions() {
       }
     }
 
-    const dataToWrite = `module.exports = {
-      initial: {
-        ipaddress: '${answers.ipaddr}',
-        zelid: '${answers.zelid}',
-        testnet: false,
-        apiport: 16127,
-      }
-    }`;
+    // const dataToWrite = 
+    // `module.exports = {
+    //   initial: {
+    //     ipaddress: '${answers.ipaddr}',
+    //     zelid: '${answers.zelid}',
+    //     testnet: false,
+    //     apiport: 16127,
+    //   }
+    // }`;
 
-    const userconfig = fs.createWriteStream(path);
+    // Indentation is intentional so it can be correct when written to userconfig.js
+    const dataToWrite = 
+  `export const initial = {
+  ipaddress: '${answers.ipaddr}',
+  zelid: '${answers.zelid}',
+  testnet: false,
+  apiport: 16127
+}
+    
+export default { initial };`;
+
+    const userconfig = createWriteStream(path);
 
     userconfig.once('open', () => {
       userconfig.write(dataToWrite);

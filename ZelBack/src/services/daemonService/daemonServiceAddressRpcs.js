@@ -1,6 +1,6 @@
-const serviceHelper = require('../serviceHelper');
-const messageHelper = require('../messageHelper');
-const daemonServiceUtils = require('./daemonServiceUtils');
+import serviceHelper from '../serviceHelper.js';
+import messageHelper from '../messageHelper.js';
+import daemonServiceUtils from './daemonServiceUtils.js';
 
 let response = messageHelper.createErrorMessage();
 
@@ -284,7 +284,7 @@ async function getSingleAddressMempool(req, res) {
   return res ? res.json(response) : response;
 }
 
-module.exports = {
+export default {
   getAddressTxids, // insight explorer
   getSingleAddresssTxids,
   getAddressBalance, // insight explorer

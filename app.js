@@ -1,17 +1,23 @@
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
 process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
 // Flux configuration
-const config = require('config');
-const compression = require('compression');
+import { config } from './ZelBack/config/default.js';
+import compression from 'compression';
 // const fs = require('fs');
 // const https = require('https');
-const path = require('path');
-const express = require('express');
-const app = require('./ZelBack/src/lib/server');
-const log = require('./ZelBack/src/lib/log');
-const serviceManager = require('./ZelBack/src/services/serviceManager');
-const upnpService = require('./ZelBack/src/services/upnpService');
+import path from 'path';
+import express from 'express';
+import app from './ZelBack/src/lib/server.js';
+import log from './ZelBack/src/lib/log.js';
+import serviceManager from './ZelBack/src/services/serviceManager.js';
+import upnpService from './ZelBack/src/services/upnpService.js';
 
-const userconfig = require('./config/userconfig');
+import userconfig from './config/userconfig.js';
 
 const apiPort = userconfig.initial.apiport || config.server.apiport;
 const homePort = +apiPort - 1;

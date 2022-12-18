@@ -14,7 +14,7 @@
 </template>
 
 <script>
-import { mapState } from 'vuex';
+import { mapState } from 'pinia';
 import { BLink } from 'bootstrap-vue';
 import axios from 'axios';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';

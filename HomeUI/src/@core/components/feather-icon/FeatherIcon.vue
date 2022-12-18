@@ -1,5 +1,5 @@
 <script>
-import * as icons from 'vue-feather-icons';
+import * as icons from 'vue-feather';
 
 export default {
   name: 'FeatherIcon',

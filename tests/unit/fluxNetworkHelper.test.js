@@ -7,16 +7,16 @@ const path = require('path');
 const chaiAsPromised = require('chai-as-promised');
 const fs = require('fs').promises;
 const util = require('util');
-const log = require('../../ZelBack/src/lib/log');
+const log = require('../../ZelBack/src/lib/log').default;
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
-const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
+const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs').default;
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
-const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBenchmarkRpcs');
-const daemonServiceWalletRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceWalletRpcs');
-const daemonServiceZelnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceZelnodeRpcs');
+const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBenchmarkRpcs').default;
+const daemonServiceWalletRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceWalletRpcs').default;
+const daemonServiceZelnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceZelnodeRpcs').default;
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
-const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
-const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+const benchmarkService = require('../../ZelBack/src/services/benchmarkService').default;
+const verificationHelper = require('../../ZelBack/src/services/verificationHelper').default;
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('../../ZelBack/src/services/utils/establishedConnections');

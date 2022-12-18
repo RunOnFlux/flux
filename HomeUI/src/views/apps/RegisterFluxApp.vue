@@ -1226,15 +1226,15 @@ import {
   VBTooltip,
 } from 'bootstrap-vue';
 
-import { mapState } from 'vuex';
+import { mapState } from 'pinia';
 import Ripple from 'vue-ripple-directive';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import AppsService from '@/services/AppsService';
 import DaemonService from '@/services/DaemonService';
 
-const qs = require('qs');
+import qs from 'qs';
 const axios = require('axios');
-const store = require('store');
+import store from 'store';
 const timeoptions = require('@/libs/dateFormat');
 
 const geolocations = require('../../libs/geolocation');

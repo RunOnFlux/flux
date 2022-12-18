@@ -149,7 +149,7 @@ import Ripple from 'vue-ripple-directive';
 import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
 import IDService from '@/services/IDService';
 
-const qs = require('qs');
+import qs from 'qs';
 
 export default {
   components: {

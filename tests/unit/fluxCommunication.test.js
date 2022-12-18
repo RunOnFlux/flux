@@ -3,16 +3,16 @@ const sinon = require('sinon');
 const WebSocket = require('ws');
 const { expect } = require('chai');
 const LRU = require('lru-cache');
-const log = require('../../ZelBack/src/lib/log');
+const log = require('../../ZelBack/src/lib/log').default;
 const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
 const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
-const dbHelper = require('../../ZelBack/src/services/dbHelper');
-const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+const dbHelper = require('../../ZelBack/src/services/dbHelper').default;
+const verificationHelper = require('../../ZelBack/src/services/verificationHelper').default;
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
-const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
+const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs').default;
 const appsService = require('../../ZelBack/src/services/appsService');
-const generalService = require('../../ZelBack/src/services/generalService');
+const generalService = require('../../ZelBack/src/services/generalService').default;
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,

@@ -257,7 +257,7 @@ import {
   BLink,
 } from 'bootstrap-vue';
 
-import { mapState } from 'vuex';
+import { mapState } from 'pinia';
 import Ripple from 'vue-ripple-directive';
 import axios from 'axios';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
@@ -265,7 +265,7 @@ import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
 import FileUpload from '@/views/components/FileUpload.vue';
 import AppsService from '@/services/AppsService';
 
-const store = require('store');
+import store from 'store';
 
 export default {
   components: {

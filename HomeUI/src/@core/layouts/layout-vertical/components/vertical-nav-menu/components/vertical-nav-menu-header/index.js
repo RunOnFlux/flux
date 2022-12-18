@@ -1,5 +1,5 @@
 import { useUtils as useI18nUtils } from '@core/libs/i18n';
-import { mapState } from 'vuex';
+import { mapState } from 'pinia';
 
 const { t } = useI18nUtils();
 

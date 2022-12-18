@@ -1,8 +1,8 @@
-const fullnode = require('fullnode');
-const LRU = require('lru-cache');
-const serviceHelper = require('../serviceHelper');
-const messageHelper = require('../messageHelper');
-const client = require('../utils/daemonrpcClient').default;
+import fullnode from 'fullnode';
+import LRU from 'lru-cache';
+import serviceHelper from '../serviceHelper.js';
+import messageHelper from '../messageHelper.js';
+import client from '../utils/daemonrpcClient.js';
 
 const fnconfig = new fullnode.Config();
 
@@ -174,7 +174,7 @@ function getConfigValue(parameter) {
   return value;
 }
 
-module.exports = {
+export default {
   executeCall,
   getConfigValue,
 

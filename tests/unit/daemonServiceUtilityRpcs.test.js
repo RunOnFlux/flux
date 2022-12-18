@@ -3,8 +3,8 @@ const { PassThrough } = require('stream');
 const { expect } = require('chai');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
-const daemonServiceUtilityRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceUtilityRpcs');
-const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+const daemonServiceUtilityRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceUtilityRpcs').default;
+const verificationHelper = require('../../ZelBack/src/services/verificationHelper').default;
 
 const generateResponse = () => {
   const res = { test: 'testing' };

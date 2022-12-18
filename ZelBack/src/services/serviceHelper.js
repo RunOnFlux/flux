@@ -1,9 +1,9 @@
-const axios = require('axios');
-const config = require('config');
-const qs = require('qs');
+import axios from 'axios';
+import { config } from '../../config/default.js';
+import qs from 'qs';
 
-const dbHelper = require('./dbHelper');
-const log = require('../lib/log');
+import dbHelper from './dbHelper.js';
+import log from '../lib/log.js';
 
 /**
  * To delay by a number of milliseconds.
@@ -161,7 +161,7 @@ const axiosGet = (url, options = {
     });
 };
 
-module.exports = {
+export default {
   ensureBoolean,
   ensureNumber,
   ensureObject,

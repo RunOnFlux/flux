@@ -4,11 +4,12 @@
  * To verify privilege use verifyPrivilege from verificationHelper module.
  */
 
-const config = require('config');
-const bitcoinMessage = require('bitcoinjs-message');
-const serviceHelper = require('./serviceHelper');
-const dbHelper = require('./dbHelper');
-const userconfig = require('../../../config/userconfig');
+import pkg from 'config';
+const { database: _database, fluxTeamZelId } = pkg;
+import { verify } from 'bitcoinjs-message';
+import serviceHelper from './serviceHelper.js';
+import dbHelper from './dbHelper.js';
+import { initial } from '../../../config/userconfig.js';
 
 /**
  * Verifies admin session
@@ -20,11 +21,11 @@ async function verifyAdminSession(headers) {
   if (!headers || !headers.zelidauth) return false;
   const auth = serviceHelper.ensureObject(headers.zelidauth);
   if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
-  if (auth.zelid !== userconfig.initial.zelid) return false;
+  if (auth.zelid !== initial.zelid) return false;
 
   const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.local.database);
-  const collection = config.database.local.collections.loggedUsers;
+  const database = db.db(_database.local.database);
+  const collection = _database.local.collections.loggedUsers;
   const query = { $and: [{ loginPhrase: auth.loginPhrase }, { zelid: auth.zelid }] };
   const projection = {};
   const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
@@ -33,7 +34,7 @@ async function verifyAdminSession(headers) {
   // check if signature corresponds to message with that zelid
   let valid = false;
   try {
-    valid = bitcoinMessage.verify(auth.loginPhrase, auth.zelid, auth.signature);
+    valid = verify(auth.loginPhrase, auth.zelid, auth.signature);
   } catch (error) {
     return false;
   }
@@ -56,8 +57,8 @@ async function verifyUserSession(headers) {
   if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
 
   const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.local.database);
-  const collection = config.database.local.collections.loggedUsers;
+  const database = db.db(_database.local.database);
+  const collection = _database.local.collections.loggedUsers;
   const query = { $and: [{ loginPhrase: auth.loginPhrase }, { zelid: auth.zelid }] };
   const projection = {};
   const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
@@ -74,7 +75,7 @@ async function verifyUserSession(headers) {
   // check if signature corresponds to message with that zelid
   let valid = false;
   try {
-    valid = bitcoinMessage.verify(auth.loginPhrase, auth.zelid, auth.signature);
+    valid = verify(auth.loginPhrase, auth.zelid, auth.signature);
   } catch (error) {
     return false;
   }
@@ -96,11 +97,11 @@ async function verifyFluxTeamSession(headers) {
   if (!headers || !headers.zelidauth) return false;
   const auth = serviceHelper.ensureObject(headers.zelidauth);
   if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
-  if (auth.zelid !== config.fluxTeamZelId) return false;
+  if (auth.zelid !== fluxTeamZelId) return false;
 
   const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.local.database);
-  const collection = config.database.local.collections.loggedUsers;
+  const database = db.db(_database.local.database);
+  const collection = _database.local.collections.loggedUsers;
   const query = { $and: [{ loginPhrase: auth.loginPhrase }, { zelid: auth.zelid }] };
   const projection = {};
   const result = await dbHelper.findOneInDatabase(database, collection, query, projection);
@@ -109,7 +110,7 @@ async function verifyFluxTeamSession(headers) {
   // check if signature corresponds to message with that zelid
   let valid = false;
   try {
-    valid = bitcoinMessage.verify(auth.loginPhrase, auth.zelid, auth.signature);
+    valid = verify(auth.loginPhrase, auth.zelid, auth.signature);
   } catch (error) {
     return false;
   }
@@ -130,11 +131,11 @@ async function verifyAdminAndFluxTeamSession(headers) {
   if (!headers || !headers.zelidauth) return false;
   const auth = serviceHelper.ensureObject(headers.zelidauth);
   if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
-  if (auth.zelid !== config.fluxTeamZelId && auth.zelid !== userconfig.initial.zelid) return false; // admin is considered as fluxTeam
+  if (auth.zelid !== fluxTeamZelId && auth.zelid !== initial.zelid) return false; // admin is considered as fluxTeam
 
   const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.local.database);
-  const collection = config.database.local.collections.loggedUsers;
+  const database = db.db(_database.local.database);
+  const collection = _database.local.collections.loggedUsers;
   const query = { $and: [{ loginPhrase: auth.loginPhrase }, { zelid: auth.zelid }] };
   const projection = {};
   const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
@@ -143,7 +144,7 @@ async function verifyAdminAndFluxTeamSession(headers) {
   // check if signature corresponds to message with that zelid
   let valid = false;
   try {
-    valid = bitcoinMessage.verify(auth.loginPhrase, auth.zelid, auth.signature);
+    valid = verify(auth.loginPhrase, auth.zelid, auth.signature);
   } catch (error) {
     return false;
   }
@@ -168,8 +169,8 @@ async function verifyAppOwnerSession(headers, appName) {
   if (auth.zelid !== ownerZelID) return false;
 
   const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.local.database);
-  const collection = config.database.local.collections.loggedUsers;
+  const database = db.db(_database.local.database);
+  const collection = _database.local.collections.loggedUsers;
   const query = { $and: [{ loginPhrase: auth.loginPhrase }, { zelid: auth.zelid }] };
   const projection = {};
   const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
@@ -185,7 +186,7 @@ async function verifyAppOwnerSession(headers, appName) {
   // check if signature corresponds to message with that zelid
   let valid = false;
   try {
-    valid = bitcoinMessage.verify(auth.loginPhrase, auth.zelid, auth.signature);
+    valid = verify(auth.loginPhrase, auth.zelid, auth.signature);
   } catch (error) {
     return false;
   }
@@ -207,11 +208,11 @@ async function verifyAppOwnerOrHigherSession(headers, appName) {
   const auth = serviceHelper.ensureObject(headers.zelidauth);
   if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
   const ownerZelID = await serviceHelper.getApplicationOwner(appName);
-  if (auth.zelid !== ownerZelID && auth.zelid !== config.fluxTeamZelId && auth.zelid !== userconfig.initial.zelid) return false;
+  if (auth.zelid !== ownerZelID && auth.zelid !== fluxTeamZelId && auth.zelid !== initial.zelid) return false;
 
   const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.local.database);
-  const collection = config.database.local.collections.loggedUsers;
+  const database = db.db(_database.local.database);
+  const collection = _database.local.collections.loggedUsers;
   const query = { $and: [{ loginPhrase: auth.loginPhrase }, { zelid: auth.zelid }] };
   const projection = {};
   const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
@@ -228,7 +229,7 @@ async function verifyAppOwnerOrHigherSession(headers, appName) {
   // check if signature corresponds to message with that zelid
   let valid = false;
   try {
-    valid = bitcoinMessage.verify(auth.loginPhrase, auth.zelid, auth.signature);
+    valid = verify(auth.loginPhrase, auth.zelid, auth.signature);
   } catch (error) {
     return false;
   }
@@ -239,7 +240,7 @@ async function verifyAppOwnerOrHigherSession(headers, appName) {
   return false;
 }
 
-module.exports = {
+export {
   verifyAdminAndFluxTeamSession,
   verifyAdminSession,
   verifyAppOwnerOrHigherSession,

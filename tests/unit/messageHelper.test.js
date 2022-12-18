@@ -2,7 +2,7 @@ const chai = require('chai');
 
 const { expect } = chai;
 
-const messageHelper = require('../../ZelBack/src/services/messageHelper');
+const messageHelper = require('../../ZelBack/src/services/messageHelper').default;
 
 describe('messageHelper tests', () => {
   describe('createDataMessage tests', () => {

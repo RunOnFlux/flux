@@ -687,7 +687,7 @@ import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
 import Management from '@/views/apps/Management.vue';
 import AppsService from '@/services/AppsService';
 
-const qs = require('qs');
+import qs from 'qs';
 
 const geolocations = require('../../libs/geolocation');
 

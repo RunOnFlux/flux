@@ -3104,9 +3104,9 @@ import {
   VBTooltip,
 } from 'bootstrap-vue';
 
-import VueApexCharts from 'vue-apexcharts';
+import VueApexCharts from 'vue3-apexcharts';
 import Ripple from 'vue-ripple-directive';
-import { mapState } from 'vuex';
+import { mapState } from 'pinia';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
 import ListEntry from '@/views/components/ListEntry.vue';
@@ -3115,8 +3115,8 @@ import AppsService from '@/services/AppsService';
 import DaemonService from '@/services/DaemonService';
 
 const axios = require('axios');
-const qs = require('qs');
-const store = require('store');
+import qs from 'qs';
+import store from 'store';
 const timeoptions = require('@/libs/dateFormat');
 
 const geolocations = require('../../libs/geolocation');

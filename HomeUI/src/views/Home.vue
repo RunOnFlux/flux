@@ -125,7 +125,7 @@
 import {
   BCard, BCardText, BCardTitle, BButton, BForm, BCol, BRow, BFormInput, BFormGroup,
 } from 'bootstrap-vue';
-import { mapState } from 'vuex';
+import { mapState } from 'pinia';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import ListEntry from '@/views/components/ListEntry.vue';
 
@@ -133,8 +133,8 @@ import DaemonService from '@/services/DaemonService';
 import IDService from '@/services/IDService';
 import FluxService from '../services/FluxService';
 
-const qs = require('qs');
-const store = require('store');
+import qs from 'qs';
+import store from 'store';
 
 export default {
   components: {

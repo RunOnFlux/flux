@@ -6,7 +6,7 @@ const proxyquire = require('proxyquire');
 const { expect } = chai;
 let fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
-const daemonServiceZelnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceZelnodeRpcs');
+const daemonServiceZelnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceZelnodeRpcs').default;
 const fluxList = require('./data/listfluxnodes.json');
 
 describe('fluxCommunicationUtils tests', () => {

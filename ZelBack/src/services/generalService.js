@@ -1,14 +1,14 @@
-const config = require('config');
-const crypto = require('crypto');
+import { config } from '../../config/default.js';
+import crypto from 'crypto';
 
-const log = require('../lib/log');
+import log from '../lib/log.js';
 
-const serviceHelper = require('./serviceHelper');
-const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
-const daemonServiceZelnodeRpcs = require('./daemonService/daemonServiceZelnodeRpcs');
-const daemonServiceTransactionRpcs = require('./daemonService/daemonServiceTransactionRpcs');
-const messageHelper = require('./messageHelper');
-const dbHelper = require('./dbHelper');
+import serviceHelper from './serviceHelper.js';
+import daemonServiceMiscRpcs from './daemonService/daemonServiceMiscRpcs.js';
+import daemonServiceZelnodeRpcs from './daemonService/daemonServiceZelnodeRpcs.js';
+import daemonServiceTransactionRpcs from './daemonService/daemonServiceTransactionRpcs.js';
+import messageHelper from './messageHelper.js';
+import dbHelper from './dbHelper.js';
 
 const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
 
@@ -169,7 +169,7 @@ async function checkSynced() {
     }
     const daemonHeight = syncStatus.data.height;
     const dbopen = dbHelper.databaseConnection();
-    const database = dbopen.db(config.database.daemon.database);
+    const database = dbopen.db(_database.daemon.database);
     const query = { generalScannedHeight: { $gte: 0 } };
     const projection = {
       projection: {
@@ -285,7 +285,7 @@ function getStoredCollateral() {
   return storedCollateral;
 }
 
-module.exports = {
+export default {
   getCollateralInfo,
   nodeTier,
   getNewNodeTier,

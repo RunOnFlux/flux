@@ -4,8 +4,8 @@ const benchmarkrpc = require('daemonrpc');
 const { PassThrough } = require('stream');
 
 const { expect } = chai;
-const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
-const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
+const verificationHelper = require('../../ZelBack/src/services/verificationHelper').default;
+const benchmarkService = require('../../ZelBack/src/services/benchmarkService').default;
 
 describe('benchmarkService tests', () => {
   describe('executeCall tests', () => {

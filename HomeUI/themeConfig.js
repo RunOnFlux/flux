@@ -1,3 +1,6 @@
+import appLogoImage from '@/assets/images/logo/logo_light.svg'
+import appLogoImageDark from '@/assets/images/logo/logo.svg'
+
 // Theme Colors
 // Initially this will be blank. Later on when app is initialized we will assign bootstrap colors to this from CSS variables.
 export const $themeColors = {};
@@ -11,9 +14,9 @@ export const $themeConfig = {
   app: {
     appName: 'FluxOS', // Will update name in navigation menu (Branding)
     // eslint-disable-next-line global-require
-    appLogoImageDark: require('@/assets/images/logo/logo.svg'), // Will update logo in navigation menu (Branding)
+    appLogoImageDark: appLogoImageDark, // Will update logo in navigation menu (Branding)
     // eslint-disable-next-line global-require
-    appLogoImage: require('@/assets/images/logo/logo_light.svg'), // Will update logo in navigation menu (Branding)
+    appLogoImage: appLogoImage, // Will update logo in navigation menu (Branding)
   },
   layout: {
     isRTL: false,

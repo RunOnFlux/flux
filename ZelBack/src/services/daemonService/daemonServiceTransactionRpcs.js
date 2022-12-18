@@ -1,8 +1,8 @@
-const serviceHelper = require('../serviceHelper');
-const messageHelper = require('../messageHelper');
-const daemonServiceUtils = require('./daemonServiceUtils');
-const verificationHelper = require('../verificationHelper');
-const client = require('../utils/daemonrpcClient').default;
+import serviceHelper from '../serviceHelper.js';
+import messageHelper from '../messageHelper.js';
+import daemonServiceUtils from './daemonServiceUtils.js';
+import verificationHelper from '../verificationHelper.js';
+import client from '../utils/daemonrpcClient.js';
 
 let response = messageHelper.createErrorMessage();
 
@@ -390,7 +390,7 @@ async function signRawTransactionPost(req, res) {
   });
 }
 
-module.exports = {
+export default {
   createRawTransaction,
   createRawTransactionPost,
   decodeRawTransaction,

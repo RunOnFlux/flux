@@ -10,8 +10,8 @@ const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper'
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const appsService = require('../../ZelBack/src/services/appsService');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
-const generalService = require('../../ZelBack/src/services/generalService');
-const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+const generalService = require('../../ZelBack/src/services/generalService').default;
+const verificationHelper = require('../../ZelBack/src/services/verificationHelper').default;
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('../../ZelBack/src/services/utils/establishedConnections');

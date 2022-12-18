@@ -1,7 +1,7 @@
-const messageHelper = require('../messageHelper');
-const daemonServiceUtils = require('./daemonServiceUtils');
-const serviceHelper = require('../serviceHelper');
-const verificationHelper = require('../verificationHelper');
+import messageHelper from '../messageHelper.js';
+import daemonServiceUtils from './daemonServiceUtils.js';
+import serviceHelper from '../serviceHelper.js';
+import verificationHelper from '../verificationHelper.js';
 
 let response = messageHelper.createErrorMessage();
 
@@ -199,7 +199,7 @@ async function zValidateAddress(req, res) {
   return res ? res.json(response) : response;
 }
 
-module.exports = {
+export default {
   createMultiSig,
   createMultiSigPost,
   estimateFee,

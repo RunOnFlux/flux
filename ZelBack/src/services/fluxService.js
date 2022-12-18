@@ -1,29 +1,41 @@
-const nodecmd = require('node-cmd');
-const path = require('path');
-const config = require('config');
-const fullnode = require('fullnode');
-const util = require('util');
-const fs = require('fs');
+import pkgNodeCmd from 'node-cmd';
+const nodecmd = pkgNodeCmd;
+import path from 'path';
+import pkgConfig from 'config';
+const config = pkgConfig;
+import fullnode from 'fullnode';
+import util from 'util';
+import fs from 'fs';
 
 const fsPromises = fs.promises;
 
-const log = require('../lib/log');
+import log from '../lib/log.js';
+
+import { createRequire } from "module"; // Bring in the ability to create the 'require' method
+const require = createRequire(import.meta.url); // construct the require method
 const packageJson = require('../../../package.json');
-const serviceHelper = require('./serviceHelper');
-const verificationHelper = require('./verificationHelper');
-const messageHelper = require('./messageHelper');
-const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
-const daemonServiceZelnodeRpcs = require('./daemonService/daemonServiceZelnodeRpcs');
-const daemonServiceBenchmarkRpcs = require('./daemonService/daemonServiceBenchmarkRpcs');
-const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRpcs');
-const benchmarkService = require('./benchmarkService');
-const appsService = require('./appsService');
-const generalService = require('./generalService');
-const explorerService = require('./explorerService');
-const fluxCommunication = require('./fluxCommunication');
-const fluxNetworkHelper = require('./fluxNetworkHelper');
-const geolocationService = require('./geolocationService');
-const userconfig = require('../../../config/userconfig');
+
+import serviceHelper from './serviceHelper.js';
+import verificationHelper from './verificationHelper.js';
+import messageHelper from './messageHelper.js';
+import daemonServiceUtils from './daemonService/daemonServiceUtils.js';
+import daemonServiceZelnodeRpcs from './daemonService/daemonServiceZelnodeRpcs.js';
+import daemonServiceBenchmarkRpcs from './daemonService/daemonServiceBenchmarkRpcs.js';
+import daemonServiceControlRpcs from './daemonService/daemonServiceControlRpcs.js';
+import benchmarkService from './benchmarkService.js';
+import appsService from './appsService.js';
+import generalService from './generalService.js';
+import explorerService from './explorerService.js';
+import fluxCommunication from './fluxCommunication.js';
+import fluxNetworkHelper from './fluxNetworkHelper.js';
+import geolocationService from './geolocationService.js';
+import userconfig from '../../../config/userconfig.js';
+
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 /**
  * To show the directory on the node machine where FluxOS files are stored.
@@ -1001,7 +1013,7 @@ async function installFluxWatchTower() {
   }
 }
 
-module.exports = {
+export default {
   startDaemon,
   updateFlux,
   softUpdateFlux,

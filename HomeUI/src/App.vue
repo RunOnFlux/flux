@@ -26,7 +26,7 @@ import store from '@/store';
 
 import IDService from '@/services/IDService';
 
-const qs = require('qs');
+import qs from 'qs';
 
 const LayoutVertical = () => import('@/layouts/vertical/LayoutVertical.vue');
 const LayoutFull = () => import('@/layouts/full/LayoutFull.vue');

@@ -194,7 +194,7 @@ import {
   BAvatar,
   BProgress,
 } from 'bootstrap-vue';
-import VueApexCharts from 'vue-apexcharts';
+import VueApexCharts from 'vue3-apexcharts';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import tierColors from '@/libs/colors';
 import DashboardService from '@/services/DashboardService';

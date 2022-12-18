@@ -1,6 +1,6 @@
 import Api from '@/services/Api';
 
-const qs = require('qs');
+import qs from 'qs';
 
 export default {
   loginPhrase() {

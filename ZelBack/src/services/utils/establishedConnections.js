@@ -3,7 +3,7 @@ const incomingPeers = []; // array of objects containing ip
 const outgoingConnections = []; // websocket list
 const outgoingPeers = []; // array of objects containing ip, latency, lastPingTime
 
-module.exports = {
+export {
   incomingConnections,
   incomingPeers,
   outgoingConnections,
