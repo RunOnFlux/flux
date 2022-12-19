@@ -121,7 +121,6 @@
     "leaflet": "~1.9.0",
     "mocha": "~10.1.0",
     "nyc": "~15.1.0",
-    "pinia": "~2.0.0",
     "postcss-rtl": "~2.0.0",
     "proxyquire": "~2.1.0",
     "retry-axios": "~3.0.0",
@@ -144,6 +143,7 @@
     "vue-sweetalert2": "~5.0.0",
     "vue-toastification": "~2.0.0-rc.5",
     "vue3-apexcharts": "~1.4.0",
-    "vue3-perfect-scrollbar": "~1.6.0"
+    "vue3-perfect-scrollbar": "~1.6.0",
+    "vuex": "~4.1.0"
   }
 }

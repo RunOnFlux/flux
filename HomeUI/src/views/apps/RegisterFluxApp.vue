@@ -1226,7 +1226,7 @@ import {
   VBTooltip,
 } from 'bootstrap-vue';
 
-import { mapState } from 'pinia';
+import { mapState } from 'vuex';
 import Ripple from 'vue-ripple-directive';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import AppsService from '@/services/AppsService';

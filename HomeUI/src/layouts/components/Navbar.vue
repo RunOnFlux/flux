@@ -58,7 +58,7 @@
 </template>
 
 <script>
-import { mapState } from 'pinia';
+import { mapState } from 'vuex';
 import {
   BLink, BDropdown, BDropdownItemButton, BDropdownDivider, BNavbarNav, BButton, BFormInput, // BNavItemDropdown, BDropdownItem, BDropdownDivider, BAvatar,
 } from 'bootstrap-vue';

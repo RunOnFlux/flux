@@ -125,7 +125,7 @@
 import {
   BCard, BCardText, BCardTitle, BButton, BForm, BCol, BRow, BFormInput, BFormGroup,
 } from 'bootstrap-vue';
-import { mapState } from 'pinia';
+import { mapState } from 'vuex';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import ListEntry from '@/views/components/ListEntry.vue';
 

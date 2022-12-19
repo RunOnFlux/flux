@@ -1,6 +1,7 @@
 import Vue from 'vue';
 import * as VueRouter from 'vue-router';
 import store from '@/store';
+import { createPinia, defineStore } from 'vuex'
 
 import IDService from '@/services/IDService';
 

@@ -150,7 +150,7 @@
 </template>
 
 <script>
-// import { mapState } from 'pinia'
+// import { mapState } from 'vuex'
 import {
   BCard,
   BRow,

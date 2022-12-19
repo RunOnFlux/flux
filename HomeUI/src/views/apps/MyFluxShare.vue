@@ -257,7 +257,7 @@ import {
   BLink,
 } from 'bootstrap-vue';
 
-import { mapState } from 'pinia';
+import { mapState } from 'vuex';
 import Ripple from 'vue-ripple-directive';
 import axios from 'axios';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
