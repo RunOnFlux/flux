@@ -87,6 +87,13 @@ module.exports = {
       ram: 0.02, // per 100mb,
       hdd: 0.01, // per 1gb,
       minPrice: 0.01, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
+    },
+    {
+      height: 1288000, // height from which price spec is valid. Counts from when app was registerd on blockchain! 1004000
+      cpu: 0.18, // per 0.1 cpu core,
+      ram: 0.06, // per 100mb,
+      hdd: 0.03, // per 1gb,
+      minPrice: 0.01, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
     }],
     appSpecsEnforcementHeights: {
       1: 0, // blockheight v1 is deprecated. Not possible to use api to update to its specs
