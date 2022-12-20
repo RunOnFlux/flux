@@ -98,8 +98,7 @@ async function loginPhrase(req, res) {
     // check synthing availability
     const syncthingDeviceID = await syncthingService.getDeviceID();
     if (syncthingDeviceID.status === 'error') {
-      // throw new Error('Syncthing is not running properly');
-      log.error('Syncthing is not running properly');
+      throw new Error('Syncthing is not running properly');
     }
     // check Node Hardware Requirements are ok.
     const hwPassed = await confirmNodeTierHardware();
