@@ -1922,7 +1922,7 @@ async function startSyncthing() {
     if (myDevice.status === 'error') {
       const execDIRcr = 'mkdir -p $HOME/.config'; // create .config folder first for it to have standard user ownership. With -p no error will be thrown in case of exists
       await cmdAsync(execDIRcr).catch((error) => log.error(error));
-      const execDIRown = 'sudo chown -R $USER:$USER $HOME/.config'; // adjust .config fodler for ownership of running user
+      const execDIRown = 'sudo chown $USER:$USER $HOME/.config'; // adjust .config fodler for ownership of running user
       await cmdAsync(execDIRown).catch((error) => log.error(error));
       // need sudo to be able to read/write properly
       const exec = 'sudo syncthing --allow-newer-config --no-browser --home=$HOME/.config/syncthing';
