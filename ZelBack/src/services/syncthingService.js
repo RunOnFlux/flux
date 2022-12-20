@@ -36,6 +36,10 @@ const parser = new XMLParser(parserOptions);
 async function getConfigFile() {
   try {
     const homedir = os.homedir();
+    // fs may fail to read that as of eaccess
+    // change permissions of the file first so we can read it and get api key properly
+    const execPERM = `sudo chmod 755 ${homedir}/.config/syncthing/config.xml`;
+    await cmdAsync(execPERM);
     const result = await fsPromises.readFile(`${homedir}/.config/syncthing/config.xml`, 'utf8');
     return result;
   } catch (error) {
@@ -550,7 +554,13 @@ async function systemVersion(req, res) {
  * @returns {object} Message
  */
 async function getConfig(req, res) {
-  const response = await performRequest('get', '/rest/config');
+  const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
+  let response = null;
+  if (authorized === true) {
+    response = await performRequest('get', '/rest/config');
+  } else {
+    response = messageHelper.errUnauthorizedMessage();
+  }
   return res ? res.json(response) : response;
 }
 
@@ -1910,6 +1920,11 @@ async function startSyncthing() {
     // check wether syncthing is running or not
     const myDevice = await getDeviceID();
     if (myDevice.status === 'error') {
+      const execDIRcr = 'mkdir -p $HOME/.config'; // create .config folder first for it to have standard user ownership. With -p no error will be thrown in case of exists
+      await cmdAsync(execDIRcr).catch((error) => log.error(error));
+      const execDIRown = 'sudo chown -R $USER:$USER $HOME/.config'; // adjust .config fodler for ownership of running user
+      await cmdAsync(execDIRown).catch((error) => log.error(error));
+      // need sudo to be able to read/write properly
       const exec = 'sudo syncthing --allow-newer-config --no-browser --home=$HOME/.config/syncthing';
       log.info('Spawning Syncthing instance...');
       let errored = false;
