@@ -5898,6 +5898,7 @@ async function updateAppGlobalyApi(req, res) {
  */
 async function installAppLocally(req, res) {
   try {
+    // appname can be app name or app hash of specific app version
     let { appname } = req.params;
     appname = appname || req.query.appname;
 
@@ -5911,9 +5912,25 @@ async function installAppLocally(req, res) {
       if (!appSpecifications) {
         // eslint-disable-next-line no-use-before-define
         appSpecifications = await getApplicationGlobalSpecifications(appname);
-        if (!appSpecifications) {
-          throw new Error(`Application Specifications of ${appname} not found`);
+      }
+      // search in temporary messages for the specific apphash to launch
+      // favor temporary to launch test temporary apps
+      if (!appSpecifications) {
+        const tempMessage = await checkAppTemporaryMessageExistence(appname);
+        if (tempMessage) {
+        // eslint-disable-next-line prefer-destructuring
+          appSpecifications = tempMessage.appSpecifications;
         }
+      }
+      if (!appSpecifications) {
+        const permMessage = await checkAppMessageExistence(appname);
+        if (permMessage) {
+          // eslint-disable-next-line prefer-destructuring
+          appSpecifications = permMessage.appSpecifications;
+        }
+      }
+      if (!appSpecifications) {
+        throw new Error(`Application Specifications of ${appname} not found`);
       }
       // get current height
       const dbopen = dbHelper.databaseConnection();
