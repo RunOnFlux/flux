@@ -5905,23 +5905,37 @@ async function installAppLocally(req, res) {
     if (!appname) {
       throw new Error('No Flux App specified');
     }
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    let blockAllowance = config.fluxapps.ownerAppAllowance;
+    // needs to be logged in
+    const authorized = await verificationHelper.verifyPrivilege('user', req);
     if (authorized) {
-      const allApps = await availableApps();
-      let appSpecifications = allApps.find((app) => app.name === appname);
+      let appSpecifications;
+      // anyone can deploy temporary app
+      // favor temporary to launch test temporary apps
+      const tempMessage = await checkAppTemporaryMessageExistence(appname);
+      if (tempMessage) {
+      // eslint-disable-next-line prefer-destructuring
+        appSpecifications = tempMessage.appSpecifications;
+        blockAllowance = config.fluxapps.temporaryAppAllowance;
+      }
+      if (!appSpecifications) {
+        // only owner can deploy permanent message or existing app
+        const ownerAuthorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+        if (!ownerAuthorized) {
+          const errMessage = messageHelper.errUnauthorizedMessage();
+          res.json(errMessage);
+          return;
+        }
+      }
+      if (!appSpecifications) {
+        const allApps = await availableApps();
+        appSpecifications = allApps.find((app) => app.name === appname);
+      }
       if (!appSpecifications) {
         // eslint-disable-next-line no-use-before-define
         appSpecifications = await getApplicationGlobalSpecifications(appname);
       }
-      // search in temporary messages for the specific apphash to launch
-      // favor temporary to launch test temporary apps
-      if (!appSpecifications) {
-        const tempMessage = await checkAppTemporaryMessageExistence(appname);
-        if (tempMessage) {
-        // eslint-disable-next-line prefer-destructuring
-          appSpecifications = tempMessage.appSpecifications;
-        }
-      }
+      // search in permanent messages for the specific apphash to launch
       if (!appSpecifications) {
         const permMessage = await checkAppMessageExistence(appname);
         if (permMessage) {
@@ -5949,7 +5963,7 @@ async function installAppLocally(req, res) {
           throw new Error('Scanning not initiated');
         }
         const explorerHeight = serviceHelper.ensureNumber(result.generalScannedHeight);
-        appSpecifications.height = explorerHeight - config.fluxapps.blocksLasting + (10 * config.fluxapps.expireFluxAppsPeriod); // allow running for 1000 blocks
+        appSpecifications.height = explorerHeight - config.fluxapps.blocksLasting + blockAllowance; // allow running for this amount of blocks
       }
 
       const appsDatabase = dbopen.db(config.database.appslocal.database);
