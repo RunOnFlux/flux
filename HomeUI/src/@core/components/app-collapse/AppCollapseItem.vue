@@ -33,6 +33,7 @@
 </template>
 
 <script>
+import { computed } from "vue";
 import {
   BCard, BCardHeader, BCardBody, BCollapse,
 } from 'bootstrap-vue';
@@ -62,10 +63,14 @@ export default {
       openOnHover: this.$parent.hover,
     };
   },
-  computed: {
-    accordion() {
+  setup() {
+    const accordion = computed(() => {
       return this.$parent.accordion ? `accordion-${this.$parent.collapseID}` : null;
-    },
+    });
+
+    return {
+      accordion
+    }
   },
   created() {
     this.collapseItemID = uuidv4();

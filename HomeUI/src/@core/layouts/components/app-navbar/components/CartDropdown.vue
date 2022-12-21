@@ -109,6 +109,7 @@
 </template>
 
 <script>
+import { computed } from "vue";
 import {
   BNavItemDropdown, BBadge, BMedia, BLink, BImg, BFormSpinbutton, BButton,
 } from 'bootstrap-vue';
@@ -138,12 +139,16 @@ export default {
       },
     };
   },
-  computed: {
-    totalAmount() {
+  setup() {
+    const totalAmount = computed(() => {
       let total = 0;
       this.items.forEach((i) => { total += i.price; });
       return total;
-    },
+    });
+
+    return {
+      totalAmount
+    }
   },
   methods: {
     fetchItems() {

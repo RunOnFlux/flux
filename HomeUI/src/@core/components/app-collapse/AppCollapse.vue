@@ -9,6 +9,7 @@
 </template>
 
 <script>
+import { computed } from "vue";
 import { v4 as uuidv4 } from 'uuid';
 
 export default {
@@ -31,8 +32,8 @@ export default {
       collapseID: '',
     };
   },
-  computed: {
-    collapseClasses() {
+  setup() {
+    const collapseClasses = computed(() => {
       const classes = [];
 
       // Collapse Type
@@ -45,7 +46,11 @@ export default {
       classes.push(collapseVariants[this.type]);
 
       return classes;
-    },
+    });
+
+    return {
+      collapseClasses
+    };
   },
   created() {
     this.collapseID = uuidv4();

@@ -49,6 +49,7 @@
 </template>
 
 <script>
+import { computed } from "vue";
 import {
   BLink,
   BBadge,
@@ -81,32 +82,36 @@ export default {
       type: Object,
       required: true,
     },
-  },
-  setup(props) {
-    const {
-      isOpen,
-      isActive,
-      updateGroupOpen,
-      updateIsActive,
-    } = useVerticalNavMenuGroup(props.item);
+    setup(props) {
+      const {
+        isOpen,
+        isActive,
+        updateGroupOpen,
+        updateIsActive,
+      } = useVerticalNavMenuGroup(props.item);
 
-    const { t } = useI18nUtils();
+      const { t } = useI18nUtils();
+
+      return {
+        resolveNavItemComponent,
+        isOpen,
+        isActive,
+        updateGroupOpen,
+        updateIsActive,
+
+        // i18n
+        t,
+      };
+    },
+  },
+  setup() {
+    const { ...mapState } = ('flux', [
+      'privilege',
+    ]);
 
     return {
-      resolveNavItemComponent,
-      isOpen,
-      isActive,
-      updateGroupOpen,
-      updateIsActive,
-
-      // i18n
-      t,
-    };
-  },
-  computed: {
-    ...mapState('flux', [
-      'privilege',
-    ]),
+      mapState
+    }
   },
   methods: {
     hasPrivilegeLevel(item) {

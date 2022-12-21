@@ -82,6 +82,7 @@
 </template>
 
 <script>
+import { computed } from "vue";
 import {
   BRow,
   BCol,
@@ -118,16 +119,22 @@ export default {
       secondaryColor: $themeColors.secondary,
     };
   },
-  computed: {
-    cssProps() {
+  setup() {
+    const cssProps = computed(() => {
       return {
         '--primary-color': this.primaryColor,
         '--secondary-color': this.secondaryColor,
       };
-    },
-    filesToUpload() {
+    });
+
+    const filesToUpload = computed(() => {
       return this.files.length > 0 && this.files.some((file) => !file.uploading && !file.uploaded && file.progress === 0);
-    },
+    });
+
+    return {
+      cssProps,
+      filesToUpload
+    }
   },
   methods: {
     selectFiles() {

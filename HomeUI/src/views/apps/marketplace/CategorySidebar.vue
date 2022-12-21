@@ -74,47 +74,47 @@ export default {
       required: false,
       default: '',
     },
-  },
-  setup(props) {
-    const perfectScrollbarSettings = {
-      maxScrollbarLength: 60,
-    };
+    setup(props) {
+      const perfectScrollbarSettings = {
+        maxScrollbarLength: 60,
+      };
 
-    const userZelid = ref('');
-    userZelid.value = props.zelid;
+      const userZelid = ref('');
+      userZelid.value = props.zelid;
 
-    const taskFilters = [
-      { title: 'All Categories', icon: 'inbox', route: { name: 'apps-marketplace' } },
-    ];
+      const taskFilters = [
+        { title: 'All Categories', icon: 'inbox', route: { name: 'apps-marketplace' } },
+      ];
 
-    categories.forEach((category) => {
-      taskFilters.push({
-        title: category.name,
-        icon: category.icon,
-        route: {
-          name: 'apps-marketplace-filter',
-          params: {
-            filter: category.name.toLowerCase(),
+      categories.forEach((category) => {
+        taskFilters.push({
+          title: category.name,
+          icon: category.icon,
+          route: {
+            name: 'apps-marketplace-filter',
+            params: {
+              filter: category.name.toLowerCase(),
+            },
           },
-        },
+        });
       });
-    });
 
-    const nodeActions = [
-      {
-        title: 'Shared Nodes',
-        icon: 'inbox',
-        event: 'open-shared-nodes',
-        route: { name: 'apps-marketplace-sharednodes' },
-      },
-    ];
+      const nodeActions = [
+        {
+          title: 'Shared Nodes',
+          icon: 'inbox',
+          event: 'open-shared-nodes',
+          route: { name: 'apps-marketplace-sharednodes' },
+        },
+      ];
 
-    return {
-      perfectScrollbarSettings,
-      taskFilters,
-      nodeActions,
-      isDynamicRouteActive,
-    };
+      return {
+        perfectScrollbarSettings,
+        taskFilters,
+        nodeActions,
+        isDynamicRouteActive,
+      };
+    },
   },
 };
 </script>

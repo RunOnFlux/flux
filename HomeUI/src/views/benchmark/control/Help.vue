@@ -34,6 +34,7 @@
 </template>
 
 <script>
+import { computed } from "vue";
 import {
   BCard,
 } from 'bootstrap-vue';
@@ -60,13 +61,16 @@ export default {
       currentHelpResponse: '',
     };
   },
-  computed: {
-    helpResponse() {
+  setup() {
+    const helpResponse = computed(() => {
       if (this.callResponse.data) {
         return this.callResponse.data.split('\n').filter((el) => el !== '').map((el) => (el.startsWith('=') ? el : el.split(' ')[0]));
       }
       return [];
-    },
+    });
+
+    return {}
+    helpResponse
   },
   mounted() {
     this.daemonHelp();

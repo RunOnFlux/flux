@@ -242,6 +242,7 @@
 </template>
 
 <script>
+import { computed } from "vue";
 import {
   BProgress,
   BTable,
@@ -340,42 +341,56 @@ export default {
       uploadFiles: [],
     };
   },
-  computed: {
-    ...mapState('flux', [
+  setup() {
+    const { ...mapState } = ('flux', [
       'userconfig',
       'config',
-    ]),
-    percentage() {
+    ]);
+
+    const percentage = computed(() => {
       const perc = (this.storage.used / this.storage.total) * 100;
       return Number(perc.toFixed(2));
-    },
-    zelidHeader() {
+    });
+
+    const zelidHeader = computed(() => {
       const zelidauth = localStorage.getItem('zelidauth');
       const headers = {
         zelidauth,
       };
       return headers;
-    },
-    ipAddress() {
+    });
+
+    const ipAddress = computed(() => {
       const backendURL = store.get('backendURL');
       if (backendURL) {
         return `${store.get('backendURL').split(':')[0]}:${store.get('backendURL').split(':')[1]}`;
       }
       const { hostname } = window.location;
       return `http://${hostname}`;
-    },
-    folderContentFilter() {
+    });
+
+    const folderContentFilter = computed(() => {
       const filteredFolder = this.folderView.filter((data) => JSON.stringify(data.name).toLowerCase().includes(this.filterFolder.toLowerCase()));
       return filteredFolder.filter((data) => data.name !== '.gitkeep');
-    },
-    getUploadFolder() {
+    });
+
+    const getUploadFolder = computed(() => {
       const port = this.config.apiPort;
       if (this.currentFolder) {
         const folder = encodeURIComponent(this.currentFolder);
         return `${this.ipAddress}:${port}/apps/fluxshare/uploadfile/${folder}`;
       }
       return `${this.ipAddress}:${port}/apps/fluxshare/uploadfile`;
-    },
+    });
+
+    return {
+      mapState,
+      percentage,
+      zelidHeader,
+      ipAddress,
+      folderContentFilter,
+      getUploadFolder
+    }
   },
   mounted() {
     this.loadingFolder = true;

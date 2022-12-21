@@ -503,6 +503,7 @@
 </template>
 
 <script>
+import { computed } from "vue";
 import { mapState } from 'vuex';
 import {
   BCard,
@@ -562,15 +563,21 @@ export default {
       updateProgress: 0,
     };
   },
-  computed: {
-    ...mapState('flux', [
+  setup() {
+    const { ...mapState } = ('flux', [
       'fluxVersion',
-    ]),
-    currentLoginPhrase() {
+    ]);
+
+    const currentLoginPhrase = computed(() => {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
       return auth.loginPhrase;
-    },
+    });
+
+    return {
+      mapState,
+      currentLoginPhrase
+    }
   },
   mounted() {
     this.getKadenaAccount();

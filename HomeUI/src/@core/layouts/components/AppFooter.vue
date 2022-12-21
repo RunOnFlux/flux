@@ -14,6 +14,7 @@
 </template>
 
 <script>
+import { computed } from "vue";
 import { mapState } from 'vuex';
 import { BLink } from 'bootstrap-vue';
 import axios from 'axios';
@@ -26,10 +27,14 @@ export default {
     // eslint-disable-next-line vue/no-unused-components
     ToastificationContent,
   },
-  computed: {
-    ...mapState('flux', [
+  setup() {
+    const { ...mapState } = ('flux', [
       'fluxVersion',
-    ]),
+    ]);
+
+    return {
+      mapState
+    }
   },
   mounted() {
     const self = this;

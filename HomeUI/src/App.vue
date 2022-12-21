@@ -13,6 +13,7 @@
 </template>
 
 <script>
+import { computed } from "vue";
 import ScrollToTop from '@core/components/scroll-to-top/ScrollToTop.vue';
 
 // This will be populated in `beforeCreate` hook
@@ -44,6 +45,15 @@ export default {
     const { skin, skinClasses } = useAppConfig();
     const { enableScrollToTop } = $themeConfig.layout;
 
+    const layout = computed(() => {
+      if (this.$route.meta.layout === 'full') return 'layout-full';
+      return `layout-${this.contentLayoutType}`;
+    });
+
+    const contentLayoutType = computed(() => {
+      return this.$store.state.appConfig.layout.type;
+    });
+
     // If skin is dark when initialized => Add class to body
     if (skin.value === 'dark') document.body.classList.add('dark-layout');
 
@@ -67,20 +77,11 @@ export default {
     });
 
     return {
+      layout,
+      contentLayoutType,
       skinClasses,
       enableScrollToTop,
     };
-  },
-  // ! We can move this computed: layout & contentLayoutType once we get to use Vue 3
-  // Currently, router.currentRoute is not reactive and doesn't trigger any change
-  computed: {
-    layout() {
-      if (this.$route.meta.layout === 'full') return 'layout-full';
-      return `layout-${this.contentLayoutType}`;
-    },
-    contentLayoutType() {
-      return this.$store.state.appConfig.layout.type;
-    },
   },
   beforeCreate() {
     // Set colors in theme

@@ -39,6 +39,7 @@
 
 <script>
 /* eslint-disable global-require */
+import { computed } from "vue";
 import { BLink, BButton, BImg } from 'bootstrap-vue';
 import VuexyLogo from '@core/layouts/components/Logo.vue';
 import store from '@/store/index';
@@ -55,15 +56,19 @@ export default {
       downImg: require('@/assets/images/pages/error.svg'),
     };
   },
-  computed: {
-    imgUrl() {
+  setup() {
+    const imgUrl = computed(() => {
       if (store.state.appConfig.layout.skin === 'dark') {
         // eslint-disable-next-line vue/no-side-effects-in-computed-properties
         this.downImg = require('@/assets/images/pages/error-dark.svg');
         return this.downImg;
       }
       return this.downImg;
-    },
+    });
+
+    return {
+      imgUrl
+    }
   },
 };
 </script>

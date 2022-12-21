@@ -129,6 +129,7 @@
 </template>
 
 <script>
+import { computed } from "vue";
 import {
   BCard,
   BTable,
@@ -193,18 +194,24 @@ export default {
       usersLoading: true,
     };
   },
-  computed: {
-    sortOptions() {
+  setup() {
+    const sortOptions = computed(() => {
       // Create an options list from our fields
       return this.fields
         .filter((f) => f.sortable)
         .map((f) => ({ text: f.label, value: f.key }));
-    },
-    currentLoginPhrase() {
+    });
+
+    const currentLoginPhrase = computed(() => {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
       return auth.loginPhrase;
-    },
+    });
+
+    return {
+      sortOptions,
+      currentLoginPhrase
+    }
   },
   mounted() {
     this.loggedUsers();

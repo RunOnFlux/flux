@@ -164,6 +164,7 @@
 </template>
 
 <script>
+import { computed } from "vue";
 import {
   BCard,
   BButton,
@@ -207,13 +208,17 @@ export default {
       logTypes: ['error', 'warn', 'info', 'debug'],
     };
   },
-  computed: {
-    fluxLogTail() {
+  setup() {
+    const fluxLogTail = computed(() => {
       if (this.callResponse.data.message) {
         return this.callResponse.data.message.split('\n').reverse().filter((el) => el !== '').join('\n');
       }
       return this.callResponse.data;
-    },
+    });
+
+    return {
+      fluxLogTail
+    }
   },
   methods: {
     cancelDownload(logType) {

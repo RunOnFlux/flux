@@ -668,6 +668,7 @@
 </template>
 
 <script>
+import { computed } from "vue";
 import {
   BTabs,
   BTab,
@@ -749,15 +750,19 @@ export default {
       allApps: [],
     };
   },
-  computed: {
-    myGlobalApps() {
+  setup() {
+    const myGlobalApps = computed(() => {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
       if (this.allApps) {
         return this.allApps.filter((app) => app.owner === auth.zelid);
       }
       return [];
-    },
+    });
+
+    return {
+      myGlobalApps
+    }
   },
   mounted() {
     this.appsGetListGlobalApps();

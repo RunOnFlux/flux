@@ -30,6 +30,7 @@
 </template>
 
 <script>
+import { computed } from "vue";
 import { BCard, BCardBody, BAvatar } from 'bootstrap-vue';
 import VueApexCharts from 'vue3-apexcharts';
 import { $themeColors } from '@themeConfig';
@@ -68,15 +69,19 @@ export default {
       default: null,
     },
   },
-  computed: {
-    chartOptionsComputed() {
+  setup() {
+    const chartOptionsComputed = computed(() => {
       if (this.chartOptions === null) {
         const options = JSON.parse(JSON.stringify(areaChartOptions));
         options.theme.monochrome.color = $themeColors[this.color];
         return options;
       }
       return this.chartOptions;
-    },
+    });
+
+    return {
+      chartOptionsComputed
+    }
   },
 };
 </script>

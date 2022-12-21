@@ -111,94 +111,94 @@ export default {
       type: Function,
       required: true,
     },
-  },
-  setup(props) {
-    const {
-      isMouseHovered,
-      isVerticalMenuCollapsed,
-      collapseTogglerIcon,
-      toggleCollapsed,
-      updateMouseHovered,
-    } = useVerticalNavMenu(props);
+    setup(props) {
+      const {
+        isMouseHovered,
+        isVerticalMenuCollapsed,
+        collapseTogglerIcon,
+        toggleCollapsed,
+        updateMouseHovered,
+      } = useVerticalNavMenu(props);
 
-    const zelid = ref(null);
+      const zelid = ref(null);
 
-    onBeforeMount(() => {
-      const zelidauth = localStorage.getItem('zelidauth');
-      const auth = qs.parse(zelidauth);
-      zelid.value = auth.zelid;
-    });
-
-    const {
-      isNavMenuCollapsed,
-      xdaoOpenProposals,
-      skin,
-    } = useAppConfig();
-
-    const getVoteInformation = async (proposal) => {
-      const response = await axios.get(`https://stats.runonflux.io/proposals/voteInformation?hash=${proposal.hash}&zelid=${zelid.value}`);
-      return response.data;
-    };
-
-    const checkXDAOProposals = async () => {
-      let openNotVoted = 0;
-      axios.get('https://stats.runonflux.io/proposals/listProposals').then((response) => {
-        if (response.data.status === 'success') {
-          const openProposals = response.data.data.filter((proposal) => proposal.status === 'Open');
-          openProposals.forEach(async (proposal) => {
-            const voteInformation = await getVoteInformation(proposal);
-            if (voteInformation.status === 'success' && (voteInformation.data == null || voteInformation.data.length === 0)) {
-              openNotVoted += 1;
-              xdaoOpenProposals.value = openNotVoted;
-            }
-          });
-        }
+      onBeforeMount(() => {
+        const zelidauth = localStorage.getItem('zelidauth');
+        const auth = qs.parse(zelidauth);
+        zelid.value = auth.zelid;
       });
-    };
 
-    setInterval(() => {
+      const {
+        isNavMenuCollapsed,
+        xdaoOpenProposals,
+        skin,
+      } = useAppConfig();
+
+      const getVoteInformation = async (proposal) => {
+        const response = await axios.get(`https://stats.runonflux.io/proposals/voteInformation?hash=${proposal.hash}&zelid=${zelid.value}`);
+        return response.data;
+      };
+
+      const checkXDAOProposals = async () => {
+        let openNotVoted = 0;
+        axios.get('https://stats.runonflux.io/proposals/listProposals').then((response) => {
+          if (response.data.status === 'success') {
+            const openProposals = response.data.data.filter((proposal) => proposal.status === 'Open');
+            openProposals.forEach(async (proposal) => {
+              const voteInformation = await getVoteInformation(proposal);
+              if (voteInformation.status === 'success' && (voteInformation.data == null || voteInformation.data.length === 0)) {
+                openNotVoted += 1;
+                xdaoOpenProposals.value = openNotVoted;
+              }
+            });
+          }
+        });
+      };
+
+      setInterval(() => {
+        checkXDAOProposals();
+      }, 1000 * 60 * 10); // Refresh every 10 minutes
       checkXDAOProposals();
-    }, 1000 * 60 * 10); // Refresh every 10 minutes
-    checkXDAOProposals();
 
-    // Shadow bottom is UI specific and can be removed by user => It's not in `useVerticalNavMenu`
-    const shallShadowBottom = ref(false);
+      // Shadow bottom is UI specific and can be removed by user => It's not in `useVerticalNavMenu`
+      const shallShadowBottom = ref(false);
 
-    provide('isMouseHovered', isMouseHovered);
+      provide('isMouseHovered', isMouseHovered);
 
-    const perfectScrollbarSettings = {
-      maxScrollbarLength: 60,
-      wheelPropagation: false,
-    };
+      const perfectScrollbarSettings = {
+        maxScrollbarLength: 60,
+        wheelPropagation: false,
+      };
 
-    const collapseTogglerIconFeather = computed(() => (collapseTogglerIcon.value === 'unpinned' ? 'CircleIcon' : 'DiscIcon'));
-
-    // App Name
-    const { appName, appLogoImageDark, appLogoImage } = $themeConfig.app;
-
-    return {
-      navMenuItems,
-      navMenuItemsCollapsed,
-      perfectScrollbarSettings,
-      isVerticalMenuCollapsed,
-      collapseTogglerIcon,
-      toggleCollapsed,
-      isMouseHovered,
-      updateMouseHovered,
-      collapseTogglerIconFeather,
-
-      // Shadow Bottom
-      shallShadowBottom,
-
-      // Skin
-      skin,
-      isNavMenuCollapsed,
+      const collapseTogglerIconFeather = computed(() => (collapseTogglerIcon.value === 'unpinned' ? 'CircleIcon' : 'DiscIcon'));
 
       // App Name
-      appName,
-      appLogoImage,
-      appLogoImageDark,
-    };
+      const { appName, appLogoImageDark, appLogoImage } = $themeConfig.app;
+
+      return {
+        navMenuItems,
+        navMenuItemsCollapsed,
+        perfectScrollbarSettings,
+        isVerticalMenuCollapsed,
+        collapseTogglerIcon,
+        toggleCollapsed,
+        isMouseHovered,
+        updateMouseHovered,
+        collapseTogglerIconFeather,
+
+        // Shadow Bottom
+        shallShadowBottom,
+
+        // Skin
+        skin,
+        isNavMenuCollapsed,
+
+        // App Name
+        appName,
+        appLogoImage,
+        appLogoImageDark,
+      };
+    },
   },
 };
 </script>

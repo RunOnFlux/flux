@@ -122,6 +122,7 @@
 </template>
 
 <script>
+import { computed } from "vue";
 import {
   BCard, BCardText, BCardTitle, BButton, BForm, BCol, BRow, BFormInput, BFormGroup,
 } from 'bootstrap-vue';
@@ -173,12 +174,25 @@ export default {
       },
     };
   },
-  computed: {
-    ...mapState('flux', [
+  setup() {
+    const { ...mapState } = ('flux', [
       'userconfig',
       'config',
       'privilege',
-    ]),
+    ]);
+
+    const callbackValue = computed(() => {
+      const backendURL = this.backendURL();
+      const url = `${backendURL}/id/verifylogin`;
+      return encodeURI(url);
+    });
+
+    return {
+      mapState,
+      callbackValue
+    }
+  },
+  computed: {
     callbackValue() {
       const backendURL = this.backendURL();
       const url = `${backendURL}/id/verifylogin`;

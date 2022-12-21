@@ -31,6 +31,7 @@
 </template>
 
 <script>
+import { computed } from "vue";
 import { BNavItemDropdown, BDropdownItem, BImg } from 'bootstrap-vue';
 
 export default {
@@ -69,11 +70,14 @@ export default {
       locales,
     };
   },
-  // ! Need to move this computed property to comp function once we get to Vue 3
-  computed: {
-    currentLocale() {
+  setup() {
+    const currentLocale = computed(() => {
       return this.locales.find((l) => l.locale === this.$i18n.locale);
-    },
+    });
+      
+    return {
+      currentLocale
+    }
   },
 };
 </script>

@@ -58,6 +58,7 @@
 </template>
 
 <script>
+import { computed } from "vue";
 import { mapState } from 'vuex';
 import {
   BLink, BDropdown, BDropdownItemButton, BDropdownDivider, BNavbarNav, BButton, BFormInput, // BNavItemDropdown, BDropdownItem, BDropdownDivider, BAvatar,
@@ -103,12 +104,16 @@ export default {
       customBackend: '',
     };
   },
-  computed: {
-    ...mapState('flux', [
+  setup() {
+    const { ...mapState } = ('flux', [
       'userconfig',
       'config',
       'privilege',
-    ]),
+    ]);
+
+    return {
+      mapState
+    }
   },
   mounted() {
     const { protocol, hostname, port } = window.location;

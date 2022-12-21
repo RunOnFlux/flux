@@ -82,6 +82,7 @@
 </template>
 
 <script>
+import { computed } from "vue";
 import {
   BCard,
 } from 'bootstrap-vue';
@@ -120,24 +121,34 @@ export default {
       filterConnectedPeer: '',
     };
   },
-  computed: {
-    ...mapState('flux', [
+  setup() {
+    const { ...mapState } = ('flux', [
       'config',
       'userconfig',
       'nodeSection',
-    ]),
-    fluxLogTail() {
+    ]);
+
+    const fluxLogTail = computed(() => {
       if (this.callResponse.data.message) {
         return this.callResponse.data.message.split('\n').reverse().filter((el) => el !== '').join('\n');
       }
       return this.callResponse.data;
-    },
-    connectedPeersFilter() {
+    });
+
+    const connectedPeersFilter = computed(() => {
       return this.connectedPeers.filter((data) => !this.filterConnectedPeer || data.ip.toLowerCase().includes(this.filterConnectedPeer.toLowerCase()));
-    },
-    incomingConnectionsFilter() {
+    });
+
+    const incomingConnectionsFilter = computed(() => {
       return this.incomingConnections.filter((data) => !this.filterConnectedPeer || data.ip.toLowerCase().includes(this.filterConnectedPeer.toLowerCase()));
-    },
+    });
+
+    return {
+      mapState,
+      fluxLogTail,
+      connectedPeersFilter,
+      incomingConnectionsFilter
+    }
   },
   mounted() {
     this.daemonGetInfo();

@@ -85,6 +85,7 @@
 </template>
 
 <script>
+import { computed } from "vue";
 import AppFooter from '@core/layouts/components/AppFooter.vue';
 import useAppConfig from '@core/app-config/useAppConfig';
 import { BNavbar } from 'bootstrap-vue';
@@ -143,13 +144,17 @@ export default {
       isNavMenuHidden,
     };
   },
-  computed: {
-    layoutContentRenderer() {
+  setup() {
+    const layoutContentRenderer = computed(() => {
       const rendererType = this.$route.meta.contentRenderer;
       if (rendererType === 'sidebar-left') return 'layout-content-renderer-left';
       if (rendererType === 'sidebar-left-detached') return 'layout-content-renderer-left-detached';
       return 'layout-content-renderer-default';
-    },
+    });
+
+    return {
+      layoutContentRenderer
+    }
   },
 };
 </script>

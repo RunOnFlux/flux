@@ -251,6 +251,7 @@
 </template>
 
 <script>
+import { computed } from "vue";
 import {
   BTabs,
   BTab,
@@ -338,10 +339,14 @@ export default {
       addPeerIP: '',
     };
   },
-  computed: {
-    ...mapState('flux', [
+  setup() {
+    const { ...mapState } = ('flux', [
       'privilege',
-    ]),
+    ]);
+
+    return {
+      mapState
+    }
   },
   mounted() {
     this.fluxConnectedPeersInfo();

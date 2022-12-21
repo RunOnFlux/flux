@@ -58,6 +58,7 @@
 </template>
 
 <script>
+import { computed } from "vue";
 import {
   BCard, BCardTitle, BCardSubTitle, BCardBody, BCollapse, BOverlay,
 } from 'bootstrap-vue';
@@ -105,21 +106,21 @@ export default {
       cardStyles: {},
     };
   },
-  computed: {
-    cardAttrs() {
+  setup() {
+    const cardAttrs = computed(() => {
       const cardAttrs = JSON.parse(JSON.stringify(this.$attrs));
       delete cardAttrs.title;
       delete cardAttrs['sub-title'];
       return cardAttrs;
-    },
-    showHeader() {
+    });
+    const showHeader = computed(() => {
       return this.$attrs.title || this.$attrs['sub-title'] || !this.noActions;
-    },
-    showActions() {
+    });
+    const showActions = computed(() => {
       if (this.noActions) return false;
       return true;
-    },
-    availableActions() {
+    });
+    const availableActions = computed(() => {
       const actions = [];
       const allFalse = (this.actionCollapse || this.actionRefresh || this.actionClose) === false;
 
@@ -127,7 +128,14 @@ export default {
       if (this.actionRefresh || allFalse) actions.push('refresh');
       if (this.actionClose || allFalse) actions.push('close');
       return actions;
-    },
+    });
+
+    return {
+      cardAttrs,
+      showHeader,
+      showActions,
+      availableActions,
+    }
   },
   created() {
     this.parentID = String(Math.floor(Math.random() * 10) + 1);

@@ -1667,6 +1667,7 @@
 </template>
 
 <script>
+import { computed } from "vue";
 import {
   BTabs,
   BTab,
@@ -1832,13 +1833,14 @@ export default {
       },
     };
   },
-  computed: {
-    ...mapState('flux', [
+  setup() {
+    const { ...mapState } = ('flux', [
       'config',
       'userconfig',
       'privilege',
-    ]),
-    isApplicationInstalledLocally() {
+    ]);
+
+    const isApplicationInstalledLocally = computed(() => {
       if (this.tableconfig.installed.apps) {
         const installed = this.tableconfig.installed.apps.find((app) => app.name === this.managedApplication);
         if (installed) {
@@ -1847,7 +1849,12 @@ export default {
         return false;
       }
       return false;
-    },
+    });
+
+    return {
+      mapState,
+      isApplicationInstalledLocally
+    }
   },
   mounted() {
     this.getZelNodeStatus();

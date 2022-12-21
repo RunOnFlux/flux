@@ -1210,6 +1210,7 @@
 </template>
 
 <script>
+import { computed } from "vue";
 import {
   BButton,
   BCard,
@@ -1404,20 +1405,23 @@ export default {
       numberOfNegativeGeolocations: 1,
     };
   },
-  computed: {
-    ...mapState('flux', [
+  setup() {
+    const { ...mapState } = ('flux', [
       'config',
       'privilege',
-    ]),
-    validTill() {
+    ]);
+
+    const validTill = computed(() => {
       const expTime = this.timestamp + 60 * 60 * 1000; // 1 hour
       return expTime;
-    },
-    subscribedTill() {
+    });
+
+    const subscribedTill = computed(() => {
       const expTime = this.timestamp + 30 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000; // 1 month
       return expTime;
-    },
-    callbackValue() {
+    });
+
+    const callbackValue = computed(() => {
       const { protocol, hostname, port } = window.location;
       let mybackend = '';
       mybackend += protocol;
@@ -1442,7 +1446,14 @@ export default {
       const backendURL = store.get('backendURL') || mybackend;
       const url = `${backendURL}/id/providesign`;
       return encodeURI(url);
-    },
+    });
+
+    return {
+      mapState,
+      validTill,
+      subscribedTill,
+      callbackValue
+    }
   },
   watch: {
     appRegistrationSpecification: {

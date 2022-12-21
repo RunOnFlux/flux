@@ -160,6 +160,7 @@
 </template>
 
 <script>
+import { computed } from "vue";
 import {
   BCard,
   BTable,
@@ -225,13 +226,17 @@ export default {
       fluxListLoading: true,
     };
   },
-  computed: {
-    sortOptions() {
+  setup() {
+    const sortOptions = computed(() => {
       // Create an options list from our fields
       return this.fields
         .filter((f) => f.sortable)
         .map((f) => ({ text: f.label, value: f.key }));
-    },
+    });
+
+    return {
+      sortOptions
+    }
   },
   mounted() {
     this.daemonViewDeterministicZelNodeList();

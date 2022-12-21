@@ -3082,6 +3082,7 @@
 </template>
 
 <script>
+import { computed } from "vue";
 import {
   BTabs,
   BTab,
@@ -3268,12 +3269,13 @@ export default {
       numberOfNegativeGeolocations: 1,
     };
   },
-  computed: {
-    ...mapState('flux', [
+  setup() {
+    const { ...mapState } = ('flux', [
       'config',
       'privilege',
-    ]),
-    callbackValue() {
+    ]);
+
+    const callbackValue = computed(() => {
       const { protocol, hostname, port } = window.location;
       let mybackend = '';
       mybackend += protocol;
@@ -3298,24 +3300,28 @@ export default {
       const backendURL = store.get('backendURL') || mybackend;
       const url = `${backendURL}/id/providesign`;
       return encodeURI(url);
-    },
-    isAppOwner() {
+    });
+
+    const isAppOwner = computed(() => {
       const zelidauth = localStorage.getItem('zelidauth');
       const zelidHeader = qs.parse(zelidauth);
       if (zelidauth && zelidHeader && zelidHeader.zelid && this.selectedAppOwner === zelidHeader.zelid) {
         return true;
       }
       return false;
-    },
-    validTill() {
+    });
+
+    const validTill = computed(() => {
       const expTime = this.timestamp + 60 * 60 * 1000; // 1 hour
       return expTime;
-    },
-    subscribedTill() {
+    });
+
+    const subscribedTill = computed(() => {
       const expTime = this.timestamp + 30 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000; // 1 month
       return expTime;
-    },
-    isApplicationInstalledLocally() {
+    });
+
+    const isApplicationInstalledLocally = computed(() => {
       if (this.installedApps) {
         const installed = this.installedApps.find((app) => app.name === this.appName);
         if (installed) {
@@ -3324,8 +3330,9 @@ export default {
         return false;
       }
       return false;
-    },
-    applicationManagementAndStatus() {
+    });
+
+    const applicationManagementAndStatus = computed(() => {
       console.log(this.getAllAppsResponse);
       const foundAppInfo = this.getAllAppsResponse.data.find((app) => app.Names[0] === this.getAppDockerNameIdentifier()) || {};
       const appInfo = {
@@ -3356,8 +3363,9 @@ export default {
         }
       }
       return niceString;
-    },
-    constructAutomaticDomainsGlobal() {
+    });
+
+    const constructAutomaticDomainsGlobal = computed(() => {
       if (!this.callBResponse.data) {
         return 'loading...';
       }
@@ -3390,7 +3398,18 @@ export default {
         }
       });
       return domains;
-    },
+    });
+
+    return {
+      mapState,
+      callbackValue,
+      isAppOwner,
+      validTill,
+      subscribedTill,
+      isApplicationInstalledLocally,
+      applicationManagementAndStatus,
+      constructAutomaticDomainsGlobal
+    }
   },
   watch: {
     appUpdateSpecification: {
