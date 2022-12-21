@@ -8271,7 +8271,10 @@ async function getDeviceID(fluxIP) {
       timeout: 5000,
     };
     const response = await axios.get(`http://${fluxIP}/syncthing/deviceid`, axiosConfig);
-    return response.data.data;
+    if (response.data.status === 'success') {
+      return response.data.data;
+    }
+    throw new Error(response.data.data);
   } catch (error) {
     log.error(error);
     return null;
@@ -8296,6 +8299,9 @@ async function syncthingApps() {
     const folderIds = [];
     const foldersConfiguration = [];
     const myDeviceID = await syncthingService.getDeviceID();
+    if (myDeviceID.status !== 'success') {
+      return;
+    }
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled.data) {
       if (installedApp.version <= 3) {
