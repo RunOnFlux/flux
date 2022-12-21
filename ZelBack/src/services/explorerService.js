@@ -377,7 +377,7 @@ async function processInsight(blockDataVerbose, database) {
       let isFluxAppMessageValue = 0;
       tx.vout.forEach((receiver) => {
         if (receiver.scriptPubKey.addresses) { // count for messages
-          if (receiver.scriptPubKey.addresses[0] === config.fluxapps.address || receiver.scriptPubKey.addresses[0] === config.fluxapps.addressB) {
+          if (receiver.scriptPubKey.addresses[0] === config.fluxapps.address || (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressB && blockDataVerbose.height >= config.fluxapps.appSpecsEnforcementHeights[6])) {
             // it is an app message. Get Satoshi amount
             isFluxAppMessageValue += receiver.valueSat;
           }
@@ -481,7 +481,7 @@ async function processStandard(blockDataVerbose, database) {
       tx.vout.forEach((receiver) => {
         if (receiver.scriptPubKey.addresses) { // count for messages
           addresses.push(receiver.scriptPubKey.addresses[0]);
-          if (receiver.scriptPubKey.addresses[0] === config.fluxapps.address || receiver.scriptPubKey.addresses[0] === config.fluxapps.addressB) {
+          if (receiver.scriptPubKey.addresses[0] === config.fluxapps.address || (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressB && blockDataVerbose.height >= config.fluxapps.appSpecsEnforcementHeights[6])) {
             // it is an app message. Get Satoshi amount
             isFluxAppMessageValue += receiver.valueSat;
           }

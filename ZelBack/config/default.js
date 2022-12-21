@@ -101,6 +101,7 @@ module.exports = {
       3: 983000, // blockheight. Since this blockheight specification of type 3 is active. User can still submit v1 or v2. UI allows only v2, v3
       4: 1004000, // v4 available, composition
       5: 1142000, // v5 available adding contacts, geolocation
+      6: 1300000, // v6, expiration, app price, t3
     },
     address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
     addressB: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6', // TODO replace with multisig

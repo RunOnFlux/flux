@@ -1078,7 +1078,7 @@
       </b-row>
     </div>
     <div
-      v-if="appRegistrationSpecification.version >= 4 && appRegistrationSpecification.compose.length < 5"
+      v-if="appRegistrationSpecification.version >= 4 && appRegistrationSpecification.compose.length < (currentHeight < 1300000 ? 5 : 10)"
       class="text-center"
     >
       <b-button

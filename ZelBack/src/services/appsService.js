@@ -4019,12 +4019,6 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
     if (!Array.isArray(compose)) {
       throw new Error('Invalid Flux App Specifications');
     }
-    if (compose.length < 1) {
-      throw new Error('Flux App does not contain any components');
-    }
-    if (compose.length > 5) {
-      throw new Error('Flux App has too many components');
-    }
     compose.forEach((appComponent) => {
       if (Array.isArray(appComponent)) {
         throw new Error('Invalid Flux App Specifications');
@@ -4256,7 +4250,11 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
     if (appSpecifications.compose.length < 1) {
       throw new Error('Flux App does not contain any composition');
     }
-    if (appSpecifications.compose.length > 5) {
+    let maxComponents = 10;
+    if (height < config.fluxapps.appSpecsEnforcementHeights[6]) {
+      maxComponents = 5;
+    }
+    if (appSpecifications.compose.length > maxComponents) {
       throw new Error('Flux App has too many components');
     }
     // check port is within range
@@ -4365,11 +4363,7 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
       throw new Error('Invalid geolocation submited.'); // for now we are only accepting continent and country.
     }
     appSpecifications.geolocation.forEach((geo) => {
-      let maxGeoLength = 5;
-      if (height > 1230000) { // once all nodes update, we can remove this
-        // ac geolocation
-        maxGeoLength = 50; // should be way more than sufficient
-      }
+      const maxGeoLength = 50;
       if (geo.length > maxGeoLength) { // for now we only treat aXX and bXX as continent and country specs.
         throw new Error(`Geolocation ${geo} is not valid.`); // firt letter for what represents and next two for the code
       }
@@ -5477,11 +5471,8 @@ function specificationFormatter(appSpecification) {
       throw new Error('Missing Flux App specification parameter');
     }
     compose = serviceHelper.ensureObject(compose);
-    if (compose.length < 1) {
-      throw new Error('Flux App does not contain any components');
-    }
-    if (compose.length > 5) {
-      throw new Error('Flux App has too many components');
+    if (!Array.isArray(compose)) {
+      throw new Error('Flux App compose parameter is not valid');
     }
     compose.forEach((appComponent) => {
       const appComponentCorrect = {};
@@ -8073,10 +8064,16 @@ async function verifyAppUpdateParameters(req, res) {
 async function deploymentInformation(req, res) {
   try {
     // respond with information needed for application deployment regarding specification limitation and prices
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    const daemonHeight = syncStatus.data.height;
+    let deployAddr = config.fluxapps.address;
+    if (daemonHeight >= config.fluxapps.appSpecsEnforcementHeights[6]) {
+      deployAddr = config.fluxapps.addressB;
+    }
     const information = {
       price: config.fluxapps.price,
       appSpecsEnforcementHeights: config.fluxapps.appSpecsEnforcementHeights,
-      address: config.fluxapps.address, // TODO use addressB after fork height passed
+      address: deployAddr,
       portMin: config.fluxapps.portMin,
       portMax: config.fluxapps.portMax,
       maxImageSize: config.fluxapps.maxImageSize,
