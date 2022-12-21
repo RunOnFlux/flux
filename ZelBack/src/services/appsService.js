@@ -56,8 +56,12 @@ const LRUoptions = {
 const GlobalAppsSpawnLRUoptions = {
   maxAge: 1000 * 60 * 30, // 30 minutes
 };
+const longCache = {
+  maxAge: 1000 * 60 * 60 * 8, // 8 hours
+};
 const myCache = new LRU(LRUoptions);
 const trySpawningGlobalAppCache = new LRU(GlobalAppsSpawnLRUoptions);
+const myLongCache = new LRU(longCache);
 
 let removalInProgress = false;
 let installationInProgress = false;
@@ -3808,19 +3812,35 @@ async function verifyRepository(repotag) {
   return true;
 }
 
+async function getBlockedRepositores() {
+  try {
+    const cachedResponse = myLongCache.get('blockedRepositories');
+    if (cachedResponse) {
+      return cachedResponse;
+    }
+    const resBlockedRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/blockedrepositories.json');
+    if (resBlockedRepo.data) {
+      myLongCache.set('blockedRepositories', resBlockedRepo.data);
+      return resBlockedRepo.data;
+    }
+    return null;
+  } catch (error) {
+    log.error(error);
+    return null;
+  }
+}
+
 /**
  * To check compliance of app images (including images for each component if a Docker Compose app). Checks Flux OS's GitHub repository for list of blocked Docker Hub repositories.
  * @param {object} appSpecs App specifications.
  * @returns {boolean} True if no errors are thrown.
  */
 async function checkApplicationImagesComplience(appSpecs) {
-  const resBlockedRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/blockedrepositories.json');
+  const repos = await getBlockedRepositores();
 
-  if (!resBlockedRepo) {
+  if (!repos) {
     throw new Error('Unable to communicate with Flux Services! Try again later.');
   }
-
-  const repos = resBlockedRepo.data;
 
   const pureImagesOrOrganisationsRepos = [];
   repos.forEach((repo) => {
@@ -3851,6 +3871,51 @@ async function checkApplicationImagesComplience(appSpecs) {
   });
 
   return true;
+}
+
+/**
+ * To check if application image is part of blocked repositories
+ * @param {object} appSpecs App specifications.
+ * @returns {boolean} True if no errors are thrown.
+ */
+async function checkApplicationImagesBlocked(appSpecs) {
+  const repos = await getBlockedRepositores();
+
+  let isBlocked = false;
+
+  if (!repos) {
+    return isBlocked;
+  }
+
+  const pureImagesOrOrganisationsRepos = [];
+  repos.forEach((repo) => {
+    pureImagesOrOrganisationsRepos.push(repo.split(':')[0]);
+  });
+
+  const images = [];
+  const organisations = [];
+  if (appSpecs.version <= 3) {
+    images.push(appSpecs.repotag.split(':')[0]);
+    organisations.push(appSpecs.repotag.split(':')[0].split('/')[0]);
+  } else {
+    appSpecs.compose.forEach((component) => {
+      images.push(component.repotag.split(':')[0]);
+      organisations.push(component.repotag.split(':')[0].split('/')[0]);
+    });
+  }
+
+  images.forEach((image) => {
+    if (pureImagesOrOrganisationsRepos.includes(image)) {
+      isBlocked = `Image ${image} is blocked. Application ${appSpecs.name} connot be spawned.`;
+    }
+  });
+  organisations.forEach((org) => {
+    if (pureImagesOrOrganisationsRepos.includes(org)) {
+      isBlocked = `Organisation ${org} is blocked. Application ${appSpecs.name} connot be spawned.`;
+    }
+  });
+
+  return isBlocked;
 }
 
 /**
@@ -7484,6 +7549,19 @@ async function expireGlobalApplications() {
     // remove any installed app which height is lower (or not present) but is not infinite app
     const appsToRemove = appsInstalled.filter((app) => appNamesToExpire.includes(app.name) || (app.height !== 0 && (app.height < expirationHeight || !app.height)));
     const appsToRemoveNames = appsToRemove.map((app) => app.name);
+    if (appsInstalled.length > appsToRemoveNames.length) {
+      // only ask for blocked repositories if some apps installed are not getting removed
+      // eslint-disable-next-line no-restricted-syntax
+      for (const app of appsInstalled) {
+        // eslint-disable-next-line no-await-in-loop
+        const isAppBlocked = await checkApplicationImagesBlocked(app);
+        if (isAppBlocked) {
+          if (!appsToRemoveNames.includes(app.name)) {
+            appsToRemoveNames.push(app.name);
+          }
+        }
+      }
+    }
     // remove appsToRemoveNames apps from locally running
     // eslint-disable-next-line no-restricted-syntax
     for (const appName of appsToRemoveNames) {
