@@ -935,6 +935,9 @@ module.exports = (app, expressWs) => {
   app.get('/flux/removepeer/:ip?', (req, res) => {
     fluxCommunication.removePeer(req, res);
   });
+  app.get('/flux/addoutgoingpeer/:ip?', (req, res) => {
+    fluxCommunication.addOutgoingPeer(req, res);
+  });
   app.get('/flux/removeincomingpeer/:ip?', (req, res) => {
     fluxCommunication.removeIncomingPeer(req, res, expressWs.getWss('/ws/flux'));
   });
