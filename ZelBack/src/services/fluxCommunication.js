@@ -448,8 +448,12 @@ async function addOutgoingPeer(req, res) {
   }
   const justIP = ip.split(':')[0];
 
-  if (justIP != req.socket.remoteAddress) {
-    const errMessage = messageHelper.createErrorMessage(`Request ip doesn't match the ip: ${ip} to connect.`);
+  const remoteIP = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || req.headers['x-forwarded-for'];
+
+  const remoteIP4 = remoteIP.replace('::ffff:', '');
+
+  if (justIP !== remoteIP4) {
+    const errMessage = messageHelper.createErrorMessage(`Request ip ${remoteIP4} of ${remoteIP} doesn't match the ip: ${justIP} to connect.`);
     return res.json(errMessage);
   }
 
