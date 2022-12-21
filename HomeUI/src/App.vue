@@ -13,7 +13,7 @@
 </template>
 
 <script>
-import { computed } from "vue";
+import { computed, watch } from "vue";
 import ScrollToTop from '@core/components/scroll-to-top/ScrollToTop.vue';
 
 // This will be populated in `beforeCreate` hook
