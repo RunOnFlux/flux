@@ -8076,7 +8076,7 @@ async function deploymentInformation(req, res) {
     const information = {
       price: config.fluxapps.price,
       appSpecsEnforcementHeights: config.fluxapps.appSpecsEnforcementHeights,
-      address: config.fluxapps.address,
+      address: config.fluxapps.address, // TODO use addressB after fork height passed
       portMin: config.fluxapps.portMin,
       portMax: config.fluxapps.portMax,
       maxImageSize: config.fluxapps.maxImageSize,
