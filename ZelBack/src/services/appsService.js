@@ -8274,7 +8274,7 @@ async function getDeviceID(fluxIP) {
     if (response.data.status === 'success') {
       return response.data.data;
     }
-    throw new Error(response.data.data);
+    throw new Error(`Unable to get deviceid from ${fluxIP}`);
   } catch (error) {
     log.error(error);
     return null;

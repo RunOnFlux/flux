@@ -1964,7 +1964,7 @@ async function startSyncthing() {
       if (currentConfigOptions.status === 'success') {
         if (currentConfigOptions.data.globalAnnounceEnabled !== newConfig.globalAnnounceEnabled
           || currentConfigOptions.data.localAnnounceEnabled !== newConfig.localAnnounceEnabled
-          || serviceHelper.ensureString(currentConfigOptions.data.listenAddresses) !== serviceHelper.ensureString(newConfig.listenAddresse)) {
+          || serviceHelper.ensureString(currentConfigOptions.data.listenAddresses) !== serviceHelper.ensureString(newConfig.listenAddresses)) {
           // patch our config
           await adjustConfigOptions('patch', newConfig);
         }
