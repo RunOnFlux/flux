@@ -434,6 +434,48 @@ async function addPeer(req, res) {
 }
 
 /**
+ * Function to be called by FluxNodes without the minimum Incoming connections.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+async function addOutgoingPeer(req, res) {
+  let { ip } = req.params;
+  ip = ip || req.query.ip;
+  if (ip === undefined || ip === null) {
+    const errMessage = messageHelper.createErrorMessage('No IP address specified.');
+    return res.json(errMessage);
+  }
+  const justIP = ip.split(':')[0];
+
+  const remoteIP = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || req.headers['x-forwarded-for'];
+
+  const remoteIP4 = remoteIP.replace('::ffff:', '');
+
+  if (justIP !== remoteIP4) {
+    const errMessage = messageHelper.createErrorMessage(`Request ip ${remoteIP4} of ${remoteIP} doesn't match the ip: ${justIP} to connect.`);
+    return res.json(errMessage);
+  }
+
+  const wsObj = outgoingConnections.find((client) => client._socket.remoteAddress === justIP);
+  if (wsObj) {
+    const errMessage = messageHelper.createErrorMessage(`Already connected to ${justIP}`);
+    return res.json(errMessage);
+  }
+
+  const nodeList = await fluxCommunicationUtils.deterministicFluxList();
+  const fluxNode = nodeList.find((node) => node.ip === ip);
+  if (!fluxNode) {
+    const errMessage = messageHelper.createErrorMessage(`FluxNode ${ip} is not confirmed on the network.`);
+    return res.json(errMessage);
+  }
+
+  initiateAndHandleConnection(ip);
+  const message = messageHelper.createSuccessMessage(`Outgoing connection to ${ip} initiated`);
+  return res.json(message);
+}
+
+/**
  * To discover and connect to other randomly selected FluxNodes. Maintains connections with 1-2% of nodes on the Flux network. Ensures that FluxNode connections are not duplicated.
  */
 async function fluxDiscovery() {
@@ -533,4 +575,5 @@ module.exports = {
   handleAppRunningMessage,
   initiateAndHandleConnection,
   getNumberOfPeers,
+  addOutgoingPeer,
 };
