@@ -1206,6 +1206,63 @@
         </b-col>
       </b-row>
     </div>
+    <div v-if="registrationHash">
+      <b-row>
+        <b-card title="Test Launch">
+          <b-card-text>
+            You can now test launch your application locally. It will run on this particular node for a few hours, so you can spot and tune your app specifications.
+            <br>
+            Application will run on IP: {{ nodeIP || 'Sorry, something went wrong, check IP manually' }}
+          </b-card-text>
+          <b-button
+            v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+            variant="success"
+            aria-label="Test Launch"
+            class="my-1"
+            @click="installAppLocally(registrationHash)"
+          >
+            Test Launch
+          </b-button>
+        </b-card>
+      </b-row>
+    </div>
+    <div
+      v-if="output.length > 0"
+      class="actionCenter"
+    >
+      <br>
+      <b-row>
+        <b-col cols="9">
+          <b-form-textarea
+            plaintext
+            no-resize
+            :rows="output.length + 1"
+            :value="stringOutput()"
+            class="mt-1"
+          />
+        </b-col>
+        <b-col
+          v-if="downloading"
+          cols="3"
+        >
+          <h3>Downloads</h3>
+          <div
+            v-for="download in downloadOutput"
+            :key="download.id"
+          >
+            <h4> {{ download.id }}</h4>
+            <b-progress
+              :value="download.detail.current / download.detail.total * 100"
+              max="100"
+              striped
+              height="1rem"
+              :variant="download.variant"
+            />
+            <br>
+          </div>
+        </b-col>
+      </b-row>
+    </div>
   </div>
 </template>
 
@@ -1402,6 +1459,10 @@ export default {
       forbiddenGeolocations: {},
       numberOfGeolocations: 1,
       numberOfNegativeGeolocations: 1,
+      output: [],
+      downloading: false,
+      downloadOutput: {},
+      nodeIP: '',
     };
   },
   computed: {
@@ -1467,11 +1528,24 @@ export default {
     this.getGeolocationData();
     this.getDaemonInfo();
     this.appsDeploymentInformation();
+    this.getFluxnodeStatus();
     const zelidauth = localStorage.getItem('zelidauth');
     const auth = qs.parse(zelidauth);
     this.appRegistrationSpecification.owner = auth.zelid;
   },
   methods: {
+    async getFluxnodeStatus() {
+      try {
+        const fluxnodeStatus = await DaemonService.getZelNodeStatus();
+        if (fluxnodeStatus.data.status === 'error') {
+          this.showToast('danger', fluxnodeStatus.data.data.message || fluxnodeStatus.data.data);
+        } else {
+          this.nodeIP = fluxnodeStatus.data.data.ip.split(':')[0];
+        }
+      } catch (error) {
+        console.log(error);
+      }
+    },
     async checkFluxSpecificationsAndFormatMessage() {
       try {
         // formation, pre verificaiton
@@ -1834,6 +1908,91 @@ export default {
       instances = instances > 3 ? instances : 3;
       const maxInstances = instances > 100 ? 100 : instances;
       this.maxInstances = maxInstances;
+    },
+    stringOutput() {
+      let string = '';
+      this.output.forEach((output) => {
+        if (output.status === 'success') {
+          string += `${output.data.message || output.data}\r\n`;
+        } else if (output.status === 'Downloading') {
+          this.downloadOutput[output.id] = ({
+            id: output.id,
+            detail: output.progressDetail,
+            variant: 'danger',
+          });
+        } else if (output.status === 'Verifying Checksum') {
+          this.downloadOutput[output.id] = ({
+            id: output.id,
+            detail: { current: 1, total: 1 },
+            variant: 'warning',
+          });
+        } else if (output.status === 'Download complete') {
+          this.downloadOutput[output.id] = ({
+            id: output.id,
+            detail: { current: 1, total: 1 },
+            variant: 'info',
+          });
+        } else if (output.status === 'Extracting') {
+          this.downloadOutput[output.id] = ({
+            id: output.id,
+            detail: output.progressDetail,
+            variant: 'primary',
+          });
+        } else if (output.status === 'Pull complete') {
+          this.downloadOutput[output.id] = ({
+            id: output.id,
+            detail: { current: 1, total: 1 },
+            variant: 'success',
+          });
+        } else {
+          string += `${output.status}\r\n`;
+        }
+      });
+      return string;
+    },
+    async installAppLocally(app) {
+      if (this.downloading) {
+        this.showToast('danger', 'Test launch was already initiated');
+        return;
+      }
+      const self = this;
+      this.output = [];
+      this.downloadOutput = {};
+      this.downloading = true;
+      this.showToast('warning', `Installing ${app}`);
+      const zelidauth = localStorage.getItem('zelidauth');
+      // const response = await AppsService.installAppLocally(zelidauth, app);
+      const axiosConfig = {
+        headers: {
+          zelidauth,
+        },
+        onDownloadProgress(progressEvent) {
+          console.log(progressEvent.target.response);
+          self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
+        },
+      };
+      const response = await AppsService.justAPI().get(`/apps/installapplocally/${app}`, axiosConfig);
+      if (response.data.status === 'error') {
+        this.showToast('danger', response.data.data.message || response.data.data);
+      } else {
+        console.log(response);
+        this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
+        console.log(this.output);
+        for (let i = 0; i < this.output.length; i += 1) {
+          if (this.output[i] && this.output[i].data && this.output[i].data.message && this.output[i].data.message.includes('Error occured')) {
+            // error is defined one line above
+            if (this.output[i - 1] && this.output[i - 1].data) {
+              this.showToast('danger', this.output[i - 1].data.message || this.output[i - 1].data);
+              return;
+            }
+          }
+        }
+        if (this.output[this.output.length - 1].status === 'error') {
+          this.showToast('danger', this.output[this.output.length - 1].status);
+        } else {
+          this.showToast('success', this.output[this.output.length - 1].status);
+        }
+      }
     },
   },
 };

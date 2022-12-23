@@ -2480,7 +2480,7 @@ export default {
         }, 5000);
       }
     },
-    async installAppLocally(app) { // todo rewrite to installApp later
+    async installAppLocally(app) {
       const appName = this.getAppName(app);
       const self = this;
       this.output = [];
