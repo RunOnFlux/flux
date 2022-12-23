@@ -8146,7 +8146,7 @@ async function deploymentInformation(req, res) {
     const daemonHeight = syncStatus.data.height;
     let deployAddr = config.fluxapps.address;
     if (daemonHeight >= config.fluxapps.appSpecsEnforcementHeights[6]) {
-      deployAddr = config.fluxapps.addressB;
+      deployAddr = config.fluxapps.addressMultisig;
     }
     const information = {
       price: config.fluxapps.price,

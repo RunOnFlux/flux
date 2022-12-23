@@ -102,7 +102,7 @@ module.exports = {
       4: 1004000, // v4 available
     },
     address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
-    addressB: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6', // TODO adjust for multisig
+    addressMultisig: 't3aGJvdtd8NR6GrnqnRuVEzH6MbrXuJFLUX',
     epochstart: 694000,
     publicepochstart: 705000,
     portMin: 31000, // ports 30000 - 30999 are reserved for local applications
