@@ -41,6 +41,13 @@ module.exports = {
         appsLocations: 'zelappslocation', // stores location of flux apps as documents containing name, hash, ip, obtainedAt
       },
     },
+    chainparams: {
+      database: 'chainparamstest',
+      collections: {
+        chainMessages: 'chainmessages', // soft fork messages occuring on chain, Messages have immediate activation from its occurance blockheight (next blockheight mined are already new specs enforced)
+        // height, txid, message, version (version X_ determines the value of adjustment p_ specifies new price structure as per fluxapps.price array values)
+      },
+    },
     fluxshare: {
       database: 'zelsharetest',
       collections: {

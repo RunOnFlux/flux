@@ -360,6 +360,22 @@ function decodeMessage(asm) {
 }
 
 /**
+ * To process soft fork messages and reactin upon observing one
+ * @param {string} txid TXID of soft fork message occurance
+ * @param {number} heightBlockchain height of soft fork message occurance
+ * @param {string} message Already decoded message.
+ */
+async function processSoftFork(txid, height, message) {
+  try {
+    // TODO
+    console.log(txid, height, message);
+  } catch (error) {
+    log.error(error);
+    throw new Error(error.message || error);
+  }
+}
+
+/**
  * To process verbose block data for entry to Insight database.
  * @param {object} blockDataVerbose Verbose block data.
  * @param {string} database Database.
@@ -375,11 +391,23 @@ async function processInsight(blockDataVerbose, database) {
     if (tx.version < 5 && tx.version > 0) {
       let message = '';
       let isFluxAppMessageValue = 0;
+      let isSenderFoundation = false;
+      let isReceiverFounation = false;
+
+      tx.vin.forEach((sender) => {
+        if (sender.addr === config.fluxapps.addressMultisig) { // coinbase vin.addr is undefined
+          isSenderFoundation = true;
+        }
+      });
+
       tx.vout.forEach((receiver) => {
         if (receiver.scriptPubKey.addresses) { // count for messages
           if (receiver.scriptPubKey.addresses[0] === config.fluxapps.address || (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisig && blockDataVerbose.height >= config.fluxapps.appSpecsEnforcementHeights[6])) {
             // it is an app message. Get Satoshi amount
             isFluxAppMessageValue += receiver.valueSat;
+          }
+          if (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisig) {
+            isReceiverFounation = true;
           }
         }
         if (receiver.scriptPubKey.asm) {
@@ -421,6 +449,12 @@ async function processInsight(blockDataVerbose, database) {
           log.error(`Hash ${message} already exists. Not adding at height ${blockDataVerbose.height}`);
           log.error(error);
         }
+      }
+      // check fo softForks
+      const isSoftFork = isSenderFoundation && isReceiverFounation;
+      if (isSoftFork) {
+        // eslint-disable-next-line no-await-in-loop
+        await processSoftFork(tx.txid, blockDataVerbose.height, message);
       }
     } else if (tx.version === 5) {
       // todo include to daemon better information about hash and index and preferably address associated
@@ -473,10 +507,15 @@ async function processStandard(blockDataVerbose, database) {
     if (tx.version < 5 && tx.version > 0) {
       let message = '';
       let isFluxAppMessageValue = 0;
+      let isSenderFoundation = false;
+      let isReceiverFounation = false;
 
       const addresses = [];
       tx.senders.forEach((sender) => {
         addresses.push(sender.address);
+        if (sender.address === config.fluxapps.addressMultisig) {
+          isSenderFoundation = true;
+        }
       });
       tx.vout.forEach((receiver) => {
         if (receiver.scriptPubKey.addresses) { // count for messages
@@ -484,6 +523,9 @@ async function processStandard(blockDataVerbose, database) {
           if (receiver.scriptPubKey.addresses[0] === config.fluxapps.address || (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisig && blockDataVerbose.height >= config.fluxapps.appSpecsEnforcementHeights[6])) {
             // it is an app message. Get Satoshi amount
             isFluxAppMessageValue += receiver.valueSat;
+          }
+          if (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisig) {
+            isReceiverFounation = true;
           }
         }
         if (receiver.scriptPubKey.asm) {
@@ -536,6 +578,11 @@ async function processStandard(blockDataVerbose, database) {
           log.error(`Hash ${message} already exists. Not adding at height ${blockDataVerbose.height}`);
           log.error(error);
         }
+      }
+      // check fo softForks
+      const isSoftFork = isSenderFoundation && isReceiverFounation;
+      if (isSoftFork) {
+        await processSoftFork(tx.txid, blockDataVerbose.height, message);
       }
     }
     // tx version 5 are flux transactions. Put them into flux
