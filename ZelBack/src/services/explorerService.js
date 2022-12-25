@@ -19,6 +19,7 @@ const appsHashesCollection = config.database.daemon.collections.appsHashes;
 const addressTransactionIndexCollection = config.database.daemon.collections.addressTransactionIndex;
 const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
 const fluxTransactionCollection = config.database.daemon.collections.fluxTransactions;
+const chainParamsMessagesCollection = config.database.chainparams.collections.chainMessages;
 let blockProccessingCanContinue = true;
 let someBlockIsProcessing = false;
 let isInInitiationOfBP = false;
@@ -366,16 +367,25 @@ function decodeMessage(asm) {
  * @param {string} message Already decoded message.
  */
 async function processSoftFork(txid, height, message) {
-  try {
-    // TODO
-    console.log(txid, height, message);
-    // const splittedMess = message.split('_');
-    // const version = splittedMess[0];
-    // insert one to db if not found this unique txid
-  } catch (error) {
-    log.error(error);
-    throw new Error(error.message || error);
-  }
+  // let it throw to stop block processing
+  const splittedMess = message.split('_');
+  const version = splittedMess[0];
+  const data = {
+    txid,
+    height,
+    message,
+    version,
+  };
+  log.info('New Soft Fork message received');
+  log.info(`${txid}_${height}_${message}`);
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.chainparams.database);
+  const query = { txid }; // unique
+  const update = { $set: data };
+  const options = {
+    upsert: true,
+  };
+  await dbHelper.updateOneInDatabase(database, chainParamsMessagesCollection, query, update, options);
 }
 
 /**
@@ -760,7 +770,7 @@ async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = fals
     await dbHelper.removeDocumentsFromCollection(databaseGlobal, config.database.appsglobal.collections.appsMessages, query);
     await dbHelper.removeDocumentsFromCollection(databaseGlobal, config.database.appsglobal.collections.appsInformation, query);
     log.info('Rescanning Blockchain Parameters!');
-    await dbHelper.removeDocumentsFromCollection(databaseUpdates, config.database.chainparams.collections.chainMessages, query);
+    await dbHelper.removeDocumentsFromCollection(databaseUpdates, chainParamsMessagesCollection, query);
   }
   log.info('Rescan completed');
   return true;
@@ -883,7 +893,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
             throw error;
           }
         });
-        const resultH = await dbHelper.dropCollection(databaseUpdates, config.database.chainparams.collections.chainMessages).catch((error) => {
+        const resultH = await dbHelper.dropCollection(databaseUpdates, chainParamsMessagesCollection).catch((error) => {
           if (error.message !== 'ns not found') {
             throw error;
           }
@@ -909,10 +919,10 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       await database.collection(config.database.appsglobal.collections.appsLocations).createIndex({ ip: 1 }, { name: 'query for getting zelapp location based on ip' });
       await database.collection(config.database.appsglobal.collections.appsLocations).createIndex({ name: 1, ip: 1 }, { name: 'query for getting app based on ip and name' });
       await database.collection(config.database.appsglobal.collections.appsLocations).createIndex({ name: 1, ip: 1, broadcastedAt: 1 }, { name: 'query for getting app to ensure we possess a message' });
-      await databaseUpdates.collection(config.database.chainparams.collections.chainMessages).createIndex({ txid: 1 }, { name: 'query for getting txid of some chain parameters update message' });
-      await databaseUpdates.collection(config.database.chainparams.collections.chainMessages).createIndex({ height: 1 }, { name: 'query for getting height of some chain parameters update message' });
-      await databaseUpdates.collection(config.database.chainparams.collections.chainMessages).createIndex({ message: 1 }, { name: 'query for getting message of some chain parameters update message' });
-      await databaseUpdates.collection(config.database.chainparams.collections.chainMessages).createIndex({ version: 1 }, { name: 'query for getting version of some chain parameters update message' });
+      await databaseUpdates.collection(chainParamsMessagesCollection).createIndex({ txid: 1 }, { name: 'query for getting txid of some chain parameters update message' });
+      await databaseUpdates.collection(chainParamsMessagesCollection).createIndex({ height: 1 }, { name: 'query for getting height of some chain parameters update message' });
+      await databaseUpdates.collection(chainParamsMessagesCollection).createIndex({ message: 1 }, { name: 'query for getting message of some chain parameters update message' });
+      await databaseUpdates.collection(chainParamsMessagesCollection).createIndex({ version: 1 }, { name: 'query for getting version of some chain parameters update message' });
       // what if 2 app adjustment come in the same block?
       // log.info(resultE, resultF);
       log.info('Preparation done');
