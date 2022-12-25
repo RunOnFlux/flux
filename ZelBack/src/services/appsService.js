@@ -96,6 +96,49 @@ const appsMonitored = {
 };
 
 /**
+ * To get array of price specifications updates
+ * @returns {(object|object[])} Returns an array of app objects.
+ */
+async function getChainParamsPriceUpdates() {
+  try {
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.chainparams.database);
+    const chainParamsMessagesCollection = config.database.chainparams.collections.chainMessages;
+    const query = { version: 'p' };
+    const projection = {
+      projection: {
+        _id: 0,
+      },
+    };
+    const priceMessages = await dbHelper.findInDatabase(database, chainParamsMessagesCollection, query, projection);
+    const priceForks = config.fluxapps.price;
+    priceMessages.forEach((data) => {
+      const splittedMess = data.message.split('_');
+      if (splittedMess[4]) {
+        const dataPoint = {
+          height: +data.height,
+          cpu: +splittedMess[1],
+          ram: +splittedMess[2],
+          hdd: +splittedMess[3],
+          minPrice: +splittedMess[4],
+        };
+        priceForks.push(dataPoint);
+      }
+    });
+    // sort priceForks depending on height
+    priceForks.sort((a, b) => {
+      if (a.height > b.height) return 1;
+      if (a.height < b.height) return -1;
+      return 0;
+    });
+    return priceForks;
+  } catch (error) {
+    log.error(error);
+    return [];
+  }
+}
+
+/**
  * To get a list of installed apps. Where req can be equal to appname. Shall be identical to listAllApps but this is a database response.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -3335,11 +3378,12 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
  * @param {number} height Block height.
  * @returns {number} App price.
  */
-function appPricePerMonth(dataForAppRegistration, height) {
+async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) {
   if (!dataForAppRegistration) {
     return new Error('Application specification not provided');
   }
-  const intervals = config.fluxapps.price.filter((i) => i.height <= height);
+  const appPrices = suppliedPrices || await getChainParamsPriceUpdates();
+  const intervals = appPrices.filter((i) => i.height < height);
   const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
   let instancesAdditional = 0;
   if (dataForAppRegistration.instances) {
@@ -6312,11 +6356,12 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
         // await update zelapphashes that we already have it stored
         await appHashHasMessage(hash);
         // disregard other types
-        const intervals = config.fluxapps.price.filter((interval) => interval.height <= height);
+        const appPrices = await getChainParamsPriceUpdates();
+        const intervals = appPrices.filter((interval) => interval.height < height);
         const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
         if (tempMessage.type === 'zelappregister' || tempMessage.type === 'fluxappregister') {
           // check if value is optimal or higher
-          let appPrice = appPricePerMonth(specifications, height);
+          let appPrice = await appPricePerMonth(specifications, height, appPrices);
           if (appPrice < priceSpecifications.minPrice) {
             appPrice = priceSpecifications.minPrice;
           }
@@ -6375,8 +6420,8 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
           const messageInfo = latestPermanentRegistrationMessage;
           // here comparison of height differences and specifications
           // price shall be price for standard registration plus minus already paid price according to old specifics. height remains height valid for 22000 blocks
-          const appPrice = appPricePerMonth(specifications, height);
-          const previousSpecsPrice = appPricePerMonth(messageInfo.appSpecifications || messageInfo.zelAppSpecifications, height);
+          const appPrice = await appPricePerMonth(specifications, height, appPrices);
+          const previousSpecsPrice = await appPricePerMonth(messageInfo.appSpecifications || messageInfo.zelAppSpecifications, height, appPrices);
           // what is the height difference
           const heightDifference = permanentAppMessage.height - messageInfo.height; // has to be lower than 22000
           const perc = (config.fluxapps.blocksLasting - heightDifference) / config.fluxapps.blocksLasting;
@@ -7945,10 +7990,13 @@ async function getAppPrice(req, res) {
         throw new Error('Daemon not yet synced.');
       }
       const daemonHeight = syncStatus.data.height;
+      const appPrices = await getChainParamsPriceUpdates();
+      const intervals = appPrices.filter((i) => i.height < daemonHeight);
+      const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
       const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-      let actualPriceToPay = appPricePerMonth(appSpecFormatted, daemonHeight);
+      let actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices);
       if (appInfo) {
-        const previousSpecsPrice = appPricePerMonth(appInfo, daemonHeight); // calculate previous based on CURRENT height, with current interval of prices!
+        const previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices); // calculate previous based on CURRENT height, with current interval of prices!
         // what is the height difference
         const heightDifference = daemonHeight - appInfo.height; // has to be lower than 22000
         const perc = (config.fluxapps.blocksLasting - heightDifference) / config.fluxapps.blocksLasting;
@@ -7956,8 +8004,6 @@ async function getAppPrice(req, res) {
           actualPriceToPay -= (perc * previousSpecsPrice);
         }
       }
-      const intervals = config.fluxapps.price.filter((i) => i.height <= daemonHeight);
-      const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
       actualPriceToPay = Number(Math.ceil(actualPriceToPay * 100) / 100);
       if (actualPriceToPay < priceSpecifications.minPrice) {
         actualPriceToPay = priceSpecifications.minPrice;
@@ -8148,8 +8194,10 @@ async function deploymentInformation(req, res) {
     if (daemonHeight >= config.fluxapps.appSpecsEnforcementHeights[6]) {
       deployAddr = config.fluxapps.addressMultisig;
     }
+    // search in chainparams db for chainmessages of p version
+    const appPrices = await getChainParamsPriceUpdates();
     const information = {
-      price: config.fluxapps.price,
+      price: appPrices,
       appSpecsEnforcementHeights: config.fluxapps.appSpecsEnforcementHeights,
       address: deployAddr,
       portMin: config.fluxapps.portMin,
@@ -8609,4 +8657,5 @@ module.exports = {
   getAllGlobalApplicationsNames,
   getAllGlobalApplicationsNamesWithLocation,
   syncthingApps,
+  getChainParamsPriceUpdates,
 };

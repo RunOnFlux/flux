@@ -427,40 +427,44 @@ async function processInsight(blockDataVerbose, database) {
           message = decodeMessage(receiver.scriptPubKey.asm);
         }
       });
-      const intervals = config.fluxapps.price.filter((i) => i.height <= blockDataVerbose.height);
-      const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
-      // MAY contain App transaction. Store it.
-      if (isFluxAppMessageValue >= (priceSpecifications.minPrice * 1e8) && message.length === 64 && blockDataVerbose.height >= config.fluxapps.epochstart) { // min of 1 flux had to be paid for us bothering checking
-        const appTxRecord = {
-          txid: tx.txid, height: blockDataVerbose.height, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
-        };
-        // Unique hash - If we already have a hash of this app in our database, do not insert it!
-        try {
+      if (isFluxAppMessageValue) {
+        // eslint-disable-next-line no-await-in-loop
+        const appPrices = await appsService.getChainParamsPriceUpdates();
+        const intervals = appPrices.filter((i) => i.height < blockDataVerbose.height);
+        const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
+        // MAY contain App transaction. Store it.
+        if (isFluxAppMessageValue >= (priceSpecifications.minPrice * 1e8) && message.length === 64 && blockDataVerbose.height >= config.fluxapps.epochstart) { // min of 1 flux had to be paid for us bothering checking
+          const appTxRecord = {
+            txid: tx.txid, height: blockDataVerbose.height, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
+          };
+          // Unique hash - If we already have a hash of this app in our database, do not insert it!
+          try {
           // 5501c7dd6516c3fc2e68dee8d4fdd20d92f57f8cfcdc7b4fcbad46499e43ed6f
-          const querySearch = {
-            hash: message,
-          };
-          const projectionSearch = {
-            projection: {
-              _id: 0,
-              txid: 1,
-              hash: 1,
-              height: 1,
-              value: 1,
-              message: 1,
-            },
-          };
-          // eslint-disable-next-line no-await-in-loop
-          const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, querySearch, projectionSearch); // this search can be later removed if nodes rescan apps and reconstruct the index for unique
-          if (!result) {
-            appsTransactions.push(appTxRecord);
-            appsService.checkAndRequestApp(message, tx.txid, blockDataVerbose.height, isFluxAppMessageValue);
-          } else {
-            throw new Error(`Found an existing hash app ${serviceHelper.ensureString(result)}`);
+            const querySearch = {
+              hash: message,
+            };
+            const projectionSearch = {
+              projection: {
+                _id: 0,
+                txid: 1,
+                hash: 1,
+                height: 1,
+                value: 1,
+                message: 1,
+              },
+            };
+            // eslint-disable-next-line no-await-in-loop
+            const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, querySearch, projectionSearch); // this search can be later removed if nodes rescan apps and reconstruct the index for unique
+            if (!result) {
+              appsTransactions.push(appTxRecord);
+              appsService.checkAndRequestApp(message, tx.txid, blockDataVerbose.height, isFluxAppMessageValue);
+            } else {
+              throw new Error(`Found an existing hash app ${serviceHelper.ensureString(result)}`);
+            }
+          } catch (error) {
+            log.error(`Hash ${message} already exists. Not adding at height ${blockDataVerbose.height}`);
+            log.error(error);
           }
-        } catch (error) {
-          log.error(`Hash ${message} already exists. Not adding at height ${blockDataVerbose.height}`);
-          log.error(error);
         }
       }
       // check fo softForks
@@ -557,39 +561,42 @@ async function processStandard(blockDataVerbose, database) {
         };
         await dbHelper.updateOneInDatabase(database, addressTransactionIndexCollection, query, update, options);
       }));
-      const intervals = config.fluxapps.price.filter((i) => i.height <= blockDataVerbose.height);
-      const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
-      // MAY contain App transaction. Store it.
-      if (isFluxAppMessageValue >= (priceSpecifications.minPrice * 1e8) && message.length === 64 && blockDataVerbose.height >= config.fluxapps.epochstart) { // min of 1 flux had to be paid for us bothering checking
-        const appTxRecord = {
-          txid: tx.txid, height: blockDataVerbose.height, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
-        };
-        // Unique hash - If we already have a hash of this app in our database, do not insert it!
-        try {
+      if (isFluxAppMessageValue) {
+        const appPrices = await appsService.getChainParamsPriceUpdates();
+        const intervals = appPrices.filter((i) => i.height < blockDataVerbose.height);
+        const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
+        // MAY contain App transaction. Store it.
+        if (isFluxAppMessageValue >= (priceSpecifications.minPrice * 1e8) && message.length === 64 && blockDataVerbose.height >= config.fluxapps.epochstart) { // min of 1 flux had to be paid for us bothering checking
+          const appTxRecord = {
+            txid: tx.txid, height: blockDataVerbose.height, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
+          };
+          // Unique hash - If we already have a hash of this app in our database, do not insert it!
+          try {
           // 5501c7dd6516c3fc2e68dee8d4fdd20d92f57f8cfcdc7b4fcbad46499e43ed6f
-          const querySearch = {
-            hash: message,
-          };
-          const projectionSearch = {
-            projection: {
-              _id: 0,
-              txid: 1,
-              hash: 1,
-              height: 1,
-              value: 1,
-              message: 1,
-            },
-          };
-          const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, querySearch, projectionSearch); // this search can be later removed if nodes rescan apps and reconstruct the index for unique
-          if (!result) {
-            await dbHelper.insertOneToDatabase(database, appsHashesCollection, appTxRecord);
-            appsService.checkAndRequestApp(message, tx.txid, blockDataVerbose.height, isFluxAppMessageValue);
-          } else {
-            throw new Error(`Found an existing hash app ${serviceHelper.ensureString(result)}`);
+            const querySearch = {
+              hash: message,
+            };
+            const projectionSearch = {
+              projection: {
+                _id: 0,
+                txid: 1,
+                hash: 1,
+                height: 1,
+                value: 1,
+                message: 1,
+              },
+            };
+            const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, querySearch, projectionSearch); // this search can be later removed if nodes rescan apps and reconstruct the index for unique
+            if (!result) {
+              await dbHelper.insertOneToDatabase(database, appsHashesCollection, appTxRecord);
+              appsService.checkAndRequestApp(message, tx.txid, blockDataVerbose.height, isFluxAppMessageValue);
+            } else {
+              throw new Error(`Found an existing hash app ${serviceHelper.ensureString(result)}`);
+            }
+          } catch (error) {
+            log.error(`Hash ${message} already exists. Not adding at height ${blockDataVerbose.height}`);
+            log.error(error);
           }
-        } catch (error) {
-          log.error(`Hash ${message} already exists. Not adding at height ${blockDataVerbose.height}`);
-          log.error(error);
         }
       }
       // check fo softForks
