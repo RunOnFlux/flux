@@ -3374,6 +3374,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
 
 /**
  * To return the monthly app hosting price.
+ * This is app price per blocksLasting
  * @param {string} dataForAppRegistration App registration date.
  * @param {number} height Block height.
  * @returns {number} App price.
@@ -6318,6 +6319,7 @@ async function appHashHasMessageNotFound(hash) {
 
 /**
  * To check and request an app. Handles fluxappregister type and fluxappupdate type.
+ * Verification of specification was already done except the price which is done here
  * @param {object} hash Hash object containing app information.
  * @param {string} txid Transaction ID.
  * @param {number} height Block height.
@@ -6362,6 +6364,12 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
         if (tempMessage.type === 'zelappregister' || tempMessage.type === 'fluxappregister') {
           // check if value is optimal or higher
           let appPrice = await appPricePerMonth(specifications, height, appPrices);
+          const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
+          const expireIn = specifications.expire || defaultExpire;
+          // app prices are ceiled to highest 0.01
+          const multiplier = expireIn / defaultExpire;
+          appPrice *= multiplier;
+          appPrice = Math.ceil(appPrice * 100) / 100;
           if (appPrice < priceSpecifications.minPrice) {
             appPrice = priceSpecifications.minPrice;
           }
@@ -6372,7 +6380,9 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
             // object of appSpecifications extended for hash and height
             // do not await this
             updateAppSpecifications(updateForSpecifications);
-          } // else do nothing notify its underpaid?
+          } else {
+            log.warn(`Apps message ${permanentAppMessage.hash} is underpaid`);
+          }
         } else if (tempMessage.type === 'zelappupdate' || tempMessage.type === 'fluxappupdate') {
           // appSpecifications.name as identifier
           const db = dbHelper.databaseConnection();
@@ -6418,13 +6428,25 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
             }
           });
           const messageInfo = latestPermanentRegistrationMessage;
+          const previousSpecs = messageInfo.appSpecifications || messageInfo.zelAppSpecifications;
           // here comparison of height differences and specifications
           // price shall be price for standard registration plus minus already paid price according to old specifics. height remains height valid for 22000 blocks
-          const appPrice = await appPricePerMonth(specifications, height, appPrices);
-          const previousSpecsPrice = await appPricePerMonth(messageInfo.appSpecifications || messageInfo.zelAppSpecifications, height, appPrices);
+          let appPrice = await appPricePerMonth(specifications, height, appPrices);
+          let previousSpecsPrice = await appPricePerMonth(previousSpecs, height, appPrices);
+          const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
+          const currentExpireIn = specifications.expire || defaultExpire;
+          const previousExpireIn = previousSpecs.expire || defaultExpire;
+          // app prices are ceiled to highest 0.01
+          const multiplierCurrent = currentExpireIn / defaultExpire;
+          appPrice *= multiplierCurrent;
+          appPrice = Math.ceil(appPrice * 100) / 100;
+          const multiplierPrevious = previousExpireIn / defaultExpire;
+          previousSpecsPrice *= multiplierPrevious;
+          previousSpecsPrice = Math.ceil(previousSpecsPrice * 100) / 100;
           // what is the height difference
-          const heightDifference = permanentAppMessage.height - messageInfo.height; // has to be lower than 22000
-          const perc = (config.fluxapps.blocksLasting - heightDifference) / config.fluxapps.blocksLasting;
+          const heightDifference = permanentAppMessage.height - messageInfo.height;
+          // currentExpireIn is always higher than heightDifference
+          const perc = (previousExpireIn - heightDifference) / previousExpireIn; // how much of previous specs was not used yet
           let actualPriceToPay = appPrice * 0.9;
           if (perc > 0) {
             actualPriceToPay = (appPrice - (perc * previousSpecsPrice)) * 0.9; // discount for missing heights. Allow 90%
@@ -6440,7 +6462,9 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
             // object of appSpecifications extended for hash and height
             // do not await this
             updateAppSpecifications(updateForSpecifications);
-          } // else do nothing notify its underpaid?
+          } else {
+            log.warn(`Apps message ${permanentAppMessage.hash} is underpaid`);
+          }
         }
       } else {
         // request the message and broadcast the message further to our connected peers.
@@ -7549,7 +7573,9 @@ async function checkAndNotifyPeersOfRunningApps() {
 }
 
 /**
- * To find and remove expired global applications. Finds applications that are lower than blocksLasting and deletes them from global database.
+ * To find and remove expired global applications. Finds applications that are registered on lower height than current height minus default blocksLasting
+ * or set by their expire blockheight specification, then deletes them from global database and do potential uninstall.
+ * Also adjusted for trial apps
  */
 async function expireGlobalApplications() {
   // check if synced
@@ -7569,13 +7595,21 @@ async function expireGlobalApplications() {
       throw new Error('Scanning not initiated');
     }
     const explorerHeight = serviceHelper.ensureNumber(result.generalScannedHeight);
-    const expirationHeight = explorerHeight - config.fluxapps.blocksLasting;
+    const minExpirationHeight = explorerHeight - config.fluxapps.minBlocksAllowance; // do a pre search in db as every app has to live for at least minBlocksAllowance
     // get global applications specification that have up to date data
-    // find applications that have specifications height lower than expirationHeight
+    // find applications that have specifications height lower than minExpirationHeight
     const databaseApps = dbopen.db(config.database.appsglobal.database);
-    const queryApps = { height: { $lt: expirationHeight } };
+    const queryApps = { height: { $lt: minExpirationHeight } };
     const projectionApps = { projection: { _id: 0, name: 1, hash: 1 } };
     const results = await dbHelper.findInDatabase(databaseApps, globalAppsInformation, queryApps, projectionApps);
+    const appsToExpire = [];
+    const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
+    results.forEach((appSpecs) => {
+      const expireIn = appSpecs.expire || defaultExpire;
+      if (appSpecs.height + expireIn < explorerHeight) { // registered/updated on height, expires in expireIn is lower than current height
+        appsToExpire.push(appSpecs);
+      }
+    });
     const appNamesToExpire = results.map((res) => res.name);
     // remove appNamesToExpire apps from global database
     // eslint-disable-next-line no-restricted-syntax
@@ -7592,7 +7626,21 @@ async function expireGlobalApplications() {
     }
     const appsInstalled = installedAppsRes.data;
     // remove any installed app which height is lower (or not present) but is not infinite app
-    const appsToRemove = appsInstalled.filter((app) => appNamesToExpire.includes(app.name) || (app.height !== 0 && (app.height < expirationHeight || !app.height)));
+    const appsToRemove = [];
+    appsInstalled.forEach((app) => {
+      if (appNamesToExpire.includes(app.name)) {
+        appsToRemove.push(app);
+      } else if (!app.height) {
+        appsToRemove.push(app);
+      } else if (app.height === 0) {
+        // do nothing, forever lasting local app
+      } else {
+        const expireIn = app.expire || defaultExpire;
+        if (app.height + expireIn < explorerHeight) {
+          appsToRemove.push(app);
+        }
+      }
+    });
     const appsToRemoveNames = appsToRemove.map((app) => app.name);
     if (appsInstalled.length > appsToRemoveNames.length) {
       // only ask for blocked repositories if some apps installed are not getting removed
@@ -7994,12 +8042,22 @@ async function getAppPrice(req, res) {
       const intervals = appPrices.filter((i) => i.height < daemonHeight);
       const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
       const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+      const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
       let actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices);
+      const expireIn = appSpecFormatted.expire || defaultExpire;
+      // app prices are ceiled to highest 0.01
+      const multiplier = expireIn / defaultExpire;
+      actualPriceToPay *= multiplier;
+      actualPriceToPay = Math.ceil(actualPriceToPay * 100) / 100;
       if (appInfo) {
-        const previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices); // calculate previous based on CURRENT height, with current interval of prices!
+        let previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices); // calculate previous based on CURRENT height, with current interval of prices!
+        const previousExpireIn = previousSpecsPrice.expire || defaultExpire;
+        const multiplierPrevious = previousExpireIn / defaultExpire;
+        previousSpecsPrice *= multiplierPrevious;
+        previousSpecsPrice = Math.ceil(previousSpecsPrice * 100) / 100;
         // what is the height difference
         const heightDifference = daemonHeight - appInfo.height; // has to be lower than 22000
-        const perc = (config.fluxapps.blocksLasting - heightDifference) / config.fluxapps.blocksLasting;
+        const perc = (previousExpireIn - heightDifference) / previousExpireIn;
         if (perc > 0) {
           actualPriceToPay -= (perc * previousSpecsPrice);
         }
@@ -8205,6 +8263,10 @@ async function deploymentInformation(req, res) {
       maxImageSize: config.fluxapps.maxImageSize,
       minimumInstances: config.fluxapps.minimumInstances,
       maximumInstances: config.fluxapps.maximumInstances,
+      blocksLasting: config.fluxapps.blocksLasting,
+      minBlocksAllowance: config.fluxapps.minBlocksAllowance,
+      maxBlocksAllowance: config.fluxapps.maxBlocksAllowance,
+      blocksAllowanceInterval: config.fluxapps.blocksAllowanceInterval,
     };
     const respondPrice = messageHelper.createDataMessage(information);
     res.json(respondPrice);

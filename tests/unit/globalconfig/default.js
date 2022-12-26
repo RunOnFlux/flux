@@ -134,7 +134,10 @@ module.exports = {
       delay: 30,
       composedDelay: 5,
     },
-    blocksLasting: 22000, // registered app will live for 22000 of blocks 44000 minutes ~= 1 month
+    blocksLasting: 22000, // by default registered app will live for 22000 of blocks 44000 minutes ~= 1 month
+    minBlocksAllowance: 5000, // app can be registered for a minimum of this blocks ~ 1 week
+    maxBlocksAllowance: 264000, // app can be registered up for a maximum of this blocks ~ 1 year
+    blocksAllowanceInterval: 1000, // ap differences can be in 1000s - more than 1 day
     ownerAppAllowance: 1000, // in case of node owner installing some app, the app will run for this amount of blocks
     temporaryAppAllowance: 200, // in case of any user installing some temporary app message for testing purposes, the app will run for this many blocks
     expireFluxAppsPeriod: 100, // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago
