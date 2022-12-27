@@ -311,6 +311,27 @@
                 step="1"
               />
             </b-form-group>
+            <br>
+            <b-form-group
+              v-if="appRegistrationSpecification.version >= 6"
+              label-cols="2"
+              label-cols-lg="1"
+              label="Period"
+              label-for="period"
+            >
+              <div class="mx-1">
+                {{ getExpireLabel || appRegistrationSpecification.expire + ' blocks' }}
+              </div>
+              <b-form-input
+                id="period"
+                v-model="expirePosition"
+                placeholder="How long an application will live on Flux network"
+                type="range"
+                :min="0"
+                :max="5"
+                :step="1"
+              />
+            </b-form-group>
           </b-card>
         </b-col>
       </b-row>
@@ -1134,7 +1155,10 @@
         >
           <b-card title="Register App">
             <b-card-text>
-              Price per Month: {{ appPricePerMonth }} FLUX
+              Price: {{ appPricePerMonth }} FLUX
+            </b-card-text>
+            <b-card-text>
+              Subscribtion period: {{ getExpireLabel || appRegistrationSpecification.expire + ' blocks' }}
             </b-card-text>
             <b-button
               v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -1327,7 +1351,7 @@ export default {
       signature: '',
       registrationHash: '',
       registrationtype: 'fluxappregister',
-      currentHeight: 1,
+      currentHeight: 1250000,
       specificationVersion: 4,
       appRegistrationSpecification: {},
       appRegistrationSpecificationv3template: {
@@ -1425,6 +1449,42 @@ export default {
           },
         ],
       },
+      appRegistrationSpecificationv6template: {
+        version: 6,
+        name: '',
+        description: '',
+        owner: '',
+        instances: 3,
+        contacts: '[]',
+        geolocation: [],
+        expire: 22000,
+        compose: [
+          {
+            name: '',
+            description: '',
+            repotag: '',
+            ports: '[]',
+            domains: '[]',
+            environmentParameters: '[]',
+            commands: '[]',
+            containerPorts: '[]',
+            containerData: '',
+            cpu: 0.5,
+            ram: 2000,
+            hdd: 40,
+            tiered: false,
+            cpubasic: 0.5,
+            rambasic: 500,
+            hddbasic: 10,
+            cpusuper: 1.5,
+            ramsuper: 2500,
+            hddsuper: 60,
+            cpubamf: 3.5,
+            rambamf: 14000,
+            hddbamf: 285,
+          },
+        ],
+      },
       composeTemplate: {
         name: '',
         description: '',
@@ -1454,6 +1514,41 @@ export default {
       deploymentAddress: '',
       minInstances: 3,
       maxInstances: 100,
+      minExpire: 5000,
+      maxExpire: 264000,
+      expirePosition: 2,
+      expireOptions: [
+        {
+          value: 5000,
+          label: '1 week',
+          time: 7 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 11000,
+          label: '2 weeks',
+          time: 14 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 22000,
+          label: '1 month',
+          time: 30 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 66000,
+          label: '3 months',
+          time: 90 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 132000,
+          label: '6 months',
+          time: 180 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 264000,
+          label: '1 year',
+          time: 365 * 24 * 60 * 60 * 1000,
+        },
+      ],
       possibleLocations: [],
       allowedGeolocations: {},
       forbiddenGeolocations: {},
@@ -1475,7 +1570,19 @@ export default {
       return expTime;
     },
     subscribedTill() {
-      const expTime = this.timestamp + 30 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000; // 1 month
+      if (this.appRegistrationSpecification.expire) {
+        const timeFound = this.expireOptions.find((option) => option.value === this.appRegistrationSpecification.expire);
+        if (timeFound) {
+          const expTime = this.timestamp + timeFound.time;
+          return expTime;
+        }
+        const blocks = this.appRegistrationSpecification.expire;
+        const blockTime = 2 * 60 * 1000;
+        const validTime = blocks * blockTime;
+        const expTime = this.timestamp + validTime;
+        return expTime;
+      }
+      const expTime = this.timestamp + 30 * 24 * 60 * 60 * 1000; // 1 month
       return expTime;
     },
     callbackValue() {
@@ -1503,6 +1610,18 @@ export default {
       const backendURL = store.get('backendURL') || mybackend;
       const url = `${backendURL}/id/providesign`;
       return encodeURI(url);
+    },
+    convertExpire() {
+      if (this.expireOptions[this.expirePosition]) {
+        return this.expireOptions[this.expirePosition].value;
+      }
+      return 22000;
+    },
+    getExpireLabel() {
+      if (this.expireOptions[this.expirePosition]) {
+        return this.expireOptions[this.expirePosition].label;
+      }
+      return null;
     },
   },
   watch: {
@@ -1553,6 +1672,9 @@ export default {
         if (appSpecification.version >= 5) {
           appSpecification.geolocation = this.generateGeolocations();
         }
+        if (appSpecification.version >= 6) {
+          appSpecification.expire = this.convertExpire();
+        }
         // call api for verification of app registration specifications that returns formatted specs
         const responseAppSpecs = await AppsService.appRegistrationVerificaiton(appSpecification);
         if (responseAppSpecs.data.status === 'error') {
@@ -1594,9 +1716,17 @@ export default {
           // eslint-disable-next-line no-param-reassign
           component.ports = ports;
         });
-      } else {
+      } else if (this.currentHeight < 1200000) {
         this.specificationVersion = 5;
         this.appRegistrationSpecification = this.appRegistrationSpecificationv5template;
+        this.appRegistrationSpecification.compose.forEach((component) => {
+          const ports = this.getRandomPort();
+          // eslint-disable-next-line no-param-reassign
+          component.ports = ports;
+        });
+      } else {
+        this.specificationVersion = 6;
+        this.appRegistrationSpecification = this.appRegistrationSpecificationv6template;
         this.appRegistrationSpecification.compose.forEach((component) => {
           const ports = this.getRandomPort();
           // eslint-disable-next-line no-param-reassign

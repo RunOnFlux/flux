@@ -104,7 +104,11 @@
             <list-entry
               v-if="callResponse.data.hash && callResponse.data.hash.length === 64"
               title="Expires on Blockheight"
-              :number="callResponse.data.height + 22000"
+              :number="callResponse.data.height + (callResponse.data.expire || 22000)"
+            />
+            <list-entry
+              title="Period"
+              :data="getExpireLabel || callResponse.data.expire + ' blocks'"
             />
             <h4>Composition</h4>
             <div v-if="callResponse.data.version <= 3">
@@ -369,7 +373,11 @@
             <list-entry
               v-if="callBResponse.data.hash && callBResponse.data.hash.length === 64"
               title="Expires on Blockheight"
-              :number="callBResponse.data.height + 22000"
+              :number="callBResponse.data.height + (callBResponse.data.expire || 22000)"
+            />
+            <list-entry
+              title="Period"
+              :data="getExpireLabel || callBResponse.data.expire + ' blocks'"
             />
             <h4>Composition</h4>
             <div v-if="callBResponse.data.version <= 3">
@@ -1397,7 +1405,11 @@
             <list-entry
               v-if="callBResponse.data.hash && callBResponse.data.hash.length === 64"
               title="Expires on Blockheight"
-              :number="callBResponse.data.height + 22000"
+              :number="callBResponse.data.height + (callBResponse.data.expire || 22000)"
+            />
+            <list-entry
+              title="Period"
+              :data="getExpireLabel || callBResponse.data.expire + ' blocks'"
             />
             <h4>Composition</h4>
             <b-card v-if="callBResponse.data.version <= 3">
@@ -2186,6 +2198,27 @@
                     step="1"
                   />
                 </b-form-group>
+                <br>
+                <b-form-group
+                  v-if="appUpdateSpecification.version >= 6"
+                  label-cols="2"
+                  label-cols-lg="1"
+                  label="Period"
+                  label-for="period"
+                >
+                  <div class="mx-1">
+                    {{ getExpireLabel || appUpdateSpecification.expire + ' blocks' }}
+                  </div>
+                  <b-form-input
+                    id="period"
+                    v-model="expirePosition"
+                    placeholder="How long an application will live on Flux network"
+                    type="range"
+                    :min="0"
+                    :max="5"
+                    :step="1"
+                  />
+                </b-form-group>
               </b-card>
             </b-col>
           </b-row>
@@ -2644,6 +2677,27 @@
                     min="3"
                     max="100"
                     step="1"
+                  />
+                </b-form-group>
+                <br>
+                <b-form-group
+                  v-if="appUpdateSpecification.version >= 6"
+                  label-cols="2"
+                  label-cols-lg="1"
+                  label="Period"
+                  label-for="period"
+                >
+                  <div class="mx-1">
+                    {{ getExpireLabel || appUpdateSpecification.expire + ' blocks' }}
+                  </div>
+                  <b-form-input
+                    id="period"
+                    v-model="expirePosition"
+                    placeholder="How long an application will live on Flux network"
+                    type="range"
+                    :min="0"
+                    :max="5"
+                    :step="1"
                   />
                 </b-form-group>
               </b-card>
@@ -3266,6 +3320,41 @@ export default {
       forbiddenGeolocations: {},
       numberOfGeolocations: 1,
       numberOfNegativeGeolocations: 1,
+      minExpire: 5000,
+      maxExpire: 264000,
+      expirePosition: 2,
+      expireOptions: [
+        {
+          value: 5000,
+          label: '1 week',
+          time: 7 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 11000,
+          label: '2 weeks',
+          time: 14 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 22000,
+          label: '1 month',
+          time: 30 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 66000,
+          label: '3 months',
+          time: 90 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 132000,
+          label: '6 months',
+          time: 180 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 264000,
+          label: '1 year',
+          time: 365 * 24 * 60 * 60 * 1000,
+        },
+      ],
     };
   },
   computed: {
@@ -3312,7 +3401,7 @@ export default {
       return expTime;
     },
     subscribedTill() {
-      const expTime = this.timestamp + 30 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000; // 1 month
+      const expTime = this.timestamp + 30 * 24 * 60 * 60 * 1000; // 1 month
       return expTime;
     },
     isApplicationInstalledLocally() {
@@ -3390,6 +3479,18 @@ export default {
         }
       });
       return domains;
+    },
+    convertExpire() {
+      if (this.expireOptions[this.expirePosition]) {
+        return this.expireOptions[this.expirePosition].value;
+      }
+      return 22000;
+    },
+    getExpireLabel() {
+      if (this.expireOptions[this.expirePosition]) {
+        return this.expireOptions[this.expirePosition].label;
+      }
+      return null;
     },
   },
   watch: {
@@ -3559,6 +3660,13 @@ export default {
         this.appSpecification = response.data.data[0];
       }
     },
+    getExpirePosition(value) {
+      const position = this.expireOptions.findIndex((opt) => opt.value === value);
+      if (position || position === 0) {
+        return position;
+      }
+      return 2;
+    },
     async getGlobalApplicationSpecifics() {
       const response = await AppsService.getAppSpecifics(this.appName);
       console.log(response);
@@ -3580,7 +3688,9 @@ export default {
           this.appUpdateSpecification.commands = this.ensureString(specs.commands);
           this.appUpdateSpecification.containerPorts = specs.containerPort || this.ensureString(specs.containerPorts); // v1 compatibility
         } else {
-          this.appUpdateSpecification.version = 5; // enforce specs v5
+          if (this.appUpdateSpecification.version <= 5) {
+            this.appUpdateSpecification.version = 5; // enforce specs v5, later enforce v6 after fork
+          }
           this.appUpdateSpecification.contacts = this.ensureString([]);
           this.appUpdateSpecification.geolocation = this.ensureString([]);
           if (this.appUpdateSpecification.version >= 5) {
@@ -3600,6 +3710,10 @@ export default {
             // eslint-disable-next-line no-param-reassign
             component.containerPorts = this.ensureString(component.containerPorts);
           });
+          if (this.appUpdateSpecification.version >= 6) {
+            this.appUpdateSpecification.expire = this.ensureNumber(specs.expire || 22000);
+            this.expirePosition = this.getExpirePosition(this.appUpdateSpecification.expire);
+          }
         }
       }
     },
@@ -3640,6 +3754,9 @@ export default {
         const appSpecification = this.appUpdateSpecification;
         if (appSpecification.version >= 5) {
           appSpecification.geolocation = this.generateGeolocations();
+        }
+        if (appSpecification.version >= 6) {
+          appSpecification.expire = this.convertExpire();
         }
         // call api for verification of app registration specifications that returns formatted specs
         const responseAppSpecs = await AppsService.appUpdateVerification(appSpecification);
