@@ -2283,6 +2283,21 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
       await appUninstallHard(appName, appId, appSpecifications, isComponent, res);
     }
     if (!isComponent) {
+      const dockerNetworkStatus = {
+        status: 'Cleaning up docker network...',
+      };
+      log.info(dockerNetworkStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(dockerNetworkStatus));
+      }
+      await dockerService.removeFluxAppDockerNetwork(appName);
+      const dockerNetworkStatus2 = {
+        status: 'Docker network cleaned',
+      };
+      log.info(dockerNetworkStatus2);
+      if (res) {
+        res.write(serviceHelper.ensureString(dockerNetworkStatus2));
+      }
       const databaseStatus = {
         status: 'Cleaning up database...',
       };
@@ -2959,24 +2974,6 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
       },
     };
 
-    // check if fluxDockerNetwork exists, if not create
-    const fluxNetworkStatus = {
-      status: 'Checking Flux network...',
-    };
-    log.info(fluxNetworkStatus);
-    if (res) {
-      res.write(serviceHelper.ensureString(fluxNetworkStatus));
-    }
-    const fluxNet = await dockerService.createFluxDockerNetwork().catch((error) => log.error(error));
-    if (!fluxNet) {
-      return;
-    }
-    const fluxNetResponse = messageHelper.createDataMessage(fluxNet);
-    log.info(fluxNetResponse);
-    if (res) {
-      res.write(serviceHelper.ensureString(fluxNetResponse));
-    }
-
     // check if app is already installed
     const checkDb = {
       status: 'Checking database...',
@@ -2994,6 +2991,33 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
         res.end();
       }
       return;
+    }
+
+    if (!isComponent) {
+      const installedAppsRes = await installedApps();
+      if (installedAppsRes.status !== 'success') {
+        throw new Error('Failed to get installed Apps');
+      }
+      const iApps = installedAppsRes.data;
+
+      const dockerNetworkAddrValue = 50 + iApps.length;
+
+      const fluxNetworkStatus = {
+        status: `Checking Flux App network of ${appName}...`,
+      };
+      log.info(fluxNetworkStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(fluxNetworkStatus));
+      }
+      const fluxNet = await dockerService.createFluxAppDockerNetwork(appName, dockerNetworkAddrValue).catch((error) => log.error(error));
+      if (!fluxNet) {
+        return;
+      }
+      const fluxNetResponse = messageHelper.createDataMessage(fluxNet);
+      log.info(fluxNetResponse);
+      if (res) {
+        res.write(serviceHelper.ensureString(fluxNetResponse));
+      }
     }
 
     const appInstallation = {
@@ -3262,24 +3286,6 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       },
     };
 
-    // check if fluxDockerNetwork exists, if not create
-    const fluxNetworkStatus = {
-      status: 'Checking Flux network...',
-    };
-    log.info(fluxNetworkStatus);
-    if (res) {
-      res.write(serviceHelper.ensureString(fluxNetworkStatus));
-    }
-    const fluxNet = await dockerService.createFluxDockerNetwork().catch((error) => log.error(error));
-    if (!fluxNet) {
-      return;
-    }
-    const fluxNetResponse = messageHelper.createDataMessage(fluxNet);
-    log.info(fluxNetResponse);
-    if (res) {
-      res.write(serviceHelper.ensureString(fluxNetResponse));
-    }
-
     // check if app is already installed
     const checkDb = {
       status: 'Checking database...',
@@ -3297,6 +3303,33 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
         res.end();
       }
       return;
+    }
+
+    if (!isComponent) {
+      const installedAppsRes = await installedApps();
+      if (installedAppsRes.status !== 'success') {
+        throw new Error('Failed to get installed Apps');
+      }
+      const iApps = installedAppsRes.data;
+
+      const dockerNetworkAddrValue = 50 + iApps.length;
+
+      const fluxNetworkStatus = {
+        status: `Checking Flux App network of ${appName}...`,
+      };
+      log.info(fluxNetworkStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(fluxNetworkStatus));
+      }
+      const fluxNet = await dockerService.createFluxAppDockerNetwork(appName, dockerNetworkAddrValue).catch((error) => log.error(error));
+      if (!fluxNet) {
+        return;
+      }
+      const fluxNetResponse = messageHelper.createDataMessage(fluxNet);
+      log.info(fluxNetResponse);
+      if (res) {
+        res.write(serviceHelper.ensureString(fluxNetResponse));
+      }
     }
 
     const appInstallation = {

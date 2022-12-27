@@ -470,7 +470,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent) {
       RestartPolicy: {
         Name: 'unless-stopped',
       },
-      NetworkMode: 'fluxDockerNetwork',
+      NetworkMode: `fluxNetwork_${appName}`,
       LogConfig: {
         Type: 'json-file',
         Config: {
@@ -634,7 +634,7 @@ async function appDockerTop(idOrName) {
 
 /**
  * Creates flux docker network if doesn't exist
- *
+ * OBSOLETE
  * @returns {object} response
  */
 async function createFluxDockerNetwork() {
@@ -659,6 +659,60 @@ async function createFluxDockerNetwork() {
     response = await dockerCreateNetwork(fluxNetworkOptions);
   } else {
     response = 'Flux Network already exists.';
+  }
+  return response;
+}
+
+/**
+ * Creates flux application docker network if doesn't exist
+ *
+ * @returns {object} response
+ */
+async function createFluxAppDockerNetwork(appname, number) {
+  // check if fluxDockerNetwork exists
+  const fluxNetworkOptions = {
+    Name: `fluxNetwork_${appname}`,
+    IPAM: {
+      Config: [{
+        Subnet: `172.${number}.0.0/16`,
+        Gateway: `172.${number}.0.1`,
+      }],
+    },
+  };
+  let fluxNetworkExists = true;
+  const network = docker.getNetwork(fluxNetworkOptions.Name);
+  await dockerNetworkInspect(network).catch(() => {
+    fluxNetworkExists = false;
+  });
+  let response;
+  // create or check docker network
+  if (!fluxNetworkExists) {
+    response = await dockerCreateNetwork(fluxNetworkOptions);
+  } else {
+    response = `Flux App Network of ${appname} already exists.`;
+  }
+  return response;
+}
+
+/**
+ * Removes flux application docker network if exists
+ *
+ * @returns {object} response
+ */
+async function removeFluxAppDockerNetwork(appname) {
+  // check if fluxDockerNetwork exists
+  const fluxAppNetworkName = `fluxNetwork_${appname}`;
+  let fluxNetworkExists = true;
+  const network = docker.getNetwork(fluxAppNetworkName);
+  await dockerNetworkInspect(network).catch(() => {
+    fluxNetworkExists = false;
+  });
+  let response;
+  // create or check docker network
+  if (!fluxNetworkExists) {
+    response = await dockerRemoveNetwork(network);
+  } else {
+    response = `Flux App Network of ${appname} already does not exist.`;
   }
   return response;
 }
@@ -692,4 +746,6 @@ module.exports = {
   appDockerTop,
   createFluxDockerNetwork,
   getDockerContainerByIdOrName,
+  createFluxAppDockerNetwork,
+  removeFluxAppDockerNetwork,
 };
