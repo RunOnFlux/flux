@@ -470,7 +470,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent) {
       RestartPolicy: {
         Name: 'unless-stopped',
       },
-      NetworkMode: `fluxNetwork_${appName}`,
+      NetworkMode: `fluxDockerNetwork_${appName}`,
       LogConfig: {
         Type: 'json-file',
         Config: {
@@ -669,9 +669,9 @@ async function createFluxDockerNetwork() {
  * @returns {object} response
  */
 async function createFluxAppDockerNetwork(appname, number) {
-  // check if fluxDockerNetwork exists
+  // check if fluxDockerNetwork of an appexists
   const fluxNetworkOptions = {
-    Name: `fluxNetwork_${appname}`,
+    Name: `fluxDockerNetwork_${appname}`,
     IPAM: {
       Config: [{
         Subnet: `172.${number}.0.0/16`,
@@ -700,8 +700,8 @@ async function createFluxAppDockerNetwork(appname, number) {
  * @returns {object} response
  */
 async function removeFluxAppDockerNetwork(appname) {
-  // check if fluxDockerNetwork exists
-  const fluxAppNetworkName = `fluxNetwork_${appname}`;
+  // check if fluxDockerNetwork of an app exists
+  const fluxAppNetworkName = `fluxDockerNetwork_${appname}`;
   let fluxNetworkExists = true;
   const network = docker.getNetwork(fluxAppNetworkName);
   await dockerNetworkInspect(network).catch(() => {

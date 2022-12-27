@@ -578,7 +578,7 @@ describe('dockerService tests', () => {
     let network;
     const docker = new Dockerode();
     const fluxNetworkOptions = {
-      Name: 'fluxNetwork_MyAppName',
+      Name: 'fluxDockerNetwork_MyAppName',
       IPAM: {
         Config: [{
           Subnet: '172.52.0.0/16',
