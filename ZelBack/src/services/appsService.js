@@ -3990,6 +3990,7 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
   const { tiered } = appSpecification;
   const { contacts } = appSpecification;
   const { geolocation } = appSpecification;
+  const { expire } = appSpecification;
 
   if (!version) {
     throw new Error('Missing Flux App specification parameter');
@@ -4262,6 +4263,21 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
     }
   }
 
+  if (version >= 6) {
+    if (!expire) {
+      throw new Error('Missing Flux App specification parameter');
+    }
+    if (typeof expire !== 'number') {
+      throw new Error('Invalid expire specification');
+    }
+    if (Number.isInteger(expire) !== true) {
+      throw new Error('Invalid expire specified');
+    }
+    if (!serviceHelper.isDecimalLimit(expire, 0)) {
+      throw new Error('Invalid expire specified');
+    }
+  }
+
   return true;
 }
 
@@ -4479,6 +4495,18 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
       }
     });
   }
+
+  if (appSpecifications.version >= 6) {
+    if (appSpecifications.expire < config.fluxapps.minBlocksAllowance) {
+      throw new Error(`Minimum expiration of application is ${config.fluxapps.minBlocksAllowance} blocks ~ 1 week`);
+    }
+    if (appSpecifications.expire > config.fluxapps.maxBlocksAllowance) {
+      throw new Error(`Maximum expiration of application is ${config.fluxapps.maxBlocksAllowance} blocks ~ 1 year`);
+    }
+    if (appSpecifications.expire % config.fluxapps.blocksAllowanceInterval === 0) {
+      throw new Error(`Expiration of application has to be a multiple of ${config.fluxapps.blocksAllowanceInterval} blocks ~ 1 day`);
+    }
+  }
 }
 
 /**
@@ -4570,7 +4598,7 @@ function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
         }
       });
     });
-  } else {
+  } else if (appSpecifications.version === 5) {
     const specifications = [
       'version', 'name', 'description', 'owner', 'compose', 'instances', 'contacts', 'geolocation',
     ];
@@ -4592,6 +4620,30 @@ function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
         }
       });
     });
+  } else if (appSpecifications.version === 6) {
+    const specifications = [
+      'version', 'name', 'description', 'owner', 'compose', 'instances', 'contacts', 'geolocation', 'expire',
+    ];
+    const componentSpecifications = [
+      'name', 'description', 'repotag', 'ports', 'containerPorts', 'environmentParameters', 'commands', 'containerData', 'domains',
+      'cpu', 'ram', 'hdd', 'tiered', 'cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
+    ];
+    const specsKeys = Object.keys(appSpecifications);
+    specsKeys.forEach((sKey) => {
+      if (!specifications.includes((sKey))) {
+        throw new Error('Unsupported parameter for v5 app specifications');
+      }
+    });
+    appSpecifications.compose.forEach((appComponent) => {
+      const specsKeysComponent = Object.keys(appComponent);
+      specsKeysComponent.forEach((sKey) => {
+        if (!componentSpecifications.includes((sKey))) {
+          throw new Error('Unsupported parameter for v5 app specifications');
+        }
+      });
+    });
+  } else {
+    throw new Error(`Invalid version specification of ${appSpecifications.version}`);
   }
 }
 
@@ -5439,6 +5491,7 @@ function specificationFormatter(appSpecification) {
   const { tiered } = appSpecification;
   let { contacts } = appSpecification;
   let { geolocation } = appSpecification;
+  let { expire } = appSpecification;
 
   if (!version) {
     throw new Error('Missing Flux App specification parameter');
@@ -5736,6 +5789,29 @@ function specificationFormatter(appSpecification) {
       throw new Error('Geolocation for Flux App is invalid');
     }
     appSpecFormatted.geolocation = geolocationCorrect;
+  }
+
+  if (version >= 6) {
+    if (!expire) {
+      throw new Error('Missing Flux App specification parameter');
+    }
+    expire = serviceHelper.ensureNumber(expire);
+    if (typeof expire !== 'number') {
+      throw new Error('Invalid instances specification');
+    }
+    if (Number.isInteger(expire) !== true) {
+      throw new Error('Invalid instances specified');
+    }
+    if (expire < config.fluxapps.minBlocksAllowance) {
+      throw new Error(`Minimum expiration of application is ${config.fluxapps.minBlocksAllowance} blocks ~ 1 week`);
+    }
+    if (expire > config.fluxapps.maxBlocksAllowance) {
+      throw new Error(`Maximum expiration of application is ${config.fluxapps.maxBlocksAllowance} blocks ~ 1 year`);
+    }
+    if (expire % config.fluxapps.blocksAllowanceInterval === 0) {
+      throw new Error(`Expiration of application has to be a multiple of ${config.fluxapps.blocksAllowanceInterval} blocks ~ 1 day`);
+    }
+    appSpecFormatted.expire = expire;
   }
 
   return appSpecFormatted;
