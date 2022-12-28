@@ -585,5 +585,6 @@
    "whyour/qinglong",
    "plausible/analytics:latest",
    "wirewrex/bulk-crop-tool:latest",
-   "rvnminersaandn/meowcoin-core:latest"
+   "rvnminersaandn/meowcoin-core:latest",
+   "scsibug/nostr-rs-relay:latest"
 ]
