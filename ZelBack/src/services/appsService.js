@@ -3925,6 +3925,14 @@ async function checkApplicationImagesComplience(appSpecs) {
     pureImagesOrOrganisationsRepos.push(repo.split(':')[0]);
   });
 
+  // blacklist works also for zelid and app hash
+  if (pureImagesOrOrganisationsRepos.includes(appSpecs.hash)) {
+    throw new Error(`${appSpecs.hash} is not allowed to be spawned`);
+  }
+  if (pureImagesOrOrganisationsRepos.includes(appSpecs.owner)) {
+    throw new Error(`${appSpecs.owner} is not allowed to run applications`);
+  }
+
   const images = [];
   const organisations = [];
   if (appSpecs.version <= 3) {
@@ -3954,7 +3962,7 @@ async function checkApplicationImagesComplience(appSpecs) {
 /**
  * To check if application image is part of blocked repositories
  * @param {object} appSpecs App specifications.
- * @returns {boolean} True if no errors are thrown.
+ * @returns {boolean, string} False if blocked, String of reason if yes
  */
 async function checkApplicationImagesBlocked(appSpecs) {
   const repos = await getBlockedRepositores();
@@ -3969,6 +3977,14 @@ async function checkApplicationImagesBlocked(appSpecs) {
   repos.forEach((repo) => {
     pureImagesOrOrganisationsRepos.push(repo.split(':')[0]);
   });
+
+  // blacklist works also for zelid and app hash
+  if (pureImagesOrOrganisationsRepos.includes(appSpecs.hash)) {
+    return `${appSpecs.hash} is not allowed to be spawned`;
+  }
+  if (pureImagesOrOrganisationsRepos.includes(appSpecs.owner)) {
+    return `${appSpecs.owner} is not allowed to run applications`;
+  }
 
   const images = [];
   const organisations = [];
