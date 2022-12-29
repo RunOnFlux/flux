@@ -41,6 +41,13 @@ module.exports = {
         appsLocations: 'zelappslocation', // stores location of flux apps as documents containing name, hash, ip, obtainedAt
       },
     },
+    chainparams: {
+      database: 'chainparamstest',
+      collections: {
+        chainMessages: 'chainmessages', // soft fork messages occuring on chain, Messages have immediate activation from its occurance blockheight (next blockheight mined are already new specs enforced)
+        // height, txid, message, version (version X_ determines the value of adjustment p_ specifies new price structure as per fluxapps.price array values)
+      },
+    },
     fluxshare: {
       database: 'zelsharetest',
       collections: {
@@ -87,6 +94,13 @@ module.exports = {
       ram: 0.02, // per 100mb,
       hdd: 0.01, // per 1gb,
       minPrice: 0.01, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
+    },
+    {
+      height: 1288000, // height from which price spec is valid. Counts from when app was registerd on blockchain! 1004000
+      cpu: 0.18, // per 0.1 cpu core,
+      ram: 0.06, // per 100mb,
+      hdd: 0.03, // per 1gb,
+      minPrice: 0.01, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
     }],
     appSpecsEnforcementHeights: {
       1: 0, // blockheight v1 is deprecated. Not possible to use api to update to its specs
@@ -95,6 +109,7 @@ module.exports = {
       4: 1004000, // v4 available
     },
     address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
+    addressMultisig: 't3aGJvdtd8NR6GrnqnRuVEzH6MbrXuJFLUX',
     epochstart: 694000,
     publicepochstart: 705000,
     portMin: 31000, // ports 30000 - 30999 are reserved for local applications
@@ -119,7 +134,12 @@ module.exports = {
       delay: 30,
       composedDelay: 5,
     },
-    blocksLasting: 22000, // registered app will live for 22000 of blocks 44000 minutes ~= 1 month
+    blocksLasting: 22000, // by default registered app will live for 22000 of blocks 44000 minutes ~= 1 month
+    minBlocksAllowance: 5000, // app can be registered for a minimum of this blocks ~ 1 week
+    maxBlocksAllowance: 264000, // app can be registered up for a maximum of this blocks ~ 1 year
+    blocksAllowanceInterval: 1000, // ap differences can be in 1000s - more than 1 day
+    ownerAppAllowance: 1000, // in case of node owner installing some app, the app will run for this amount of blocks
+    temporaryAppAllowance: 200, // in case of any user installing some temporary app message for testing purposes, the app will run for this many blocks
     expireFluxAppsPeriod: 100, // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago
     updateFluxAppsPeriod: 9, // every 9 blocks we check for reinstalling of old application versions
     removeFluxAppsPeriod: 11, // every 11 blocks we check for more than maximum number of instances of an application

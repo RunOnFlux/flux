@@ -311,6 +311,27 @@
                 step="1"
               />
             </b-form-group>
+            <br>
+            <b-form-group
+              v-if="appRegistrationSpecification.version >= 6"
+              label-cols="2"
+              label-cols-lg="1"
+              label="Period"
+              label-for="period"
+            >
+              <div class="mx-1">
+                {{ getExpireLabel || appRegistrationSpecification.expire + ' blocks' }}
+              </div>
+              <b-form-input
+                id="period"
+                v-model="expirePosition"
+                placeholder="How long an application will live on Flux network"
+                type="range"
+                :min="0"
+                :max="5"
+                :step="1"
+              />
+            </b-form-group>
           </b-card>
         </b-col>
       </b-row>
@@ -1078,7 +1099,7 @@
       </b-row>
     </div>
     <div
-      v-if="appRegistrationSpecification.version >= 4 && appRegistrationSpecification.compose.length < 5"
+      v-if="appRegistrationSpecification.version >= 4 && appRegistrationSpecification.compose.length < (currentHeight < 1300000 ? 5 : 10)"
       class="text-center"
     >
       <b-button
@@ -1134,7 +1155,10 @@
         >
           <b-card title="Register App">
             <b-card-text>
-              Price per Month: {{ appPricePerMonth }} FLUX
+              Price: {{ appPricePerMonth }} FLUX
+            </b-card-text>
+            <b-card-text>
+              Subscribtion period: {{ getExpireLabel || appRegistrationSpecification.expire + ' blocks' }}
             </b-card-text>
             <b-button
               v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -1206,6 +1230,63 @@
         </b-col>
       </b-row>
     </div>
+    <div v-if="registrationHash">
+      <b-row>
+        <b-card title="Test Launch">
+          <b-card-text>
+            You can now test launch your application locally. It will run on this particular node for a few hours, so you can spot and tune your app specifications.
+            <br>
+            Application will run on IP: {{ nodeIP || 'Sorry, something went wrong, check IP manually' }}
+          </b-card-text>
+          <b-button
+            v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+            variant="success"
+            aria-label="Test Launch"
+            class="my-1"
+            @click="installAppLocally(registrationHash)"
+          >
+            Test Launch
+          </b-button>
+        </b-card>
+      </b-row>
+    </div>
+    <div
+      v-if="output.length > 0"
+      class="actionCenter"
+    >
+      <br>
+      <b-row>
+        <b-col cols="9">
+          <b-form-textarea
+            plaintext
+            no-resize
+            :rows="output.length + 1"
+            :value="stringOutput()"
+            class="mt-1"
+          />
+        </b-col>
+        <b-col
+          v-if="downloading"
+          cols="3"
+        >
+          <h3>Downloads</h3>
+          <div
+            v-for="download in downloadOutput"
+            :key="download.id"
+          >
+            <h4> {{ download.id }}</h4>
+            <b-progress
+              :value="download.detail.current / download.detail.total * 100"
+              max="100"
+              striped
+              height="1rem"
+              :variant="download.variant"
+            />
+            <br>
+          </div>
+        </b-col>
+      </b-row>
+    </div>
   </div>
 </template>
 
@@ -1270,7 +1351,7 @@ export default {
       signature: '',
       registrationHash: '',
       registrationtype: 'fluxappregister',
-      currentHeight: 1,
+      currentHeight: 1250000,
       specificationVersion: 4,
       appRegistrationSpecification: {},
       appRegistrationSpecificationv3template: {
@@ -1368,6 +1449,42 @@ export default {
           },
         ],
       },
+      appRegistrationSpecificationv6template: {
+        version: 6,
+        name: '',
+        description: '',
+        owner: '',
+        instances: 3,
+        contacts: '[]',
+        geolocation: [],
+        expire: 22000,
+        compose: [
+          {
+            name: '',
+            description: '',
+            repotag: '',
+            ports: '[]',
+            domains: '[]',
+            environmentParameters: '[]',
+            commands: '[]',
+            containerPorts: '[]',
+            containerData: '',
+            cpu: 0.5,
+            ram: 2000,
+            hdd: 40,
+            tiered: false,
+            cpubasic: 0.5,
+            rambasic: 500,
+            hddbasic: 10,
+            cpusuper: 1.5,
+            ramsuper: 2500,
+            hddsuper: 60,
+            cpubamf: 3.5,
+            rambamf: 14000,
+            hddbamf: 285,
+          },
+        ],
+      },
       composeTemplate: {
         name: '',
         description: '',
@@ -1397,11 +1514,50 @@ export default {
       deploymentAddress: '',
       minInstances: 3,
       maxInstances: 100,
+      minExpire: 5000,
+      maxExpire: 264000,
+      expirePosition: 2,
+      expireOptions: [
+        {
+          value: 5000,
+          label: '1 week',
+          time: 7 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 11000,
+          label: '2 weeks',
+          time: 14 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 22000,
+          label: '1 month',
+          time: 30 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 66000,
+          label: '3 months',
+          time: 90 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 132000,
+          label: '6 months',
+          time: 180 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 264000,
+          label: '1 year',
+          time: 365 * 24 * 60 * 60 * 1000,
+        },
+      ],
       possibleLocations: [],
       allowedGeolocations: {},
       forbiddenGeolocations: {},
       numberOfGeolocations: 1,
       numberOfNegativeGeolocations: 1,
+      output: [],
+      downloading: false,
+      downloadOutput: {},
+      nodeIP: '',
     };
   },
   computed: {
@@ -1414,7 +1570,19 @@ export default {
       return expTime;
     },
     subscribedTill() {
-      const expTime = this.timestamp + 30 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000; // 1 month
+      if (this.appRegistrationSpecification.expire) {
+        const timeFound = this.expireOptions.find((option) => option.value === this.appRegistrationSpecification.expire);
+        if (timeFound) {
+          const expTime = this.timestamp + timeFound.time;
+          return expTime;
+        }
+        const blocks = this.appRegistrationSpecification.expire;
+        const blockTime = 2 * 60 * 1000;
+        const validTime = blocks * blockTime;
+        const expTime = this.timestamp + validTime;
+        return expTime;
+      }
+      const expTime = this.timestamp + 30 * 24 * 60 * 60 * 1000; // 1 month
       return expTime;
     },
     callbackValue() {
@@ -1443,6 +1611,18 @@ export default {
       const url = `${backendURL}/id/providesign`;
       return encodeURI(url);
     },
+    convertExpire() {
+      if (this.expireOptions[this.expirePosition]) {
+        return this.expireOptions[this.expirePosition].value;
+      }
+      return 22000;
+    },
+    getExpireLabel() {
+      if (this.expireOptions[this.expirePosition]) {
+        return this.expireOptions[this.expirePosition].label;
+      }
+      return null;
+    },
   },
   watch: {
     appRegistrationSpecification: {
@@ -1467,17 +1647,33 @@ export default {
     this.getGeolocationData();
     this.getDaemonInfo();
     this.appsDeploymentInformation();
+    this.getFluxnodeStatus();
     const zelidauth = localStorage.getItem('zelidauth');
     const auth = qs.parse(zelidauth);
     this.appRegistrationSpecification.owner = auth.zelid;
   },
   methods: {
+    async getFluxnodeStatus() {
+      try {
+        const fluxnodeStatus = await DaemonService.getZelNodeStatus();
+        if (fluxnodeStatus.data.status === 'error') {
+          this.showToast('danger', fluxnodeStatus.data.data.message || fluxnodeStatus.data.data);
+        } else {
+          this.nodeIP = fluxnodeStatus.data.data.ip.split(':')[0];
+        }
+      } catch (error) {
+        console.log(error);
+      }
+    },
     async checkFluxSpecificationsAndFormatMessage() {
       try {
         // formation, pre verificaiton
         const appSpecification = this.appRegistrationSpecification;
         if (appSpecification.version >= 5) {
           appSpecification.geolocation = this.generateGeolocations();
+        }
+        if (appSpecification.version >= 6) {
+          appSpecification.expire = this.convertExpire();
         }
         // call api for verification of app registration specifications that returns formatted specs
         const responseAppSpecs = await AppsService.appRegistrationVerificaiton(appSpecification);
@@ -1520,9 +1716,17 @@ export default {
           // eslint-disable-next-line no-param-reassign
           component.ports = ports;
         });
-      } else {
+      } else if (this.currentHeight < 1200000) {
         this.specificationVersion = 5;
         this.appRegistrationSpecification = this.appRegistrationSpecificationv5template;
+        this.appRegistrationSpecification.compose.forEach((component) => {
+          const ports = this.getRandomPort();
+          // eslint-disable-next-line no-param-reassign
+          component.ports = ports;
+        });
+      } else {
+        this.specificationVersion = 6;
+        this.appRegistrationSpecification = this.appRegistrationSpecificationv6template;
         this.appRegistrationSpecification.compose.forEach((component) => {
           const ports = this.getRandomPort();
           // eslint-disable-next-line no-param-reassign
@@ -1834,6 +2038,91 @@ export default {
       instances = instances > 3 ? instances : 3;
       const maxInstances = instances > 100 ? 100 : instances;
       this.maxInstances = maxInstances;
+    },
+    stringOutput() {
+      let string = '';
+      this.output.forEach((output) => {
+        if (output.status === 'success') {
+          string += `${output.data.message || output.data}\r\n`;
+        } else if (output.status === 'Downloading') {
+          this.downloadOutput[output.id] = ({
+            id: output.id,
+            detail: output.progressDetail,
+            variant: 'danger',
+          });
+        } else if (output.status === 'Verifying Checksum') {
+          this.downloadOutput[output.id] = ({
+            id: output.id,
+            detail: { current: 1, total: 1 },
+            variant: 'warning',
+          });
+        } else if (output.status === 'Download complete') {
+          this.downloadOutput[output.id] = ({
+            id: output.id,
+            detail: { current: 1, total: 1 },
+            variant: 'info',
+          });
+        } else if (output.status === 'Extracting') {
+          this.downloadOutput[output.id] = ({
+            id: output.id,
+            detail: output.progressDetail,
+            variant: 'primary',
+          });
+        } else if (output.status === 'Pull complete') {
+          this.downloadOutput[output.id] = ({
+            id: output.id,
+            detail: { current: 1, total: 1 },
+            variant: 'success',
+          });
+        } else {
+          string += `${output.status}\r\n`;
+        }
+      });
+      return string;
+    },
+    async installAppLocally(app) {
+      if (this.downloading) {
+        this.showToast('danger', 'Test launch was already initiated');
+        return;
+      }
+      const self = this;
+      this.output = [];
+      this.downloadOutput = {};
+      this.downloading = true;
+      this.showToast('warning', `Installing ${app}`);
+      const zelidauth = localStorage.getItem('zelidauth');
+      // const response = await AppsService.installAppLocally(zelidauth, app);
+      const axiosConfig = {
+        headers: {
+          zelidauth,
+        },
+        onDownloadProgress(progressEvent) {
+          console.log(progressEvent.target.response);
+          self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
+        },
+      };
+      const response = await AppsService.justAPI().get(`/apps/installapplocally/${app}`, axiosConfig);
+      if (response.data.status === 'error') {
+        this.showToast('danger', response.data.data.message || response.data.data);
+      } else {
+        console.log(response);
+        this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
+        console.log(this.output);
+        for (let i = 0; i < this.output.length; i += 1) {
+          if (this.output[i] && this.output[i].data && this.output[i].data.message && this.output[i].data.message.includes('Error occured')) {
+            // error is defined one line above
+            if (this.output[i - 1] && this.output[i - 1].data) {
+              this.showToast('danger', this.output[i - 1].data.message || this.output[i - 1].data);
+              return;
+            }
+          }
+        }
+        if (this.output[this.output.length - 1].status === 'error') {
+          this.showToast('danger', this.output[this.output.length - 1].status);
+        } else {
+          this.showToast('success', this.output[this.output.length - 1].status);
+        }
+      }
     },
   },
 };
