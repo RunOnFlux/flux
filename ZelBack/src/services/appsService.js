@@ -1773,7 +1773,9 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       res.write(serviceHelper.ensureString(permissionsDirectory));
     }
     const execPERM = `sudo chmod 777 ${appsFolder + appId}`;
+    const execPERMb = `sudo chmod 777 ${appsFolder + appId}/appdata`;
     await cmdAsync(execPERM);
+    await cmdAsync(execPERMb);
     const permissionsDirectory2 = {
       status: 'Permissions adjusted',
     };
