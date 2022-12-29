@@ -97,16 +97,18 @@ module.exports = {
     },
     {
       height: 1288000, // height from which price spec is valid. Counts from when app was registerd on blockchain! 1004000
-      cpu: 0.18, // per 0.1 cpu core,
-      ram: 0.06, // per 100mb,
-      hdd: 0.03, // per 1gb,
+      cpu: 0.15, // per 0.1 cpu core,
+      ram: 0.05, // per 100mb,
+      hdd: 0.02, // per 1gb,
       minPrice: 0.01, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
     }],
     appSpecsEnforcementHeights: {
       1: 0, // blockheight v1 is deprecated. Not possible to use api to update to its specs
       2: 0, // blockheight
       3: 983000, // blockheight. Since this blockheight specification of type 3 is active. User can still submit v1 or v2. UI allows only v2, v3
-      4: 1004000, // v4 available
+      4: 1004000, // v4 available, composition
+      5: 1142000, // v5 available adding contacts, geolocation
+      6: 1300000, // v6, expiration, app price, t3
     },
     address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
     addressMultisig: 't3aGJvdtd8NR6GrnqnRuVEzH6MbrXuJFLUX',
@@ -148,7 +150,7 @@ module.exports = {
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
     ram: 2000, // 2000mb
-    hdd: 40, // 40gb // this value is likely to rise
+    hdd: 40, // 40gb // this value is likely to raise
   },
   fluxSpecifics: { // tbd during forks
     cpu: {
@@ -175,9 +177,8 @@ module.exports = {
       stratus: 40000,
     },
   },
-  syncthing: {
+  syncthing: { // operates on apiPort + 2
     ip: '127.0.0.1', // local
     port: 8384, // local
-    // https://docs.syncthing.net/users/firewall.html
   },
 };

@@ -527,6 +527,7 @@ describe('explorerService tests', () => {
 
     it('save to db if version is >0 and <5 and data is correct', async () => {
       dbStubFind.returns([]);
+      sinon.stub(dbHelper, 'findInDatabase').resolves([]);
       const blockVerbose = {
         tx: [
           {
@@ -2336,6 +2337,7 @@ describe('explorerService tests', () => {
     it('should run the block processor, all params false', async () => {
       findInDatabaseStub.returns({ generalScannedHeight: 0 });
       dropCollectionStub.resolves(true);
+      sinon.stub(dbHelper, 'findInDatabase').resolves([]);
       const createIndexFake = sinon.fake.resolves(true);
       const collectionFake = sinon.fake.returns({ createIndex: createIndexFake });
       const dbFake = sinon.fake.returns({ collection: collectionFake });

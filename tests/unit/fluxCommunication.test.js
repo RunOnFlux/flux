@@ -1235,9 +1235,6 @@ describe('fluxCommunication tests', () => {
     it('should start connecting nodes if everything is set up properly', async () => {
       const fluxNodeList = [
         {
-          ip: '44.192.51.11:16127',
-        },
-        {
           ip: '44.192.51.12:16127',
         },
         {
@@ -1263,6 +1260,9 @@ describe('fluxCommunication tests', () => {
         },
         {
           ip: '44.192.51.20:16127',
+        },
+        {
+          ip: '44.192.51.11:16127',
         },
       ];
       sinon.stub(fluxNetworkHelper, 'getMyFluxIPandPort').returns('44.192.51.11:16127');
