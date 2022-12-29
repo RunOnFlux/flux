@@ -1783,7 +1783,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     }
 
     // if s flag create .stfolder
-    const containerDataFlags = appSpecifications.containerData.split(':')[1] ? appSpecifications.containerData.split(':')[0] : '';
+    const containerDataFlags = appSpecifications.containerData.split('|')[0].split(':')[1] ? appSpecifications.containerData.split('|')[0].split(':')[0] : '';
     if (containerDataFlags.includes('s')) {
       const stFolderCreation = {
         status: 'Creating .stfolder for syncthing...',
@@ -2789,7 +2789,7 @@ async function checkAppRequirements(appSpecs) {
  * @param {object} res Response.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
-async function installApplicationHard(appSpecifications, appName, isComponent, res) {
+async function installApplicationHard(appSpecifications, appName, isComponent, res, fullAppSpecs) {
   // pull image
   // eslint-disable-next-line no-unused-vars
   await dockerPullStreamPromise(appSpecifications.repotag, res);
@@ -2810,7 +2810,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
     res.write(serviceHelper.ensureString(createApp));
   }
 
-  await dockerService.appDockerCreate(appSpecifications, appName, isComponent);
+  await dockerService.appDockerCreate(appSpecifications, appName, isComponent, fullAppSpecs);
 
   const portStatusInitial = {
     status: isComponent ? `Allowing component ${appSpecifications.name} of Flux App ${appName} ports...` : `Allowing Flux App ${appName} ports...`,
@@ -3058,10 +3058,10 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
         appComponentSpecs.ram = appComponentSpecs[ramTier] || appComponentSpecs.ram;
         appComponentSpecs.hdd = appComponentSpecs[hddTier] || appComponentSpecs.hdd;
         // eslint-disable-next-line no-await-in-loop
-        await installApplicationHard(appComponentSpecs, appName, isComponent, res);
+        await installApplicationHard(appComponentSpecs, appName, isComponent, res, appSpecifications);
       }
     } else {
-      await installApplicationHard(specificationsToInstall, appName, isComponent, res);
+      await installApplicationHard(specificationsToInstall, appName, isComponent, res, appSpecifications);
     }
 
     // all done message
@@ -3102,7 +3102,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
  * @param {object} res Response.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
-async function installApplicationSoft(appSpecifications, appName, isComponent, res) {
+async function installApplicationSoft(appSpecifications, appName, isComponent, res, fullAppSpecs) {
   // pull image
   // eslint-disable-next-line no-unused-vars
   await dockerPullStreamPromise(appSpecifications.repotag, res);
@@ -3121,7 +3121,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
     res.write(serviceHelper.ensureString(createApp));
   }
 
-  await dockerService.appDockerCreate(appSpecifications, appName, isComponent);
+  await dockerService.appDockerCreate(appSpecifications, appName, isComponent, fullAppSpecs);
 
   const portStatusInitial = {
     status: isComponent ? `Allowing component ${appSpecifications.name} of Flux App ${appName} ports...` : `Allowing Flux App ${appName} ports...`,
@@ -3370,10 +3370,10 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
         appComponentSpecs.ram = appComponentSpecs[ramTier] || appComponentSpecs.ram;
         appComponentSpecs.hdd = appComponentSpecs[hddTier] || appComponentSpecs.hdd;
         // eslint-disable-next-line no-await-in-loop
-        await installApplicationSoft(appComponentSpecs, appName, isComponent, res);
+        await installApplicationSoft(appComponentSpecs, appName, isComponent, res, appSpecifications);
       }
     } else {
-      await installApplicationSoft(specificationsToInstall, appName, isComponent, res);
+      await installApplicationSoft(specificationsToInstall, appName, isComponent, res, appSpecifications);
     }
     // all done message
     const successStatus = {
@@ -8629,7 +8629,7 @@ async function syncthingApps() {
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled.data) {
       if (installedApp.version <= 3) {
-        const containerDataFlags = installedApp.containerData.split(':')[1] ? installedApp.containerData.split(':')[0] : '';
+        const containerDataFlags = installedApp.containerData.split('|')[0].split(':')[1] ? installedApp.containerData.split('|')[0].split(':')[0] : '';
         if (containerDataFlags.includes('s')) {
           const identifier = installedApp.name;
           const appId = dockerService.getAppIdentifier(identifier);
@@ -8674,7 +8674,7 @@ async function syncthingApps() {
       } else {
         // eslint-disable-next-line no-restricted-syntax
         for (const installedComponent of installedApp.compose) {
-          const containerDataFlags = installedComponent.containerData.split(':')[1] ? installedComponent.containerData.split(':')[0] : '';
+          const containerDataFlags = installedComponent.containerData.split('|')[0].split(':')[1] ? installedComponent.containerData.split('|')[0].split(':')[0] : '';
           if (containerDataFlags.includes('s')) {
             const identifier = `${installedComponent.name}_${installedApp.name}`;
             const appId = dockerService.getAppIdentifier(identifier);
