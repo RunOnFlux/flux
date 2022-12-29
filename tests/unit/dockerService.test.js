@@ -613,7 +613,7 @@ describe('dockerService tests', () => {
 
       const createNetworkResponse = await dockerService.createFluxAppDockerNetwork('MyAppName', 52);
 
-      expect(createNetworkResponse).to.equal('`Flux App Network of MyAppName already exists.');
+      expect(createNetworkResponse).to.equal('Flux App Network of MyAppName already exists.');
     });
   });
 
@@ -701,7 +701,7 @@ describe('dockerService tests', () => {
           Memory: 1887436800,
           Ulimits: [{ Name: 'nofile', Soft: 100000, Hard: 100000 }],
           RestartPolicy: { Name: 'unless-stopped' },
-          NetworkMode: 'fluxDockerNetwork',
+          NetworkMode: 'fluxDockerNetwork_fluxwebsite',
           LogConfig: { Type: 'json-file', Config: { 'max-file': '1', 'max-size': '20m' } },
           Binds: [`${appsFolder}fluxwebsite_fluxwebsite/appdata:/chaindata`],
           PortBindings: {
@@ -766,7 +766,7 @@ describe('dockerService tests', () => {
             '9944/udp': [{ HostPort: '31111' }],
           },
           RestartPolicy: { Name: 'unless-stopped' },
-          NetworkMode: 'fluxDockerNetwork',
+          NetworkMode: 'fluxDockerNetwork_fluxwebsite',
           LogConfig: { Type: 'json-file', Config: { 'max-file': '1', 'max-size': '20m' } },
         },
       };
@@ -799,7 +799,7 @@ describe('dockerService tests', () => {
             '9933/udp': [{ HostPort: '31112' }],
           },
           RestartPolicy: { Name: 'unless-stopped' },
-          NetworkMode: 'fluxDockerNetwork',
+          NetworkMode: 'fluxDockerNetwork_fluxwebsite',
           LogConfig: { Type: 'json-file', Config: { 'max-file': '1', 'max-size': '20m' } },
         },
       };

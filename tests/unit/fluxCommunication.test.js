@@ -1235,37 +1235,34 @@ describe('fluxCommunication tests', () => {
     it('should start connecting nodes if everything is set up properly', async () => {
       const fluxNodeList = [
         {
-          ip: '44.192.51.11:16128',
+          ip: '44.192.51.12:16127',
         },
         {
-          ip: '44.192.51.12:16128',
+          ip: '44.192.51.13:16127',
         },
         {
-          ip: '44.192.51.13:16128',
+          ip: '44.192.51.14:16127',
         },
         {
-          ip: '44.192.51.14:16128',
+          ip: '44.192.51.15:16127',
         },
         {
-          ip: '44.192.51.15:16128',
+          ip: '44.192.51.16:16127',
         },
         {
-          ip: '44.192.51.16:16128',
+          ip: '44.192.51.17:16127',
         },
         {
-          ip: '44.192.51.17:16128',
+          ip: '44.192.51.18:16127',
         },
         {
-          ip: '44.192.51.18:16128',
+          ip: '44.192.51.19:16127',
         },
         {
-          ip: '44.192.51.19:16128',
-        },
-        {
-          ip: '44.192.51.20:16128',
+          ip: '44.192.51.20:16127',
         },
       ];
-      sinon.stub(fluxNetworkHelper, 'getMyFluxIPandPort').returns('44.192.51.11:16128');
+      sinon.stub(fluxNetworkHelper, 'getMyFluxIPandPort').returns('44.192.51.11:16127');
       sinon.stub(fluxCommunicationUtils, 'deterministicFluxList').returns(fluxNodeList);
       sinon.stub(serviceHelper, 'delay').resolves(() => new Promise((resolve) => setTimeout(resolve, 50)));
       const infoSpy = sinon.spy(log, 'info');

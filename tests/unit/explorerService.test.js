@@ -537,6 +537,7 @@ describe('explorerService tests', () => {
             benchmark_tier: 'stratus',
             txhash: 'hash1234',
             outidx: '1111',
+            vin: [],
             vout: [{
               n: 444,
               scriptPubKey:
@@ -576,6 +577,7 @@ describe('explorerService tests', () => {
             benchmark_tier: 'stratus',
             txhash: 'hash1234',
             outidx: '1111',
+            vin: [],
             vout: [{
               n: 444,
               scriptPubKey:
@@ -607,6 +609,7 @@ describe('explorerService tests', () => {
             benchmark_tier: 'stratus',
             txhash: 'hash1234',
             outidx: '1111',
+            vin: [],
             vout: [{
               n: 444,
               scriptPubKey:
@@ -638,6 +641,7 @@ describe('explorerService tests', () => {
             benchmark_tier: 'stratus',
             txhash: 'hash1234',
             outidx: '1111',
+            vin: [],
             vout: [{
               n: 444,
               scriptPubKey:
@@ -673,6 +677,7 @@ describe('explorerService tests', () => {
             benchmark_tier: 'stratus',
             txhash: 'hash1234',
             outidx: '1111',
+            vin: [],
             vout: [{
               n: 444,
               scriptPubKey:
@@ -1129,6 +1134,7 @@ describe('explorerService tests', () => {
               benchmark_tier: 'stratus',
               txhash: 'hash1234',
               outidx: '1111',
+              vin: [],
               vout: [{
                 n: 444,
                 scriptPubKey:
@@ -1190,6 +1196,7 @@ describe('explorerService tests', () => {
               benchmark_tier: 'stratus',
               txhash: 'hash1234',
               outidx: '1111',
+              vin: [],
               vout: [{
                 n: 444,
                 scriptPubKey:
@@ -1249,6 +1256,7 @@ describe('explorerService tests', () => {
               benchmark_tier: 'stratus',
               txhash: 'hash1234',
               outidx: '1111',
+              vin: [],
               vout: [{
                 n: 444,
                 scriptPubKey:
@@ -2260,6 +2268,7 @@ describe('explorerService tests', () => {
               benchmark_tier: 'stratus',
               txhash: 'hash1234',
               outidx: '1111',
+              vin: [],
               vout: [{
                 n: 444,
                 scriptPubKey:
