@@ -1266,6 +1266,7 @@ describe('fluxCommunication tests', () => {
         },
       ];
       sinon.stub(fluxNetworkHelper, 'getMyFluxIPandPort').returns('44.192.51.11:16127');
+      fluxNetworkHelper.setMyFluxIp('44.192.51.11');
       sinon.stub(fluxCommunicationUtils, 'deterministicFluxList').returns(fluxNodeList);
       sinon.stub(serviceHelper, 'delay').resolves(() => new Promise((resolve) => setTimeout(resolve, 50)));
       const infoSpy = sinon.spy(log, 'info');
