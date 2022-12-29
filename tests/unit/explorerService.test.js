@@ -526,6 +526,7 @@ describe('explorerService tests', () => {
     });
 
     it('save to db if version is >0 and <5 and data is correct', async () => {
+      dbStubFind.returns([]);
       const blockVerbose = {
         tx: [
           {
@@ -2361,6 +2362,7 @@ describe('explorerService tests', () => {
     it('should run the block processor, restoreDatabase set to true, height > 0', async () => {
       sinon.stub(dbHelper, 'removeDocumentsFromCollection').resolves(true);
       sinon.stub(dbHelper, 'updateInDatabase').resolves(true);
+      sinon.stub(dbHelper, 'findInDatabase').resolves([]);
       findInDatabaseStub.returns({ generalScannedHeight: 1000 });
       dropCollectionStub.resolves(true);
       const createIndexFake = sinon.fake.resolves(true);
@@ -2391,6 +2393,7 @@ describe('explorerService tests', () => {
     it('should run the block processor, deepRestore, restoreDatabase set to true, height > 0', async () => {
       sinon.stub(dbHelper, 'removeDocumentsFromCollection').resolves(true);
       sinon.stub(dbHelper, 'updateInDatabase').resolves(true);
+      sinon.stub(dbHelper, 'findInDatabase').resolves([]);
       findInDatabaseStub.returns({ generalScannedHeight: 1000 });
       dropCollectionStub.resolves(true);
       const createIndexFake = sinon.fake.resolves(true);
@@ -2421,6 +2424,7 @@ describe('explorerService tests', () => {
     it('should run the block processor, reindexOrRescanGlobalApps set to true, height == 0', async () => {
       sinon.stub(dbHelper, 'removeDocumentsFromCollection').resolves(true);
       sinon.stub(dbHelper, 'updateInDatabase').resolves(true);
+      sinon.stub(dbHelper, 'findInDatabase').resolves([]);
       findInDatabaseStub.returns({ generalScannedHeight: 0 });
       dropCollectionStub.resolves(true);
       const createIndexFake = sinon.fake.resolves(true);

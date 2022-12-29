@@ -1235,6 +1235,9 @@ describe('fluxCommunication tests', () => {
     it('should start connecting nodes if everything is set up properly', async () => {
       const fluxNodeList = [
         {
+          ip: '44.192.51.11:16127',
+        },
+        {
           ip: '44.192.51.12:16127',
         },
         {
@@ -1278,7 +1281,9 @@ describe('fluxCommunication tests', () => {
       sinon.assert.calledWith(infoSpy, 'Current number of incoming connections:0');
       // eslint-disable-next-line no-restricted-syntax
       for (const node of fluxNodeList) {
-        sinon.assert.calledWith(infoSpy, `Adding Flux peer: ${node.ip}`);
+        if (node.ip !== '44.192.51.11:16127') {
+          sinon.assert.calledWith(infoSpy, `Adding Flux peer: ${node.ip}`);
+        }
       }
     });
   });
