@@ -526,7 +526,6 @@ describe('explorerService tests', () => {
     });
 
     it('save to db if version is >0 and <5 and data is correct', async () => {
-      dbStubFind.returns([]);
       sinon.stub(dbHelper, 'findInDatabase').resolves([]);
       const blockVerbose = {
         tx: [
@@ -553,16 +552,21 @@ describe('explorerService tests', () => {
         ],
         height: 983000,
       };
-      await explorerService.processInsight(blockVerbose, database);
+      try {
+        await explorerService.processInsight(blockVerbose, database);
+      } catch (error) {
+        console.log(error);
+      }
 
-      sinon.assert.calledWithMatch(dbStubInsert, sinon.match.object, 'zelappshashes',
+      sinon.assert.calledOnceWithExactly(dbStubInsert, {}, 'zelappshashes', [
         {
           txid: '12345',
           height: 983000,
           hash: 'This string is exactly 64 characters long. Including this string',
           value: 20000000,
           message: false,
-        });
+        },
+      ], { ordered: false });
     });
 
     it('log error and not call db if version is >0 and <5 and data is correct, but tx exists in db', async () => {

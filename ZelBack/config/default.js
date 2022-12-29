@@ -75,7 +75,7 @@ module.exports = {
   fluxapps: {
     // in flux main chain per month (blocksLasting)
     price: [{ // any price fork can be done by adjusting object similarily.
-      height: 0, // height from which price spec is valid
+      height: -1, // height from which price spec is valid
       cpu: 3, // per 0.1 cpu core,
       ram: 1, // per 100mb,
       hdd: 0.5, // per 1gb,

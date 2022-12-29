@@ -133,6 +133,7 @@ async function getChainParamsPriceUpdates() {
     });
     return priceForks;
   } catch (error) {
+    console.log(error);
     log.error(error);
     return [];
   }
