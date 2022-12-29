@@ -586,5 +586,6 @@
    "plausible/analytics:latest",
    "wirewrex/bulk-crop-tool:latest",
    "rvnminersaandn/meowcoin-core:latest",
-   "scsibug/nostr-rs-relay:latest"
+   "scsibug/nostr-rs-relay:latest",
+   "cyberfly/cyberfly-api:latest"
 ]
