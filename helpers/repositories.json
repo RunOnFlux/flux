@@ -588,7 +588,6 @@
    "rvnminersaandn/meowcoin-core:latest",
    "scsibug/nostr-rs-relay:latest",
    "tmjeff/mineonlium",
-
    "madrafrec/dev_lab",
    "cyberfly/cyberfly-api:latest"
 ]
