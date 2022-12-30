@@ -87,8 +87,8 @@ async function handleAppRunningMessage(message, fromIP) {
 // eslint-disable-next-line no-unused-vars
 function handleIncomingConnection(ws, req, expressWS) {
   // now we are in connections state. push the websocket to our incomingconnections
-  const maxPeers = 20;
-  const maxNumberOfConnections = numberOfFluxNodes / 40 < 70 ? numberOfFluxNodes / 40 : 70;
+  const maxPeers = 5 * config.fluxapps.minIncoming;
+  const maxNumberOfConnections = numberOfFluxNodes / 40 < 15 * config.fluxapps.minIncoming ? numberOfFluxNodes / 40 : 15 * config.fluxapps.minIncoming;
   const maxCon = Math.max(maxPeers, maxNumberOfConnections);
   if (incomingConnections.length > maxCon) {
     setTimeout(() => {
@@ -537,12 +537,12 @@ async function fluxDiscovery() {
     } else {
       throw new Error('Flux IP not detected. Flux discovery is awaiting.');
     }
-    const minPeers = 10;
-    const maxPeers = 20;
+    const minPeers = config.fluxapps.minOutgoing;
+    const maxPeers = 2 * config.fluxapps.minOutgoing;
     numberOfFluxNodes = nodeList.length;
     const currentIpsConnTried = [];
-    const requiredNumberOfConnections = numberOfFluxNodes / 100 < 40 ? numberOfFluxNodes / 100 : 40; // 1%
-    const maxNumberOfConnections = numberOfFluxNodes / 75 < 60 ? numberOfFluxNodes / 75 : 60; // 1.5%
+    const requiredNumberOfConnections = numberOfFluxNodes / 100 < 4 * config.fluxapps.minOutgoing ? numberOfFluxNodes / 100 : 4 * config.fluxapps.minOutgoing; // 1%
+    const maxNumberOfConnections = numberOfFluxNodes / 75 < 6 * config.fluxapps.minOutgoing ? numberOfFluxNodes / 75 : 6 * config.fluxapps.minOutgoing; // 1.5%
     const minCon = Math.max(minPeers, requiredNumberOfConnections); // awlays maintain at least 10 or 1% of nodes whatever is higher
     const maxCon = Math.max(maxPeers, maxNumberOfConnections); // have a maximum of 20 or 1.5% of nodes whatever is higher
     log.info(`Current number of outgoing connections:${outgoingConnections.length}`);
@@ -566,7 +566,7 @@ async function fluxDiscovery() {
           // eslint-disable-next-line no-await-in-loop
           await serviceHelper.delay(500);
         }
-        if (incomingConnections.length <= config.fluxapps.minIncoming) {
+        if (incomingConnections.length <= config.fluxapps.minIncoming * 2) {
           // eslint-disable-next-line no-await-in-loop
           const connectionInc = await fluxNetworkHelper.getRandomConnection();
           if (connectionInc) {
@@ -595,7 +595,7 @@ async function fluxDiscovery() {
         }
       }
     }
-    if (incomingConnections.length <= config.fluxapps.minIncoming) {
+    if (incomingConnections.length <= config.fluxapps.minIncoming * 2) {
       const connectionInc = await fluxNetworkHelper.getRandomConnection();
       if (connectionInc) {
         const ipInc = connectionInc.split(':')[0];
