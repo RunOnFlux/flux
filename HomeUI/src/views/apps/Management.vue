@@ -3480,12 +3480,6 @@ export default {
       });
       return domains;
     },
-    convertExpire() {
-      if (this.expireOptions[this.expirePosition]) {
-        return this.expireOptions[this.expirePosition].value;
-      }
-      return 22000;
-    },
     getExpireLabel() {
       if (this.expireOptions[this.expirePosition]) {
         return this.expireOptions[this.expirePosition].label;
@@ -3748,7 +3742,12 @@ export default {
         this.showToast('danger', response.data.data.message || response.data.data);
       }
     },
-
+    convertExpire() {
+      if (this.expireOptions[this.expirePosition]) {
+        return this.expireOptions[this.expirePosition].value;
+      }
+      return 22000;
+    },
     async checkFluxUpdateSpecificationsAndFormatMessage() {
       try {
         const appSpecification = this.appUpdateSpecification;

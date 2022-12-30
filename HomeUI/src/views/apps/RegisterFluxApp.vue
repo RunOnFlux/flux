@@ -1354,7 +1354,7 @@ export default {
       currentHeight: 1250000,
       specificationVersion: 4,
       appRegistrationSpecification: {},
-      appRegistrationSpecificationv3template: {
+      appRegistrationSpecificationV3Template: {
         version: 3,
         name: '',
         description: '',
@@ -1381,7 +1381,7 @@ export default {
         rambamf: 14000,
         hddbamf: 285,
       },
-      appRegistrationSpecificationv4template: {
+      appRegistrationSpecificationV4Template: {
         version: 4,
         name: '',
         description: '',
@@ -1414,7 +1414,7 @@ export default {
           },
         ],
       },
-      appRegistrationSpecificationv5template: {
+      appRegistrationSpecificationV5Template: {
         version: 5,
         name: '',
         description: '',
@@ -1449,7 +1449,7 @@ export default {
           },
         ],
       },
-      appRegistrationSpecificationv6template: {
+      appRegistrationSpecificationV6Template: {
         version: 6,
         name: '',
         description: '',
@@ -1611,12 +1611,6 @@ export default {
       const url = `${backendURL}/id/providesign`;
       return encodeURI(url);
     },
-    convertExpire() {
-      if (this.expireOptions[this.expirePosition]) {
-        return this.expireOptions[this.expirePosition].value;
-      }
-      return 22000;
-    },
     getExpireLabel() {
       if (this.expireOptions[this.expirePosition]) {
         return this.expireOptions[this.expirePosition].label;
@@ -1641,7 +1635,7 @@ export default {
     },
   },
   beforeMount() {
-    this.appRegistrationSpecification = this.appRegistrationSpecificationv5template;
+    this.appRegistrationSpecification = this.appRegistrationSpecificationV5Template;
   },
   mounted() {
     this.getGeolocationData();
@@ -1664,6 +1658,12 @@ export default {
       } catch (error) {
         console.log(error);
       }
+    },
+    convertExpire() {
+      if (this.expireOptions[this.expirePosition]) {
+        return this.expireOptions[this.expirePosition].value;
+      }
+      return 22000;
     },
     async checkFluxSpecificationsAndFormatMessage() {
       try {
@@ -1705,12 +1705,12 @@ export default {
       }
       if (this.currentHeight < 1004000) { // fork height for spec v4
         this.specificationVersion = 3;
-        this.appRegistrationSpecification = this.appRegistrationSpecificationv3template;
+        this.appRegistrationSpecification = this.appRegistrationSpecificationV3Template;
         const ports = this.getRandomPort();
         this.appRegistrationSpecification.ports = ports;
       } else if (this.currentHeight < 1142000) {
         this.specificationVersion = 4;
-        this.appRegistrationSpecification = this.appRegistrationSpecificationv4template;
+        this.appRegistrationSpecification = this.appRegistrationSpecificationV4Template;
         this.appRegistrationSpecification.compose.forEach((component) => {
           const ports = this.getRandomPort();
           // eslint-disable-next-line no-param-reassign
@@ -1718,7 +1718,7 @@ export default {
         });
       } else if (this.currentHeight < 1200000) {
         this.specificationVersion = 5;
-        this.appRegistrationSpecification = this.appRegistrationSpecificationv5template;
+        this.appRegistrationSpecification = this.appRegistrationSpecificationV5Template;
         this.appRegistrationSpecification.compose.forEach((component) => {
           const ports = this.getRandomPort();
           // eslint-disable-next-line no-param-reassign
@@ -1726,7 +1726,7 @@ export default {
         });
       } else {
         this.specificationVersion = 6;
-        this.appRegistrationSpecification = this.appRegistrationSpecificationv6template;
+        this.appRegistrationSpecification = this.appRegistrationSpecificationV6Template;
         this.appRegistrationSpecification.compose.forEach((component) => {
           const ports = this.getRandomPort();
           // eslint-disable-next-line no-param-reassign
