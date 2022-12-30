@@ -15,7 +15,7 @@
         name="navbar"
         :toggleVerticalMenuActive="toggleVerticalMenuActive"
         :navbarBackgroundColor="navbarBackgroundColor"
-        :navbarTypeClass="[...navbarTypeClass, 'header-navbar navbar navbar-shadow align-items-center']"
+        :navbarTypeClass="[{...navbarTypeClass}, 'header-navbar navbar navbar-shadow align-items-center']"
       >
         <app-navbar-vertical-layout :toggle-vertical-menu-active="toggleVerticalMenuActive" />
       </slot>
@@ -86,6 +86,7 @@
 
 <script>
 import { computed } from "vue";
+import { useRoute } from 'vue-router'
 import AppFooter from '@core/layouts/components/AppFooter.vue';
 import useAppConfig from '@core/app-config/useAppConfig';
 import { BNavbar } from 'bootstrap-vue';
@@ -145,8 +146,9 @@ export default {
     };
   },
   setup() {
+    const route = useRoute()
     const layoutContentRenderer = computed(() => {
-      const rendererType = this.$route.meta.contentRenderer;
+      const rendererType = route.meta.contentRenderer;
       if (rendererType === 'sidebar-left') return 'layout-content-renderer-left';
       if (rendererType === 'sidebar-left-detached') return 'layout-content-renderer-left-detached';
       return 'layout-content-renderer-default';

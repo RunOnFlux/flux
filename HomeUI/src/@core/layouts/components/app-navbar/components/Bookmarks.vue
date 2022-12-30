@@ -87,7 +87,7 @@ import {
 import VuePerfectScrollbar from 'vue3-perfect-scrollbar';
 import useAutoSuggest from '@core/components/app-auto-suggest/useAutoSuggest';
 import router from '@/router';
-import store from '@/store';
+import { store } from '@/store';
 // import searchAndBookmarkData from '../search-and-bookmark-data'
 
 export default {

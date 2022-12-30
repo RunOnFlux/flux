@@ -1,7 +1,7 @@
 <template>
   <div
     class="app-content content"
-    :class="[{'show-overlay': $store.state.app.shallShowOverlay}, $route.meta.contentClass]"
+    :class="[{'show-overlay': store._state.data.app.shallShowOverlay}, route.meta.contentClass]"
   >
     <div class="content-overlay" />
     <div class="header-navbar-shadow" />
@@ -27,6 +27,8 @@
 <script>
 import AppBreadcrumb from '@core/layouts/components/AppBreadcrumb.vue';
 import useAppConfig from '@core/app-config/useAppConfig';
+import { useRoute } from 'vue-router'
+import { useStore } from 'vuex'
 
 export default {
   components: {
@@ -34,9 +36,13 @@ export default {
   },
   setup() {
     const { routerTransition, contentWidth } = useAppConfig();
-
+    const route = useRoute()
+    const store = useStore()
     return {
-      routerTransition, contentWidth,
+      routerTransition,
+      contentWidth,
+      route,
+      store
     };
   },
 };

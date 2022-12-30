@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-import store from 'store';
+import { store } from '@/store';
 
 const { protocol, hostname, port } = window.location;
 let mybackend = '';
@@ -21,6 +21,8 @@ const sourceCancelToken = axios.CancelToken.source();
 
 export { sourceCancelToken };
 
+const storeMap = new Map(Object.entries(store));
+
 export default () => axios.create({
-  baseURL: store.get('backendURL') || mybackend,
+  baseURL: storeMap.get('backendURL') || mybackend,
 });

@@ -76,7 +76,7 @@ Icon.Default.mergeOptions({
 });
 /* eslint-enable global-require */
 
-const axios = require('axios');
+import axios from 'axios';
 
 export default {
   components: {

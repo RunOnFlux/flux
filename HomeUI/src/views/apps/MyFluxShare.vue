@@ -266,7 +266,7 @@ import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
 import FileUpload from '@/views/components/FileUpload.vue';
 import AppsService from '@/services/AppsService';
 
-import store from 'store';
+import { store } from '@/store';
 
 export default {
   components: {

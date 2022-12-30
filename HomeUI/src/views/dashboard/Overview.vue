@@ -199,7 +199,7 @@ import ToastificationContent from '@core/components/toastification/Toastificatio
 import tierColors from '@/libs/colors';
 import DashboardService from '@/services/DashboardService';
 
-const axios = require('axios');
+import axios from 'axios';
 
 export default {
   components: {

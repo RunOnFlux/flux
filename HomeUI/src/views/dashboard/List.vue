@@ -97,7 +97,7 @@ import {
 } from 'bootstrap-vue';
 import DashboardService from '@/services/DashboardService';
 
-const axios = require('axios');
+import axios from 'axios';
 
 export default {
   components: {

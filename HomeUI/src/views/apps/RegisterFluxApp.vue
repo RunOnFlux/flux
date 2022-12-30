@@ -1234,8 +1234,8 @@ import AppsService from '@/services/AppsService';
 import DaemonService from '@/services/DaemonService';
 
 import qs from 'qs';
-const axios = require('axios');
-import store from 'store';
+import axios from 'axios';
+import { store } from '@/store';
 const timeoptions = require('@/libs/dateFormat');
 
 const geolocations = require('../../libs/geolocation');

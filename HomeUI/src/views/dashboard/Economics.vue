@@ -298,7 +298,7 @@ import DashboardService from '@/services/DashboardService';
 import ExplorerService from '@/services/ExplorerService';
 
 const rax = require('retry-axios');
-const axios = require('axios');
+import axios from 'axios';
 
 export default {
   components: {

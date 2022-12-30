@@ -1,4 +1,4 @@
-const fluxLogo = require('@/assets/images/logo/logo.png');
+import fluxLogo from '@/assets/images/logo/logo.png';
 
 export default [
   {

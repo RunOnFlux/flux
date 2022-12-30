@@ -1655,7 +1655,7 @@ import tierColors from '@/libs/colors';
 import DashboardService from '@/services/DashboardService';
 
 import qs from 'qs';
-import store from 'store';
+import { store } from '@/store';
 const timeoptions = require('@/libs/dateFormat');
 
 export default {

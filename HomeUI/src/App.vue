@@ -14,6 +14,8 @@
 
 <script>
 import { computed, watch } from "vue";
+import { useRoute } from 'vue-router'
+import { useStore } from 'vuex'
 import ScrollToTop from '@core/components/scroll-to-top/ScrollToTop.vue';
 
 // This will be populated in `beforeCreate` hook
@@ -22,8 +24,6 @@ import { provideToast } from 'vue-toastification';
 import useAppConfig from '@core/app-config/useAppConfig';
 
 import { useWindowSize, useCssVar } from '@vueuse/core';
-
-import store from '@/store';
 
 import IDService from '@/services/IDService';
 
@@ -42,16 +42,17 @@ export default {
     ScrollToTop,
   },
   setup() {
+    const route = useRoute()
+    const store = useStore()
     const { skin, skinClasses } = useAppConfig();
     const { enableScrollToTop } = $themeConfig.layout;
 
     const layout = computed(() => {
-      if (this.$route.meta.layout === 'full') return 'layout-full';
-      return `layout-${this.contentLayoutType}`;
-    });
-
-    const contentLayoutType = computed(() => {
-      return this.$store.state.appConfig.layout.type;
+      if (route.meta.layout === 'full') {
+        return 'layout-full';
+      } else {
+        return `layout-${store._state.data.appConfig.layout.type}`;
+      }
     });
 
     // If skin is dark when initialized => Add class to body
@@ -78,7 +79,7 @@ export default {
 
     return {
       layout,
-      contentLayoutType,
+      // contentLayoutType,
       skinClasses,
       enableScrollToTop,
     };

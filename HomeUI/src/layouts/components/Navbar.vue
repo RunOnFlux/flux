@@ -23,8 +23,8 @@
         variant="outline-primary"
         size="sm"
       >
-        <b-dropdown-item-button @click="changeBackendURL(`http://${userconfig.externalip}:${config.apiPort}`)">
-          http://{{ userconfig.externalip }}:{{ config.apiPort }}
+        <b-dropdown-item-button @click="changeBackendURL(`http://${externalIp}:${apiPort}`)">
+          http://{{ externalIp }}:{{ apiPort }}
         </b-dropdown-item-button>
         <b-dropdown-divider />
         <b-dropdown-item-button @click="changeBackendURL('https://api.runonflux.io')">
@@ -58,8 +58,7 @@
 </template>
 
 <script>
-import { computed } from "vue";
-import { mapState } from 'vuex';
+import { store } from '@/store';
 import {
   BLink, BDropdown, BDropdownItemButton, BDropdownDivider, BNavbarNav, BButton, BFormInput, // BNavItemDropdown, BDropdownItem, BDropdownDivider, BAvatar,
 } from 'bootstrap-vue';
@@ -71,8 +70,6 @@ import Ripple from 'vue-ripple-directive';
 import IDService from '@/services/IDService';
 
 import qs from 'qs';
-
-import store from 'store';
 
 export default {
   components: {
@@ -111,8 +108,14 @@ export default {
       'privilege',
     ]);
 
+    const apiPort = store._state.data.flux.config.apiPort;
+
+    const externalIp = store._state.data.flux.userconfig.externalip;
+
     return {
-      mapState
+      mapState,
+      apiPort,
+      externalIp,
     }
   },
   mounted() {

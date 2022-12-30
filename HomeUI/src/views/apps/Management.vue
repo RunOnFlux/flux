@@ -3115,9 +3115,9 @@ import ListEntry from '@/views/components/ListEntry.vue';
 import AppsService from '@/services/AppsService';
 import DaemonService from '@/services/DaemonService';
 
-const axios = require('axios');
+import axios from 'axios';
 import qs from 'qs';
-import store from 'store';
+import { store } from '@/store';
 const timeoptions = require('@/libs/dateFormat');
 
 const geolocations = require('../../libs/geolocation');

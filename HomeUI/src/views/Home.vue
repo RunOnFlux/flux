@@ -135,7 +135,7 @@ import IDService from '@/services/IDService';
 import FluxService from '../services/FluxService';
 
 import qs from 'qs';
-import store from 'store';
+import { store } from '@/store';
 
 export default {
   components: {

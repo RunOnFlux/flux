@@ -202,7 +202,7 @@ import Ripple from 'vue-ripple-directive';
 import { useToast } from 'vue-toastification';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 
-const axios = require('axios');
+import axios from 'axios';
 const timeoptions = require('@/libs/dateFormat');
 
 export default {

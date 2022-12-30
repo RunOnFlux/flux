@@ -509,7 +509,7 @@ import AppsService from '@/services/AppsService';
 import tierColors from '@/libs/colors';
 
 import qs from 'qs';
-import store from 'store';
+import { store } from '@/store';
 const timeoptions = require('@/libs/dateFormat');
 
 export default {

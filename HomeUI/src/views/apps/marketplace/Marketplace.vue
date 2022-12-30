@@ -212,7 +212,7 @@ import CategorySidebar from './CategorySidebar.vue';
 import { categories, defaultCategory } from '../../../libs/marketplaceCategories';
 
 import qs from 'qs';
-const axios = require('axios');
+import axios from 'axios';
 const timeoptions = require('@/libs/dateFormat');
 
 export default {

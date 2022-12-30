@@ -275,7 +275,7 @@ import VueApexCharts from 'vue3-apexcharts';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import tierColors from '@/libs/colors';
 
-const axios = require('axios');
+import axios from 'axios';
 
 export default {
   components: {

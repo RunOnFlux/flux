@@ -1,4 +1,4 @@
-import Vue from 'vue';
+import { createApp } from 'vue'
 import {
   BVConfigPlugin,
   LayoutPlugin,
@@ -7,7 +7,7 @@ import {
 } from 'bootstrap-vue';
 
 import router from './router';
-import store from './store';
+import { store } from './store';
 import App from './App.vue';
 
 // Global Components
@@ -18,14 +18,16 @@ import '@axios';
 import '@/libs/portal-vue';
 import '@/libs/toastification';
 
+const app = createApp(App)
+
 // BSV Plugin Registration
 // Supply complete config to the BVConfig helper plugin
-Vue.use(BVConfigPlugin, {
+app.use(BVConfigPlugin, {
   breakpoints: ['xs', 'sm', 'md', 'lg', 'xl', 'xxl'],
-});
-Vue.use(LayoutPlugin);
-Vue.use(ToastPlugin);
-Vue.use(ModalPlugin);
+})
+app.use(LayoutPlugin)
+app.use(ToastPlugin)
+app.use(ModalPlugin)
 
 // Composition API
 // Vue.use(VueCompositionAPI);
@@ -36,10 +38,9 @@ import '@core/scss/core.scss';
 // import assets styles
 import '@/assets/scss/style.scss';
 
-Vue.config.productionTip = false;
+app.config.productionTip = false
 
-new Vue({
-  router,
-  store,
-  render: (h) => h(App),
-}).$mount('#app');
+app.use(router)
+app.use(store)
+
+app.mount('#app')

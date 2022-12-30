@@ -391,9 +391,9 @@ import ToastificationContent from '@core/components/toastification/Toastificatio
 
 import { $themeColors } from '@themeConfig';
 
-const axios = require('axios');
+import axios from 'axios';
 import qs from 'qs';
-import store from 'store';
+import { store } from '@/store';
 const timeoptions = require('@/libs/dateFormat');
 
 export default {

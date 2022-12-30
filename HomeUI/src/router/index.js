@@ -1,6 +1,6 @@
-import Vue from 'vue';
-import * as VueRouter from 'vue-router';
-import store from '@/store';
+import { createApp } from 'vue'
+import { createWebHistory, createRouter } from 'vue-router'
+import { store } from '@/store';
 
 import IDService from '@/services/IDService';
 
@@ -14,11 +14,10 @@ import xdao from './routes/xdao/xdao';
 
 import qs from 'qs';
 
-const router = VueRouter.createRouter({
-  history: VueRouter.createWebHashHistory(),
-  base: import.meta.env.BASE_URL,
+const router = createRouter({
+  history: createWebHistory(import.meta.env.BASE_URL),
   scrollBehavior() {
-    return { x: 0, y: 0 };
+    return { left: 0, top: 0 };
   },
   routes: [
     {
@@ -109,7 +108,7 @@ router.afterEach(() => {
   }
 });
 
-const app = Vue.createApp({})
+const app = createApp({})
 app.use(router)
 app.mount('#app')
 

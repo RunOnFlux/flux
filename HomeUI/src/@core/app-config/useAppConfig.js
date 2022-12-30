@@ -1,4 +1,4 @@
-import store from '@/store';
+import { store } from '@/store';
 import { computed, watch } from "vue";
 
 export default function usAppConfig() {

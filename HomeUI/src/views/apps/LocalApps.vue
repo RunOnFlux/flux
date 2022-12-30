@@ -1698,7 +1698,7 @@ import AppsService from '@/services/AppsService';
 import DaemonService from '@/services/DaemonService';
 
 import qs from 'qs';
-import store from 'store';
+import { store } from '@/store';
 const timeoptions = require('@/libs/dateFormat');
 
 const geolocations = require('../../libs/geolocation');

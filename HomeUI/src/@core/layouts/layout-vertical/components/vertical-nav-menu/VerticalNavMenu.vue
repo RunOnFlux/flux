@@ -93,7 +93,7 @@ import VerticalNavMenuItems from './components/vertical-nav-menu-items/VerticalN
 import useVerticalNavMenu from './useVerticalNavMenu';
 
 import qs from 'qs';
-const axios = require('axios');
+import axios from 'axios';
 
 export default {
   components: {

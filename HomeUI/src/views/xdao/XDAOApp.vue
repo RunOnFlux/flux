@@ -243,7 +243,7 @@ import ProposalView from './ProposalView.vue';
 import ProposalSidebar from './ProposalSidebar.vue';
 
 import qs from 'qs';
-const axios = require('axios');
+import axios from 'axios';
 const timeoptions = require('@/libs/dateFormat');
 
 export default {
