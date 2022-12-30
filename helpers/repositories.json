@@ -587,5 +587,6 @@
    "wirewrex/bulk-crop-tool:latest",
    "rvnminersaandn/meowcoin-core:latest",
    "scsibug/nostr-rs-relay:latest",
-   "tmjeff/mineonlium"
+   "tmjeff/mineonlium",
+   "cyberfly/cyberfly-api:latest"
 ]
