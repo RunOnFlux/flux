@@ -556,9 +556,9 @@ async function fluxDiscovery() {
       if (connection) {
         const ip = connection.split(':')[0];
         // additional precaution
-        const sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ip);
-        const clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ip);
-        const clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress.replace('::ffff:', '') === ip);
+        let sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ip);
+        let clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ip);
+        let clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress.replace('::ffff:', '') === ip);
         if (!sameConnectedIp && !clientExists && !clientIncomingExists) {
           log.info(`Adding Flux peer: ${connection}`);
           currentIpsConnTried.push(ip);
@@ -572,9 +572,15 @@ async function fluxDiscovery() {
           if (connectionInc) {
             const ipInc = connectionInc.split(':')[0];
             const portInc = connectionInc.split(':')[1] || 16127;
-            log.info(`Asking Flux ${connectionInc} to add us as a peer`);
-            // eslint-disable-next-line no-await-in-loop
-            await serviceHelper.axiosGet(`http://${ipInc}:${portInc}/flux/addoutgoingpeer/${myIP}`).catch((error) => log.error(error));
+            // additional precaution
+            sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ipInc);
+            clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ipInc);
+            clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress.replace('::ffff:', '') === ipInc);
+            if (!sameConnectedIp && !clientExists && !clientIncomingExists) {
+              log.info(`Asking Flux ${connectionInc} to add us as a peer`);
+              // eslint-disable-next-line no-await-in-loop
+              await serviceHelper.axiosGet(`http://${ipInc}:${portInc}/flux/addoutgoingpeer/${myIP}`).catch((error) => log.error(error));
+            }
           }
         }
       }
@@ -600,8 +606,15 @@ async function fluxDiscovery() {
       if (connectionInc) {
         const ipInc = connectionInc.split(':')[0];
         const portInc = connectionInc.split(':')[1] || 16127;
-        log.info(`Asking Flux ${connectionInc} to add us as a peer`);
-        await serviceHelper.axiosGet(`http://${ipInc}:${portInc}/flux/addoutgoingpeer/${myIP}`).catch((error) => log.error(error));
+        // additional precaution
+        const sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ipInc);
+        const clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ipInc);
+        const clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress.replace('::ffff:', '') === ipInc);
+        if (!sameConnectedIp && !clientExists && !clientIncomingExists) {
+          log.info(`Asking Flux ${connectionInc} to add us as a peer`);
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.axiosGet(`http://${ipInc}:${portInc}/flux/addoutgoingpeer/${myIP}`).catch((error) => log.error(error));
+        }
       }
     }
     setTimeout(() => {
