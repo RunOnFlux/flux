@@ -467,7 +467,7 @@ async function processInsight(blockDataVerbose, database) {
           }
         }
       }
-      // check fo softForks
+      // check for softForks
       const isSoftFork = isSenderFoundation && isReceiverFounation;
       if (isSoftFork) {
         // eslint-disable-next-line no-await-in-loop
@@ -599,7 +599,7 @@ async function processStandard(blockDataVerbose, database) {
           }
         }
       }
-      // check fo softForks
+      // check for softForks
       const isSoftFork = isSenderFoundation && isReceiverFounation;
       if (isSoftFork) {
         await processSoftFork(tx.txid, blockDataVerbose.height, message);

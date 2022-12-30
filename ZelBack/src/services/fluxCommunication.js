@@ -239,21 +239,31 @@ function keepConnectionsAlive() {
  * @returns {object} Message.
  */
 async function removePeer(req, res) {
-  let { ip } = req.params;
-  ip = ip || req.query.ip;
-  if (ip === undefined || ip === null) {
-    const errMessage = messageHelper.createErrorMessage('No IP address specified.');
-    return res.json(errMessage);
-  }
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  try {
+    let { ip } = req.params;
+    ip = ip || req.query.ip;
+    if (ip === undefined || ip === null) {
+      const errMessage = messageHelper.createErrorMessage('No IP address specified.');
+      return res.json(errMessage);
+    }
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
 
-  if (authorized === true) {
-    const closeResponse = await fluxNetworkHelper.closeConnection(ip);
-    response = closeResponse;
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
+    if (authorized === true) {
+      const closeResponse = await fluxNetworkHelper.closeConnection(ip);
+      response = closeResponse;
+    } else {
+      response = messageHelper.errUnauthorizedMessage();
+    }
+    return res.json(response);
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
   }
-  return res.json(response);
 }
 
 /**
@@ -264,21 +274,31 @@ async function removePeer(req, res) {
  * @returns {object} Message.
  */
 async function removeIncomingPeer(req, res, expressWS) {
-  let { ip } = req.params;
-  ip = ip || req.query.ip;
-  if (ip === undefined || ip === null) {
-    const errMessage = messageHelper.createErrorMessage('No IP address specified.');
-    return res.json(errMessage);
-  }
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  try {
+    let { ip } = req.params;
+    ip = ip || req.query.ip;
+    if (ip === undefined || ip === null) {
+      const errMessage = messageHelper.createErrorMessage('No IP address specified.');
+      return res.json(errMessage);
+    }
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
 
-  if (authorized === true) {
-    const closeResponse = await fluxNetworkHelper.closeIncomingConnection(ip, expressWS);
-    response = closeResponse;
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
+    if (authorized === true) {
+      const closeResponse = await fluxNetworkHelper.closeIncomingConnection(ip, expressWS);
+      response = closeResponse;
+    } else {
+      response = messageHelper.errUnauthorizedMessage();
+    }
+    return res.json(response);
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
   }
-  return res.json(response);
 }
 
 /**
@@ -410,27 +430,37 @@ async function initiateAndHandleConnection(connection) {
  * @returns {object} Message.
  */
 async function addPeer(req, res) {
-  let { ip } = req.params;
-  ip = ip || req.query.ip;
-  if (ip === undefined || ip === null) {
-    const errMessage = messageHelper.createErrorMessage('No IP address specified.');
-    return res.json(errMessage);
-  }
-  const justIP = ip.split(':')[0];
-  const wsObj = outgoingConnections.find((client) => client._socket.remoteAddress === justIP);
-  if (wsObj) {
-    const errMessage = messageHelper.createErrorMessage(`Already connected to ${justIP}`);
-    return res.json(errMessage);
-  }
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  try {
+    let { ip } = req.params;
+    ip = ip || req.query.ip;
+    if (ip === undefined || ip === null) {
+      const errMessage = messageHelper.createErrorMessage('No IP address specified.');
+      return res.json(errMessage);
+    }
+    const justIP = ip.split(':')[0];
+    const wsObj = outgoingConnections.find((client) => client._socket.remoteAddress === justIP);
+    if (wsObj) {
+      const errMessage = messageHelper.createErrorMessage(`Already connected to ${justIP}`);
+      return res.json(errMessage);
+    }
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
 
-  if (authorized !== true) {
-    const message = messageHelper.errUnauthorizedMessage();
+    if (authorized !== true) {
+      const message = messageHelper.errUnauthorizedMessage();
+      return res.json(message);
+    }
+    initiateAndHandleConnection(ip);
+    const message = messageHelper.createSuccessMessage(`Outgoing connection to ${ip} initiated`);
     return res.json(message);
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
   }
-  initiateAndHandleConnection(ip);
-  const message = messageHelper.createSuccessMessage(`Outgoing connection to ${ip} initiated`);
-  return res.json(message);
 }
 
 /**
@@ -440,39 +470,49 @@ async function addPeer(req, res) {
  * @returns {object} Message.
  */
 async function addOutgoingPeer(req, res) {
-  let { ip } = req.params;
-  ip = ip || req.query.ip;
-  if (ip === undefined || ip === null) {
-    const errMessage = messageHelper.createErrorMessage('No IP address specified.');
-    return res.json(errMessage);
+  try {
+    let { ip } = req.params;
+    ip = ip || req.query.ip;
+    if (ip === undefined || ip === null) {
+      const errMessage = messageHelper.createErrorMessage('No IP address specified.');
+      return res.json(errMessage);
+    }
+    const justIP = ip.split(':')[0];
+
+    const remoteIP = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || req.headers['x-forwarded-for'];
+
+    const remoteIP4 = remoteIP.replace('::ffff:', '');
+
+    if (justIP !== remoteIP4) {
+      const errMessage = messageHelper.createErrorMessage(`Request ip ${remoteIP4} of ${remoteIP} doesn't match the ip: ${justIP} to connect.`);
+      return res.json(errMessage);
+    }
+
+    const wsObj = outgoingConnections.find((client) => client._socket.remoteAddress === justIP);
+    if (wsObj) {
+      const errMessage = messageHelper.createErrorMessage(`Already connected to ${justIP}`);
+      return res.json(errMessage);
+    }
+
+    const nodeList = await fluxCommunicationUtils.deterministicFluxList();
+    const fluxNode = nodeList.find((node) => node.ip === ip);
+    if (!fluxNode) {
+      const errMessage = messageHelper.createErrorMessage(`FluxNode ${ip} is not confirmed on the network.`);
+      return res.json(errMessage);
+    }
+
+    initiateAndHandleConnection(ip);
+    const message = messageHelper.createSuccessMessage(`Outgoing connection to ${ip} initiated`);
+    return res.json(message);
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
   }
-  const justIP = ip.split(':')[0];
-
-  const remoteIP = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || req.headers['x-forwarded-for'];
-
-  const remoteIP4 = remoteIP.replace('::ffff:', '');
-
-  if (justIP !== remoteIP4) {
-    const errMessage = messageHelper.createErrorMessage(`Request ip ${remoteIP4} of ${remoteIP} doesn't match the ip: ${justIP} to connect.`);
-    return res.json(errMessage);
-  }
-
-  const wsObj = outgoingConnections.find((client) => client._socket.remoteAddress === justIP);
-  if (wsObj) {
-    const errMessage = messageHelper.createErrorMessage(`Already connected to ${justIP}`);
-    return res.json(errMessage);
-  }
-
-  const nodeList = await fluxCommunicationUtils.deterministicFluxList();
-  const fluxNode = nodeList.find((node) => node.ip === ip);
-  if (!fluxNode) {
-    const errMessage = messageHelper.createErrorMessage(`FluxNode ${ip} is not confirmed on the network.`);
-    return res.json(errMessage);
-  }
-
-  initiateAndHandleConnection(ip);
-  const message = messageHelper.createSuccessMessage(`Outgoing connection to ${ip} initiated`);
-  return res.json(message);
 }
 
 /**
@@ -509,7 +549,7 @@ async function fluxDiscovery() {
     log.info(`Current number of incoming connections:${incomingConnections.length}`);
     // coonect to peers as min connections not yet established
     let index = 0;
-    while (outgoingConnections.length < minCon && index < 100) {
+    while (outgoingConnections.length < minCon && index < 100) { // initial phase, ask for incoming connections as well
       index += 1;
       // eslint-disable-next-line no-await-in-loop
       const connection = await fluxNetworkHelper.getRandomConnection();
@@ -525,6 +565,17 @@ async function fluxDiscovery() {
           initiateAndHandleConnection(connection);
           // eslint-disable-next-line no-await-in-loop
           await serviceHelper.delay(500);
+        }
+        if (incomingConnections.length <= config.fluxapps.minIncoming) {
+          // eslint-disable-next-line no-await-in-loop
+          const connectionInc = await fluxNetworkHelper.getRandomConnection();
+          if (connectionInc) {
+            const ipInc = connectionInc.split(':')[0];
+            const portInc = connectionInc.split(':')[1] || 16127;
+            log.info(`Asking Flux ${connectionInc} to add us as a peer`);
+            // eslint-disable-next-line no-await-in-loop
+            await serviceHelper.axiosGet(`http://${ipInc}:${portInc}/flux/addoutgoingpeer/${myIP}`).catch((error) => log.error(error));
+          }
         }
       }
       // eslint-disable-next-line no-await-in-loop
@@ -542,6 +593,15 @@ async function fluxDiscovery() {
           log.info(`Adding Flux peer: ${connection}`);
           initiateAndHandleConnection(connection);
         }
+      }
+    }
+    if (incomingConnections.length <= config.fluxapps.minIncoming) {
+      const connectionInc = await fluxNetworkHelper.getRandomConnection();
+      if (connectionInc) {
+        const ipInc = connectionInc.split(':')[0];
+        const portInc = connectionInc.split(':')[1] || 16127;
+        log.info(`Asking Flux ${connectionInc} to add us as a peer`);
+        await serviceHelper.axiosGet(`http://${ipInc}:${portInc}/flux/addoutgoingpeer/${myIP}`).catch((error) => log.error(error));
       }
     }
     setTimeout(() => {
