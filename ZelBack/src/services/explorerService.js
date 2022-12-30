@@ -408,7 +408,7 @@ async function processInsight(blockDataVerbose, database) {
       let isReceiverFounation = false;
 
       tx.vin.forEach((sender) => {
-        if (sender.addr === config.fluxapps.addressMultisig) { // coinbase vin.addr is undefined
+        if (sender.address === config.fluxapps.addressMultisig) { // coinbase vin.addr is undefined
           isSenderFoundation = true;
         }
       });
