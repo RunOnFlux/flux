@@ -6,7 +6,7 @@ module.exports = {
     mocha: true,
   },
   extends: [
-    'plugin:vue/recommended',
+    'plugin:vue/vue3-recommended',
     '@vue/airbnb',
   ],
   rules: {
