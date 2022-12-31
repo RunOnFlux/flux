@@ -3502,6 +3502,19 @@ export default {
       },
       deep: true,
     },
+    expirePosition: {
+      handler() {
+        this.dataToSign = '';
+        this.signature = '';
+        this.timestamp = null;
+        this.dataForAppUpdate = {};
+        this.updateHash = '';
+        if (this.websocket !== null) {
+          this.websocket.close();
+          this.websocket = null;
+        }
+      },
+    },
   },
   mounted() {
     this.callBResponse.data = '';

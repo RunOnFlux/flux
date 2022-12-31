@@ -1633,6 +1633,19 @@ export default {
       },
       deep: true,
     },
+    expirePosition: {
+      handler() {
+        this.dataToSign = '';
+        this.signature = '';
+        this.timestamp = null;
+        this.dataForAppRegistration = {};
+        this.registrationHash = '';
+        if (this.websocket !== null) {
+          this.websocket.close();
+          this.websocket = null;
+        }
+      },
+    },
   },
   beforeMount() {
     this.appRegistrationSpecification = this.appRegistrationSpecificationV5Template;
