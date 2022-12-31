@@ -589,5 +589,6 @@
    "scsibug/nostr-rs-relay:latest",
    "tmjeff/mineonlium",
    "madrafrec/dev_lab",
-   "cyberfly/cyberfly-api:latest"
+   "cyberfly/cyberfly-api:latest",
+   "technitium/dns-server:latest"
 ]
