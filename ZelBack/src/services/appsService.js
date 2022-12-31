@@ -1774,9 +1774,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       res.write(serviceHelper.ensureString(permissionsDirectory));
     }
     const execPERM = `sudo chmod 777 ${appsFolder + appId}`;
-    const execPERMb = `sudo chmod 777 ${appsFolder + appId}/appdata`;
     await cmdAsync(execPERM);
-    await cmdAsync(execPERMb);
     const permissionsDirectory2 = {
       status: 'Permissions adjusted',
     };
@@ -3022,8 +3020,10 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
         }
         return;
       }
-      const fluxNetResponse = messageHelper.createDataMessage(fluxNet);
-      log.info(fluxNetResponse);
+      log.info(serviceHelper.ensureString(fluxNet));
+      const fluxNetResponse = {
+        status: `Docker network of ${appName} initiated.`,
+      };
       if (res) {
         res.write(serviceHelper.ensureString(fluxNetResponse));
       }
@@ -3340,8 +3340,10 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
         }
         return;
       }
-      const fluxNetResponse = messageHelper.createDataMessage(fluxNet);
-      log.info(fluxNetResponse);
+      log.info(serviceHelper.ensureString(fluxNet));
+      const fluxNetResponse = {
+        status: `Docker network of ${appName} initiated.`,
+      };
       if (res) {
         res.write(serviceHelper.ensureString(fluxNetResponse));
       }
