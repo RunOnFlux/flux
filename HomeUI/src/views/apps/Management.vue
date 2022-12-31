@@ -108,7 +108,7 @@
             />
             <list-entry
               title="Period"
-              :data="getExpireLabel || callResponse.data.expire + ' blocks'"
+              :data="getExpireLabel || (callResponse.data.expire ? callResponse.data.expire + ' blocks' : '1 month')"
             />
             <h4>Composition</h4>
             <div v-if="callResponse.data.version <= 3">
@@ -377,7 +377,7 @@
             />
             <list-entry
               title="Period"
-              :data="getExpireLabel || callBResponse.data.expire + ' blocks'"
+              :data="getExpireLabel || (callBResponse.data.expire ? callBResponse.data.expire + ' blocks' : '1 month')"
             />
             <h4>Composition</h4>
             <div v-if="callBResponse.data.version <= 3">
@@ -1409,7 +1409,7 @@
             />
             <list-entry
               title="Period"
-              :data="getExpireLabel || callBResponse.data.expire + ' blocks'"
+              :data="getExpireLabel || (callBResponse.data.expire ? callBResponse.data.expire + ' blocks' : '1 month')"
             />
             <h4>Composition</h4>
             <b-card v-if="callBResponse.data.version <= 3">
@@ -2207,7 +2207,7 @@
                   label-for="period"
                 >
                   <div class="mx-1">
-                    {{ getExpireLabel || appUpdateSpecification.expire + ' blocks' }}
+                    {{ getExpireLabel || (appUpdateSpecification.expire ? appUpdateSpecification.expire + ' blocks' : '1 month') }}
                   </div>
                   <b-form-input
                     id="period"
@@ -2688,7 +2688,7 @@
                   label-for="period"
                 >
                   <div class="mx-1">
-                    {{ getExpireLabel || appUpdateSpecification.expire + ' blocks' }}
+                    {{ getExpireLabel || (appUpdateSpecification.expire ? appUpdateSpecification.expire + ' blocks' : '1 month') }}
                   </div>
                   <b-form-input
                     id="period"

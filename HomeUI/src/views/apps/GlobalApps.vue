@@ -808,7 +808,10 @@ export default {
       if (position) {
         return position.label;
       }
-      return `${expire} blocks`;
+      if (expire) {
+        return `${expire} blocks`;
+      }
+      return '1 month';
     },
     openAppManagement(appName) {
       this.managedApplication = appName;

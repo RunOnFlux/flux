@@ -3014,6 +3014,12 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
       }
       const fluxNet = await dockerService.createFluxAppDockerNetwork(appName, dockerNetworkAddrValue).catch((error) => log.error(error));
       if (!fluxNet) {
+        installationInProgress = false;
+        log.error(`Flux App network of ${appName} failed to initiate`);
+        if (res) {
+          res.write(`Flux App network of ${appName} failed to initiate`);
+          res.end();
+        }
         return;
       }
       const fluxNetResponse = messageHelper.createDataMessage(fluxNet);
@@ -3326,6 +3332,12 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       }
       const fluxNet = await dockerService.createFluxAppDockerNetwork(appName, dockerNetworkAddrValue).catch((error) => log.error(error));
       if (!fluxNet) {
+        installationInProgress = false;
+        log.error(`Flux App network of ${appName} failed to initiate`);
+        if (res) {
+          res.write(`Flux App network of ${appName} failed to initiate`);
+          res.end();
+        }
         return;
       }
       const fluxNetResponse = messageHelper.createDataMessage(fluxNet);

@@ -320,7 +320,7 @@
               label-for="period"
             >
               <div class="mx-1">
-                {{ getExpireLabel || appRegistrationSpecification.expire + ' blocks' }}
+                {{ getExpireLabel || (appRegistrationSpecification.expire ? appRegistrationSpecification.expire + ' blocks' : '1 month') }}
               </div>
               <b-form-input
                 id="period"
@@ -1158,7 +1158,7 @@
               Price: {{ appPricePerMonth }} FLUX
             </b-card-text>
             <b-card-text>
-              Subscribtion period: {{ getExpireLabel || appRegistrationSpecification.expire + ' blocks' }}
+              Subscribtion period: {{ getExpireLabel || (appRegistrationSpecification.expire ? appRegistrationSpecification.expire + ' blocks' : '1 month') }}
             </b-card-text>
             <b-button
               v-ripple.400="'rgba(255, 255, 255, 0.15)'"
