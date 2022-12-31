@@ -4339,7 +4339,7 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
  * @returns {boolean} True if no errors are thrown.
  */
 function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
-  if (appSpecifications.version !== 1 && appSpecifications.version !== 2 && appSpecifications.version !== 3 && appSpecifications.version !== 4 && appSpecifications.version !== 5) {
+  if (appSpecifications.version !== 1 && appSpecifications.version !== 2 && appSpecifications.version !== 3 && appSpecifications.version !== 4 && appSpecifications.version !== 5 && appSpecifications.version !== 6) {
     throw new Error('Flux App message version specification is invalid');
   }
   if (appSpecifications.name.length > 32) {
