@@ -748,8 +748,8 @@ async function removeFluxAppDockerNetwork(appname) {
     fluxNetworkExists = false;
   });
   let response;
-  // create or check docker network
-  if (!fluxNetworkExists) {
+  // remove docker network
+  if (fluxNetworkExists) {
     response = await dockerRemoveNetwork(network);
   } else {
     response = `Flux App Network of ${appname} already does not exist.`;
