@@ -1,5 +1,4 @@
 import axios from 'axios';
-
 import { store } from '@/store';
 
 const { protocol, hostname, port } = window.location;

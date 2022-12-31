@@ -7,13 +7,12 @@ module.exports = {
   },
   extends: [
     'plugin:vue/vue3-recommended',
-    '@vue/airbnb',
   ],
   rules: {
     'max-len': [
       'error',
       {
-        code: 300,
+        code: 120,
         ignoreStrings: true,
         ignoreTrailingComments: true,
       },
@@ -32,6 +31,7 @@ module.exports = {
   },
   parserOptions: {
   },
+  plugins: ["import"],
   settings: {
     'import/resolver': {
       node: {

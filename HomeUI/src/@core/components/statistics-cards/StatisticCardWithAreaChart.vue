@@ -80,8 +80,8 @@ export default {
     });
 
     return {
-      chartOptionsComputed
-    }
+      chartOptionsComputed,
+    };
   },
 };
 </script>

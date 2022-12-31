@@ -69,8 +69,8 @@ export default {
     });
 
     return {
-      accordion
-    }
+      accordion,
+    };
   },
   created() {
     this.collapseItemID = uuidv4();

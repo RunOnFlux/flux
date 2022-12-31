@@ -1,5 +1,5 @@
-import { createApp } from 'vue'
-import { createWebHistory, createRouter } from 'vue-router'
+import { createApp } from 'vue';
+import { createWebHistory, createRouter } from 'vue-router';
 import { store } from '@/store';
 
 import IDService from '@/services/IDService';

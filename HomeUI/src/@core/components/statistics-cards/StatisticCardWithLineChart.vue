@@ -82,8 +82,8 @@ export default {
     });
 
     return {
-      chartOptionsComputed
-    }
+      chartOptionsComputed,
+    };
   },
   methods: {
     gradientToColor(color) {

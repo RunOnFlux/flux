@@ -7,6 +7,14 @@ module.exports = {
     'cypress/globals': true,
   },
   rules: {
+    'max-len': [
+      'error',
+      {
+        code: 120,
+        ignoreStrings: true,
+        ignoreTrailingComments: true,
+      },
+    ],
     strict: 'off',
   },
 };

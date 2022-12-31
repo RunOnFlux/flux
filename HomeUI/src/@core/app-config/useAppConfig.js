@@ -1,5 +1,5 @@
+import { computed, watch } from 'vue';
 import { store } from '@/store';
-import { computed, watch } from "vue";
 
 export default function usAppConfig() {
   // ------------------------------------------------
@@ -67,7 +67,7 @@ export default function usAppConfig() {
   // ------------------------------------------------
 
   const layoutType = computed({
-    get: () => store.state.appConfig.layout.type,
+    get: () => store._state.data.appConfig.layout.type,
     set: (val) => {
       store.commit('appConfig/UPDATE_LAYOUT_TYPE', val);
     },

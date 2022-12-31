@@ -135,7 +135,7 @@ export default {
       showHeader,
       showActions,
       availableActions,
-    }
+    };
   },
   created() {
     this.parentID = String(Math.floor(Math.random() * 10) + 1);

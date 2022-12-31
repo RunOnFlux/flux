@@ -33,8 +33,8 @@ export default {
     ]);
 
     return {
-      mapState
-    }
+      mapState,
+    };
   },
   mounted() {
     const self = this;

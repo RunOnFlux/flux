@@ -1,4 +1,4 @@
-import { createApp } from 'vue'
+import { createApp } from 'vue';
 import {
   BVConfigPlugin,
   LayoutPlugin,
@@ -7,7 +7,7 @@ import {
 } from 'bootstrap-vue';
 
 import router from './router';
-import { store } from './store';
+import { store } from '@/store';
 import App from './App.vue';
 
 // Global Components

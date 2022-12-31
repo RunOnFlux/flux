@@ -86,7 +86,7 @@
 
 <script>
 import { computed } from "vue";
-import { useRoute } from 'vue-router'
+import { useRoute } from 'vue-router';
 import AppFooter from '@core/layouts/components/AppFooter.vue';
 import useAppConfig from '@core/app-config/useAppConfig';
 import { BNavbar } from 'bootstrap-vue';

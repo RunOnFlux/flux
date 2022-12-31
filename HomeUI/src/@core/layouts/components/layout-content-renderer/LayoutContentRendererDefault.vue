@@ -27,8 +27,8 @@
 <script>
 import AppBreadcrumb from '@core/layouts/components/AppBreadcrumb.vue';
 import useAppConfig from '@core/app-config/useAppConfig';
-import { useRoute } from 'vue-router'
-import { useStore } from 'vuex'
+import { useRoute } from 'vue-router';
+import { useStore } from 'vuex';
 
 export default {
   components: {

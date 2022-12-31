@@ -1,4 +1,4 @@
-import { createApp } from 'vue'
+import { createApp } from 'vue';
 import { createStore } from 'vuex'
 
 // Modules
@@ -32,4 +32,3 @@ app.mount('#app')
 export {
   store
 }
-
