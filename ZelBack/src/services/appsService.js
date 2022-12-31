@@ -2293,7 +2293,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
       if (res) {
         res.write(serviceHelper.ensureString(dockerNetworkStatus));
       }
-      await dockerService.removeFluxAppDockerNetwork(appName);
+      await dockerService.removeFluxAppDockerNetwork(appName).catch((error) => log.error(error));
       const dockerNetworkStatus2 = {
         status: 'Docker network cleaned',
       };
