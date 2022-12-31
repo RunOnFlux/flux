@@ -113,7 +113,7 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth');
       DaemonService.startBenchmark(zelidauth)
         .then((response) => {
-          this.$toast({
+          this.$bvToast.toast({
             component: ToastificationContent,
             props: {
               title: response.data.data.message || response.data.data,
@@ -123,7 +123,7 @@ export default {
           });
         })
         .catch(() => {
-          this.$toast({
+          this.$bvToast.toast({
             component: ToastificationContent,
             props: {
               title: 'Error while trying to start Benchmark',

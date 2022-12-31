@@ -765,7 +765,7 @@ export default {
           this.generateSSDHistory();
           this.historyStatsLoading = false;
         } else {
-          this.$toast({
+          this.$bvToast.toast({
             component: ToastificationContent,
             props: {
               title: 'Unable to fetch history stats',

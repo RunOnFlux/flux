@@ -68,7 +68,7 @@ export default {
         });
     },
     showToast(variant, title) {
-      this.$toast({
+      this.$bvToast.toast({
         component: ToastificationContent,
         props: {
           title,

@@ -870,7 +870,7 @@ export default {
       }
     },
     showToast(variant, title, icon = 'InfoIcon') {
-      this.$toast({
+      this.$bvToast.toast({
         component: ToastificationContent,
         props: {
           title,

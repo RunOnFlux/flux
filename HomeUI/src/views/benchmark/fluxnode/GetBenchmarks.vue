@@ -115,7 +115,7 @@ export default {
     async benchmarkGetBenchmarks() {
       const response = await BenchmarkService.getBenchmarks();
       if (response.data.status === 'error') {
-        this.$toast({
+        this.$bvToast.toast({
           component: ToastificationContent,
           props: {
             title: response.data.data.message || response.data.data,

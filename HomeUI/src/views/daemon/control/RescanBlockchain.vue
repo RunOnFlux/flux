@@ -125,7 +125,7 @@ export default {
     async daemonGetInfo() {
       const response = await DaemonService.getInfo();
       if (response.data.status === 'error') {
-        this.$toast({
+        this.$bvToast.toast({
           component: ToastificationContent,
           props: {
             title: response.data.data.message || response.data.data,
@@ -147,7 +147,7 @@ export default {
       const blockheight = this.rescanDaemonHeight > 0 ? this.rescanDaemonHeight : 0;
       DaemonService.rescanDaemon(zelidauth, blockheight)
         .then((response) => {
-          this.$toast({
+          this.$bvToast.toast({
             component: ToastificationContent,
             props: {
               title: response.data.data.message || response.data.data,
@@ -157,7 +157,7 @@ export default {
           });
         })
         .catch(() => {
-          this.$toast({
+          this.$bvToast.toast({
             component: ToastificationContent,
             props: {
               title: 'Error while trying to rescan Daemon',

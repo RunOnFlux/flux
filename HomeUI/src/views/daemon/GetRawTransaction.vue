@@ -64,7 +64,7 @@ export default {
     async daemonGetRawTransaction() {
       const response = await DaemonService.getRawTransaction(this.txid, 1);
       if (response.data.status === 'error') {
-        this.$toast({
+        this.$bvToast.toast({
           component: ToastificationContent,
           props: {
             title: response.data.data.message || response.data.data,

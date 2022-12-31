@@ -233,7 +233,7 @@ export default {
       BenchmarkService.tailBenchmarkDebug(zelidauth)
         .then((response) => {
           if (response.data.status === 'error') {
-            this.$toast({
+            this.$bvToast.toast({
               component: ToastificationContent,
               props: {
                 title: response.data.data.message || response.data.data,
@@ -247,7 +247,7 @@ export default {
           }
         })
         .catch((error) => {
-          this.$toast({
+          this.$bvToast.toast({
             component: ToastificationContent,
             props: {
               title: 'Error while trying to get latest debug of Benchmark',

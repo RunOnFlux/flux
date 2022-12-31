@@ -187,7 +187,7 @@ export default {
     async daemonGetDOSList() {
       const response = await DaemonService.getDOSList();
       if (response.data.status === 'error') {
-        this.$toast({
+        this.$bvToast.toast({
           component: ToastificationContent,
           props: {
             title: response.data.data.message || response.data.data,

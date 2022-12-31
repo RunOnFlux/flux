@@ -476,7 +476,7 @@ export default {
     async getZelNodeCount() {
       const response = await DashboardService.zelnodeCount();
       if (response.data.status === 'error') {
-        this.$toast({
+        this.$bvToast.toast({
           component: ToastificationContent,
           props: {
             title: response.data.data.message || response.data.data,

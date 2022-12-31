@@ -441,7 +441,7 @@ export default {
       this.config.incoming.currentPage = 1;
     },
     showToast(variant, title, icon = 'InfoIcon') {
-      this.$toast({
+      this.$bvToast.toast({
         component: ToastificationContent,
         props: {
           title,

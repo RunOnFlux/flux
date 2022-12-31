@@ -75,7 +75,7 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth');
       const response = await DaemonService.validateAddress(zelidauth, this.address);
       if (response.data.status === 'error') {
-        this.$toast({
+        this.$bvToast.toast({
           component: ToastificationContent,
           props: {
             title: response.data.data.message || response.data.data,

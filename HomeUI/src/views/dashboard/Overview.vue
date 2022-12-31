@@ -385,7 +385,7 @@ export default {
         ];
       } catch (error) {
         console.log(error);
-        this.$toast({
+        this.$bvToast.toast({
           component: ToastificationContent,
           props: {
             title: 'Unable to fetch history stats',

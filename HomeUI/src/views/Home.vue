@@ -300,7 +300,7 @@ export default {
       console.log(evt);
     },
     showToast(variant, title) {
-      this.$toast({
+      this.$bvToast.toast({
         component: ToastificationContent,
         props: {
           title,

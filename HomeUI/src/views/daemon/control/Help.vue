@@ -80,7 +80,7 @@ export default {
     async daemonHelp() {
       const response = await DaemonService.help();
       if (response.data.status === 'error') {
-        this.$toast({
+        this.$bvToast.toast({
           component: ToastificationContent,
           props: {
             title: response.data.data.message || response.data.data,
@@ -103,7 +103,7 @@ export default {
       const response = await DaemonService.helpSpecific(this.activeHelpNames);
       console.log(response);
       if (response.data.status === 'error') {
-        this.$toast({
+        this.$bvToast.toast({
           component: ToastificationContent,
           props: {
             title: response.data.data.message || response.data.data,

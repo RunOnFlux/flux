@@ -240,7 +240,7 @@ export default {
       xhr.send(formData);
     },
     showToast(variant, title, icon = 'InfoIcon') {
-      this.$toast({
+      this.$bvToast.toast({
         component: ToastificationContent,
         props: {
           title,

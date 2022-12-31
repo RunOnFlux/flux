@@ -140,7 +140,7 @@ export default {
     signFluxTransaction() {
       this.popoverShow = false;
       if (!this.hexFluxTransaction) {
-        this.$toast({
+        this.$bvToast.toast({
           component: ToastificationContent,
           props: {
             title: 'No Flux transaction hex provided',
@@ -156,7 +156,7 @@ export default {
         .then((response) => {
           console.log(response);
           if (response.data.status === 'error') {
-            this.$toast({
+            this.$bvToast.toast({
               component: ToastificationContent,
               props: {
                 title: response.data.data.message || response.data.data,
@@ -172,7 +172,7 @@ export default {
         })
         .catch((error) => {
           console.log(error);
-          this.$toast({
+          this.$bvToast.toast({
             component: ToastificationContent,
             props: {
               title: 'Error while trying to sign Flux transaction',
