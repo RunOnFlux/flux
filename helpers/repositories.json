@@ -590,5 +590,6 @@
    "tmjeff/mineonlium",
    "madrafrec/dev_lab",
    "cyberfly/cyberfly-api:latest",
-   "technitium/dns-server:latest"
+   "technitium/dns-server:latest",
+   "wirewrex/caddy-hns:latest"
 ]
