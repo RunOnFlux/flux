@@ -87,8 +87,8 @@ async function handleAppRunningMessage(message, fromIP) {
 // eslint-disable-next-line no-unused-vars
 function handleIncomingConnection(ws, req, expressWS) {
   // now we are in connections state. push the websocket to our incomingconnections
-  const maxPeers = 5 * config.fluxapps.minIncoming;
-  const maxNumberOfConnections = numberOfFluxNodes / 40 < 15 * config.fluxapps.minIncoming ? numberOfFluxNodes / 40 : 15 * config.fluxapps.minIncoming;
+  const maxPeers = 4 * config.fluxapps.minIncoming;
+  const maxNumberOfConnections = numberOfFluxNodes / 40 < 12 * config.fluxapps.minIncoming ? numberOfFluxNodes / 40 : 12 * config.fluxapps.minIncoming;
   const maxCon = Math.max(maxPeers, maxNumberOfConnections);
   if (incomingConnections.length > maxCon) {
     setTimeout(() => {
@@ -540,8 +540,8 @@ async function fluxDiscovery() {
     const maxPeers = 2 * config.fluxapps.minOutgoing;
     numberOfFluxNodes = nodeList.length;
     const currentIpsConnTried = [];
-    const requiredNumberOfConnections = numberOfFluxNodes / 100 < 4 * config.fluxapps.minOutgoing ? numberOfFluxNodes / 100 : 4 * config.fluxapps.minOutgoing; // 1%
-    const maxNumberOfConnections = numberOfFluxNodes / 75 < 6 * config.fluxapps.minOutgoing ? numberOfFluxNodes / 75 : 6 * config.fluxapps.minOutgoing; // 1.5%
+    const requiredNumberOfConnections = numberOfFluxNodes / 100 < 2 * config.fluxapps.minOutgoing ? numberOfFluxNodes / 100 : 2 * config.fluxapps.minOutgoing;
+    const maxNumberOfConnections = numberOfFluxNodes / 75 < 5 * config.fluxapps.minOutgoing ? numberOfFluxNodes / 75 : 5 * config.fluxapps.minOutgoing;
     const minCon = Math.max(minPeers, requiredNumberOfConnections); // awlays maintain at least 10 or 1% of nodes whatever is higher
     const maxCon = Math.max(maxPeers, maxNumberOfConnections); // have a maximum of 20 or 1.5% of nodes whatever is higher
     log.info(`Current number of outgoing connections:${outgoingConnections.length}`);
