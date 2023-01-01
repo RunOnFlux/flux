@@ -39,8 +39,6 @@ async function sendToAllPeers(data, wsList) {
               foundPeer.lastPingTime = pingTime;
             }
           } else {
-            log.info(client._socket.remoteAddress);
-            log.info(JSON.stringify(data));
             client.send(data);
           }
         } else {
@@ -490,7 +488,6 @@ async function broadcastTemporaryAppMessage(message) {
   * @param timestamp number
   * @param signature string
   */
-  log.info(message);
   // no verification of message before broadcasting. Broadcasting happens always after data have been verified and are stored in our db. It is up to receiving node to verify it and store and rebroadcast.
   if (typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number' || typeof message.appSpecifications !== 'object' || typeof message.signature !== 'string' || typeof message.timestamp !== 'number' || typeof message.hash !== 'string') {
     throw new Error('Invalid Flux App message for storing');
