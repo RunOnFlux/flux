@@ -770,14 +770,14 @@ async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = fals
   await dbHelper.removeDocumentsFromCollection(database, fluxTransactionCollection, query);
   // restore appsHashes collection
   await dbHelper.removeDocumentsFromCollection(database, appsHashesCollection, query);
+  log.info('Rescanning Blockchain Parameters!');
+  const databaseGlobal = dbopen.db(config.database.appsglobal.database);
+  const databaseUpdates = dbopen.db(config.database.chainparams.database);
+  await dbHelper.removeDocumentsFromCollection(databaseUpdates, chainParamsMessagesCollection, query);
   if (rescanGlobalApps === true) {
-    const databaseGlobal = dbopen.db(config.database.appsglobal.database);
-    const databaseUpdates = dbopen.db(config.database.chainparams.database);
     log.info('Rescanning Apps!');
     await dbHelper.removeDocumentsFromCollection(databaseGlobal, config.database.appsglobal.collections.appsMessages, query);
     await dbHelper.removeDocumentsFromCollection(databaseGlobal, config.database.appsglobal.collections.appsInformation, query);
-    log.info('Rescanning Blockchain Parameters!');
-    await dbHelper.removeDocumentsFromCollection(databaseUpdates, chainParamsMessagesCollection, query);
   }
   log.info('Rescan completed');
   return true;
@@ -855,7 +855,13 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
           throw error;
         }
       });
-      log.info(result, resultB, resultC, resultD, resultFusion);
+      const databaseUpdates = db.db(config.database.chainparams.database);
+      const resultChainParams = await dbHelper.dropCollection(databaseUpdates, chainParamsMessagesCollection).catch((error) => {
+        if (error.message !== 'ns not found') {
+          throw error;
+        }
+      });
+      log.info(result, resultB, resultC, resultD, resultFusion, resultChainParams);
 
       await database.collection(utxoIndexCollection).createIndex({ txid: 1, vout: 1 }, { name: 'query for getting utxo', unique: true });
       await database.collection(utxoIndexCollection).createIndex({ txid: 1, vout: 1, satoshis: 1 }, { name: 'query for getting utxo for zelnode tx', unique: true });
@@ -880,9 +886,12 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
         log.error(error);
       }); // has to be unique!
       await database.collection(appsHashesCollection).createIndex({ message: 1 }, { name: 'query for getting app hashes depending if we have message' });
+      await databaseUpdates.collection(chainParamsMessagesCollection).createIndex({ txid: 1 }, { name: 'query for getting txid of some chain parameters update message' });
+      await databaseUpdates.collection(chainParamsMessagesCollection).createIndex({ height: 1 }, { name: 'query for getting height of some chain parameters update message' });
+      await databaseUpdates.collection(chainParamsMessagesCollection).createIndex({ message: 1 }, { name: 'query for getting message of some chain parameters update message' });
+      await databaseUpdates.collection(chainParamsMessagesCollection).createIndex({ version: 1 }, { name: 'query for getting version of some chain parameters update message' });
 
       const databaseGlobal = db.db(config.database.appsglobal.database);
-      const databaseUpdates = db.db(config.database.chainparams.database);
       log.info('Preparing apps collections');
       if (reindexOrRescanGlobalApps === true) {
         const resultE = await dbHelper.dropCollection(databaseGlobal, config.database.appsglobal.collections.appsMessages).catch((error) => {
@@ -900,12 +909,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
             throw error;
           }
         });
-        const resultH = await dbHelper.dropCollection(databaseUpdates, chainParamsMessagesCollection).catch((error) => {
-          if (error.message !== 'ns not found') {
-            throw error;
-          }
-        });
-        log.info(resultE, resultF, resultG, resultH);
+        log.info(resultE, resultF, resultG);
       }
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ hash: 1 }, { name: 'query for getting zelapp message based on hash' }); // , unique: true
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ txid: 1 }, { name: 'query for getting zelapp message based on txid' });
@@ -926,10 +930,6 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       await database.collection(config.database.appsglobal.collections.appsLocations).createIndex({ ip: 1 }, { name: 'query for getting zelapp location based on ip' });
       await database.collection(config.database.appsglobal.collections.appsLocations).createIndex({ name: 1, ip: 1 }, { name: 'query for getting app based on ip and name' });
       await database.collection(config.database.appsglobal.collections.appsLocations).createIndex({ name: 1, ip: 1, broadcastedAt: 1 }, { name: 'query for getting app to ensure we possess a message' });
-      await databaseUpdates.collection(chainParamsMessagesCollection).createIndex({ txid: 1 }, { name: 'query for getting txid of some chain parameters update message' });
-      await databaseUpdates.collection(chainParamsMessagesCollection).createIndex({ height: 1 }, { name: 'query for getting height of some chain parameters update message' });
-      await databaseUpdates.collection(chainParamsMessagesCollection).createIndex({ message: 1 }, { name: 'query for getting message of some chain parameters update message' });
-      await databaseUpdates.collection(chainParamsMessagesCollection).createIndex({ version: 1 }, { name: 'query for getting version of some chain parameters update message' });
       // what if 2 app adjustment come in the same block?
       // log.info(resultE, resultF);
       log.info('Preparation done');
