@@ -47,19 +47,27 @@ const globalAppsInformation = config.database.appsglobal.collections.appsInforma
 const globalAppsTempMessages = config.database.appsglobal.collections.appsTemporaryMessages;
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
-// default cache
-const LRUoptions = {
-  max: 500, // store 500 values, we shall not have more values at any period
-  maxAge: 1000 * 60 * 10, // 10 minutes
+// cache for app running messages
+const LRUoptionsRun = { // cache for app running messages
+  max: 50000, // store max 50000 values, eventhough we can have more values. this accounts for more than 15000 app instances. Less than 500 Bytes per value -> 25MB cache
+  maxAge: 1000 * 60 * 70, // 70 minutes
 };
 
+// cache for temporary messages
+const LRUoptionsTemp = { // cache for temporary messages
+  max: 10000, // store max 10000 values
+  maxAge: 1000 * 60 * 70, // 70 minutes
+};
 const GlobalAppsSpawnLRUoptions = {
+  max: 1000,
   maxAge: 1000 * 60 * 30, // 30 minutes
 };
 const longCache = {
+  max: 500,
   maxAge: 1000 * 60 * 60 * 8, // 8 hours
 };
-const myCache = new LRU(LRUoptions);
+const myCacheRun = new LRU(LRUoptionsRun);
+const myCacheTemp = new LRU(LRUoptionsTemp);
 const trySpawningGlobalAppCache = new LRU(GlobalAppsSpawnLRUoptions);
 const myLongCache = new LRU(longCache);
 
@@ -133,7 +141,6 @@ async function getChainParamsPriceUpdates() {
     });
     return priceForks;
   } catch (error) {
-    console.log(error);
     log.error(error);
     return [];
   }
@@ -5376,11 +5383,10 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
     return new Error('Invalid Flux App message for storing');
   }
   // check if we have the message in cache. If yes, return false. If not, store it and continue
-  if (myCache.has(serviceHelper.ensureString(message))) {
+  if (myCacheTemp.has(message.hash)) {
     return false;
   }
-  console.log(serviceHelper.ensureString(message));
-  myCache.set(serviceHelper.ensureString(message), message);
+  myCacheTemp.set(message.hash, message);
   const specifications = message.appSpecifications || message.zelAppSpecifications;
   // eslint-disable-next-line no-use-before-define
   const appSpecFormatted = specificationFormatter(specifications);
@@ -5469,11 +5475,10 @@ async function storeAppRunningMessage(message) {
   }
 
   // check if we have the message in cache. If yes, return false. If not, store it and continue
-  if (myCache.has(serviceHelper.ensureString(message))) {
+  if (myCacheRun.has(serviceHelper.ensureString(message))) {
     return false;
   }
-  console.log(serviceHelper.ensureString(message));
-  myCache.set(serviceHelper.ensureString(message), message);
+  myCacheRun.set(serviceHelper.ensureString(message), message);
 
   const validTill = message.broadcastedAt + (65 * 60 * 1000); // 3900 seconds
 
@@ -5521,7 +5526,6 @@ async function storeAppRunningMessage(message) {
 async function requestAppMessage(hash) {
   // some message type request app message, message hash
   // peer responds with data from permanent database or temporary database. If does not have it requests further
-  console.log(hash);
   const message = {
     type: 'fluxapprequest',
     version: 1,

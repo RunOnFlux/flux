@@ -729,7 +729,6 @@ async function allowPort(port) {
   const cmdAsync = util.promisify(nodecmd.get);
 
   const cmdres = await cmdAsync(exec);
-  console.log(cmdres);
   const cmdStat = {
     status: false,
     message: null,
@@ -753,7 +752,6 @@ async function denyPort(port) {
   const cmdAsync = util.promisify(nodecmd.get);
 
   const cmdres = await cmdAsync(exec);
-  console.log(cmdres);
   const cmdStat = {
     status: false,
     message: null,

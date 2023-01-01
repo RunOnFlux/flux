@@ -39,6 +39,8 @@ async function sendToAllPeers(data, wsList) {
               foundPeer.lastPingTime = pingTime;
             }
           } else {
+            log.info(client._socket.remoteAddress);
+            log.info(JSON.stringify(data));
             client.send(data);
           }
         } else {
@@ -181,7 +183,7 @@ async function sendMessageToWS(message, ws) {
     try {
       ws.send(messageSigned);
     } catch (e) {
-      console.error(e);
+      log.error(e);
     }
   } catch (error) {
     log.error(error);
@@ -204,7 +206,6 @@ async function respondWithAppMessage(message, ws) {
       sendMessageToWS(tempMesResponse, ws);
       return;
     }
-    console.log(serviceHelper.ensureString(message));
     const appMessage = await appsService.checkAppMessageExistence(message.data.hash) || await appsService.checkAppTemporaryMessageExistence(message.data.hash);
     if (appMessage) {
       // const permanentAppMessage = {

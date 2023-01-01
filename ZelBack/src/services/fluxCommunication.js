@@ -116,7 +116,7 @@ function handleIncomingConnection(ws, req, expressWS) {
         log.info('Closing incoming connection, peer is on blockedList');
         ws.close(1000, 'blocked list'); // close as of policy violation?
       } catch (e) {
-        console.error(e);
+        log.error(e);
       }
       return;
     }
@@ -157,7 +157,7 @@ function handleIncomingConnection(ws, req, expressWS) {
           ws.close(1000, 'invalid message, blocked'); // close as of policy violation?
         }
       } catch (e) {
-        console.error(e);
+        log.error(e);
       }
     }
   });
@@ -370,7 +370,7 @@ async function initiateAndHandleConnection(connection) {
         log.info('Closing outgoing connection, peer is on blockedList');
         websocket.close(1000, 'blocked list'); // close as of policy violation?
       } catch (e) {
-        console.error(e);
+        log.error(e);
       }
       return;
     }
@@ -400,13 +400,12 @@ async function initiateAndHandleConnection(connection) {
           websocket.close(1000, 'invalid message, blocked'); // close as of policy violation?
         }
       } catch (e) {
-        console.error(e);
+        log.error(e);
       }
     }
   };
 
   websocket.onerror = (evt) => {
-    console.log(evt.code);
     const ocIndex = outgoingConnections.indexOf(websocket);
     if (ocIndex > -1) {
       log.info(`Connection to ${connection} errord with code ${evt.code}`);
