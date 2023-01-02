@@ -22,8 +22,13 @@
       lazy
       @hidden="resetsearchQuery"
     >
-      <feather-icon
+      <!-- <feather-icon
         v-slot="button-content"
+        icon="StarIcon"
+        size="21"
+        class="text-warning"
+      /> -->
+      <feather-icon
         icon="StarIcon"
         size="21"
         class="text-warning"
