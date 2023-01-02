@@ -192,13 +192,6 @@ export default {
       callbackValue
     }
   },
-  computed: {
-    callbackValue() {
-      const backendURL = this.backendURL();
-      const url = `${backendURL}/id/verifylogin`;
-      return encodeURI(url);
-    },
-  },
   mounted() {
     this.daemonGetInfo();
     this.daemonWelcomeGetZelNodeStatus();

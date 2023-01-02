@@ -108,7 +108,7 @@ export default {
       'privilege',
     ]);
 
-    const apiPort = store._state.data.flux.config.apiPort;
+    const { apiPort } = store._state.data.flux.config;
 
     const externalIp = store._state.data.flux.userconfig.externalip;
 
