@@ -125,8 +125,8 @@ import Ripple from 'vue-ripple-directive';
 import axios from 'axios';
 import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
 
-import FluxService from '@/services/FluxService';
-import BenchmarkService from '@/services/BenchmarkService';
+import FluxService from '@/services/FluxService.js';
+import BenchmarkService from '@/services/BenchmarkService.js';
 
 import qs from 'qs';
 

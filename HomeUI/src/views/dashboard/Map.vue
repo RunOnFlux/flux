@@ -63,7 +63,7 @@ import {
   LMap, LTileLayer, LMarker, LPopup,
 } from '@vue-leaflet/vue-leaflet';
 import VueApexCharts from 'vue3-apexcharts';
-import DashboardService from '@/services/DashboardService';
+import DashboardService from '@/services/DashboardService.js';
 import 'leaflet/dist/leaflet.css';
 
 /* eslint-disable global-require */

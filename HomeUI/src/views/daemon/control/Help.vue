@@ -41,7 +41,7 @@ import {
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import AppCollapse from '@core/components/app-collapse/AppCollapse.vue';
 import AppCollapseItem from '@core/components/app-collapse/AppCollapseItem.vue';
-import DaemonService from '@/services/DaemonService';
+import DaemonService from '@/services/DaemonService.js';
 
 export default {
   components: {

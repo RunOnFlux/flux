@@ -271,9 +271,9 @@ import {
 import { mapState } from 'vuex';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
-import FluxService from '@/services/FluxService';
+import FluxService from '@/services/FluxService.js';
 
-const timeoptions = require('@/libs/dateFormat');
+const timeoptions = require('@/libs/dateFormat.js');
 
 export default {
   components: {

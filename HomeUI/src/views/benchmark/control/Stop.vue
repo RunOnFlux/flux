@@ -82,7 +82,7 @@ import {
 } from 'bootstrap-vue';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import Ripple from 'vue-ripple-directive';
-import BenchmarkService from '@/services/BenchmarkService';
+import BenchmarkService from '@/services/BenchmarkService.js';
 
 export default {
   components: {

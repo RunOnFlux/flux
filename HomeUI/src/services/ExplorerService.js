@@ -1,4 +1,4 @@
-import Api from '@/services/Api';
+import Api from '@/services/Api.js';
 
 export default {
   getAddressBalance(address) {

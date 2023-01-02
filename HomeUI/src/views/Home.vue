@@ -130,8 +130,8 @@ import { mapState } from 'vuex';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import ListEntry from '@/views/components/ListEntry.vue';
 
-import DaemonService from '@/services/DaemonService';
-import IDService from '@/services/IDService';
+import DaemonService from '@/services/DaemonService.js';
+import IDService from '@/services/IDService.js';
 import FluxService from '../services/FluxService';
 
 import qs from 'qs';

@@ -274,10 +274,10 @@ import ListEntry from '@/views/components/ListEntry.vue';
 import Transaction from '@/views/explorer/Transaction.vue';
 import FluxTransaction from '@/views/explorer/FluxTransaction.vue';
 
-import DaemonService from '@/services/DaemonService';
-import ExplorerService from '@/services/ExplorerService';
+import DaemonService from '@/services/DaemonService.js';
+import ExplorerService from '@/services/ExplorerService.js';
 
-const timeoptions = require('@/libs/dateFormat');
+const timeoptions = require('@/libs/dateFormat.js');
 
 export default {
   components: {

@@ -294,8 +294,8 @@ import VueApexCharts from 'vue3-apexcharts';
 
 import { $themeColors } from '@themeConfig';
 
-import DashboardService from '@/services/DashboardService';
-import ExplorerService from '@/services/ExplorerService';
+import DashboardService from '@/services/DashboardService.js';
+import ExplorerService from '@/services/ExplorerService.js';
 
 const rax = require('retry-axios');
 import axios from 'axios';

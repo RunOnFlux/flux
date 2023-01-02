@@ -2,7 +2,7 @@ import { createApp } from 'vue';
 import { createWebHistory, createRouter } from 'vue-router';
 import { store } from '@/store';
 
-import IDService from '@/services/IDService';
+import IDService from '@/services/IDService.js';
 
 import dashboard from './routes/dashboard';
 import daemon from './routes/daemon/daemon';

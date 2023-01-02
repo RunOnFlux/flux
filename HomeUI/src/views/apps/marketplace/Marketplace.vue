@@ -204,7 +204,7 @@ import Ripple from 'vue-ripple-directive';
 import { useToast } from 'vue-toastification';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import VuePerfectScrollbar from 'vue3-perfect-scrollbar';
-import DaemonService from '@/services/DaemonService';
+import DaemonService from '@/services/DaemonService.js';
 
 import AppView from './AppView.vue';
 import SharedNodesView from './SharedNodesView.vue';
@@ -213,7 +213,7 @@ import { categories, defaultCategory } from '../../../libs/marketplaceCategories
 
 import qs from 'qs';
 import axios from 'axios';
-const timeoptions = require('@/libs/dateFormat');
+const timeoptions = require('@/libs/dateFormat.js');
 
 export default {
   components: {

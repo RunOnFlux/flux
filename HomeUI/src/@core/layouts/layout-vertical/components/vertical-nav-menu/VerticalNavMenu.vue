@@ -88,7 +88,7 @@ import { BLink, BImg } from 'bootstrap-vue';
 import useAppConfig from '@core/app-config/useAppConfig';
 import { $themeConfig } from '@themeConfig';
 import navMenuItems from '@/navigation/vertical';
-import navMenuItemsCollapsed from '@/navigation/vertical/index_collapsed';
+import navMenuItemsCollapsed from '@/navigation/vertical/index_collapsed.js';
 import VerticalNavMenuItems from './components/vertical-nav-menu-items/VerticalNavMenuItems.vue';
 import useVerticalNavMenu from './useVerticalNavMenu';
 

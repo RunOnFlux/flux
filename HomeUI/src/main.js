@@ -15,8 +15,8 @@ import './global-components';
 
 // 3rd party plugins
 import '@axios';
-import '@/libs/portal-vue';
-import '@/libs/toastification';
+import '@/libs/portal-vue.js';
+import '@/libs/toastification.js';
 
 const app = createApp(App)
 

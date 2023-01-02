@@ -25,7 +25,7 @@ import useAppConfig from '@core/app-config/useAppConfig';
 
 import { useWindowSize, useCssVar } from '@vueuse/core';
 
-import IDService from '@/services/IDService';
+import IDService from '@/services/IDService.js';
 
 import qs from 'qs';
 

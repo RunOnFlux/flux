@@ -1,4 +1,4 @@
-import Api from '@/services/Api';
+import Api from '@/services/Api.js';
 
 import qs from 'qs';
 

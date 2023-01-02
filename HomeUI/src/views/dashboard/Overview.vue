@@ -196,8 +196,8 @@ import {
 } from 'bootstrap-vue';
 import VueApexCharts from 'vue3-apexcharts';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
-import tierColors from '@/libs/colors';
-import DashboardService from '@/services/DashboardService';
+import tierColors from '@/libs/colors.js';
+import DashboardService from '@/services/DashboardService.js';
 
 import axios from 'axios';
 

@@ -273,7 +273,7 @@ import {
 } from 'bootstrap-vue';
 import VueApexCharts from 'vue3-apexcharts';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
-import tierColors from '@/libs/colors';
+import tierColors from '@/libs/colors.js';
 
 import axios from 'axios';
 

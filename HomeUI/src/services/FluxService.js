@@ -1,4 +1,4 @@
-import Api, { sourceCancelToken } from '@/services/Api';
+import Api, { sourceCancelToken } from '@/services/Api.js';
 
 export default {
   softUpdateFlux(zelidauthHeader) {

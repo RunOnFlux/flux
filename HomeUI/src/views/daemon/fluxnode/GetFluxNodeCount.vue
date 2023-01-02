@@ -48,7 +48,7 @@ import {
   BCard,
 } from 'bootstrap-vue';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
-import DaemonService from '@/services/DaemonService';
+import DaemonService from '@/services/DaemonService.js';
 import ListEntry from '@/views/components/ListEntry.vue';
 
 export default {

@@ -177,7 +177,7 @@ import {
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import Ripple from 'vue-ripple-directive';
 import axios from 'axios';
-import FluxService from '@/services/FluxService';
+import FluxService from '@/services/FluxService.js';
 
 export default {
   components: {

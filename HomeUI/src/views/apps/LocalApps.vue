@@ -1694,12 +1694,12 @@ import ToastificationContent from '@core/components/toastification/Toastificatio
 import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
 import ListEntry from '@/views/components/ListEntry.vue';
 import Management from '@/views/apps/Management.vue';
-import AppsService from '@/services/AppsService';
-import DaemonService from '@/services/DaemonService';
+import AppsService from '@/services/AppsService.js';
+import DaemonService from '@/services/DaemonService.js';
 
 import qs from 'qs';
 import { store } from '@/store';
-const timeoptions = require('@/libs/dateFormat');
+const timeoptions = require('@/libs/dateFormat.js');
 
 const geolocations = require('../../libs/geolocation');
 

@@ -1651,12 +1651,12 @@ import 'vue-form-wizard/dist/vue-form-wizard.min.css';
 
 import axios from 'axios';
 
-import tierColors from '@/libs/colors';
-import DashboardService from '@/services/DashboardService';
+import tierColors from '@/libs/colors.js';
+import DashboardService from '@/services/DashboardService.js';
 
 import qs from 'qs';
 import { store } from '@/store';
-const timeoptions = require('@/libs/dateFormat');
+const timeoptions = require('@/libs/dateFormat.js');
 
 export default {
   components: {
@@ -1721,9 +1721,12 @@ export default {
     };
 
     const tier = ref('');
-    tier.value = props.tier;
+    const { propsTier } = props.tier;
+    tier.value = propsTier;
+
     const userZelid = ref('');
-    userZelid.value = props.zelid;
+    const { zelid } = props.zelid;
+    userZelid.value = zelid;
 
     const apiURL = 'https://titan.runonflux.io';
 

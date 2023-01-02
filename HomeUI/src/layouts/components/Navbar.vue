@@ -67,7 +67,7 @@ import MenuCollapseToggler from '@core/layouts/components/app-navbar/components/
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import Ripple from 'vue-ripple-directive';
 
-import IDService from '@/services/IDService';
+import IDService from '@/services/IDService.js';
 
 import qs from 'qs';
 

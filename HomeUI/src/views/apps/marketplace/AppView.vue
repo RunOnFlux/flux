@@ -505,12 +505,12 @@ import { $themeColors } from '@themeConfig';
 import 'vue-form-wizard/dist/vue-form-wizard.min.css';
 
 import ListEntry from '@/views/components/ListEntry.vue';
-import AppsService from '@/services/AppsService';
-import tierColors from '@/libs/colors';
+import AppsService from '@/services/AppsService.js';
+import tierColors from '@/libs/colors.js';
 
 import qs from 'qs';
 import { store } from '@/store';
-const timeoptions = require('@/libs/dateFormat');
+const timeoptions = require('@/libs/dateFormat.js');
 
 export default {
   components: {
@@ -572,9 +572,12 @@ export default {
     };
 
     const tier = ref('');
-    tier.value = props.tier;
+    const { propsTier } = props.tier;
+    tier.value = propsTier;
+    
     const userZelid = ref('');
-    userZelid.value = props.zelid;
+    const { zelid } = props.zelid;
+    userZelid.value = zelid;
 
     // Variables to control showing dialogs
     const launchModalShowing = ref(false);

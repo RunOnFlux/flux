@@ -163,7 +163,7 @@ import {
 } from 'bootstrap-vue';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import Ripple from 'vue-ripple-directive';
-import DaemonService from '@/services/DaemonService';
+import DaemonService from '@/services/DaemonService.js';
 
 export default {
   components: {

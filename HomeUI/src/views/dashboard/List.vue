@@ -95,7 +95,7 @@ import {
   BCard, BTable, BRow, BCol, BFormGroup, BFormSelect, BPagination, BInputGroup, BFormInput, BInputGroupAppend, BButton,
   BOverlay,
 } from 'bootstrap-vue';
-import DashboardService from '@/services/DashboardService';
+import DashboardService from '@/services/DashboardService.js';
 
 import axios from 'axios';
 

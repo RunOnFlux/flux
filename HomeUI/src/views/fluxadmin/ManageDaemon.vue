@@ -165,10 +165,10 @@ import axios from 'axios';
 import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
 import InputSpinButton from '@/views/components/InputSpinButton.vue';
 
-import DaemonService from '@/services/DaemonService';
-import FluxService from '@/services/FluxService';
-// import ExplorerService from '@/services/ExplorerService'
-// import AppsService from '@/services/AppsService'
+import DaemonService from '@/services/DaemonService.js';
+import FluxService from '@/services/FluxService.js';
+// import ExplorerService from '@/services/ExplorerService.js'
+// import AppsService from '@/services/AppsService.js'
 
 import qs from 'qs';
 

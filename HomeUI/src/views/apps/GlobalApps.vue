@@ -686,7 +686,7 @@ import ToastificationContent from '@core/components/toastification/Toastificatio
 import ListEntry from '@/views/components/ListEntry.vue';
 import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
 import Management from '@/views/apps/Management.vue';
-import AppsService from '@/services/AppsService';
+import AppsService from '@/services/AppsService.js';
 
 import qs from 'qs';
 

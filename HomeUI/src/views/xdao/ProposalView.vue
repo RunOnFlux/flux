@@ -394,7 +394,7 @@ import { $themeColors } from '@themeConfig';
 import axios from 'axios';
 import qs from 'qs';
 import { store } from '@/store';
-const timeoptions = require('@/libs/dateFormat');
+const timeoptions = require('@/libs/dateFormat.js');
 
 export default {
   components: {
@@ -472,7 +472,9 @@ export default {
     const haveVoted = ref(false);
     const signature = ref(null);
     const userZelid = ref('');
-    userZelid.value = props.zelid;
+
+    const { zelid } = props.zelid;
+    userZelid.value = zelid;
 
     const hasSignature = computed(() => signature.value !== null);
 
