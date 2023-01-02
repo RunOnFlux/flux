@@ -3,7 +3,6 @@
     v-bind="$attrs"
     class="timeline-item"
     :class="[`timeline-variant-${variant}`, fillBorder ? `timeline-item-fill-border-${variant}` : null]"
-    v-on="$listeners"
   >
     <div
       v-if="!icon"

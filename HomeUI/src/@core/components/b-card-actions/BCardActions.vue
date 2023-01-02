@@ -15,7 +15,6 @@
       :aria-expanded="!content_visible ? 'true' : 'false'"
       :aria-controls="parentID"
       :style="cardStyles"
-      v-on="$listeners"
     >
       <div
         v-if="showHeader"
