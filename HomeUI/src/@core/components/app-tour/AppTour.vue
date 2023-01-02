@@ -28,7 +28,6 @@
           :labels="tour.labels"
         >
           <div
-            v-slot="actions"
             class="tour-actions d-flex justify-content-between"
           >
             <!-- Skip Button -->
