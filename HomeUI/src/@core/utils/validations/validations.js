@@ -1,3 +1,4 @@
+/* eslint-disable camelcase */
 import { extend, localize } from 'vee-validate';
 import {
   required as rule_required,
