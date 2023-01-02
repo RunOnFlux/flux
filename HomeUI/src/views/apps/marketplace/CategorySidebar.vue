@@ -79,8 +79,11 @@ export default {
         maxScrollbarLength: 60,
       };
 
-      const userZelid = ref('');
-      userZelid.value = props.zelid;
+      watch(() => props.zelid, () => {
+        const userZelid = ref('');
+        const { zelid } = props.zelid;
+        userZelid.value = zelid;
+      })
 
       const taskFilters = [
         { title: 'All Categories', icon: 'inbox', route: { name: 'apps-marketplace' } },

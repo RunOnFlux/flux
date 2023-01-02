@@ -473,8 +473,10 @@ export default {
     const signature = ref(null);
     const userZelid = ref('');
 
-    const { zelid } = props.zelid;
-    userZelid.value = zelid;
+    watch(() => props.zelid, () => {
+      const { zelid } = props.zelid;
+      userZelid.value = zelid;
+    })
 
     const hasSignature = computed(() => signature.value !== null);
 

@@ -571,13 +571,16 @@ export default {
       return 'primary';
     };
 
-    const tier = ref('');
-    const { propsTier } = props.tier;
-    tier.value = propsTier;
+    watch(() => props.tier, () => {
+      const tier = ref('');
+      const { propsTier } = props.tier;
+      tier.value = propsTier;
+    })
     
-    const userZelid = ref('');
-    const { zelid } = props.zelid;
-    userZelid.value = zelid;
+    watch(() => props.zelid, () => {
+      const { zelid } = props.zelid;
+      userZelid.value = zelid;
+    })
 
     // Variables to control showing dialogs
     const launchModalShowing = ref(false);

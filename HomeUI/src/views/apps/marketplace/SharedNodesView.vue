@@ -1720,13 +1720,17 @@ export default {
       });
     };
 
-    const tier = ref('');
-    const { propsTier } = props.tier;
-    tier.value = propsTier;
+    watch(() => props.tier, () => {
+      const tier = ref('');
+      const { propsTier } = props.tier;
+      tier.value = propsTier;
+    })
 
-    const userZelid = ref('');
-    const { zelid } = props.zelid;
-    userZelid.value = zelid;
+    watch(() => props.zelid, () => {
+      const userZelid = ref('');
+      const { zelid } = props.zelid;
+      userZelid.value = zelid;
+    })
 
     const apiURL = 'https://titan.runonflux.io';
 
