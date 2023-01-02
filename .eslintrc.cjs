@@ -28,6 +28,9 @@ module.exports = {
     }],
     camelcase: ['error', { properties: 'never', ignoreDestructuring: true, ignoreImports: true }],
     // 'import/extensions': ['error', 'ignorePackages', { vue: 'always', js: 'never' }],
+    'vue/multi-word-component-names': ['error', {
+      'ignores': [ 'Bookmarks', 'Debug', 'Help', 'Home', 'Locale', 'Logo', 'Navbar', 'Management', 'Marketplace', 'Transaction' , 'Explorer', 'Error404', 'Resources', 'Map', 'Overview', 'List', 'Economics', 'Start', 'Stop', 'Restart' ],
+    }],
   },
   parserOptions: {
   },
