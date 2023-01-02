@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { config } from '../../config/default.js';
 import qs from 'qs';
+import { createRequire } from "module"; // Bring in the ability to create the 'require' method
 
 import dbHelper from './dbHelper.js';
 import log from '../lib/log.js';
@@ -94,6 +95,7 @@ async function getApplicationOwner(appName) {
   if (appSpecs) {
     return appSpecs.owner;
   }
+  const require = createRequire(import.meta.url); // construct the require method
   // eslint-disable-next-line global-require
   const appsService = require('./appsService');
   const allApps = await appsService.availableApps();

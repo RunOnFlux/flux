@@ -277,7 +277,7 @@ import FluxTransaction from '@/views/explorer/FluxTransaction.vue';
 import DaemonService from '@/services/DaemonService.js';
 import ExplorerService from '@/services/ExplorerService.js';
 
-const timeoptions = require('@/libs/dateFormat.js');
+import timeoptions from '@/libs/dateFormat.js';
 
 export default {
   components: {

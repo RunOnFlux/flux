@@ -1,8 +1,9 @@
-const chai = require('chai');
+import chai from 'chai';
 
 const { expect } = chai;
 
-const messageHelper = require('../../ZelBack/src/services/messageHelper').default;
+import messageHelper from '../../ZelBack/src/services/messageHelper.js';
+messageHelper.default;
 
 describe('messageHelper tests', () => {
   describe('createDataMessage tests', () => {

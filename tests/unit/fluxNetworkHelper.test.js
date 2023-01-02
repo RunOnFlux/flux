@@ -1,25 +1,33 @@
 /* eslint-disable no-underscore-dangle */
-const chai = require('chai');
-const sinon = require('sinon');
-const WebSocket = require('ws');
-const proxyquire = require('proxyquire');
-const path = require('path');
-const chaiAsPromised = require('chai-as-promised');
-const fs = require('fs').promises;
-const util = require('util');
-const log = require('../../ZelBack/src/lib/log').default;
-const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
-const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs').default;
-const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
-const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBenchmarkRpcs').default;
-const daemonServiceWalletRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceWalletRpcs').default;
-const daemonServiceZelnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceZelnodeRpcs').default;
-const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
-const benchmarkService = require('../../ZelBack/src/services/benchmarkService').default;
-const verificationHelper = require('../../ZelBack/src/services/verificationHelper').default;
-const {
+import chai from 'chai';
+import sinon from 'sinon';
+import WebSocket from 'ws';
+import proxyquire from 'proxyquire';
+import path from 'path';
+import chaiAsPromised from 'chai-as-promised';
+import fs from 'fs';
+fs.promises;
+import util from 'util';
+import log from '../../ZelBack/src/lib/log.js';
+log.default;
+import serviceHelper from '../../ZelBack/src/services/serviceHelper.js';
+import daemonServiceMiscRpcs from '../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs.js';
+daemonServiceMiscRpcs.default;
+import daemonServiceUtils from '../../ZelBack/src/services/daemonService/daemonServiceUtils.js';
+import daemonServiceBenchmarkRpcs from '../../ZelBack/src/services/daemonService/daemonServiceBenchmarkRpcs.js';
+daemonServiceBenchmarkRpcs.default;
+import daemonServiceWalletRpcs from '../../ZelBack/src/services/daemonService/daemonServiceWalletRpcs.js';
+daemonServiceWalletRpcs.default;
+import daemonServiceZelnodeRpcs from '../../ZelBack/src/services/daemonService/daemonServiceZelnodeRpcs.js';
+daemonServiceZelnodeRpcs.default;
+import fluxCommunicationUtils from '../../ZelBack/src/services/fluxCommunicationUtils.js';
+import benchmarkService from '../../ZelBack/src/services/benchmarkService.js';
+benchmarkService.default;
+import verificationHelper from '../../ZelBack/src/services/verificationHelper.js';
+verificationHelper.default;
+import {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
-} = require('../../ZelBack/src/services/utils/establishedConnections');
+} from '../../ZelBack/src/services/utils/establishedConnections.js';
 
 const userconfig = {
   initial: {

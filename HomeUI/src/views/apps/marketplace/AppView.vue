@@ -510,7 +510,7 @@ import tierColors from '@/libs/colors.js';
 
 import qs from 'qs';
 import { store } from '@/store';
-const timeoptions = require('@/libs/dateFormat.js');
+import timeoptions from '@/libs/dateFormat.js';
 
 export default {
   components: {

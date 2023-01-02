@@ -8,7 +8,7 @@ process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
 // Flux configuration
 import { config } from './ZelBack/config/default.js';
 import compression from 'compression';
-// const fs = require('fs');
+// import fs from 'fs';
 // const https = require('https');
 import path from 'path';
 import express from 'express';

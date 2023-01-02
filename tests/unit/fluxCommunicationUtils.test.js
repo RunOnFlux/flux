@@ -1,12 +1,16 @@
-const chai = require('chai');
-const LRU = require('lru-cache');
-const sinon = require('sinon');
-const proxyquire = require('proxyquire');
+import chai from 'chai';
+import LRU from 'lru-cache';
+import sinon from 'sinon';
+import proxyquire from 'proxyquire';
 
 const { expect } = chai;
-let fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
-const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
-const daemonServiceZelnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceZelnodeRpcs').default;
+import fluxCommunicationUtils from '../../ZelBack/src/services/fluxCommunicationUtils.js';
+import fluxCommunicationMessagesSender from '../../ZelBack/src/services/fluxCommunicationMessagesSender.js';
+import daemonServiceZelnodeRpcs from '../../ZelBack/src/services/daemonService/daemonServiceZelnodeRpcs.js';
+daemonServiceZelnodeRpcs.default;
+
+import { createRequire } from "module"; // Bring in the ability to create the 'require' method
+const require = createRequire(import.meta.url); // construct the require method
 const fluxList = require('./data/listfluxnodes.json');
 
 describe('fluxCommunicationUtils tests', () => {

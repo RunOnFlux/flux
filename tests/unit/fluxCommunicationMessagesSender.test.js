@@ -1,20 +1,22 @@
 /* eslint-disable no-underscore-dangle */
-const chai = require('chai');
-const chaiAsPromised = require('chai-as-promised');
-const sinon = require('sinon');
-const WebSocket = require('ws');
-const LRU = require('lru-cache');
-const { PassThrough } = require('stream');
-const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
-const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
-const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
-const appsService = require('../../ZelBack/src/services/appsService');
-const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
-const generalService = require('../../ZelBack/src/services/generalService').default;
-const verificationHelper = require('../../ZelBack/src/services/verificationHelper').default;
-const {
+import chai from 'chai';
+import chaiAsPromised from 'chai-as-promised';
+import sinon from 'sinon';
+import WebSocket from 'ws';
+import LRU from 'lru-cache';
+import { PassThrough } from 'stream';
+import fluxCommunicationMessagesSender from '../../ZelBack/src/services/fluxCommunicationMessagesSender.js';
+import fluxNetworkHelper from '../../ZelBack/src/services/fluxNetworkHelper.js';
+import daemonServiceUtils from '../../ZelBack/src/services/daemonService/daemonServiceUtils.js';
+import appsService from '../../ZelBack/src/services/appsService.js';
+import serviceHelper from '../../ZelBack/src/services/serviceHelper.js';
+import generalService from '../../ZelBack/src/services/generalService.js';
+generalService.default;
+import verificationHelper from '../../ZelBack/src/services/verificationHelper.js';
+verificationHelper.default;
+import {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
-} = require('../../ZelBack/src/services/utils/establishedConnections');
+} from '../../ZelBack/src/services/utils/establishedConnections.js';
 
 chai.use(chaiAsPromised);
 const { expect } = chai;

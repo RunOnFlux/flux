@@ -43,6 +43,8 @@ import { computed } from "vue";
 import { BLink, BButton, BImg } from 'bootstrap-vue';
 import VuexyLogo from '@core/layouts/components/Logo.vue';
 import { store } from '@/store';
+import downImgDark from '@/assets/images/pages/error-dark.svg';
+import downImgLight from '@/assets/images/pages/error.svg';
 
 export default {
   components: {
@@ -53,17 +55,17 @@ export default {
   },
   data() {
     return {
-      downImg: require('@/assets/images/pages/error.svg'),
+      downImgLight,
     };
   },
   setup() {
     const imgUrl = computed(() => {
       if (store.state.appConfig.layout.skin === 'dark') {
         // eslint-disable-next-line vue/no-side-effects-in-computed-properties
-        this.downImg = require('@/assets/images/pages/error-dark.svg');
+        this.downImg = downImgDark;
         return this.downImg;
       }
-      return this.downImg;
+      return this.downImgLight;
     });
 
     return {

@@ -1486,7 +1486,7 @@ const continents = [
   },
 ];
 
-module.exports = {
+export default {
   countries,
   continents,
 };

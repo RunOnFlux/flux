@@ -1,22 +1,31 @@
-const chai = require('chai');
-const sinon = require('sinon');
-const chaiAsPromised = require('chai-as-promised');
-const path = require('path');
-const nodecmd = require('node-cmd');
-const proxyquire = require('proxyquire');
-const fs = require('fs');
-const util = require('util');
-const verificationHelper = require('../../ZelBack/src/services/verificationHelper').default;
-const benchmarkService = require('../../ZelBack/src/services/benchmarkService').default;
-const explorerService = require('../../ZelBack/src/services/explorerService');
-const generalService = require('../../ZelBack/src/services/generalService').default;
-const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
-const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
-const appsService = require('../../ZelBack/src/services/appsService');
-const daemonServiceControlRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceControlRpcs').default;
-const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBenchmarkRpcs').default;
-const daemonServiceZelnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceZelnodeRpcs').default;
-const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+import chai from 'chai';
+import sinon from 'sinon';
+import chaiAsPromised from 'chai-as-promised';
+import path from 'path';
+import nodecmd from 'node-cmd';
+import proxyquire from 'proxyquire';
+import fs from 'fs';
+import util from 'util';
+import verificationHelper from '../../ZelBack/src/services/verificationHelper.js';
+verificationHelper.default;
+import benchmarkService from '../../ZelBack/src/services/benchmarkService.js';
+benchmarkService.default;
+import explorerService from '../../ZelBack/src/services/explorerService.js';
+import generalService from '../../ZelBack/src/services/generalService.js';
+generalService.default;
+import fluxCommunication from '../../ZelBack/src/services/fluxCommunication.js';
+import fluxNetworkHelper from '../../ZelBack/src/services/fluxNetworkHelper.js';
+import appsService from '../../ZelBack/src/services/appsService.js';
+import daemonServiceControlRpcs from '../../ZelBack/src/services/daemonService/daemonServiceControlRpcs.js';
+daemonServiceControlRpcs.default;
+import daemonServiceBenchmarkRpcs from '../../ZelBack/src/services/daemonService/daemonServiceBenchmarkRpcs.js';
+daemonServiceBenchmarkRpcs.default;
+import daemonServiceZelnodeRpcs from '../../ZelBack/src/services/daemonService/daemonServiceZelnodeRpcs.js';
+daemonServiceZelnodeRpcs.default;
+import serviceHelper from '../../ZelBack/src/services/serviceHelper.js';
+
+import { createRequire } from "module"; // Bring in the ability to create the 'require' method
+const require = createRequire(import.meta.url); // construct the require method
 const packageJson = require('../../package.json');
 
 const fsPromises = fs.promises;

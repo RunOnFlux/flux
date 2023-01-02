@@ -29,7 +29,7 @@ import ToastificationContent from '@core/components/toastification/Toastificatio
 import ListEntry from '@/views/components/ListEntry.vue';
 import BenchmarkService from '@/services/BenchmarkService.js';
 
-const timeoptions = require('@/libs/dateFormat.js');
+import timeoptions from '@/libs/dateFormat.js';
 
 export default {
   components: {

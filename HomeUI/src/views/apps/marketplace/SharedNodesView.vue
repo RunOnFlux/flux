@@ -1656,7 +1656,7 @@ import DashboardService from '@/services/DashboardService.js';
 
 import qs from 'qs';
 import { store } from '@/store';
-const timeoptions = require('@/libs/dateFormat.js');
+import timeoptions from '@/libs/dateFormat.js';
 
 export default {
   components: {

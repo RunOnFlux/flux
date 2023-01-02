@@ -1,16 +1,23 @@
-const sinon = require('sinon');
-const { expect } = require('chai');
-const LRU = require('lru-cache');
-const explorerService = require('../../ZelBack/src/services/explorerService');
-const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
-const appsService = require('../../ZelBack/src/services/appsService');
-const daemonServiceTransactionRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceTransactionRpcs').default;
-const daemonServiceBlockchainRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBlockchainRpcs').default;
-const daemonServiceAddressRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceAddressRpcs').default;
-const daemonServiceControlRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceControlRpcs').default;
-const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs').default;
-const dbHelper = require('../../ZelBack/src/services/dbHelper').default;
-const log = require('../../ZelBack/src/lib/log').default;
+import sinon from 'sinon';
+import { expect } from 'chai';
+import LRU from 'lru-cache';
+import explorerService from '../../ZelBack/src/services/explorerService.js';
+import serviceHelper from '../../ZelBack/src/services/serviceHelper.js';
+import appsService from '../../ZelBack/src/services/appsService.js';
+import daemonServiceTransactionRpcs from '../../ZelBack/src/services/daemonService/daemonServiceTransactionRpcs.js';
+daemonServiceTransactionRpcs.default;
+import daemonServiceBlockchainRpcs from '../../ZelBack/src/services/daemonService/daemonServiceBlockchainRpcs.js';
+daemonServiceBlockchainRpcs.default;
+import daemonServiceAddressRpcs from '../../ZelBack/src/services/daemonService/daemonServiceAddressRpcs.js';
+daemonServiceAddressRpcs.default;
+import daemonServiceControlRpcs from '../../ZelBack/src/services/daemonService/daemonServiceControlRpcs.js';
+daemonServiceControlRpcs.default;
+import daemonServiceMiscRpcs from '../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs.js';
+daemonServiceMiscRpcs.default;
+import dbHelper from '../../ZelBack/src/services/dbHelper.js';
+dbHelper.default;
+import log from '../../ZelBack/src/lib/log.js';
+log.default;
 
 describe('explorerService tests', () => {
   describe('getSenderTransactionFromDaemon tests', () => {

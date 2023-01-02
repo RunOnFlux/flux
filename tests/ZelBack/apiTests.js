@@ -1,11 +1,16 @@
 process.env.NODE_CONFIG_DIR = `${process.cwd()}/ZelBack/config/`;
-const request = require('supertest');
+import request from 'supertest';
 import { config } from '../../config/default.js';
-const chai = require('chai');
-const app = require('../../ZelBack/src/lib/server').default;
-const log = require('../../ZelBack/src/lib/log').default;
-const dbHelper = require('../../ZelBack/src/services/dbHelper').default;
+import chai from 'chai';
+import app from '../../ZelBack/src/lib/server.js';
+app.default;
+import log from '../../ZelBack/src/lib/log.js';
+log.default;
+import dbHelper from '../../ZelBack/src/services/dbHelper.js';
+dbHelper.default;
 
+import { createRequire } from "module"; // Bring in the ability to create the 'require' method
+const require = createRequire(import.meta.url); // construct the require method
 const packageJson = require('../../package.json');
 
 const { expect } = chai;

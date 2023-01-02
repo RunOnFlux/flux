@@ -92,7 +92,7 @@ import ListEntry from '@/views/components/ListEntry.vue';
 import DaemonService from '@/services/DaemonService.js';
 import FluxService from '@/services/FluxService.js';
 
-const timeoptions = require('@/libs/dateFormat.js');
+import timeoptions from '@/libs/dateFormat.js';
 
 export default {
   components: {

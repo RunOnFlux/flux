@@ -33,6 +33,10 @@
 <script>
 import { computed } from "vue";
 import { BNavItemDropdown, BDropdownItem, BImg } from 'bootstrap-vue';
+import en from '@/assets/images/flags/en.png';
+import fr from '@/assets/images/flags/fr.png';
+import de from '@/assets/images/flags/de.png';
+import pt from '@/assets/images/flags/pt.png';
 
 export default {
   components: {
@@ -45,22 +49,22 @@ export default {
     const locales = [
       {
         locale: 'en',
-        img: require('@/assets/images/flags/en.png'),
+        img: en,
         name: 'English',
       },
       {
         locale: 'fr',
-        img: require('@/assets/images/flags/fr.png'),
+        img: fr,
         name: 'French',
       },
       {
         locale: 'de',
-        img: require('@/assets/images/flags/de.png'),
+        img: de,
         name: 'German',
       },
       {
         locale: 'pt',
-        img: require('@/assets/images/flags/pt.png'),
+        img: pt,
         name: 'Portuguese',
       },
     ];

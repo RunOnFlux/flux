@@ -1,11 +1,13 @@
 /* eslint-disable class-methods-use-this */
 /* eslint-disable no-restricted-syntax */
-const chai = require('chai');
-const natUpnp = require('@runonflux/nat-upnp');
-const sinon = require('sinon');
-const proxyquire = require('proxyquire');
-const log = require('../../ZelBack/src/lib/log').default;
-const verificationHelper = require('../../ZelBack/src/services/verificationHelper').default;
+import chai from 'chai';
+import natUpnp from '@runonflux/nat-upnp';
+import sinon from 'sinon';
+import proxyquire from 'proxyquire';
+import log from '../../ZelBack/src/lib/log.js';
+log.default;
+import verificationHelper from '../../ZelBack/src/services/verificationHelper.js';
+verificationHelper.default;
 
 const { expect } = chai;
 

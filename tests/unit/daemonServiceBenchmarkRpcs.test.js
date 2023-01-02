@@ -1,8 +1,10 @@
-const sinon = require('sinon');
-const { expect } = require('chai');
-const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
-const verificationHelper = require('../../ZelBack/src/services/verificationHelper').default;
-const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBenchmarkRpcs').default;
+import sinon from 'sinon';
+import { expect } from 'chai';
+import daemonServiceUtils from '../../ZelBack/src/services/daemonService/daemonServiceUtils.js';
+import verificationHelper from '../../ZelBack/src/services/verificationHelper.js';
+verificationHelper.default;
+import daemonServiceBenchmarkRpcs from '../../ZelBack/src/services/daemonService/daemonServiceBenchmarkRpcs.js';
+daemonServiceBenchmarkRpcs.default;
 
 const generateResponse = () => {
   const res = { test: 'testing' };

@@ -273,7 +273,7 @@ import ToastificationContent from '@core/components/toastification/Toastificatio
 import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
 import FluxService from '@/services/FluxService.js';
 
-const timeoptions = require('@/libs/dateFormat.js');
+import timeoptions from '@/libs/dateFormat.js';
 
 export default {
   components: {

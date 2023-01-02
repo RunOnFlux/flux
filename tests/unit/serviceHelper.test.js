@@ -1,13 +1,14 @@
 /* eslint-disable no-restricted-syntax */
-const chai = require('chai');
+import chai from 'chai';
 import { config } from '../../config/default.js';
-const { ObjectId } = require('mongodb');
-const proxyquire = require('proxyquire');
+import { ObjectId } from 'mongodb';
+import proxyquire from 'proxyquire';
 
 const { expect } = chai;
 
-let serviceHelper = require('../../ZelBack/src/services/serviceHelper');
-const dbHelper = require('../../ZelBack/src/services/dbHelper').default;
+import serviceHelper from '../../ZelBack/src/services/serviceHelper.js';
+import dbHelper from '../../ZelBack/src/services/dbHelper.js';
+dbHelper.default;
 
 const adminConfig = {
   initial: {

@@ -1,18 +1,23 @@
-const chai = require('chai');
-const sinon = require('sinon');
-const chaiAsPromised = require('chai-as-promised');
-const os = require('os');
-const bitcoinMessage = require('bitcoinjs-message');
-const proxyquire = require('proxyquire');
-const { PassThrough } = require('stream');
-const log = require('../../ZelBack/src/lib/log').default;
+import chai from 'chai';
+import sinon from 'sinon';
+import chaiAsPromised from 'chai-as-promised';
+import os from 'os';
+import bitcoinMessage from 'bitcoinjs-message';
+import proxyquire from 'proxyquire';
+import { PassThrough } from 'stream';
+import log from '../../ZelBack/src/lib/log.js';
+log.default;
 
-const dbHelper = require('../../ZelBack/src/services/dbHelper').default;
-const verificationHelper = require('../../ZelBack/src/services/verificationHelper').default;
-const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
-const generalService = require('../../ZelBack/src/services/generalService').default;
-const dockerService = require('../../ZelBack/src/services/dockerService').default;
-const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+import dbHelper from '../../ZelBack/src/services/dbHelper.js';
+dbHelper.default;
+import verificationHelper from '../../ZelBack/src/services/verificationHelper.js';
+verificationHelper.default;
+import serviceHelper from '../../ZelBack/src/services/serviceHelper.js';
+import generalService from '../../ZelBack/src/services/generalService.js';
+generalService.default;
+import dockerService from '../../ZelBack/src/services/dockerService.js';
+dockerService.default;
+import fluxNetworkHelper from '../../ZelBack/src/services/fluxNetworkHelper.js';
 
 const adminConfig = {
   fluxTeamZelId: '1zasdfg',

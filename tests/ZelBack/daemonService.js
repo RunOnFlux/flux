@@ -1,7 +1,7 @@
 /* eslint-disable max-len */
 process.env.NODE_CONFIG_DIR = `${process.cwd()}/ZelBack/config/`;
 import axios from 'axios';
-const chai = require('chai');
+import chai from 'chai';
 
 const { expect } = chai;
 

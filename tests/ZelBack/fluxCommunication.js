@@ -1,7 +1,7 @@
 process.env.NODE_CONFIG_DIR = `${process.cwd()}/ZelBack/config/`;
-const chai = require('chai');
-const WebSocket = require('ws');
-const communication = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
+import chai from 'chai';
+import WebSocket from 'ws';
+import communication from '../../ZelBack/src/services/fluxCommunicationMessagesSender.js';
 
 const { expect } = chai;
 

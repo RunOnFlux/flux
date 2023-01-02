@@ -1,14 +1,15 @@
 // Flux configuration
 process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
 import { config } from '../../config/default.js';
-// const fs = require('fs');
+// import fs from 'fs';
 // const https = require('https');
-// const path = require('path');
-const app = require('./ZelBack/src/lib/server').default;
-const log = require('./ZelBack/src/lib/log').default;
-const serviceManager = require('./ZelBack/src/services/serviceManager');
-const upnpService = require('./ZelBack/src/services/upnpService').default;
-const userconfig = require('./config/userconfig');
+// import path from 'path';
+import app from './ZelBack/src/lib/server.js';
+import log from './ZelBack/src/lib/log.js';
+import serviceManager from './ZelBack/src/services/serviceManager.js';
+import upnpService from './ZelBack/src/services/upnpService,js';
+
+import userconfig from './config/userconfig.js';
 
 const apiPort = userconfig.initial.apiport || config.server.apiport;
 

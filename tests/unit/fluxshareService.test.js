@@ -1,14 +1,18 @@
-const chai = require('chai');
-const sinon = require('sinon');
-const chaiAsPromised = require('chai-as-promised');
-const proxyquire = require('proxyquire');
-const fs = require('fs');
-const util = require('util');
-const log = require('../../ZelBack/src/lib/log').default;
+import chai from 'chai';
+import sinon from 'sinon';
+import chaiAsPromised from 'chai-as-promised';
+import proxyquire from 'proxyquire';
+import fs from 'fs';
+import util from 'util';
+import log from '../../ZelBack/src/lib/log.js';
+log.default;
 
-const dbHelper = require('../../ZelBack/src/services/dbHelper').default;
-const verificationHelper = require('../../ZelBack/src/services/verificationHelper').default;
-const generalService = require('../../ZelBack/src/services/generalService').default;
+import dbHelper from '../../ZelBack/src/services/dbHelper.js';
+dbHelper.default;
+import verificationHelper from '../../ZelBack/src/services/verificationHelper.js';
+verificationHelper.default;
+import generalService from '../../ZelBack/src/services/generalService.js';
+generalService.default;
 
 const adminConfig = {
   fluxTeamZelId: '1zasdfg',

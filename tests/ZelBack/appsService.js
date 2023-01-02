@@ -1,8 +1,9 @@
 /* eslint-disable func-names */
 process.env.NODE_CONFIG_DIR = `${process.cwd()}/ZelBack/config/`;
-const chai = require('chai');
-const appService = require('../../ZelBack/src/services/appsService');
-const generalService = require('../../ZelBack/src/services/generalService').default;
+import chai from 'chai';
+import appService from '../../ZelBack/src/services/appsService.js';
+import generalService from '../../ZelBack/src/services/generalService.js';
+generalService.default;
 
 const { expect } = chai;
 

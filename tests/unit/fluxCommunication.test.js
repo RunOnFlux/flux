@@ -1,22 +1,27 @@
 /* eslint-disable no-underscore-dangle */
-const sinon = require('sinon');
-const WebSocket = require('ws');
-const { expect } = require('chai');
-const LRU = require('lru-cache');
-const log = require('../../ZelBack/src/lib/log').default;
-const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
-const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
-const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
-const dbHelper = require('../../ZelBack/src/services/dbHelper').default;
-const verificationHelper = require('../../ZelBack/src/services/verificationHelper').default;
-const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
-const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs').default;
-const appsService = require('../../ZelBack/src/services/appsService');
-const generalService = require('../../ZelBack/src/services/generalService').default;
-const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
-const {
+import sinon from 'sinon';
+import WebSocket from 'ws';
+import { expect } from 'chai';
+import LRU from 'lru-cache';
+import log from '../../ZelBack/src/lib/log.js';
+log.default;
+import fluxCommunication from '../../ZelBack/src/services/fluxCommunication.js';
+import fluxCommunicationMessagesSender from '../../ZelBack/src/services/fluxCommunicationMessagesSender.js';
+import fluxNetworkHelper from '../../ZelBack/src/services/fluxNetworkHelper.js';
+import dbHelper from '../../ZelBack/src/services/dbHelper.js';
+dbHelper.default;
+import verificationHelper from '../../ZelBack/src/services/verificationHelper.js';
+verificationHelper.default;
+import fluxCommunicationUtils from '../../ZelBack/src/services/fluxCommunicationUtils.js';
+import daemonServiceMiscRpcs from '../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs.js';
+daemonServiceMiscRpcs.default;
+import appsService from '../../ZelBack/src/services/appsService.js';
+import generalService from '../../ZelBack/src/services/generalService.js';
+generalService.default;
+import serviceHelper from '../../ZelBack/src/services/serviceHelper.js';
+import {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
-} = require('../../ZelBack/src/services/utils/establishedConnections');
+} from '../../ZelBack/src/services/utils/establishedConnections.js';
 
 const connectWs = (address) => new Promise((resolve, reject) => {
   const server = new WebSocket(address);

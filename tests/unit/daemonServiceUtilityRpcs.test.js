@@ -1,10 +1,12 @@
-const sinon = require('sinon');
-const { PassThrough } = require('stream');
-const { expect } = require('chai');
-const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
-const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
-const daemonServiceUtilityRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceUtilityRpcs').default;
-const verificationHelper = require('../../ZelBack/src/services/verificationHelper').default;
+import sinon from 'sinon';
+import { PassThrough } from 'stream';
+import { expect } from 'chai';
+import daemonServiceUtils from '../../ZelBack/src/services/daemonService/daemonServiceUtils.js';
+import serviceHelper from '../../ZelBack/src/services/serviceHelper.js';
+import daemonServiceUtilityRpcs from '../../ZelBack/src/services/daemonService/daemonServiceUtilityRpcs.js';
+daemonServiceUtilityRpcs.default;
+import verificationHelper from '../../ZelBack/src/services/verificationHelper.js';
+verificationHelper.default;
 
 const generateResponse = () => {
   const res = { test: 'testing' };

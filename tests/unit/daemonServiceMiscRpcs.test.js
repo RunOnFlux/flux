@@ -1,9 +1,12 @@
-const sinon = require('sinon');
-const { expect } = require('chai');
-const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
-const daemonServiceBlockchainRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBlockchainRpcs').default;
-const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs').default;
-const log = require('../../ZelBack/src/lib/log').default;
+import sinon from 'sinon';
+import { expect } from 'chai';
+import daemonServiceUtils from '../../ZelBack/src/services/daemonService/daemonServiceUtils.js';
+import daemonServiceBlockchainRpcs from '../../ZelBack/src/services/daemonService/daemonServiceBlockchainRpcs.js';
+daemonServiceBlockchainRpcs.default;
+import daemonServiceMiscRpcs from '../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs.js';
+daemonServiceMiscRpcs.default;
+import log from '../../ZelBack/src/lib/log.js';
+log.default;
 
 const generateResponse = () => {
   const res = { test: 'testing' };

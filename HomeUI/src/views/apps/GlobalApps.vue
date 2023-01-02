@@ -690,7 +690,9 @@ import AppsService from '@/services/AppsService.js';
 
 import qs from 'qs';
 
-const geolocations = require('../../libs/geolocation');
+import geolocation from '../../libs/geolocation.js';
+
+const geolocations = geolocation;
 
 export default {
   components: {

@@ -3118,9 +3118,11 @@ import DaemonService from '@/services/DaemonService.js';
 import axios from 'axios';
 import qs from 'qs';
 import { store } from '@/store';
-const timeoptions = require('@/libs/dateFormat.js');
+import timeoptions from '@/libs/dateFormat.js';
 
-const geolocations = require('../../libs/geolocation');
+import geolocation from '../../libs/geolocation.js';
+
+const geolocations = geolocation;
 
 export default {
   components: {

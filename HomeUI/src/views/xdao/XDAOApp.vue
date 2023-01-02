@@ -244,7 +244,7 @@ import ProposalSidebar from './ProposalSidebar.vue';
 
 import qs from 'qs';
 import axios from 'axios';
-const timeoptions = require('@/libs/dateFormat.js');
+import timeoptions from '@/libs/dateFormat.js';
 
 export default {
   components: {

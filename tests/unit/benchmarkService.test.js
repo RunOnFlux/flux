@@ -1,11 +1,13 @@
-const chai = require('chai');
-const sinon = require('sinon');
-const benchmarkrpc = require('daemonrpc');
-const { PassThrough } = require('stream');
+import chai from 'chai';
+import sinon from 'sinon';
+import benchmarkrpc from 'daemonrpc';
+import { PassThrough } from 'stream';
 
 const { expect } = chai;
-const verificationHelper = require('../../ZelBack/src/services/verificationHelper').default;
-const benchmarkService = require('../../ZelBack/src/services/benchmarkService').default;
+import verificationHelper from '../../ZelBack/src/services/verificationHelper.js';
+verificationHelper.default;
+import benchmarkService from '../../ZelBack/src/services/benchmarkService.js';
+benchmarkService.default;
 
 describe('benchmarkService tests', () => {
   describe('executeCall tests', () => {

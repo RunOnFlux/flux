@@ -87,7 +87,7 @@ import ToastificationContent from '@core/components/toastification/Toastificatio
 import DaemonService from '@/services/DaemonService.js';
 import ListEntry from '@/views/components/ListEntry.vue';
 
-const timeoptions = require('@/libs/dateFormat.js');
+import timeoptions from '@/libs/dateFormat.js';
 
 export default {
   components: {

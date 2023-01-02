@@ -1,12 +1,17 @@
-const chai = require('chai');
+import chai from 'chai';
 
 const { expect } = chai;
-const sinon = require('sinon');
+import sinon from 'sinon';
 
-const verificationHelperUtils = require('../../ZelBack/src/services/verificationHelperUtils').default;
-const {
+import verificationHelperUtils from '../../ZelBack/src/services/verificationHelperUtils.js';
+verificationHelperUtils.default;
+import {
   verifyPrivilege, verifyZelID, verifyMessage, signMessage,
-} = require('../../ZelBack/src/services/verificationHelper').default;
+} from '../../ZelBack/src/services/verificationHelper';
+verifyPrivilege.default;
+verifyZelID.default;
+verifyMessage.default;
+signMessage.default;
 
 // placeholders - verification functions are mocked, they have already been tested in verificationHelperUtils.test
 const req = {

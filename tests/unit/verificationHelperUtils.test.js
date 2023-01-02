@@ -1,10 +1,11 @@
-const chai = require('chai');
+import chai from 'chai';
 import { config } from '../../config/default.js';
-const { ObjectId } = require('mongodb');
-const proxyquire = require('proxyquire');
+import { ObjectId } from 'mongodb';
+import proxyquire from 'proxyquire';
 
 const { expect } = chai;
-const dbHelper = require('../../ZelBack/src/services/dbHelper').default;
+import dbHelper from '../../ZelBack/src/services/dbHelper.js';
+dbHelper.default;
 
 const rndZelid = '1PQWN5vgV3P9KexYmhF133zDft34YhKB3L';
 const rndPrivKey = 'KyL927pfsyZnJhFq5gQGy5eWq9tRYuAppRGiLjvBJGMvMwCqWYmv';
@@ -19,7 +20,8 @@ const adminConfig = {
 const verificationHelperUtils = proxyquire('../../ZelBack/src/services/verificationHelperUtils',
   { '../../../config/userconfig': adminConfig });
 
-const { signMessage } = require('../../ZelBack/src/services/verificationHelper').default;
+import { signMessage } from '../../ZelBack/src/services/verificationHelper.js';
+signMessage.default;
 
 const insertUsers = [
   {

@@ -297,7 +297,7 @@ import { $themeColors } from '@themeConfig';
 import DashboardService from '@/services/DashboardService.js';
 import ExplorerService from '@/services/ExplorerService.js';
 
-const rax = require('retry-axios');
+import * as rax from 'retry-axios';
 import axios from 'axios';
 
 export default {

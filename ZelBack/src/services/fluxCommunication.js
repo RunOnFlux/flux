@@ -13,6 +13,7 @@ import messageHelper from './messageHelper.js';
 import {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } from './utils/establishedConnections.js';
+import { createRequire } from "module"; // Bring in the ability to create the 'require' method
 
 let response = messageHelper.createErrorMessage();
 // default cache
@@ -35,6 +36,7 @@ async function handleAppMessages(message, fromIP) {
     // check if we have it in database and if not add
     // if not in database, rebroadcast to all connections
     // do furtherVerification of message
+    const require = createRequire(import.meta.url); // construct the require method
     // eslint-disable-next-line global-require
     const appsService = require('./appsService');
     const rebroadcastToPeers = await appsService.storeAppTemporaryMessage(message.data, true);
@@ -61,6 +63,7 @@ async function handleAppRunningMessage(message, fromIP) {
     // check if we have it exactly like that in database and if not, update
     // if not in database, rebroadcast to all connections
     // do furtherVerification of message
+    const require = createRequire(import.meta.url); // construct the require method
     // eslint-disable-next-line global-require
     const appsService = require('./appsService');
     const rebroadcastToPeers = await appsService.storeAppRunningMessage(message.data);

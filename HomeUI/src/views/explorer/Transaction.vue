@@ -231,7 +231,7 @@ import {
 
 import ListEntry from '@/views/components/ListEntry.vue';
 
-const timeoptions = require('@/libs/dateFormat.js');
+import timeoptions from '@/libs/dateFormat.js';
 
 export default {
   components: {

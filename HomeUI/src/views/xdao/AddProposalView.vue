@@ -203,7 +203,7 @@ import { useToast } from 'vue-toastification';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 
 import axios from 'axios';
-const timeoptions = require('@/libs/dateFormat.js');
+import timeoptions from '@/libs/dateFormat.js';
 
 export default {
   components: {

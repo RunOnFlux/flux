@@ -1,12 +1,17 @@
-const chai = require('chai');
-const sinon = require('sinon');
-const chaiAsPromised = require('chai-as-promised');
-const generalService = require('../../ZelBack/src/services/generalService').default;
-const dbHelper = require('../../ZelBack/src/services/dbHelper').default;
-const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
-const daemonServiceZelnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceZelnodeRpcs').default;
-const daemonServiceTransactionRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceTransactionRpcs').default;
-const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs').default;
+import chai from 'chai';
+import sinon from 'sinon';
+import chaiAsPromised from 'chai-as-promised';
+import generalService from '../../ZelBack/src/services/generalService.js';
+generalService.default;
+import dbHelper from '../../ZelBack/src/services/dbHelper.js';
+dbHelper.default;
+import serviceHelper from '../../ZelBack/src/services/serviceHelper.js';
+import daemonServiceZelnodeRpcs from '../../ZelBack/src/services/daemonService/daemonServiceZelnodeRpcs.js';
+daemonServiceZelnodeRpcs.default;
+import daemonServiceTransactionRpcs from '../../ZelBack/src/services/daemonService/daemonServiceTransactionRpcs.js';
+daemonServiceTransactionRpcs.default;
+import daemonServiceMiscRpcs from '../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs.js';
+daemonServiceMiscRpcs.default;
 
 chai.use(chaiAsPromised);
 const { expect } = chai;

@@ -394,7 +394,7 @@ import { $themeColors } from '@themeConfig';
 import axios from 'axios';
 import qs from 'qs';
 import { store } from '@/store';
-const timeoptions = require('@/libs/dateFormat.js');
+import timeoptions from '@/libs/dateFormat.js';
 
 export default {
   components: {
