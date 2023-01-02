@@ -119,7 +119,10 @@ async function getChainParamsPriceUpdates() {
       },
     };
     const priceMessages = await dbHelper.findInDatabase(database, chainParamsMessagesCollection, query, projection);
-    const priceForks = config.fluxapps.price;
+    const priceForks = [];
+    config.fluxapps.price.forEach((price) => {
+      priceForks.push(price);
+    });
     priceMessages.forEach((data) => {
       const splittedMess = data.message.split('_');
       if (splittedMess[4]) {
