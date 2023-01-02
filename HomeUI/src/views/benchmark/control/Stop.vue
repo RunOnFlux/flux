@@ -14,7 +14,7 @@
         ref="popover"
         target="stop-benchmark"
         triggers="click"
-        :show.sync="popoverShow"
+        :show="popoverShow"
         placement="auto"
         container="my-container"
       >

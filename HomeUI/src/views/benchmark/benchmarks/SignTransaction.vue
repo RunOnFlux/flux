@@ -39,7 +39,7 @@
         ref="popover"
         target="sign-transaction"
         triggers="click"
-        :show.sync="popoverShow"
+        :show="popoverShow"
         placement="auto"
         container="my-container"
       >

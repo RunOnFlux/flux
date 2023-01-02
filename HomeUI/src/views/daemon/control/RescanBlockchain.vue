@@ -25,7 +25,7 @@
         ref="popover"
         target="rescan-daemon"
         triggers="click"
-        :show.sync="popoverShow"
+        :show="popoverShow"
         placement="auto"
         container="my-container"
       >

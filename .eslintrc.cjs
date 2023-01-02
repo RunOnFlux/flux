@@ -9,14 +9,14 @@ module.exports = {
     'plugin:vue/vue3-recommended',
   ],
   rules: {
-    'max-len': [
-      'error',
-      {
-        code: 120,
-        ignoreStrings: true,
-        ignoreTrailingComments: true,
-      },
-    ],
+    // 'max-len': [
+    //   'error',
+    //   {
+    //     code: 120,
+    //     ignoreStrings: true,
+    //     ignoreTrailingComments: true,
+    //   },
+    // ],
     'no-console': 'off',
     'linebreak-style': [
       'error',
@@ -27,7 +27,7 @@ module.exports = {
       devDependencies: true, optionalDependencies: true, peerDependencies: false,
     }],
     camelcase: ['error', { properties: 'never', ignoreDestructuring: true, ignoreImports: true }],
-    'import/extensions': ['error', 'ignorePackages', { vue: 'always', js: 'never' }],
+    // 'import/extensions': ['error', 'ignorePackages', { vue: 'always', js: 'never' }],
   },
   parserOptions: {
   },

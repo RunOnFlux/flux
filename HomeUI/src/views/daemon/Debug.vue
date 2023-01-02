@@ -37,7 +37,7 @@
           ref="popover"
           target="start-download"
           triggers="click"
-          :show.sync="downloadPopoverShow"
+          :show="downloadPopoverShow"
           placement="auto"
           container="my-container"
         >
@@ -106,7 +106,7 @@
           ref="popover"
           target="start-tail"
           triggers="click"
-          :show.sync="tailPopoverShow"
+          :show="tailPopoverShow"
           placement="auto"
           container="my-container"
         >

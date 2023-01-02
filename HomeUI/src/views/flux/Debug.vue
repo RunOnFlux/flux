@@ -47,7 +47,7 @@
               ref="popover"
               :target="`start-download-${logType}`"
               triggers="click"
-              :show.sync="downloadPopoverShow[logType]"
+              :show="downloadPopoverShow[logType]"
               placement="auto"
               container="my-container"
             >
@@ -103,7 +103,7 @@
               ref="popover"
               :target="`start-tail-${logType}`"
               triggers="click"
-              :show.sync="tailPopoverShow[logType]"
+              :show="tailPopoverShow[logType]"
               placement="auto"
               container="my-container"
             >

@@ -3,7 +3,7 @@
     ref="popover"
     :target="`${target}`"
     triggers="click blur"
-    :show.sync="show"
+    :show="show"
     placement="auto"
     container="my-container"
     :custom-class="`confirm-dialog-${width}`"
