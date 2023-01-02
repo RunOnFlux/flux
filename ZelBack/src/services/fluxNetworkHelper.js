@@ -329,11 +329,11 @@ async function closeIncomingConnection(ip, expressWS, clientToClose) {
 /**
  * To check rate limit.
  * @param {string} ip IP address.
- * @param {number} fillPerSecond Defaults to value of 10.
- * @param {number} maxBurst Defaults to value of 15.
+ * @param {number} fillPerSecond Defaults to value of 400.
+ * @param {number} maxBurst Defaults to value of 500.
  * @returns {boolean} True if a token is taken from the IP's token bucket. Otherwise false.
  */
-function checkRateLimit(ip, fillPerSecond = 10, maxBurst = 15) {
+function checkRateLimit(ip, fillPerSecond = 400, maxBurst = 500) {
   if (!buckets.has(ip)) {
     buckets.set(ip, new TokenBucket(maxBurst, fillPerSecond));
   }
