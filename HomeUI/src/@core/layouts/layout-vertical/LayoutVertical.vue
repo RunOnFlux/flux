@@ -57,7 +57,7 @@
         :key="layoutContentRenderer === 'layout-content-renderer-left' ? $route.meta.navActiveLink || $route.name : null"
       >
         <template
-          v-for="(index, name) in $scopedSlots"
+          v-for="(index, name) in $slots"
           #[name]="data"
         >
           <slot
