@@ -873,10 +873,10 @@ const lruRateCache = new LRU(lruRateOptions);
 /**
  * To check rate limit.
  * @param {string} ip IP address.
- * @param {number} limitPerSecond Defaults to value of 100
+ * @param {number} limitPerSecond Defaults to value of 20
  * @returns {boolean} True if a ip is allowed to do a request, otherwise false
  */
-function lruRateLimit(ip, limitPerSecond = 100) {
+function lruRateLimit(ip, limitPerSecond = 20) {
   const lruResponse = lruRateCache.get(ip);
   const newTime = new Date().getTime();
   if (lruResponse) {
@@ -895,7 +895,6 @@ function lruRateLimit(ip, limitPerSecond = 100) {
       return false;
     }
     if (newTokensRemaining > limitPerSecond) {
-      newTokensRemaining = limitPerSecond;
       newTokensRemaining -= 1;
       const newdata = {
         time: newTime,
