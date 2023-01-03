@@ -104,7 +104,7 @@ function handleIncomingConnection(ws, req, expressWS) {
   // verify data integrity, if not signed, close connection
   ws.on('message', async (msg) => {
     // check rate limit
-    const rateOK = fluxNetworkHelper.lruRateLimit(peer.ip.replace('::ffff:', ''), 80);
+    const rateOK = fluxNetworkHelper.lruRateLimit(peer.ip.replace('::ffff:', ''), 30);
     if (!rateOK) {
       return; // do not react to the message
     }
@@ -358,7 +358,7 @@ async function initiateAndHandleConnection(connection) {
     // incoming messages from outgoing connections
     const currentTimeStamp = Date.now(); // ms
     // check rate limit
-    const rateOK = fluxNetworkHelper.lruRateLimit(ip, 80);
+    const rateOK = fluxNetworkHelper.lruRateLimit(ip, 30);
     if (!rateOK) {
       return; // do not react to the message
     }
