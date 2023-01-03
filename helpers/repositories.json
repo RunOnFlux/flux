@@ -246,5 +246,6 @@
    "rvnminersaandn",
    "scsibug",
    "madrafrec",
-   "technitium"
+   "technitium",
+   "nicolasbertuol/website-nginx:latest"
 ]
