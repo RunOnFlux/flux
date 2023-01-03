@@ -1901,7 +1901,7 @@ describe('fluxNetworkHelper tests', () => {
       data: {
         code: undefined,
         name: undefined,
-        message: 'Not enough connections established to Flux network',
+        message: 'Not enough outgoing connections established to Flux network',
       },
     };
     const expectedErrorResponseIncoming = {
