@@ -43,7 +43,7 @@ class TokenBucket {
     this.capacity = capacity;
     this.fillPerSecond = fillPerSecond;
 
-    this.lastFilled = Math.floor(Date.now() / 1000);
+    this.lastFilled = new Date().getTime();
     this.tokens = capacity;
   }
 
@@ -60,8 +60,8 @@ class TokenBucket {
   }
 
   refill() {
-    const now = Math.floor(Date.now() / 1000);
-    const rate = (now - this.lastFilled) / this.fillPerSecond;
+    const now = new Date().getTime();
+    const rate = (now - this.lastFilled) / (this.fillPerSecond * 1000);
 
     this.tokens = Math.min(this.capacity, this.tokens + Math.floor(rate * this.capacity));
     this.lastFilled = now;
