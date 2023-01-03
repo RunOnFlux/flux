@@ -1924,6 +1924,8 @@ async function startSyncthing() {
       await cmdAsync(execDIRcr).catch((error) => log.error(error));
       const execDIRown = 'sudo chown $USER:$USER $HOME/.config'; // adjust .config fodler for ownership of running user
       await cmdAsync(execDIRown).catch((error) => log.error(error));
+      const execDIRownSyncthing = 'sudo chown $USER:$USER $HOME/.config/syncthing'; // adjust .config/syncthing fodler for ownership of running user
+      await cmdAsync(execDIRownSyncthing).catch((error) => log.error(error));
       // need sudo to be able to read/write properly
       const execKill = 'sudo killall syncthing';
       await serviceHelper.delay(10 * 1000);
