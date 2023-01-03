@@ -1320,7 +1320,8 @@ describe('explorerService tests', () => {
       const result = await explorerService.restoreDatabaseToBlockheightState(height);
 
       expect(result).to.equal(true);
-      sinon.assert.calledOnceWithExactly(logInfoSpy, 'Rescan completed');
+      sinon.assert.calledWith(logInfoSpy, 'Rescanning Blockchain Parameters!');
+      sinon.assert.calledWith(logInfoSpy, 'Rescan completed');
       sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'utxoindex', { height: { $gt: height } });
       sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'coinbasefusionindex', { height: { $gt: height } });
       sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'addresstransactionindex', { transactions: { $exists: true, $size: 0 } });

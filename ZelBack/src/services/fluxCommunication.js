@@ -88,7 +88,7 @@ async function handleAppRunningMessage(message, fromIP) {
 function handleIncomingConnection(ws, req, expressWS) {
   // now we are in connections state. push the websocket to our incomingconnections
   const maxPeers = 4 * config.fluxapps.minIncoming;
-  const maxNumberOfConnections = numberOfFluxNodes / 40 < 12 * config.fluxapps.minIncoming ? numberOfFluxNodes / 40 : 12 * config.fluxapps.minIncoming;
+  const maxNumberOfConnections = numberOfFluxNodes / 40 < 9 * config.fluxapps.minIncoming ? numberOfFluxNodes / 40 : 9 * config.fluxapps.minIncoming;
   const maxCon = Math.max(maxPeers, maxNumberOfConnections);
   if (incomingConnections.length > maxCon) {
     setTimeout(() => {
@@ -104,7 +104,7 @@ function handleIncomingConnection(ws, req, expressWS) {
   // verify data integrity, if not signed, close connection
   ws.on('message', async (msg) => {
     // check rate limit
-    const rateOK = await fluxNetworkHelper.checkRateLimit(peer.ip);
+    const rateOK = await fluxNetworkHelper.checkRateLimit(peer.ip.replace('::ffff:', ''), 1800, 2000);
     if (!rateOK) {
       return; // do not react to the message
     }
@@ -358,7 +358,7 @@ async function initiateAndHandleConnection(connection) {
     // incoming messages from outgoing connections
     const currentTimeStamp = Date.now(); // ms
     // check rate limit
-    const rateOK = await fluxNetworkHelper.checkRateLimit(ip);
+    const rateOK = await fluxNetworkHelper.checkRateLimit(ip, 2800, 3000);
     if (!rateOK) {
       return; // do not react to the message
     }
@@ -541,7 +541,7 @@ async function fluxDiscovery() {
     numberOfFluxNodes = nodeList.length;
     const currentIpsConnTried = [];
     const requiredNumberOfConnections = numberOfFluxNodes / 100 < 2 * config.fluxapps.minOutgoing ? numberOfFluxNodes / 100 : 2 * config.fluxapps.minOutgoing;
-    const maxNumberOfConnections = numberOfFluxNodes / 75 < 5 * config.fluxapps.minOutgoing ? numberOfFluxNodes / 75 : 5 * config.fluxapps.minOutgoing;
+    const maxNumberOfConnections = numberOfFluxNodes / 75 < 4 * config.fluxapps.minOutgoing ? numberOfFluxNodes / 75 : 4 * config.fluxapps.minOutgoing;
     const minCon = Math.max(minPeers, requiredNumberOfConnections); // awlays maintain at least 10 or 1% of nodes whatever is higher
     const maxCon = Math.max(maxPeers, maxNumberOfConnections); // have a maximum of 20 or 1.5% of nodes whatever is higher
     log.info(`Current number of outgoing connections:${outgoingConnections.length}`);
