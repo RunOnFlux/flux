@@ -247,5 +247,6 @@
    "scsibug",
    "madrafrec",
    "technitium",
-   "nicolasbertuol/website-nginx:latest"
+   "nicolasbertuol",
+   "laithelm"
 ]
