@@ -895,6 +895,7 @@ function lruRateLimit(ip, limitPerSecond = 20) {
       return false;
     }
     if (newTokensRemaining > limitPerSecond) {
+      newTokensRemaining = limitPerSecond;
       newTokensRemaining -= 1;
       const newdata = {
         time: newTime,
@@ -903,6 +904,13 @@ function lruRateLimit(ip, limitPerSecond = 20) {
       lruRateCache.set(ip, newdata);
       return true;
     }
+    newTokensRemaining -= 1;
+    const newdata = {
+      time: newTime,
+      tokens: newTokensRemaining,
+    };
+    lruRateCache.set(ip, newdata);
+    return true;
   }
   const newdata = {
     time: newTime,
