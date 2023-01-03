@@ -6,6 +6,7 @@ const fs = require('fs').promises;
 const path = require('path');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
+const LRU = require('lru-cache');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
@@ -864,6 +865,54 @@ async function adjustFirewall() {
   }
 }
 
+const lruRateOptions = {
+  max: 500,
+  maxAge: 1000 * 15, // 15 seconds
+};
+const lruRateCache = new LRU(lruRateOptions);
+/**
+ * To check rate limit.
+ * @param {string} ip IP address.
+ * @param {number} limitPerSecond Defaults to value of 100
+ * @returns {boolean} True if a ip is allowed to do a request, otherwise false
+ */
+function lruRateLimit(ip, limitPerSecond = 100) {
+  const lruResponse = lruRateCache.get(ip);
+  const newTime = new Date().getTime();
+  if (lruResponse) {
+    const oldTime = lruResponse.time;
+    const oldTokensRemaining = lruResponse.tokens;
+    const timeDifference = newTime - oldTime;
+    const tokensToAdd = (timeDifference / 1000) * limitPerSecond;
+    let newTokensRemaining = oldTokensRemaining + tokensToAdd;
+    if (newTokensRemaining < 0) {
+      const newdata = {
+        time: newTime,
+        tokens: newTokensRemaining,
+      };
+      lruRateCache.set(ip, newdata);
+      log.warn(`${ip} rate limited`);
+      return false;
+    }
+    if (newTokensRemaining > limitPerSecond) {
+      newTokensRemaining = limitPerSecond;
+      newTokensRemaining -= 1;
+      const newdata = {
+        time: newTime,
+        tokens: newTokensRemaining,
+      };
+      lruRateCache.set(ip, newdata);
+      return true;
+    }
+  }
+  const newdata = {
+    time: newTime,
+    tokens: limitPerSecond,
+  };
+  lruRateCache.set(ip, newdata);
+  return true;
+}
+
 module.exports = {
   minVersionSatisfy,
   isFluxAvailable,
@@ -897,4 +946,5 @@ module.exports = {
   getDosStateValue,
   fluxUptime,
   isCommunicationEstablished,
+  lruRateLimit,
 };
