@@ -6702,6 +6702,7 @@ function registrationInformation(req, res) {
  */
 async function reindexGlobalAppsInformation() {
   try {
+    log.info('Reindexing global application list');
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
     await dbHelper.dropCollection(database, globalAppsInformation).catch((error) => {
@@ -6725,6 +6726,7 @@ async function reindexGlobalAppsInformation() {
       // eslint-disable-next-line no-await-in-loop
       await updateAppSpecsForRescanReindex(updateForSpecifications);
     }
+    log.info('Reindexing of global application list finished. Starting expiring global apps.');
     // eslint-disable-next-line no-use-before-define
     expireGlobalApplications();
     return true;
@@ -7749,7 +7751,11 @@ async function expireGlobalApplications() {
     // find applications that have specifications height lower than minExpirationHeight
     const databaseApps = dbopen.db(config.database.appsglobal.database);
     const queryApps = { height: { $lt: minExpirationHeight } };
-    const projectionApps = { projection: { _id: 0, name: 1, hash: 1 } };
+    const projectionApps = {
+      projection: {
+        _id: 0, name: 1, hash: 1, expire: 1, height: 1,
+      },
+    };
     const results = await dbHelper.findInDatabase(databaseApps, globalAppsInformation, queryApps, projectionApps);
     const appsToExpire = [];
     const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
@@ -7759,10 +7765,11 @@ async function expireGlobalApplications() {
         appsToExpire.push(appSpecs);
       }
     });
-    const appNamesToExpire = results.map((res) => res.name);
+    const appNamesToExpire = appsToExpire.map((res) => res.name);
     // remove appNamesToExpire apps from global database
     // eslint-disable-next-line no-restricted-syntax
     for (const appName of appNamesToExpire) {
+      log.info(`Expiring application ${appName}`);
       const queryDeleteApp = { name: appName };
       // eslint-disable-next-line no-await-in-loop
       await dbHelper.findOneAndDeleteInDatabase(databaseApps, globalAppsInformation, queryDeleteApp, projectionApps);
