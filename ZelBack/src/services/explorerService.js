@@ -794,6 +794,11 @@ async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = fals
 // use reindexGlobalApps with caution!!!
 async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps) {
   try {
+    // hotfix to be removed later
+    const exists = await appsService.getApplicationGlobalSpecifications('kadena');
+    if (!exists) {
+      await appsService.reindexGlobalAppsInformation();
+    }
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     if (!syncStatus.data.synced) {
       setTimeout(() => {

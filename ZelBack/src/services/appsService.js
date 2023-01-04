@@ -7759,7 +7759,7 @@ async function expireGlobalApplications() {
         appsToExpire.push(appSpecs);
       }
     });
-    const appNamesToExpire = results.map((res) => res.name);
+    const appNamesToExpire = appsToExpire.map((res) => res.name);
     // remove appNamesToExpire apps from global database
     // eslint-disable-next-line no-restricted-syntax
     for (const appName of appNamesToExpire) {
