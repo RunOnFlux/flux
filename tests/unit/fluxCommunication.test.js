@@ -806,12 +806,12 @@ describe('fluxCommunication tests', () => {
   describe('initiateAndHandleConnection tests', () => {
     let wsserver;
     let logSpy;
-    let checkRateLimitStub;
+    let lruRateLimitStub;
     let ensureObjectSpy;
 
     beforeEach(() => {
       logSpy = sinon.spy(log, 'info');
-      checkRateLimitStub = sinon.stub(fluxNetworkHelper, 'checkRateLimit');
+      lruRateLimitStub = sinon.stub(fluxNetworkHelper, 'lruRateLimit');
       ensureObjectSpy = sinon.spy(serviceHelper, 'ensureObject');
       outgoingConnections.length = 0;
       outgoingPeers.length = 0;
@@ -885,7 +885,7 @@ describe('fluxCommunication tests', () => {
       });
       const ip = '127.0.0.2';
       wsserver = new WebSocket.Server({ host: '127.0.0.2', port: '16127' });
-      checkRateLimitStub.returns(false);
+      lruRateLimitStub.returns(false);
 
       await fluxCommunication.initiateAndHandleConnection(ip);
 
@@ -912,7 +912,7 @@ describe('fluxCommunication tests', () => {
       });
       const ip = '127.0.0.2';
       wsserver = new WebSocket.Server({ host: '127.0.0.2', port: '16127' });
-      checkRateLimitStub.returns(true);
+      lruRateLimitStub.returns(true);
       sinon.stub(LRU.prototype, 'has').returns(true);
       const websocketCloseSpy = sinon.spy(WebSocket.prototype, 'close');
 
@@ -952,7 +952,7 @@ describe('fluxCommunication tests', () => {
         });
         const ip = '127.0.0.2';
         wsserver = new WebSocket.Server({ host: '127.0.0.2', port: '16127' });
-        checkRateLimitStub.returns(true);
+        lruRateLimitStub.returns(true);
         sinon.stub(LRU.prototype, 'has').returns(false);
         const verifyOriginalFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast').returns(true);
         const respondWithAppMessageStub = sinon.stub(fluxCommunicationMessagesSender, 'respondWithAppMessage').returns(true);
@@ -991,7 +991,7 @@ describe('fluxCommunication tests', () => {
         });
         const ip = '127.0.0.2';
         wsserver = new WebSocket.Server({ host: '127.0.0.2', port: '16127' });
-        checkRateLimitStub.returns(true);
+        lruRateLimitStub.returns(true);
         sinon.stub(LRU.prototype, 'has').returns(false);
         const verifyOriginalFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast').returns(true);
         const storeAppTemporaryMessageStub = sinon.stub(appsService, 'storeAppTemporaryMessage').returns(false);
@@ -1030,7 +1030,7 @@ describe('fluxCommunication tests', () => {
         });
         const ip = '127.0.0.2';
         wsserver = new WebSocket.Server({ host: '127.0.0.2', port: '16127' });
-        checkRateLimitStub.returns(true);
+        lruRateLimitStub.returns(true);
         sinon.stub(LRU.prototype, 'has').returns(false);
         const verifyOriginalFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast').returns(true);
         const storeAppRunningMessageStub = sinon.stub(appsService, 'storeAppRunningMessage').returns(false);
