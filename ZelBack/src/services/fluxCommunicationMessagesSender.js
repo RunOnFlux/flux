@@ -181,7 +181,7 @@ async function sendMessageToWS(message, ws) {
     try {
       ws.send(messageSigned);
     } catch (e) {
-      console.error(e);
+      log.error(e);
     }
   } catch (error) {
     log.error(error);
@@ -204,7 +204,6 @@ async function respondWithAppMessage(message, ws) {
       sendMessageToWS(tempMesResponse, ws);
       return;
     }
-    console.log(serviceHelper.ensureString(message));
     const appMessage = await appsService.checkAppMessageExistence(message.data.hash) || await appsService.checkAppTemporaryMessageExistence(message.data.hash);
     if (appMessage) {
       // const permanentAppMessage = {
@@ -489,7 +488,6 @@ async function broadcastTemporaryAppMessage(message) {
   * @param timestamp number
   * @param signature string
   */
-  log.info(message);
   // no verification of message before broadcasting. Broadcasting happens always after data have been verified and are stored in our db. It is up to receiving node to verify it and store and rebroadcast.
   if (typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number' || typeof message.appSpecifications !== 'object' || typeof message.signature !== 'string' || typeof message.timestamp !== 'number' || typeof message.hash !== 'string') {
     throw new Error('Invalid Flux App message for storing');

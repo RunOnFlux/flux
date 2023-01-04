@@ -1426,7 +1426,7 @@ describe('fluxNetworkHelper tests', () => {
 
       await fluxNetworkHelper.checkDeterministicNodesCollisions();
 
-      expect(fluxNetworkHelper.getDosMessage()).to.equal('Flux earlier collision detection');
+      expect(fluxNetworkHelper.getDosMessage()).to.equal('Flux earlier collision detection on ip:127.0.0.1:5050');
       expect(fluxNetworkHelper.getDosStateValue()).to.equal(100);
     });
 
@@ -1865,8 +1865,8 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('isCommunicationEstablished tests', () => {
-    const minNumberOfIncoming = 3;
-    const minNumberOfOutgoing = 9;
+    const minNumberOfIncoming = 4;
+    const minNumberOfOutgoing = 8;
     const dummyPeer = {
       ip: '192.168.0.0',
       lastPingTime: new Date().getTime(),
@@ -1896,12 +1896,20 @@ describe('fluxNetworkHelper tests', () => {
         message: 'Communication to Flux network is properly established',
       },
     };
-    const expectedErrorResponse = {
+    const expectedErrorResponseOutgoing = {
       status: 'error',
       data: {
         code: undefined,
         name: undefined,
-        message: 'Not enough connections established to Flux network',
+        message: 'Not enough outgoing connections established to Flux network',
+      },
+    };
+    const expectedErrorResponseIncoming = {
+      status: 'error',
+      data: {
+        code: undefined,
+        name: undefined,
+        message: 'Not enough incoming connections from Flux network',
       },
     };
 
@@ -1920,15 +1928,14 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.calledOnceWithExactly(res.json, expectedSuccesssResponse);
     });
 
-    // TODO TBD reenable once enabled in Flux
-    // it('should return a negative respone if there are not enough incoming peers', () => {
-    //   const res = generateResponse();
-    //   populatePeers(minNumberOfIncoming - 1, minNumberOfOutgoing);
+    it('should return a negative respone if there are not enough incoming peers', () => {
+      const res = generateResponse();
+      populatePeers(minNumberOfIncoming - 1, minNumberOfOutgoing);
 
-    //   fluxNetworkHelper.isCommunicationEstablished(undefined, res);
+      fluxNetworkHelper.isCommunicationEstablished(undefined, res);
 
-    //   sinon.assert.calledOnceWithExactly(res.json, expectedErrorResponse);
-    // });
+      sinon.assert.calledOnceWithExactly(res.json, expectedErrorResponseIncoming);
+    });
 
     it('should return a negative respone if there are not enough outgoing peers', () => {
       const res = generateResponse();
@@ -1936,7 +1943,7 @@ describe('fluxNetworkHelper tests', () => {
 
       fluxNetworkHelper.isCommunicationEstablished(undefined, res);
 
-      sinon.assert.calledOnceWithExactly(res.json, expectedErrorResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedErrorResponseOutgoing);
     });
 
     it('should return a negative respone if there are not enough incoming or outgoing peers', () => {
@@ -1945,7 +1952,7 @@ describe('fluxNetworkHelper tests', () => {
 
       fluxNetworkHelper.isCommunicationEstablished(undefined, res);
 
-      sinon.assert.calledOnceWithExactly(res.json, expectedErrorResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedErrorResponseOutgoing);
     });
   });
 

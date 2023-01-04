@@ -19,6 +19,7 @@ const appsHashesCollection = config.database.daemon.collections.appsHashes;
 const addressTransactionIndexCollection = config.database.daemon.collections.addressTransactionIndex;
 const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
 const fluxTransactionCollection = config.database.daemon.collections.fluxTransactions;
+const chainParamsMessagesCollection = config.database.chainparams.collections.chainMessages;
 let blockProccessingCanContinue = true;
 let someBlockIsProcessing = false;
 let isInInitiationOfBP = false;
@@ -360,6 +361,34 @@ function decodeMessage(asm) {
 }
 
 /**
+ * To process soft fork messages and reactin upon observing one
+ * @param {string} txid TXID of soft fork message occurance
+ * @param {number} heightBlockchain height of soft fork message occurance
+ * @param {string} message Already decoded message.
+ */
+async function processSoftFork(txid, height, message) {
+  // let it throw to stop block processing
+  const splittedMess = message.split('_');
+  const version = splittedMess[0];
+  const data = {
+    txid,
+    height,
+    message,
+    version,
+  };
+  log.info('New Soft Fork message received');
+  log.info(`${txid}_${height}_${message}`);
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.chainparams.database);
+  const query = { txid }; // unique
+  const update = { $set: data };
+  const options = {
+    upsert: true,
+  };
+  await dbHelper.updateOneInDatabase(database, chainParamsMessagesCollection, query, update, options);
+}
+
+/**
  * To process verbose block data for entry to Insight database.
  * @param {object} blockDataVerbose Verbose block data.
  * @param {string} database Database.
@@ -375,52 +404,74 @@ async function processInsight(blockDataVerbose, database) {
     if (tx.version < 5 && tx.version > 0) {
       let message = '';
       let isFluxAppMessageValue = 0;
+      let isSenderFoundation = false;
+      let isReceiverFounation = false;
+
+      tx.vin.forEach((sender) => {
+        if (sender.address === config.fluxapps.addressMultisig) { // coinbase vin.addr is undefined
+          isSenderFoundation = true;
+        }
+      });
+
       tx.vout.forEach((receiver) => {
         if (receiver.scriptPubKey.addresses) { // count for messages
-          if (receiver.scriptPubKey.addresses[0] === config.fluxapps.address) {
+          if (receiver.scriptPubKey.addresses[0] === config.fluxapps.address || (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisig && blockDataVerbose.height >= config.fluxapps.appSpecsEnforcementHeights[6])) {
             // it is an app message. Get Satoshi amount
             isFluxAppMessageValue += receiver.valueSat;
+          }
+          if (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisig) {
+            isReceiverFounation = true;
           }
         }
         if (receiver.scriptPubKey.asm) {
           message = decodeMessage(receiver.scriptPubKey.asm);
         }
       });
-      const intervals = config.fluxapps.price.filter((i) => i.height <= blockDataVerbose.height);
-      const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
-      // MAY contain App transaction. Store it.
-      if (isFluxAppMessageValue >= (priceSpecifications.minPrice * 1e8) && message.length === 64 && blockDataVerbose.height >= config.fluxapps.epochstart) { // min of 1 flux had to be paid for us bothering checking
-        const appTxRecord = {
-          txid: tx.txid, height: blockDataVerbose.height, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
-        };
-        // Unique hash - If we already have a hash of this app in our database, do not insert it!
-        try {
+      if (isFluxAppMessageValue) {
+        // eslint-disable-next-line no-await-in-loop
+        const appPrices = await appsService.getChainParamsPriceUpdates();
+        const intervals = appPrices.filter((i) => i.height < blockDataVerbose.height);
+        const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
+        // MAY contain App transaction. Store it.
+        if (isFluxAppMessageValue >= (priceSpecifications.minPrice * 1e8) && message.length === 64 && blockDataVerbose.height >= config.fluxapps.epochstart) { // min of 1 flux had to be paid for us bothering checking
+          const appTxRecord = {
+            txid: tx.txid, height: blockDataVerbose.height, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
+          };
+          // Unique hash - If we already have a hash of this app in our database, do not insert it!
+          try {
           // 5501c7dd6516c3fc2e68dee8d4fdd20d92f57f8cfcdc7b4fcbad46499e43ed6f
-          const querySearch = {
-            hash: message,
-          };
-          const projectionSearch = {
-            projection: {
-              _id: 0,
-              txid: 1,
-              hash: 1,
-              height: 1,
-              value: 1,
-              message: 1,
-            },
-          };
-          // eslint-disable-next-line no-await-in-loop
-          const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, querySearch, projectionSearch); // this search can be later removed if nodes rescan apps and reconstruct the index for unique
-          if (!result) {
-            appsTransactions.push(appTxRecord);
-            appsService.checkAndRequestApp(message, tx.txid, blockDataVerbose.height, isFluxAppMessageValue);
-          } else {
-            throw new Error(`Found an existing hash app ${serviceHelper.ensureString(result)}`);
+            const querySearch = {
+              hash: message,
+            };
+            const projectionSearch = {
+              projection: {
+                _id: 0,
+                txid: 1,
+                hash: 1,
+                height: 1,
+                value: 1,
+                message: 1,
+              },
+            };
+            // eslint-disable-next-line no-await-in-loop
+            const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, querySearch, projectionSearch); // this search can be later removed if nodes rescan apps and reconstruct the index for unique
+            if (!result) {
+              appsTransactions.push(appTxRecord);
+              appsService.checkAndRequestApp(message, tx.txid, blockDataVerbose.height, isFluxAppMessageValue);
+            } else {
+              throw new Error(`Found an existing hash app ${serviceHelper.ensureString(result)}`);
+            }
+          } catch (error) {
+            log.error(`Hash ${message} already exists. Not adding at height ${blockDataVerbose.height}`);
+            log.error(error);
           }
-        } catch (error) {
-          log.error(`Hash ${message} already exists. Not adding at height ${blockDataVerbose.height}`);
-          log.error(error);
         }
+      }
+      // check for softForks
+      const isSoftFork = isSenderFoundation && isReceiverFounation;
+      if (isSoftFork) {
+        // eslint-disable-next-line no-await-in-loop
+        await processSoftFork(tx.txid, blockDataVerbose.height, message);
       }
     } else if (tx.version === 5) {
       // todo include to daemon better information about hash and index and preferably address associated
@@ -473,17 +524,25 @@ async function processStandard(blockDataVerbose, database) {
     if (tx.version < 5 && tx.version > 0) {
       let message = '';
       let isFluxAppMessageValue = 0;
+      let isSenderFoundation = false;
+      let isReceiverFounation = false;
 
       const addresses = [];
       tx.senders.forEach((sender) => {
         addresses.push(sender.address);
+        if (sender.address === config.fluxapps.addressMultisig) {
+          isSenderFoundation = true;
+        }
       });
       tx.vout.forEach((receiver) => {
         if (receiver.scriptPubKey.addresses) { // count for messages
           addresses.push(receiver.scriptPubKey.addresses[0]);
-          if (receiver.scriptPubKey.addresses[0] === config.fluxapps.address) {
+          if (receiver.scriptPubKey.addresses[0] === config.fluxapps.address || (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisig && blockDataVerbose.height >= config.fluxapps.appSpecsEnforcementHeights[6])) {
             // it is an app message. Get Satoshi amount
             isFluxAppMessageValue += receiver.valueSat;
+          }
+          if (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisig) {
+            isReceiverFounation = true;
           }
         }
         if (receiver.scriptPubKey.asm) {
@@ -502,40 +561,48 @@ async function processStandard(blockDataVerbose, database) {
         };
         await dbHelper.updateOneInDatabase(database, addressTransactionIndexCollection, query, update, options);
       }));
-      const intervals = config.fluxapps.price.filter((i) => i.height <= blockDataVerbose.height);
-      const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
-      // MAY contain App transaction. Store it.
-      if (isFluxAppMessageValue >= (priceSpecifications.minPrice * 1e8) && message.length === 64 && blockDataVerbose.height >= config.fluxapps.epochstart) { // min of 1 flux had to be paid for us bothering checking
-        const appTxRecord = {
-          txid: tx.txid, height: blockDataVerbose.height, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
-        };
-        // Unique hash - If we already have a hash of this app in our database, do not insert it!
-        try {
+      if (isFluxAppMessageValue) {
+        const appPrices = await appsService.getChainParamsPriceUpdates();
+        const intervals = appPrices.filter((i) => i.height < blockDataVerbose.height);
+        const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
+        // MAY contain App transaction. Store it.
+        if (isFluxAppMessageValue >= (priceSpecifications.minPrice * 1e8) && message.length === 64 && blockDataVerbose.height >= config.fluxapps.epochstart) { // min of 1 flux had to be paid for us bothering checking
+          const appTxRecord = {
+            txid: tx.txid, height: blockDataVerbose.height, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
+          };
+          // Unique hash - If we already have a hash of this app in our database, do not insert it!
+          try {
           // 5501c7dd6516c3fc2e68dee8d4fdd20d92f57f8cfcdc7b4fcbad46499e43ed6f
-          const querySearch = {
-            hash: message,
-          };
-          const projectionSearch = {
-            projection: {
-              _id: 0,
-              txid: 1,
-              hash: 1,
-              height: 1,
-              value: 1,
-              message: 1,
-            },
-          };
-          const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, querySearch, projectionSearch); // this search can be later removed if nodes rescan apps and reconstruct the index for unique
-          if (!result) {
-            await dbHelper.insertOneToDatabase(database, appsHashesCollection, appTxRecord);
-            appsService.checkAndRequestApp(message, tx.txid, blockDataVerbose.height, isFluxAppMessageValue);
-          } else {
-            throw new Error(`Found an existing hash app ${serviceHelper.ensureString(result)}`);
+            const querySearch = {
+              hash: message,
+            };
+            const projectionSearch = {
+              projection: {
+                _id: 0,
+                txid: 1,
+                hash: 1,
+                height: 1,
+                value: 1,
+                message: 1,
+              },
+            };
+            const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, querySearch, projectionSearch); // this search can be later removed if nodes rescan apps and reconstruct the index for unique
+            if (!result) {
+              await dbHelper.insertOneToDatabase(database, appsHashesCollection, appTxRecord);
+              appsService.checkAndRequestApp(message, tx.txid, blockDataVerbose.height, isFluxAppMessageValue);
+            } else {
+              throw new Error(`Found an existing hash app ${serviceHelper.ensureString(result)}`);
+            }
+          } catch (error) {
+            log.error(`Hash ${message} already exists. Not adding at height ${blockDataVerbose.height}`);
+            log.error(error);
           }
-        } catch (error) {
-          log.error(`Hash ${message} already exists. Not adding at height ${blockDataVerbose.height}`);
-          log.error(error);
         }
+      }
+      // check for softForks
+      const isSoftFork = isSenderFoundation && isReceiverFounation;
+      if (isSoftFork) {
+        await processSoftFork(tx.txid, blockDataVerbose.height, message);
       }
     }
     // tx version 5 are flux transactions. Put them into flux
@@ -703,8 +770,11 @@ async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = fals
   await dbHelper.removeDocumentsFromCollection(database, fluxTransactionCollection, query);
   // restore appsHashes collection
   await dbHelper.removeDocumentsFromCollection(database, appsHashesCollection, query);
+  log.info('Rescanning Blockchain Parameters!');
+  const databaseGlobal = dbopen.db(config.database.appsglobal.database);
+  const databaseUpdates = dbopen.db(config.database.chainparams.database);
+  await dbHelper.removeDocumentsFromCollection(databaseUpdates, chainParamsMessagesCollection, query);
   if (rescanGlobalApps === true) {
-    const databaseGlobal = dbopen.db(config.database.appsglobal.database);
     log.info('Rescanning Apps!');
     await dbHelper.removeDocumentsFromCollection(databaseGlobal, config.database.appsglobal.collections.appsMessages, query);
     await dbHelper.removeDocumentsFromCollection(databaseGlobal, config.database.appsglobal.collections.appsInformation, query);
@@ -785,7 +855,13 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
           throw error;
         }
       });
-      log.info(result, resultB, resultC, resultD, resultFusion);
+      const databaseUpdates = db.db(config.database.chainparams.database);
+      const resultChainParams = await dbHelper.dropCollection(databaseUpdates, chainParamsMessagesCollection).catch((error) => {
+        if (error.message !== 'ns not found') {
+          throw error;
+        }
+      });
+      log.info(result, resultB, resultC, resultD, resultFusion, resultChainParams);
 
       await database.collection(utxoIndexCollection).createIndex({ txid: 1, vout: 1 }, { name: 'query for getting utxo', unique: true });
       await database.collection(utxoIndexCollection).createIndex({ txid: 1, vout: 1, satoshis: 1 }, { name: 'query for getting utxo for zelnode tx', unique: true });
@@ -810,6 +886,10 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
         log.error(error);
       }); // has to be unique!
       await database.collection(appsHashesCollection).createIndex({ message: 1 }, { name: 'query for getting app hashes depending if we have message' });
+      await databaseUpdates.collection(chainParamsMessagesCollection).createIndex({ txid: 1 }, { name: 'query for getting txid of some chain parameters update message' });
+      await databaseUpdates.collection(chainParamsMessagesCollection).createIndex({ height: 1 }, { name: 'query for getting height of some chain parameters update message' });
+      await databaseUpdates.collection(chainParamsMessagesCollection).createIndex({ message: 1 }, { name: 'query for getting message of some chain parameters update message' });
+      await databaseUpdates.collection(chainParamsMessagesCollection).createIndex({ version: 1 }, { name: 'query for getting version of some chain parameters update message' });
 
       const databaseGlobal = db.db(config.database.appsglobal.database);
       log.info('Preparing apps collections');

@@ -84,6 +84,10 @@
                         title="Instances"
                         :data="row.item.instances.toString()"
                       />
+                      <list-entry
+                        title="Period"
+                        :data="labelForExpire(row.item.expire)"
+                      />
                       <h4>Composition</h4>
                       <div v-if="row.item.version <= 3">
                         <b-card>
@@ -400,6 +404,10 @@
                         v-if="row.item.instances"
                         title="Instances"
                         :data="row.item.instances.toString()"
+                      />
+                      <list-entry
+                        title="Period"
+                        :data="labelForExpire(row.item.expire)"
                       />
                       <h4>Composition</h4>
                       <div v-if="row.item.version <= 3">
@@ -747,6 +755,38 @@ export default {
         },
       },
       allApps: [],
+      expireOptions: [
+        {
+          value: 5000,
+          label: '1 week',
+          time: 7 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 11000,
+          label: '2 weeks',
+          time: 14 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 22000,
+          label: '1 month',
+          time: 30 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 66000,
+          label: '3 months',
+          time: 90 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 132000,
+          label: '6 months',
+          time: 180 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 264000,
+          label: '1 year',
+          time: 365 * 24 * 60 * 60 * 1000,
+        },
+      ],
     };
   },
   computed: {
@@ -763,6 +803,16 @@ export default {
     this.appsGetListGlobalApps();
   },
   methods: {
+    labelForExpire(expire) {
+      const position = this.expireOptions.find((opt) => opt.value === expire);
+      if (position) {
+        return position.label;
+      }
+      if (expire) {
+        return `${expire} blocks`;
+      }
+      return '1 month';
+    },
     openAppManagement(appName) {
       this.managedApplication = appName;
     },

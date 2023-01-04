@@ -47,17 +47,29 @@ const globalAppsInformation = config.database.appsglobal.collections.appsInforma
 const globalAppsTempMessages = config.database.appsglobal.collections.appsTemporaryMessages;
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
-// default cache
-const LRUoptions = {
-  max: 500, // store 500 values, we shall not have more values at any period
-  maxAge: 1000 * 60 * 10, // 10 minutes
+// cache for app running messages
+const LRUoptionsRun = { // cache for app running messages
+  max: 50000, // store max 50000 values, eventhough we can have more values. this accounts for more than 15000 app instances. Less than 500 Bytes per value -> 25MB cache
+  maxAge: 1000 * 60 * 70, // 70 minutes
 };
 
+// cache for temporary messages
+const LRUoptionsTemp = { // cache for temporary messages
+  max: 10000, // store max 10000 values
+  maxAge: 1000 * 60 * 70, // 70 minutes
+};
 const GlobalAppsSpawnLRUoptions = {
+  max: 1000,
   maxAge: 1000 * 60 * 30, // 30 minutes
 };
-const myCache = new LRU(LRUoptions);
+const longCache = {
+  max: 500,
+  maxAge: 1000 * 60 * 60 * 8, // 8 hours
+};
+const myCacheRun = new LRU(LRUoptionsRun);
+const myCacheTemp = new LRU(LRUoptionsTemp);
 const trySpawningGlobalAppCache = new LRU(GlobalAppsSpawnLRUoptions);
+const myLongCache = new LRU(longCache);
 
 let removalInProgress = false;
 let installationInProgress = false;
@@ -90,6 +102,52 @@ const appsMonitored = {
   //   ],
   // },
 };
+
+/**
+ * To get array of price specifications updates
+ * @returns {(object|object[])} Returns an array of app objects.
+ */
+async function getChainParamsPriceUpdates() {
+  try {
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.chainparams.database);
+    const chainParamsMessagesCollection = config.database.chainparams.collections.chainMessages;
+    const query = { version: 'p' };
+    const projection = {
+      projection: {
+        _id: 0,
+      },
+    };
+    const priceMessages = await dbHelper.findInDatabase(database, chainParamsMessagesCollection, query, projection);
+    const priceForks = [];
+    config.fluxapps.price.forEach((price) => {
+      priceForks.push(price);
+    });
+    priceMessages.forEach((data) => {
+      const splittedMess = data.message.split('_');
+      if (splittedMess[4]) {
+        const dataPoint = {
+          height: +data.height,
+          cpu: +splittedMess[1],
+          ram: +splittedMess[2],
+          hdd: +splittedMess[3],
+          minPrice: +splittedMess[4],
+        };
+        priceForks.push(dataPoint);
+      }
+    });
+    // sort priceForks depending on height
+    priceForks.sort((a, b) => {
+      if (a.height > b.height) return 1;
+      if (a.height < b.height) return -1;
+      return 0;
+    });
+    return priceForks;
+  } catch (error) {
+    log.error(error);
+    return [];
+  }
+}
 
 /**
  * To get a list of installed apps. Where req can be equal to appname. Shall be identical to listAllApps but this is a database response.
@@ -1736,7 +1794,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     }
 
     // if s flag create .stfolder
-    const containerDataFlags = appSpecifications.containerData.split(':')[1] ? appSpecifications.containerData.split(':')[0] : '';
+    const containerDataFlags = appSpecifications.containerData.split('|')[0].split(':')[1] ? appSpecifications.containerData.split('|')[0].split(':')[0] : '';
     if (containerDataFlags.includes('s')) {
       const stFolderCreation = {
         status: 'Creating .stfolder for syncthing...',
@@ -2236,6 +2294,21 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
       await appUninstallHard(appName, appId, appSpecifications, isComponent, res);
     }
     if (!isComponent) {
+      const dockerNetworkStatus = {
+        status: 'Cleaning up docker network...',
+      };
+      log.info(dockerNetworkStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(dockerNetworkStatus));
+      }
+      await dockerService.removeFluxAppDockerNetwork(appName).catch((error) => log.error(error));
+      const dockerNetworkStatus2 = {
+        status: 'Docker network cleaned',
+      };
+      log.info(dockerNetworkStatus2);
+      if (res) {
+        res.write(serviceHelper.ensureString(dockerNetworkStatus2));
+      }
       const databaseStatus = {
         status: 'Cleaning up database...',
       };
@@ -2727,7 +2800,7 @@ async function checkAppRequirements(appSpecs) {
  * @param {object} res Response.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
-async function installApplicationHard(appSpecifications, appName, isComponent, res) {
+async function installApplicationHard(appSpecifications, appName, isComponent, res, fullAppSpecs) {
   // pull image
   // eslint-disable-next-line no-unused-vars
   await dockerPullStreamPromise(appSpecifications.repotag, res);
@@ -2748,7 +2821,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
     res.write(serviceHelper.ensureString(createApp));
   }
 
-  await dockerService.appDockerCreate(appSpecifications, appName, isComponent);
+  await dockerService.appDockerCreate(appSpecifications, appName, isComponent, fullAppSpecs);
 
   const portStatusInitial = {
     status: isComponent ? `Allowing component ${appSpecifications.name} of Flux App ${appName} ports...` : `Allowing Flux App ${appName} ports...`,
@@ -2912,24 +2985,6 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
       },
     };
 
-    // check if fluxDockerNetwork exists, if not create
-    const fluxNetworkStatus = {
-      status: 'Checking Flux network...',
-    };
-    log.info(fluxNetworkStatus);
-    if (res) {
-      res.write(serviceHelper.ensureString(fluxNetworkStatus));
-    }
-    const fluxNet = await dockerService.createFluxDockerNetwork().catch((error) => log.error(error));
-    if (!fluxNet) {
-      return;
-    }
-    const fluxNetResponse = messageHelper.createDataMessage(fluxNet);
-    log.info(fluxNetResponse);
-    if (res) {
-      res.write(serviceHelper.ensureString(fluxNetResponse));
-    }
-
     // check if app is already installed
     const checkDb = {
       status: 'Checking database...',
@@ -2947,6 +3002,41 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
         res.end();
       }
       return;
+    }
+
+    if (!isComponent) {
+      const installedAppsRes = await installedApps();
+      if (installedAppsRes.status !== 'success') {
+        throw new Error('Failed to get installed Apps');
+      }
+      const iApps = installedAppsRes.data;
+
+      const dockerNetworkAddrValue = 50 + iApps.length;
+
+      const fluxNetworkStatus = {
+        status: `Checking Flux App network of ${appName}...`,
+      };
+      log.info(fluxNetworkStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(fluxNetworkStatus));
+      }
+      const fluxNet = await dockerService.createFluxAppDockerNetwork(appName, dockerNetworkAddrValue).catch((error) => log.error(error));
+      if (!fluxNet) {
+        installationInProgress = false;
+        log.error(`Flux App network of ${appName} failed to initiate`);
+        if (res) {
+          res.write(`Flux App network of ${appName} failed to initiate`);
+          res.end();
+        }
+        return;
+      }
+      log.info(serviceHelper.ensureString(fluxNet));
+      const fluxNetResponse = {
+        status: `Docker network of ${appName} initiated.`,
+      };
+      if (res) {
+        res.write(serviceHelper.ensureString(fluxNetResponse));
+      }
     }
 
     const appInstallation = {
@@ -2987,10 +3077,10 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
         appComponentSpecs.ram = appComponentSpecs[ramTier] || appComponentSpecs.ram;
         appComponentSpecs.hdd = appComponentSpecs[hddTier] || appComponentSpecs.hdd;
         // eslint-disable-next-line no-await-in-loop
-        await installApplicationHard(appComponentSpecs, appName, isComponent, res);
+        await installApplicationHard(appComponentSpecs, appName, isComponent, res, appSpecifications);
       }
     } else {
-      await installApplicationHard(specificationsToInstall, appName, isComponent, res);
+      await installApplicationHard(specificationsToInstall, appName, isComponent, res, appSpecifications);
     }
 
     // all done message
@@ -3031,7 +3121,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
  * @param {object} res Response.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
-async function installApplicationSoft(appSpecifications, appName, isComponent, res) {
+async function installApplicationSoft(appSpecifications, appName, isComponent, res, fullAppSpecs) {
   // pull image
   // eslint-disable-next-line no-unused-vars
   await dockerPullStreamPromise(appSpecifications.repotag, res);
@@ -3050,7 +3140,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
     res.write(serviceHelper.ensureString(createApp));
   }
 
-  await dockerService.appDockerCreate(appSpecifications, appName, isComponent);
+  await dockerService.appDockerCreate(appSpecifications, appName, isComponent, fullAppSpecs);
 
   const portStatusInitial = {
     status: isComponent ? `Allowing component ${appSpecifications.name} of Flux App ${appName} ports...` : `Allowing Flux App ${appName} ports...`,
@@ -3215,24 +3305,6 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       },
     };
 
-    // check if fluxDockerNetwork exists, if not create
-    const fluxNetworkStatus = {
-      status: 'Checking Flux network...',
-    };
-    log.info(fluxNetworkStatus);
-    if (res) {
-      res.write(serviceHelper.ensureString(fluxNetworkStatus));
-    }
-    const fluxNet = await dockerService.createFluxDockerNetwork().catch((error) => log.error(error));
-    if (!fluxNet) {
-      return;
-    }
-    const fluxNetResponse = messageHelper.createDataMessage(fluxNet);
-    log.info(fluxNetResponse);
-    if (res) {
-      res.write(serviceHelper.ensureString(fluxNetResponse));
-    }
-
     // check if app is already installed
     const checkDb = {
       status: 'Checking database...',
@@ -3250,6 +3322,41 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
         res.end();
       }
       return;
+    }
+
+    if (!isComponent) {
+      const installedAppsRes = await installedApps();
+      if (installedAppsRes.status !== 'success') {
+        throw new Error('Failed to get installed Apps');
+      }
+      const iApps = installedAppsRes.data;
+
+      const dockerNetworkAddrValue = 50 + iApps.length;
+
+      const fluxNetworkStatus = {
+        status: `Checking Flux App network of ${appName}...`,
+      };
+      log.info(fluxNetworkStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(fluxNetworkStatus));
+      }
+      const fluxNet = await dockerService.createFluxAppDockerNetwork(appName, dockerNetworkAddrValue).catch((error) => log.error(error));
+      if (!fluxNet) {
+        installationInProgress = false;
+        log.error(`Flux App network of ${appName} failed to initiate`);
+        if (res) {
+          res.write(`Flux App network of ${appName} failed to initiate`);
+          res.end();
+        }
+        return;
+      }
+      log.info(serviceHelper.ensureString(fluxNet));
+      const fluxNetResponse = {
+        status: `Docker network of ${appName} initiated.`,
+      };
+      if (res) {
+        res.write(serviceHelper.ensureString(fluxNetResponse));
+      }
     }
 
     const appInstallation = {
@@ -3290,10 +3397,10 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
         appComponentSpecs.ram = appComponentSpecs[ramTier] || appComponentSpecs.ram;
         appComponentSpecs.hdd = appComponentSpecs[hddTier] || appComponentSpecs.hdd;
         // eslint-disable-next-line no-await-in-loop
-        await installApplicationSoft(appComponentSpecs, appName, isComponent, res);
+        await installApplicationSoft(appComponentSpecs, appName, isComponent, res, appSpecifications);
       }
     } else {
-      await installApplicationSoft(specificationsToInstall, appName, isComponent, res);
+      await installApplicationSoft(specificationsToInstall, appName, isComponent, res, appSpecifications);
     }
     // all done message
     const successStatus = {
@@ -3327,15 +3434,17 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
 
 /**
  * To return the monthly app hosting price.
+ * This is app price per blocksLasting
  * @param {string} dataForAppRegistration App registration date.
  * @param {number} height Block height.
  * @returns {number} App price.
  */
-function appPricePerMonth(dataForAppRegistration, height) {
+async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) {
   if (!dataForAppRegistration) {
     return new Error('Application specification not provided');
   }
-  const intervals = config.fluxapps.price.filter((i) => i.height <= height);
+  const appPrices = suppliedPrices || await getChainParamsPriceUpdates();
+  const intervals = appPrices.filter((i) => i.height < height);
   const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
   let instancesAdditional = 0;
   if (dataForAppRegistration.instances) {
@@ -3808,24 +3917,48 @@ async function verifyRepository(repotag) {
   return true;
 }
 
+async function getBlockedRepositores() {
+  try {
+    const cachedResponse = myLongCache.get('blockedRepositories');
+    if (cachedResponse) {
+      return cachedResponse;
+    }
+    const resBlockedRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/blockedrepositories.json');
+    if (resBlockedRepo.data) {
+      myLongCache.set('blockedRepositories', resBlockedRepo.data);
+      return resBlockedRepo.data;
+    }
+    return null;
+  } catch (error) {
+    log.error(error);
+    return null;
+  }
+}
+
 /**
  * To check compliance of app images (including images for each component if a Docker Compose app). Checks Flux OS's GitHub repository for list of blocked Docker Hub repositories.
  * @param {object} appSpecs App specifications.
  * @returns {boolean} True if no errors are thrown.
  */
 async function checkApplicationImagesComplience(appSpecs) {
-  const resBlockedRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/blockedrepositories.json');
+  const repos = await getBlockedRepositores();
 
-  if (!resBlockedRepo) {
+  if (!repos) {
     throw new Error('Unable to communicate with Flux Services! Try again later.');
   }
-
-  const repos = resBlockedRepo.data;
 
   const pureImagesOrOrganisationsRepos = [];
   repos.forEach((repo) => {
     pureImagesOrOrganisationsRepos.push(repo.split(':')[0]);
   });
+
+  // blacklist works also for zelid and app hash
+  if (pureImagesOrOrganisationsRepos.includes(appSpecs.hash)) {
+    throw new Error(`${appSpecs.hash} is not allowed to be spawned`);
+  }
+  if (pureImagesOrOrganisationsRepos.includes(appSpecs.owner)) {
+    throw new Error(`${appSpecs.owner} is not allowed to run applications`);
+  }
 
   const images = [];
   const organisations = [];
@@ -3851,6 +3984,59 @@ async function checkApplicationImagesComplience(appSpecs) {
   });
 
   return true;
+}
+
+/**
+ * To check if application image is part of blocked repositories
+ * @param {object} appSpecs App specifications.
+ * @returns {boolean, string} False if blocked, String of reason if yes
+ */
+async function checkApplicationImagesBlocked(appSpecs) {
+  const repos = await getBlockedRepositores();
+
+  let isBlocked = false;
+
+  if (!repos) {
+    return isBlocked;
+  }
+
+  const pureImagesOrOrganisationsRepos = [];
+  repos.forEach((repo) => {
+    pureImagesOrOrganisationsRepos.push(repo.split(':')[0]);
+  });
+
+  // blacklist works also for zelid and app hash
+  if (pureImagesOrOrganisationsRepos.includes(appSpecs.hash)) {
+    return `${appSpecs.hash} is not allowed to be spawned`;
+  }
+  if (pureImagesOrOrganisationsRepos.includes(appSpecs.owner)) {
+    return `${appSpecs.owner} is not allowed to run applications`;
+  }
+
+  const images = [];
+  const organisations = [];
+  if (appSpecs.version <= 3) {
+    images.push(appSpecs.repotag.split(':')[0]);
+    organisations.push(appSpecs.repotag.split(':')[0].split('/')[0]);
+  } else {
+    appSpecs.compose.forEach((component) => {
+      images.push(component.repotag.split(':')[0]);
+      organisations.push(component.repotag.split(':')[0].split('/')[0]);
+    });
+  }
+
+  images.forEach((image) => {
+    if (pureImagesOrOrganisationsRepos.includes(image)) {
+      isBlocked = `Image ${image} is blocked. Application ${appSpecs.name} connot be spawned.`;
+    }
+  });
+  organisations.forEach((org) => {
+    if (pureImagesOrOrganisationsRepos.includes(org)) {
+      isBlocked = `Organisation ${org} is blocked. Application ${appSpecs.name} connot be spawned.`;
+    }
+  });
+
+  return isBlocked;
 }
 
 /**
@@ -3880,6 +4066,7 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
   const { tiered } = appSpecification;
   const { contacts } = appSpecification;
   const { geolocation } = appSpecification;
+  const { expire } = appSpecification;
 
   if (!version) {
     throw new Error('Missing Flux App specification parameter');
@@ -4019,12 +4206,6 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
     if (!Array.isArray(compose)) {
       throw new Error('Invalid Flux App Specifications');
     }
-    if (compose.length < 1) {
-      throw new Error('Flux App does not contain any components');
-    }
-    if (compose.length > 5) {
-      throw new Error('Flux App has too many components');
-    }
     compose.forEach((appComponent) => {
       if (Array.isArray(appComponent)) {
         throw new Error('Invalid Flux App Specifications');
@@ -4158,6 +4339,21 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
     }
   }
 
+  if (version >= 6) {
+    if (!expire) {
+      throw new Error('Missing Flux App specification parameter');
+    }
+    if (typeof expire !== 'number') {
+      throw new Error('Invalid expire specification');
+    }
+    if (Number.isInteger(expire) !== true) {
+      throw new Error('Invalid expire specified');
+    }
+    if (!serviceHelper.isDecimalLimit(expire, 0)) {
+      throw new Error('Invalid expire specified');
+    }
+  }
+
   return true;
 }
 
@@ -4167,7 +4363,7 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
  * @returns {boolean} True if no errors are thrown.
  */
 function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
-  if (appSpecifications.version !== 1 && appSpecifications.version !== 2 && appSpecifications.version !== 3 && appSpecifications.version !== 4 && appSpecifications.version !== 5) {
+  if (appSpecifications.version !== 1 && appSpecifications.version !== 2 && appSpecifications.version !== 3 && appSpecifications.version !== 4 && appSpecifications.version !== 5 && appSpecifications.version !== 6) {
     throw new Error('Flux App message version specification is invalid');
   }
   if (appSpecifications.name.length > 32) {
@@ -4256,7 +4452,11 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
     if (appSpecifications.compose.length < 1) {
       throw new Error('Flux App does not contain any composition');
     }
-    if (appSpecifications.compose.length > 5) {
+    let maxComponents = 10;
+    if (height < config.fluxapps.appSpecsEnforcementHeights[6]) {
+      maxComponents = 5;
+    }
+    if (appSpecifications.compose.length > maxComponents) {
       throw new Error('Flux App has too many components');
     }
     // check port is within range
@@ -4365,15 +4565,23 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
       throw new Error('Invalid geolocation submited.'); // for now we are only accepting continent and country.
     }
     appSpecifications.geolocation.forEach((geo) => {
-      let maxGeoLength = 5;
-      if (height > 1230000) { // once all nodes update, we can remove this
-        // ac geolocation
-        maxGeoLength = 50; // should be way more than sufficient
-      }
+      const maxGeoLength = 50;
       if (geo.length > maxGeoLength) { // for now we only treat aXX and bXX as continent and country specs.
         throw new Error(`Geolocation ${geo} is not valid.`); // firt letter for what represents and next two for the code
       }
     });
+  }
+
+  if (appSpecifications.version >= 6) {
+    if (appSpecifications.expire < config.fluxapps.minBlocksAllowance) {
+      throw new Error(`Minimum expiration of application is ${config.fluxapps.minBlocksAllowance} blocks ~ 1 week`);
+    }
+    if (appSpecifications.expire > config.fluxapps.maxBlocksAllowance) {
+      throw new Error(`Maximum expiration of application is ${config.fluxapps.maxBlocksAllowance} blocks ~ 1 year`);
+    }
+    if (appSpecifications.expire % config.fluxapps.blocksAllowanceInterval !== 0) {
+      throw new Error(`Expiration of application has to be a multiple of ${config.fluxapps.blocksAllowanceInterval} blocks ~ 1 day`);
+    }
   }
 }
 
@@ -4466,7 +4674,7 @@ function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
         }
       });
     });
-  } else {
+  } else if (appSpecifications.version === 5) {
     const specifications = [
       'version', 'name', 'description', 'owner', 'compose', 'instances', 'contacts', 'geolocation',
     ];
@@ -4488,6 +4696,30 @@ function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
         }
       });
     });
+  } else if (appSpecifications.version === 6) {
+    const specifications = [
+      'version', 'name', 'description', 'owner', 'compose', 'instances', 'contacts', 'geolocation', 'expire',
+    ];
+    const componentSpecifications = [
+      'name', 'description', 'repotag', 'ports', 'containerPorts', 'environmentParameters', 'commands', 'containerData', 'domains',
+      'cpu', 'ram', 'hdd', 'tiered', 'cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
+    ];
+    const specsKeys = Object.keys(appSpecifications);
+    specsKeys.forEach((sKey) => {
+      if (!specifications.includes((sKey))) {
+        throw new Error('Unsupported parameter for v5 app specifications');
+      }
+    });
+    appSpecifications.compose.forEach((appComponent) => {
+      const specsKeysComponent = Object.keys(appComponent);
+      specsKeysComponent.forEach((sKey) => {
+        if (!componentSpecifications.includes((sKey))) {
+          throw new Error('Unsupported parameter for v5 app specifications');
+        }
+      });
+    });
+  } else {
+    throw new Error(`Invalid version specification of ${appSpecifications.version}`);
   }
 }
 
@@ -5154,11 +5386,10 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
     return new Error('Invalid Flux App message for storing');
   }
   // check if we have the message in cache. If yes, return false. If not, store it and continue
-  if (myCache.has(serviceHelper.ensureString(message))) {
+  if (myCacheTemp.has(message.hash)) {
     return false;
   }
-  console.log(serviceHelper.ensureString(message));
-  myCache.set(serviceHelper.ensureString(message), message);
+  myCacheTemp.set(message.hash, message);
   const specifications = message.appSpecifications || message.zelAppSpecifications;
   // eslint-disable-next-line no-use-before-define
   const appSpecFormatted = specificationFormatter(specifications);
@@ -5247,11 +5478,10 @@ async function storeAppRunningMessage(message) {
   }
 
   // check if we have the message in cache. If yes, return false. If not, store it and continue
-  if (myCache.has(serviceHelper.ensureString(message))) {
+  if (myCacheRun.has(serviceHelper.ensureString(message))) {
     return false;
   }
-  console.log(serviceHelper.ensureString(message));
-  myCache.set(serviceHelper.ensureString(message), message);
+  myCacheRun.set(serviceHelper.ensureString(message), message);
 
   const validTill = message.broadcastedAt + (65 * 60 * 1000); // 3900 seconds
 
@@ -5299,7 +5529,6 @@ async function storeAppRunningMessage(message) {
 async function requestAppMessage(hash) {
   // some message type request app message, message hash
   // peer responds with data from permanent database or temporary database. If does not have it requests further
-  console.log(hash);
   const message = {
     type: 'fluxapprequest',
     version: 1,
@@ -5335,6 +5564,7 @@ function specificationFormatter(appSpecification) {
   const { tiered } = appSpecification;
   let { contacts } = appSpecification;
   let { geolocation } = appSpecification;
+  let { expire } = appSpecification;
 
   if (!version) {
     throw new Error('Missing Flux App specification parameter');
@@ -5477,11 +5707,8 @@ function specificationFormatter(appSpecification) {
       throw new Error('Missing Flux App specification parameter');
     }
     compose = serviceHelper.ensureObject(compose);
-    if (compose.length < 1) {
-      throw new Error('Flux App does not contain any components');
-    }
-    if (compose.length > 5) {
-      throw new Error('Flux App has too many components');
+    if (!Array.isArray(compose)) {
+      throw new Error('Flux App compose parameter is not valid');
     }
     compose.forEach((appComponent) => {
       const appComponentCorrect = {};
@@ -5635,6 +5862,29 @@ function specificationFormatter(appSpecification) {
       throw new Error('Geolocation for Flux App is invalid');
     }
     appSpecFormatted.geolocation = geolocationCorrect;
+  }
+
+  if (version >= 6) {
+    if (!expire) {
+      throw new Error('Missing Flux App specification parameter');
+    }
+    expire = serviceHelper.ensureNumber(expire);
+    if (typeof expire !== 'number') {
+      throw new Error('Invalid instances specification');
+    }
+    if (Number.isInteger(expire) !== true) {
+      throw new Error('Invalid instances specified');
+    }
+    if (expire < config.fluxapps.minBlocksAllowance) {
+      throw new Error(`Minimum expiration of application is ${config.fluxapps.minBlocksAllowance} blocks ~ 1 week`);
+    }
+    if (expire > config.fluxapps.maxBlocksAllowance) {
+      throw new Error(`Maximum expiration of application is ${config.fluxapps.maxBlocksAllowance} blocks ~ 1 year`);
+    }
+    if (expire % config.fluxapps.blocksAllowanceInterval !== 0) {
+      throw new Error(`Expiration of application has to be a multiple of ${config.fluxapps.blocksAllowanceInterval} blocks ~ 1 day`);
+    }
+    appSpecFormatted.expire = expire;
   }
 
   return appSpecFormatted;
@@ -5905,23 +6155,37 @@ async function installAppLocally(req, res) {
     if (!appname) {
       throw new Error('No Flux App specified');
     }
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    let blockAllowance = config.fluxapps.ownerAppAllowance;
+    // needs to be logged in
+    const authorized = await verificationHelper.verifyPrivilege('user', req);
     if (authorized) {
-      const allApps = await availableApps();
-      let appSpecifications = allApps.find((app) => app.name === appname);
+      let appSpecifications;
+      // anyone can deploy temporary app
+      // favor temporary to launch test temporary apps
+      const tempMessage = await checkAppTemporaryMessageExistence(appname);
+      if (tempMessage) {
+      // eslint-disable-next-line prefer-destructuring
+        appSpecifications = tempMessage.appSpecifications;
+        blockAllowance = config.fluxapps.temporaryAppAllowance;
+      }
+      if (!appSpecifications) {
+        // only owner can deploy permanent message or existing app
+        const ownerAuthorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+        if (!ownerAuthorized) {
+          const errMessage = messageHelper.errUnauthorizedMessage();
+          res.json(errMessage);
+          return;
+        }
+      }
+      if (!appSpecifications) {
+        const allApps = await availableApps();
+        appSpecifications = allApps.find((app) => app.name === appname);
+      }
       if (!appSpecifications) {
         // eslint-disable-next-line no-use-before-define
         appSpecifications = await getApplicationGlobalSpecifications(appname);
       }
-      // search in temporary messages for the specific apphash to launch
-      // favor temporary to launch test temporary apps
-      if (!appSpecifications) {
-        const tempMessage = await checkAppTemporaryMessageExistence(appname);
-        if (tempMessage) {
-        // eslint-disable-next-line prefer-destructuring
-          appSpecifications = tempMessage.appSpecifications;
-        }
-      }
+      // search in permanent messages for the specific apphash to launch
       if (!appSpecifications) {
         const permMessage = await checkAppMessageExistence(appname);
         if (permMessage) {
@@ -5949,7 +6213,7 @@ async function installAppLocally(req, res) {
           throw new Error('Scanning not initiated');
         }
         const explorerHeight = serviceHelper.ensureNumber(result.generalScannedHeight);
-        appSpecifications.height = explorerHeight - config.fluxapps.blocksLasting + (10 * config.fluxapps.expireFluxAppsPeriod); // allow running for 1000 blocks
+        appSpecifications.height = explorerHeight - config.fluxapps.blocksLasting + blockAllowance; // allow running for this amount of blocks
       }
 
       const appsDatabase = dbopen.db(config.database.appslocal.database);
@@ -6204,6 +6468,7 @@ async function appHashHasMessageNotFound(hash) {
 
 /**
  * To check and request an app. Handles fluxappregister type and fluxappupdate type.
+ * Verification of specification was already done except the price which is done here
  * @param {object} hash Hash object containing app information.
  * @param {string} txid Transaction ID.
  * @param {number} height Block height.
@@ -6242,11 +6507,18 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
         // await update zelapphashes that we already have it stored
         await appHashHasMessage(hash);
         // disregard other types
-        const intervals = config.fluxapps.price.filter((interval) => interval.height <= height);
+        const appPrices = await getChainParamsPriceUpdates();
+        const intervals = appPrices.filter((interval) => interval.height < height);
         const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
         if (tempMessage.type === 'zelappregister' || tempMessage.type === 'fluxappregister') {
           // check if value is optimal or higher
-          let appPrice = appPricePerMonth(specifications, height);
+          let appPrice = await appPricePerMonth(specifications, height, appPrices);
+          const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
+          const expireIn = specifications.expire || defaultExpire;
+          // app prices are ceiled to highest 0.01
+          const multiplier = expireIn / defaultExpire;
+          appPrice *= multiplier;
+          appPrice = Math.ceil(appPrice * 100) / 100;
           if (appPrice < priceSpecifications.minPrice) {
             appPrice = priceSpecifications.minPrice;
           }
@@ -6257,7 +6529,9 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
             // object of appSpecifications extended for hash and height
             // do not await this
             updateAppSpecifications(updateForSpecifications);
-          } // else do nothing notify its underpaid?
+          } else {
+            log.warn(`Apps message ${permanentAppMessage.hash} is underpaid`);
+          }
         } else if (tempMessage.type === 'zelappupdate' || tempMessage.type === 'fluxappupdate') {
           // appSpecifications.name as identifier
           const db = dbHelper.databaseConnection();
@@ -6303,13 +6577,25 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
             }
           });
           const messageInfo = latestPermanentRegistrationMessage;
+          const previousSpecs = messageInfo.appSpecifications || messageInfo.zelAppSpecifications;
           // here comparison of height differences and specifications
           // price shall be price for standard registration plus minus already paid price according to old specifics. height remains height valid for 22000 blocks
-          const appPrice = appPricePerMonth(specifications, height);
-          const previousSpecsPrice = appPricePerMonth(messageInfo.appSpecifications || messageInfo.zelAppSpecifications, height);
+          let appPrice = await appPricePerMonth(specifications, height, appPrices);
+          let previousSpecsPrice = await appPricePerMonth(previousSpecs, height, appPrices);
+          const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
+          const currentExpireIn = specifications.expire || defaultExpire;
+          const previousExpireIn = previousSpecs.expire || defaultExpire;
+          // app prices are ceiled to highest 0.01
+          const multiplierCurrent = currentExpireIn / defaultExpire;
+          appPrice *= multiplierCurrent;
+          appPrice = Math.ceil(appPrice * 100) / 100;
+          const multiplierPrevious = previousExpireIn / defaultExpire;
+          previousSpecsPrice *= multiplierPrevious;
+          previousSpecsPrice = Math.ceil(previousSpecsPrice * 100) / 100;
           // what is the height difference
-          const heightDifference = permanentAppMessage.height - messageInfo.height; // has to be lower than 22000
-          const perc = (config.fluxapps.blocksLasting - heightDifference) / config.fluxapps.blocksLasting;
+          const heightDifference = permanentAppMessage.height - messageInfo.height;
+          // currentExpireIn is always higher than heightDifference
+          const perc = (previousExpireIn - heightDifference) / previousExpireIn; // how much of previous specs was not used yet
           let actualPriceToPay = appPrice * 0.9;
           if (perc > 0) {
             actualPriceToPay = (appPrice - (perc * previousSpecsPrice)) * 0.9; // discount for missing heights. Allow 90%
@@ -6325,7 +6611,9 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
             // object of appSpecifications extended for hash and height
             // do not await this
             updateAppSpecifications(updateForSpecifications);
-          } // else do nothing notify its underpaid?
+          } else {
+            log.warn(`Apps message ${permanentAppMessage.hash} is underpaid`);
+          }
         }
       } else {
         // request the message and broadcast the message further to our connected peers.
@@ -7434,7 +7722,9 @@ async function checkAndNotifyPeersOfRunningApps() {
 }
 
 /**
- * To find and remove expired global applications. Finds applications that are lower than blocksLasting and deletes them from global database.
+ * To find and remove expired global applications. Finds applications that are registered on lower height than current height minus default blocksLasting
+ * or set by their expire blockheight specification, then deletes them from global database and do potential uninstall.
+ * Also adjusted for trial apps
  */
 async function expireGlobalApplications() {
   // check if synced
@@ -7454,13 +7744,21 @@ async function expireGlobalApplications() {
       throw new Error('Scanning not initiated');
     }
     const explorerHeight = serviceHelper.ensureNumber(result.generalScannedHeight);
-    const expirationHeight = explorerHeight - config.fluxapps.blocksLasting;
+    const minExpirationHeight = explorerHeight - config.fluxapps.minBlocksAllowance; // do a pre search in db as every app has to live for at least minBlocksAllowance
     // get global applications specification that have up to date data
-    // find applications that have specifications height lower than expirationHeight
+    // find applications that have specifications height lower than minExpirationHeight
     const databaseApps = dbopen.db(config.database.appsglobal.database);
-    const queryApps = { height: { $lt: expirationHeight } };
+    const queryApps = { height: { $lt: minExpirationHeight } };
     const projectionApps = { projection: { _id: 0, name: 1, hash: 1 } };
     const results = await dbHelper.findInDatabase(databaseApps, globalAppsInformation, queryApps, projectionApps);
+    const appsToExpire = [];
+    const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
+    results.forEach((appSpecs) => {
+      const expireIn = appSpecs.expire || defaultExpire;
+      if (appSpecs.height + expireIn < explorerHeight) { // registered/updated on height, expires in expireIn is lower than current height
+        appsToExpire.push(appSpecs);
+      }
+    });
     const appNamesToExpire = results.map((res) => res.name);
     // remove appNamesToExpire apps from global database
     // eslint-disable-next-line no-restricted-syntax
@@ -7477,8 +7775,35 @@ async function expireGlobalApplications() {
     }
     const appsInstalled = installedAppsRes.data;
     // remove any installed app which height is lower (or not present) but is not infinite app
-    const appsToRemove = appsInstalled.filter((app) => appNamesToExpire.includes(app.name) || (app.height !== 0 && (app.height < expirationHeight || !app.height)));
+    const appsToRemove = [];
+    appsInstalled.forEach((app) => {
+      if (appNamesToExpire.includes(app.name)) {
+        appsToRemove.push(app);
+      } else if (!app.height) {
+        appsToRemove.push(app);
+      } else if (app.height === 0) {
+        // do nothing, forever lasting local app
+      } else {
+        const expireIn = app.expire || defaultExpire;
+        if (app.height + expireIn < explorerHeight) {
+          appsToRemove.push(app);
+        }
+      }
+    });
     const appsToRemoveNames = appsToRemove.map((app) => app.name);
+    if (appsInstalled.length > appsToRemoveNames.length) {
+      // only ask for blocked repositories if some apps installed are not getting removed
+      // eslint-disable-next-line no-restricted-syntax
+      for (const app of appsInstalled) {
+        // eslint-disable-next-line no-await-in-loop
+        const isAppBlocked = await checkApplicationImagesBlocked(app);
+        if (isAppBlocked) {
+          if (!appsToRemoveNames.includes(app.name)) {
+            appsToRemoveNames.push(app.name);
+          }
+        }
+      }
+    }
     // remove appsToRemoveNames apps from locally running
     // eslint-disable-next-line no-restricted-syntax
     for (const appName of appsToRemoveNames) {
@@ -7862,19 +8187,30 @@ async function getAppPrice(req, res) {
         throw new Error('Daemon not yet synced.');
       }
       const daemonHeight = syncStatus.data.height;
+      const appPrices = await getChainParamsPriceUpdates();
+      const intervals = appPrices.filter((i) => i.height < daemonHeight);
+      const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
       const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-      let actualPriceToPay = appPricePerMonth(appSpecFormatted, daemonHeight);
+      const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
+      let actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices);
+      const expireIn = appSpecFormatted.expire || defaultExpire;
+      // app prices are ceiled to highest 0.01
+      const multiplier = expireIn / defaultExpire;
+      actualPriceToPay *= multiplier;
+      actualPriceToPay = Math.ceil(actualPriceToPay * 100) / 100;
       if (appInfo) {
-        const previousSpecsPrice = appPricePerMonth(appInfo, daemonHeight); // calculate previous based on CURRENT height, with current interval of prices!
+        let previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices); // calculate previous based on CURRENT height, with current interval of prices!
+        const previousExpireIn = previousSpecsPrice.expire || defaultExpire;
+        const multiplierPrevious = previousExpireIn / defaultExpire;
+        previousSpecsPrice *= multiplierPrevious;
+        previousSpecsPrice = Math.ceil(previousSpecsPrice * 100) / 100;
         // what is the height difference
         const heightDifference = daemonHeight - appInfo.height; // has to be lower than 22000
-        const perc = (config.fluxapps.blocksLasting - heightDifference) / config.fluxapps.blocksLasting;
+        const perc = (previousExpireIn - heightDifference) / previousExpireIn;
         if (perc > 0) {
           actualPriceToPay -= (perc * previousSpecsPrice);
         }
       }
-      const intervals = config.fluxapps.price.filter((i) => i.height <= daemonHeight);
-      const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
       actualPriceToPay = Number(Math.ceil(actualPriceToPay * 100) / 100);
       if (actualPriceToPay < priceSpecifications.minPrice) {
         actualPriceToPay = priceSpecifications.minPrice;
@@ -8059,15 +8395,27 @@ async function verifyAppUpdateParameters(req, res) {
 async function deploymentInformation(req, res) {
   try {
     // respond with information needed for application deployment regarding specification limitation and prices
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    const daemonHeight = syncStatus.data.height;
+    let deployAddr = config.fluxapps.address;
+    if (daemonHeight >= config.fluxapps.appSpecsEnforcementHeights[6]) {
+      deployAddr = config.fluxapps.addressMultisig;
+    }
+    // search in chainparams db for chainmessages of p version
+    const appPrices = await getChainParamsPriceUpdates();
     const information = {
-      price: config.fluxapps.price,
+      price: appPrices,
       appSpecsEnforcementHeights: config.fluxapps.appSpecsEnforcementHeights,
-      address: config.fluxapps.address,
+      address: deployAddr,
       portMin: config.fluxapps.portMin,
       portMax: config.fluxapps.portMax,
       maxImageSize: config.fluxapps.maxImageSize,
       minimumInstances: config.fluxapps.minimumInstances,
       maximumInstances: config.fluxapps.maximumInstances,
+      blocksLasting: config.fluxapps.blocksLasting,
+      minBlocksAllowance: config.fluxapps.minBlocksAllowance,
+      maxBlocksAllowance: config.fluxapps.maxBlocksAllowance,
+      blocksAllowanceInterval: config.fluxapps.blocksAllowanceInterval,
     };
     const respondPrice = messageHelper.createDataMessage(information);
     res.json(respondPrice);
@@ -8305,7 +8653,7 @@ async function syncthingApps() {
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled.data) {
       if (installedApp.version <= 3) {
-        const containerDataFlags = installedApp.containerData.split(':')[1] ? installedApp.containerData.split(':')[0] : '';
+        const containerDataFlags = installedApp.containerData.split('|')[0].split(':')[1] ? installedApp.containerData.split('|')[0].split(':')[0] : '';
         if (containerDataFlags.includes('s')) {
           const identifier = installedApp.name;
           const appId = dockerService.getAppIdentifier(identifier);
@@ -8350,7 +8698,7 @@ async function syncthingApps() {
       } else {
         // eslint-disable-next-line no-restricted-syntax
         for (const installedComponent of installedApp.compose) {
-          const containerDataFlags = installedComponent.containerData.split(':')[1] ? installedComponent.containerData.split(':')[0] : '';
+          const containerDataFlags = installedComponent.containerData.split('|')[0].split(':')[1] ? installedComponent.containerData.split('|')[0].split(':')[0] : '';
           if (containerDataFlags.includes('s')) {
             const identifier = `${installedComponent.name}_${installedApp.name}`;
             const appId = dockerService.getAppIdentifier(identifier);
@@ -8520,4 +8868,5 @@ module.exports = {
   getAllGlobalApplicationsNames,
   getAllGlobalApplicationsNamesWithLocation,
   syncthingApps,
+  getChainParamsPriceUpdates,
 };

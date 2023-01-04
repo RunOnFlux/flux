@@ -38,6 +38,10 @@ async function getConfigFile() {
     const homedir = os.homedir();
     // fs may fail to read that as of eaccess
     // change permissions of the file first so we can read it and get api key properly
+    const execDIRown = 'sudo chown $USER:$USER $HOME/.config'; // adjust .config folder for ownership of running user
+    await cmdAsync(execDIRown).catch((error) => log.error(error));
+    const execDIRownSyncthing = 'sudo chown $USER:$USER $HOME/.config/syncthing'; // adjust .config/syncthing folder for ownership of running user
+    await cmdAsync(execDIRownSyncthing).catch((error) => log.error(error));
     const execPERM = `sudo chmod 644 ${homedir}/.config/syncthing/config.xml`;
     await cmdAsync(execPERM);
     const result = await fsPromises.readFile(`${homedir}/.config/syncthing/config.xml`, 'utf8');
@@ -1922,12 +1926,16 @@ async function startSyncthing() {
     if (myDevice.status === 'error') {
       const execDIRcr = 'mkdir -p $HOME/.config'; // create .config folder first for it to have standard user ownership. With -p no error will be thrown in case of exists
       await cmdAsync(execDIRcr).catch((error) => log.error(error));
-      const execDIRown = 'sudo chown $USER:$USER $HOME/.config'; // adjust .config fodler for ownership of running user
+      const execDIRown = 'sudo chown $USER:$USER $HOME/.config'; // adjust .config folder for ownership of running user
       await cmdAsync(execDIRown).catch((error) => log.error(error));
+      const execDIRownSyncthing = 'sudo chown $USER:$USER $HOME/.config/syncthing'; // adjust .config/syncthing folder for ownership of running user
+      await cmdAsync(execDIRownSyncthing).catch((error) => log.error(error));
       // need sudo to be able to read/write properly
       const execKill = 'sudo killall syncthing';
+      const execKillB = 'sudo pkill syncthing';
       await serviceHelper.delay(10 * 1000);
       await cmdAsync(execKill).catch((error) => log.error(error));
+      await cmdAsync(execKillB).catch((error) => log.error(error));
       const exec = 'sudo syncthing --allow-newer-config --no-browser --home=$HOME/.config/syncthing';
       log.info('Spawning Syncthing instance...');
       let errored = false;
