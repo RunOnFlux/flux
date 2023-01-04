@@ -1932,8 +1932,10 @@ async function startSyncthing() {
       await cmdAsync(execDIRownSyncthing).catch((error) => log.error(error));
       // need sudo to be able to read/write properly
       const execKill = 'sudo killall syncthing';
+      const execKillB = 'sudo pkill syncthing';
       await serviceHelper.delay(10 * 1000);
       await cmdAsync(execKill).catch((error) => log.error(error));
+      await cmdAsync(execKillB).catch((error) => log.error(error));
       const exec = 'sudo syncthing --allow-newer-config --no-browser --home=$HOME/.config/syncthing';
       log.info('Spawning Syncthing instance...');
       let errored = false;
