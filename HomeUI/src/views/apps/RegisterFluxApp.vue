@@ -1729,7 +1729,7 @@ export default {
           // eslint-disable-next-line no-param-reassign
           component.ports = ports;
         });
-      } else if (this.currentHeight < 1200000) {
+      } else if (this.currentHeight < 1300000) {
         this.specificationVersion = 5;
         this.appRegistrationSpecification = this.appRegistrationSpecificationV5Template;
         this.appRegistrationSpecification.compose.forEach((component) => {

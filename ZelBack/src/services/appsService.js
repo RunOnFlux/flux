@@ -2943,16 +2943,32 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
   // register and launch according to specifications in message
   try {
     if (removalInProgress) {
-      log.error('Another application is undergoing removal');
+      const rStatus = messageHelper.createErrorMessage('Another application is undergoing removal');
+      log.error(rStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(rStatus));
+        res.end();
+      }
       return;
     }
     if (installationInProgress) {
-      log.error('Another application is undergoing installation');
+      const rStatus = messageHelper.createErrorMessage('Another application is undergoing installation');
+      log.error(rStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(rStatus));
+        res.end();
+      }
       return;
     }
     installationInProgress = true;
     const tier = await generalService.nodeTier().catch((error) => log.error(error));
     if (!tier) {
+      const rStatus = messageHelper.createErrorMessage('Failed to get Node Tier');
+      log.error(rStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(rStatus));
+        res.end();
+      }
       return;
     }
     const appSpecifications = appSpecs;
@@ -2996,9 +3012,10 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     const appResult = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     if (appResult && !isComponent) {
       installationInProgress = false;
-      log.error(`Flux App ${appName} already installed`);
+      const rStatus = messageHelper.createErrorMessage(`Flux App ${appName} already installed`);
+      log.error(rStatus);
       if (res) {
-        res.write(`Flux App ${appName} already installed`);
+        res.write(rStatus);
         res.end();
       }
       return;
@@ -3022,13 +3039,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
       }
       const fluxNet = await dockerService.createFluxAppDockerNetwork(appName, dockerNetworkAddrValue).catch((error) => log.error(error));
       if (!fluxNet) {
-        installationInProgress = false;
-        log.error(`Flux App network of ${appName} failed to initiate`);
-        if (res) {
-          res.write(`Flux App network of ${appName} failed to initiate`);
-          res.end();
-        }
-        return;
+        throw new Error(`Flux App network of ${appName} failed to initiate`);
       }
       log.info(serviceHelper.ensureString(fluxNet));
       const fluxNetResponse = {
@@ -3263,16 +3274,32 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
   // throw without catching
   try {
     if (removalInProgress) {
-      log.error('Another application is undergoing removal');
+      const rStatus = messageHelper.createErrorMessage('Another application is undergoing removal');
+      log.error(rStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(rStatus));
+        res.end();
+      }
       return;
     }
     if (installationInProgress) {
-      log.error('Another application is undergoing installation');
+      const rStatus = messageHelper.createErrorMessage('Another application is undergoing installation');
+      log.error(rStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(rStatus));
+        res.end();
+      }
       return;
     }
     installationInProgress = true;
     const tier = await generalService.nodeTier().catch((error) => log.error(error));
     if (!tier) {
+      const rStatus = messageHelper.createErrorMessage('Failed to get Node Tier');
+      log.error(rStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(rStatus));
+        res.end();
+      }
       return;
     }
     const appSpecifications = appSpecs;
@@ -3316,9 +3343,10 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     const appResult = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     if (appResult && !isComponent) {
       installationInProgress = false;
-      log.error(`Flux App ${appName} already installed`);
+      const rStatus = messageHelper.createErrorMessage(`Flux App ${appName} already installed`);
+      log.error(rStatus);
       if (res) {
-        res.write(`Flux App ${appName} already installed`);
+        res.write(serviceHelper.ensureString(rStatus));
         res.end();
       }
       return;
@@ -3342,13 +3370,9 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       }
       const fluxNet = await dockerService.createFluxAppDockerNetwork(appName, dockerNetworkAddrValue).catch((error) => log.error(error));
       if (!fluxNet) {
-        installationInProgress = false;
-        log.error(`Flux App network of ${appName} failed to initiate`);
-        if (res) {
-          res.write(`Flux App network of ${appName} failed to initiate`);
-          res.end();
+        if (!fluxNet) {
+          throw new Error(`Flux App network of ${appName} failed to initiate`);
         }
-        return;
       }
       log.info(serviceHelper.ensureString(fluxNet));
       const fluxNetResponse = {
