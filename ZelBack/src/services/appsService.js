@@ -3370,9 +3370,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       }
       const fluxNet = await dockerService.createFluxAppDockerNetwork(appName, dockerNetworkAddrValue).catch((error) => log.error(error));
       if (!fluxNet) {
-        if (!fluxNet) {
-          throw new Error(`Flux App network of ${appName} failed to initiate`);
-        }
+        throw new Error(`Flux App network of ${appName} failed to initiate`);
       }
       log.info(serviceHelper.ensureString(fluxNet));
       const fluxNetResponse = {
