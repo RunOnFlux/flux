@@ -1968,6 +1968,7 @@ async function startSyncthing() {
         sendOwnership: true,
         syncXattrs: true,
         sendXattrs: true,
+        maxConflicts: 0,
       };
       if (currentConfigOptions.status === 'success') {
         if (currentConfigOptions.data.globalAnnounceEnabled !== newConfig.globalAnnounceEnabled
