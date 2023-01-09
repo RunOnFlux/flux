@@ -966,7 +966,7 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('checkFluxbenchVersionAllowed tests', () => {
-    // minimumFluxBenchAllowedVersion = '3.6.0';
+    // minimumFluxBenchAllowedVersion = '3.7.0';
     let benchmarkInfoResponseStub;
 
     beforeEach(() => {

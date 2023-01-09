@@ -421,7 +421,7 @@ async function checkFluxbenchVersionAllowed() {
       return false;
     }
     dosState += 2;
-    setDosMessage('Fluxbench Version Error. Error obtaining Flux Version.');
+    setDosMessage('Fluxbench Version Error. Error obtaining FluxBench Version.');
     log.error(dosMessage);
     return false;
   } catch (err) {
