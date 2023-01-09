@@ -106,9 +106,9 @@ async function startFluxFunctions() {
     }, 2 * 60 * 1000);
     setTimeout(() => {
       appsService.checkAndNotifyPeersOfRunningApps(); // first broadcast after 4m of starting fluxos
-      setInterval(() => { // every 20 mins (~10 blocks) messages stay on db for 65m
+      setInterval(() => { // every 60 mins messages stay on db for 65m
         appsService.checkAndNotifyPeersOfRunningApps();
-      }, 20 * 60 * 1000);
+      }, 60 * 60 * 1000);
     }, 4 * 60 * 1000);
     setTimeout(() => {
       appsService.syncthingApps(); // after 6 mins adjust our syncthing configuration
@@ -120,10 +120,10 @@ async function startFluxFunctions() {
       appsService.continuousFluxAppHashesCheck();
     }, 12 * 60 * 1000);
     setTimeout(() => {
-      // after 20 minutes of running ok.
+      // after 90 minutes of running ok and to make sure we are connected for enough time for receiving all apps running on other nodes
       log.info('Starting to spawn applications');
       appsService.trySpawningGlobalApplication();
-    }, 20 * 60 * 1000);
+    }, 90 * 60 * 1000);
     setTimeout(() => {
       appsService.forceAppRemovals(); // force cleanup of apps every day
       setInterval(() => {
