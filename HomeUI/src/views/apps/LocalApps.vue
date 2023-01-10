@@ -2505,6 +2505,8 @@ export default {
         this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
         if (this.output[this.output.length - 1].status === 'error') {
           this.showToast('danger', this.output[this.output.length - 1].status);
+        } else if (this.output[this.output.length - 1].status === 'warning') {
+          this.showToast('warning', this.output[this.output.length - 1].status);
         } else {
           this.showToast('success', this.output[this.output.length - 1].status);
         }
@@ -2531,9 +2533,11 @@ export default {
       } else {
         this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
         if (this.output[this.output.length - 1].status === 'error') {
-          this.showToast('danger', this.output[this.output.length - 1].status);
+          this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+        } else if (this.output[this.output.length - 1].status === 'warning') {
+          this.showToast('warning', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else {
-          this.showToast('success', this.output[this.output.length - 1].status);
+          this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         }
         setTimeout(() => {
           this.appsGetInstalledApps();
@@ -2577,9 +2581,11 @@ export default {
           }
         }
         if (this.output[this.output.length - 1].status === 'error') {
-          this.showToast('danger', this.output[this.output.length - 1].status);
+          this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+        } else if (this.output[this.output.length - 1].status === 'warning') {
+          this.showToast('warning', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else {
-          this.showToast('success', this.output[this.output.length - 1].status);
+          this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         }
         this.appsGetInstalledApps();
         this.appsGetListRunningApps();
