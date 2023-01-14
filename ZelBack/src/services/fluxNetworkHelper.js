@@ -116,7 +116,14 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
 
     const fluxVersion = fluxResponse.data.data;
     const versionMinOK = minVersionSatisfy(fluxVersion, config.minimumFluxOSAllowedVersion);
-    return versionMinOK;
+    if (!versionMinOK) return false;
+
+    const homePort = +port - 1;
+    const fluxResponseUI = await serviceHelper.axiosGet(`http://${ip}:${homePort}`, axiosConfig);
+    const UIok = fluxResponseUI.data.includes('<title>');
+    if (!UIok) return false;
+
+    return true;
   } catch (e) {
     return false;
   }
