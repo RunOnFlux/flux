@@ -145,7 +145,7 @@ module.exports = {
     expireFluxAppsPeriod: 100, // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago
     updateFluxAppsPeriod: 9, // every 9 blocks we check for reinstalling of old application versions
     removeFluxAppsPeriod: 11, // every 11 blocks we check for more than maximum number of instances of an application
-    restorePortsSupportPeriod: 12, // every 12 blocks we try to setup ufw and upnp
+    restorePortsSupportPeriod: 6, // every 6 blocks we try to setup ufw and upnp
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
