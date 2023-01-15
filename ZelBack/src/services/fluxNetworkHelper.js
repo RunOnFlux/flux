@@ -108,34 +108,33 @@ function minVersionSatisfy(version, minimumVersion) {
 /**
  * To perform a basic check if port on an ip is opened
  * @param {string} ip IP address.
- * @param {string} port Port.
+ * @param {number} port Port.
+ * @param {number} timeout Timeout in ms.
  * @returns {boolean} Returns true if opened, otherwise false
  */
-async function isPortOpen(ip, port) {
+async function isPortOpen(ip, port, timeout = 5000) {
   try {
-    const socket = new net.Socket();
-    let success = false;
+    const promise = new Promise(((resolve, reject) => {
+      const socket = new net.Socket();
 
-    socket.setTimeout(5000, () => socket.destroy());
+      const onError = (err) => {
+        log.error(err);
+        socket.destroy();
+        reject();
+      };
 
-    socket.connect(port, ip, () => {
-      success = true;
-      socket.setTimeout(0);
-      socket.destroy();
-    });
-    socket.on('error', () => {
-      success = false;
-    });
-    for (let i = 0; i < 100; i += 1) {
-      if (success) {
-        return true;
-      }
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(50);
-    }
-    return false;
+      socket.setTimeout(timeout);
+      socket.once('error', onError);
+      socket.once('timeout', onError);
+
+      socket.connect(port, ip, () => {
+        socket.end();
+        resolve();
+      });
+    }));
+    await promise;
+    return true;
   } catch (error) {
-    console.log(error);
     return false;
   }
 }
