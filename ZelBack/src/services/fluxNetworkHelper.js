@@ -123,6 +123,9 @@ async function isPortOpen(ip, port) {
       socket.setTimeout(0);
       socket.destroy();
     });
+    socket.on('error', () => {
+      success = false;
+    });
     for (let i = 0; i < 100; i += 1) {
       if (success) {
         return true;
