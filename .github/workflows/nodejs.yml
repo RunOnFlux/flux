@@ -23,6 +23,10 @@ jobs:
       uses: actions/setup-node@v1
       with:
         node-version: ${{ matrix.node-version }}
+    - name: Check Hash
+      run: |
+        newhash=$(find ./ZelBack -type f -exec md5sum {} + | awk '{print $1}' | LC_ALL=C sort | md5sum | awk '{printf $1}')
+        echo $newhash
     - name: install flux and flux benchmark daemons
       run: |
         echo 'deb https://apt.runonflux.io/ '$(lsb_release -cs)' main' | sudo tee /etc/apt/sources.list.d/flux.list
@@ -55,7 +59,7 @@ jobs:
         CI: true
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v2
-    - name: Push to other repo # Push services directory from RunOnFlux/flux to RunOnFlux/fluxjsdocs repo to build JSDocs separately.
+    - name: Push docs to other repo # Push services directory from RunOnFlux/flux to RunOnFlux/fluxjsdocs repo to build JSDocs separately.
       uses: cpina/github-action-push-to-another-repository@main
       env:
         API_TOKEN_GITHUB: ${{ secrets.API_TOKEN_GITHUB }}
@@ -66,3 +70,22 @@ jobs:
         user-email: runonfluxbot@gmail.com
         target-branch: master
         target-directory: services/
+    - name: Get current hashes
+      uses: gautemo/fetch-api-data-action@1.0.2
+      with:
+        url: 'https://raw.githubusercontent.com/RunOnFlux/fluxhashes/master/src/hashes/hashes.js'
+        file: 'hashes/hashes.js'
+    - name: Patch hashes
+      run: |
+        sed -i "s/  ];/    '$newhash',\n  ];/gi" hashes/hashes.js
+    - name: Push hashes to fluxhashes
+      uses: cpina/github-action-push-to-another-repository@main
+      env:
+        API_TOKEN_GITHUB: ${{ secrets.API_TOKEN_GITHUB }}
+      with:
+        source-directory: 'hashes'
+        destination-github-username: 'RunOnFlux'
+        destination-repository-name: 'fluxhashes'
+        user-email: runonfluxbot@gmail.com
+        target-branch: master
+        target-directory: src/hashes/
