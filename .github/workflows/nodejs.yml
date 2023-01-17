@@ -75,7 +75,7 @@ jobs:
       run: |
         mkdir hashes
         wget 'https://raw.githubusercontent.com/RunOnFlux/fluxhashes/master/src/hashes/hashes.js' -P hashes
-        hashfile=`cat hashes/hashes.js`
+        hashfileb=`cat hashes/hashes.js | sed "s/return/_/gi" | sed "s/\n/_/gi"`
         echo "HASH_FILE=$hashfile" >> $GITHUB_ENV
     - name: Patch hashes
       if: contains(env.HASH_FILE, env.NEW_HASH)
