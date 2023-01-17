@@ -3024,13 +3024,10 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     }
 
     if (!isComponent) {
-      const installedAppsRes = await installedApps();
-      if (installedAppsRes.status !== 'success') {
-        throw new Error('Failed to get installed Apps');
-      }
-      const iApps = installedAppsRes.data;
+      // last character of appName determines gateway
+      const lastCharCode = appName.charCodeAt(appName.length - 1);
 
-      const dockerNetworkAddrValue = 50 + iApps.length;
+      const dockerNetworkAddrValue = lastCharCode;
 
       const fluxNetworkStatus = {
         status: `Checking Flux App network of ${appName}...`,
@@ -3041,7 +3038,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
       }
       const fluxNet = await dockerService.createFluxAppDockerNetwork(appName, dockerNetworkAddrValue).catch((error) => log.error(error));
       if (!fluxNet) {
-        throw new Error(`Flux App network of ${appName} failed to initiate`);
+        throw new Error(`Flux App network of ${appName} failed to initiate. Range already assigned to different application.`);
       }
       log.info(serviceHelper.ensureString(fluxNet));
       const fluxNetResponse = {
@@ -3355,13 +3352,10 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     }
 
     if (!isComponent) {
-      const installedAppsRes = await installedApps();
-      if (installedAppsRes.status !== 'success') {
-        throw new Error('Failed to get installed Apps');
-      }
-      const iApps = installedAppsRes.data;
+      // last character of appName determines gateway
+      const lastCharCode = appName.charCodeAt(appName.length - 1);
 
-      const dockerNetworkAddrValue = 50 + iApps.length;
+      const dockerNetworkAddrValue = lastCharCode;
 
       const fluxNetworkStatus = {
         status: `Checking Flux App network of ${appName}...`,
@@ -3372,7 +3366,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       }
       const fluxNet = await dockerService.createFluxAppDockerNetwork(appName, dockerNetworkAddrValue).catch((error) => log.error(error));
       if (!fluxNet) {
-        throw new Error(`Flux App network of ${appName} failed to initiate`);
+        throw new Error(`Flux App network of ${appName} failed to initiate. Range already assigned to different application`);
       }
       log.info(serviceHelper.ensureString(fluxNet));
       const fluxNetResponse = {
