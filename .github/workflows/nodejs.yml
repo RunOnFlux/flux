@@ -71,10 +71,9 @@ jobs:
         target-branch: master
         target-directory: services/
     - name: Get current hashes
-      uses: gautemo/fetch-api-data-action@1.0.2
-      with:
-        url: 'https://raw.githubusercontent.com/RunOnFlux/fluxhashes/master/src/hashes/hashes.js'
-        file: 'hashes/hashes.js'
+      run: |
+        mkdir hashes
+        wget 'https://raw.githubusercontent.com/RunOnFlux/fluxhashes/master/src/hashes/hashes.js' -P hashes
     - name: Patch hashes
       run: |
         sed -i "s/  ];/    '$newhash',\n  ];/gi" hashes/hashes.js
