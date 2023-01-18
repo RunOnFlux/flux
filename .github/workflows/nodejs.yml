@@ -75,12 +75,14 @@ jobs:
       run: |
         mkdir hashes
         wget 'https://raw.githubusercontent.com/RunOnFlux/fluxhashes/master/src/hashes/hashes.js' -P hashes
-        hashfileb=`cat hashes/hashes.js | sed "s/return/_/gi" | sed "s/\n/_/gi"`
+        hashfile=`cat hashes/hashes.js | sed "s/return/_/gi" | sed "s/\n/_/gi"`
         echo HASH_FILE=$hashfile >> $GITHUB_ENV
     - name: echo test
       run: |
         echo $HASH_FILE
         echo $NEW_HASH
+        echo env.HASH_FILE
+        echo env.NEW_HASH
     - name: Patch hashes
       if: ${{ !contains(env.HASH_FILE, env.NEW_HASH) }}
       run: |
