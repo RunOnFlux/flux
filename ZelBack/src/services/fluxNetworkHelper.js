@@ -655,7 +655,9 @@ async function adjustExternalIP(ip) {
     zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
     kadena: '${userconfig.initial.kadena || ''}',
     testnet: ${userconfig.initial.testnet || false},
+    development: ${userconfig.initial.development || false},
     apiport: ${Number(userconfig.initial.apiport || config.apiport)},
+    decryptionkey: ${userconfig.initial.decryptionkey || ''},
   }
 }`;
 

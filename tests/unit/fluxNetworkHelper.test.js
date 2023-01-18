@@ -28,6 +28,8 @@ const userconfig = {
     kadena: '123456789',
     apiport: '16127',
     testnet: true,
+    development: false,
+    decryptionkey: '',
   },
 };
 const fluxNetworkHelper = proxyquire('../../ZelBack/src/services/fluxNetworkHelper',
@@ -1282,7 +1284,9 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/kadena: '123456789',/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/testnet: true,/gm));
+      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/development: false,/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/apiport: 16127,/gm));
+      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/decryptionkey: '',/gm));
     });
 
     it('should not write to file if the config already has same exact ip', () => {

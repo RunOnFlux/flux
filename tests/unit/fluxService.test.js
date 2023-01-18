@@ -29,6 +29,8 @@ const adminConfig = {
     cruxid: '12345678',
     apiport: '5550',
     testnet: true,
+    development: false,
+    decryptionkey: '',
   },
 };
 
@@ -2279,6 +2281,7 @@ describe('fluxService tests', () => {
           zelid: '${adminConfig.initial.zelid}',
           kadena: '${adminConfig.initial.kadena || ''}',
           testnet: ${adminConfig.initial.testnet || false},
+          development: ${adminConfig.initial.development || false},
           apiport: ${Number(adminConfig.initial.apiport)},
         }
       }`;
@@ -2433,6 +2436,7 @@ describe('fluxService tests', () => {
     zelid: '${adminConfig.initial.zelid}',
     kadena: 'kadena:testing?chainid=5',
     testnet: ${adminConfig.initial.testnet},
+    development: ${adminConfig.initial.development},
     apiport: ${Number(adminConfig.initial.apiport)},
   }
 }`;
