@@ -1161,7 +1161,7 @@ describe('explorerService tests', () => {
       sinon.assert.calledOnce(expireGlobalApplicationsStub);
       sinon.assert.notCalled(checkAndRemoveApplicationInstanceStub);
       sinon.assert.notCalled(reinstallOldApplicationsStub);
-      sinon.assert.calledOnce(restorePortsSupportStub);
+      sinon.assert.notCalled(restorePortsSupportStub);
       sinon.assert.calledOnceWithMatch(dbStubUpdate, sinon.match.object, 'scannedheight',
         { generalScannedHeight: { $gte: 0 } },
         { $set: { generalScannedHeight: 695000 } },
@@ -1230,8 +1230,8 @@ describe('explorerService tests', () => {
         { upsert: true });
     });
 
-    it('should update db if all parameters are passed correctly, height == 9000259', async () => {
-      const blockHeight = 900025;
+    it('should update db if all parameters are passed correctly, height == 9000254', async () => {
+      const blockHeight = 900024;
       const isInsightExplorer = true;
       dbStubUpdate.returns(true);
       checkAndRemoveApplicationInstanceStub.returns(true);
@@ -1273,7 +1273,7 @@ describe('explorerService tests', () => {
               }],
             },
           ],
-          height: 900025,
+          height: 900024,
           confirmations: 1,
         },
       });
@@ -1286,7 +1286,7 @@ describe('explorerService tests', () => {
       sinon.assert.calledOnce(restorePortsSupportStub);
       sinon.assert.calledOnceWithMatch(dbStubUpdate, sinon.match.object, 'scannedheight',
         { generalScannedHeight: { $gte: 0 } },
-        { $set: { generalScannedHeight: 900025 } },
+        { $set: { generalScannedHeight: 900024 } },
         { upsert: true });
     });
   });

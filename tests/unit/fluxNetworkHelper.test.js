@@ -82,6 +82,7 @@ describe('fluxNetworkHelper tests', () => {
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(fluxAvailabilitySuccessResponse);
       const expectedAddress = 'http://127.0.0.1:16125/flux/version';
+      const expectedAddressHome = 'http://127.0.0.1:16124';
       const expectedMessage = {
         status: 'success',
         data: {
@@ -94,6 +95,7 @@ describe('fluxNetworkHelper tests', () => {
       const checkFluxAvailabilityResult = await fluxNetworkHelper.checkFluxAvailability(req, mockResponse);
 
       sinon.assert.calledOnceWithExactly(stub, expectedAddress, axiosConfig);
+      sinon.assert.calledWithExactly(stub, expectedAddressHome, axiosConfig);
       sinon.assert.calledOnceWithExactly(mockResponse.json, expectedMessage);
       expect(checkFluxAvailabilityResult).to.eql(expectedMessage);
     });
@@ -112,6 +114,7 @@ describe('fluxNetworkHelper tests', () => {
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(fluxAvailabilitySuccessResponse);
       const expectedAddress = 'http://127.0.0.1:16125/flux/version';
+      const expectedAddressHome = 'http://127.0.0.1:16124';
       const expectedMessage = {
         status: 'success',
         data: {
@@ -123,7 +126,8 @@ describe('fluxNetworkHelper tests', () => {
 
       const checkFluxAvailabilityResult = await fluxNetworkHelper.checkFluxAvailability(req, mockResponse);
 
-      sinon.assert.calledOnceWithExactly(stub, expectedAddress, axiosConfig);
+      sinon.assert.calledWithExactly(stub, expectedAddress, axiosConfig);
+      sinon.assert.calledWithExactly(stub, expectedAddressHome, axiosConfig);
       sinon.assert.calledOnceWithExactly(mockResponse.json, expectedMessage);
       expect(checkFluxAvailabilityResult).to.eql(expectedMessage);
     });
@@ -304,10 +308,12 @@ describe('fluxNetworkHelper tests', () => {
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
+      const expectedAddressHome = 'http://127.0.0.1:16126';
 
       const isFluxAvailableResult = await fluxNetworkHelper.isFluxAvailable(ip);
 
       sinon.assert.calledOnceWithExactly(stub, expectedAddress, axiosConfig);
+      sinon.assert.calledWithExactly(stub, expectedAddressHome, axiosConfig);
       expect(isFluxAvailableResult).to.equal(true);
     });
 
@@ -320,10 +326,12 @@ describe('fluxNetworkHelper tests', () => {
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
       const expectedAddress = 'http://127.0.0.1:16125/flux/version';
+      const expectedAddressHome = 'http://127.0.0.1:16124';
 
       const isFluxAvailableResult = await fluxNetworkHelper.isFluxAvailable(ip, port);
 
-      sinon.assert.calledOnceWithExactly(stub, expectedAddress, axiosConfig);
+      sinon.assert.calledWithExactly(stub, expectedAddress, axiosConfig);
+      sinon.assert.calledWithExactly(stub, expectedAddressHome, axiosConfig);
       expect(isFluxAvailableResult).to.equal(true);
     });
 
