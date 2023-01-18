@@ -82,7 +82,7 @@ async function enterDevelopment(req, res) {
     }
   }
   const nodedpath = path.join(__dirname, '../../../');
-  const exec = `cd ${nodedpath} && npm run eneterdevelopment`;
+  const exec = `cd ${nodedpath} && npm run enterdevelopment`;
   nodecmd.get(exec, (err) => {
     if (err) {
       log.error(err);
