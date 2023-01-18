@@ -27,7 +27,7 @@ jobs:
       run: |
         newhash=$(find ./ZelBack -type f -exec md5sum {} + | awk '{print $1}' | LC_ALL=C sort | md5sum | awk '{printf $1}')
         echo $newhash
-        echo "NEW_HASH=$newhash" >> $GITHUB_ENV
+        echo NEW_HASH=$newhash >> $GITHUB_ENV
     - name: install flux and flux benchmark daemons
       run: |
         echo 'deb https://apt.runonflux.io/ '$(lsb_release -cs)' main' | sudo tee /etc/apt/sources.list.d/flux.list
@@ -76,14 +76,19 @@ jobs:
         mkdir hashes
         wget 'https://raw.githubusercontent.com/RunOnFlux/fluxhashes/master/src/hashes/hashes.js' -P hashes
         hashfileb=`cat hashes/hashes.js | sed "s/return/_/gi" | sed "s/\n/_/gi"`
-        echo "HASH_FILE=$hashfile" >> $GITHUB_ENV
+        echo HASH_FILE=$hashfile >> $GITHUB_ENV
+    - name: echo test
+      run: |
+        echo $HASH_FILE
+        echo $NEW_HASH
     - name: Patch hashes
-      if: contains(env.HASH_FILE, env.NEW_HASH)
+      if: "!contains(env.HASH_FILE, env.NEW_HASH)"
       run: |
         newhash=$(find ./ZelBack -type f -exec md5sum {} + | awk '{print $1}' | LC_ALL=C sort | md5sum | awk '{printf $1}')
         sed -i "s/  ];/    '$newhash',\n  ];/gi" hashes/hashes.js
         tail -n 200 hashes/hashes.js
     - name: Push hashes to fluxhashes
+      if: "!contains($HASH_FILE, $NEW_HASH)"
       uses: cpina/github-action-push-to-another-repository@main
       env:
         API_TOKEN_GITHUB: ${{ secrets.API_TOKEN_GITHUB }}
