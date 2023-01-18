@@ -208,14 +208,14 @@ describe('upnpService tests', () => {
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 123,
         private: 123,
-        ttl: 0,
+        ttl: 2 * 60 * 60,
         protocol: 'TCP',
         description: 'some description',
       });
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 123,
         private: 123,
-        ttl: 0,
+        ttl: 2 * 60 * 60,
         protocol: 'UDP',
         description: 'some description',
       });
@@ -360,14 +360,14 @@ describe('upnpService tests', () => {
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 1234,
         private: 1234,
-        ttl: 0,
+        ttl: 2 * 60 * 60,
         protocol: 'TCP',
         description: 'Flux_manual_entry',
       });
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 1234,
         private: 1234,
-        ttl: 0,
+        ttl: 2 * 60 * 60,
         protocol: 'UDP',
         description: 'Flux_manual_entry',
       });
@@ -393,14 +393,14 @@ describe('upnpService tests', () => {
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 1234,
         private: 1234,
-        ttl: 0,
+        ttl: 2 * 60 * 60,
         protocol: 'TCP',
         description: 'Flux_manual_entry',
       });
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 1234,
         private: 1234,
-        ttl: 0,
+        ttl: 2 * 60 * 60,
         protocol: 'UDP',
         description: 'Flux_manual_entry',
       });

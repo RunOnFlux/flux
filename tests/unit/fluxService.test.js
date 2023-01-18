@@ -173,8 +173,9 @@ describe('fluxService tests', () => {
         },
         status: 'error',
       };
+      const req = {};
 
-      const response = await fluxService.softUpdateFlux(undefined, res);
+      const response = await fluxService.softUpdateFlux(req, res);
 
       expect(response).to.eql(`Response: ${expectedResponse}`);
       sinon.assert.calledWithExactly(res.json, expectedResponse);

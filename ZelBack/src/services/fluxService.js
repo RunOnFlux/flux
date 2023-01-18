@@ -943,7 +943,7 @@ async function adjustCruxID(req, res) {
           testnet: ${userconfig.initial.testnet || false},
           development: ${userconfig.initial.development || false},
           apiport: ${Number(userconfig.initial.apiport || config.apiport)},
-          decryptionkey: ${userconfig.initial.decryptionkey || ''},
+          decryptionkey: '${userconfig.initial.decryptionkey || ''}',
         }
       }`;
 
@@ -995,7 +995,7 @@ async function adjustKadenaAccount(req, res) {
     testnet: ${userconfig.initial.testnet || false},
     development: ${userconfig.initial.development || false},
     apiport: ${Number(userconfig.initial.apiport || config.apiport)},
-    decryptionkey: ${userconfig.initial.decryptionkey || ''},
+    decryptionkey: '${userconfig.initial.decryptionkey || ''}',
   }
 }`;
 
