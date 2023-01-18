@@ -28,6 +28,34 @@ jobs:
         newhash=$(find ./ZelBack -type f -exec md5sum {} + | awk '{print $1}' | LC_ALL=C sort | md5sum | awk '{printf $1}')
         echo $newhash
         echo NEW_HASH=$newhash >> $GITHUB_ENV
+    - name: Get current hashes
+      run: |
+        mkdir hashes
+        wget 'https://raw.githubusercontent.com/RunOnFlux/fluxhashes/master/src/hashes/hashes.js' -P hashes
+        hashfile=`cat hashes/hashes.js | sed "s/return/_/gi" | sed "s/\n/_/gi"`
+        echo HASH_FILE=$hashfile >> $GITHUB_ENV
+    - name: Show hashes
+      run: |
+        echo $HASH_FILE
+        echo $NEW_HASH
+    - name: Patch hashes
+      if: ${{ !contains(env.HASH_FILE, env.NEW_HASH) }}
+      run: |
+        newhash=$(find ./ZelBack -type f -exec md5sum {} + | awk '{print $1}' | LC_ALL=C sort | md5sum | awk '{printf $1}')
+        sed -i "s/  ];/    '$newhash',\n  ];/gi" hashes/hashes.js
+        tail -n 200 hashes/hashes.js
+    - name: Push hashes to fluxhashes
+      if: ${{ !contains(env.HASH_FILE, env.NEW_HASH) }}
+      uses: cpina/github-action-push-to-another-repository@main
+      env:
+        API_TOKEN_GITHUB: ${{ secrets.API_TOKEN_GITHUB }}
+      with:
+        source-directory: 'hashes'
+        destination-github-username: 'RunOnFlux'
+        destination-repository-name: 'fluxhashes'
+        user-email: runonfluxbot@gmail.com
+        target-branch: master
+        target-directory: src/hashes/
     - name: install flux and flux benchmark daemons
       run: |
         echo 'deb https://apt.runonflux.io/ '$(lsb_release -cs)' main' | sudo tee /etc/apt/sources.list.d/flux.list
@@ -71,33 +99,3 @@ jobs:
         user-email: runonfluxbot@gmail.com
         target-branch: master
         target-directory: services/
-    - name: Get current hashes
-      run: |
-        mkdir hashes
-        wget 'https://raw.githubusercontent.com/RunOnFlux/fluxhashes/master/src/hashes/hashes.js' -P hashes
-        hashfile=`cat hashes/hashes.js | sed "s/return/_/gi" | sed "s/\n/_/gi"`
-        echo HASH_FILE=$hashfile >> $GITHUB_ENV
-    - name: echo test
-      run: |
-        echo $HASH_FILE
-        echo $NEW_HASH
-        echo env.HASH_FILE
-        echo env.NEW_HASH
-    - name: Patch hashes
-      if: ${{ !contains(env.HASH_FILE, env.NEW_HASH) }}
-      run: |
-        newhash=$(find ./ZelBack -type f -exec md5sum {} + | awk '{print $1}' | LC_ALL=C sort | md5sum | awk '{printf $1}')
-        sed -i "s/  ];/    '$newhash',\n  ];/gi" hashes/hashes.js
-        tail -n 200 hashes/hashes.js
-    - name: Push hashes to fluxhashes
-      if: ${{ !contains(env.HASH_FILE, env.NEW_HASH) }}
-      uses: cpina/github-action-push-to-another-repository@main
-      env:
-        API_TOKEN_GITHUB: ${{ secrets.API_TOKEN_GITHUB }}
-      with:
-        source-directory: 'hashes'
-        destination-github-username: 'RunOnFlux'
-        destination-repository-name: 'fluxhashes'
-        user-email: runonfluxbot@gmail.com
-        target-branch: master
-        target-directory: src/hashes/
