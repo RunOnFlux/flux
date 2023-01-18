@@ -39,6 +39,62 @@ async function fluxBackendFolder(req, res) {
 }
 
 /**
+ * To switch to master branch of FluxOS. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+// eslint-disable-next-line consistent-return
+async function enterMaster(req, res) {
+  if (req) {
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized !== true) {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      return res ? res.json(errMessage) : errMessage;
+    }
+  }
+  const nodedpath = path.join(__dirname, '../../../');
+  const exec = `cd ${nodedpath} && npm run entermaster`;
+  nodecmd.get(exec, (err) => {
+    if (err) {
+      log.error(err);
+      const errMessage = messageHelper.createErrorMessage(`Error entering master branch of Flux: ${err.message}`, err.name, err.code);
+      return res ? res.json(errMessage) : errMessage;
+    }
+    const message = messageHelper.createSuccessMessage('Master branch successfully entered');
+    return res ? res.json(message) : message;
+  });
+}
+
+/**
+ * To switch to master branch of FluxOS. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+// eslint-disable-next-line consistent-return
+async function enterDevelopment(req, res) {
+  if (req) {
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized !== true) {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      return res ? res.json(errMessage) : errMessage;
+    }
+  }
+  const nodedpath = path.join(__dirname, '../../../');
+  const exec = `cd ${nodedpath} && npm run eneterdevelopment`;
+  nodecmd.get(exec, (err) => {
+    if (err) {
+      log.error(err);
+      const errMessage = messageHelper.createErrorMessage(`Error entering development branch of Flux: ${err.message}`, err.name, err.code);
+      return res ? res.json(errMessage) : errMessage;
+    }
+    const message = messageHelper.createSuccessMessage('Development branch successfully entered');
+    return res ? res.json(message) : message;
+  });
+}
+
+/**
  * To update FluxOS version (executes the command `npm run updateflux` on the node machine). Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -72,20 +128,22 @@ async function updateFlux(req, res) {
  */
 // eslint-disable-next-line consistent-return
 async function softUpdateFlux(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized !== true) {
-    const errMessage = messageHelper.errUnauthorizedMessage();
-    return res.json(errMessage);
+  if (req) {
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized !== true) {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      return res ? res.json(errMessage) : errMessage;
+    }
   }
   const nodedpath = path.join(__dirname, '../../../');
   const exec = `cd ${nodedpath} && npm run softupdate`;
   nodecmd.get(exec, (err) => {
     if (err) {
       const errMessage = messageHelper.createErrorMessage(`Error softly updating Flux: ${err.message}`, err.name, err.code);
-      return res.json(errMessage);
+      return res ? res.json(errMessage) : errMessage;
     }
     const message = messageHelper.createSuccessMessage('Flux successfully updated using soft method');
-    return res.json(message);
+    return res ? res.json(message) : message;
   });
 }
 
@@ -1042,6 +1100,8 @@ module.exports = {
   fluxBackendFolder,
   getNodeTier,
   installFluxWatchTower,
+  enterDevelopment,
+  enterMaster,
 
   // Exports for testing purposes
   fluxLog,

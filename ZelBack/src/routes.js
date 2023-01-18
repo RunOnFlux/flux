@@ -862,6 +862,12 @@ module.exports = (app, expressWs) => {
   app.get('/flux/restartdaemon', (req, res) => {
     fluxService.restartDaemon(req, res);
   });
+  app.get('/flux/entermaster', (req, res) => {
+    fluxService.enterMaster(req, res);
+  });
+  app.get('/flux/enterdevelopment', (req, res) => {
+    fluxService.enterDevelopment(req, res);
+  });
   app.get('/flux/updateflux', (req, res) => { // method shall be called only if flux version is obsolete.
     fluxService.updateFlux(req, res);
   });

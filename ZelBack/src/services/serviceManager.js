@@ -14,6 +14,7 @@ const syncthingService = require('./syncthingService');
 const userconfig = require('../../../config/userconfig');
 
 const apiPort = userconfig.initial.apiport || config.server.apiport;
+const development = userconfig.initial.development || false;
 
 /**
  * To start FluxOS. A series of checks are performed on port and UPnP (Universal Plug and Play) support and mapping. Database connections are established. The other relevant functions required to start FluxOS services are called.
@@ -130,6 +131,16 @@ async function startFluxFunctions() {
         appsService.forceAppRemovals();
       }, 24 * 60 * 60 * 1000);
     }, 30 * 60 * 1000);
+    if (development) { // just on development branch
+      setInterval(async () => {
+        await fluxService.enterDevelopment().catch((error) => log.error(error));
+        if (development === true || development === 'true' || development === 1 || development === '1') { // in other cases pause git pull
+          setTimeout(async () => {
+            await fluxService.softUpdateFlux().catch((error) => log.error(error));
+          }, 15 * 1000);
+        }
+      }, 5 * 60 * 1000); // every 5 mins
+    }
   } catch (e) {
     log.error(e);
     setTimeout(() => {
