@@ -128,7 +128,7 @@ async function isPortOpen(ip, port, timeout = 5000) {
       socket.once('timeout', onError);
 
       socket.connect(port, ip, () => {
-        socket.end();
+        socket.destroy();
         resolve();
       });
     }));
