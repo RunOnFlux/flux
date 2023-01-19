@@ -2,18 +2,59 @@ const chai = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire');
 const path = require('path');
+const os = require('os');
+const nodecmd = require('node-cmd');
+const systemcrontab = require('crontab');
+const chaiAsPromised = require('chai-as-promised');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const dockerService = require('../../ZelBack/src/services/dockerService');
+const geolocationService = require('../../ZelBack/src/services/geolocationService');
+const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBenchmarkRpcs');
 const generalService = require('../../ZelBack/src/services/generalService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const log = require('../../ZelBack/src/lib/log');
 
+chai.use(chaiAsPromised);
 const { expect } = chai;
-const fakeFunc = sinon.fake(() => true);
+const cmdAsyncFake = sinon.fake(async () => true);
+const crontabLoadFake = sinon.fake(async () => ({
+  jobs: sinon.fake(() => [
+    {
+      comment: sinon.fake(() => 1111),
+      isValid: sinon.fake(() => true),
+      command: sinon.fake(() => 'sudo mount -o loop /home/abcapp2TEMP /root/flux/ZelApps/abcapp2'),
+    },
+    {
+      comment: sinon.fake(() => 2222),
+      isValid: sinon.fake(() => false),
+      command: sinon.fake(() => 'sudo mount -o loop /home/aaassssTEMP /root/flux/ZelApps/asdfg'),
+    },
+  ]),
+  remove: sinon.fake(() => true),
+  save: sinon.fake(() => true),
+}));
+const cdockerPullStreamFake = sinon.fake(async () => true);
 const utilFake = {
-  promisify: sinon.fake(() => fakeFunc),
+  promisify: sinon.fake((arg) => {
+    if (arg === nodecmd.get) return cmdAsyncFake;
+    if (arg === systemcrontab.load) return crontabLoadFake;
+    if (arg === dockerService.dockerPullStream) return cdockerPullStreamFake;
+    return true;
+  }),
 };
-const appsService = proxyquire('../../ZelBack/src/services/appsService', { util: utilFake });
+
+const adminConfig = {
+  initial: {
+    ipaddress: '83.51.212.243',
+    zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+    testnet: true,
+  },
+  lockedSystemResources: {
+    hdd: 50,
+  },
+};
+const appsService = proxyquire('../../ZelBack/src/services/appsService', { util: utilFake, '../../../config/userconfig': adminConfig });
 
 describe.only('appsService tests', () => {
   describe('installedApps tests', () => {
@@ -2761,7 +2802,7 @@ describe.only('appsService tests', () => {
       await appsService.appMonitorStream(req, res);
 
       sinon.assert.calledOnce(res.end);
-      sinon.assert.calledWithExactly(fakeFunc,
+      sinon.assert.calledWithExactly(cmdAsyncFake,
         'test_myappname',
         {
           params: { appname: 'test_myappname', lines: [10, 11, 12] },
@@ -2786,7 +2827,7 @@ describe.only('appsService tests', () => {
       await appsService.appMonitorStream(req, res);
 
       sinon.assert.calledOnce(res.end);
-      sinon.assert.calledWithExactly(fakeFunc,
+      sinon.assert.calledWithExactly(cmdAsyncFake,
         'myappname',
         {
           params: { appname: 'myappname', lines: [10, 11, 12] },
@@ -2809,7 +2850,7 @@ describe.only('appsService tests', () => {
 
       await appsService.getAppFolderSize(appName);
 
-      sinon.assert.calledWithExactly(fakeFunc, exec);
+      sinon.assert.calledWithExactly(cmdAsyncFake, exec);
     });
   });
 
@@ -3807,9 +3848,8 @@ describe.only('appsService tests', () => {
     });
   });
 
-  describe.only('appsResources tests', () => {
+  describe('appsResources tests', () => {
     let dbStub;
-    let logSpy;
     let nodeTierStub;
     const generateResponse = () => {
       const res = { test: 'testing' };
@@ -3822,7 +3862,6 @@ describe.only('appsService tests', () => {
     beforeEach(async () => {
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
-      logSpy = sinon.spy(log, 'error');
       appsService.clearAppsMonitored();
       dbStub = sinon.stub(dbHelper, 'findInDatabase');
       nodeTierStub = sinon.stub(generalService, 'nodeTier');
@@ -4008,6 +4047,1074 @@ describe.only('appsService tests', () => {
       });
     });
   });
+
+  describe('getNodeSpecs tests', () => {
+    let osStubCpu;
+    let osStubRam;
+    let daemonServiceBenchmarkRpcsStub;
+
+    beforeEach(async () => {
+      osStubCpu = sinon.stub(os, 'cpus');
+      osStubRam = sinon.stub(os, 'totalmem');
+      daemonServiceBenchmarkRpcsStub = sinon.stub(daemonServiceBenchmarkRpcs, 'getBenchmarks');
+      appsService.setNodeSpecs(0, 0, 0);
+    });
+
+    afterEach(() => {
+      sinon.restore();
+      appsService.setNodeSpecs(0, 0, 0);
+    });
+
+    it('Should set node stats properly if they are not alerady set', async () => {
+      osStubCpu.returns([1, 1, 1, 1]);
+      osStubRam.returns(10 * 1024 * 1024);
+      daemonServiceBenchmarkRpcsStub.returns({
+        status: 'success',
+        data: JSON.stringify({ ssd: 100 }),
+      });
+
+      await appsService.getNodeSpecs();
+
+      const nodeStats = appsService.returnNodeSpecs();
+      expect(nodeStats).to.eql({ cpuCores: 4, ram: 10, ssdStorage: 100 });
+    });
+
+    it('Should set node stats properly if they are alerady set', async () => {
+      appsService.setNodeSpecs(5, 20, 99);
+      osStubCpu.returns([1, 1, 1, 1]);
+      osStubRam.returns(10 * 1024 * 1024);
+      daemonServiceBenchmarkRpcsStub.returns({
+        status: 'success',
+        data: JSON.stringify({ ssd: 100 }),
+      });
+
+      await appsService.getNodeSpecs();
+
+      const nodeStats = appsService.returnNodeSpecs();
+      expect(nodeStats).to.eql({ cpuCores: 5, ram: 20, ssdStorage: 99 });
+    });
+  });
+
+  describe('appUninstallHard tests', async () => {
+    let appDockerStopStub;
+    let appDockerRemoveStub;
+    let appDockerImageRemoveStub;
+
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.stub().returns(res);
+      res.end = sinon.fake(() => true);
+      res.write = sinon.fake(() => true);
+      return res;
+    };
+
+    beforeEach(async () => {
+      appsService.clearAppsMonitored();
+      appsService.setAppsMonitored(
+        {
+          appName: 'testapp',
+          oneMinuteInterval: setInterval(() => {}, 60000),
+          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteStatsStore: 1000,
+          fifteenMinStatsStore: 100000,
+        },
+      );
+      appDockerStopStub = sinon.stub(dockerService, 'appDockerStop');
+      appDockerRemoveStub = sinon.stub(dockerService, 'appDockerRemove');
+      appDockerImageRemoveStub = sinon.stub(dockerService, 'appDockerImageRemove');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+      appsService.clearAppsMonitored();
+    });
+
+    it('should hard uninstall app, no ports passed, ', async () => {
+      const appName = 'testapp';
+      const appId = 1111;
+      const appSpecifications = {
+        name: appName,
+        repotag: '/flux',
+      };
+      const isComponent = false;
+      const res = generateResponse();
+      appDockerStopStub.resolves(true);
+      appDockerRemoveStub.resolves(true);
+      appDockerImageRemoveStub.resolves(true);
+
+      await appsService.appUninstallHard(appName, appId, appSpecifications, isComponent, res);
+
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Stopping Flux App ${appName}...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Flux App ${appName} stopped` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Removing Flux App ${appName} container...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Flux App ${appName} container removed` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Removing Flux App ${appName} image...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Flux App ${appName} image operations done` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Denying Flux App ${appName} ports...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Ports of ${appName} denied` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Unmounting volume of ${appName}...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Volume of ${appName} unmounted` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Cleaning up ${appName} data...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Data of ${appName} cleaned` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Adjusting crontab...' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Crontab Adjusted.' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Cleaning up data volume of testapp...' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Volume of testapp cleaned' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp was successfuly removed' }));
+    });
+
+    it('should hard uninstall app ports passed', async () => {
+      const appName = 'testapp';
+      const appId = 2222;
+      const appSpecifications = {
+        name: appName,
+        repotag: '/flux',
+        port: 111,
+      };
+      const isComponent = false;
+      const res = generateResponse();
+      appDockerStopStub.resolves(true);
+      appDockerRemoveStub.resolves(true);
+      appDockerImageRemoveStub.resolves(true);
+
+      await appsService.appUninstallHard(appName, appId, appSpecifications, isComponent, res);
+
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Stopping Flux App ${appName}...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Flux App ${appName} stopped` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Removing Flux App ${appName} container...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Flux App ${appName} container removed` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Removing Flux App ${appName} image...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Flux App ${appName} image operations done` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Denying Flux App ${appName} ports...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Ports of ${appName} denied` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Unmounting volume of ${appName}...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Volume of ${appName} unmounted` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Cleaning up ${appName} data...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Data of ${appName} cleaned` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Adjusting crontab...' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Crontab Adjusted.' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Cleaning up data volume of testapp...' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Volume of testapp cleaned' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp was successfuly removed' }));
+    });
+  });
+
+  describe('removeAppLocally tests', () => {
+    let dbStub;
+
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.stub().returns(res);
+      res.end = sinon.fake(() => true);
+      res.write = sinon.fake(() => true);
+      return res;
+    };
+
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      appsService.clearAppsMonitored();
+      dbStub = sinon.stub(dbHelper, 'findOneInDatabase');
+    });
+
+    afterEach(() => {
+      appsService.clearAppsMonitored();
+      sinon.restore();
+    });
+
+    it('should throw error if app name is not specified', async () => {
+      const res = generateResponse();
+
+      await appsService.removeAppLocally(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.write, JSON.stringify({ status: 'error', data: { name: 'Error', message: 'No App specified' } }));
+      sinon.assert.calledOnce(res.end);
+    });
+
+    it('remove app locally, app name is specified, app in the list of avaiable apps', async () => {
+      const res = generateResponse();
+      const appName = 'FoldingAtHomeB';
+      dbStub.returns(undefined);
+      const force = true;
+
+      await appsService.removeAppLocally(appName, res, force);
+
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Removing Flux App FoldingAtHomeB container...' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App FoldingAtHomeB container removed' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Cleaning up FoldingAtHomeB data...' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App FoldingAtHomeB was successfuly removed' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Removal step done. Result: Flux App FoldingAtHomeB was successfuly removed' }));
+      sinon.assert.calledOnce(res.end);
+    });
+
+    it('remove app locally,  if app name is specified, app in DB', async () => {
+      const res = generateResponse();
+      const appName = 'testapp';
+      dbStub.returns({ // app specifications
+        version: 2,
+        name: 'testapp',
+        description: 'testapp',
+        repotag: 'yurinnick/testapp',
+        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+        tiered: true,
+        ports: [30000],
+        containerPorts: [7396],
+        domains: [''],
+        cpu: 0.5,
+        ram: 500,
+        hdd: 5,
+        cpubasic: 0.5,
+        cpusuper: 1,
+        cpubamf: 2,
+        rambasic: 500,
+        ramsuper: 500,
+        rambamf: 500,
+        hddbasic: 5,
+        hddsuper: 5,
+        hddbamf: 5,
+        enviromentParameters: ['TEAM=262156', 'ENABLE_GPU=false', 'ENABLE_SMP=true'],
+        commands: [],
+        containerData: '/config',
+        hash: 'localappinstancehashABCDEF', // hash of app message
+        height: 0, // height of tx on which it was
+      });
+      const force = true;
+
+      await appsService.removeAppLocally(appName, res, force);
+
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Removing Flux App testapp container...' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp container removed' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Cleaning up testapp data...' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp was successfuly removed' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Removal step done. Result: Flux App testapp was successfuly removed' }));
+      sinon.assert.calledOnce(res.end);
+    });
+  });
+
+  describe('appUninstallSoft tests', async () => {
+    let appDockerStopStub;
+    let appDockerRemoveStub;
+    let appDockerImageRemoveStub;
+
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.stub().returns(res);
+      res.end = sinon.fake(() => true);
+      res.write = sinon.fake(() => true);
+      return res;
+    };
+
+    beforeEach(async () => {
+      appsService.clearAppsMonitored();
+      appsService.setAppsMonitored(
+        {
+          appName: 'testapp',
+          oneMinuteInterval: setInterval(() => {}, 60000),
+          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteStatsStore: 1000,
+          fifteenMinStatsStore: 100000,
+        },
+      );
+      appDockerStopStub = sinon.stub(dockerService, 'appDockerStop');
+      appDockerRemoveStub = sinon.stub(dockerService, 'appDockerRemove');
+      appDockerImageRemoveStub = sinon.stub(dockerService, 'appDockerImageRemove');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+      appsService.clearAppsMonitored();
+    });
+
+    it('should hard uninstall app, no ports passed, ', async () => {
+      const appName = 'testapp';
+      const appId = 1111;
+      const appSpecifications = {
+        name: appName,
+        repotag: '/flux',
+      };
+      const isComponent = false;
+      const res = generateResponse();
+      appDockerStopStub.resolves(true);
+      appDockerRemoveStub.resolves(true);
+      appDockerImageRemoveStub.resolves(true);
+
+      await appsService.appUninstallSoft(appName, appId, appSpecifications, isComponent, res);
+
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Stopping Flux App ${appName}...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Flux App ${appName} stopped` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Removing Flux App ${appName} container...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Flux App ${appName} container removed` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Removing Flux App ${appName} image...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Flux App ${appName} image operations done` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Denying Flux App ${appName} ports...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Ports of ${appName} denied` }));
+      sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: `Unmounting volume of ${appName}...` }));
+      sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: `Volume of ${appName} unmounted` }));
+      sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: `Cleaning up ${appName} data...` }));
+      sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: `Data of ${appName} cleaned` }));
+      sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: 'Adjusting crontab...' }));
+      sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: 'Crontab Adjusted.' }));
+      sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: 'Cleaning up data volume of testapp...' }));
+      sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: 'Volume of testapp cleaned' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp was successfuly removed' }));
+    });
+
+    it('should hard uninstall app ports passed', async () => {
+      const appName = 'testapp';
+      const appId = 2222;
+      const appSpecifications = {
+        name: appName,
+        repotag: '/flux',
+        port: 111,
+      };
+      const isComponent = false;
+      const res = generateResponse();
+      appDockerStopStub.resolves(true);
+      appDockerRemoveStub.resolves(true);
+      appDockerImageRemoveStub.resolves(true);
+
+      await appsService.appUninstallSoft(appName, appId, appSpecifications, isComponent, res);
+
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Stopping Flux App ${appName}...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Flux App ${appName} stopped` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Removing Flux App ${appName} container...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Flux App ${appName} container removed` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Removing Flux App ${appName} image...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Flux App ${appName} image operations done` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Denying Flux App ${appName} ports...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Ports of ${appName} denied` }));
+      sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: `Unmounting volume of ${appName}...` }));
+      sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: `Volume of ${appName} unmounted` }));
+      sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: `Cleaning up ${appName} data...` }));
+      sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: `Data of ${appName} cleaned` }));
+      sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: 'Adjusting crontab...' }));
+      sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: 'Crontab Adjusted.' }));
+      sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: 'Cleaning up data volume of testapp...' }));
+      sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: 'Volume of testapp cleaned' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp was successfuly removed' }));
+    });
+  });
+
+  describe('softRemoveAppLocally tests', () => {
+    let dbStub;
+    let dockerServiceStub;
+    let appDockerStopStub;
+    let appDockerRemoveStub;
+    let appDockerImageRemoveStub;
+
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.stub().returns(res);
+      res.end = sinon.fake(() => true);
+      res.write = sinon.fake(() => true);
+      return res;
+    };
+
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      appsService.clearAppsMonitored();
+      dbStub = sinon.stub(dbHelper, 'findOneInDatabase');
+      dockerServiceStub = sinon.stub(dockerService, 'getAppIdentifier');
+      appDockerStopStub = sinon.stub(dockerService, 'appDockerStop');
+      appDockerRemoveStub = sinon.stub(dockerService, 'appDockerRemove');
+      appDockerImageRemoveStub = sinon.stub(dockerService, 'appDockerImageRemove');
+    });
+
+    afterEach(async () => {
+      appsService.clearAppsMonitored();
+      sinon.restore();
+      appsService.removalInProgressReset();
+    });
+
+    it('should throw error if app name is not specified', async () => {
+      const res = generateResponse();
+
+      await expect(appsService.softRemoveAppLocally(undefined, res)).to.eventually.be.rejectedWith('No Flux App specified');
+    });
+
+    it('return error, no app in db', async () => {
+      const res = generateResponse();
+      const appName = 'testapp';
+      dbStub.returns(undefined);
+
+      await expect(appsService.softRemoveAppLocally(appName, res)).to.eventually.be.rejectedWith('Flux App not found');
+    });
+
+    it('should soft remove app locally, app name is specified, app in DB', async () => {
+      const res = generateResponse();
+      const appName = 'testapp';
+      dockerServiceStub.returns(100);
+      appDockerStopStub.resolves(true);
+      appDockerRemoveStub.resolves(true);
+      appDockerImageRemoveStub.resolves(true);
+      dbStub.returns({ // app specifications
+        version: 2,
+        name: 'testapp',
+        description: 'testapp',
+        repotag: 'yurinnick/testapp',
+        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+        tiered: true,
+        ports: [30000],
+        containerPorts: [7396],
+        domains: [''],
+        cpu: 0.5,
+        ram: 500,
+        hdd: 5,
+        cpubasic: 0.5,
+        cpusuper: 1,
+        cpubamf: 2,
+        rambasic: 500,
+        ramsuper: 500,
+        rambamf: 500,
+        hddbasic: 5,
+        hddsuper: 5,
+        hddbamf: 5,
+        enviromentParameters: ['TEAM=262156', 'ENABLE_GPU=false', 'ENABLE_SMP=true'],
+        commands: [],
+        containerData: '/config',
+        hash: 'localappinstancehashABCDEF', // hash of app message
+        height: 0, // height of tx on which it was
+      });
+
+      await appsService.softRemoveAppLocally(appName, res);
+
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Stopping Flux App testapp...' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp stopped' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Removing Flux App testapp container...' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp container removed' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Removal step done. Result: Flux App testapp was partially removed' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Database cleaned' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Cleaning up database...' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Removal step done. Result: Flux App testapp was partially removed' }));
+    });
+  });
+
+  describe('removeAppLocallyApi tests', () => {
+    let dbStub;
+    let verificationHelperStub;
+
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.stub().returns(res);
+      res.end = sinon.fake(() => true);
+      res.write = sinon.fake(() => true);
+      res.setHeader = sinon.fake(() => true);
+      return res;
+    };
+
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      appsService.clearAppsMonitored();
+      dbStub = sinon.stub(dbHelper, 'findOneInDatabase');
+      verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+    });
+
+    afterEach(() => {
+      appsService.clearAppsMonitored();
+      sinon.restore();
+    });
+
+    it('should return error if app name includes underscore, name passed in params', async () => {
+      const res = generateResponse();
+      const appName = 'test_app';
+      const req = {
+        params: {
+          appname: appName,
+        },
+        query: {
+          test: 'test',
+        },
+      };
+
+      await appsService.removeAppLocallyApi(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'Components cannot be removed manually',
+        },
+      });
+    });
+
+    it('should return error if app name includes underscore, name passed in query', async () => {
+      const res = generateResponse();
+      const appName = 'test_app';
+      const req = {
+        query: {
+          appname: appName,
+        },
+        params: {
+          test: 'test',
+        },
+      };
+
+      await appsService.removeAppLocallyApi(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'Components cannot be removed manually',
+        },
+      });
+    });
+
+    it('should return error if privilege is not appownerorabove', async () => {
+      verificationHelperStub.returns(false);
+      const res = generateResponse();
+      const appName = 'testapp';
+      const req = {
+        query: {
+          appname: appName,
+        },
+        params: {
+          test: 'test',
+        },
+      };
+
+      await appsService.removeAppLocallyApi(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: {
+          code: 401,
+          name: 'Unauthorized',
+          message: 'Unauthorized. Access denied.',
+        },
+      });
+    });
+
+    it('remove app locally, if all parameters are valid', async () => {
+      verificationHelperStub.returns(true);
+      const res = generateResponse();
+      const appName = 'testapp';
+      const req = {
+        query: {
+          appname: appName,
+          force: true,
+        },
+        params: {
+          test: 'test',
+        },
+      };
+      dbStub.returns({ // app specifications
+        version: 2,
+        name: 'testapp',
+        description: 'testapp',
+        repotag: 'yurinnick/testapp',
+        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+        tiered: true,
+        ports: [30000],
+        containerPorts: [7396],
+        domains: [''],
+        cpu: 0.5,
+        ram: 500,
+        hdd: 5,
+        cpubasic: 0.5,
+        cpusuper: 1,
+        cpubamf: 2,
+        rambasic: 500,
+        ramsuper: 500,
+        rambamf: 500,
+        hddbasic: 5,
+        hddsuper: 5,
+        hddbamf: 5,
+        enviromentParameters: ['TEAM=262156', 'ENABLE_GPU=false', 'ENABLE_SMP=true'],
+        commands: [],
+        containerData: '/config',
+        hash: 'localappinstancehashABCDEF', // hash of app message
+        height: 0, // height of tx on which it was
+      });
+
+      await appsService.removeAppLocallyApi(req, res);
+
+      await serviceHelper.delay(200);
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Stopping Flux App testapp...' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp stopped' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Removing Flux App testapp container...' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp container removed' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Database cleaned' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Cleaning up database...' }));
+      sinon.assert.calledOnce(res.end);
+    });
+  });
+
+  describe('totalAppHWRequirements tests', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return hw requirements for an app, version 3', () => {
+      const appSpecs = {
+        cpu: 256000,
+        hdd: 100,
+        ram: 50,
+        version: 3,
+      };
+      const myNodeTier = 'stratus';
+
+      const result = appsService.totalAppHWRequirements(appSpecs, myNodeTier);
+
+      expect(result).to.eql({ cpu: 256000, ram: 50, hdd: 100 });
+    });
+
+    it('should return hw requirements for an app, version 2', () => {
+      const appSpecs = {
+        cpu: 256000,
+        hdd: 100,
+        ram: 50,
+        version: 2,
+      };
+      const myNodeTier = 'stratus';
+
+      const result = appsService.totalAppHWRequirements(appSpecs, myNodeTier);
+
+      expect(result).to.eql({ cpu: 256000, ram: 50, hdd: 100 });
+    });
+
+    it('should return hw requirements for an app, version 4', () => {
+      const appSpecs = {
+        version: 4,
+        compose: [{
+          tiered: false,
+          cpu: 256000,
+          hdd: 100,
+          ram: 50,
+        }, {
+          tiered: true,
+          cpu: 256000,
+          hdd: 100,
+          ram: 50,
+        }, {
+          tiered: true,
+          cpu: 256000,
+          hdd: 100,
+          ram: 50,
+        }],
+
+      };
+      const myNodeTier = 'stratus';
+
+      const result = appsService.totalAppHWRequirements(appSpecs, myNodeTier);
+
+      expect(result).to.eql({ cpu: 768000, ram: 150, hdd: 300 });
+    });
+  });
+
+  describe('nodeFullGeolocation tests', () => {
+    let geolocationServiceStub;
+
+    beforeEach(() => {
+      geolocationServiceStub = sinon.stub(geolocationService, 'getNodeGeolocation');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw if geolocation returns undefined', () => {
+      geolocationServiceStub.returns(undefined);
+
+      // eslint-disable-next-line func-names
+      const result = function () { appsService.nodeFullGeolocation(); };
+      expect(result).to.throw();
+      sinon.assert.calledOnce(geolocationServiceStub);
+    });
+
+    it('should return proper geolocation data', () => {
+      geolocationServiceStub.returns({
+        continentCode: 2,
+        countryCode: 'US',
+        regionName: 'PA',
+      });
+
+      const result = appsService.nodeFullGeolocation();
+
+      sinon.assert.calledOnce(geolocationServiceStub);
+      expect(result).to.eql('2_US_PA');
+    });
+  });
+
+  describe('checkAppGeolocationRequirements tests', () => {
+    let geolocationServiceStub;
+
+    beforeEach(() => {
+      geolocationServiceStub = sinon.stub(geolocationService, 'getNodeGeolocation');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw if geolocation returns undefined', () => {
+      geolocationServiceStub.returns(undefined);
+      const appSpec = {
+        version: 5,
+      };
+
+      // eslint-disable-next-line func-names
+      const result = function () { appsService.checkAppGeolocationRequirements(appSpec); };
+      expect(result).to.throw();
+      sinon.assert.calledOnce(geolocationServiceStub);
+    });
+
+    it('should return true if app ver < 5', () => {
+      const appSpec = {
+        version: 4,
+      };
+
+      const result = appsService.checkAppGeolocationRequirements(appSpec);
+
+      expect(result).to.equal(true);
+    });
+
+    it('should return true if gelocation matches', () => {
+      geolocationServiceStub.returns({
+        continentCode: 'EU',
+        countryCode: 'CZ',
+        regionName: 'PRG',
+      });
+      const appSpec = {
+        version: 5,
+        geolocation: ['acEU_CZ_PRG'],
+      };
+
+      const result = appsService.checkAppGeolocationRequirements(appSpec);
+
+      sinon.assert.calledOnce(geolocationServiceStub);
+      expect(result).to.eql(true);
+    });
+
+    it('should throw if geolocation is forbidden', () => {
+      geolocationServiceStub.returns({
+        continentCode: 'EU',
+        countryCode: 'CZ',
+        regionName: 'PRG',
+      });
+      const appSpec = {
+        version: 5,
+        geolocation: ['a!cEU_CZ_PRG'],
+      };
+
+      // eslint-disable-next-line func-names
+      const result = function () { appsService.checkAppGeolocationRequirements(appSpec); };
+      expect(result).to.throw();
+      sinon.assert.calledOnce(geolocationServiceStub);
+    });
+
+    it('should throw if geolocation is not matching', () => {
+      geolocationServiceStub.returns({
+        continentCode: 'EU',
+        countryCode: 'CZ',
+        regionName: 'PRG',
+      });
+      const appSpec = {
+        version: 5,
+        geolocation: ['acEU_PL_GDA'],
+      };
+
+      // eslint-disable-next-line func-names
+      const result = function () { appsService.checkAppGeolocationRequirements(appSpec); };
+      expect(result).to.throw();
+      sinon.assert.calledOnce(geolocationServiceStub);
+    });
+  });
+
+  describe('checkAppHWRequirements tests', () => {
+    let getNodeTierStub;
+    let dbStub;
+
+    beforeEach(async () => {
+      getNodeTierStub = sinon.stub(generalService, 'nodeTier');
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      appsService.clearAppsMonitored();
+      dbStub = sinon.stub(dbHelper, 'findInDatabase');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+      appsService.setNodeSpecs(0, 0, 0);
+    });
+
+    it('should throw error if resourcesLocked fails', async () => {
+      getNodeTierStub.resolves(false);
+      dbStub.returns(false);
+
+      await expect(appsService.checkAppHWRequirements()).to.eventually.be.rejectedWith('Unable to obtain locked system resources by Flux Apps. Aborting');
+    });
+
+    it('should throw error if there would be insufficient space on node for the app - 0 on the node', async () => {
+      getNodeTierStub.resolves('cumulus');
+      dbStub.returns([
+        {
+          version: 3, tiered: true, cpu: 1000, ram: 256000, hdd: 100000, cpucumulus: 2000, ramcumulus: 100000, hddcumulus: 200000,
+        },
+        {
+          version: 3, tiered: true, cpu: 1000, ram: 256000, hdd: 100000, cpucumulus: 2000, ramcumulus: 100000, hddcumulus: 200000,
+        },
+      ]);
+      const appSpecs = {
+        cpu: 256000,
+        hdd: 100,
+        ram: 50,
+        version: 3,
+      };
+      appsService.setNodeSpecs(0, 0, 0);
+
+      await expect(appsService.checkAppHWRequirements(appSpecs)).to.eventually.be.rejectedWith('Insufficient space on Flux Node to spawn an application');
+    });
+
+    it('should throw error if there would be insufficient space on node for the app', async () => {
+      getNodeTierStub.resolves('cumulus');
+      dbStub.returns([
+        {
+          version: 3, tiered: true, cpu: 1000, ram: 256000, hdd: 100000, cpucumulus: 2000, ramcumulus: 100000, hddcumulus: 200000,
+        },
+        {
+          version: 3, tiered: true, cpu: 1000, ram: 256000, hdd: 100000, cpucumulus: 2000, ramcumulus: 100000, hddcumulus: 200000,
+        },
+      ]);
+      const appSpecs = {
+        cpu: 256000,
+        hdd: 100,
+        ram: 50,
+        version: 3,
+      };
+      appsService.setNodeSpecs(10, 20, 90);
+
+      await expect(appsService.checkAppHWRequirements(appSpecs)).to.eventually.be.rejectedWith('Insufficient space on Flux Node to spawn an application');
+    });
+
+    it('should throw error if there would be insufficient cpu power on node for the app', async () => {
+      getNodeTierStub.resolves('cumulus');
+      dbStub.returns([
+        {
+          version: 3, tiered: true, cpu: 1000, ram: 256000, hdd: 100000, cpucumulus: 2000, ramcumulus: 100000, hddcumulus: 200000,
+        },
+        {
+          version: 3, tiered: true, cpu: 1000, ram: 256000, hdd: 100000, cpucumulus: 2000, ramcumulus: 100000, hddcumulus: 200000,
+        },
+      ]);
+      const appSpecs = {
+        cpu: 256000,
+        hdd: 100,
+        ram: 50,
+        version: 3,
+      };
+      appsService.setNodeSpecs(10, 20, 2000000);
+
+      await expect(appsService.checkAppHWRequirements(appSpecs)).to.eventually.be.rejectedWith('Insufficient CPU power on Flux Node to spawn an application');
+    });
+
+    it('should throw error if there would be insufficient ram on node for the app', async () => {
+      getNodeTierStub.resolves('cumulus');
+      dbStub.returns([
+        {
+          version: 3, tiered: true, cpu: 1000, ram: 256000, hdd: 100000, cpucumulus: 2000, ramcumulus: 100000, hddcumulus: 200000,
+        },
+        {
+          version: 3, tiered: true, cpu: 1000, ram: 256000, hdd: 100000, cpucumulus: 2000, ramcumulus: 100000, hddcumulus: 200000,
+        },
+      ]);
+      const appSpecs = {
+        cpu: 4000,
+        hdd: 100,
+        ram: 50,
+        version: 3,
+      };
+      appsService.setNodeSpecs(10000, 50, 2000000);
+
+      await expect(appsService.checkAppHWRequirements(appSpecs)).to.eventually.be.rejectedWith('Insufficient RAM on Flux Node to spawn an application');
+    });
+
+    it('should return true if all reqs are met', async () => {
+      getNodeTierStub.resolves('cumulus');
+      dbStub.returns([
+        {
+          version: 3, tiered: true, cpu: 1000, ram: 256000, hdd: 100000, cpucumulus: 2000, ramcumulus: 100000, hddcumulus: 200000,
+        },
+        {
+          version: 3, tiered: true, cpu: 1000, ram: 256000, hdd: 100000, cpucumulus: 2000, ramcumulus: 100000, hddcumulus: 200000,
+        },
+      ]);
+      const appSpecs = {
+        cpu: 4000,
+        hdd: 100,
+        ram: 50,
+        version: 3,
+      };
+      appsService.setNodeSpecs(10000, 256000, 2000000);
+
+      const result = await appsService.checkAppHWRequirements(appSpecs);
+
+      expect(result).to.eql(true);
+    });
+  });
+
+  describe('registerAppLocally tests', () => {
+    const appSpec = {
+      // app specifications
+      version: 2,
+      name: 'testapp',
+      description: 'testapp',
+      repotag: 'yurinnick/testapp',
+      owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+      tiered: true,
+      ports: [30000],
+      containerPorts: [7396],
+      domains: [''],
+      cpu: 0.5,
+      ram: 500,
+      hdd: 5,
+      cpubasic: 0.5,
+      cpusuper: 1,
+      cpubamf: 2,
+      rambasic: 500,
+      ramsuper: 500,
+      rambamf: 500,
+      hddbasic: 5,
+      hddsuper: 5,
+      hddbamf: 5,
+      enviromentParameters: ['TEAM=262156', 'ENABLE_GPU=false', 'ENABLE_SMP=true'],
+      commands: [],
+      containerData: '/config',
+      hash: 'localappinstancehashABCDEF', // hash of app message
+      height: 0, // height of tx on which it was
+    };
+    const generateResponse = () => {
+      const res = { test: 'testing' };
+      res.status = sinon.stub().returns(res);
+      res.json = sinon.stub().returns(res);
+      res.end = sinon.fake(() => true);
+      res.write = sinon.fake(() => true);
+      return res;
+    };
+    let logSpy;
+    let nodeTierStub;
+    let dbStub;
+
+    beforeEach(async () => {
+      appsService.removalInProgressReset();
+      appsService.installationInProgressReset();
+      logSpy = sinon.spy(log, 'error');
+      nodeTierStub = sinon.stub(generalService, 'nodeTier');
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      dbStub = sinon.stub(dbHelper, 'findInDatabase');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+      appsService.removalInProgressReset();
+      appsService.installationInProgressReset();
+    });
+
+    it('should return error if removal is in progress', async () => {
+      const componentSpecs = false;
+      const res = generateResponse();
+      appsService.setRemovalInProgressToTrue();
+
+      await appsService.registerAppLocally(appSpec, componentSpecs, res);
+
+      sinon.assert.calledOnceWithExactly(logSpy, 'Another application is undergoing removal');
+    });
+
+    it('should return error if another installation is in progress', async () => {
+      const componentSpecs = false;
+      const res = generateResponse();
+      appsService.setInstallationInProgressTrue();
+
+      await appsService.registerAppLocally(appSpec, componentSpecs, res);
+
+      sinon.assert.calledOnceWithExactly(logSpy, 'Another application is undergoing installation');
+    });
+
+    it('should return if node tier does not return anything', async () => {
+      const componentSpecs = false;
+      const res = generateResponse();
+      nodeTierStub.resolves(undefined);
+
+      const result = await appsService.registerAppLocally(appSpec, componentSpecs, res);
+
+      sinon.assert.notCalled(logSpy);
+      expect(result).to.eql(undefined);
+    });
+
+    it('should return if node tier does not return anything', async () => {
+      const componentSpecs = false;
+      const res = generateResponse();
+      nodeTierStub.resolves('cumulus');
+      dbStub.returns('testapp');
+
+      await appsService.registerAppLocally(appSpec, componentSpecs, res);
+
+      sinon.assert.calledOnceWithExactly(logSpy, 'Flux App testapp already installed');
+      sinon.assert.calledWithExactly(res.write, 'Flux App testapp already installed');
+    });
+
+    it('should return if node tier does not return anything', async () => {
+      const componentSpecs = false;
+      const res = generateResponse();
+      nodeTierStub.resolves('cumulus');
+      dbStub.returns('testapp');
+
+      await appsService.registerAppLocally(appSpec, componentSpecs, res);
+
+      sinon.assert.calledOnceWithExactly(logSpy, 'Flux App testapp already installed');
+      sinon.assert.calledWithExactly(res.write, 'Flux App testapp already installed');
+    });
+
+    it.skip('should install app if v < 4', async () => {
+      const componentSpecs = {
+        // app specifications
+        version: 2,
+        name: 'testappname',
+        description: 'testapp',
+        repotag: 'yurinnick/testapp',
+        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+        tiered: true,
+        ports: [30000],
+        containerPorts: [7396],
+        domains: [''],
+        cpu: 0.5,
+        ram: 500,
+        hdd: 5,
+        cpubasic: 0.5,
+        cpusuper: 1,
+        cpubamf: 2,
+        rambasic: 500,
+        ramsuper: 500,
+        rambamf: 500,
+        hddbasic: 5,
+        hddsuper: 5,
+        hddbamf: 5,
+        enviromentParameters: ['TEAM=262156', 'ENABLE_GPU=false', 'ENABLE_SMP=true'],
+        commands: [],
+        containerData: '/config',
+        hash: 'localappinstancehashABCDEF', // hash of app message
+        height: 0, // height of tx on which it was
+      };
+      const res = generateResponse();
+      nodeTierStub.resolves('cumulus');
+      dbStub.returns('test_appname');
+
+      await appsService.registerAppLocally(appSpec, componentSpecs, res);
+
+      sinon.assert.calledOnceWithExactly(logSpy, 'Flux App testapp already installed');
+      sinon.assert.calledWithExactly(res.write, 'Flux App testapp already installed');
+    });
+  });
 });
 
-// TODO appLogStream, appExec, fluxUsage
+// TODO appLogStream, appExec, fluxUsage, createAppVolume, installApplicationHard

@@ -1499,6 +1499,30 @@ async function getNodeSpecs() {
 }
 
 /**
+ * Created for testing purposes
+ *
+ * @param {number} cores
+ * @param {number} ram
+ * @param {number} ssdStorage
+ */
+function setNodeSpecs(cores, ram, ssdStorage) {
+  nodeSpecs.cpuCores = cores;
+  nodeSpecs.ram = ram;
+  nodeSpecs.ssdStorage = ssdStorage;
+}
+
+/**
+ * Created for testing purposes
+ *
+ * @param {number} cores
+ * @param {number} ram
+ * @param {number} ssdStorage
+ */
+function returnNodeSpecs() {
+  return nodeSpecs;
+}
+
+/**
  * To create an app volume. First checks for availability of disk space and chooses an available volume that meets the app specifications. Then creates the necessary file systems and mounts the volume. Finally, sets up cron job.
  * @param {object} appSpecifications App specifications.
  * @param {string} appName App name.
@@ -2576,7 +2600,7 @@ async function checkAppHWRequirements(appSpecs) {
     throw new Error('Insufficient space on Flux Node to spawn an application');
   }
   const useableSpaceOnNode = totalSpaceOnNode - config.lockedSystemResources.hdd;
-  const hddLockedByApps = resourcesLocked.data.apsHddLocked;
+  const hddLockedByApps = resourcesLocked.data.appsHddLocked;
   const availableSpaceForApps = useableSpaceOnNode - hddLockedByApps;
   // bigger or equal so we have the 1 gb free...
   if (appHWrequirements.hdd > availableSpaceForApps) {
@@ -8056,6 +8080,22 @@ async function forceAppRemovals() {
   }
 }
 
+function removalInProgressReset() {
+  removalInProgress = false;
+}
+
+function setRemovalInProgressToTrue() {
+  removalInProgress = true;
+}
+
+function installationInProgressReset() {
+  installationInProgress = false;
+}
+
+function setInstallationInProgressTrue() {
+  installationInProgress = true;
+}
+
 module.exports = {
   listRunningApps,
   listAllApps,
@@ -8152,4 +8192,18 @@ module.exports = {
   getAppFolderSize,
   startAppMonitoring,
   stopMonitoringOfApps,
+  getNodeSpecs,
+  setNodeSpecs,
+  returnNodeSpecs,
+  appUninstallHard,
+  appUninstallSoft,
+  removalInProgressReset,
+  totalAppHWRequirements,
+  nodeFullGeolocation,
+  checkAppGeolocationRequirements,
+  checkAppHWRequirements,
+  installApplicationHard,
+  setRemovalInProgressToTrue,
+  installationInProgressReset,
+  setInstallationInProgressTrue,
 };
