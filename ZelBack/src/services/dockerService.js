@@ -2,6 +2,7 @@ const stream = require('stream');
 const Docker = require('dockerode');
 const path = require('path');
 const serviceHelper = require('./serviceHelper');
+const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
 const log = require('../lib/log');
 
 const fluxDirPath = path.join(__dirname, '../../../');
@@ -364,6 +365,31 @@ async function dockerContainerLogs(idOrName, lines) {
   return logs.toString();
 }
 
+async function obtainPayloadFromStorage(url) {
+  try {
+    // do a signed request in headers
+    // we want to be able to fetch even from unsecure storages that may not have all the auths
+    // and so this is only basic auth where timestamp is important
+    // server should verify valid signature based on publicKey that server can get from
+    // deterministic node list of ip address that did this request
+    const version = 1;
+    const timestamp = Date.now();
+    const message = version + url + timestamp;
+    const signature = await fluxCommunicationMessagesSender.getFluxMessageSignature(message);
+    const axiosConfig = {
+      headers: {
+        'flux-message': message,
+        'flux-signature': signature,
+      },
+    };
+    const response = await serviceHelper.axiosGet(url, axiosConfig);
+    return response.data;
+  } catch (error) {
+    log.error(error);
+    throw new Error(`Parameters from Flux Storage ${url} failed to be obtained`);
+  }
+}
+
 /**
  * Creates an app container.
  *
@@ -372,7 +398,7 @@ async function dockerContainerLogs(idOrName, lines) {
  * @param {bool} isComponent
  * @returns {object}
  */
-async function appDockerCreate(appSpecifications, appName, isComponent) {
+async function appDockerCreate(appSpecifications, appName, isComponent, fullAppSpecs) {
   const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
   let exposedPorts = {};
   let portBindings = {};
@@ -417,6 +443,48 @@ async function appDockerCreate(appSpecifications, appName, isComponent) {
       ];
     }
   }
+  // containerData can have flags eg. s (s:/data) for synthing enabled container data
+  // multiple data volumes can be attached, if containerData is contains more paths of |
+  // next path should be attaching volumes of other app components, eg 0:/mydata where component X is attaching volume of first component to /mydata path
+  // experimental feature
+  // only component of higher number can use volumes of previous components. Eg. 2nd component can't use volume of 3rd component but can use volume of 1st component.
+  // that limitation comes down to how we are creating volumes, assigning them and starting applications
+  // todo v7 adjust this limitations in future revisions, switcher to docker volumes.
+  // tbd v7 potential issues of hard redeploys of components
+  const containerData = appSpecifications.containerData.split('|')[0].split(':')[1] || appSpecifications.containerData.split('|')[0];
+  const dataPaths = appSpecifications.containerData.split('|');
+  const outsideVolumesToAttach = [];
+  for (let i = 1; i < dataPaths.length; i += 1) {
+    const splittedPath = dataPaths[i].split(':');
+    const pathFlags = splittedPath[0];
+    const actualPath = splittedPath[1];
+    if (pathFlags && actualPath && pathFlags.replace(/[^0-9]/g, '')) {
+      const comopnentToUse = pathFlags.replace(/[^0-9]/g, '')[0]; // take first number character representing the component number to attach to
+      outsideVolumesToAttach.push({
+        component: Number(comopnentToUse),
+        path: actualPath,
+      });
+    }
+  }
+  if (outsideVolumesToAttach.length && !fullAppSpecs) {
+    throw new Error(`Complete App Specification was not supplied but additional volumes requested for ${appName}`);
+  }
+  const constructedVolumes = [`${appsFolder + getAppIdentifier(identifier)}/appdata:${containerData}`];
+  outsideVolumesToAttach.forEach((volToAttach) => {
+    if (fullAppSpecs.version >= 4) {
+      const myIndex = fullAppSpecs.compose.findIndex((component) => component.name === appSpecifications.name);
+      if (myIndex >= volToAttach.component) {
+        const atCompIdentifier = `${fullAppSpecs.compose[volToAttach.component].name}_${appName}`;
+        const vol = `${appsFolder + getAppIdentifier(atCompIdentifier)}/appdata:${volToAttach.path}`;
+        constructedVolumes.push(vol);
+      } else {
+        log.error(`Additional volume ${outsideVolumesToAttach.path} can't be mounted to component ${outsideVolumesToAttach.component}`);
+      }
+    } else if (volToAttach.component === 0) { // not a compose specs
+      const vol = `${appsFolder + getAppIdentifier(identifier)}/appdata:${volToAttach.path}`;
+      constructedVolumes.push(vol);
+    }
+  });
   const options = {
     Image: appSpecifications.repotag,
     name: getAppIdentifier(identifier),
@@ -430,7 +498,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent) {
     HostConfig: {
       NanoCPUs: appSpecifications.cpu * 1e9,
       Memory: appSpecifications.ram * 1024 * 1024,
-      Binds: [`${appsFolder + getAppIdentifier(identifier)}:${appSpecifications.containerData}`],
+      Binds: constructedVolumes,
       Ulimits: [
         {
           Name: 'nofile',
@@ -442,7 +510,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent) {
       RestartPolicy: {
         Name: 'unless-stopped',
       },
-      NetworkMode: 'fluxDockerNetwork',
+      NetworkMode: `fluxDockerNetwork_${appName}`,
       LogConfig: {
         Type: 'json-file',
         Config: {
@@ -452,6 +520,25 @@ async function appDockerCreate(appSpecifications, appName, isComponent) {
       },
     },
   };
+
+  if (options.Env.length) {
+    const fluxStorageEnv = options.Env.find((env) => env.startsWith(('FLUX_STORAGE_ENV=')));
+    if (fluxStorageEnv) {
+      const url = fluxStorageEnv.split('FLUX_STORAGE_ENV=')[1];
+      const envVars = await obtainPayloadFromStorage(url);
+      if (Array.isArray(envVars) && envVars.length < 200) {
+        envVars.forEach((parameter) => {
+          if (typeof parameter !== 'string' || parameter.length > 5000000) {
+            throw new Error(`Environment parameters from Flux Storage ${fluxStorageEnv} are invalid`);
+          } else {
+            options.Env.push(parameter);
+          }
+        });
+      } else {
+        throw new Error(`Environment parameters from Flux Storage ${fluxStorageEnv} are invalid`);
+      }
+    }
+  }
 
   const app = await docker.createContainer(options).catch((error) => {
     log.error(error);
@@ -587,7 +674,7 @@ async function appDockerTop(idOrName) {
 
 /**
  * Creates flux docker network if doesn't exist
- *
+ * OBSOLETE
  * @returns {object} response
  */
 async function createFluxDockerNetwork() {
@@ -612,6 +699,60 @@ async function createFluxDockerNetwork() {
     response = await dockerCreateNetwork(fluxNetworkOptions);
   } else {
     response = 'Flux Network already exists.';
+  }
+  return response;
+}
+
+/**
+ * Creates flux application docker network if doesn't exist
+ *
+ * @returns {object} response
+ */
+async function createFluxAppDockerNetwork(appname, number) {
+  // check if fluxDockerNetwork of an appexists
+  const fluxNetworkOptions = {
+    Name: `fluxDockerNetwork_${appname}`,
+    IPAM: {
+      Config: [{
+        Subnet: `172.${number}.0.0/16`,
+        Gateway: `172.${number}.0.1`,
+      }],
+    },
+  };
+  let fluxNetworkExists = true;
+  const network = docker.getNetwork(fluxNetworkOptions.Name);
+  await dockerNetworkInspect(network).catch(() => {
+    fluxNetworkExists = false;
+  });
+  let response;
+  // create or check docker network
+  if (!fluxNetworkExists) {
+    response = await dockerCreateNetwork(fluxNetworkOptions);
+  } else {
+    response = `Flux App Network of ${appname} already exists.`;
+  }
+  return response;
+}
+
+/**
+ * Removes flux application docker network if exists
+ *
+ * @returns {object} response
+ */
+async function removeFluxAppDockerNetwork(appname) {
+  // check if fluxDockerNetwork of an app exists
+  const fluxAppNetworkName = `fluxDockerNetwork_${appname}`;
+  let fluxNetworkExists = true;
+  const network = docker.getNetwork(fluxAppNetworkName);
+  await dockerNetworkInspect(network).catch(() => {
+    fluxNetworkExists = false;
+  });
+  let response;
+  // remove docker network
+  if (fluxNetworkExists) {
+    response = await dockerRemoveNetwork(network);
+  } else {
+    response = `Flux App Network of ${appname} already does not exist.`;
   }
   return response;
 }
@@ -645,4 +786,6 @@ module.exports = {
   appDockerTop,
   createFluxDockerNetwork,
   getDockerContainerByIdOrName,
+  createFluxAppDockerNetwork,
+  removeFluxAppDockerNetwork,
 };

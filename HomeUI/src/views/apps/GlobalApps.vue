@@ -84,6 +84,10 @@
                         title="Instances"
                         :data="row.item.instances.toString()"
                       />
+                      <list-entry
+                        title="Period"
+                        :data="labelForExpire(row.item.expire)"
+                      />
                       <h4>Composition</h4>
                       <div v-if="row.item.version <= 3">
                         <b-card>
@@ -199,7 +203,7 @@
                           />
                           <list-entry
                             title="Automatic Domains"
-                            :data="constructAutomaticDomains(component.ports, component.name, row.item.name).toString()"
+                            :data="constructAutomaticDomains(component.ports, component.name, row.item.name, index).toString()"
                           />
                           <list-entry
                             title="Ports"
@@ -288,7 +292,7 @@
                             size="sm"
                             class="mr-1"
                             variant="danger"
-                            @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], row.item.port || (row.item.ports ? row.item.ports[0] : row.item.compose[0].ports[0]))"
+                            @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
                           >
                             Visit App
                           </b-button>
@@ -401,6 +405,10 @@
                         title="Instances"
                         :data="row.item.instances.toString()"
                       />
+                      <list-entry
+                        title="Period"
+                        :data="labelForExpire(row.item.expire)"
+                      />
                       <h4>Composition</h4>
                       <div v-if="row.item.version <= 3">
                         <b-card>
@@ -516,7 +524,7 @@
                           />
                           <list-entry
                             title="Automatic Domains"
-                            :data="constructAutomaticDomains(component.ports, component.name, row.item.name).toString()"
+                            :data="constructAutomaticDomains(component.ports, component.name, row.item.name, index).toString()"
                           />
                           <list-entry
                             title="Ports"
@@ -605,7 +613,7 @@
                             size="sm"
                             class="mr-1"
                             variant="danger"
-                            @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], row.item.port || (row.item.ports ? row.item.ports[0] : row.item.compose[0].ports[0]))"
+                            @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
                           >
                             Visit App
                           </b-button>
@@ -747,6 +755,38 @@ export default {
         },
       },
       allApps: [],
+      expireOptions: [
+        {
+          value: 5000,
+          label: '1 week',
+          time: 7 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 11000,
+          label: '2 weeks',
+          time: 14 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 22000,
+          label: '1 month',
+          time: 30 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 66000,
+          label: '3 months',
+          time: 90 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 132000,
+          label: '6 months',
+          time: 180 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 264000,
+          label: '1 year',
+          time: 365 * 24 * 60 * 60 * 1000,
+        },
+      ],
     };
   },
   computed: {
@@ -763,6 +803,16 @@ export default {
     this.appsGetListGlobalApps();
   },
   methods: {
+    labelForExpire(expire) {
+      const position = this.expireOptions.find((opt) => opt.value === expire);
+      if (position) {
+        return position.label;
+      }
+      if (expire) {
+        return `${expire} blocks`;
+      }
+      return '1 month';
+    },
     openAppManagement(appName) {
       this.managedApplication = appName;
     },
@@ -791,14 +841,25 @@ export default {
       if (_port && _ip) {
         const ip = _ip;
         const port = _port;
-        let url = `http://${ip}:${port}`;
-        if (name === 'KadenaChainWebNode') {
-          url = `https://${ip}:${port}/chainweb/0.0/mainnet01/cut`;
-        }
+        const url = `http://${ip}:${port}`;
         this.openSite(url);
       } else {
-        this.showToast('danger', 'Unable to open App :(');
+        this.showToast('danger', 'Unable to open App :(, App does not have a port.');
       }
+    },
+    getProperPort(appSpecs) {
+      if (appSpecs.port) {
+        return appSpecs.port;
+      }
+      if (appSpecs.ports) {
+        return appSpecs.ports[0];
+      }
+      for (let i = 0; i < appSpecs.compose.length; i += 1) {
+        for (let j = 0; j < appSpecs.compose[i].ports.length; j += 1) {
+          return appSpecs.compose[i].ports[j];
+        }
+      }
+      return null;
     },
     openNodeFluxOS(_ip, _port) {
       console.log(_ip, _port);
@@ -874,11 +935,14 @@ export default {
         },
       });
     },
-    constructAutomaticDomains(ports, componentName = '', appName) {
+    constructAutomaticDomains(ports, componentName = '', appName, index = 0) {
       const lowerCaseName = appName.toLowerCase();
       const lowerCaseCopmonentName = componentName.toLowerCase();
       if (!lowerCaseCopmonentName) {
-        const domains = [`${lowerCaseName}.app.runonflux.io`];
+        const domains = [];
+        if (index === 0) {
+          domains.push(`${lowerCaseName}.app.runonflux.io`);
+        }
         // flux specs dont allow more than 10 ports so domainString is enough
         for (let i = 0; i < ports.length; i += 1) {
           const portDomain = `${lowerCaseName}_${ports[i]}.app.runonflux.io`;
@@ -886,7 +950,10 @@ export default {
         }
         return domains;
       }
-      const domains = [`${lowerCaseName}.app.runonflux.io`];
+      const domains = [];
+      if (index === 0) {
+        domains.push(`${lowerCaseName}.app.runonflux.io`);
+      }
       // flux specs dont allow more than 10 ports so domainString is enough
       for (let i = 0; i < ports.length; i += 1) {
         const portDomain = `${lowerCaseName}_${ports[i]}.app.runonflux.io`;
@@ -918,12 +985,12 @@ export default {
       if (geo.startsWith('a') && !geo.startsWith('ac') && !geo.startsWith('a!c')) {
         // specific continent
         const continentCode = geo.slice(1);
-        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode);
+        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode) || { name: 'ALL' };
         return `Continent: ${continentExists.name || 'Unkown'}`;
       } if (geo.startsWith('b')) {
         // specific country
         const countryCode = geo.slice(1);
-        const countryExists = geolocations.countries.find((country) => country.code === countryCode);
+        const countryExists = geolocations.countries.find((country) => country.code === countryCode) || { name: 'ALL' };
         return `Country: ${countryExists.name || 'Unkown'}`;
       } if (geo.startsWith('ac')) {
         // allowed location
@@ -932,8 +999,8 @@ export default {
         const continentCode = locations[0];
         const countryCode = locations[1];
         const regionName = locations[2];
-        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode);
-        const countryExists = geolocations.countries.find((country) => country.code === countryCode);
+        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode) || { name: 'ALL' };
+        const countryExists = geolocations.countries.find((country) => country.code === countryCode) || { name: 'ALL' };
         let locationString = `Allowed location: Continent: ${continentExists.name}`;
         if (countryCode) {
           locationString += `, Country: ${countryExists.name}`;
@@ -949,8 +1016,8 @@ export default {
         const continentCode = locations[0];
         const countryCode = locations[1];
         const regionName = locations[2];
-        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode);
-        const countryExists = geolocations.countries.find((country) => country.code === countryCode);
+        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode) || { name: 'ALL' };
+        const countryExists = geolocations.countries.find((country) => country.code === countryCode) || { name: 'ALL' };
         let locationString = `Forbidden location: Continent: ${continentExists.name}`;
         if (countryCode) {
           locationString += `, Country: ${countryExists.name}`;

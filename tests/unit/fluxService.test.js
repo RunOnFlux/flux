@@ -29,6 +29,8 @@ const adminConfig = {
     cruxid: '12345678',
     apiport: '5550',
     testnet: true,
+    development: false,
+    decryptionkey: '',
   },
 };
 
@@ -171,8 +173,9 @@ describe('fluxService tests', () => {
         },
         status: 'error',
       };
+      const req = {};
 
-      const response = await fluxService.softUpdateFlux(undefined, res);
+      const response = await fluxService.softUpdateFlux(req, res);
 
       expect(response).to.eql(`Response: ${expectedResponse}`);
       sinon.assert.calledWithExactly(res.json, expectedResponse);
@@ -1350,7 +1353,7 @@ describe('fluxService tests', () => {
         code: 403,
         name: 'testing error',
       });
-      const nodedpath = path.join(__dirname, '../../../.flux/debug.log'); // 2 more
+      const nodedpath = path.join(__dirname, '../../../../../.flux/debug.log'); // need more ../
       const expectedResponse = {
         data: {
           code: 403,
@@ -2279,7 +2282,9 @@ describe('fluxService tests', () => {
           zelid: '${adminConfig.initial.zelid}',
           kadena: '${adminConfig.initial.kadena || ''}',
           testnet: ${adminConfig.initial.testnet || false},
+          development: ${adminConfig.initial.development || false},
           apiport: ${Number(adminConfig.initial.apiport)},
+          decryptionkey: '${adminConfig.initial.decryptionkey}',
         }
       }`;
       const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
@@ -2433,7 +2438,9 @@ describe('fluxService tests', () => {
     zelid: '${adminConfig.initial.zelid}',
     kadena: 'kadena:testing?chainid=5',
     testnet: ${adminConfig.initial.testnet},
+    development: ${adminConfig.initial.development},
     apiport: ${Number(adminConfig.initial.apiport)},
+    decryptionkey: '${adminConfig.initial.decryptionkey}',
   }
 }`;
       const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');

@@ -222,7 +222,7 @@ describe('dockerService tests', () => {
     it('should throw error if the container does not exist', async () => {
       const containerName = 'testing1234';
 
-      await expect(dockerService.dockerContainerInspect(containerName)).to.eventually.be.rejectedWith('Cannot read property \'Id\' of undefined');
+      await expect(dockerService.dockerContainerInspect(containerName)).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'Id\')');
     });
   });
 
@@ -242,7 +242,7 @@ describe('dockerService tests', () => {
     it('should throw error if the container does not exist', async () => {
       const containerName = 'test';
 
-      await expect(dockerService.dockerContainerStats(containerName)).to.eventually.be.rejectedWith('Cannot read property \'Id\' of undefined');
+      await expect(dockerService.dockerContainerStats(containerName)).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'Id\')');
     });
   });
 
@@ -260,7 +260,7 @@ describe('dockerService tests', () => {
     it('should throw error if the container does not exist', async () => {
       const containerName = 'test';
 
-      await expect(dockerService.dockerContainerChanges(containerName)).to.eventually.be.rejectedWith('Cannot read property \'Id\' of undefined');
+      await expect(dockerService.dockerContainerChanges(containerName)).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'Id\')');
     });
   });
 
@@ -290,7 +290,7 @@ describe('dockerService tests', () => {
     it('should throw an error if container does not exist', async () => {
       const appName = 'testing1234';
 
-      await expect(dockerService.dockerContainerLogs(appName, 2)).to.eventually.be.rejectedWith('Cannot read property \'Id\' of undefined');
+      await expect(dockerService.dockerContainerLogs(appName, 2)).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'Id\')');
     });
   });
 
@@ -318,7 +318,7 @@ describe('dockerService tests', () => {
     });
 
     it('should throw error if app name is not correct or app does not exist', async () => {
-      await expect(dockerService.appDockerStart('testing123')).to.eventually.be.rejectedWith('Cannot read property \'Id\' of undefined');
+      await expect(dockerService.appDockerStart('testing123')).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'Id\')');
     });
   });
 
@@ -346,7 +346,7 @@ describe('dockerService tests', () => {
     });
 
     it('should throw error if app name is not correct or app does not exist', async () => {
-      await expect(dockerService.appDockerStop('testing123')).to.eventually.be.rejectedWith('Cannot read property \'Id\' of undefined');
+      await expect(dockerService.appDockerStop('testing123')).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'Id\')');
     });
   });
 
@@ -374,7 +374,7 @@ describe('dockerService tests', () => {
     });
 
     it('should throw error if app name is not correct or app does not exist', async () => {
-      await expect(dockerService.appDockerRestart('testing123')).to.eventually.be.rejectedWith('Cannot read property \'Id\' of undefined');
+      await expect(dockerService.appDockerRestart('testing123')).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'Id\')');
     });
   });
 
@@ -402,7 +402,7 @@ describe('dockerService tests', () => {
     });
 
     it('should throw error if app name is not correct or app does not exist', async () => {
-      await expect(dockerService.appDockerKill('testing123')).to.eventually.be.rejectedWith('Cannot read property \'Id\' of undefined');
+      await expect(dockerService.appDockerKill('testing123')).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'Id\')');
     });
   });
 
@@ -430,7 +430,7 @@ describe('dockerService tests', () => {
     });
 
     it('should throw error if app name is not correct or app does not exist', async () => {
-      await expect(dockerService.appDockerRemove('testing123')).to.eventually.be.rejectedWith('Cannot read property \'Id\' of undefined');
+      await expect(dockerService.appDockerRemove('testing123')).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'Id\')');
     });
   });
 
@@ -458,7 +458,7 @@ describe('dockerService tests', () => {
     });
 
     it('should throw error if app name is not correct or app does not exist', async () => {
-      await expect(dockerService.appDockerPause('testing123')).to.eventually.be.rejectedWith('Cannot read property \'Id\' of undefined');
+      await expect(dockerService.appDockerPause('testing123')).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'Id\')');
     });
   });
 
@@ -486,7 +486,7 @@ describe('dockerService tests', () => {
     });
 
     it('should throw error if app name is not correct or app does not exist', async () => {
-      await expect(dockerService.appDockerUnpause('testing123')).to.eventually.be.rejectedWith('Cannot read property \'Id\' of undefined');
+      await expect(dockerService.appDockerUnpause('testing123')).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'Id\')');
     });
   });
 
@@ -527,7 +527,7 @@ describe('dockerService tests', () => {
     });
 
     it('should throw error if app name is not correct or app does not exist', async () => {
-      await expect(dockerService.appDockerTop('testing123')).to.eventually.be.rejectedWith('Cannot read property \'Id\' of undefined');
+      await expect(dockerService.appDockerTop('testing123')).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'Id\')');
     });
   });
 
@@ -571,6 +571,49 @@ describe('dockerService tests', () => {
       const createNetworkResponse = await dockerService.createFluxDockerNetwork();
 
       expect(createNetworkResponse).to.equal('Flux Network already exists.');
+    });
+  });
+
+  describe('createFluxAppDockerNetwork tests', () => {
+    let network;
+    const docker = new Dockerode();
+    const fluxNetworkOptions = {
+      Name: 'fluxDockerNetwork_MyAppName',
+      IPAM: {
+        Config: [{
+          Subnet: '172.52.0.0/16',
+          Gateway: '172.52.0.1',
+        }],
+      },
+    };
+
+    afterEach(async () => {
+      try {
+        await dockerService.dockerRemoveNetwork(network);
+      } catch {
+        console.log('Network does not exist');
+      }
+    });
+
+    it('should create flux app docker network if it does not exist', async () => {
+      const createNetworkResponse = await dockerService.createFluxAppDockerNetwork('MyAppName', 52);
+      network = docker.getNetwork(fluxNetworkOptions.Name);
+      const inspectResult = await dockerService.dockerNetworkInspect(network);
+
+      expect(createNetworkResponse.id).to.be.a('string');
+      expect(createNetworkResponse.modem).to.be.an('object');
+      expect(inspectResult.Name).to.equal(fluxNetworkOptions.Name);
+      expect(inspectResult.Id).to.be.a('string');
+      expect(inspectResult.IPAM.Config).to.eql(fluxNetworkOptions.IPAM.Config);
+    });
+
+    it('should return a message if the flux app network does exist', async () => {
+      // Call the function twice to make sure it exists
+      await dockerService.createFluxAppDockerNetwork('MyAppName', 52);
+
+      const createNetworkResponse = await dockerService.createFluxAppDockerNetwork('MyAppName', 52);
+
+      expect(createNetworkResponse).to.equal('Flux App Network of MyAppName already exists.');
     });
   });
 
@@ -658,9 +701,9 @@ describe('dockerService tests', () => {
           Memory: 1887436800,
           Ulimits: [{ Name: 'nofile', Soft: 100000, Hard: 100000 }],
           RestartPolicy: { Name: 'unless-stopped' },
-          NetworkMode: 'fluxDockerNetwork',
+          NetworkMode: 'fluxDockerNetwork_fluxwebsite',
           LogConfig: { Type: 'json-file', Config: { 'max-file': '1', 'max-size': '20m' } },
-          Binds: [`${appsFolder}fluxwebsite_fluxwebsite:/chaindata`],
+          Binds: [`${appsFolder}fluxwebsite_fluxwebsite/appdata:/chaindata`],
           PortBindings: {
             '30333/tcp': [{ HostPort: '31113' }],
             '30333/udp': [{ HostPort: '31113' }],
@@ -712,7 +755,7 @@ describe('dockerService tests', () => {
         HostConfig: {
           NanoCPUs: 800000000,
           Memory: 1887436800,
-          Binds: [`${appsFolder}fluxwebsite:/chaindata`],
+          Binds: [`${appsFolder}fluxwebsite/appdata:/chaindata`],
           Ulimits: [{ Name: 'nofile', Soft: 100000, Hard: 100000 }],
           PortBindings: {
             '30333/tcp': [{ HostPort: '31113' }],
@@ -723,7 +766,7 @@ describe('dockerService tests', () => {
             '9944/udp': [{ HostPort: '31111' }],
           },
           RestartPolicy: { Name: 'unless-stopped' },
-          NetworkMode: 'fluxDockerNetwork',
+          NetworkMode: 'fluxDockerNetwork_fluxwebsite',
           LogConfig: { Type: 'json-file', Config: { 'max-file': '1', 'max-size': '20m' } },
         },
       };
@@ -749,14 +792,14 @@ describe('dockerService tests', () => {
         HostConfig: {
           NanoCPUs: 800000000,
           Memory: 1887436800,
-          Binds: [`${appsFolder}fluxwebsite_fluxwebsite:/chaindata`],
+          Binds: [`${appsFolder}fluxwebsite_fluxwebsite/appdata:/chaindata`],
           Ulimits: [{ Name: 'nofile', Soft: 100000, Hard: 100000 }],
           PortBindings: {
             '9933/tcp': [{ HostPort: '31112' }],
             '9933/udp': [{ HostPort: '31112' }],
           },
           RestartPolicy: { Name: 'unless-stopped' },
-          NetworkMode: 'fluxDockerNetwork',
+          NetworkMode: 'fluxDockerNetwork_fluxwebsite',
           LogConfig: { Type: 'json-file', Config: { 'max-file': '1', 'max-size': '20m' } },
         },
       };
@@ -771,7 +814,7 @@ describe('dockerService tests', () => {
         testing: 'testing',
       };
 
-      await expect(dockerService.appDockerCreate(nodeApp, appName, true)).to.eventually.be.rejectedWith('Cannot read property \'forEach\' of undefined');
+      await expect(dockerService.appDockerCreate(nodeApp, appName, true)).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'forEach\')');
     });
   });
 });

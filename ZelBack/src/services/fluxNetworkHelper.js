@@ -6,6 +6,9 @@ const fs = require('fs').promises;
 const path = require('path');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
+// eslint-disable-next-line import/no-extraneous-dependencies
+const net = require('net');
+const LRU = require('lru-cache');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
@@ -43,7 +46,7 @@ class TokenBucket {
     this.capacity = capacity;
     this.fillPerSecond = fillPerSecond;
 
-    this.lastFilled = Math.floor(Date.now() / 1000);
+    this.lastFilled = new Date().getTime();
     this.tokens = capacity;
   }
 
@@ -60,8 +63,8 @@ class TokenBucket {
   }
 
   refill() {
-    const now = Math.floor(Date.now() / 1000);
-    const rate = (now - this.lastFilled) / this.fillPerSecond;
+    const now = new Date().getTime();
+    const rate = (now - this.lastFilled) / (this.fillPerSecond * 1000);
 
     this.tokens = Math.min(this.capacity, this.tokens + Math.floor(rate * this.capacity));
     this.lastFilled = now;
@@ -103,6 +106,40 @@ function minVersionSatisfy(version, minimumVersion) {
 }
 
 /**
+ * To perform a basic check if port on an ip is opened
+ * @param {string} ip IP address.
+ * @param {number} port Port.
+ * @param {number} timeout Timeout in ms.
+ * @returns {boolean} Returns true if opened, otherwise false
+ */
+async function isPortOpen(ip, port, timeout = 5000) {
+  try {
+    const promise = new Promise(((resolve, reject) => {
+      const socket = new net.Socket();
+
+      const onError = (err) => {
+        log.error(err);
+        socket.destroy();
+        reject();
+      };
+
+      socket.setTimeout(timeout);
+      socket.once('error', onError);
+      socket.once('timeout', onError);
+
+      socket.connect(port, ip, () => {
+        socket.destroy();
+        resolve();
+      });
+    }));
+    await promise;
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+/**
  * To perform a basic check of current FluxOS version.
  * @param {string} ip IP address.
  * @param {string} port Port. Defaults to config.server.apiport.
@@ -115,7 +152,18 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
 
     const fluxVersion = fluxResponse.data.data;
     const versionMinOK = minVersionSatisfy(fluxVersion, config.minimumFluxOSAllowedVersion);
-    return versionMinOK;
+    if (!versionMinOK) return false;
+
+    const homePort = +port - 1;
+    const fluxResponseUI = await serviceHelper.axiosGet(`http://${ip}:${homePort}`, axiosConfig);
+    const UIok = fluxResponseUI.data.includes('<title>');
+    if (!UIok) return false;
+
+    const syncthingPort = +port + 2;
+    const syncthingOpen = await isPortOpen(ip, syncthingPort);
+    if (!syncthingOpen) return false;
+
+    return true;
   } catch (e) {
     return false;
   }
@@ -256,7 +304,7 @@ async function getRandomConnection() {
   const ip = nodeList[randomNode].ip || nodeList[randomNode].ipaddress;
   const apiPort = userconfig.initial.apiport || config.server.apiport;
 
-  if (ip === userconfig.initial.ipaddress || ip === myFluxIP || ip === `${userconfig.initial.ipaddress}:${apiPort}`) {
+  if (!ip || !myFluxIP || ip === userconfig.initial.ipaddress || ip === myFluxIP || ip === `${userconfig.initial.ipaddress}:${apiPort}` || ip.split(':')[0] === myFluxIP.split(':')[0]) {
     return null;
   }
   return ip;
@@ -420,7 +468,7 @@ async function checkFluxbenchVersionAllowed() {
       return false;
     }
     dosState += 2;
-    setDosMessage('Fluxbench Version Error. Error obtaining Flux Version.');
+    setDosMessage('Fluxbench Version Error. Error obtaining FluxBench Version.');
     log.error(dosMessage);
     return false;
   } catch (err) {
@@ -459,9 +507,9 @@ function fluxUptime(req, res) {
 function isCommunicationEstablished(req, res) {
   let message;
   if (outgoingPeers.length < config.fluxapps.minOutgoing) { // easier to establish
-    message = messageHelper.createErrorMessage('Not enough connections established to Flux network');
-  // } else if (incomingPeers.length < config.fluxapps.minIncoming) { // depends on other nodes successfully connecting to my node, todo enforcement
-  //   message = messageHelper.createErrorMessage('Not enough incoming connections from Flux network');
+    message = messageHelper.createErrorMessage('Not enough outgoing connections established to Flux network');
+  } else if (incomingPeers.length < config.fluxapps.minIncoming) { // depends on other nodes successfully connecting to my node, todo enforcement
+    message = messageHelper.createErrorMessage('Not enough incoming connections from Flux network');
   } else {
     message = messageHelper.createSuccessMessage('Communication to Flux network is properly established');
   }
@@ -607,7 +655,9 @@ async function adjustExternalIP(ip) {
     zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
     kadena: '${userconfig.initial.kadena || ''}',
     testnet: ${userconfig.initial.testnet || false},
+    development: ${userconfig.initial.development || false},
     apiport: ${Number(userconfig.initial.apiport || config.apiport)},
+    decryptionkey: '${userconfig.initial.decryptionkey || ''}',
   }
 }`;
 
@@ -649,9 +699,12 @@ async function checkDeterministicNodesCollisions() {
             const filterEarlierSame = result.filter((node) => (node.readded_confirmed_height || node.confirmed_height) <= myBlockHeight);
             // keep running only older collaterals
             if (filterEarlierSame.length >= 1) {
-              log.error('Flux earlier collision detection');
+              log.error(`Flux earlier collision detection on ip:${myIP}`);
               dosState = 100;
-              setDosMessage('Flux earlier collision detection');
+              setDosMessage(`Flux earlier collision detection on ip:${myIP}`);
+              setTimeout(() => {
+                checkDeterministicNodesCollisions();
+              }, 60 * 1000);
               return;
             }
           }
@@ -661,6 +714,9 @@ async function checkDeterministicNodesCollisions() {
             log.error('Flux collision detection');
             dosState = 100;
             setDosMessage('Flux collision detection');
+            setTimeout(() => {
+              checkDeterministicNodesCollisions();
+            }, 60 * 1000);
             return;
           }
         }
@@ -729,7 +785,6 @@ async function allowPort(port) {
   const cmdAsync = util.promisify(nodecmd.get);
 
   const cmdres = await cmdAsync(exec);
-  console.log(cmdres);
   const cmdStat = {
     status: false,
     message: null,
@@ -753,7 +808,6 @@ async function denyPort(port) {
   const cmdAsync = util.promisify(nodecmd.get);
 
   const cmdres = await cmdAsync(exec);
-  console.log(cmdres);
   const cmdStat = {
     status: false,
     message: null,
@@ -825,7 +879,8 @@ async function adjustFirewall() {
     const cmdAsync = util.promisify(nodecmd.get);
     const apiPort = userconfig.initial.apiport || config.server.apiport;
     const homePort = +apiPort - 1;
-    let ports = [apiPort, homePort, 80, 443, 16125];
+    const syncthingPort = +apiPort + 2;
+    let ports = [apiPort, homePort, syncthingPort, 80, 443, 16125];
     const fluxCommunicationPorts = config.server.allowedPorts;
     ports = ports.concat(fluxCommunicationPorts);
     const firewallActive = await isFirewallActive();
@@ -857,6 +912,61 @@ async function adjustFirewall() {
   } catch (error) {
     log.error(error);
   }
+}
+
+const lruRateOptions = {
+  max: 500,
+  maxAge: 1000 * 15, // 15 seconds
+};
+const lruRateCache = new LRU(lruRateOptions);
+/**
+ * To check rate limit.
+ * @param {string} ip IP address.
+ * @param {number} limitPerSecond Defaults to value of 20
+ * @returns {boolean} True if a ip is allowed to do a request, otherwise false
+ */
+function lruRateLimit(ip, limitPerSecond = 20) {
+  const lruResponse = lruRateCache.get(ip);
+  const newTime = new Date().getTime();
+  if (lruResponse) {
+    const oldTime = lruResponse.time;
+    const oldTokensRemaining = lruResponse.tokens;
+    const timeDifference = newTime - oldTime;
+    const tokensToAdd = (timeDifference / 1000) * limitPerSecond;
+    let newTokensRemaining = oldTokensRemaining + tokensToAdd;
+    if (newTokensRemaining < 0) {
+      const newdata = {
+        time: newTime,
+        tokens: newTokensRemaining,
+      };
+      lruRateCache.set(ip, newdata);
+      log.warn(`${ip} rate limited`);
+      return false;
+    }
+    if (newTokensRemaining > limitPerSecond) {
+      newTokensRemaining = limitPerSecond;
+      newTokensRemaining -= 1;
+      const newdata = {
+        time: newTime,
+        tokens: newTokensRemaining,
+      };
+      lruRateCache.set(ip, newdata);
+      return true;
+    }
+    newTokensRemaining -= 1;
+    const newdata = {
+      time: newTime,
+      tokens: newTokensRemaining,
+    };
+    lruRateCache.set(ip, newdata);
+    return true;
+  }
+  const newdata = {
+    time: newTime,
+    tokens: limitPerSecond,
+  };
+  lruRateCache.set(ip, newdata);
+  return true;
 }
 
 module.exports = {
@@ -892,4 +1002,6 @@ module.exports = {
   getDosStateValue,
   fluxUptime,
   isCommunicationEstablished,
+  lruRateLimit,
+  isPortOpen,
 };

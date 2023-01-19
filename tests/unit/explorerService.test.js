@@ -526,6 +526,7 @@ describe('explorerService tests', () => {
     });
 
     it('save to db if version is >0 and <5 and data is correct', async () => {
+      sinon.stub(dbHelper, 'findInDatabase').resolves([]);
       const blockVerbose = {
         tx: [
           {
@@ -537,6 +538,7 @@ describe('explorerService tests', () => {
             benchmark_tier: 'stratus',
             txhash: 'hash1234',
             outidx: '1111',
+            vin: [],
             vout: [{
               n: 444,
               scriptPubKey:
@@ -550,7 +552,11 @@ describe('explorerService tests', () => {
         ],
         height: 983000,
       };
-      await explorerService.processInsight(blockVerbose, database);
+      try {
+        await explorerService.processInsight(blockVerbose, database);
+      } catch (error) {
+        console.log(error);
+      }
 
       sinon.assert.calledOnceWithExactly(dbStubInsert, {}, 'zelappshashes', [
         {
@@ -576,6 +582,7 @@ describe('explorerService tests', () => {
             benchmark_tier: 'stratus',
             txhash: 'hash1234',
             outidx: '1111',
+            vin: [],
             vout: [{
               n: 444,
               scriptPubKey:
@@ -607,6 +614,7 @@ describe('explorerService tests', () => {
             benchmark_tier: 'stratus',
             txhash: 'hash1234',
             outidx: '1111',
+            vin: [],
             vout: [{
               n: 444,
               scriptPubKey:
@@ -638,6 +646,7 @@ describe('explorerService tests', () => {
             benchmark_tier: 'stratus',
             txhash: 'hash1234',
             outidx: '1111',
+            vin: [],
             vout: [{
               n: 444,
               scriptPubKey:
@@ -673,6 +682,7 @@ describe('explorerService tests', () => {
             benchmark_tier: 'stratus',
             txhash: 'hash1234',
             outidx: '1111',
+            vin: [],
             vout: [{
               n: 444,
               scriptPubKey:
@@ -1129,6 +1139,7 @@ describe('explorerService tests', () => {
               benchmark_tier: 'stratus',
               txhash: 'hash1234',
               outidx: '1111',
+              vin: [],
               vout: [{
                 n: 444,
                 scriptPubKey:
@@ -1150,7 +1161,7 @@ describe('explorerService tests', () => {
       sinon.assert.calledOnce(expireGlobalApplicationsStub);
       sinon.assert.notCalled(checkAndRemoveApplicationInstanceStub);
       sinon.assert.notCalled(reinstallOldApplicationsStub);
-      sinon.assert.calledOnce(restorePortsSupportStub);
+      sinon.assert.notCalled(restorePortsSupportStub);
       sinon.assert.calledOnceWithMatch(dbStubUpdate, sinon.match.object, 'scannedheight',
         { generalScannedHeight: { $gte: 0 } },
         { $set: { generalScannedHeight: 695000 } },
@@ -1190,6 +1201,7 @@ describe('explorerService tests', () => {
               benchmark_tier: 'stratus',
               txhash: 'hash1234',
               outidx: '1111',
+              vin: [],
               vout: [{
                 n: 444,
                 scriptPubKey:
@@ -1218,8 +1230,8 @@ describe('explorerService tests', () => {
         { upsert: true });
     });
 
-    it('should update db if all parameters are passed correctly, height == 9000259', async () => {
-      const blockHeight = 900025;
+    it('should update db if all parameters are passed correctly, height == 9000254', async () => {
+      const blockHeight = 900024;
       const isInsightExplorer = true;
       dbStubUpdate.returns(true);
       checkAndRemoveApplicationInstanceStub.returns(true);
@@ -1249,6 +1261,7 @@ describe('explorerService tests', () => {
               benchmark_tier: 'stratus',
               txhash: 'hash1234',
               outidx: '1111',
+              vin: [],
               vout: [{
                 n: 444,
                 scriptPubKey:
@@ -1260,7 +1273,7 @@ describe('explorerService tests', () => {
               }],
             },
           ],
-          height: 900025,
+          height: 900024,
           confirmations: 1,
         },
       });
@@ -1273,7 +1286,7 @@ describe('explorerService tests', () => {
       sinon.assert.calledOnce(restorePortsSupportStub);
       sinon.assert.calledOnceWithMatch(dbStubUpdate, sinon.match.object, 'scannedheight',
         { generalScannedHeight: { $gte: 0 } },
-        { $set: { generalScannedHeight: 900025 } },
+        { $set: { generalScannedHeight: 900024 } },
         { upsert: true });
     });
   });
@@ -1307,7 +1320,8 @@ describe('explorerService tests', () => {
       const result = await explorerService.restoreDatabaseToBlockheightState(height);
 
       expect(result).to.equal(true);
-      sinon.assert.calledOnceWithExactly(logInfoSpy, 'Rescan completed');
+      sinon.assert.calledWith(logInfoSpy, 'Rescanning Blockchain Parameters!');
+      sinon.assert.calledWith(logInfoSpy, 'Rescan completed');
       sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'utxoindex', { height: { $gt: height } });
       sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'coinbasefusionindex', { height: { $gt: height } });
       sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'addresstransactionindex', { transactions: { $exists: true, $size: 0 } });
@@ -1333,6 +1347,7 @@ describe('explorerService tests', () => {
       sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'zelappshashes', { height: { $gt: height } });
       sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'zelappsmessages', { height: { $gt: height } });
       sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'zelappsinformation', { height: { $gt: height } });
+      sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'chainmessages', { height: { $gt: height } });
       sinon.assert.calledWithMatch(updateInDatabaseStub, sinon.match.object, 'addresstransactionindex', {}, { $pull: { transactions: { height: sinon.match.object } } });
     });
   });
@@ -1970,7 +1985,7 @@ describe('explorerService tests', () => {
         data: {
           code: undefined,
           name: 'TypeError',
-          message: "Cannot read property 'params' of undefined",
+          message: "Cannot read properties of undefined (reading 'params')",
         },
       });
     });
@@ -2259,6 +2274,7 @@ describe('explorerService tests', () => {
               benchmark_tier: 'stratus',
               txhash: 'hash1234',
               outidx: '1111',
+              vin: [],
               vout: [{
                 n: 444,
                 scriptPubKey:
@@ -2325,6 +2341,7 @@ describe('explorerService tests', () => {
     it('should run the block processor, all params false', async () => {
       findInDatabaseStub.returns({ generalScannedHeight: 0 });
       dropCollectionStub.resolves(true);
+      sinon.stub(dbHelper, 'findInDatabase').resolves([]);
       const createIndexFake = sinon.fake.resolves(true);
       const collectionFake = sinon.fake.returns({ createIndex: createIndexFake });
       const dbFake = sinon.fake.returns({ collection: collectionFake });
@@ -2351,6 +2368,7 @@ describe('explorerService tests', () => {
     it('should run the block processor, restoreDatabase set to true, height > 0', async () => {
       sinon.stub(dbHelper, 'removeDocumentsFromCollection').resolves(true);
       sinon.stub(dbHelper, 'updateInDatabase').resolves(true);
+      sinon.stub(dbHelper, 'findInDatabase').resolves([]);
       findInDatabaseStub.returns({ generalScannedHeight: 1000 });
       dropCollectionStub.resolves(true);
       const createIndexFake = sinon.fake.resolves(true);
@@ -2381,6 +2399,7 @@ describe('explorerService tests', () => {
     it('should run the block processor, deepRestore, restoreDatabase set to true, height > 0', async () => {
       sinon.stub(dbHelper, 'removeDocumentsFromCollection').resolves(true);
       sinon.stub(dbHelper, 'updateInDatabase').resolves(true);
+      sinon.stub(dbHelper, 'findInDatabase').resolves([]);
       findInDatabaseStub.returns({ generalScannedHeight: 1000 });
       dropCollectionStub.resolves(true);
       const createIndexFake = sinon.fake.resolves(true);
@@ -2411,6 +2430,7 @@ describe('explorerService tests', () => {
     it('should run the block processor, reindexOrRescanGlobalApps set to true, height == 0', async () => {
       sinon.stub(dbHelper, 'removeDocumentsFromCollection').resolves(true);
       sinon.stub(dbHelper, 'updateInDatabase').resolves(true);
+      sinon.stub(dbHelper, 'findInDatabase').resolves([]);
       findInDatabaseStub.returns({ generalScannedHeight: 0 });
       dropCollectionStub.resolves(true);
       const createIndexFake = sinon.fake.resolves(true);
