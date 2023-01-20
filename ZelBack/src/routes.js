@@ -273,6 +273,9 @@ module.exports = (app, expressWs) => {
   app.get('/flux/checkfluxavailability/:ip?/:port?', cache('30 seconds'), (req, res) => {
     fluxNetworkHelper.checkFluxAvailability(req, res);
   });
+  app.post('/flux/checkappavailability', (req, res) => {
+    fluxNetworkHelper.checkAppAvailability(req, res);
+  });
 
   app.get('/apps/listrunningapps', cache('30 seconds'), (req, res) => {
     appsService.listRunningApps(req, res);

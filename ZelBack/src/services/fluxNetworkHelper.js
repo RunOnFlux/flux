@@ -214,6 +214,44 @@ async function checkFluxAvailability(req, res) {
 }
 
 /**
+ * To get app price.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+async function checkAppAvailability(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const processedBody = serviceHelper.ensureObject(body);
+
+      const { ip, ports, appname } = processedBody;
+
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of ports) {
+        // eslint-disable-next-line no-await-in-loop
+        const isOpen = await isPortOpen(ip, port, appname, 2000);
+        if (!isOpen) {
+          throw new Error(`Flux App ${appname} on ${ip}:${port} is not available.`);
+        }
+      }
+      const errorResponse = messageHelper.createSuccessMessage(`Flux App ${appname} is available.`);
+      res.json(errorResponse);
+    } catch (error) {
+      const errorResponse = messageHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      res.json(errorResponse);
+    }
+  });
+}
+
+/**
  * Setter for myFluxIp.
  * Main goal for this is testing availability.
  *
@@ -1020,4 +1058,5 @@ module.exports = {
   isCommunicationEstablished,
   lruRateLimit,
   isPortOpen,
+  checkAppAvailability,
 };
