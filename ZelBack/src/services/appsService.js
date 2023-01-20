@@ -7584,14 +7584,18 @@ async function trySpawningGlobalApplication() {
     const newAppRunningMessage = {
       type: 'fluxapprunning',
       version: 1,
+      name: appSpecifications.name,
       hash: appSpecifications.hash, // hash of application specifics that are running
       ip: myIP,
       broadcastedAt,
     };
 
+    // store it in local database first
+    // eslint-disable-next-line no-await-in-loop
+    await storeAppRunningMessage(newAppRunningMessage);
     // broadcast messages about running apps to all peers
     await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessage);
-    await serviceHelper.delay(100);
+    await serviceHelper.delay(500);
     await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessage);
     // broadcast messages about running apps to all peers
 
