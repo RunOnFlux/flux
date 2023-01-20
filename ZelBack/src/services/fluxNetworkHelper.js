@@ -109,23 +109,39 @@ function minVersionSatisfy(version, minimumVersion) {
  * To perform a basic check if port on an ip is opened
  * @param {string} ip IP address.
  * @param {number} port Port.
+ * @param {string} app Application name. Mostly for comsetic purposes, can be boolean. Defaults to undefined, as for testing main FluxOS not an app.
  * @param {number} timeout Timeout in ms.
  * @returns {boolean} Returns true if opened, otherwise false
  */
-async function isPortOpen(ip, port, timeout = 5000) {
+async function isPortOpen(ip, port, app, timeout = 5000) {
   try {
     const promise = new Promise(((resolve, reject) => {
       const socket = new net.Socket();
 
       const onError = (err) => {
-        log.error(err);
+        socket.destroy();
+        if (app) {
+          resolve();
+        } else if (port === 16129) {
+          log.error(`Syncthing of Flux on ${ip}:${port} did not respond correctly but may be in use. Allowing`);
+          log.error(err);
+          resolve();
+        } else {
+          log.error(`Flux on ${ip}:${port} is not working correctly`);
+          log.error(err);
+          reject();
+        }
+      };
+
+      const onTimeout = () => {
+        log.error(`Connection on ${ip}:${port} timed out. Flux or Flux App is not running correctly`);
         socket.destroy();
         reject();
       };
 
       socket.setTimeout(timeout);
       socket.once('error', onError);
-      socket.once('timeout', onError);
+      socket.once('timeout', onTimeout);
 
       socket.connect(port, ip, () => {
         socket.destroy();
