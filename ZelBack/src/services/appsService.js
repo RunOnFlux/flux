@@ -8857,20 +8857,22 @@ async function syncthingApps() {
   } catch (error) {
     log.error(error);
   }
-  function removalInProgressReset() {
-    removalInProgress = false;
-  }
-  
-  function setRemovalInProgressToTrue() {
-    removalInProgress = true;
-  }
-  
-  function installationInProgressReset() {
-    installationInProgress = false;
-  }
-  
-  function setInstallationInProgressTrue() {
-    installationInProgress = true;
+}
+
+function removalInProgressReset() {
+  removalInProgress = false;
+}
+
+function setRemovalInProgressToTrue() {
+  removalInProgress = true;
+}
+
+function installationInProgressReset() {
+  installationInProgress = false;
+}
+
+function setInstallationInProgressTrue() {
+  installationInProgress = true;
 }
 
 module.exports = {

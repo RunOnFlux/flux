@@ -34,12 +34,14 @@ const crontabLoadFake = sinon.fake(async () => ({
   remove: sinon.fake(() => true),
   save: sinon.fake(() => true),
 }));
-const cdockerPullStreamFake = sinon.fake(async () => true);
+const dockerPullStreamFake = sinon.fake(async () => true);
+const dockerContainerStatsStreamFake = sinon.fake(async () => true);
 const utilFake = {
   promisify: sinon.fake((arg) => {
     if (arg === nodecmd.get) return cmdAsyncFake;
     if (arg === systemcrontab.load) return crontabLoadFake;
-    if (arg === dockerService.dockerPullStream) return cdockerPullStreamFake;
+    if (arg === dockerService.dockerPullStream) return dockerPullStreamFake;
+    if (arg === dockerService.dockerContainerStatsStream) return dockerContainerStatsStreamFake;
     return true;
   }),
 };
@@ -56,7 +58,7 @@ const adminConfig = {
 };
 const appsService = proxyquire('../../ZelBack/src/services/appsService', { util: utilFake, '../../../config/userconfig': adminConfig });
 
-describe.only('appsService tests', () => {
+describe('appsService tests', () => {
   describe('installedApps tests', () => {
     let dbStub;
     let logSpy;
@@ -2802,7 +2804,7 @@ describe.only('appsService tests', () => {
       await appsService.appMonitorStream(req, res);
 
       sinon.assert.calledOnce(res.end);
-      sinon.assert.calledWithExactly(cmdAsyncFake,
+      sinon.assert.calledWithExactly(dockerContainerStatsStreamFake,
         'test_myappname',
         {
           params: { appname: 'test_myappname', lines: [10, 11, 12] },
@@ -2827,7 +2829,7 @@ describe.only('appsService tests', () => {
       await appsService.appMonitorStream(req, res);
 
       sinon.assert.calledOnce(res.end);
-      sinon.assert.calledWithExactly(cmdAsyncFake,
+      sinon.assert.calledWithExactly(dockerContainerStatsStreamFake,
         'myappname',
         {
           params: { appname: 'myappname', lines: [10, 11, 12] },
@@ -4643,8 +4645,8 @@ describe.only('appsService tests', () => {
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp stopped' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Removing Flux App testapp container...' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp container removed' }));
-      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Database cleaned' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Cleaning up database...' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Removal step done. Result: Flux App testapp was successfuly removed' }));
       sinon.assert.calledOnce(res.end);
     });
   });
@@ -5027,7 +5029,14 @@ describe.only('appsService tests', () => {
 
       await appsService.registerAppLocally(appSpec, componentSpecs, res);
 
-      sinon.assert.calledOnceWithExactly(logSpy, 'Another application is undergoing removal');
+      sinon.assert.calledOnceWithExactly(logSpy, {
+        status: 'warning',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: 'Another application is undergoing removal. Installation not possible.',
+        },
+      });
     });
 
     it('should return error if another installation is in progress', async () => {
@@ -5037,7 +5046,14 @@ describe.only('appsService tests', () => {
 
       await appsService.registerAppLocally(appSpec, componentSpecs, res);
 
-      sinon.assert.calledOnceWithExactly(logSpy, 'Another application is undergoing installation');
+      sinon.assert.calledOnceWithExactly(logSpy, {
+        status: 'warning',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: 'Another application is undergoing installation. Installation not possible',
+        },
+      });
     });
 
     it('should return if node tier does not return anything', async () => {
@@ -5047,7 +5063,14 @@ describe.only('appsService tests', () => {
 
       const result = await appsService.registerAppLocally(appSpec, componentSpecs, res);
 
-      sinon.assert.notCalled(logSpy);
+      sinon.assert.calledOnceWithExactly(res.write, JSON.stringify({
+        status: 'error',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: 'Failed to get Node Tier',
+        },
+      }));
       expect(result).to.eql(undefined);
     });
 
@@ -5060,19 +5083,14 @@ describe.only('appsService tests', () => {
       await appsService.registerAppLocally(appSpec, componentSpecs, res);
 
       sinon.assert.calledOnceWithExactly(logSpy, 'Flux App testapp already installed');
-      sinon.assert.calledWithExactly(res.write, 'Flux App testapp already installed');
-    });
-
-    it('should return if node tier does not return anything', async () => {
-      const componentSpecs = false;
-      const res = generateResponse();
-      nodeTierStub.resolves('cumulus');
-      dbStub.returns('testapp');
-
-      await appsService.registerAppLocally(appSpec, componentSpecs, res);
-
-      sinon.assert.calledOnceWithExactly(logSpy, 'Flux App testapp already installed');
-      sinon.assert.calledWithExactly(res.write, 'Flux App testapp already installed');
+      sinon.assert.calledWithExactly(res.write, {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: 'Flux App testapp already installed',
+        },
+      });
     });
 
     it.skip('should install app if v < 4', async () => {
@@ -5116,5 +5134,3 @@ describe.only('appsService tests', () => {
     });
   });
 });
-
-// TODO appLogStream, appExec, fluxUsage, createAppVolume, installApplicationHard
