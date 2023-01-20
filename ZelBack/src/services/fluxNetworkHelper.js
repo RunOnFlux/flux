@@ -820,7 +820,7 @@ async function checkDeterministicNodesCollisions() {
  * @param {object} res Response.
  * @returns {object} Message.
  */
-async function getDOSState(req, res) {
+function getDOSState(req, res) {
   const data = {
     dosState,
     dosMessage,
