@@ -1,4 +1,4 @@
-# Flux - Node Daemon
+# Flux
 
 ![Flux.png](flux_banner.png)
 
@@ -129,7 +129,7 @@ sudo systemctl start mongod.service
 sudo service mongod start
 ```
 
-Install Node Version Manager (NVM) and NodeJS 14 on Ubuntu 18.04/20.04:
+Install Node Version Manager (NVM) and NodeJS 16 on Ubuntu 18.04/20.04:
 
 ```bash
 sudo apt-get install curl
@@ -138,12 +138,12 @@ curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.35.0/install.sh | bash
 
 source ~/.profile
 
-nvm install 14
+nvm install 16
 
-nvm use 14
+nvm use 16
 ```
 
-Install Node Version Manager (NVM) and NodeJS 14 on Redhat/CentOS:
+Install Node Version Manager (NVM) and NodeJS 16 on Redhat/CentOS:
 
 ```bash
 sudo yum install curl
@@ -152,9 +152,9 @@ curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.35.0/install.sh | bash
 
 source ~/.bashrc
 
-nvm install 14
+nvm install 16
 
-nvm use 14
+nvm use 16
 ```
 
 Install Docker using on Ubuntu 20.04
@@ -203,11 +203,12 @@ sudo yum install git
 git clone https://github.com/runonflux/flux
 ```
 
-Allow Inbound Connections on UFW firewall - default ports (ONLY if ufw enabled):
+Allow Inbound Connections on UFW firewall - default ports (if ufw enabled):
 
 ```bash
-sudo ufw allow 16126/tcp
-sudo ufw allow 16127/tcp
+sudo ufw allow 16126
+sudo ufw allow 16127
+sudo ufw allow 16129
 ```
 
 Install Flux dependancies (Ubuntu/CentOS/Redhat):
@@ -237,7 +238,7 @@ The following information below provided for brief usage guidelines and/or examp
 ## Flux Home Information
 
 > Frontend interface to interact with the Flux network
-> Uses port 16126
+> Uses port 16126 by default
 
 ## Build Setup
 
@@ -255,7 +256,7 @@ npm run homebuild --report
 ## Flux Information
 
 > Backend interface to interact with the Flux Network
-> Uses port 16127
+> Uses port 16127 by default
 
 ## Continued Build Setup
 
