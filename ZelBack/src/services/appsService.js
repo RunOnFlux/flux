@@ -8906,7 +8906,7 @@ async function checkMyAppsAvailability() {
         });
       } else {
         app.compose.forEach((component) => {
-          component.ports((port) => {
+          component.ports.forEach((port) => {
             appPorts.push(port);
           });
         });
