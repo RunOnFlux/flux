@@ -45,7 +45,7 @@ async function verifyUPNPsupport(apiport = config.apiport) {
     await client.createMapping({
       public: +apiport + 1,
       private: +apiport + 1,
-      ttl: 2 * 60 * 60, // 2 hours
+      ttl: 0, // 2 hours
       description: 'Flux_OS_reserved_port',
     });
   } catch (error) {
@@ -87,19 +87,19 @@ async function setupUPNP(apiport = config.apiport) {
     await client.createMapping({
       public: +apiport,
       private: +apiport,
-      ttl: 2 * 60 * 60, // 2 hours. Some routers force low ttl if 0, indefinite is used. Flux refreshes this every 6 blocks ~ 12 minutes
+      ttl: 0, // 2 hours. Some routers force low ttl if 0, indefinite is used. Flux refreshes this every 6 blocks ~ 12 minutes
       description: 'Flux_Backend_API',
     });
     await client.createMapping({
       public: +apiport - 1,
       private: +apiport - 1,
-      ttl: 2 * 60 * 60, // 2 hours
+      ttl: 0, // 2 hours
       description: 'Flux_Home_UI',
     });
     await client.createMapping({
       public: +apiport + 2,
       private: +apiport + 2,
-      ttl: 2 * 60 * 60, // 2 hours
+      ttl: 0, // 2 hours
       description: 'Flux_Syncthing',
     });
     return true;
@@ -120,14 +120,14 @@ async function mapUpnpPort(port, description) {
     await client.createMapping({
       public: port,
       private: port,
-      ttl: 2 * 60 * 60, // 2 hours
+      ttl: 0, // 2 hours
       protocol: 'TCP',
       description,
     });
     await client.createMapping({
       public: port,
       private: port,
-      ttl: 2 * 60 * 60, // 2 hours
+      ttl: 0, // 2 hours
       protocol: 'UDP',
       description,
     });
@@ -178,14 +178,14 @@ async function mapPortApi(req, res) {
       await client.createMapping({
         public: port,
         private: port,
-        ttl: 2 * 60 * 60, // 2 hours
+        ttl: 0, // 2 hours
         protocol: 'TCP',
         description: 'Flux_manual_entry',
       });
       await client.createMapping({
         public: port,
         private: port,
-        ttl: 2 * 60 * 60, // 2 hours
+        ttl: 0, // 2 hours
         protocol: 'UDP',
         description: 'Flux_manual_entry',
       });
