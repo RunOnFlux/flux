@@ -1290,6 +1290,36 @@ async function stopAppMonitoringAPI(req, res) {
 }
 
 /**
+ * Created for testing purposes - sets appMonitored
+ *
+ * @param {object} appData
+ */
+
+function setAppsMonitored(appData) {
+  appsMonitored[appData.appName] = appData;
+}
+/**
+ * Created for testing purposes - gets appMonitored
+ */
+
+function getAppsMonitored() {
+  return appsMonitored;
+}
+
+/**
+ * Created for testing purposes - clears appMonitored
+ *
+ * @param {object} appData
+ */
+
+function clearAppsMonitored() {
+  // eslint-disable-next-line no-restricted-syntax
+  for (const prop of Object.getOwnPropertyNames(appsMonitored)) {
+    delete appsMonitored[prop];
+  }
+}
+
+/**
  * To show filesystem changes for an app's Docker container. Only accessible by app owner, admins and flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -1604,6 +1634,30 @@ async function getNodeSpecs() {
   } catch (error) {
     log.error(error);
   }
+}
+
+/**
+ * Created for testing purposes
+ *
+ * @param {number} cores
+ * @param {number} ram
+ * @param {number} ssdStorage
+ */
+function setNodeSpecs(cores, ram, ssdStorage) {
+  nodeSpecs.cpuCores = cores;
+  nodeSpecs.ram = ram;
+  nodeSpecs.ssdStorage = ssdStorage;
+}
+
+/**
+ * Created for testing purposes
+ *
+ * @param {number} cores
+ * @param {number} ram
+ * @param {number} ssdStorage
+ */
+function returnNodeSpecs() {
+  return nodeSpecs;
 }
 
 /**
@@ -2752,7 +2806,7 @@ async function checkAppHWRequirements(appSpecs) {
     throw new Error('Insufficient space on Flux Node to spawn an application');
   }
   const useableSpaceOnNode = totalSpaceOnNode - config.lockedSystemResources.hdd;
-  const hddLockedByApps = resourcesLocked.data.apsHddLocked;
+  const hddLockedByApps = resourcesLocked.data.appsHddLocked;
   const availableSpaceForApps = useableSpaceOnNode - hddLockedByApps;
   // bigger or equal so we have the 1 gb free...
   if (appHWrequirements.hdd > availableSpaceForApps) {
@@ -8901,6 +8955,22 @@ async function checkMyAppsAvailability() {
   }
 }
 
+function removalInProgressReset() {
+  removalInProgress = false;
+}
+
+function setRemovalInProgressToTrue() {
+  removalInProgress = true;
+}
+
+function installationInProgressReset() {
+  installationInProgress = false;
+}
+
+function setInstallationInProgressTrue() {
+  installationInProgress = true;
+}
+
 module.exports = {
   listRunningApps,
   listAllApps,
@@ -8993,4 +9063,26 @@ module.exports = {
   getChainParamsPriceUpdates,
   getAppsDOSState,
   checkMyAppsAvailability,
+
+  // exports for testing purposes
+  setAppsMonitored,
+  getAppsMonitored,
+  clearAppsMonitored,
+  getAppFolderSize,
+  startAppMonitoring,
+  stopMonitoringOfApps,
+  getNodeSpecs,
+  setNodeSpecs,
+  returnNodeSpecs,
+  appUninstallHard,
+  appUninstallSoft,
+  removalInProgressReset,
+  totalAppHWRequirements,
+  nodeFullGeolocation,
+  checkAppGeolocationRequirements,
+  checkAppHWRequirements,
+  installApplicationHard,
+  setRemovalInProgressToTrue,
+  installationInProgressReset,
+  setInstallationInProgressTrue,
 };
