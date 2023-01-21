@@ -52,7 +52,9 @@ function showQuestions() {
         ipaddress: '${answers.ipaddr}',
         zelid: '${answers.zelid}',
         testnet: false,
+        development: false,
         apiport: 16127,
+        decryptionkey: '',
       }
     }`;
 

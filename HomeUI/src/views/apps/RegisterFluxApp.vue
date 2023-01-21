@@ -1829,7 +1829,7 @@ export default {
     },
 
     async appsDeploymentInformation() {
-      const response = await AppsService.appsRegInformation();
+      const response = await AppsService.appsDeploymentInformation();
       const { data } = response.data;
       if (response.data.status === 'success') {
         this.deploymentAddress = data.address;
@@ -2131,9 +2131,11 @@ export default {
           }
         }
         if (this.output[this.output.length - 1].status === 'error') {
-          this.showToast('danger', this.output[this.output.length - 1].status);
+          this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+        } else if (this.output[this.output.length - 1].status === 'warning') {
+          this.showToast('warning', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else {
-          this.showToast('success', this.output[this.output.length - 1].status);
+          this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         }
       }
     },

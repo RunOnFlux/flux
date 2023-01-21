@@ -6,6 +6,8 @@ const fs = require('fs').promises;
 const path = require('path');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
+// eslint-disable-next-line import/no-extraneous-dependencies
+const net = require('net');
 const LRU = require('lru-cache');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
@@ -104,6 +106,56 @@ function minVersionSatisfy(version, minimumVersion) {
 }
 
 /**
+ * To perform a basic check if port on an ip is opened
+ * @param {string} ip IP address.
+ * @param {number} port Port.
+ * @param {string} app Application name. Mostly for comsetic purposes, can be boolean. Defaults to undefined, as for testing main FluxOS not an app.
+ * @param {number} timeout Timeout in ms.
+ * @returns {boolean} Returns true if opened, otherwise false
+ */
+async function isPortOpen(ip, port, app, timeout = 5000) {
+  try {
+    const promise = new Promise(((resolve, reject) => {
+      const socket = new net.Socket();
+
+      const onError = (err) => {
+        socket.destroy();
+        if (app) {
+          resolve();
+        } else if (port === 16129) {
+          log.error(`Syncthing of Flux on ${ip}:${port} did not respond correctly but may be in use. Allowing`);
+          log.error(err);
+          resolve();
+        } else {
+          log.error(`Flux on ${ip}:${port} is not working correctly`);
+          log.error(err);
+          reject();
+        }
+      };
+
+      const onTimeout = () => {
+        log.error(`Connection on ${ip}:${port} timed out. Flux or Flux App is not running correctly`);
+        socket.destroy();
+        reject();
+      };
+
+      socket.setTimeout(timeout);
+      socket.once('error', onError);
+      socket.once('timeout', onTimeout);
+
+      socket.connect(port, ip, () => {
+        socket.destroy();
+        resolve();
+      });
+    }));
+    await promise;
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+/**
  * To perform a basic check of current FluxOS version.
  * @param {string} ip IP address.
  * @param {string} port Port. Defaults to config.server.apiport.
@@ -116,7 +168,18 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
 
     const fluxVersion = fluxResponse.data.data;
     const versionMinOK = minVersionSatisfy(fluxVersion, config.minimumFluxOSAllowedVersion);
-    return versionMinOK;
+    if (!versionMinOK) return false;
+
+    const homePort = +port - 1;
+    const fluxResponseUI = await serviceHelper.axiosGet(`http://${ip}:${homePort}`, axiosConfig);
+    const UIok = fluxResponseUI.data.includes('<title>');
+    if (!UIok) return false;
+
+    const syncthingPort = +port + 2;
+    const syncthingOpen = await isPortOpen(ip, syncthingPort);
+    if (!syncthingOpen) return false;
+
+    return true;
   } catch (e) {
     return false;
   }
@@ -148,6 +211,44 @@ async function checkFluxAvailability(req, res) {
     response = message;
   }
   return res.json(response);
+}
+
+/**
+ * To get app price.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+async function checkAppAvailability(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const processedBody = serviceHelper.ensureObject(body);
+
+      const { ip, ports, appname } = processedBody;
+
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of ports) {
+        // eslint-disable-next-line no-await-in-loop
+        const isOpen = await isPortOpen(ip, port, appname, 2000);
+        if (!isOpen) {
+          throw new Error(`Flux App ${appname} on ${ip}:${port} is not available.`);
+        }
+      }
+      const errorResponse = messageHelper.createSuccessMessage(`Flux App ${appname} is available.`);
+      res.json(errorResponse);
+    } catch (error) {
+      const errorResponse = messageHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      res.json(errorResponse);
+    }
+  });
 }
 
 /**
@@ -421,7 +522,7 @@ async function checkFluxbenchVersionAllowed() {
       return false;
     }
     dosState += 2;
-    setDosMessage('Fluxbench Version Error. Error obtaining Flux Version.');
+    setDosMessage('Fluxbench Version Error. Error obtaining FluxBench Version.');
     log.error(dosMessage);
     return false;
   } catch (err) {
@@ -608,7 +709,9 @@ async function adjustExternalIP(ip) {
     zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
     kadena: '${userconfig.initial.kadena || ''}',
     testnet: ${userconfig.initial.testnet || false},
+    development: ${userconfig.initial.development || false},
     apiport: ${Number(userconfig.initial.apiport || config.apiport)},
+    decryptionkey: '${userconfig.initial.decryptionkey || ''}',
   }
 }`;
 
@@ -717,7 +820,7 @@ async function checkDeterministicNodesCollisions() {
  * @param {object} res Response.
  * @returns {object} Message.
  */
-async function getDOSState(req, res) {
+function getDOSState(req, res) {
   const data = {
     dosState,
     dosMessage,
@@ -954,4 +1057,6 @@ module.exports = {
   fluxUptime,
   isCommunicationEstablished,
   lruRateLimit,
+  isPortOpen,
+  checkAppAvailability,
 };

@@ -1,6 +1,6 @@
 {
   "name": "flux",
-  "version": "3.31.2",
+  "version": "3.32.0",
   "description": "Flux, Your Gateway to a Decentralized World",
   "repository": {
     "type": "git",
@@ -60,6 +60,8 @@
     "flux": "nodemon app.js",
     "start": "npm install --production && node init.js && npm run flux",
     "dev": "node init.js && concurrently \"npm run fluxdev\" \"npm run homedev\"",
+    "enterdevelopment": "git checkout development",
+    "entermaster": "git checkout master",
     "softupdate": "git pull",
     "softupdateinstall": "git pull; npm install --production",
     "updateflux": "git pull; git reset --hard; rm -rf .git/index.lock HomeUI/dist; git reset --hard; git pull",

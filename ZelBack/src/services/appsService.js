@@ -1290,6 +1290,36 @@ async function stopAppMonitoringAPI(req, res) {
 }
 
 /**
+ * Created for testing purposes - sets appMonitored
+ *
+ * @param {object} appData
+ */
+
+function setAppsMonitored(appData) {
+  appsMonitored[appData.appName] = appData;
+}
+/**
+ * Created for testing purposes - gets appMonitored
+ */
+
+function getAppsMonitored() {
+  return appsMonitored;
+}
+
+/**
+ * Created for testing purposes - clears appMonitored
+ *
+ * @param {object} appData
+ */
+
+function clearAppsMonitored() {
+  // eslint-disable-next-line no-restricted-syntax
+  for (const prop of Object.getOwnPropertyNames(appsMonitored)) {
+    delete appsMonitored[prop];
+  }
+}
+
+/**
  * To show filesystem changes for an app's Docker container. Only accessible by app owner, admins and flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -1604,6 +1634,30 @@ async function getNodeSpecs() {
   } catch (error) {
     log.error(error);
   }
+}
+
+/**
+ * Created for testing purposes
+ *
+ * @param {number} cores
+ * @param {number} ram
+ * @param {number} ssdStorage
+ */
+function setNodeSpecs(cores, ram, ssdStorage) {
+  nodeSpecs.cpuCores = cores;
+  nodeSpecs.ram = ram;
+  nodeSpecs.ssdStorage = ssdStorage;
+}
+
+/**
+ * Created for testing purposes
+ *
+ * @param {number} cores
+ * @param {number} ram
+ * @param {number} ssdStorage
+ */
+function returnNodeSpecs() {
+  return nodeSpecs;
 }
 
 /**
@@ -2196,9 +2250,10 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
     // we want to remove the image as well (repotag) what if other container uses the same image -> then it shall result in an error so ok anyway
     if (!force) {
       if (removalInProgress) {
-        log.warn('Another application is undergoing removal');
+        const warnResponse = messageHelper.createWarningMessage('Another application is undergoing removal. Removal not possible.');
+        log.warn(warnResponse);
         if (res) {
-          res.write(serviceHelper.ensureString('Another application is undergoing removal'));
+          res.write(serviceHelper.ensureString(warnResponse));
           if (endResponse) {
             res.end();
           }
@@ -2206,9 +2261,10 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
         return;
       }
       if (installationInProgress) {
-        log.warn('Another application is undergoing installation');
+        const warnResponse = messageHelper.createWarningMessage('Another application is undergoing installation. Removal not possible.');
+        log.warn(warnResponse);
         if (res) {
-          res.write(serviceHelper.ensureString('Another application is undergoing installation'));
+          res.write(serviceHelper.ensureString(warnResponse));
           if (endResponse) {
             res.end();
           }
@@ -2750,7 +2806,7 @@ async function checkAppHWRequirements(appSpecs) {
     throw new Error('Insufficient space on Flux Node to spawn an application');
   }
   const useableSpaceOnNode = totalSpaceOnNode - config.lockedSystemResources.hdd;
-  const hddLockedByApps = resourcesLocked.data.apsHddLocked;
+  const hddLockedByApps = resourcesLocked.data.appsHddLocked;
   const availableSpaceForApps = useableSpaceOnNode - hddLockedByApps;
   // bigger or equal so we have the 1 gb free...
   if (appHWrequirements.hdd > availableSpaceForApps) {
@@ -2943,7 +2999,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
   // register and launch according to specifications in message
   try {
     if (removalInProgress) {
-      const rStatus = messageHelper.createErrorMessage('Another application is undergoing removal');
+      const rStatus = messageHelper.createWarningMessage('Another application is undergoing removal. Installation not possible.');
       log.error(rStatus);
       if (res) {
         res.write(serviceHelper.ensureString(rStatus));
@@ -2952,7 +3008,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
       return;
     }
     if (installationInProgress) {
-      const rStatus = messageHelper.createErrorMessage('Another application is undergoing installation');
+      const rStatus = messageHelper.createWarningMessage('Another application is undergoing installation. Installation not possible');
       log.error(rStatus);
       if (res) {
         res.write(serviceHelper.ensureString(rStatus));
@@ -3022,13 +3078,10 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     }
 
     if (!isComponent) {
-      const installedAppsRes = await installedApps();
-      if (installedAppsRes.status !== 'success') {
-        throw new Error('Failed to get installed Apps');
-      }
-      const iApps = installedAppsRes.data;
+      // last character of appName determines gateway
+      const lastCharCode = appName.charCodeAt(appName.length - 1);
 
-      const dockerNetworkAddrValue = 50 + iApps.length;
+      const dockerNetworkAddrValue = lastCharCode;
 
       const fluxNetworkStatus = {
         status: `Checking Flux App network of ${appName}...`,
@@ -3039,7 +3092,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
       }
       const fluxNet = await dockerService.createFluxAppDockerNetwork(appName, dockerNetworkAddrValue).catch((error) => log.error(error));
       if (!fluxNet) {
-        throw new Error(`Flux App network of ${appName} failed to initiate`);
+        throw new Error(`Flux App network of ${appName} failed to initiate. Range already assigned to different application.`);
       }
       log.info(serviceHelper.ensureString(fluxNet));
       const fluxNetResponse = {
@@ -3353,13 +3406,10 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     }
 
     if (!isComponent) {
-      const installedAppsRes = await installedApps();
-      if (installedAppsRes.status !== 'success') {
-        throw new Error('Failed to get installed Apps');
-      }
-      const iApps = installedAppsRes.data;
+      // last character of appName determines gateway
+      const lastCharCode = appName.charCodeAt(appName.length - 1);
 
-      const dockerNetworkAddrValue = 50 + iApps.length;
+      const dockerNetworkAddrValue = lastCharCode;
 
       const fluxNetworkStatus = {
         status: `Checking Flux App network of ${appName}...`,
@@ -3370,9 +3420,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       }
       const fluxNet = await dockerService.createFluxAppDockerNetwork(appName, dockerNetworkAddrValue).catch((error) => log.error(error));
       if (!fluxNet) {
-        if (!fluxNet) {
-          throw new Error(`Flux App network of ${appName} failed to initiate`);
-        }
+        throw new Error(`Flux App network of ${appName} failed to initiate. Range already assigned to different application`);
       }
       log.info(serviceHelper.ensureString(fluxNet));
       const fluxNetResponse = {
@@ -4964,14 +5012,16 @@ async function restoreFluxPortsSupport() {
 
     const apiPort = userconfig.initial.apiport || config.server.apiport;
     const homePort = +apiPort - 1;
+    const syncthingPort = +apiPort + 2;
 
     // setup UFW if active
     await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(apiPort));
     await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(homePort));
+    await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(syncthingPort));
 
     // UPNP
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
-      // map our Flux API and UI port
+      // map our Flux API, UI and SYNCTHING port
       await upnpService.setupUPNP(apiPort);
     }
   } catch (error) {
@@ -7588,14 +7638,18 @@ async function trySpawningGlobalApplication() {
     const newAppRunningMessage = {
       type: 'fluxapprunning',
       version: 1,
+      name: appSpecifications.name,
       hash: appSpecifications.hash, // hash of application specifics that are running
       ip: myIP,
       broadcastedAt,
     };
 
+    // store it in local database first
+    // eslint-disable-next-line no-await-in-loop
+    await storeAppRunningMessage(newAppRunningMessage);
     // broadcast messages about running apps to all peers
     await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessage);
-    await serviceHelper.delay(100);
+    await serviceHelper.delay(500);
     await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessage);
     // broadcast messages about running apps to all peers
 
@@ -8164,7 +8218,6 @@ async function reinstallOldApplications() {
               await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
               log.warn(`Composed application ${appSpecifications.name} updated.`);
             } catch (error) {
-              removalInProgress = false;
               log.error(error);
               removeAppLocally(appSpecifications.name, null, true); // remove entire app
             }
@@ -8810,6 +8863,114 @@ async function syncthingApps() {
   }
 }
 
+let dosState = 0; // we can start at bigger number later
+let dosMessage = null;
+
+/**
+ * To get DOS state.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+function getAppsDOSState(req, res) {
+  const data = {
+    dosState,
+    dosMessage,
+  };
+  const response = messageHelper.createDataMessage(data);
+  return res ? res.json(response) : response;
+}
+
+/**
+ * Periodically check for our installed applications availability
+*/
+async function checkMyAppsAvailability() {
+  try {
+    let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+    myIP = myIP.split(':')[0];
+    // go through all our installed apps and test if they are available on a random node
+    let currentDos = 0;
+    const installedAppsRes = await installedApps();
+    if (installedAppsRes.status !== 'success') {
+      throw new Error('Failed to get installed Apps');
+    }
+    const apps = installedAppsRes.data;
+    // eslint-disable-next-line no-restricted-syntax
+    for (const app of apps) {
+      const appPorts = [];
+      if (app.version === 1) {
+        appPorts.push(app.port);
+      } else if (app.version <= 3) {
+        app.ports.forEach((port) => {
+          appPorts.push(port);
+        });
+      } else {
+        app.compose.forEach((component) => {
+          component.ports((port) => {
+            appPorts.push(port);
+          });
+        });
+      }
+      // eslint-disable-next-line no-await-in-loop
+      let askingIP = await fluxNetworkHelper.getRandomConnection();
+      let askingIpPort = config.server.apiport;
+      if (askingIP.includes(':')) { // has port specification
+        // it has port specification
+        const splittedIP = askingIP.split(':');
+        askingIP = splittedIP[0];
+        askingIpPort = splittedIP[1];
+      }
+      const axiosConfig = {
+        timeout: 240000,
+      };
+      const data = {
+        ip: myIP,
+        appname: app.name,
+        ports: appPorts,
+      };
+      // eslint-disable-next-line no-await-in-loop
+      const resMyAppAvailability = await axios.post(`http://${askingIP}:${askingIpPort}/flux/checkappavailability`, data, axiosConfig).catch((error) => {
+        log.error(`${askingIP} for app availability is not reachable`);
+        log.error(error);
+      });
+      if (resMyAppAvailability.data.status === 'error') {
+        log.error(`Running application ${app.name} is not reachable from outside!`);
+        currentDos += 1;
+        dosState += 1;
+      }
+      if (dosState > 10) {
+        dosMessage = `Running application ${app.name} is not reachable from outside!`;
+      }
+    }
+    if (currentDos === 0) {
+      dosState = 0;
+      dosMessage = null;
+    }
+    await serviceHelper.delay(4 * 60 * 1000);
+    checkMyAppsAvailability();
+  } catch (error) {
+    log.error(error);
+    await serviceHelper.delay(4 * 60 * 1000);
+    checkMyAppsAvailability();
+  }
+}
+
+function removalInProgressReset() {
+  removalInProgress = false;
+}
+
+function setRemovalInProgressToTrue() {
+  removalInProgress = true;
+}
+
+function installationInProgressReset() {
+  installationInProgress = false;
+}
+
+function setInstallationInProgressTrue() {
+  installationInProgress = true;
+}
+
 module.exports = {
   listRunningApps,
   listAllApps,
@@ -8900,4 +9061,28 @@ module.exports = {
   getAllGlobalApplicationsNamesWithLocation,
   syncthingApps,
   getChainParamsPriceUpdates,
+  getAppsDOSState,
+  checkMyAppsAvailability,
+
+  // exports for testing purposes
+  setAppsMonitored,
+  getAppsMonitored,
+  clearAppsMonitored,
+  getAppFolderSize,
+  startAppMonitoring,
+  stopMonitoringOfApps,
+  getNodeSpecs,
+  setNodeSpecs,
+  returnNodeSpecs,
+  appUninstallHard,
+  appUninstallSoft,
+  removalInProgressReset,
+  totalAppHWRequirements,
+  nodeFullGeolocation,
+  checkAppGeolocationRequirements,
+  checkAppHWRequirements,
+  installApplicationHard,
+  setRemovalInProgressToTrue,
+  installationInProgressReset,
+  setInstallationInProgressTrue,
 };

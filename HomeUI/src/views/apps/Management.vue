@@ -1864,7 +1864,7 @@
                   size="sm"
                   class="mr-1"
                   variant="danger"
-                  @click="openApp(locationRow.item.name, locationRow.item.ip.split(':')[0], appUpdateSpecification.port || (appUpdateSpecification.ports ? JSON.parse(appUpdateSpecification.ports)[0] : JSON.parse(appUpdateSpecification.compose[0]).ports[0]))"
+                  @click="openApp(locationRow.item.name, locationRow.item.ip.split(':')[0], getProperPort(JSON.parse(appUpdateSpecification)))"
                 >
                   Visit App
                 </b-button>
@@ -3537,7 +3537,7 @@ export default {
   },
   methods: {
     async appsDeploymentInformation() {
-      const response = await AppsService.appsRegInformation();
+      const response = await AppsService.appsDeploymentInformation();
       const { data } = response.data;
       if (response.data.status === 'success') {
         this.deploymentAddress = data.address;
@@ -4267,8 +4267,10 @@ export default {
         this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
         if (this.output[this.output.length - 1].status === 'error') {
           this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+        } else if (this.output[this.output.length - 1].status === 'warning') {
+          this.showToast('warning', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else {
-          this.showToast('success', this.output[this.output.length - 1].status);
+          this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         }
       }
     },
@@ -4293,8 +4295,10 @@ export default {
         this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
         if (this.output[this.output.length - 1].status === 'error') {
           this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+        } else if (this.output[this.output.length - 1].status === 'warning') {
+          this.showToast('warning', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else {
-          this.showToast('success', this.output[this.output.length - 1].status);
+          this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         }
         setTimeout(() => {
           self.managedApplication = '';
@@ -4380,8 +4384,22 @@ export default {
         const url = `http://${ip}:${port}`;
         this.openSite(url);
       } else {
-        this.showToast('danger', 'Unable to open App :(');
+        this.showToast('danger', 'Unable to open App :(, App does not have a port.');
       }
+    },
+    getProperPort(appSpecs) {
+      if (appSpecs.port) {
+        return appSpecs.port;
+      }
+      if (appSpecs.ports) {
+        return appSpecs.ports[0];
+      }
+      for (let i = 0; i < appSpecs.compose.length; i += 1) {
+        for (let j = 0; j < appSpecs.compose[i].ports.length; j += 1) {
+          return appSpecs.compose[i].ports[j];
+        }
+      }
+      return null;
     },
     openNodeFluxOS(_ip, _port) {
       console.log(_ip, _port);

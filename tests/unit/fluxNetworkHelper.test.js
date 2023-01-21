@@ -28,6 +28,8 @@ const userconfig = {
     kadena: '123456789',
     apiport: '16127',
     testnet: true,
+    development: false,
+    decryptionkey: '',
   },
 };
 const fluxNetworkHelper = proxyquire('../../ZelBack/src/services/fluxNetworkHelper',
@@ -80,6 +82,7 @@ describe('fluxNetworkHelper tests', () => {
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(fluxAvailabilitySuccessResponse);
       const expectedAddress = 'http://127.0.0.1:16125/flux/version';
+      const expectedAddressHome = 'http://127.0.0.1:16124';
       const expectedMessage = {
         status: 'success',
         data: {
@@ -92,6 +95,7 @@ describe('fluxNetworkHelper tests', () => {
       const checkFluxAvailabilityResult = await fluxNetworkHelper.checkFluxAvailability(req, mockResponse);
 
       sinon.assert.calledOnceWithExactly(stub, expectedAddress, axiosConfig);
+      sinon.assert.calledWithExactly(stub, expectedAddressHome, axiosConfig);
       sinon.assert.calledOnceWithExactly(mockResponse.json, expectedMessage);
       expect(checkFluxAvailabilityResult).to.eql(expectedMessage);
     });
@@ -110,6 +114,7 @@ describe('fluxNetworkHelper tests', () => {
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(fluxAvailabilitySuccessResponse);
       const expectedAddress = 'http://127.0.0.1:16125/flux/version';
+      const expectedAddressHome = 'http://127.0.0.1:16124';
       const expectedMessage = {
         status: 'success',
         data: {
@@ -121,7 +126,8 @@ describe('fluxNetworkHelper tests', () => {
 
       const checkFluxAvailabilityResult = await fluxNetworkHelper.checkFluxAvailability(req, mockResponse);
 
-      sinon.assert.calledOnceWithExactly(stub, expectedAddress, axiosConfig);
+      sinon.assert.calledWithExactly(stub, expectedAddress, axiosConfig);
+      sinon.assert.calledWithExactly(stub, expectedAddressHome, axiosConfig);
       sinon.assert.calledOnceWithExactly(mockResponse.json, expectedMessage);
       expect(checkFluxAvailabilityResult).to.eql(expectedMessage);
     });
@@ -302,10 +308,12 @@ describe('fluxNetworkHelper tests', () => {
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
+      const expectedAddressHome = 'http://127.0.0.1:16126';
 
       const isFluxAvailableResult = await fluxNetworkHelper.isFluxAvailable(ip);
 
       sinon.assert.calledOnceWithExactly(stub, expectedAddress, axiosConfig);
+      sinon.assert.calledWithExactly(stub, expectedAddressHome, axiosConfig);
       expect(isFluxAvailableResult).to.equal(true);
     });
 
@@ -318,10 +326,12 @@ describe('fluxNetworkHelper tests', () => {
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
       const expectedAddress = 'http://127.0.0.1:16125/flux/version';
+      const expectedAddressHome = 'http://127.0.0.1:16124';
 
       const isFluxAvailableResult = await fluxNetworkHelper.isFluxAvailable(ip, port);
 
-      sinon.assert.calledOnceWithExactly(stub, expectedAddress, axiosConfig);
+      sinon.assert.calledWithExactly(stub, expectedAddress, axiosConfig);
+      sinon.assert.calledWithExactly(stub, expectedAddressHome, axiosConfig);
       expect(isFluxAvailableResult).to.equal(true);
     });
 
@@ -966,7 +976,7 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('checkFluxbenchVersionAllowed tests', () => {
-    // minimumFluxBenchAllowedVersion = '3.6.0';
+    // minimumFluxBenchAllowedVersion = '3.7.0';
     let benchmarkInfoResponseStub;
 
     beforeEach(() => {
@@ -987,7 +997,7 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('should return true if bench version is equal to minimal and stored in cache', async () => {
-      fluxNetworkHelper.setStoredFluxBenchAllowed('3.6.0');
+      fluxNetworkHelper.setStoredFluxBenchAllowed('3.7.0');
 
       const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
 
@@ -1021,7 +1031,7 @@ describe('fluxNetworkHelper tests', () => {
       const benchmarkInfoResponse = {
         status: 'success',
         data: {
-          version: '3.6.0',
+          version: '3.7.0',
         },
       };
       benchmarkInfoResponseStub.returns(benchmarkInfoResponse);
@@ -1029,7 +1039,7 @@ describe('fluxNetworkHelper tests', () => {
       const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
 
       expect(isFluxbenchVersionAllowed).to.equal(true);
-      expect(fluxNetworkHelper.getStoredFluxBenchAllowed()).to.equal('3.6.0');
+      expect(fluxNetworkHelper.getStoredFluxBenchAllowed()).to.equal('3.7.0');
     });
 
     it('should return false if the version is lower than minimal and is not set in cache', async () => {
@@ -1282,7 +1292,9 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/kadena: '123456789',/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/testnet: true,/gm));
+      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/development: false,/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/apiport: 16127,/gm));
+      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/decryptionkey: '',/gm));
     });
 
     it('should not write to file if the config already has same exact ip', () => {

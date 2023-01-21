@@ -14,6 +14,7 @@ const syncthingService = require('./syncthingService');
 const userconfig = require('../../../config/userconfig');
 
 const apiPort = userconfig.initial.apiport || config.server.apiport;
+const development = userconfig.initial.development || false;
 
 /**
  * To start FluxOS. A series of checks are performed on port and UPnP (Universal Plug and Play) support and mapping. Database connections are established. The other relevant functions required to start FluxOS services are called.
@@ -105,10 +106,13 @@ async function startFluxFunctions() {
       log.info('Flux Block Processing Service started');
     }, 2 * 60 * 1000);
     setTimeout(() => {
+      appsService.checkMyAppsAvailability(); // periodically checks
+    }, 3 * 60 * 1000);
+    setTimeout(() => {
       appsService.checkAndNotifyPeersOfRunningApps(); // first broadcast after 4m of starting fluxos
-      setInterval(() => { // every 20 mins (~10 blocks) messages stay on db for 65m
+      setInterval(() => { // every 60 mins messages stay on db for 65m
         appsService.checkAndNotifyPeersOfRunningApps();
-      }, 20 * 60 * 1000);
+      }, 60 * 60 * 1000);
     }, 4 * 60 * 1000);
     setTimeout(() => {
       appsService.syncthingApps(); // after 6 mins adjust our syncthing configuration
@@ -120,16 +124,26 @@ async function startFluxFunctions() {
       appsService.continuousFluxAppHashesCheck();
     }, 12 * 60 * 1000);
     setTimeout(() => {
-      // after 20 minutes of running ok.
+      // after 90 minutes of running ok and to make sure we are connected for enough time for receiving all apps running on other nodes
       log.info('Starting to spawn applications');
       appsService.trySpawningGlobalApplication();
-    }, 20 * 60 * 1000);
+    }, 90 * 60 * 1000);
     setTimeout(() => {
       appsService.forceAppRemovals(); // force cleanup of apps every day
       setInterval(() => {
         appsService.forceAppRemovals();
       }, 24 * 60 * 60 * 1000);
     }, 30 * 60 * 1000);
+    if (development) { // just on development branch
+      setInterval(async () => {
+        await fluxService.enterDevelopment().catch((error) => log.error(error));
+        if (development === true || development === 'true' || development === 1 || development === '1') { // in other cases pause git pull
+          setTimeout(async () => {
+            await fluxService.softUpdateFlux().catch((error) => log.error(error));
+          }, 15 * 1000);
+        }
+      }, 5 * 60 * 1000); // every 5 mins
+    }
   } catch (e) {
     log.error(e);
     setTimeout(() => {

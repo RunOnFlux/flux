@@ -1961,6 +1961,7 @@ async function startSyncthing() {
       const newConfig = {
         globalAnnounceEnabled: false,
         localAnnounceEnabled: false,
+        natEnabled: false, // let flux handle upnp and nat port mapping
         listenAddresses: [`tcp://:${myPort}`, `quic://:${myPort}`],
       };
       const newConfigDefaultFolders = {
@@ -1968,10 +1969,12 @@ async function startSyncthing() {
         sendOwnership: true,
         syncXattrs: true,
         sendXattrs: true,
+        maxConflicts: 0,
       };
       if (currentConfigOptions.status === 'success') {
         if (currentConfigOptions.data.globalAnnounceEnabled !== newConfig.globalAnnounceEnabled
           || currentConfigOptions.data.localAnnounceEnabled !== newConfig.localAnnounceEnabled
+          || currentConfigOptions.data.natEnabled !== newConfig.natEnabled
           || serviceHelper.ensureString(currentConfigOptions.data.listenAddresses) !== serviceHelper.ensureString(newConfig.listenAddresses)) {
           // patch our config
           await adjustConfigOptions('patch', newConfig);
