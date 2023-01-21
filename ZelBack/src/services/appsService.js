@@ -7638,14 +7638,18 @@ async function trySpawningGlobalApplication() {
     const newAppRunningMessage = {
       type: 'fluxapprunning',
       version: 1,
+      name: appSpecifications.name,
       hash: appSpecifications.hash, // hash of application specifics that are running
       ip: myIP,
       broadcastedAt,
     };
 
+    // store it in local database first
+    // eslint-disable-next-line no-await-in-loop
+    await storeAppRunningMessage(newAppRunningMessage);
     // broadcast messages about running apps to all peers
     await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessage);
-    await serviceHelper.delay(100);
+    await serviceHelper.delay(500);
     await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessage);
     // broadcast messages about running apps to all peers
 
@@ -8859,6 +8863,98 @@ async function syncthingApps() {
   }
 }
 
+let dosState = 0; // we can start at bigger number later
+let dosMessage = null;
+
+/**
+ * To get DOS state.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+function getAppsDOSState(req, res) {
+  const data = {
+    dosState,
+    dosMessage,
+  };
+  const response = messageHelper.createDataMessage(data);
+  return res ? res.json(response) : response;
+}
+
+/**
+ * Periodically check for our installed applications availability
+*/
+async function checkMyAppsAvailability() {
+  try {
+    let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+    myIP = myIP.split(':')[0];
+    // go through all our installed apps and test if they are available on a random node
+    let currentDos = 0;
+    const installedAppsRes = await installedApps();
+    if (installedAppsRes.status !== 'success') {
+      throw new Error('Failed to get installed Apps');
+    }
+    const apps = installedAppsRes.data;
+    // eslint-disable-next-line no-restricted-syntax
+    for (const app of apps) {
+      const appPorts = [];
+      if (app.version === 1) {
+        appPorts.push(app.port);
+      } else if (app.version <= 3) {
+        app.ports.forEach((port) => {
+          appPorts.push(port);
+        });
+      } else {
+        app.compose.forEach((component) => {
+          component.ports((port) => {
+            appPorts.push(port);
+          });
+        });
+      }
+      // eslint-disable-next-line no-await-in-loop
+      let askingIP = await fluxNetworkHelper.getRandomConnection();
+      let askingIpPort = config.server.apiport;
+      if (askingIP.includes(':')) { // has port specification
+        // it has port specification
+        const splittedIP = askingIP.split(':');
+        askingIP = splittedIP[0];
+        askingIpPort = splittedIP[1];
+      }
+      const axiosConfig = {
+        timeout: 240000,
+      };
+      const data = {
+        ip: myIP,
+        appname: app.name,
+        ports: appPorts,
+      };
+      // eslint-disable-next-line no-await-in-loop
+      const resMyAppAvailability = await axios.post(`http://${askingIP}:${askingIpPort}/flux/checkappavailability`, data, axiosConfig).catch((error) => {
+        log.error(`${askingIP} for app availability is not reachable`);
+        log.error(error);
+      });
+      if (resMyAppAvailability.data.status === 'error') {
+        log.error(`Running application ${app.name} is not reachable from outside!`);
+        currentDos += 1;
+        dosState += 1;
+      }
+      if (dosState > 10) {
+        dosMessage = `Running application ${app.name} is not reachable from outside!`;
+      }
+    }
+    if (currentDos === 0) {
+      dosState = 0;
+      dosMessage = null;
+    }
+    await serviceHelper.delay(4 * 60 * 1000);
+    checkMyAppsAvailability();
+  } catch (error) {
+    log.error(error);
+    await serviceHelper.delay(4 * 60 * 1000);
+    checkMyAppsAvailability();
+  }
+}
+
 function removalInProgressReset() {
   removalInProgress = false;
 }
@@ -8965,6 +9061,8 @@ module.exports = {
   getAllGlobalApplicationsNamesWithLocation,
   syncthingApps,
   getChainParamsPriceUpdates,
+  getAppsDOSState,
+  checkMyAppsAvailability,
 
   // exports for testing purposes
   setAppsMonitored,

@@ -1829,7 +1829,7 @@ export default {
     },
 
     async appsDeploymentInformation() {
-      const response = await AppsService.appsRegInformation();
+      const response = await AppsService.appsDeploymentInformation();
       const { data } = response.data;
       if (response.data.status === 'success') {
         this.deploymentAddress = data.address;

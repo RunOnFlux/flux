@@ -13,6 +13,7 @@ const generalService = require('./generalService');
 const dockerService = require('./dockerService');
 const syncthingService = require('./syncthingService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
+const appsService = require('./appsService');
 
 const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/;
 
@@ -106,7 +107,7 @@ async function loginPhrase(req, res) {
       throw new Error('Node hardware requirements not met');
     }
     // check DOS state (contains daemon checks)
-    const dosState = await fluxNetworkHelper.getDOSState();
+    const dosState = fluxNetworkHelper.getDOSState();
     if (dosState.status === 'error') {
       const errorMessage = 'Unable to check DOS state';
       const errMessage = messageHelper.createErrorMessage(errorMessage);
@@ -114,6 +115,7 @@ async function loginPhrase(req, res) {
       return;
     }
     if (dosState.status === 'success') {
+      // nodeHardwareSpecsGood is not part of response yet
       if (dosState.data.dosState > 10 || dosState.data.dosMessage !== null || dosState.data.nodeHardwareSpecsGood === false) {
         let errMessage = messageHelper.createErrorMessage(dosState.data.dosMessage, 'DOS', dosState.data.dosState);
         if (dosState.data.dosMessage !== 'Flux IP detection failed' && dosState.data.dosMessage !== 'Flux collision detection') {
@@ -124,6 +126,19 @@ async function loginPhrase(req, res) {
         }
         res.json(errMessage);
         return;
+      }
+    }
+
+    // check Apps DOS state
+    const dosAppsState = appsService.getAppsDOSState();
+    if (dosAppsState.status === 'success') {
+      // nodeHardwareSpecsGood is not part of response yet
+      if (dosAppsState.data.dosState > 10 || dosAppsState.data.dosMessage !== null) {
+        const errMessage = messageHelper.createErrorMessage(dosAppsState.data.dosMessage, 'DOS', dosAppsState.data.dosState);
+        log.error(errMessage);
+        // TODO enable v3.32.1
+        // res.json(errMessage);
+        // return;
       }
     }
 

@@ -109,23 +109,39 @@ function minVersionSatisfy(version, minimumVersion) {
  * To perform a basic check if port on an ip is opened
  * @param {string} ip IP address.
  * @param {number} port Port.
+ * @param {string} app Application name. Mostly for comsetic purposes, can be boolean. Defaults to undefined, as for testing main FluxOS not an app.
  * @param {number} timeout Timeout in ms.
  * @returns {boolean} Returns true if opened, otherwise false
  */
-async function isPortOpen(ip, port, timeout = 5000) {
+async function isPortOpen(ip, port, app, timeout = 5000) {
   try {
     const promise = new Promise(((resolve, reject) => {
       const socket = new net.Socket();
 
       const onError = (err) => {
-        log.error(err);
+        socket.destroy();
+        if (app) {
+          resolve();
+        } else if (port === 16129) {
+          log.error(`Syncthing of Flux on ${ip}:${port} did not respond correctly but may be in use. Allowing`);
+          log.error(err);
+          resolve();
+        } else {
+          log.error(`Flux on ${ip}:${port} is not working correctly`);
+          log.error(err);
+          reject();
+        }
+      };
+
+      const onTimeout = () => {
+        log.error(`Connection on ${ip}:${port} timed out. Flux or Flux App is not running correctly`);
         socket.destroy();
         reject();
       };
 
       socket.setTimeout(timeout);
       socket.once('error', onError);
-      socket.once('timeout', onError);
+      socket.once('timeout', onTimeout);
 
       socket.connect(port, ip, () => {
         socket.destroy();
@@ -195,6 +211,44 @@ async function checkFluxAvailability(req, res) {
     response = message;
   }
   return res.json(response);
+}
+
+/**
+ * To get app price.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+async function checkAppAvailability(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const processedBody = serviceHelper.ensureObject(body);
+
+      const { ip, ports, appname } = processedBody;
+
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of ports) {
+        // eslint-disable-next-line no-await-in-loop
+        const isOpen = await isPortOpen(ip, port, appname, 2000);
+        if (!isOpen) {
+          throw new Error(`Flux App ${appname} on ${ip}:${port} is not available.`);
+        }
+      }
+      const errorResponse = messageHelper.createSuccessMessage(`Flux App ${appname} is available.`);
+      res.json(errorResponse);
+    } catch (error) {
+      const errorResponse = messageHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      res.json(errorResponse);
+    }
+  });
 }
 
 /**
@@ -766,7 +820,7 @@ async function checkDeterministicNodesCollisions() {
  * @param {object} res Response.
  * @returns {object} Message.
  */
-async function getDOSState(req, res) {
+function getDOSState(req, res) {
   const data = {
     dosState,
     dosMessage,
@@ -1004,4 +1058,5 @@ module.exports = {
   isCommunicationEstablished,
   lruRateLimit,
   isPortOpen,
+  checkAppAvailability,
 };
