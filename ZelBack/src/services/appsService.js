@@ -8932,7 +8932,7 @@ async function checkMyAppsAvailability() {
         ports: appPorts,
       };
       // eslint-disable-next-line no-await-in-loop
-      const resMyAppAvailability = await axios.post(`http://${askingIP}:${askingIpPort}/flux/checkappavailability`, data, axiosConfig).catch((error) => {
+      const resMyAppAvailability = await axios.post(`http://${askingIP}:${askingIpPort}/flux/checkappavailability`, JSON.stringify(data), axiosConfig).catch((error) => {
         log.error(`${askingIP} for app availability is not reachable`);
         log.error(error);
       });

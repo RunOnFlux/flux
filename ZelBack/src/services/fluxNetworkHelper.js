@@ -238,8 +238,8 @@ async function checkAppAvailability(req, res) {
           throw new Error(`Flux App ${appname} on ${ip}:${port} is not available.`);
         }
       }
-      const errorResponse = messageHelper.createSuccessMessage(`Flux App ${appname} is available.`);
-      res.json(errorResponse);
+      const successResponse = messageHelper.createSuccessMessage(`Flux App ${appname} is available.`);
+      res.json(successResponse);
     } catch (error) {
       const errorResponse = messageHelper.createErrorMessage(
         error.message || error,
