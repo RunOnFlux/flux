@@ -3,7 +3,7 @@
     <b-card title="FluxOS - Node Details">
       <list-entry
         title="Flux owner ZelID"
-        :data="userconfig.zelid"
+        :data="$store.state.flux.userconfig.zelid"
       />
       <list-entry
         title="Status"
@@ -126,13 +126,12 @@ import { computed } from "vue";
 import {
   BCard, BCardText, BCardTitle, BButton, BForm, BCol, BRow, BFormInput, BFormGroup,
 } from 'bootstrap-vue';
-import { mapState } from 'vuex';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import ListEntry from '@/views/components/ListEntry.vue';
 
 import DaemonService from '@/services/DaemonService.js';
 import IDService from '@/services/IDService.js';
-import FluxService from '../services/FluxService';
+import FluxService from '../services/FluxService.js';
 
 import qs from 'qs';
 import { store } from '@/store';
@@ -175,11 +174,13 @@ export default {
     };
   },
   setup() {
-    const { ...mapState } = ('flux', [
-      'userconfig',
-      'config',
-      'privilege',
-    ]);
+    const { ...mapState } = computed(() => {
+      ('flux', [
+        'userconfig',
+        'config',
+        'privilege',
+      ]);
+    });
 
     const callbackValue = computed(() => {
       const backendURL = this.backendURL();
@@ -211,11 +212,11 @@ export default {
         mybackend += names.join('.');
       } else {
         if (typeof hostname === 'string') {
-          this.$store.commit('flux/setUserIp', hostname);
+          store.commit('flux/setUserIp', hostname);
         }
         if (+port > 16100) {
           const apiPort = +port + 1;
-          this.$store.commit('flux/setFluxPort', apiPort);
+          store.commit('flux/setFluxPort', apiPort);
         }
         mybackend += hostname;
         mybackend += ':';
@@ -227,7 +228,7 @@ export default {
       const response = await FluxService.getZelid();
       const obtainedZelid = response.data.data;
       if (response.data.status === 'success' && typeof obtainedZelid === 'string') {
-        this.$store.commit('flux/setUserZelid', obtainedZelid);
+        store.commit('flux/setUserZelid', obtainedZelid);
       }
     },
     async daemonGetInfo() {
@@ -279,7 +280,7 @@ export default {
           signature: data.data.signature,
           loginPhrase: data.data.loginPhrase,
         };
-        this.$store.commit('flux/setPrivilege', data.data.privilage);
+        store.commit('flux/setPrivilege', data.data.privilage);
         localStorage.setItem('zelidauth', qs.stringify(zelidauth));
         this.showToast('success', data.data.message);
       }
@@ -356,7 +357,7 @@ export default {
               signature: this.loginForm.signature,
               loginPhrase: this.loginForm.loginPhrase,
             };
-            this.$store.commit('flux/setPrivilege', response.data.data.privilage);
+            store.commit('flux/setPrivilege', response.data.data.privilage);
             localStorage.setItem('zelidauth', qs.stringify(zelidauth));
             this.showToast('success', response.data.data.message);
           } else {

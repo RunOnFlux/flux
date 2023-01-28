@@ -7,7 +7,7 @@ import {
 } from 'bootstrap-vue';
 
 import router from './router';
-import { store } from '@/store';
+import { store } from './store';
 import App from './App.vue';
 
 // Global Components
@@ -29,9 +29,6 @@ app.use(LayoutPlugin)
 app.use(ToastPlugin)
 app.use(ModalPlugin)
 
-// Composition API
-// Vue.use(VueCompositionAPI);
-
 // import core styles
 import '@core/scss/core.scss';
 
@@ -39,6 +36,7 @@ import '@core/scss/core.scss';
 import '@/assets/scss/style.scss';
 
 app.config.productionTip = false
+app.config.globalProperties.$localstore = store
 
 app.use(router)
 app.use(store)

@@ -8,7 +8,7 @@ import verticalMenu from './vertical-menu';
 import flux from './flux';
 
 // Create a new store instance.
-const store = createStore({
+export const store = createStore({
   modules: {
     app: App,
     appConfig: appConfig,
@@ -22,13 +22,3 @@ const store = createStore({
     }
   },
 })
-
-const app = createApp(App)
-
-app.use(store)
-
-app.mount('#app')
-
-export {
-  store
-}
