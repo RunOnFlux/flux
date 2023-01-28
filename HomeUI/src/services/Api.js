@@ -23,5 +23,7 @@ export { sourceCancelToken };
 const storeMap = new Map(Object.entries(store));
 
 export default () => axios.create({
-  baseURL: storeMap.get('backendURL') || mybackend,
+  // I have hardcoded the link temporarily. Need to change back to this and figure out how to get it working:
+  // baseURL: storeMap.get('backendURL') || mybackend,
+  baseURL: storeMap.get('backendURL') || 'https://api.runonflux.io/'
 });

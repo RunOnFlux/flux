@@ -23,8 +23,8 @@
         variant="outline-primary"
         size="sm"
       >
-        <b-dropdown-item-button @click="changeBackendURL(`http://${externalIp}:${apiPort}`)">
-          http://{{ externalIp }}:{{ apiPort }}
+        <b-dropdown-item-button @click="changeBackendURL(`https://api.runonflux.io`)">
+          https://api.runonflux.io
         </b-dropdown-item-button>
         <b-dropdown-divider />
         <b-dropdown-item-button @click="changeBackendURL('https://api.runonflux.io')">
@@ -140,7 +140,15 @@ export default {
       mybackend += ':';
       mybackend += this.config.apiPort;
     }
-    this.backendURL = store.get('backendURL') || mybackend;
+
+    // I have hardcoded the link temporarily. Need to change back to this and figure out how to get it working:
+    // <b-dropdown-item-button @click="changeBackendURL(`http://${externalIp}:${apiPort}`)">
+    //  http://{{ externalIp }}:{{ apiPort }}
+    // </b-dropdown-item-button>
+    // this.backendURL = storeMap.get('backendURL') || mybackend;
+    
+    const storeMap = new Map(Object.entries(store));
+    this.backendURL = storeMap.get('backendURL') || 'https://api.runonflux.io';
   },
   methods: {
     changeBackendURL(value) {
