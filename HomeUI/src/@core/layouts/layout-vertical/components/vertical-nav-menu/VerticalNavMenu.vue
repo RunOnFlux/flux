@@ -5,8 +5,8 @@
       { 'expanded': !isVerticalMenuCollapsed || (isVerticalMenuCollapsed && isMouseHovered) },
       skin === 'semi-dark' ? 'menu-dark' : 'menu-light'
     ]"
-    @mouseenter="updateMouseHovered(true)"
-    @mouseleave="updateMouseHovered(false)"
+    @v-on:mouseenter="updateMouseHovered(true)"
+    @v-on:mouseleave="updateMouseHovered(false)"
   >
     <!-- main menu header-->
     <div class="navbar-header expanded">
