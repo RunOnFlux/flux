@@ -6803,7 +6803,8 @@ async function reindexGlobalAppsInformation() {
     }
     log.info('Reindexing of global application list finished. Starting expiring global apps.');
     // eslint-disable-next-line no-use-before-define
-    expireGlobalApplications();
+    await expireGlobalApplications();
+    log.info('Expiration of global application list finished. Done.');
     return true;
   } catch (error) {
     log.error(error);
