@@ -82,7 +82,7 @@
 </template>
 
 <script>
-import { computed, ref } from 'vue';
+import { computed, onBeforeMount, ref } from 'vue';
 import VuePerfectScrollbar from 'vue3-perfect-scrollbar';
 import { BLink, BImg } from 'bootstrap-vue';
 import useAppConfig from '@core/app-config/useAppConfig';
