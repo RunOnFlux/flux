@@ -6774,8 +6774,13 @@ function registrationInformation(req, res) {
  * To drop global apps information and iterate over all global apps messages and reconstruct the global apps information. Further creates database indexes.
  * @returns {boolean} True or thorws an error.
  */
+let reindexRunning = false;
 async function reindexGlobalAppsInformation() {
   try {
+    if (reindexRunning) {
+      return 'Previous app reindex not yet finished. Skipping.';
+    }
+    reindexRunning = true;
     log.info('Reindexing global application list');
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
@@ -6794,7 +6799,6 @@ async function reindexGlobalAppsInformation() {
     const results = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
     // eslint-disable-next-line no-restricted-syntax
     for (const message of results) {
-      console.log(message.height);
       const updateForSpecifications = message.appSpecifications || message.zelAppSpecifications;
       updateForSpecifications.hash = message.hash;
       updateForSpecifications.height = message.height;
@@ -6805,8 +6809,10 @@ async function reindexGlobalAppsInformation() {
     // eslint-disable-next-line no-use-before-define
     await expireGlobalApplications();
     log.info('Expiration of global application list finished. Done.');
+    reindexRunning = false;
     return true;
   } catch (error) {
+    reindexRunning = false;
     log.error(error);
     throw error;
   }
