@@ -29,7 +29,7 @@
 import { computed } from 'vue';
 import { BLink, BBadge } from 'bootstrap-vue';
 import { useUtils as useI18nUtils } from '@core/libs/i18n';
-import { mapState } from 'vuex';
+// import { mapState } from 'vuex';
 import useVerticalNavMenuLink from './useVerticalNavMenuLink';
 import mixinVerticalNavMenuLink from './mixinVerticalNavMenuLink';
 

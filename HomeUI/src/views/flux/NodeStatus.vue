@@ -86,7 +86,7 @@ import { computed } from 'vue';
 import {
   BCard,
 } from 'bootstrap-vue';
-import { mapState } from 'vuex';
+// import { mapState } from 'vuex';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import ListEntry from '@/views/components/ListEntry.vue';
 import DaemonService from '@/services/DaemonService.js';

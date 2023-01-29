@@ -1,5 +1,5 @@
 import { useUtils as useI18nUtils } from '@core/libs/i18n';
-import { mapState } from 'vuex';
+// import { mapState } from 'vuex';
 
 const { t } = useI18nUtils();
 
@@ -10,10 +10,16 @@ export default {
       required: true,
     },
   },
-  computed: {
-    ...mapState('flux', [
-      'privilege',
-    ]),
+  setup() {
+    const { ...mapState } = computed(() => {
+      ('flux', [
+        'privilege',
+      ]);
+    });
+  
+    return {
+      mapState
+    }
   },
   methods: {
     hasPrivilegeLevel(item) {

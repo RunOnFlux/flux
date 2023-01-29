@@ -1689,7 +1689,7 @@ import {
 } from 'bootstrap-vue';
 
 import Ripple from 'vue-ripple-directive';
-import { mapState } from 'vuex';
+// import { mapState } from 'vuex';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
 import ListEntry from '@/views/components/ListEntry.vue';
