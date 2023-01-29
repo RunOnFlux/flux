@@ -10,6 +10,7 @@
 </template>
 
 <script>
+import { ref } from 'vue';
 import { resolveVerticalNavMenuItemComponent as resolveNavItemComponent } from '@core/layouts/utils';
 import VerticalNavMenuHeader from '../vertical-nav-menu-header';
 import VerticalNavMenuLink from '../vertical-nav-menu-link/VerticalNavMenuLink.vue';

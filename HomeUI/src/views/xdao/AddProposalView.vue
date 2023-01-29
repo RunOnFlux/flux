@@ -187,6 +187,7 @@
 </template>
 
 <script>
+import { ref } from 'vue';
 import {
   BButton,
   BCard,
