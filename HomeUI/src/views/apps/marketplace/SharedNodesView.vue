@@ -1610,7 +1610,7 @@
 </template>
 
 <script>
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import {
   BAvatar,
   BButton,

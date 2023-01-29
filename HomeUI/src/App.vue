@@ -13,7 +13,7 @@
 </template>
 
 <script>
-import { computed, watch } from "vue";
+import { computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useStore } from 'vuex';
 import ScrollToTop from '@core/components/scroll-to-top/ScrollToTop.vue';

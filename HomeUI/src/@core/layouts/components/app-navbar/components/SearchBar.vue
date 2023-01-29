@@ -125,7 +125,7 @@
 </template>
 
 <script>
-import { ref, watch } from "vue";
+import { ref, watch } from 'vue';
 import {
   BFormInput, BLink, BImg, BAvatar,
 } from 'bootstrap-vue';
