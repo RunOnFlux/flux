@@ -955,9 +955,9 @@ async function adjustFirewall() {
         // eslint-disable-next-line no-await-in-loop
         const cmdresC = await cmdAsync(execC);
         if (serviceHelper.ensureString(cmdresC).includes('updated') || serviceHelper.ensureString(cmdresC).includes('existing') || serviceHelper.ensureString(cmdresC).includes('added')) {
-          log.info(`Firewall adjusted for port ${port}`);
+          log.info(`Firewall out adjusted for port ${port}`);
         } else {
-          log.info(`Failed to adjust Firewall for port ${port}`);
+          log.info(`Failed to adjust Firewall out for port ${port}`);
         }
       }
     } else {
