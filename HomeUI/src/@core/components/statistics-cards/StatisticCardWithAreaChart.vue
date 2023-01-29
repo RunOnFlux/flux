@@ -30,7 +30,7 @@
 </template>
 
 <script>
-import { computed } from "vue";
+import { computed } from 'vue';
 import { BCard, BCardBody, BAvatar } from 'bootstrap-vue';
 import VueApexCharts from 'vue3-apexcharts';
 import { $themeColors } from '@themeConfig';

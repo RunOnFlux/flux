@@ -242,7 +242,7 @@
 </template>
 
 <script>
-import { computed } from "vue";
+import { computed } from 'vue';
 import {
   BProgress,
   BTable,
@@ -342,10 +342,12 @@ export default {
     };
   },
   setup() {
-    const { ...mapState } = ('flux', [
-      'userconfig',
-      'config',
-    ]);
+    const { ...mapState } = computed(() => {
+      ('flux', [
+        'userconfig',
+        'config',
+      ]);
+    });
 
     const percentage = computed(() => {
       const perc = (this.storage.used / this.storage.total) * 100;

@@ -14,7 +14,7 @@
 </template>
 
 <script>
-import { computed } from "vue";
+import { computed } from 'vue';
 import { mapState } from 'vuex';
 import { BLink } from 'bootstrap-vue';
 import axios from 'axios';
@@ -28,9 +28,11 @@ export default {
     ToastificationContent,
   },
   setup() {
-    const { ...mapState } = ('flux', [
-      'fluxVersion',
-    ]);
+    const { ...mapState } = computed(() => {
+      ('flux', [
+        'fluxVersion',
+      ]);
+    });
 
     return {
       mapState,

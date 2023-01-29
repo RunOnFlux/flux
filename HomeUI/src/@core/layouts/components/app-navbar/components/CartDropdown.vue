@@ -109,7 +109,7 @@
 </template>
 
 <script>
-import { computed } from "vue";
+import { computed } from 'vue';
 import {
   BNavItemDropdown, BBadge, BMedia, BLink, BImg, BFormSpinbutton, BButton,
 } from 'bootstrap-vue';

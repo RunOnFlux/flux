@@ -49,7 +49,7 @@
 </template>
 
 <script>
-import { computed } from "vue";
+import { computed } from 'vue';
 import {
   BLink,
   BBadge,
@@ -105,9 +105,11 @@ export default {
     },
   },
   setup() {
-    const { ...mapState } = ('flux', [
-      'privilege',
-    ]);
+    const { ...mapState } = computed(() => {
+      ('flux', [
+        'privilege',
+      ]);
+    });
 
     return {
       mapState

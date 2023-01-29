@@ -26,7 +26,7 @@
 </template>
 
 <script>
-import { computed } from "vue";
+import { computed } from 'vue';
 import { BLink, BBadge } from 'bootstrap-vue';
 import { useUtils as useI18nUtils } from '@core/libs/i18n';
 import { mapState } from 'vuex';
@@ -59,9 +59,11 @@ export default {
     },
   },
   setup() {
-    const { ...mapState } = ('flux', [
-      'privilege',
-    ]);
+    const { ...mapState } = computed(() => {
+      ('flux', [
+        'privilege',
+      ]);
+    });
 
     return {
       mapState

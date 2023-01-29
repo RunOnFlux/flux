@@ -31,7 +31,7 @@
 </template>
 
 <script>
-import { computed } from "vue";
+import { computed } from 'vue';
 import { BNavItemDropdown, BDropdownItem, BImg } from 'bootstrap-vue';
 import en from '@/assets/images/flags/en.png';
 import fr from '@/assets/images/flags/fr.png';

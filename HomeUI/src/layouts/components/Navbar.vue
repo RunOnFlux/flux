@@ -58,6 +58,7 @@
 </template>
 
 <script>
+import { computed } from 'vue';
 import { store } from '@/store';
 import {
   BLink, BDropdown, BDropdownItemButton, BDropdownDivider, BNavbarNav, BButton, BFormInput, // BNavItemDropdown, BDropdownItem, BDropdownDivider, BAvatar,
@@ -102,11 +103,13 @@ export default {
     };
   },
   setup() {
-    const { ...mapState } = ('flux', [
-      'userconfig',
-      'config',
-      'privilege',
-    ]);
+    const { ...mapState } = computed(() => {
+      ('flux', [
+        'userconfig',
+        'config',
+        'privilege',
+      ]);
+    });
 
     const { apiPort } = store._state.data.flux.config;
 

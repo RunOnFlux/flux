@@ -1667,7 +1667,7 @@
 </template>
 
 <script>
-import { computed } from "vue";
+import { computed } from 'vue';
 import {
   BTabs,
   BTab,
@@ -1836,11 +1836,13 @@ export default {
     };
   },
   setup() {
-    const { ...mapState } = ('flux', [
-      'config',
-      'userconfig',
-      'privilege',
-    ]);
+    const { ...mapState } = computed(() => {
+      ('flux', [
+        'config',
+        'userconfig',
+        'privilege',
+      ]);
+    });
 
     const isApplicationInstalledLocally = computed(() => {
       if (this.tableconfig.installed.apps) {

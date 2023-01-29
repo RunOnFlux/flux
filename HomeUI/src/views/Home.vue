@@ -122,7 +122,7 @@
 </template>
 
 <script>
-import { computed } from "vue";
+import { computed } from 'vue';
 import {
   BCard, BCardText, BCardTitle, BButton, BForm, BCol, BRow, BFormInput, BFormGroup,
 } from 'bootstrap-vue';

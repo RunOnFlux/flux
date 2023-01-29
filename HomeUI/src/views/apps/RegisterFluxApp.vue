@@ -1210,7 +1210,7 @@
 </template>
 
 <script>
-import { computed } from "vue";
+import { computed } from 'vue';
 import {
   BButton,
   BCard,
@@ -1408,10 +1408,12 @@ export default {
     };
   },
   setup() {
-    const { ...mapState } = ('flux', [
-      'config',
-      'privilege',
-    ]);
+    const { ...mapState } = computed(() => {
+      ('flux', [
+        'config',
+        'privilege',
+      ]);
+    });
 
     const validTill = computed(() => {
       const expTime = this.timestamp + 60 * 60 * 1000; // 1 hour

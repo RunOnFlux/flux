@@ -9,7 +9,7 @@
 </template>
 
 <script>
-import { computed } from "vue";
+import { computed } from 'vue';
 import { v4 as uuidv4 } from 'uuid';
 
 export default {

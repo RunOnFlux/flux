@@ -503,7 +503,7 @@
 </template>
 
 <script>
-import { computed } from "vue";
+import { computed } from 'vue';
 import { mapState } from 'vuex';
 import {
   BCard,
@@ -564,9 +564,11 @@ export default {
     };
   },
   setup() {
-    const { ...mapState } = ('flux', [
-      'fluxVersion',
-    ]);
+    const { ...mapState } = computed(() => {
+      ('flux', [
+        'fluxVersion',
+      ]);
+    });
 
     const currentLoginPhrase = computed(() => {
       const zelidauth = localStorage.getItem('zelidauth');

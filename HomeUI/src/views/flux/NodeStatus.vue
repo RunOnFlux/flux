@@ -82,7 +82,7 @@
 </template>
 
 <script>
-import { computed } from "vue";
+import { computed } from 'vue';
 import {
   BCard,
 } from 'bootstrap-vue';
@@ -122,11 +122,13 @@ export default {
     };
   },
   setup() {
-    const { ...mapState } = ('flux', [
-      'config',
-      'userconfig',
-      'nodeSection',
-    ]);
+    const { ...mapState } = computed(() => {
+      ('flux', [
+        'config',
+        'userconfig',
+        'nodeSection',
+      ]);
+    });
 
     const fluxLogTail = computed(() => {
       if (this.callResponse.data.message) {
