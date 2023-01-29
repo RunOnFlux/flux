@@ -1,5 +1,5 @@
 // eslint-disable-next-line object-curly-newline
-import { watch } from "vue";
+import { watch } from 'vue';
 import router from '@/router';
 
 export const isObject = (obj) => typeof obj === 'object' && obj !== null;
