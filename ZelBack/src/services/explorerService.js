@@ -789,9 +789,21 @@ async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = fals
 // use reindexGlobalApps with caution!!!
 async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps) {
   try {
-    // hotfix to be removed later
-    const exists = await appsService.getApplicationGlobalSpecifications('kadena');
-    if (!exists) {
+    // fix for a node if they have corrupted global app list
+    const globalAppsSpecs = appsService.getAllGlobalApplications(['height']);
+    if (globalAppsSpecs.length >= 2) {
+      globalAppsSpecs.sort((a, b) => { // from oldest lowest height to newest highest height
+        if (a.height > b.height) return 1;
+        if (a.height < b.height) return -1;
+        return 0;
+      });
+      const defaultExpire = config.fluxapps.blocksLasting;
+      const minBlockheightDifference = defaultExpire * 0.9; // it is highly unlikely that there was no app registration or an update for default of 2200 blocks ~3days
+      const blockDifference = globalAppsSpecs[globalAppsSpecs.length - 1] - globalAppsSpecs[0]; // most recent app - oldest app
+      if (blockDifference < minBlockheightDifference) {
+        await appsService.reindexGlobalAppsInformation();
+      }
+    } else {
       await appsService.reindexGlobalAppsInformation();
     }
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();

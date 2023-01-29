@@ -6790,10 +6790,11 @@ async function reindexGlobalAppsInformation() {
     await database.collection(globalAppsInformation).createIndex({ height: 1 }, { name: 'query for getting zelapp based on last height update' }); // we need to know the height of app adjustment
     await database.collection(globalAppsInformation).createIndex({ hash: 1 }, { name: 'query for getting zelapp based on last hash' }); // we need to know the hash of the last message update which is the true identifier
     const query = {};
-    const projection = { projection: { _id: 0 } };
+    const projection = { projection: { _id: 0 }, sort: { height: 1 } }; // sort from oldest to newest
     const results = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
     // eslint-disable-next-line no-restricted-syntax
     for (const message of results) {
+      console.log(message.height);
       const updateForSpecifications = message.appSpecifications || message.zelAppSpecifications;
       updateForSpecifications.hash = message.hash;
       updateForSpecifications.height = message.height;
@@ -7144,33 +7145,21 @@ async function getAppsLocation(req, res) {
 
 /**
  * To get all global app names.
- * @returns {string[]} Array of app names or an empty array if an error is caught.
+ * @param {array} proj Array of wanted projection to get, If not submitted, all fields.
+ * @returns {string[]} Array of app specifications or an empty array if an error is caught.
  */
-async function getAllGlobalApplicationsNames() {
+async function getAllGlobalApplications(proj = []) {
   try {
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
     const query = {};
-    const projection = { projection: { _id: 0, name: 1 } };
-    const results = await dbHelper.findInDatabase(database, globalAppsInformation, query, projection);
-    const names = results.map((result) => result.name);
-    return names;
-  } catch (error) {
-    log.error(error);
-    return [];
-  }
-}
-
-/**
- * To get all applications list with geolocation
- * @returns {string[]} Array of app names or an empty array if an error is caught.
- */
-async function getAllGlobalApplicationsNamesWithLocation() {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-    const query = {};
-    const projection = { projection: { _id: 0, name: 1, geolocation: 1 } };
+    const wantedProjection = {
+      _id: 0,
+    };
+    proj.forEach((field) => {
+      wantedProjection[field] = 1;
+    });
+    const projection = { projection: wantedProjection };
     const results = await dbHelper.findInDatabase(database, globalAppsInformation, query, projection);
     return results;
   } catch (error) {
@@ -7427,7 +7416,7 @@ async function trySpawningGlobalApplication() {
     }
 
     // get all the applications list names
-    const globalAppNamesLocation = await getAllGlobalApplicationsNamesWithLocation();
+    const globalAppNamesLocation = await getAllGlobalApplications(['name', 'geolocation']);
     // pick a random one
     const numberOfGlobalApps = globalAppNamesLocation.length;
     const randomAppnumber = Math.floor((Math.random() * numberOfGlobalApps));
@@ -9060,8 +9049,7 @@ module.exports = {
   restoreFluxPortsSupport,
   restoreAppsPortsSupport,
   forceAppRemovals,
-  getAllGlobalApplicationsNames,
-  getAllGlobalApplicationsNamesWithLocation,
+  getAllGlobalApplications,
   syncthingApps,
   getChainParamsPriceUpdates,
   getAppsDOSState,
