@@ -790,7 +790,7 @@ async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = fals
 async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps) {
   try {
     // fix for a node if they have corrupted global app list
-    const globalAppsSpecs = appsService.getAllGlobalApplications(['height']);
+    const globalAppsSpecs = await appsService.getAllGlobalApplications(['height']);
     console.log(globalAppsSpecs);
     if (globalAppsSpecs.length >= 2) {
       globalAppsSpecs.sort((a, b) => { // from oldest lowest height to newest highest height
