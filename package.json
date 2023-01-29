@@ -103,7 +103,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "~3.2.0",
-    "@vue-leaflet/vue-leaflet": "~0.6.0",
+    "@vue-leaflet/vue-leaflet": "~0.8.0",
     "@vue/compat": "~3.2.0",
     "@vue/compiler-sfc": "~3.2.0",
     "@vue/eslint-config-airbnb": "~7.0.0",
