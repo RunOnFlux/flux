@@ -790,14 +790,9 @@ async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = fals
 async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps) {
   try {
     // fix for a node if they have corrupted global app list
-    const globalAppsSpecs = await appsService.getAllGlobalApplications(['height']);
+    const globalAppsSpecs = await appsService.getAllGlobalApplications(['height']); // already sorted from oldest lowest height to newest highest height
     console.log(globalAppsSpecs);
     if (globalAppsSpecs.length >= 2) {
-      globalAppsSpecs.sort((a, b) => { // from oldest lowest height to newest highest height
-        if (a.height > b.height) return 1;
-        if (a.height < b.height) return -1;
-        return 0;
-      });
       const defaultExpire = config.fluxapps.blocksLasting;
       const minBlockheightDifference = defaultExpire * 0.9; // it is highly unlikely that there was no app registration or an update for default of 2200 blocks ~3days
       const blockDifference = globalAppsSpecs[globalAppsSpecs.length - 1] - globalAppsSpecs[0]; // most recent app - oldest app

@@ -7160,7 +7160,7 @@ async function getAllGlobalApplications(proj = []) {
     proj.forEach((field) => {
       wantedProjection[field] = 1;
     });
-    const projection = { projection: wantedProjection };
+    const projection = { projection: wantedProjection, sort: { height: 1 } }; // ensure sort from oldest to newest
     const results = await dbHelper.findInDatabase(database, globalAppsInformation, query, projection);
     return results;
   } catch (error) {
