@@ -8932,7 +8932,7 @@ async function checkMyAppsAvailability() {
         log.error(`${askingIP} for app availability is not reachable`);
         log.error(error);
       });
-      if (resMyAppAvailability.data.status === 'error') {
+      if (resMyAppAvailability && resMyAppAvailability.data.status === 'error') {
         log.error(`Running application ${app.name} is not reachable from outside!`);
         currentDos += 1;
         dosState += 1;
