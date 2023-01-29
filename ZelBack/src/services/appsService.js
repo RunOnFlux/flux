@@ -6774,8 +6774,13 @@ function registrationInformation(req, res) {
  * To drop global apps information and iterate over all global apps messages and reconstruct the global apps information. Further creates database indexes.
  * @returns {boolean} True or thorws an error.
  */
+let reindexRunning = false;
 async function reindexGlobalAppsInformation() {
   try {
+    if (reindexRunning) {
+      return 'Previous app reindex not yet finished. Skipping.';
+    }
+    reindexRunning = true;
     log.info('Reindexing global application list');
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
@@ -6790,7 +6795,7 @@ async function reindexGlobalAppsInformation() {
     await database.collection(globalAppsInformation).createIndex({ height: 1 }, { name: 'query for getting zelapp based on last height update' }); // we need to know the height of app adjustment
     await database.collection(globalAppsInformation).createIndex({ hash: 1 }, { name: 'query for getting zelapp based on last hash' }); // we need to know the hash of the last message update which is the true identifier
     const query = {};
-    const projection = { projection: { _id: 0 } };
+    const projection = { projection: { _id: 0 }, sort: { height: 1 } }; // sort from oldest to newest
     const results = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
     // eslint-disable-next-line no-restricted-syntax
     for (const message of results) {
@@ -6802,9 +6807,12 @@ async function reindexGlobalAppsInformation() {
     }
     log.info('Reindexing of global application list finished. Starting expiring global apps.');
     // eslint-disable-next-line no-use-before-define
-    expireGlobalApplications();
+    await expireGlobalApplications();
+    log.info('Expiration of global application list finished. Done.');
+    reindexRunning = false;
     return true;
   } catch (error) {
+    reindexRunning = false;
     log.error(error);
     throw error;
   }
@@ -7144,33 +7152,21 @@ async function getAppsLocation(req, res) {
 
 /**
  * To get all global app names.
- * @returns {string[]} Array of app names or an empty array if an error is caught.
+ * @param {array} proj Array of wanted projection to get, If not submitted, all fields.
+ * @returns {string[]} Array of app specifications or an empty array if an error is caught.
  */
-async function getAllGlobalApplicationsNames() {
+async function getAllGlobalApplications(proj = []) {
   try {
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
     const query = {};
-    const projection = { projection: { _id: 0, name: 1 } };
-    const results = await dbHelper.findInDatabase(database, globalAppsInformation, query, projection);
-    const names = results.map((result) => result.name);
-    return names;
-  } catch (error) {
-    log.error(error);
-    return [];
-  }
-}
-
-/**
- * To get all applications list with geolocation
- * @returns {string[]} Array of app names or an empty array if an error is caught.
- */
-async function getAllGlobalApplicationsNamesWithLocation() {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-    const query = {};
-    const projection = { projection: { _id: 0, name: 1, geolocation: 1 } };
+    const wantedProjection = {
+      _id: 0,
+    };
+    proj.forEach((field) => {
+      wantedProjection[field] = 1;
+    });
+    const projection = { projection: wantedProjection, sort: { height: 1 } }; // ensure sort from oldest to newest
     const results = await dbHelper.findInDatabase(database, globalAppsInformation, query, projection);
     return results;
   } catch (error) {
@@ -7427,7 +7423,7 @@ async function trySpawningGlobalApplication() {
     }
 
     // get all the applications list names
-    const globalAppNamesLocation = await getAllGlobalApplicationsNamesWithLocation();
+    const globalAppNamesLocation = await getAllGlobalApplications(['name', 'geolocation']);
     // pick a random one
     const numberOfGlobalApps = globalAppNamesLocation.length;
     const randomAppnumber = Math.floor((Math.random() * numberOfGlobalApps));
@@ -8284,12 +8280,15 @@ async function getAppPrice(req, res) {
       actualPriceToPay = Math.ceil(actualPriceToPay * 100) / 100;
       if (appInfo) {
         let previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices); // calculate previous based on CURRENT height, with current interval of prices!
-        const previousExpireIn = previousSpecsPrice.expire || defaultExpire;
+        let previousExpireIn = previousSpecsPrice.expire || defaultExpire; // bad typo bug line. Leave it like it is, this bug is a feature now.
+        if (daemonHeight > 1315000) {
+          previousExpireIn = appInfo.expire || defaultExpire;
+        }
         const multiplierPrevious = previousExpireIn / defaultExpire;
         previousSpecsPrice *= multiplierPrevious;
         previousSpecsPrice = Math.ceil(previousSpecsPrice * 100) / 100;
         // what is the height difference
-        const heightDifference = daemonHeight - appInfo.height; // has to be lower than 22000
+        const heightDifference = daemonHeight - appInfo.height;
         const perc = (previousExpireIn - heightDifference) / previousExpireIn;
         if (perc > 0) {
           actualPriceToPay -= (perc * previousSpecsPrice);
@@ -8906,7 +8905,7 @@ async function checkMyAppsAvailability() {
         });
       } else {
         app.compose.forEach((component) => {
-          component.ports((port) => {
+          component.ports.forEach((port) => {
             appPorts.push(port);
           });
         });
@@ -8929,11 +8928,11 @@ async function checkMyAppsAvailability() {
         ports: appPorts,
       };
       // eslint-disable-next-line no-await-in-loop
-      const resMyAppAvailability = await axios.post(`http://${askingIP}:${askingIpPort}/flux/checkappavailability`, data, axiosConfig).catch((error) => {
+      const resMyAppAvailability = await axios.post(`http://${askingIP}:${askingIpPort}/flux/checkappavailability`, JSON.stringify(data), axiosConfig).catch((error) => {
         log.error(`${askingIP} for app availability is not reachable`);
         log.error(error);
       });
-      if (resMyAppAvailability.data.status === 'error') {
+      if (resMyAppAvailability && resMyAppAvailability.data.status === 'error') {
         log.error(`Running application ${app.name} is not reachable from outside!`);
         currentDos += 1;
         dosState += 1;
@@ -9057,8 +9056,7 @@ module.exports = {
   restoreFluxPortsSupport,
   restoreAppsPortsSupport,
   forceAppRemovals,
-  getAllGlobalApplicationsNames,
-  getAllGlobalApplicationsNamesWithLocation,
+  getAllGlobalApplications,
   syncthingApps,
   getChainParamsPriceUpdates,
   getAppsDOSState,

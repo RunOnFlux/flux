@@ -97,6 +97,9 @@ async function startFluxFunctions() {
       appsService.startMonitoringOfApps();
       appsService.restoreAppsPortsSupport();
     }, 1 * 60 * 1000);
+    setInterval(() => {
+      appsService.restorePortsSupport(); // restore fluxos and apps ports/upnp
+    }, 10 * 60 * 1000); // every 10 minutes
     setTimeout(() => {
       log.info('Starting setting Node Geolocation');
       geolocationService.setNodeGeolocation();

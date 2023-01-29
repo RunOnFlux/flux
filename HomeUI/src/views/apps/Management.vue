@@ -3695,8 +3695,8 @@ export default {
           this.appUpdateSpecification.commands = this.ensureString(specs.commands);
           this.appUpdateSpecification.containerPorts = specs.containerPort || this.ensureString(specs.containerPorts); // v1 compatibility
         } else {
-          if (this.appUpdateSpecification.version <= 5) {
-            this.appUpdateSpecification.version = 5; // enforce specs v5, later enforce v6 after fork
+          if (this.appUpdateSpecification.version <= 6) {
+            this.appUpdateSpecification.version = 6;
           }
           this.appUpdateSpecification.contacts = this.ensureString([]);
           this.appUpdateSpecification.geolocation = this.ensureString([]);

@@ -238,8 +238,8 @@ async function checkAppAvailability(req, res) {
           throw new Error(`Flux App ${appname} on ${ip}:${port} is not available.`);
         }
       }
-      const errorResponse = messageHelper.createSuccessMessage(`Flux App ${appname} is available.`);
-      res.json(errorResponse);
+      const successResponse = messageHelper.createSuccessMessage(`Flux App ${appname} is available.`);
+      res.json(successResponse);
     } catch (error) {
       const errorResponse = messageHelper.createErrorMessage(
         error.message || error,
@@ -661,13 +661,13 @@ async function checkMyFluxAvailability(retryNumber = 0) {
     return false;
   }
   const measuredUptime = fluxUptime();
-  if (measuredUptime.status === 'success' && measuredUptime.data > config.minUpTime) { // node has been running for 1 hour. Upon starting a node, there can be dos that needs resetting
+  if (measuredUptime.status === 'success' && measuredUptime.data > config.fluxapps.minUpTime) { // node has been running for 30 minutes. Upon starting a node, there can be dos that needs resetting
     const nodeList = await fluxCommunicationUtils.deterministicFluxList();
     if (nodeList.length > config.fluxapps.minIncoming + config.fluxapps.minOutgoing) {
       // check sufficient connections
       const connectionInfo = isCommunicationEstablished();
       if (connectionInfo.status === 'error') {
-        dosState += 0.015; // slow increment, DOS after ~13 hours. 0.015 per minute. This check depends on other nodes being able to connect to my node
+        dosState += 0.13; // slow increment, DOS after ~75 minutes. 0.13 per minute. This check depends on other nodes being able to connect to my node
         if (dosState > 10) {
           setDosMessage(dosMessage || 'Flux does not have sufficient peers');
           log.error(dosMessage);
@@ -781,9 +781,9 @@ async function checkDeterministicNodesCollisions() {
         if (availabilityOk) {
           adjustExternalIP(myIP.split(':')[0]);
         }
-      } else { // sufficient amount of nodes has to appear on the network within 12 hours
+      } else { // sufficient amount of nodes has to appear on the network within 6 hours
         const measuredUptime = fluxUptime();
-        if (measuredUptime.status === 'success' && measuredUptime.data > (config.minUpTime * 12)) {
+        if (measuredUptime.status === 'success' && measuredUptime.data > (config.fluxapps.minUpTime * 12)) {
           const availabilityOk = await checkMyFluxAvailability();
           if (availabilityOk) {
             adjustExternalIP(myIP.split(':')[0]);
@@ -955,9 +955,9 @@ async function adjustFirewall() {
         // eslint-disable-next-line no-await-in-loop
         const cmdresC = await cmdAsync(execC);
         if (serviceHelper.ensureString(cmdresC).includes('updated') || serviceHelper.ensureString(cmdresC).includes('existing') || serviceHelper.ensureString(cmdresC).includes('added')) {
-          log.info(`Firewall adjusted for port ${port}`);
+          log.info(`Firewall out adjusted for port ${port}`);
         } else {
-          log.info(`Failed to adjust Firewall for port ${port}`);
+          log.info(`Failed to adjust Firewall out for port ${port}`);
         }
       }
     } else {
