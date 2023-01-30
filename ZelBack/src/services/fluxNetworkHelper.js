@@ -663,7 +663,13 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   const measuredUptime = fluxUptime();
   if (measuredUptime.status === 'success' && measuredUptime.data > config.fluxapps.minUpTime) { // node has been running for 30 minutes. Upon starting a node, there can be dos that needs resetting
     const nodeList = await fluxCommunicationUtils.deterministicFluxList();
-    if (nodeList.length > config.fluxapps.minIncoming + config.fluxapps.minOutgoing) {
+    // nodeList must include our fluxnode ip myIP
+    let myCorrectIp = `${myIP}:${apiPort}`;
+    if (apiPort === 16127 || apiPort === '16127') {
+      myCorrectIp = myCorrectIp.split(':')[0];
+    }
+    const myNodeExists = nodeList.find((node) => node.ip === myCorrectIp);
+    if (nodeList.length > config.fluxapps.minIncoming + config.fluxapps.minOutgoing && myNodeExists) { // our node MUST be in confirmed list in order to have some peers
       // check sufficient connections
       const connectionInfo = isCommunicationEstablished();
       if (connectionInfo.status === 'error') {
