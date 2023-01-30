@@ -675,7 +675,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
       if (connectionInfo.status === 'error') {
         dosState += 0.13; // slow increment, DOS after ~75 minutes. 0.13 per minute. This check depends on other nodes being able to connect to my node
         if (dosState > 10) {
-          setDosMessage(connectionInfo.message || 'Flux does not have sufficient peers');
+          setDosMessage(connectionInfo.data.message || 'Flux does not have sufficient peers');
           log.error(dosMessage);
           return false;
         }
