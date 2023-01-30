@@ -561,9 +561,9 @@ function fluxUptime(req, res) {
 function isCommunicationEstablished(req, res) {
   let message;
   if (outgoingPeers.length < config.fluxapps.minOutgoing) { // easier to establish
-    message = messageHelper.createErrorMessage('Not enough outgoing connections established to Flux network');
+    message = messageHelper.createErrorMessage(`Not enough outgoing connections established to Flux network. Minimum required ${config.fluxapps.minOutgoing} found ${outgoingPeers.length}`);
   } else if (incomingPeers.length < config.fluxapps.minIncoming) { // depends on other nodes successfully connecting to my node, todo enforcement
-    message = messageHelper.createErrorMessage('Not enough incoming connections from Flux network');
+    message = messageHelper.createErrorMessage(`Not enough incoming connections from Flux network. Minimum required ${config.fluxapps.minIncoming} found ${incomingPeers.length}`);
   } else {
     message = messageHelper.createSuccessMessage('Communication to Flux network is properly established');
   }
@@ -675,7 +675,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
       if (connectionInfo.status === 'error') {
         dosState += 0.13; // slow increment, DOS after ~75 minutes. 0.13 per minute. This check depends on other nodes being able to connect to my node
         if (dosState > 10) {
-          setDosMessage(dosMessage || 'Flux does not have sufficient peers');
+          setDosMessage(connectionInfo.message || 'Flux does not have sufficient peers');
           log.error(dosMessage);
           return false;
         }
