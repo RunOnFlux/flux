@@ -135,8 +135,9 @@ async function loginPhrase(req, res) {
       // nodeHardwareSpecsGood is not part of response yet
       if (dosAppsState.data.dosState > 10 || dosAppsState.data.dosMessage !== null) {
         const errMessage = messageHelper.createErrorMessage(dosAppsState.data.dosMessage, 'DOS', dosAppsState.data.dosState);
-        res.json(errMessage);
-        return;
+        log.error(errMessage);
+        // res.json(errMessage);
+        // return;
       }
     }
 
