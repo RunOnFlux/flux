@@ -372,9 +372,6 @@ export default {
           filteredApps.value = filteredApps.value.filter((appData) => {
             if (appData.name.toLowerCase().includes(searchQuery.value)) return true;
             if (appData.description.toLowerCase().includes(searchQuery.value)) return true;
-            if (appData.repotag.toLowerCase().includes(searchQuery.value)) return true;
-            if (appData.domains.join(',').toLowerCase().includes(searchQuery.value)) return true;
-            if (appData.environmentParameters.join(',').toLowerCase().includes(searchQuery.value)) return true;
             return false;
           });
         }
