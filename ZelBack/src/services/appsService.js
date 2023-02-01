@@ -8934,6 +8934,8 @@ async function checkMyAppsAvailability() {
       });
       if (resMyAppAvailability && resMyAppAvailability.data.status === 'error') {
         log.error(`Running application ${app.name} is not reachable from outside!`);
+        log.error(JSON.stringify(data));
+        log.error(`${askingIP}:${askingIpPort}`);
         currentDos += 1;
         dosState += 1;
       }
