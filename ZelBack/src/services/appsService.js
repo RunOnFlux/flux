@@ -8924,6 +8924,7 @@ async function checkMyAppsAvailability() {
       };
       const data = {
         ip: myIP,
+        apiport: userconfig.initial.apiport || config.server.apiport,
         appname: app.name,
         ports: appPorts,
       };

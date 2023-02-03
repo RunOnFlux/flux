@@ -254,9 +254,32 @@ async function checkAppAvailability(req, res) {
   });
   req.on('end', async () => {
     try {
+      const remoteIP = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || req.headers['x-forwarded-for'];
+
+      const remoteIP4 = remoteIP.replace('::ffff:', '');
+
       const processedBody = serviceHelper.ensureObject(body);
 
-      const { ip, ports, appname } = processedBody;
+      const {
+        ip, ports, appname,
+      } = processedBody;
+
+      if (ip !== remoteIP4) {
+        throw new Error(`Request ip ${remoteIP4} of ${remoteIP} doesn't match the ip: ${ip} to check App port Availability.`);
+      }
+
+      // this can only be added after all nodes fluxOs are updated
+      /*
+      const nodeList = await fluxCommunicationUtils.deterministicFluxList();
+      let ipPortOnNodeList = ip;
+      if (apiport !== '16127') {
+        ipPortOnNodeList = `${ip}:${apiport}`;
+      }
+      const fluxNode = nodeList.find((node) => node.ip === ipPortOnNodeList);
+      if (!fluxNode) {
+        throw new Error(`FluxNode ${ipPortOnNodeList} is not confirmed on the network.`);
+      }
+      */
 
       // eslint-disable-next-line no-restricted-syntax
       for (const port of ports) {
