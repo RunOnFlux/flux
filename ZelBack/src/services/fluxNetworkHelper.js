@@ -115,16 +115,14 @@ function minVersionSatisfy(version, minimumVersion) {
  * @returns {boolean} Returns true if opened, otherwise false
  */
 async function isPortOpen(ip, port, app, timeout = 5000) {
-  let resp;
   try {
     // open port first
+    // this should not be need as fluxbench allows all out and it's not need to deny it after.
     // eslint-disable-next-line no-use-before-define
-    resp = await allowPort(port).catch((error) => { // requires allow out
+    await allowOutPort(port).catch((error) => { // requires allow out
       log.error(error);
     });
-    if (!resp) {
-      resp = {};
-    }
+
     const promise = new Promise(((resolve, reject) => {
       const socket = new net.Socket();
 
@@ -159,26 +157,8 @@ async function isPortOpen(ip, port, app, timeout = 5000) {
       });
     }));
     await promise;
-    setTimeout(() => { // timeout ensure return first
-      if (app) {
-        // delete the rule
-        if (resp.message !== 'existing') { // new or updated rule
-          // eslint-disable-next-line no-use-before-define
-          deleteAllowPortRule(port); // no need waiting for response
-        }
-      }
-    }, 10);
     return true;
   } catch (error) {
-    setTimeout(() => { // timeout ensure return first
-      if (app) {
-        // delete the rule
-        if (resp.message !== 'existing') { // new or updated rule
-          // eslint-disable-next-line no-use-before-define
-          deleteAllowPortRule(port); // no need waiting for response
-        }
-      }
-    }, 10);
     return false;
   }
 }
@@ -916,6 +896,32 @@ async function allowPort(port) {
 }
 
 /**
+ * To allow out a port.
+ * @param {string} port Port.
+ * @returns {object} Command status.
+ */
+async function allowOutPort(port) {
+  const exec = `sudo ufw allow out ${port}`;
+  const cmdAsync = util.promisify(nodecmd.get);
+
+  const cmdres = await cmdAsync(exec);
+  const cmdStat = {
+    status: false,
+    message: null,
+  };
+  cmdStat.message = cmdres;
+  if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
+    cmdStat.status = true;
+  } else if (serviceHelper.ensureString(cmdres).includes('existing')) {
+    cmdStat.status = true;
+    cmdStat.message = 'existing';
+  } else {
+    cmdStat.status = false;
+  }
+  return cmdStat;
+}
+
+/**
  * To deny a port.
  * @param {string} port Port.
  * @returns {object} Command status.
@@ -1135,6 +1141,7 @@ module.exports = {
   checkMyFluxAvailability,
   adjustExternalIP,
   allowPort,
+  allowOutPort,
   isFirewallActive,
   // Exports for testing purposes
   setStoredFluxBenchAllowed,
