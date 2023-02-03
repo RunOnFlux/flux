@@ -8933,11 +8933,10 @@ async function checkMyAppsAvailability() {
         log.error(error);
       });
       if (resMyAppAvailability && resMyAppAvailability.data.status === 'error') {
-        log.error(`Running application ${app.name} is not reachable from outside!`);
-        log.error(JSON.stringify(data));
-        log.error(`${askingIP}:${askingIpPort}`);
-        currentDos += 1;
-        dosState += 1;
+        log.warn(`Running application ${app.name} unavailability detected from ${askingIP}:${askingIpPort}`);
+        log.warn(JSON.stringify(data));
+        currentDos += 0.4;
+        dosState += 0.4;
       }
       if (dosState > 10) {
         dosMessage = `Running application ${app.name} is not reachable from outside!`;
