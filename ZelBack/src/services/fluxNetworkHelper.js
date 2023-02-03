@@ -260,6 +260,9 @@ async function checkAppAvailability(req, res) {
 
       // eslint-disable-next-line no-restricted-syntax
       for (const port of ports) {
+        if (port < 31000 || port > 39999) {
+          throw new Error(`Flux App ${appname} port ${port} is outside allowed range.`);
+        }
         // eslint-disable-next-line no-await-in-loop
         const isOpen = await isPortOpen(ip, port, appname, 2000);
         if (!isOpen) {
