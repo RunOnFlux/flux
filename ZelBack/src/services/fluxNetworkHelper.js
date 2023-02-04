@@ -107,6 +107,7 @@ function minVersionSatisfy(version, minimumVersion) {
 
 /**
  * To perform a basic check if port on an ip is opened
+ * This requires our port to be also open on out
  * @param {string} ip IP address.
  * @param {number} port Port.
  * @param {string} app Application name. Mostly for comsetic purposes, can be boolean. Defaults to undefined, as for testing main FluxOS not an app.
@@ -114,7 +115,16 @@ function minVersionSatisfy(version, minimumVersion) {
  * @returns {boolean} Returns true if opened, otherwise false
  */
 async function isPortOpen(ip, port, app, timeout = 5000) {
+  let resp;
   try {
+    // open port first
+    // eslint-disable-next-line no-use-before-define
+    resp = await allowPort(port).catch((error) => { // requires allow out
+      log.error(error);
+    });
+    if (!resp) {
+      resp = {};
+    }
     const promise = new Promise(((resolve, reject) => {
       const socket = new net.Socket();
 
@@ -149,8 +159,26 @@ async function isPortOpen(ip, port, app, timeout = 5000) {
       });
     }));
     await promise;
+    setTimeout(() => { // timeout ensure return first
+      if (app) {
+        // delete the rule
+        if (resp.message !== 'existing') { // new or updated rule
+          // eslint-disable-next-line no-use-before-define
+          deleteAllowPortRule(port); // no need waiting for response
+        }
+      }
+    }, 10);
     return true;
   } catch (error) {
+    setTimeout(() => { // timeout ensure return first
+      if (app) {
+        // delete the rule
+        if (resp.message !== 'existing') { // new or updated rule
+          // eslint-disable-next-line no-use-before-define
+          deleteAllowPortRule(port); // no need waiting for response
+        }
+      }
+    }, 10);
     return false;
   }
 }
@@ -561,9 +589,9 @@ function fluxUptime(req, res) {
 function isCommunicationEstablished(req, res) {
   let message;
   if (outgoingPeers.length < config.fluxapps.minOutgoing) { // easier to establish
-    message = messageHelper.createErrorMessage('Not enough outgoing connections established to Flux network');
+    message = messageHelper.createErrorMessage(`Not enough outgoing connections established to Flux network. Minimum required ${config.fluxapps.minOutgoing} found ${outgoingPeers.length}`);
   } else if (incomingPeers.length < config.fluxapps.minIncoming) { // depends on other nodes successfully connecting to my node, todo enforcement
-    message = messageHelper.createErrorMessage('Not enough incoming connections from Flux network');
+    message = messageHelper.createErrorMessage(`Not enough incoming connections from Flux network. Minimum required ${config.fluxapps.minIncoming} found ${incomingPeers.length}`);
   } else {
     message = messageHelper.createSuccessMessage('Communication to Flux network is properly established');
   }
@@ -663,13 +691,19 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   const measuredUptime = fluxUptime();
   if (measuredUptime.status === 'success' && measuredUptime.data > config.fluxapps.minUpTime) { // node has been running for 30 minutes. Upon starting a node, there can be dos that needs resetting
     const nodeList = await fluxCommunicationUtils.deterministicFluxList();
-    if (nodeList.length > config.fluxapps.minIncoming + config.fluxapps.minOutgoing) {
+    // nodeList must include our fluxnode ip myIP
+    let myCorrectIp = `${myIP}:${apiPort}`;
+    if (apiPort === 16127 || apiPort === '16127') {
+      myCorrectIp = myCorrectIp.split(':')[0];
+    }
+    const myNodeExists = nodeList.find((node) => node.ip === myCorrectIp);
+    if (nodeList.length > config.fluxapps.minIncoming + config.fluxapps.minOutgoing && myNodeExists) { // our node MUST be in confirmed list in order to have some peers
       // check sufficient connections
       const connectionInfo = isCommunicationEstablished();
       if (connectionInfo.status === 'error') {
         dosState += 0.13; // slow increment, DOS after ~75 minutes. 0.13 per minute. This check depends on other nodes being able to connect to my node
         if (dosState > 10) {
-          setDosMessage(dosMessage || 'Flux does not have sufficient peers');
+          setDosMessage(connectionInfo.data.message || 'Flux does not have sufficient peers');
           log.error(dosMessage);
           return false;
         }
@@ -844,8 +878,11 @@ async function allowPort(port) {
     message: null,
   };
   cmdStat.message = cmdres;
-  if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('existing') || serviceHelper.ensureString(cmdres).includes('added')) {
+  if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
     cmdStat.status = true;
+  } else if (serviceHelper.ensureString(cmdres).includes('existing')) {
+    cmdStat.status = true;
+    cmdStat.message = 'existing';
   } else {
     cmdStat.status = false;
   }
@@ -867,7 +904,33 @@ async function denyPort(port) {
     message: null,
   };
   cmdStat.message = cmdres;
-  if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('existing') || serviceHelper.ensureString(cmdres).includes('added')) {
+  if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
+    cmdStat.status = true;
+  } else if (serviceHelper.ensureString(cmdres).includes('existing')) {
+    cmdStat.status = true;
+    cmdStat.message = 'existing';
+  } else {
+    cmdStat.status = false;
+  }
+  return cmdStat;
+}
+
+/**
+ * To delete a ufw allow rule on port.
+ * @param {string} port Port.
+ * @returns {object} Command status.
+ */
+async function deleteAllowPortRule(port) {
+  const exec = `sudo ufw delete allow ${port} && sudo ufw delete allow out ${port}`;
+  const cmdAsync = util.promisify(nodecmd.get);
+
+  const cmdres = await cmdAsync(exec);
+  const cmdStat = {
+    status: false,
+    message: null,
+  };
+  cmdStat.message = cmdres;
+  if (serviceHelper.ensureString(cmdres).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
     cmdStat.status = true;
   } else {
     cmdStat.status = false;
@@ -1036,6 +1099,7 @@ module.exports = {
   getIncomingConnectionsInfo,
   getDOSState,
   denyPort,
+  deleteAllowPortRule,
   allowPortApi,
   adjustFirewall,
   checkRateLimit,
