@@ -119,7 +119,7 @@ async function isPortOpen(ip, port, app, timeout = 5000) {
   try {
     // open port first
     // eslint-disable-next-line no-use-before-define
-    resp = await allowPort(port).catch((error) => { // requires allow out for apps checking, for our ports both
+    resp = await allowOutPort(port).catch((error) => { // requires allow out for apps checking, for our ports both
       log.error(error);
     });
     if (!resp) {
@@ -165,7 +165,7 @@ async function isPortOpen(ip, port, app, timeout = 5000) {
         // delete the rule
         if (resp.message !== 'existing') { // new or updated rule
           // eslint-disable-next-line no-use-before-define
-          deleteAllowPortRule(port); // no need waiting for response. Delete if was not present before to not create huge firewall list
+          deleteAllowOutPortRule(port); // no need waiting for response. Delete if was not present before to not create huge firewall list
         }
       }
     }, 10);
@@ -176,7 +176,7 @@ async function isPortOpen(ip, port, app, timeout = 5000) {
         // delete the rule
         if (resp.message !== 'existing') { // new or updated rule
           // eslint-disable-next-line no-use-before-define
-          deleteAllowPortRule(port); // no need waiting for response. Delete if was not present before to not create huge firewall list
+          deleteAllowOutPortRule(port); // no need waiting for response. Delete if was not present before to not create huge firewall list
         }
       }
     }, 10);
