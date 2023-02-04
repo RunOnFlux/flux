@@ -115,13 +115,16 @@ function minVersionSatisfy(version, minimumVersion) {
  * @returns {boolean} Returns true if opened, otherwise false
  */
 async function isPortOpen(ip, port, app, timeout = 5000) {
+  let resp;
   try {
     // open port first
-    // this should not be need as fluxbench allows all out and it's not need to deny it after.
     // eslint-disable-next-line no-use-before-define
-    await allowOutPort(port).catch((error) => { // requires allow out
+    resp = await allowPort(port).catch((error) => { // requires allow out for apps checking, for our ports both
       log.error(error);
     });
+    if (!resp) {
+      resp = {};
+    }
 
     const promise = new Promise(((resolve, reject) => {
       const socket = new net.Socket();
@@ -157,8 +160,26 @@ async function isPortOpen(ip, port, app, timeout = 5000) {
       });
     }));
     await promise;
+    setTimeout(() => { // timeout ensure return first
+      if (app) {
+        // delete the rule
+        if (resp.message !== 'existing') { // new or updated rule
+          // eslint-disable-next-line no-use-before-define
+          deleteAllowPortRule(port); // no need waiting for response. Delete if was not present before to not create huge firewall list
+        }
+      }
+    }, 10);
     return true;
   } catch (error) {
+    setTimeout(() => { // timeout ensure return first
+      if (app) {
+        // delete the rule
+        if (resp.message !== 'existing') { // new or updated rule
+          // eslint-disable-next-line no-use-before-define
+          deleteAllowPortRule(port); // no need waiting for response. Delete if was not present before to not create huge firewall list
+        }
+      }
+    }, 10);
     return false;
   }
 }
@@ -234,6 +255,8 @@ async function checkAppAvailability(req, res) {
   });
   req.on('end', async () => {
     try {
+      const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+
       const remoteIP = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || req.headers['x-forwarded-for'];
 
       const remoteIP4 = remoteIP.replace('::ffff:', '');
@@ -243,27 +266,27 @@ async function checkAppAvailability(req, res) {
       const {
         ip, ports, appname,
       } = processedBody;
+      const apiport = processedBody.apiport || config.server.apiport;
 
-      if (ip !== remoteIP4) {
+      if (ip !== remoteIP4 && authorized === false) {
         throw new Error(`Request ip ${remoteIP4} of ${remoteIP} doesn't match the ip: ${ip} to check App port Availability.`);
       }
 
-      // this can only be added after all nodes fluxOs are updated
-      /*
-      const nodeList = await fluxCommunicationUtils.deterministicFluxList();
-      let ipPortOnNodeList = ip;
-      if (apiport !== '16127') {
-        ipPortOnNodeList = `${ip}:${apiport}`;
+      if (authorized === false) { // can only be called from a valid fluxnode if not authorized call
+        const nodeList = await fluxCommunicationUtils.deterministicFluxList();
+        let ipPortOnNodeList = ip;
+        if (apiport !== '16127' && apiport !== 16127) {
+          ipPortOnNodeList = `${ip}:${apiport}`;
+        }
+        const fluxNode = nodeList.find((node) => node.ip === ipPortOnNodeList);
+        if (!fluxNode) {
+          throw new Error(`FluxNode ${ipPortOnNodeList} is not confirmed on the network.`);
+        }
       }
-      const fluxNode = nodeList.find((node) => node.ip === ipPortOnNodeList);
-      if (!fluxNode) {
-        throw new Error(`FluxNode ${ipPortOnNodeList} is not confirmed on the network.`);
-      }
-      */
 
       // eslint-disable-next-line no-restricted-syntax
       for (const port of ports) {
-        if (port < 31000 || port > 39999) {
+        if (+port < (config.fluxapps.portMin - 1000) || +port > config.fluxapps.portMax) {
           throw new Error(`Flux App ${appname} port ${port} is outside allowed range.`);
         }
         // eslint-disable-next-line no-await-in-loop
@@ -927,14 +950,18 @@ async function allowOutPort(port) {
  * @returns {object} Command status.
  */
 async function denyPort(port) {
-  const exec = `sudo ufw deny ${port} && sudo ufw deny out ${port}`;
-  const cmdAsync = util.promisify(nodecmd.get);
-
-  const cmdres = await cmdAsync(exec);
   const cmdStat = {
     status: false,
     message: null,
   };
+  if (+port < (config.fluxapps.portMin - 1000) || +port > config.fluxapps.portMax) {
+    cmdStat.message = 'Port out of deletable app ports range';
+    return cmdStat;
+  }
+  const exec = `sudo ufw deny ${port} && sudo ufw deny out ${port}`;
+  const cmdAsync = util.promisify(nodecmd.get);
+
+  const cmdres = await cmdAsync(exec);
   cmdStat.message = cmdres;
   if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
     cmdStat.status = true;
@@ -953,14 +980,45 @@ async function denyPort(port) {
  * @returns {object} Command status.
  */
 async function deleteAllowPortRule(port) {
-  const exec = `sudo ufw delete allow ${port} && sudo ufw delete allow out ${port}`;
-  const cmdAsync = util.promisify(nodecmd.get);
-
-  const cmdres = await cmdAsync(exec);
   const cmdStat = {
     status: false,
     message: null,
   };
+  if (+port < (config.fluxapps.portMin - 1000) || +port > config.fluxapps.portMax) {
+    cmdStat.message = 'Port out of deletable app ports range';
+    return cmdStat;
+  }
+  const exec = `sudo ufw delete allow ${port} && sudo ufw delete allow out ${port}`;
+  const cmdAsync = util.promisify(nodecmd.get);
+
+  const cmdres = await cmdAsync(exec);
+  cmdStat.message = cmdres;
+  if (serviceHelper.ensureString(cmdres).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
+    cmdStat.status = true;
+  } else {
+    cmdStat.status = false;
+  }
+  return cmdStat;
+}
+
+/**
+ * To delete a ufw allow rule on port.
+ * @param {string} port Port.
+ * @returns {object} Command status.
+ */
+async function deleteAllowOutPortRule(port) {
+  const cmdStat = {
+    status: false,
+    message: null,
+  };
+  if (+port < (config.fluxapps.portMin - 1000) || +port > config.fluxapps.portMax) {
+    cmdStat.message = 'Port out of deletable app ports range';
+    return cmdStat;
+  }
+  const exec = `sudo ufw delete allow out ${port}`;
+  const cmdAsync = util.promisify(nodecmd.get);
+
+  const cmdres = await cmdAsync(exec);
   cmdStat.message = cmdres;
   if (serviceHelper.ensureString(cmdres).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
     cmdStat.status = true;
@@ -1132,6 +1190,7 @@ module.exports = {
   getDOSState,
   denyPort,
   deleteAllowPortRule,
+  deleteAllowOutPortRule,
   allowPortApi,
   adjustFirewall,
   checkRateLimit,
