@@ -257,42 +257,34 @@ async function checkAppAvailability(req, res) {
     try {
       const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
 
-      const remoteIP = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || req.headers['x-forwarded-for'];
-
-      const remoteIP4 = remoteIP.replace('::ffff:', '');
-
       const processedBody = serviceHelper.ensureObject(body);
 
       const {
-        ip, ports, appname,
+        ip, ports, appname, pubKey, signature,
       } = processedBody;
-      const apiport = processedBody.apiport || config.server.apiport;
 
-      if (ip !== remoteIP4 && authorized === false) {
-        throw new Error(`Request ip ${remoteIP4} of ${remoteIP} doesn't match the ip: ${ip} to check App port Availability.`);
-      }
-
-      if (authorized === false) { // can only be called from a valid fluxnode if not authorized call
-        const nodeList = await fluxCommunicationUtils.deterministicFluxList();
-        let ipPortOnNodeList = ip;
-        if (apiport !== '16127' && apiport !== 16127) {
-          ipPortOnNodeList = `${ip}:${apiport}`;
-        }
-        const fluxNode = nodeList.find((node) => node.ip === ipPortOnNodeList);
-        if (!fluxNode) {
-          throw new Error(`FluxNode ${ipPortOnNodeList} is not confirmed on the network.`);
-        }
+      // pubkey of the message has to be on the list
+      const zl = await fluxCommunicationUtils.deterministicFluxList(pubKey); // this itself is sufficient.
+      const node = zl.find((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
+      const dataToVerify = processedBody;
+      delete dataToVerify.signature;
+      const messageToVerify = JSON.stringify(dataToVerify);
+      const verified = verificationHelper.verifyMessage(messageToVerify, pubKey, signature);
+      if ((verified !== true || !node) && authorized !== true) {
+        log.error('Unable to verify request authenticity');
+        // throw new Error('Unable to verify request authenticity');
       }
 
       // eslint-disable-next-line no-restricted-syntax
       for (const port of ports) {
-        if (+port < (config.fluxapps.portMin - 1000) || +port > config.fluxapps.portMax) {
-          throw new Error(`Flux App ${appname} port ${port} is outside allowed range.`);
-        }
+        if (+port >= (config.fluxapps.portMin - 1000) || +port <= config.fluxapps.portMax) {
         // eslint-disable-next-line no-await-in-loop
-        const isOpen = await isPortOpen(ip, port, appname, 2000);
-        if (!isOpen) {
-          throw new Error(`Flux App ${appname} on ${ip}:${port} is not available.`);
+          const isOpen = await isPortOpen(ip, port, appname, 2000);
+          if (!isOpen) {
+            throw new Error(`Flux App ${appname} on ${ip}:${port} is not available.`);
+          }
+        } else {
+          log.error(`Flux App ${appname} port ${port} is outside allowed range.`);
         }
       }
       const successResponse = messageHelper.createSuccessMessage(`Flux App ${appname} is available.`);

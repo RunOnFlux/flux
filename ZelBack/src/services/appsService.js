@@ -8880,11 +8880,24 @@ function getAppsDOSState(req, res) {
   return res ? res.json(response) : response;
 }
 
+async function signCheckAppData(message) {
+  const privKey = await fluxNetworkHelper.getFluxNodePrivateKey();
+  const signature = await verificationHelper.signMessage(message, privKey);
+  return signature;
+}
+
 /**
  * Periodically check for our installed applications availability
 */
 async function checkMyAppsAvailability() {
   try {
+    const isNodeConfirmed = await generalService.isNodeStatusConfirmed();
+    if (!isNodeConfirmed) {
+      log.info('Flux Node not Confirmed. Application checks are disabled');
+      await serviceHelper.delay(4 * 60 * 1000);
+      checkMyAppsAvailability();
+      return;
+    }
     let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
     myIP = myIP.split(':')[0];
     // go through all our installed apps and test if they are available on a random node
@@ -8894,6 +8907,7 @@ async function checkMyAppsAvailability() {
       throw new Error('Failed to get installed Apps');
     }
     const apps = installedAppsRes.data;
+    const pubKey = await fluxNetworkHelper.getFluxNodePublicKey();
     // eslint-disable-next-line no-restricted-syntax
     for (const app of apps) {
       const appPorts = [];
@@ -8924,10 +8938,14 @@ async function checkMyAppsAvailability() {
       };
       const data = {
         ip: myIP,
-        apiport: userconfig.initial.apiport || config.server.apiport,
         appname: app.name,
         ports: appPorts,
+        pubKey,
       };
+      const stringData = JSON.stringify(data);
+      // eslint-disable-next-line no-await-in-loop
+      const signature = await signCheckAppData(stringData);
+      data.signature = signature;
       // eslint-disable-next-line no-await-in-loop
       const resMyAppAvailability = await axios.post(`http://${askingIP}:${askingIpPort}/flux/checkappavailability`, JSON.stringify(data), axiosConfig).catch((error) => {
         log.error(`${askingIP} for app availability is not reachable`);
