@@ -8880,11 +8880,24 @@ function getAppsDOSState(req, res) {
   return res ? res.json(response) : response;
 }
 
+async function signCheckAppData(message) {
+  const privKey = await fluxNetworkHelper.getFluxNodePrivateKey();
+  const signature = await verificationHelper.signMessage(message, privKey);
+  return signature;
+}
+
 /**
  * Periodically check for our installed applications availability
 */
 async function checkMyAppsAvailability() {
   try {
+    const isNodeConfirmed = await generalService.isNodeStatusConfirmed();
+    if (!isNodeConfirmed) {
+      log.info('Flux Node not Confirmed. Application checks are disabled');
+      await serviceHelper.delay(4 * 60 * 1000);
+      checkMyAppsAvailability();
+      return;
+    }
     let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
     myIP = myIP.split(':')[0];
     // go through all our installed apps and test if they are available on a random node
@@ -8894,6 +8907,7 @@ async function checkMyAppsAvailability() {
       throw new Error('Failed to get installed Apps');
     }
     const apps = installedAppsRes.data;
+    const pubKey = await fluxNetworkHelper.getFluxNodePublicKey();
     // eslint-disable-next-line no-restricted-syntax
     for (const app of apps) {
       const appPorts = [];
@@ -8926,18 +8940,22 @@ async function checkMyAppsAvailability() {
         ip: myIP,
         appname: app.name,
         ports: appPorts,
+        pubKey,
       };
+      const stringData = JSON.stringify(data);
+      // eslint-disable-next-line no-await-in-loop
+      const signature = await signCheckAppData(stringData);
+      data.signature = signature;
       // eslint-disable-next-line no-await-in-loop
       const resMyAppAvailability = await axios.post(`http://${askingIP}:${askingIpPort}/flux/checkappavailability`, JSON.stringify(data), axiosConfig).catch((error) => {
         log.error(`${askingIP} for app availability is not reachable`);
         log.error(error);
       });
       if (resMyAppAvailability && resMyAppAvailability.data.status === 'error') {
-        log.error(`Running application ${app.name} is not reachable from outside!`);
-        log.error(JSON.stringify(data));
-        log.error(`${askingIP}:${askingIpPort}`);
-        currentDos += 1;
-        dosState += 1;
+        log.warn(`Running application ${app.name} unavailability detected from ${askingIP}:${askingIpPort}`);
+        log.warn(JSON.stringify(data));
+        currentDos += 0.4;
+        dosState += 0.4;
       }
       if (dosState > 10) {
         dosMessage = `Running application ${app.name} is not reachable from outside!`;

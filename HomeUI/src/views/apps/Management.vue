@@ -3401,6 +3401,18 @@ export default {
       return expTime;
     },
     subscribedTill() {
+      if (this.appUpdateSpecification.expire) {
+        const timeFound = this.expireOptions.find((option) => option.value === this.appUpdateSpecification.expire);
+        if (timeFound) {
+          const expTime = this.timestamp + timeFound.time;
+          return expTime;
+        }
+        const blocks = this.appUpdateSpecification.expire;
+        const blockTime = 2 * 60 * 1000;
+        const validTime = blocks * blockTime;
+        const expTime = this.timestamp + validTime;
+        return expTime;
+      }
       const expTime = this.timestamp + 30 * 24 * 60 * 60 * 1000; // 1 month
       return expTime;
     },
