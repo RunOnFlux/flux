@@ -758,7 +758,7 @@ async function adjustExternalIP(ip) {
       return;
     }
     log.info(`Adjusting External IP from ${userconfig.initial.ipaddress} to ${ip}`);
-    const dataToWrite = `module.exports = {
+    const dataToWrite = `export default {
   initial: {
     ipaddress: '${ip}',
     zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',

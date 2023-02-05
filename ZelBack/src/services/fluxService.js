@@ -954,7 +954,7 @@ async function adjustCruxID(req, res) {
         throw new Error('Invalid Crux ID provided');
       }
       const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
-      const dataToWrite = `module.exports = {
+      const dataToWrite = `export default {
         initial: {
           ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
           zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
@@ -1006,7 +1006,7 @@ async function adjustKadenaAccount(req, res) {
       }
       const kadenaURI = `kadena:${account}?chainid=${chainid}`;
       const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
-      const dataToWrite = `module.exports = {
+      const dataToWrite = `export default {
   initial: {
     ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
     zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',

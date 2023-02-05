@@ -312,7 +312,7 @@ async function dockerContainerLogsStream(idOrName, res, callback) {
     const containers = await dockerListContainers(true);
     const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
     const dockerContainer = docker.getContainer(myContainer.Id);
-    const logStream = new PassThrough();
+    const logStream = new stream.PassThrough();
     logStream.on('data', (chunk) => {
       res.write(serviceHelper.ensureString(chunk.toString('utf8')));
     });

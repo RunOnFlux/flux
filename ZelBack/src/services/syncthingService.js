@@ -1,22 +1,22 @@
-const config = require('config');
-const nodecmd = require('node-cmd');
-const axios = require('axios');
-const { XMLParser } = require('fast-xml-parser');
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
-const util = require('util');
-const qs = require('qs');
-const verificationHelper = require('./verificationHelper');
+import { config } from '../../config/default.js';
+import nodecmd from 'node-cmd';
+import axios from 'axios';
+import { XMLParser } from 'fast-xml-parser';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import util from 'util';
+import qs from 'qs';
+import verificationHelper from './verificationHelper.js';
 // eslint-disable-next-line import/no-extraneous-dependencies
 
 const cmdAsync = util.promisify(nodecmd.get);
 const fsPromises = fs.promises;
 
-const messageHelper = require('./messageHelper');
-const serviceHelper = require('./serviceHelper');
-const log = require('../lib/log');
-const userconfig = require('../../../config/userconfig');
+import messageHelper from './messageHelper.js';
+import serviceHelper from './serviceHelper.js';
+import log from '../lib/log.js';
+import userconfig from '../../../config/userconfig.js';
 
 const syncthingURL = `http://${config.syncthing.ip}:${config.syncthing.port}`;
 
@@ -2011,7 +2011,7 @@ async function startSyncthing() {
   }
 }
 
-module.exports = {
+export default {
   startSyncthing,
   getDeviceID,
   getMeta,

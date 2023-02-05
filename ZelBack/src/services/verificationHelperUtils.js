@@ -9,7 +9,7 @@ const { database: _database, fluxTeamZelId } = pkg;
 import { verify } from 'bitcoinjs-message';
 import serviceHelper from './serviceHelper.js';
 import dbHelper from './dbHelper.js';
-import { initial } from '../../../config/userconfig.js';
+import userconfig from '../../../config/userconfig.js';
 
 /**
  * Verifies admin session
@@ -21,7 +21,7 @@ async function verifyAdminSession(headers) {
   if (!headers || !headers.zelidauth) return false;
   const auth = serviceHelper.ensureObject(headers.zelidauth);
   if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
-  if (auth.zelid !== initial.zelid) return false;
+  if (auth.zelid !== userconfig.initial.zelid) return false;
 
   const db = dbHelper.databaseConnection();
   const database = db.db(_database.local.database);
@@ -131,7 +131,7 @@ async function verifyAdminAndFluxTeamSession(headers) {
   if (!headers || !headers.zelidauth) return false;
   const auth = serviceHelper.ensureObject(headers.zelidauth);
   if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
-  if (auth.zelid !== fluxTeamZelId && auth.zelid !== initial.zelid) return false; // admin is considered as fluxTeam
+  if (auth.zelid !== fluxTeamZelId && auth.zelid !== userconfig.initial.zelid) return false; // admin is considered as fluxTeam
 
   const db = dbHelper.databaseConnection();
   const database = db.db(_database.local.database);
@@ -208,7 +208,7 @@ async function verifyAppOwnerOrHigherSession(headers, appName) {
   const auth = serviceHelper.ensureObject(headers.zelidauth);
   if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
   const ownerZelID = await serviceHelper.getApplicationOwner(appName);
-  if (auth.zelid !== ownerZelID && auth.zelid !== fluxTeamZelId && auth.zelid !== initial.zelid) return false;
+  if (auth.zelid !== ownerZelID && auth.zelid !== fluxTeamZelId && auth.zelid !== userconfig.initial.zelid) return false;
 
   const db = dbHelper.databaseConnection();
   const database = db.db(_database.local.database);

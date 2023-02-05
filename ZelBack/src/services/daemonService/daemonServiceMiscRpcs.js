@@ -3,9 +3,9 @@ import daemonServiceUtils from './daemonServiceUtils.js';
 import daemonServiceBlockchainRpcs from './daemonServiceBlockchainRpcs.js';
 
 import log from '../../lib/log.js';
-import { initial } from '../../../../config/userconfig.js';
+import userconfig from '../../../../config/userconfig.js';
 
-const isTestnet = initial.testnet;
+const isTestnet = userconfig.initial.testnet;
 
 let currentDaemonHeight = 0;
 let currentDaemonHeader = isTestnet === true ? 377006 : 1136836;

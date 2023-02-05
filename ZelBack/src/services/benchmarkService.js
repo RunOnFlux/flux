@@ -6,14 +6,14 @@ import { existsSync } from 'fs';
 import serviceHelper from './serviceHelper.js';
 import messageHelper from './messageHelper.js';
 import verificationHelper from './verificationHelper.js';
-import { initial } from '../../../config/userconfig.js';
+import userconfig from '../../../config/userconfig.js';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const isTestnet = initial.testnet;
+const isTestnet = userconfig.initial.testnet;
 // Below line is throwing errpr TypeError: Cannot read property 'rpcport' of undefined
 // This is because default.js is not exporting correctly - need to fix
 // const rpcport = isTestnet === true ? benchmark.rpcporttestnet : benchmark.rpcport;

@@ -49,7 +49,7 @@ function showQuestions() {
       }
     }
 
-    const dataToWrite = `module.exports = {
+    const dataToWrite = `export default {
       initial: {
         ipaddress: '${answers.ipaddr}',
         zelid: '${answers.zelid}',

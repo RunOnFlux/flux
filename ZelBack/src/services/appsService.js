@@ -41,8 +41,8 @@ const appsFolder = `${fluxDirPath}ZelApps/`;
 
 const cmdAsync = util.promisify(nodecmd.get);
 const crontabLoad = util.promisify(systemcrontab.load);
-const dockerPullStreamPromise = util.promisify(dockerService.dockerPullStream);
-const dockerStatsStreamPromise = util.promisify(dockerService.dockerContainerStatsStream);
+// const dockerPullStreamPromise = util.promisify(dockerService.dockerPullStream);
+// const dockerStatsStreamPromise = util.promisify(dockerService.dockerContainerStatsStream);
 
 const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
 const appsHashesCollection = config.database.daemon.collections.appsHashes;
