@@ -15,31 +15,36 @@ import { verifyAdminSession, verifyFluxTeamSession, verifyAdminAndFluxTeamSessio
  * @returns {Promise<boolean>} authorized
  */
 async function verifyPrivilege(privilege, req, appName) {
-  let authorized;
-  switch (privilege) {
-    case 'admin':
-      authorized = await verifyAdminSession(req.headers);
-      break;
-    case 'fluxteam':
-      authorized = await verifyFluxTeamSession(req.headers);
-      break;
-    case 'adminandfluxteam':
-      authorized = await verifyAdminAndFluxTeamSession(req.headers);
-      break;
-    case 'appownerabove':
-      authorized = await verifyAppOwnerOrHigherSession(req.headers, appName);
-      break;
-    case 'appowner':
-      authorized = await verifyAppOwnerSession(req.headers, appName);
-      break;
-    case 'user':
-      authorized = await verifyUserSession(req.headers);
-      break;
-    default:
-      authorized = false;
-      break;
+  try {
+    let authorized = false;
+    switch (privilege) {
+      case 'admin':
+        authorized = await verificationHelperUtils.verifyAdminSession(req.headers);
+        break;
+      case 'fluxteam':
+        authorized = await verificationHelperUtils.verifyFluxTeamSession(req.headers);
+        break;
+      case 'adminandfluxteam':
+        authorized = await verificationHelperUtils.verifyAdminAndFluxTeamSession(req.headers);
+        break;
+      case 'appownerabove':
+        authorized = await verificationHelperUtils.verifyAppOwnerOrHigherSession(req.headers, appName);
+        break;
+      case 'appowner':
+        authorized = await verificationHelperUtils.verifyAppOwnerSession(req.headers, appName);
+        break;
+      case 'user':
+        authorized = await verificationHelperUtils.verifyUserSession(req.headers);
+        break;
+      default:
+        authorized = false;
+        break;
+    }
+    return authorized;
+  } catch (error) {
+    log.error(error);
+    return false;
   }
-  return authorized;
 }
 
 /**

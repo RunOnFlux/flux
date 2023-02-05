@@ -84,12 +84,12 @@ async function verifyUPNPsupport(apiport = _apiport) {
  * @param {number} apiport Port number.
  * @returns {boolean} True if port mappings can be set. Otherwise false.
  */
-async function setupUPNP(apiport = _apiport) { // todo evaluate adding ssl port of + 1
+async function setupUPNP(apiport = config.apiport) {
   try {
     await client.createMapping({
       public: +apiport,
       private: +apiport,
-      ttl: 0,
+      ttl: 0, // Some routers force low ttl if 0, indefinite/default is used. Flux refreshes this every 6 blocks ~ 12 minutes
       description: 'Flux_Backend_API',
     });
     await client.createMapping({
@@ -97,6 +97,12 @@ async function setupUPNP(apiport = _apiport) { // todo evaluate adding ssl port 
       private: +apiport - 1,
       ttl: 0,
       description: 'Flux_Home_UI',
+    });
+    await client.createMapping({
+      public: +apiport + 2,
+      private: +apiport + 2,
+      ttl: 0,
+      description: 'Flux_Syncthing',
     });
     return true;
   } catch (error) {

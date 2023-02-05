@@ -6,7 +6,7 @@ import verificationHelper from './verificationHelper.js';
 import daemonServiceZelnodeRpcs from './daemonService/daemonServiceZelnodeRpcs.js';
 // default cache
 const LRUoptions = {
-  max: 12000, // currently 12000 nodes
+  max: 20000, // currently 20000 nodes
   maxAge: 1000 * 150, // 150 seconds slightly over average blocktime. Allowing 1 block expired too.
 };
 
@@ -109,7 +109,7 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
     return false;
   }
   const messageToVerify = version + message + timestamp;
-  const verified = await verificationHelper.verifyMessage(messageToVerify, pubKey, signature);
+  const verified = verificationHelper.verifyMessage(messageToVerify, pubKey, signature);
   if (verified === true) {
     return true;
   }

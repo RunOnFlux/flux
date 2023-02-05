@@ -769,32 +769,32 @@ describe('generalService tests', () => {
     afterEach(() => {
       sinon.restore();
     });
-    it('shoould throw error if repotag is not a string', async () => {
+    it('should throw error if repotag is not a string', async () => {
       const repotag = 1234;
 
       await expect(generalService.checkWhitelistedRepository(repotag)).to.eventually.be.rejectedWith('Invalid repotag');
     });
 
-    it('shoould throw error axiosGet returns nothing', async () => {
+    it('should throw error axiosGet returns nothing', async () => {
       sinon.stub(serviceHelper, 'axiosGet').returns(null);
       const repotag = 'testing/12343:latest';
 
       await expect(generalService.checkWhitelistedRepository(repotag)).to.eventually.be.rejectedWith('Unable to communicate with Flux Services! Try again later.');
     });
 
-    it('shoould throw error if repo is not whitelsited', async () => {
+    it('should throw error if repo is not whitelsited', async () => {
       const repotag = 'testing/12343:latest';
 
       await expect(generalService.checkWhitelistedRepository(repotag)).to.eventually.be.rejectedWith('Repository is not whitelisted. Please contact Flux Team.');
     });
 
-    it('shoould throw error if repo is not in a proper format', async () => {
+    it('should throw error if repo is not in a proper format', async () => {
       const repotag = 'improperformat';
 
       await expect(generalService.checkWhitelistedRepository(repotag)).to.eventually.be.rejectedWith('Repository improperformat is not in valid format namespace/repository:tag');
     });
 
-    it('shoould throw error axiosGet returns nothing', async () => {
+    it('should return true if repository is whitelisted', async () => {
       const repotag = 'yurinnick/folding-at-home:latest';
 
       const result = await generalService.checkWhitelistedRepository(repotag);

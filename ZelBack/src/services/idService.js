@@ -1,10 +1,10 @@
 import pkg from 'config';
 const { database: _database, fluxTeamZelId } = pkg;
-import { verify } from 'bitcoinjs-message';
-import { stringify } from 'qs';
-import { totalmem, cpus } from 'os';
+import bitcoinMessage from 'bitcoinjs-message';
+import qs from 'qs';
+import os from 'os';
 
-import { initial } from '../../../config/userconfig.js';
+import userconfig from '../../../config/userconfig.js';
 import log from '../lib/log.js';
 import serviceHelper from './serviceHelper.js';
 import messageHelper from './messageHelper.js';
@@ -12,7 +12,9 @@ import dbHelper from './dbHelper.js';
 import verificationHelper from './verificationHelper.js';
 import generalService from './generalService.js';
 import dockerService from './dockerService.js';
+import syncthingService from './syncthingService.js';
 import fluxNetworkHelper from './fluxNetworkHelper.js';
+import appsService from './appsService.js';
 
 const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/;
 
@@ -29,8 +31,8 @@ async function confirmNodeTierHardware() {
     const collateral = await generalService.nodeCollateral().catch((error) => {
       log.error(error);
     });
-    const nodeRam = totalmem() / 1024 / 1024 / 1024;
-    const nodeCpuThreads = cpus().length;
+    const nodeRam = os.totalmem() / 1024 / 1024 / 1024;
+    const nodeCpuThreads = os.cpus().length;
     log.info(`Node Tier: ${tier}`);
     log.info(`Node Collateral: ${collateral}`);
     log.info(`Node Total Ram: ${nodeRam}`);
@@ -95,13 +97,18 @@ async function loginPhrase(req, res) {
   try {
     // check docker availablility
     await dockerService.dockerListImages();
+    // check synthing availability
+    const syncthingDeviceID = await syncthingService.getDeviceID();
+    if (syncthingDeviceID.status === 'error') {
+      throw new Error('Syncthing is not running properly');
+    }
     // check Node Hardware Requirements are ok.
     const hwPassed = await confirmNodeTierHardware();
     if (hwPassed === false) {
       throw new Error('Node hardware requirements not met');
     }
     // check DOS state (contains daemon checks)
-    const dosState = await fluxNetworkHelper.getDOSState();
+    const dosState = fluxNetworkHelper.getDOSState();
     if (dosState.status === 'error') {
       const errorMessage = 'Unable to check DOS state';
       const errMessage = messageHelper.createErrorMessage(errorMessage);
@@ -109,6 +116,7 @@ async function loginPhrase(req, res) {
       return;
     }
     if (dosState.status === 'success') {
+      // nodeHardwareSpecsGood is not part of response yet
       if (dosState.data.dosState > 10 || dosState.data.dosMessage !== null || dosState.data.nodeHardwareSpecsGood === false) {
         let errMessage = messageHelper.createErrorMessage(dosState.data.dosMessage, 'DOS', dosState.data.dosState);
         if (dosState.data.dosMessage !== 'Flux IP detection failed' && dosState.data.dosMessage !== 'Flux collision detection') {
@@ -117,6 +125,18 @@ async function loginPhrase(req, res) {
         if (dosState.data.nodeHardwareSpecsGood === false) {
           errMessage = messageHelper.createErrorMessage('Minimum hardware required for FluxNode tier not met', 'DOS', 100);
         }
+        res.json(errMessage);
+        return;
+      }
+    }
+
+    // check Apps DOS state
+    const dosAppsState = appsService.getAppsDOSState();
+    if (dosAppsState.status === 'success') {
+      // nodeHardwareSpecsGood is not part of response yet
+      if (dosAppsState.data.dosState > 10 || dosAppsState.data.dosMessage !== null) {
+        const errMessage = messageHelper.createErrorMessage(dosAppsState.data.dosMessage, 'DOS', dosAppsState.data.dosState);
+        log.error(errMessage);
         res.json(errMessage);
         return;
       }
@@ -250,7 +270,7 @@ async function verifyLogin(req, res) {
           // Second verify that this address signed this message
           let valid = false;
           try {
-            valid = verify(message, address, signature);
+            valid = bitcoinMessage.verify(message, address, signature);
           } catch (error) {
             throw new Error('Invalid signature');
           }
@@ -269,7 +289,7 @@ async function verifyLogin(req, res) {
             let privilage = 'user';
             if (address === fluxTeamZelId) {
               privilage = 'fluxteam';
-            } else if (address === initial.zelid) {
+            } else if (address === userconfig.initial.zelid) {
               privilage = 'admin';
             }
             const loggedUsersCollection = _database.local.collections.loggedUsers;
@@ -642,7 +662,7 @@ async function wsRespondLoginPhrase(ws, req) {
     try {
       const result = await dbHelper.findOneInDatabase(database, collection, query, projection).catch((error) => {
         const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
-        ws.send(stringify(errMessage));
+        ws.send(qs.stringify(errMessage));
         ws.close(1011);
         throw error;
       });
@@ -651,7 +671,7 @@ async function wsRespondLoginPhrase(ws, req) {
         let privilage = 'user';
         if (result.zelid === fluxTeamZelId) {
           privilage = 'fluxteam';
-        } else if (result.zelid === initial.zelid) {
+        } else if (result.zelid === userconfig.initial.zelid) {
           privilage = 'admin';
         }
         const resData = {
@@ -666,7 +686,7 @@ async function wsRespondLoginPhrase(ws, req) {
         const message = messageHelper.createDataMessage(resData);
         if (!connclosed) {
           try {
-            ws.send(stringify(message));
+            ws.send(qs.stringify(message));
             ws.close(1000);
           } catch (e) {
             log.error(e);
@@ -677,7 +697,7 @@ async function wsRespondLoginPhrase(ws, req) {
         const activeLoginPhrasesCollection = _database.local.collections.activeLoginPhrases;
         const resultB = await dbHelper.findOneInDatabase(database, activeLoginPhrasesCollection, query, projection).catch((error) => {
           const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
-          ws.send(stringify(errMessage));
+          ws.send(qs.stringify(errMessage));
           ws.close(1011);
           throw error;
         });
@@ -691,7 +711,7 @@ async function wsRespondLoginPhrase(ws, req) {
           const errMessage = messageHelper.createErrorMessage('Signed message is no longer valid. Please request a new one.');
           if (!connclosed) {
             try {
-              ws.send(stringify(errMessage));
+              ws.send(qs.stringify(errMessage));
               ws.close();
             } catch (e) {
               log.error(e);
@@ -737,7 +757,7 @@ async function wsRespondSignature(ws, req) {
     try {
       const result = await dbHelper.findOneInDatabase(database, collection, query, projection).catch((error) => {
         const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
-        ws.send(stringify(errMessage));
+        ws.send(qs.stringify(errMessage));
         ws.close(1011);
         throw error;
       });
@@ -747,7 +767,7 @@ async function wsRespondSignature(ws, req) {
         const response = messageHelper.createDataMessage(result);
         if (!connclosed) {
           try {
-            ws.send(stringify(response));
+            ws.send(qs.stringify(response));
             ws.close(1000);
           } catch (e) {
             log.error(e);

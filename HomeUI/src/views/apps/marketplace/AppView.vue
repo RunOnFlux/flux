@@ -764,7 +764,7 @@ export default {
 
     const deploymentAddress = ref(null);
     const appsDeploymentInformation = async () => {
-      const response = await AppsService.appsRegInformation();
+      const response = await AppsService.appsDeploymentInformation();
       const { data } = response.data;
       if (response.data.status === 'success') {
         deploymentAddress.value = data.address;

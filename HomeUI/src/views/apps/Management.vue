@@ -104,7 +104,11 @@
             <list-entry
               v-if="callResponse.data.hash && callResponse.data.hash.length === 64"
               title="Expires on Blockheight"
-              :number="callResponse.data.height + 22000"
+              :number="callResponse.data.height + (callResponse.data.expire || 22000)"
+            />
+            <list-entry
+              title="Period"
+              :data="getExpireLabel || (callResponse.data.expire ? callResponse.data.expire + ' blocks' : '1 month')"
             />
             <h4>Composition</h4>
             <div v-if="callResponse.data.version <= 3">
@@ -369,7 +373,11 @@
             <list-entry
               v-if="callBResponse.data.hash && callBResponse.data.hash.length === 64"
               title="Expires on Blockheight"
-              :number="callBResponse.data.height + 22000"
+              :number="callBResponse.data.height + (callBResponse.data.expire || 22000)"
+            />
+            <list-entry
+              title="Period"
+              :data="getExpireLabel || (callBResponse.data.expire ? callBResponse.data.expire + ' blocks' : '1 month')"
             />
             <h4>Composition</h4>
             <div v-if="callBResponse.data.version <= 3">
@@ -1195,7 +1203,7 @@
                     Stop Monitoring and Delete Monitored Data
                   </b-button>
                   <confirm-dialog
-                    :target="`pause-app-${component.name}_${appSpecification.name}`"
+                    :target="`stop-monitoring-delete-${component.name}_${appSpecification.name}`"
                     confirm-button="Stop Monitoring"
                     @confirm="stopMonitoring(`${component.name}_${appSpecification.name}`, true)"
                   />
@@ -1397,7 +1405,11 @@
             <list-entry
               v-if="callBResponse.data.hash && callBResponse.data.hash.length === 64"
               title="Expires on Blockheight"
-              :number="callBResponse.data.height + 22000"
+              :number="callBResponse.data.height + (callBResponse.data.expire || 22000)"
+            />
+            <list-entry
+              title="Period"
+              :data="getExpireLabel || (callBResponse.data.expire ? callBResponse.data.expire + ' blocks' : '1 month')"
             />
             <h4>Composition</h4>
             <b-card v-if="callBResponse.data.version <= 3">
@@ -1852,7 +1864,7 @@
                   size="sm"
                   class="mr-1"
                   variant="danger"
-                  @click="openApp(locationRow.item.name, locationRow.item.ip.split(':')[0], appUpdateSpecification.port || (appUpdateSpecification.ports ? JSON.parse(appUpdateSpecification.ports)[0] : JSON.parse(appUpdateSpecification.compose[0]).ports[0]))"
+                  @click="openApp(locationRow.item.name, locationRow.item.ip.split(':')[0], getProperPort(JSON.parse(appUpdateSpecification)))"
                 >
                   Visit App
                 </b-button>
@@ -1996,7 +2008,7 @@
                       </b-form-select>
                     </b-form-group>
                     <b-form-group
-                      v-if="allowedGeolocations[`selectedContinent${n}`]"
+                      v-if="allowedGeolocations[`selectedContinent${n}`] && allowedGeolocations[`selectedContinent${n}`] !== 'ALL'"
                       label-cols="3"
                       label-cols-lg="1"
                       :label="'Country - ' + n"
@@ -2019,7 +2031,7 @@
                       </b-form-select>
                     </b-form-group>
                     <b-form-group
-                      v-if="allowedGeolocations[`selectedCountry${n}`]"
+                      v-if="allowedGeolocations[`selectedContinent${n}`] && allowedGeolocations[`selectedContinent${n}`] !== 'ALL' && allowedGeolocations[`selectedCountry${n}`] && allowedGeolocations[`selectedCountry${n}`] !== 'ALL'"
                       label-cols="3"
                       label-cols-lg="1"
                       :label="'Region - ' + n"
@@ -2096,7 +2108,7 @@
                       </b-form-select>
                     </b-form-group>
                     <b-form-group
-                      v-if="forbiddenGeolocations[`selectedContinent${n}`]"
+                      v-if="forbiddenGeolocations[`selectedContinent${n}`] && forbiddenGeolocations[`selectedContinent${n}`] !== 'NONE'"
                       label-cols="3"
                       label-cols-lg="1"
                       :label="'Country - ' + n"
@@ -2118,7 +2130,7 @@
                       </b-form-select>
                     </b-form-group>
                     <b-form-group
-                      v-if="forbiddenGeolocations[`selectedCountry${n}`]"
+                      v-if="forbiddenGeolocations[`selectedContinent${n}`] && forbiddenGeolocations[`selectedContinent${n}`] !== 'NONE' && forbiddenGeolocations[`selectedCountry${n}`] && forbiddenGeolocations[`selectedCountry${n}`] !== 'ALL'"
                       label-cols="3"
                       label-cols-lg="1"
                       :label="'Region - ' + n"
@@ -2184,6 +2196,27 @@
                     min="3"
                     :max="maxInstances"
                     step="1"
+                  />
+                </b-form-group>
+                <br>
+                <b-form-group
+                  v-if="appUpdateSpecification.version >= 6"
+                  label-cols="2"
+                  label-cols-lg="1"
+                  label="Period"
+                  label-for="period"
+                >
+                  <div class="mx-1">
+                    {{ getExpireLabel || (appUpdateSpecification.expire ? appUpdateSpecification.expire + ' blocks' : '1 month') }}
+                  </div>
+                  <b-form-input
+                    id="period"
+                    v-model="expirePosition"
+                    placeholder="How long an application will live on Flux network"
+                    type="range"
+                    :min="0"
+                    :max="5"
+                    :step="1"
                   />
                 </b-form-group>
               </b-card>
@@ -2355,7 +2388,7 @@
                     <label class="col-3 col-form-label">
                       Cont. Data
                       <v-icon
-                        v-b-tooltip.hover.top="'Data folder that is shared by application to App volume'"
+                        v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with s: for synced data between instances. Eg. s:/data'"
                         name="info-circle"
                         class="mr-1"
                       />
@@ -2646,6 +2679,27 @@
                     step="1"
                   />
                 </b-form-group>
+                <br>
+                <b-form-group
+                  v-if="appUpdateSpecification.version >= 6"
+                  label-cols="2"
+                  label-cols-lg="1"
+                  label="Period"
+                  label-for="period"
+                >
+                  <div class="mx-1">
+                    {{ getExpireLabel || (appUpdateSpecification.expire ? appUpdateSpecification.expire + ' blocks' : '1 month') }}
+                  </div>
+                  <b-form-input
+                    id="period"
+                    v-model="expirePosition"
+                    placeholder="How long an application will live on Flux network"
+                    type="range"
+                    :min="0"
+                    :max="5"
+                    :step="1"
+                  />
+                </b-form-group>
               </b-card>
             </b-col>
             <b-col
@@ -2737,7 +2791,7 @@
                   <label class="col-3 col-form-label">
                     Cont. Data
                     <v-icon
-                      v-b-tooltip.hover.top="'Data folder that is shared by application to App volume'"
+                      v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with s: for synced data between instances. Eg. s:/data'"
                       name="info-circle"
                       class="mr-1"
                     />
@@ -3269,6 +3323,41 @@ export default {
       forbiddenGeolocations: {},
       numberOfGeolocations: 1,
       numberOfNegativeGeolocations: 1,
+      minExpire: 5000,
+      maxExpire: 264000,
+      expirePosition: 2,
+      expireOptions: [
+        {
+          value: 5000,
+          label: '1 week',
+          time: 7 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 11000,
+          label: '2 weeks',
+          time: 14 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 22000,
+          label: '1 month',
+          time: 30 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 66000,
+          label: '3 months',
+          time: 90 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 132000,
+          label: '6 months',
+          time: 180 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 264000,
+          label: '1 year',
+          time: 365 * 24 * 60 * 60 * 1000,
+        },
+      ],
     };
   },
   setup() {
@@ -3321,7 +3410,19 @@ export default {
     });
 
     const subscribedTill = computed(() => {
-      const expTime = this.timestamp + 30 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000; // 1 month
+      if (this.appUpdateSpecification.expire) {
+        const timeFound = this.expireOptions.find((option) => option.value === this.appUpdateSpecification.expire);
+        if (timeFound) {
+          const expTime = this.timestamp + timeFound.time;
+          return expTime;
+        }
+        const blocks = this.appUpdateSpecification.expire;
+        const blockTime = 2 * 60 * 1000;
+        const validTime = blocks * blockTime;
+        const expTime = this.timestamp + validTime;
+        return expTime;
+      }
+      const expTime = this.timestamp + 30 * 24 * 60 * 60 * 1000; // 1 month
       return expTime;
     });
 
@@ -3404,6 +3505,13 @@ export default {
       return domains;
     });
 
+    const getExpireLabel = computed(() => {
+      if (this.expireOptions[this.expirePosition]) {
+        return this.expireOptions[this.expirePosition].label;
+      }
+      return null;
+    });
+
     return {
       mapState,
       callbackValue,
@@ -3412,7 +3520,8 @@ export default {
       subscribedTill,
       isApplicationInstalledLocally,
       applicationManagementAndStatus,
-      constructAutomaticDomainsGlobal
+      constructAutomaticDomainsGlobal,
+      getExpireLabel
     }
   },
   watch: {
@@ -3429,6 +3538,19 @@ export default {
         }
       },
       deep: true,
+    },
+    expirePosition: {
+      handler() {
+        this.dataToSign = '';
+        this.signature = '';
+        this.timestamp = null;
+        this.dataForAppUpdate = {};
+        this.updateHash = '';
+        if (this.websocket !== null) {
+          this.websocket.close();
+          this.websocket = null;
+        }
+      },
     },
   },
   mounted() {
@@ -3452,7 +3574,7 @@ export default {
   },
   methods: {
     async appsDeploymentInformation() {
-      const response = await AppsService.appsRegInformation();
+      const response = await AppsService.appsDeploymentInformation();
       const { data } = response.data;
       if (response.data.status === 'success') {
         this.deploymentAddress = data.address;
@@ -3582,6 +3704,13 @@ export default {
         this.appSpecification = response.data.data[0];
       }
     },
+    getExpirePosition(value) {
+      const position = this.expireOptions.findIndex((opt) => opt.value === value);
+      if (position || position === 0) {
+        return position;
+      }
+      return 2;
+    },
     async getGlobalApplicationSpecifics() {
       const response = await AppsService.getAppSpecifics(this.appName);
       console.log(response);
@@ -3603,7 +3732,9 @@ export default {
           this.appUpdateSpecification.commands = this.ensureString(specs.commands);
           this.appUpdateSpecification.containerPorts = specs.containerPort || this.ensureString(specs.containerPorts); // v1 compatibility
         } else {
-          this.appUpdateSpecification.version = 5; // enforce specs v5
+          if (this.appUpdateSpecification.version <= 6) {
+            this.appUpdateSpecification.version = 6;
+          }
           this.appUpdateSpecification.contacts = this.ensureString([]);
           this.appUpdateSpecification.geolocation = this.ensureString([]);
           if (this.appUpdateSpecification.version >= 5) {
@@ -3623,6 +3754,10 @@ export default {
             // eslint-disable-next-line no-param-reassign
             component.containerPorts = this.ensureString(component.containerPorts);
           });
+          if (this.appUpdateSpecification.version >= 6) {
+            this.appUpdateSpecification.expire = this.ensureNumber(specs.expire || 22000);
+            this.expirePosition = this.getExpirePosition(this.appUpdateSpecification.expire);
+          }
         }
       }
     },
@@ -3657,12 +3792,20 @@ export default {
         this.showToast('danger', response.data.data.message || response.data.data);
       }
     },
-
+    convertExpire() {
+      if (this.expireOptions[this.expirePosition]) {
+        return this.expireOptions[this.expirePosition].value;
+      }
+      return 22000;
+    },
     async checkFluxUpdateSpecificationsAndFormatMessage() {
       try {
         const appSpecification = this.appUpdateSpecification;
         if (appSpecification.version >= 5) {
           appSpecification.geolocation = this.generateGeolocations();
+        }
+        if (appSpecification.version >= 6) {
+          appSpecification.expire = this.convertExpire();
         }
         // call api for verification of app registration specifications that returns formatted specs
         const responseAppSpecs = await AppsService.appUpdateVerification(appSpecification);
@@ -4161,8 +4304,10 @@ export default {
         this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
         if (this.output[this.output.length - 1].status === 'error') {
           this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+        } else if (this.output[this.output.length - 1].status === 'warning') {
+          this.showToast('warning', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else {
-          this.showToast('success', this.output[this.output.length - 1].status);
+          this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         }
       }
     },
@@ -4187,8 +4332,10 @@ export default {
         this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
         if (this.output[this.output.length - 1].status === 'error') {
           this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+        } else if (this.output[this.output.length - 1].status === 'warning') {
+          this.showToast('warning', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else {
-          this.showToast('success', this.output[this.output.length - 1].status);
+          this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         }
         setTimeout(() => {
           self.managedApplication = '';
@@ -4271,14 +4418,25 @@ export default {
       if ((_port && _ip)) {
         const ip = _ip;
         const port = _port;
-        let url = `http://${ip}:${port}`;
-        if (name === 'KadenaChainWebNode') {
-          url = `https://${ip}:${port}/chainweb/0.0/mainnet01/cut`;
-        }
+        const url = `http://${ip}:${port}`;
         this.openSite(url);
       } else {
-        this.showToast('danger', 'Unable to open App :(');
+        this.showToast('danger', 'Unable to open App :(, App does not have a port.');
       }
+    },
+    getProperPort(appSpecs) {
+      if (appSpecs.port) {
+        return appSpecs.port;
+      }
+      if (appSpecs.ports) {
+        return appSpecs.ports[0];
+      }
+      for (let i = 0; i < appSpecs.compose.length; i += 1) {
+        for (let j = 0; j < appSpecs.compose[i].ports.length; j += 1) {
+          return appSpecs.compose[i].ports[j];
+        }
+      }
+      return null;
     },
     openNodeFluxOS(_ip, _port) {
       console.log(_ip, _port);
@@ -4612,7 +4770,7 @@ export default {
       return continents;
     },
     countriesOptions(continentCode, isNegative) {
-      const countries = [{ value: isNegative ? 'NONE' : 'ALL', text: isNegative ? 'NONE' : 'ALL' }];
+      const countries = [{ value: isNegative ? 'ALL' : 'ALL', text: isNegative ? 'ALL' : 'ALL' }];
       this.possibleLocations.filter((options) => options.instances > (isNegative ? -1 : 3)).forEach((location) => {
         if (!location.value.split('_')[2] && location.value.startsWith(`${continentCode}_`)) {
           const existingCountry = geolocations.countries.find((country) => country.code === location.value.split('_')[1]);
@@ -4622,7 +4780,7 @@ export default {
       return countries;
     },
     regionsOptions(continentCode, countryCode, isNegative) {
-      const regions = [{ value: isNegative ? 'NONE' : 'ALL', text: isNegative ? 'NONE' : 'ALL' }];
+      const regions = [{ value: isNegative ? 'ALL' : 'ALL', text: isNegative ? 'ALL' : 'ALL' }];
       this.possibleLocations.filter((options) => options.instances > (isNegative ? -1 : 3)).forEach((location) => {
         if (location.value.startsWith(`${continentCode}_${countryCode}_`)) {
           regions.push({ value: location.value.split('_')[2], text: location.value.split('_')[2] });
@@ -4653,9 +4811,9 @@ export default {
         const region = this.forbiddenGeolocations[`selectedRegion${i}`];
         if (continent && continent !== 'NONE') {
           let geolocation = `a!c${continent}`;
-          if (country && country !== 'NONE') {
+          if (country && country !== 'ALL') {
             geolocation += `_${country}`;
-            if (region && region !== 'NONE') {
+            if (region && region !== 'ALL') {
               geolocation += `_${region}`;
             }
           }
@@ -4665,15 +4823,15 @@ export default {
       return geo;
     },
     getGeolocation(geo) {
-      if (geo.startsWith('a') && !geo.startsWith('ac') && geo.startsWith('a!c')) {
+      if (geo.startsWith('a') && !geo.startsWith('ac') && !geo.startsWith('a!c')) {
         // specific continent
         const continentCode = geo.slice(1);
-        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode);
+        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode) || { name: 'ALL' };
         return `Continent: ${continentExists.name || 'Unkown'}`;
       } if (geo.startsWith('b')) {
         // specific country
         const countryCode = geo.slice(1);
-        const countryExists = geolocations.countries.find((country) => country.code === countryCode);
+        const countryExists = geolocations.countries.find((country) => country.code === countryCode) || { name: 'ALL' };
         return `Country: ${countryExists.name || 'Unkown'}`;
       } if (geo.startsWith('ac')) {
         // allowed location
@@ -4682,8 +4840,8 @@ export default {
         const continentCode = locations[0];
         const countryCode = locations[1];
         const regionName = locations[2];
-        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode);
-        const countryExists = geolocations.countries.find((country) => country.code === countryCode);
+        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode) || { name: 'ALL' };
+        const countryExists = geolocations.countries.find((country) => country.code === countryCode) || { name: 'ALL' };
         let locationString = `Allowed location: Continent: ${continentExists.name}`;
         if (countryCode) {
           locationString += `, Country: ${countryExists.name}`;
@@ -4699,8 +4857,8 @@ export default {
         const continentCode = locations[0];
         const countryCode = locations[1];
         const regionName = locations[2];
-        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode);
-        const countryExists = geolocations.countries.find((country) => country.code === countryCode);
+        const continentExists = geolocations.continents.find((continent) => continent.code === continentCode) || { name: 'ALL' };
+        const countryExists = geolocations.countries.find((country) => country.code === countryCode) || { name: 'ALL' };
         let locationString = `Forbidden location: Continent: ${continentExists.name}`;
         if (countryCode) {
           locationString += `, Country: ${countryExists.name}`;
@@ -4722,7 +4880,13 @@ export default {
         if (locFound) {
           instances += locFound.instances;
         }
+        if (location === 'ALL') {
+          instances += 100;
+        }
       });
+      if (!positiveLocations.length) {
+        instances += 100;
+      }
       console.log(instances);
       instances = instances > 3 ? instances : 3;
       const maxInstances = instances > 100 ? 100 : instances;

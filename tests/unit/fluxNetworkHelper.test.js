@@ -36,6 +36,8 @@ const userconfig = {
     kadena: '123456789',
     apiport: '16127',
     testnet: true,
+    development: false,
+    decryptionkey: '',
   },
 };
 const fluxNetworkHelper = proxyquire('../../ZelBack/src/services/fluxNetworkHelper',
@@ -88,6 +90,7 @@ describe('fluxNetworkHelper tests', () => {
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(fluxAvailabilitySuccessResponse);
       const expectedAddress = 'http://127.0.0.1:16125/flux/version';
+      const expectedAddressHome = 'http://127.0.0.1:16124';
       const expectedMessage = {
         status: 'success',
         data: {
@@ -100,6 +103,7 @@ describe('fluxNetworkHelper tests', () => {
       const checkFluxAvailabilityResult = await fluxNetworkHelper.checkFluxAvailability(req, mockResponse);
 
       sinon.assert.calledOnceWithExactly(stub, expectedAddress, axiosConfig);
+      sinon.assert.calledWithExactly(stub, expectedAddressHome, axiosConfig);
       sinon.assert.calledOnceWithExactly(mockResponse.json, expectedMessage);
       expect(checkFluxAvailabilityResult).to.eql(expectedMessage);
     });
@@ -118,6 +122,7 @@ describe('fluxNetworkHelper tests', () => {
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(fluxAvailabilitySuccessResponse);
       const expectedAddress = 'http://127.0.0.1:16125/flux/version';
+      const expectedAddressHome = 'http://127.0.0.1:16124';
       const expectedMessage = {
         status: 'success',
         data: {
@@ -129,7 +134,8 @@ describe('fluxNetworkHelper tests', () => {
 
       const checkFluxAvailabilityResult = await fluxNetworkHelper.checkFluxAvailability(req, mockResponse);
 
-      sinon.assert.calledOnceWithExactly(stub, expectedAddress, axiosConfig);
+      sinon.assert.calledWithExactly(stub, expectedAddress, axiosConfig);
+      sinon.assert.calledWithExactly(stub, expectedAddressHome, axiosConfig);
       sinon.assert.calledOnceWithExactly(mockResponse.json, expectedMessage);
       expect(checkFluxAvailabilityResult).to.eql(expectedMessage);
     });
@@ -310,10 +316,12 @@ describe('fluxNetworkHelper tests', () => {
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
+      const expectedAddressHome = 'http://127.0.0.1:16126';
 
       const isFluxAvailableResult = await fluxNetworkHelper.isFluxAvailable(ip);
 
       sinon.assert.calledOnceWithExactly(stub, expectedAddress, axiosConfig);
+      sinon.assert.calledWithExactly(stub, expectedAddressHome, axiosConfig);
       expect(isFluxAvailableResult).to.equal(true);
     });
 
@@ -326,10 +334,12 @@ describe('fluxNetworkHelper tests', () => {
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
       const expectedAddress = 'http://127.0.0.1:16125/flux/version';
+      const expectedAddressHome = 'http://127.0.0.1:16124';
 
       const isFluxAvailableResult = await fluxNetworkHelper.isFluxAvailable(ip, port);
 
-      sinon.assert.calledOnceWithExactly(stub, expectedAddress, axiosConfig);
+      sinon.assert.calledWithExactly(stub, expectedAddress, axiosConfig);
+      sinon.assert.calledWithExactly(stub, expectedAddressHome, axiosConfig);
       expect(isFluxAvailableResult).to.equal(true);
     });
 
@@ -503,6 +513,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       ];
       deterministicFluxListStub = sinon.stub(fluxCommunicationUtils, 'deterministicFluxList');
+      fluxNetworkHelper.setMyFluxIp('83.52.214.240:16167');
     });
 
     afterEach(() => {
@@ -540,7 +551,7 @@ describe('fluxNetworkHelper tests', () => {
 
       const getRandomConnectionResponse = await fluxNetworkHelper.getRandomConnection();
 
-      expect(getRandomConnectionResponse).to.be.undefined;
+      expect(getRandomConnectionResponse).to.be.null;
     });
 
     it('should return null if ip is the same as userconfig.initial.ipaddress', async () => {
@@ -973,7 +984,7 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('checkFluxbenchVersionAllowed tests', () => {
-    // minimumFluxBenchAllowedVersion = '3.6.0';
+    // minimumFluxBenchAllowedVersion = '3.7.0';
     let benchmarkInfoResponseStub;
 
     beforeEach(() => {
@@ -994,7 +1005,7 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('should return true if bench version is equal to minimal and stored in cache', async () => {
-      fluxNetworkHelper.setStoredFluxBenchAllowed('3.6.0');
+      fluxNetworkHelper.setStoredFluxBenchAllowed('3.7.0');
 
       const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
 
@@ -1028,7 +1039,7 @@ describe('fluxNetworkHelper tests', () => {
       const benchmarkInfoResponse = {
         status: 'success',
         data: {
-          version: '3.6.0',
+          version: '3.7.0',
         },
       };
       benchmarkInfoResponseStub.returns(benchmarkInfoResponse);
@@ -1036,7 +1047,7 @@ describe('fluxNetworkHelper tests', () => {
       const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
 
       expect(isFluxbenchVersionAllowed).to.equal(true);
-      expect(fluxNetworkHelper.getStoredFluxBenchAllowed()).to.equal('3.6.0');
+      expect(fluxNetworkHelper.getStoredFluxBenchAllowed()).to.equal('3.7.0');
     });
 
     it('should return false if the version is lower than minimal and is not set in cache', async () => {
@@ -1289,7 +1300,9 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/kadena: '123456789',/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/testnet: true,/gm));
+      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/development: false,/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/apiport: 16127,/gm));
+      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/decryptionkey: '',/gm));
     });
 
     it('should not write to file if the config already has same exact ip', () => {
@@ -1433,7 +1446,7 @@ describe('fluxNetworkHelper tests', () => {
 
       await fluxNetworkHelper.checkDeterministicNodesCollisions();
 
-      expect(fluxNetworkHelper.getDosMessage()).to.equal('Flux earlier collision detection');
+      expect(fluxNetworkHelper.getDosMessage()).to.equal('Flux earlier collision detection on ip:127.0.0.1:5050');
       expect(fluxNetworkHelper.getDosStateValue()).to.equal(100);
     });
 
@@ -1804,7 +1817,7 @@ describe('fluxNetworkHelper tests', () => {
     let utilStub;
     let funcStub;
     let logSpy;
-    const ports = [16127, 16126, 80, 443, 16125, 11, 13];
+    const ports = [16127, 16126, 16129, 80, 443, 16125, 11, 13];
     beforeEach(() => {
       utilStub = sinon.stub(util, 'promisify');
       logSpy = sinon.spy(log, 'info');
@@ -1872,8 +1885,8 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('isCommunicationEstablished tests', () => {
-    const minNumberOfIncoming = 3;
-    const minNumberOfOutgoing = 9;
+    const minNumberOfIncoming = 4;
+    const minNumberOfOutgoing = 8;
     const dummyPeer = {
       ip: '192.168.0.0',
       lastPingTime: new Date().getTime(),
@@ -1903,12 +1916,20 @@ describe('fluxNetworkHelper tests', () => {
         message: 'Communication to Flux network is properly established',
       },
     };
-    const expectedErrorResponse = {
+    const expectedErrorResponseOutgoing = {
       status: 'error',
       data: {
         code: undefined,
         name: undefined,
-        message: 'Not enough connections established to Flux network',
+        message: 'Not enough outgoing connections established to Flux network',
+      },
+    };
+    const expectedErrorResponseIncoming = {
+      status: 'error',
+      data: {
+        code: undefined,
+        name: undefined,
+        message: 'Not enough incoming connections from Flux network',
       },
     };
 
@@ -1927,15 +1948,14 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.calledOnceWithExactly(res.json, expectedSuccesssResponse);
     });
 
-    // TODO TBD reenable once enabled in Flux
-    // it('should return a negative respone if there are not enough incoming peers', () => {
-    //   const res = generateResponse();
-    //   populatePeers(minNumberOfIncoming - 1, minNumberOfOutgoing);
+    it('should return a negative respone if there are not enough incoming peers', () => {
+      const res = generateResponse();
+      populatePeers(minNumberOfIncoming - 1, minNumberOfOutgoing);
 
-    //   fluxNetworkHelper.isCommunicationEstablished(undefined, res);
+      fluxNetworkHelper.isCommunicationEstablished(undefined, res);
 
-    //   sinon.assert.calledOnceWithExactly(res.json, expectedErrorResponse);
-    // });
+      sinon.assert.calledOnceWithExactly(res.json, expectedErrorResponseIncoming);
+    });
 
     it('should return a negative respone if there are not enough outgoing peers', () => {
       const res = generateResponse();
@@ -1943,7 +1963,7 @@ describe('fluxNetworkHelper tests', () => {
 
       fluxNetworkHelper.isCommunicationEstablished(undefined, res);
 
-      sinon.assert.calledOnceWithExactly(res.json, expectedErrorResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedErrorResponseOutgoing);
     });
 
     it('should return a negative respone if there are not enough incoming or outgoing peers', () => {
@@ -1952,7 +1972,7 @@ describe('fluxNetworkHelper tests', () => {
 
       fluxNetworkHelper.isCommunicationEstablished(undefined, res);
 
-      sinon.assert.calledOnceWithExactly(res.json, expectedErrorResponse);
+      sinon.assert.calledOnceWithExactly(res.json, expectedErrorResponseOutgoing);
     });
   });
 

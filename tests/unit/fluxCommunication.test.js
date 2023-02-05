@@ -811,12 +811,12 @@ describe('fluxCommunication tests', () => {
   describe('initiateAndHandleConnection tests', () => {
     let wsserver;
     let logSpy;
-    let checkRateLimitStub;
+    let lruRateLimitStub;
     let ensureObjectSpy;
 
     beforeEach(() => {
       logSpy = sinon.spy(log, 'info');
-      checkRateLimitStub = sinon.stub(fluxNetworkHelper, 'checkRateLimit');
+      lruRateLimitStub = sinon.stub(fluxNetworkHelper, 'lruRateLimit');
       ensureObjectSpy = sinon.spy(serviceHelper, 'ensureObject');
       outgoingConnections.length = 0;
       outgoingPeers.length = 0;
@@ -890,7 +890,7 @@ describe('fluxCommunication tests', () => {
       });
       const ip = '127.0.0.2';
       wsserver = new WebSocket.Server({ host: '127.0.0.2', port: '16127' });
-      checkRateLimitStub.returns(false);
+      lruRateLimitStub.returns(false);
 
       await fluxCommunication.initiateAndHandleConnection(ip);
 
@@ -917,7 +917,7 @@ describe('fluxCommunication tests', () => {
       });
       const ip = '127.0.0.2';
       wsserver = new WebSocket.Server({ host: '127.0.0.2', port: '16127' });
-      checkRateLimitStub.returns(true);
+      lruRateLimitStub.returns(true);
       sinon.stub(LRU.prototype, 'has').returns(true);
       const websocketCloseSpy = sinon.spy(WebSocket.prototype, 'close');
 
@@ -934,7 +934,7 @@ describe('fluxCommunication tests', () => {
       sinon.assert.calledWith(logSpy, 'Connection 127.0.0.2 removed from outgoingPeers');
     });
 
-    const appRequestCommands = ['zelapprequest', 'fluxapprequest'];
+    const appRequestCommands = ['fluxapprequest'];
     // eslint-disable-next-line no-restricted-syntax
     for (const command of appRequestCommands) {
       // eslint-disable-next-line no-loop-func
@@ -957,7 +957,7 @@ describe('fluxCommunication tests', () => {
         });
         const ip = '127.0.0.2';
         wsserver = new WebSocket.Server({ host: '127.0.0.2', port: '16127' });
-        checkRateLimitStub.returns(true);
+        lruRateLimitStub.returns(true);
         sinon.stub(LRU.prototype, 'has').returns(false);
         const verifyOriginalFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast').returns(true);
         const respondWithAppMessageStub = sinon.stub(fluxCommunicationMessagesSender, 'respondWithAppMessage').returns(true);
@@ -996,7 +996,7 @@ describe('fluxCommunication tests', () => {
         });
         const ip = '127.0.0.2';
         wsserver = new WebSocket.Server({ host: '127.0.0.2', port: '16127' });
-        checkRateLimitStub.returns(true);
+        lruRateLimitStub.returns(true);
         sinon.stub(LRU.prototype, 'has').returns(false);
         const verifyOriginalFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast').returns(true);
         const storeAppTemporaryMessageStub = sinon.stub(appsService, 'storeAppTemporaryMessage').returns(false);
@@ -1012,7 +1012,7 @@ describe('fluxCommunication tests', () => {
       });
     }
 
-    const appRunningMessageList = ['zelapprunning', 'fluxapprunning'];
+    const appRunningMessageList = ['fluxapprunning'];
     // eslint-disable-next-line no-restricted-syntax
     for (const command of appRunningMessageList) {
       // eslint-disable-next-line no-loop-func
@@ -1035,7 +1035,7 @@ describe('fluxCommunication tests', () => {
         });
         const ip = '127.0.0.2';
         wsserver = new WebSocket.Server({ host: '127.0.0.2', port: '16127' });
-        checkRateLimitStub.returns(true);
+        lruRateLimitStub.returns(true);
         sinon.stub(LRU.prototype, 'has').returns(false);
         const verifyOriginalFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast').returns(true);
         const storeAppRunningMessageStub = sinon.stub(appsService, 'storeAppRunningMessage').returns(false);
@@ -1240,37 +1240,38 @@ describe('fluxCommunication tests', () => {
     it('should start connecting nodes if everything is set up properly', async () => {
       const fluxNodeList = [
         {
-          ip: '44.192.51.11:16128',
+          ip: '44.192.51.12:16127',
         },
         {
-          ip: '44.192.51.12:16128',
+          ip: '44.192.51.13:16127',
         },
         {
-          ip: '44.192.51.13:16128',
+          ip: '44.192.51.14:16127',
         },
         {
-          ip: '44.192.51.14:16128',
+          ip: '44.192.51.15:16127',
         },
         {
-          ip: '44.192.51.15:16128',
+          ip: '44.192.51.16:16127',
         },
         {
-          ip: '44.192.51.16:16128',
+          ip: '44.192.51.17:16127',
         },
         {
-          ip: '44.192.51.17:16128',
+          ip: '44.192.51.18:16127',
         },
         {
-          ip: '44.192.51.18:16128',
+          ip: '44.192.51.19:16127',
         },
         {
-          ip: '44.192.51.19:16128',
+          ip: '44.192.51.20:16127',
         },
         {
-          ip: '44.192.51.20:16128',
+          ip: '44.192.51.11:16127',
         },
       ];
-      sinon.stub(fluxNetworkHelper, 'getMyFluxIPandPort').returns('44.192.51.11:16128');
+      sinon.stub(fluxNetworkHelper, 'getMyFluxIPandPort').returns('44.192.51.11:16127');
+      fluxNetworkHelper.setMyFluxIp('44.192.51.11');
       sinon.stub(fluxCommunicationUtils, 'deterministicFluxList').returns(fluxNodeList);
       sinon.stub(serviceHelper, 'delay').resolves(() => new Promise((resolve) => setTimeout(resolve, 50)));
       const infoSpy = sinon.spy(log, 'info');
@@ -1286,7 +1287,9 @@ describe('fluxCommunication tests', () => {
       sinon.assert.calledWith(infoSpy, 'Current number of incoming connections:0');
       // eslint-disable-next-line no-restricted-syntax
       for (const node of fluxNodeList) {
-        sinon.assert.calledWith(infoSpy, `Adding Flux peer: ${node.ip}`);
+        if (node.ip !== '44.192.51.11:16127') {
+          sinon.assert.calledWith(infoSpy, `Adding Flux peer: ${node.ip}`);
+        }
       }
     });
   });

@@ -51,6 +51,62 @@ async function fluxBackendFolder(req, res) {
 }
 
 /**
+ * To switch to master branch of FluxOS. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+// eslint-disable-next-line consistent-return
+async function enterMaster(req, res) {
+  if (req) {
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized !== true) {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      return res ? res.json(errMessage) : errMessage;
+    }
+  }
+  const nodedpath = path.join(__dirname, '../../../');
+  const exec = `cd ${nodedpath} && npm run entermaster`;
+  nodecmd.get(exec, (err) => {
+    if (err) {
+      log.error(err);
+      const errMessage = messageHelper.createErrorMessage(`Error entering master branch of Flux: ${err.message}`, err.name, err.code);
+      return res ? res.json(errMessage) : errMessage;
+    }
+    const message = messageHelper.createSuccessMessage('Master branch successfully entered');
+    return res ? res.json(message) : message;
+  });
+}
+
+/**
+ * To switch to master branch of FluxOS. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+// eslint-disable-next-line consistent-return
+async function enterDevelopment(req, res) {
+  if (req) {
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized !== true) {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      return res ? res.json(errMessage) : errMessage;
+    }
+  }
+  const nodedpath = path.join(__dirname, '../../../');
+  const exec = `cd ${nodedpath} && npm run enterdevelopment`;
+  nodecmd.get(exec, (err) => {
+    if (err) {
+      log.error(err);
+      const errMessage = messageHelper.createErrorMessage(`Error entering development branch of Flux: ${err.message}`, err.name, err.code);
+      return res ? res.json(errMessage) : errMessage;
+    }
+    const message = messageHelper.createSuccessMessage('Development branch successfully entered');
+    return res ? res.json(message) : message;
+  });
+}
+
+/**
  * To update FluxOS version (executes the command `npm run updateflux` on the node machine). Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -67,7 +123,7 @@ async function updateFlux(req, res) {
   const exec = `cd ${nodedpath} && npm run updateflux`;
   nodecmd.get(exec, (err) => {
     if (err) {
-      console.log(err);
+      log.error(err);
       const errMessage = messageHelper.createErrorMessage(`Error updating Flux: ${err.message}`, err.name, err.code);
       return res.json(errMessage);
     }
@@ -84,20 +140,22 @@ async function updateFlux(req, res) {
  */
 // eslint-disable-next-line consistent-return
 async function softUpdateFlux(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized !== true) {
-    const errMessage = messageHelper.errUnauthorizedMessage();
-    return res.json(errMessage);
+  if (req) {
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized !== true) {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      return res ? res.json(errMessage) : errMessage;
+    }
   }
   const nodedpath = path.join(__dirname, '../../../');
   const exec = `cd ${nodedpath} && npm run softupdate`;
   nodecmd.get(exec, (err) => {
     if (err) {
       const errMessage = messageHelper.createErrorMessage(`Error softly updating Flux: ${err.message}`, err.name, err.code);
-      return res.json(errMessage);
+      return res ? res.json(errMessage) : errMessage;
     }
     const message = messageHelper.createSuccessMessage('Flux successfully updated using soft method');
-    return res.json(message);
+    return res ? res.json(message) : message;
   });
 }
 
@@ -245,6 +303,7 @@ async function startBenchmark(req, res) {
   }
   nodecmd.get(exec, (err, data) => {
     if (err) {
+      log.error(err);
       const errMessage = messageHelper.createErrorMessage(`Error starting Benchmark: ${err.message}`, err.name, err.code);
       return res.json(errMessage);
     }
@@ -265,7 +324,6 @@ async function restartBenchmark(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
-    console.log(errMessage);
     return res.json(errMessage);
   }
   const nodedpath = path.join(__dirname, '../../../helpers');
@@ -299,6 +357,7 @@ async function startDaemon(req, res) {
   }
   nodecmd.get(exec, (err, data) => {
     if (err) {
+      log.error(err);
       const errMessage = messageHelper.createErrorMessage(`Error starting Daemon: ${err.message}`, err.name, err.code);
       return res.json(errMessage);
     }
@@ -319,7 +378,6 @@ async function restartDaemon(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
-    console.log(errMessage);
     return res.json(errMessage);
   }
   const nodedpath = path.join(__dirname, '../../../helpers');
@@ -788,6 +846,13 @@ async function getFluxInfo(req, res) {
     }
     info.flux.dos = dosResult.data;
 
+    const doAppssResult = await appsService.getAppsDOSState();
+    if (dosResult.status === 'error') {
+      throw doAppssResult.data;
+    }
+    info.flux.appsDos = doAppssResult.data;
+    info.flux.development = `${userconfig.initial.development || false}`;
+
     const daemonInfoRes = await daemonServiceControlRpcs.getInfo();
     if (daemonInfoRes.status === 'error') {
       throw daemonInfoRes.data;
@@ -895,7 +960,9 @@ async function adjustCruxID(req, res) {
           zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
           kadena: '${userconfig.initial.kadena || ''}',
           testnet: ${userconfig.initial.testnet || false},
+          development: ${userconfig.initial.development || false},
           apiport: ${Number(userconfig.initial.apiport || config.apiport)},
+          decryptionkey: '${userconfig.initial.decryptionkey || ''}',
         }
       }`;
 
@@ -945,7 +1012,9 @@ async function adjustKadenaAccount(req, res) {
     zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
     kadena: '${kadenaURI}',
     testnet: ${userconfig.initial.testnet || false},
+    development: ${userconfig.initial.development || false},
     apiport: ${Number(userconfig.initial.apiport || config.apiport)},
+    decryptionkey: '${userconfig.initial.decryptionkey || ''}',
   }
 }`;
 
@@ -1050,6 +1119,8 @@ export default {
   fluxBackendFolder,
   getNodeTier,
   installFluxWatchTower,
+  enterDevelopment,
+  enterMaster,
 
   // Exports for testing purposes
   fluxLog,

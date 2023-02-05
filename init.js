@@ -49,26 +49,16 @@ function showQuestions() {
       }
     }
 
-    // const dataToWrite = 
-    // `module.exports = {
-    //   initial: {
-    //     ipaddress: '${answers.ipaddr}',
-    //     zelid: '${answers.zelid}',
-    //     testnet: false,
-    //     apiport: 16127,
-    //   }
-    // }`;
-
-    // Indentation is intentional so it can be correct when written to userconfig.js
-    const dataToWrite = 
-  `export const initial = {
-  ipaddress: '${answers.ipaddr}',
-  zelid: '${answers.zelid}',
-  testnet: false,
-  apiport: 16127
-}
-    
-export default { initial };`;
+    const dataToWrite = `module.exports = {
+      initial: {
+        ipaddress: '${answers.ipaddr}',
+        zelid: '${answers.zelid}',
+        testnet: false,
+        development: false,
+        apiport: 16127,
+        decryptionkey: '',
+      }
+    }`;
 
     const userconfig = createWriteStream(path);
 
