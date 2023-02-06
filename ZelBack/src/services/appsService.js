@@ -8952,13 +8952,13 @@ async function checkMyAppsAvailability() {
         log.error(error);
       });
       if (resMyAppAvailability && resMyAppAvailability.data.status === 'error') {
-        log.warn(`Running application ${app.name} unavailability detected from ${askingIP}:${askingIpPort}`);
+        log.warn(`Running application ${app.name} on ports ${JSON.stringify(appPorts)}, unavailability detected from ${askingIP}:${askingIpPort}`);
         log.warn(JSON.stringify(data));
         currentDos += 0.4;
         dosState += 0.4;
       }
       if (dosState > 10) {
-        dosMessage = `Running application ${app.name} is not reachable from outside!`;
+        dosMessage = `Running application ${app.name} on ports ${JSON.stringify(appPorts)} is not reachable from outside!`;
       }
     }
     if (currentDos === 0) {
