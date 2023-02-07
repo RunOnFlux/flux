@@ -94,13 +94,10 @@ async function confirmNodeTierHardware() {
  */
 async function loginPhrase(req, res) {
   try {
+    // check synthing availability
+    const syncthingDeviceID = syncthingService.getDeviceID();
     // check docker availablility
     await dockerService.dockerListImages();
-    // check synthing availability
-    const syncthingDeviceID = await syncthingService.getDeviceID();
-    if (syncthingDeviceID.status === 'error') {
-      throw new Error('Syncthing is not running properly');
-    }
     // check Node Hardware Requirements are ok.
     const hwPassed = await confirmNodeTierHardware();
     if (hwPassed === false) {
@@ -162,6 +159,13 @@ async function loginPhrase(req, res) {
     };
     const value = newLoginPhrase;
     await dbHelper.insertOneToDatabase(database, collection, value);
+
+    // check synthing result
+    await syncthingDeviceID;
+    if (syncthingDeviceID.status === 'error') {
+      throw new Error('Syncthing is not running properly');
+    }
+
     // all is ok
     const phraseResponse = messageHelper.createDataMessage(phrase);
     res.json(phraseResponse);
