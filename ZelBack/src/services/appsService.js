@@ -8956,6 +8956,8 @@ async function checkMyAppsAvailability() {
         log.warn(JSON.stringify(data));
         currentDos += 0.4;
         dosState += 0.4;
+      } else if (resMyAppAvailability && resMyAppAvailability.data.status === 'success') {
+        log.info(`${resMyAppAvailability.data.data.message} Detected from ${askingIP}:${askingIpPort}`);
       }
       if (dosState > 10) {
         dosMessage = `Running application ${app.name} on ports ${JSON.stringify(appPorts)} is not reachable from outside!`;
