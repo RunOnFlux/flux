@@ -628,7 +628,7 @@ async function getConfigFolders(req, res) {
   id = id || req.query.id;
   let apiPath = '/rest/config/folders';
   if (id) {
-    apiPath += `/${id}`;
+    apiPath += `/${id.replace(/[/\\?%*:|"<>]/g, '')}`;
   }
   const response = await performRequest('get', apiPath);
   return res ? res.json(response) : response;
@@ -652,7 +652,7 @@ async function getConfigDevices(req, res) {
   id = id || req.query.id;
   let apiPath = '/rest/config/devices';
   if (id) {
-    apiPath += `/${id}`;
+    apiPath += `/${id.replace(/[/\\?%*:|"<>]/g, '')}`;
   }
   const response = await performRequest('get', apiPath);
   return res ? res.json(response) : response;
@@ -668,7 +668,7 @@ async function getConfigDevices(req, res) {
 async function adjustConfigFolders(method, newConfig, id) {
   let apiPath = '/rest/config/folders';
   if (id) {
-    apiPath += `/${id}`;
+    apiPath += `/${id.replace(/[/\\?%*:|"<>]/g, '')}`;
   }
   const response = await performRequest(method, apiPath, newConfig);
   return response;
@@ -717,7 +717,7 @@ async function postConfigFolders(req, res) {
 async function adjustConfigDevices(method, newConfig, id) {
   let apiPath = '/rest/config/devices';
   if (id) {
-    apiPath += `/${id}`;
+    apiPath += `/${id.replace(/[/\\?%*:|"<>]/g, '')}`;
   }
   const response = await performRequest(method, apiPath, newConfig);
   return response;
