@@ -8966,8 +8966,10 @@ async function checkMyAppsAvailability() {
     if (currentDos === 0) {
       dosState = 0;
       dosMessage = null;
+      await serviceHelper.delay(60 * 60 * 1000);
+    } else {
+      await serviceHelper.delay(4 * 60 * 1000);
     }
-    await serviceHelper.delay(4 * 60 * 1000);
     checkMyAppsAvailability();
   } catch (error) {
     log.error(error);
