@@ -277,7 +277,7 @@ async function checkAppAvailability(req, res) {
 
       // eslint-disable-next-line no-restricted-syntax
       for (const port of ports) {
-        if (+port >= (config.fluxapps.portMin - 1000) || +port <= config.fluxapps.portMax) {
+        if (+port >= (config.fluxapps.portMin - 1000) && +port <= config.fluxapps.portMax) {
         // eslint-disable-next-line no-await-in-loop
           const isOpen = await isPortOpen(ip, port, appname, 2000);
           if (!isOpen) {
