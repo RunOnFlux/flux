@@ -29,6 +29,8 @@ const parserOptions = {
 };
 const parser = new XMLParser(parserOptions);
 
+const goodSyncthingChars = /^[a-zA-Z0-9-]+$/;
+
 /**
  * To get syncthing config xml file
  * @returns {string} config gile (XML).
@@ -628,7 +630,11 @@ async function getConfigFolders(req, res) {
   id = id || req.query.id;
   let apiPath = '/rest/config/folders';
   if (id) {
-    apiPath += `/${id.replace(/[/\\?%*:|"<>]/g, '')}`;
+    if (!goodSyncthingChars.test(id)) {
+      const response = messageHelper.createErrorMessage('Invalid ID supplied');
+      return res ? res.json(response) : response;
+    }
+    apiPath += `/${id}`;
   }
   const response = await performRequest('get', apiPath);
   return res ? res.json(response) : response;
@@ -652,7 +658,11 @@ async function getConfigDevices(req, res) {
   id = id || req.query.id;
   let apiPath = '/rest/config/devices';
   if (id) {
-    apiPath += `/${id.replace(/[/\\?%*:|"<>]/g, '')}`;
+    if (!goodSyncthingChars.test(id)) {
+      const response = messageHelper.createErrorMessage('Invalid ID supplied');
+      return res ? res.json(response) : response;
+    }
+    apiPath += `/${id}`;
   }
   const response = await performRequest('get', apiPath);
   return res ? res.json(response) : response;
@@ -668,7 +678,11 @@ async function getConfigDevices(req, res) {
 async function adjustConfigFolders(method, newConfig, id) {
   let apiPath = '/rest/config/folders';
   if (id) {
-    apiPath += `/${id.replace(/[/\\?%*:|"<>]/g, '')}`;
+    if (!goodSyncthingChars.test(id)) {
+      const response = messageHelper.createErrorMessage('Invalid ID supplied');
+      return response;
+    }
+    apiPath += `/${id}`;
   }
   const response = await performRequest(method, apiPath, newConfig);
   return response;
@@ -717,7 +731,11 @@ async function postConfigFolders(req, res) {
 async function adjustConfigDevices(method, newConfig, id) {
   let apiPath = '/rest/config/devices';
   if (id) {
-    apiPath += `/${id.replace(/[/\\?%*:|"<>]/g, '')}`;
+    if (!goodSyncthingChars.test(id)) {
+      const response = messageHelper.createErrorMessage('Invalid ID supplied');
+      return response;
+    }
+    apiPath += `/${id}`;
   }
   const response = await performRequest(method, apiPath, newConfig);
   return response;
