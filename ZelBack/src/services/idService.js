@@ -94,8 +94,20 @@ async function confirmNodeTierHardware() {
  */
 async function loginPhrase(req, res) {
   try {
+    // check db
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.local.database);
+    const collection = config.database.local.collections.activeLoginPhrases;
+    const query = { loginPhrase: 'TestLoginPhraseForDBTest' };
+    const projection = {};
+    await dbHelper.findOneInDatabase(database, collection, query, projection); // fast find call for db test
+
     // check synthing availability
-    const syncthingDeviceID = syncthingService.getDeviceID();
+    const syncthingDeviceID = await syncthingService.getDeviceID();
+    if (syncthingDeviceID.status === 'error') {
+      throw new Error('Syncthing is not running properly');
+    }
+
     // check docker availablility
     await dockerService.dockerListImages();
     // check Node Hardware Requirements are ok.
@@ -149,9 +161,7 @@ async function loginPhrase(req, res) {
          expireAt: 2019-08-09T13:23:41.335Z
        }
     ] */
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.local.database);
-    const collection = config.database.local.collections.activeLoginPhrases;
+    // insert to db
     const newLoginPhrase = {
       loginPhrase: phrase,
       createdAt: new Date(timestamp),
@@ -159,12 +169,6 @@ async function loginPhrase(req, res) {
     };
     const value = newLoginPhrase;
     await dbHelper.insertOneToDatabase(database, collection, value);
-
-    // check synthing result
-    await syncthingDeviceID;
-    if (syncthingDeviceID.status === 'error') {
-      throw new Error('Syncthing is not running properly');
-    }
 
     // all is ok
     const phraseResponse = messageHelper.createDataMessage(phrase);
