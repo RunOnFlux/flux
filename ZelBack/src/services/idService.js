@@ -17,6 +17,8 @@ const appsService = require('./appsService');
 
 const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/;
 
+let syncthingWorking = false;
+
 /**
  * To check if the hardware specification requirements of the node tier are being met by the node (RAM and CPU threads).
  * @returns {boolean} True or an error is thrown.
@@ -105,9 +107,15 @@ async function loginPhrase(req, res) {
     // check synthing availability
     const syncthingDeviceID = await syncthingService.getDeviceID();
     if (syncthingDeviceID.status === 'error') {
-      throw new Error('Syncthing is not running properly');
+      if (syncthingWorking) {
+        syncthingWorking = false;
+        syncthingService.systemRestart();
+      } else {
+        throw new Error('Syncthing is not running properly');
+      }
+    } else {
+      syncthingWorking = true;
     }
-
     // check docker availablility
     await dockerService.dockerListImages();
     // check Node Hardware Requirements are ok.
