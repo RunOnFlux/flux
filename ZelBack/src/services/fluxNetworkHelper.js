@@ -282,7 +282,7 @@ async function checkAppAvailability(req, res) {
       for (const port of ports) {
         if (+port >= (config.fluxapps.portMin - 1000) && +port <= config.fluxapps.portMax) {
         // eslint-disable-next-line no-await-in-loop
-          const isOpen = await isPortOpen(ip, port, appname, 12000);
+          const isOpen = await isPortOpen(ip, port, appname, 30000);
           if (!isOpen) {
             throw new Error(`Flux App ${appname} on ${ip}:${port} is not available.`);
           }

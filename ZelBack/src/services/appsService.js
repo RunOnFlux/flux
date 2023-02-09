@@ -8933,7 +8933,7 @@ async function checkMyAppsAvailability() {
         askingIP = splittedIP[0];
         askingIpPort = splittedIP[1];
       }
-      const timeout = 30000 + (appPorts.length * 15000);
+      const timeout = 30000 + (appPorts.length * 30000);
       const axiosConfig = {
         timeout,
       };
