@@ -8933,8 +8933,9 @@ async function checkMyAppsAvailability() {
         askingIP = splittedIP[0];
         askingIpPort = splittedIP[1];
       }
+      const timeout = 30000 + (appPorts.length * 30000);
       const axiosConfig = {
-        timeout: 240000,
+        timeout,
       };
       const data = {
         ip: myIP,
@@ -8952,20 +8953,24 @@ async function checkMyAppsAvailability() {
         log.error(error);
       });
       if (resMyAppAvailability && resMyAppAvailability.data.status === 'error') {
-        log.warn(`Running application ${app.name} unavailability detected from ${askingIP}:${askingIpPort}`);
+        log.warn(`Running application ${app.name} on ports ${JSON.stringify(appPorts)}, unavailability detected from ${askingIP}:${askingIpPort}`);
         log.warn(JSON.stringify(data));
         currentDos += 0.4;
         dosState += 0.4;
+      } else if (resMyAppAvailability && resMyAppAvailability.data.status === 'success') {
+        log.info(`${resMyAppAvailability.data.data.message} Detected from ${askingIP}:${askingIpPort}`);
       }
       if (dosState > 10) {
-        dosMessage = `Running application ${app.name} is not reachable from outside!`;
+        dosMessage = `Running application ${app.name} on ports ${JSON.stringify(appPorts)} is not reachable from outside!`;
       }
     }
     if (currentDos === 0) {
       dosState = 0;
       dosMessage = null;
+      await serviceHelper.delay(60 * 60 * 1000);
+    } else {
+      await serviceHelper.delay(4 * 60 * 1000);
     }
-    await serviceHelper.delay(4 * 60 * 1000);
     checkMyAppsAvailability();
   } catch (error) {
     log.error(error);

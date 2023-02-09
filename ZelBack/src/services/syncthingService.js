@@ -29,6 +29,8 @@ const parserOptions = {
 };
 const parser = new XMLParser(parserOptions);
 
+const goodSyncthingChars = /^[a-zA-Z0-9-]+$/;
+
 /**
  * To get syncthing config xml file
  * @returns {string} config gile (XML).
@@ -628,6 +630,10 @@ async function getConfigFolders(req, res) {
   id = id || req.query.id;
   let apiPath = '/rest/config/folders';
   if (id) {
+    if (!goodSyncthingChars.test(id)) {
+      const response = messageHelper.createErrorMessage('Invalid ID supplied');
+      return res ? res.json(response) : response;
+    }
     apiPath += `/${id}`;
   }
   const response = await performRequest('get', apiPath);
@@ -652,6 +658,10 @@ async function getConfigDevices(req, res) {
   id = id || req.query.id;
   let apiPath = '/rest/config/devices';
   if (id) {
+    if (!goodSyncthingChars.test(id)) {
+      const response = messageHelper.createErrorMessage('Invalid ID supplied');
+      return res ? res.json(response) : response;
+    }
     apiPath += `/${id}`;
   }
   const response = await performRequest('get', apiPath);
@@ -668,6 +678,10 @@ async function getConfigDevices(req, res) {
 async function adjustConfigFolders(method, newConfig, id) {
   let apiPath = '/rest/config/folders';
   if (id) {
+    if (!goodSyncthingChars.test(id)) {
+      const response = messageHelper.createErrorMessage('Invalid ID supplied');
+      return response;
+    }
     apiPath += `/${id}`;
   }
   const response = await performRequest(method, apiPath, newConfig);
@@ -717,6 +731,10 @@ async function postConfigFolders(req, res) {
 async function adjustConfigDevices(method, newConfig, id) {
   let apiPath = '/rest/config/devices';
   if (id) {
+    if (!goodSyncthingChars.test(id)) {
+      const response = messageHelper.createErrorMessage('Invalid ID supplied');
+      return response;
+    }
     apiPath += `/${id}`;
   }
   const response = await performRequest(method, apiPath, newConfig);
@@ -1850,6 +1868,13 @@ async function getSvcRandomString(req, res) {
   let apiPath = '/rest/svc/random/string';
   try {
     if (length) {
+      if (+length < 0 || +length > 10000) {
+        const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
+        if (authorized !== true) {
+          const response = messageHelper.errUnauthorizedMessage();
+          return res ? res.json(response) : response;
+        }
+      }
       apiPath += `?length=${length}`;
     }
     const response = await performRequest('get', apiPath);

@@ -131,7 +131,10 @@ async function isPortOpen(ip, port, app, timeout = 5000) {
 
       const onError = (err) => {
         socket.destroy();
-        if (app) {
+        if (err.code && err.code === 'ETIMEDOUT') {
+          log.info(`Connection on ${ip}:${port} ETIMEDOUT. Flux or Flux App is not running correctly`);
+          reject();
+        } else if (app) {
           resolve();
         } else if (port === 16129) {
           log.error(`Syncthing of Flux on ${ip}:${port} did not respond correctly but may be in use. Allowing`);
@@ -277,9 +280,9 @@ async function checkAppAvailability(req, res) {
 
       // eslint-disable-next-line no-restricted-syntax
       for (const port of ports) {
-        if (+port >= (config.fluxapps.portMin - 1000) || +port <= config.fluxapps.portMax) {
+        if (+port >= (config.fluxapps.portMin - 1000) && +port <= config.fluxapps.portMax) {
         // eslint-disable-next-line no-await-in-loop
-          const isOpen = await isPortOpen(ip, port, appname, 2000);
+          const isOpen = await isPortOpen(ip, port, appname, 30000);
           if (!isOpen) {
             throw new Error(`Flux App ${appname} on ${ip}:${port} is not available.`);
           }

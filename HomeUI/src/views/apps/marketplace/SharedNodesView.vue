@@ -1989,7 +1989,7 @@ export default {
     };
 
     const calcAPR = (lockup) => {
-      const fluxPerBlockReward = (22.5 * (100 - lockup.fee)) / 100;
+      const fluxPerBlockReward = (11.25 * (100 - lockup.fee)) / 100;
       const collateral = 40000;
       const blocksPerDay = 720;
       const numStratusNodes = nodeCount.value;
