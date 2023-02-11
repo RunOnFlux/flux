@@ -64,7 +64,7 @@ const GlobalAppsSpawnLRUoptions = {
 };
 const longCache = {
   max: 500,
-  maxAge: 1000 * 60 * 60 * 8, // 8 hours
+  maxAge: 1000 * 60 * 60 * 3, // 3 hours
 };
 const myCacheRun = new LRU(LRUoptionsRun);
 const myCacheTemp = new LRU(LRUoptionsTemp);
@@ -3995,7 +3995,7 @@ async function getBlockedRepositores() {
     if (cachedResponse) {
       return cachedResponse;
     }
-    const resBlockedRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/blockedrepositories.json');
+    const resBlockedRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/RunOnFlux/flux/master/helpers/blockedrepositories.json');
     if (resBlockedRepo.data) {
       myLongCache.set('blockedRepositories', resBlockedRepo.data);
       return resBlockedRepo.data;
@@ -7872,19 +7872,7 @@ async function expireGlobalApplications() {
       }
     });
     const appsToRemoveNames = appsToRemove.map((app) => app.name);
-    if (appsInstalled.length > appsToRemoveNames.length) {
-      // only ask for blocked repositories if some apps installed are not getting removed
-      // eslint-disable-next-line no-restricted-syntax
-      for (const app of appsInstalled) {
-        // eslint-disable-next-line no-await-in-loop
-        const isAppBlocked = await checkApplicationImagesBlocked(app);
-        if (isAppBlocked) {
-          if (!appsToRemoveNames.includes(app.name)) {
-            appsToRemoveNames.push(app.name);
-          }
-        }
-      }
-    }
+
     // remove appsToRemoveNames apps from locally running
     // eslint-disable-next-line no-restricted-syntax
     for (const appName of appsToRemoveNames) {
@@ -7892,7 +7880,43 @@ async function expireGlobalApplications() {
       // eslint-disable-next-line no-await-in-loop
       await removeAppLocally(appName);
       // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(6 * 60 * 1000); // wait for 6 mins so we don't have more removals at the same time
+      await serviceHelper.delay(3 * 60 * 1000); // wait for 3 mins so we don't have more removals at the same time
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
+ * Removes applications that are blacklisted
+ */
+async function checkApplicationsCompliance() {
+  try {
+    // get list of locally installed apps.
+    const installedAppsRes = await installedApps();
+    if (installedAppsRes.status !== 'success') {
+      throw new Error('Failed to get installed Apps');
+    }
+    const appsInstalled = installedAppsRes.data;
+    const appsToRemoveNames = [];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const app of appsInstalled) {
+      // eslint-disable-next-line no-await-in-loop
+      const isAppBlocked = await checkApplicationImagesBlocked(app);
+      if (isAppBlocked) {
+        if (!appsToRemoveNames.includes(app.name)) {
+          appsToRemoveNames.push(app.name);
+        }
+      }
+    }
+    // remove appsToRemoveNames apps from locally running
+    // eslint-disable-next-line no-restricted-syntax
+    for (const appName of appsToRemoveNames) {
+      log.warn(`Application ${appName} is blacklisted, removing`);
+      // eslint-disable-next-line no-await-in-loop
+      await removeAppLocally(appName);
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(3 * 60 * 1000); // wait for 3 mins so we don't have more removals at the same time
     }
   } catch (error) {
     log.error(error);
@@ -9086,6 +9110,7 @@ module.exports = {
   getChainParamsPriceUpdates,
   getAppsDOSState,
   checkMyAppsAvailability,
+  checkApplicationsCompliance,
 
   // exports for testing purposes
   setAppsMonitored,
