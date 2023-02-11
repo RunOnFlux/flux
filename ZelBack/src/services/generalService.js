@@ -206,7 +206,7 @@ async function checkWhitelistedRepository(repotag) {
   if (!splittedRepo[0] || !splittedRepo[1] || splittedRepo[2]) {
     throw new Error(`Repository ${repotag} is not in valid format namespace/repository:tag`);
   }
-  const resWhitelistRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/repositories.json');
+  const resWhitelistRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/RunOnFlux/flux/master/helpers/repositories.json');
 
   if (!resWhitelistRepo) {
     throw new Error('Unable to communicate with Flux Services! Try again later.');
@@ -233,7 +233,7 @@ async function checkWhitelistedRepository(repotag) {
  */
 async function whitelistedRepositories(req, res) {
   try {
-    const whitelisted = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/repositories.json');
+    const whitelisted = await serviceHelper.axiosGet('https://raw.githubusercontent.com/RunOnFlux/flux/master/helpers/repositories.json');
     const resultsResponse = messageHelper.createDataMessage(whitelisted.data);
     res.json(resultsResponse);
   } catch (error) {
