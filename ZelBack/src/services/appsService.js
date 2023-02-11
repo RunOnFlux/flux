@@ -9006,7 +9006,7 @@ async function checkMyAppsAvailability() {
             log.info(`${resMyAppAvailability.data.data.message} Detected from ${askingIP}:${askingIpPort}`);
           }
         } else {
-          log.info(`${app.name} ports open but app not listening at them.`);
+          log.info(`Running application ${app.name} on ports ${JSON.stringify(appPorts)} open but app not listening at them.`);
         }
       } else if (myAppAvailability && myAppAvailability.data.status === 'error') {
         log.warn(`Running application ${app.name} on ports ${JSON.stringify(appPorts)}, unavailability detected from inside`);
