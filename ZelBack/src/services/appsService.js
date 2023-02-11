@@ -8924,6 +8924,7 @@ async function checkMyAppsAvailability() {
     }
     let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
     myIP = myIP.split(':')[0];
+    const myPort = myIP.split(':')[1] || 16127;
     // go through all our installed apps and test if they are available on a random node
     let currentDos = 0;
     const installedAppsRes = await installedApps();
@@ -8961,7 +8962,7 @@ async function checkMyAppsAvailability() {
       const axiosConfig = {
         timeout,
       };
-      const data = {
+      let data = {
         ip: myIP,
         appname: app.name,
         ports: appPorts,
@@ -8971,6 +8972,26 @@ async function checkMyAppsAvailability() {
       // eslint-disable-next-line no-await-in-loop
       const signature = await signCheckAppData(stringData);
       data.signature = signature;
+      // first check against our IP address
+      // eslint-disable-next-line no-await-in-loop
+      const myAppAvailability = await axios.post(`http://${myIP}:${myPort}/flux/checkappavailability`, JSON.stringify(data), axiosConfig).catch((error) => {
+        log.error(`My node ${myIP} for app availability is not reachable`);
+        log.error(error);
+      });
+      // now we check returned ports that were communicating well on other node
+      // if error, following request will fail increasing dos too
+      if (myAppAvailability && myAppAvailability.data.status === 'success') { // this is a data response containing array of ports listening
+        data = { // adjust data to only check for listening ports
+          ip: myIP,
+          appname: app.name,
+          ports: myAppAvailability.data.data,
+          pubKey,
+        };
+        const secondStringData = JSON.stringify(data);
+        // eslint-disable-next-line no-await-in-loop
+        const secondSignature = await signCheckAppData(secondStringData);
+        data.signature = secondSignature;
+      }
       // eslint-disable-next-line no-await-in-loop
       const resMyAppAvailability = await axios.post(`http://${askingIP}:${askingIpPort}/flux/checkappavailability`, JSON.stringify(data), axiosConfig).catch((error) => {
         log.error(`${askingIP} for app availability is not reachable`);

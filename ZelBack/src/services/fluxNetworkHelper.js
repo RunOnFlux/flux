@@ -117,6 +117,7 @@ function minVersionSatisfy(version, minimumVersion) {
 async function isPortOpen(ip, port, app, timeout = 5000) {
   let resp;
   try {
+    let portResponse = true;
     // open port first
     // eslint-disable-next-line no-use-before-define
     resp = await allowOutPort(port).catch((error) => { // requires allow out for apps checking, for our ports both
@@ -159,6 +160,7 @@ async function isPortOpen(ip, port, app, timeout = 5000) {
 
       socket.connect(port, ip, () => {
         socket.destroy();
+        portResponse = 'listening';
         resolve();
       });
     }));
@@ -172,7 +174,7 @@ async function isPortOpen(ip, port, app, timeout = 5000) {
         }
       }
     }, 10);
-    return true;
+    return portResponse; // true for OK port. listening for port that is being listened to
   } catch (error) {
     setTimeout(() => { // timeout ensure return first
       if (app) {
@@ -278,6 +280,7 @@ async function checkAppAvailability(req, res) {
         // throw new Error('Unable to verify request authenticity');
       }
 
+      const portsListening = [];
       // eslint-disable-next-line no-restricted-syntax
       for (const port of ports) {
         if (+port >= (config.fluxapps.portMin - 1000) && +port <= config.fluxapps.portMax) {
@@ -285,10 +288,21 @@ async function checkAppAvailability(req, res) {
           const isOpen = await isPortOpen(ip, port, appname, 30000);
           if (!isOpen) {
             throw new Error(`Flux App ${appname} on ${ip}:${port} is not available.`);
+          } else if (isOpen === 'listening') { // this port is in use and listening. Later do check from other node on this port
+            portsListening.push(+port);
           }
         } else {
           log.error(`Flux App ${appname} port ${port} is outside allowed range.`);
         }
+      }
+      // if ip is my if, do a data response with ports that are listening
+      const dataResponse = messageHelper.createDataMessage(portsListening);
+      // eslint-disable-next-line no-use-before-define
+      let myIP = await getMyFluxIPandPort();
+      myIP = myIP.split(':')[0];
+      if (ip === myIP) {
+        res.json(dataResponse);
+        return;
       }
       const successResponse = messageHelper.createSuccessMessage(`Flux App ${appname} is available.`);
       res.json(successResponse);
