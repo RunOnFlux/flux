@@ -8980,31 +8980,41 @@ async function checkMyAppsAvailability() {
       });
       // now we check returned ports that were communicating well on other node
       // if error, following request will fail increasing dos too
-      if (myAppAvailability && myAppAvailability.data.status === 'success') { // this is a data response containing array of ports listening
-        data = { // adjust data to only check for listening ports
-          ip: myIP,
-          appname: app.name,
-          ports: myAppAvailability.data.data,
-          pubKey,
-        };
-        const secondStringData = JSON.stringify(data);
-        // eslint-disable-next-line no-await-in-loop
-        const secondSignature = await signCheckAppData(secondStringData);
-        data.signature = secondSignature;
-      }
-      // eslint-disable-next-line no-await-in-loop
-      const resMyAppAvailability = await axios.post(`http://${askingIP}:${askingIpPort}/flux/checkappavailability`, JSON.stringify(data), axiosConfig).catch((error) => {
-        log.error(`${askingIP} for app availability is not reachable`);
-        log.error(error);
-      });
-      if (resMyAppAvailability && resMyAppAvailability.data.status === 'error') {
-        log.warn(`Running application ${app.name} on ports ${JSON.stringify(appPorts)}, unavailability detected from ${askingIP}:${askingIpPort}`);
+      if (myAppAvailability && myAppAvailability.data.status === 'success') {
+        if (myAppAvailability.data.data) { // this is a data response containing array of ports listening
+          data = { // adjust data to only check for listening ports
+            ip: myIP,
+            appname: app.name,
+            ports: myAppAvailability.data.data,
+            pubKey,
+          };
+          const secondStringData = JSON.stringify(data);
+          // eslint-disable-next-line no-await-in-loop
+          const secondSignature = await signCheckAppData(secondStringData);
+          data.signature = secondSignature;
+          // eslint-disable-next-line no-await-in-loop
+          const resMyAppAvailability = await axios.post(`http://${askingIP}:${askingIpPort}/flux/checkappavailability`, JSON.stringify(data), axiosConfig).catch((error) => {
+            log.error(`${askingIP} for app availability is not reachable`);
+            log.error(error);
+          });
+          if (resMyAppAvailability && resMyAppAvailability.data.status === 'error') {
+            log.warn(`Running application ${app.name} on ports ${JSON.stringify(appPorts)}, unavailability detected from ${askingIP}:${askingIpPort}`);
+            log.warn(JSON.stringify(data));
+            currentDos += 0.4;
+            dosState += 0.4;
+          } else if (resMyAppAvailability && resMyAppAvailability.data.status === 'success') {
+            log.info(`${resMyAppAvailability.data.data.message} Detected from ${askingIP}:${askingIpPort}`);
+          }
+        } else {
+          log.info(`${app.name} ports open but app not listening at them.`);
+        }
+      } else if (myAppAvailability && myAppAvailability.data.status === 'error') {
+        log.warn(`Running application ${app.name} on ports ${JSON.stringify(appPorts)}, unavailability detected from inside`);
         log.warn(JSON.stringify(data));
         currentDos += 0.4;
         dosState += 0.4;
-      } else if (resMyAppAvailability && resMyAppAvailability.data.status === 'success') {
-        log.info(`${resMyAppAvailability.data.data.message} Detected from ${askingIP}:${askingIpPort}`);
       }
+
       if (dosState > 10) {
         dosMessage = `Running application ${app.name} on ports ${JSON.stringify(appPorts)} is not reachable from outside!`;
       }
