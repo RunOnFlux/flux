@@ -98,13 +98,13 @@
                 no-body
               >
                 <b-card-title class="text-white text-uppercase shared-node-info-title">
-                  Staking Stats
+                  Titan Stats
                 </b-card-title>
                 <b-card-body class="shared-node-info-body">
                   <div class="d-flex flex-column">
                     <div class="d-flex flex-row">
                       <h5 class="flex-grow-1">
-                        My Staking Total
+                        My Flux Total
                       </h5>
                       <h4>
                         {{ myStakes ? toFixedLocaleString(myStakes.reduce((total, stake) => total + stake.collateral, 0), 0) : 0 }}
@@ -112,7 +112,7 @@
                     </div>
                     <div class="d-flex flex-row">
                       <h5 class="flex-grow-1">
-                        Titan Staking Total
+                        Titan Flux Total
                       </h5>
                       <h4>
                         {{ titanStats ? toFixedLocaleString(titanStats.total) : '...' }}
@@ -149,7 +149,7 @@
                           :disabled="tooMuchStaked"
                           @click="showStakeDialog(false)"
                         >
-                          Stake Flux
+                          Activate Titan
                         </b-button>
                       </div>
                     </div>
@@ -250,13 +250,13 @@
                     no-body
                   >
                     <b-card-title class="text-white text-uppercase shared-node-info-title-xl">
-                      Staking Stats
+                      Titan Stats
                     </b-card-title>
                     <b-card-body class="shared-node-info-body-xl">
                       <div class="d-flex flex-column">
                         <div class="d-flex flex-row">
                           <h5 class="flex-grow-1">
-                            My Staking Total
+                            My Flux Total
                           </h5>
                           <h4>
                             {{ myStakes ? toFixedLocaleString(myStakes.reduce((total, stake) => total + stake.collateral, 0), 0) : 0 }}
@@ -264,7 +264,7 @@
                         </div>
                         <div class="d-flex flex-row">
                           <h5 class="flex-grow-1">
-                            Titan Staking Total
+                            Titan Flux Total
                           </h5>
                           <h4>
                             {{ titanStats ? toFixedLocaleString(titanStats.total) : '...' }}
@@ -301,7 +301,7 @@
                               :disabled="tooMuchStaked"
                               @click="showStakeDialog(false)"
                             >
-                              Stake Flux
+                              Activate Titan
                             </b-button>
                           </div>
                         </div>
@@ -357,10 +357,10 @@
         </b-card>
         <b-card
           v-if="!userZelid"
-          title="My Stakes"
+          title="My Active Flux"
         >
           <h5>
-            Please login using your ZelID to view your node stakes
+            Please login using your ZelID to view your active Flux
           </h5>
         </b-card>
         <b-row
@@ -377,7 +377,7 @@
               <b-card-title
                 class="stakes-title"
               >
-                Redeem Rewards
+                Redeem Flux
               </b-card-title>
               <b-card-body>
                 <div class="d-flex flex-row">
@@ -436,7 +436,7 @@
                 <b-tabs>
                   <b-tab
                     active
-                    title="Active Stakes"
+                    title="Active"
                   >
                     <ul
                       class="marketplace-media-list"
@@ -518,7 +518,7 @@
                             </div>
                             <div class="d-flex flex-column seat-column col">
                               <h4 class="mr-auto ml-auto text-center">
-                                Monthly Rewards
+                                Monthly Flux
                               </h4>
                               <h5
                                 v-if="titanConfig"
@@ -549,7 +549,7 @@
                   </b-tab>
                   <b-tab
                     v-if="myExpiredStakes.length > 0"
-                    title="Expired Stakes"
+                    title="Expired"
                   >
                     <ul
                       class="marketplace-media-list"
@@ -686,7 +686,7 @@
               <b-card-title
                 class="stakes-title"
               >
-                Redeem Rewards
+                Redeem Flux
               </b-card-title>
               <b-card-body>
                 <div class="d-flex flex-row">
@@ -807,7 +807,7 @@
           APR is calculated using this basic formula:
         </p>
         <p class="text-center">
-          Per block reward (22.5) x Blocks per day (720) x 365 /<br>
+          Per block reward (11.25) x Blocks per day (720) x 365 /<br>
           &nbsp;(Number of Stratus nodes * 40,000)
         </p>
         <p class="text-center">
@@ -992,7 +992,7 @@
         class="text-center payment-details-card"
       >
         <b-card-text>
-          To finish staking, send <span class="text-success">{{ toFixedLocaleString(selectedStake.collateral) }}</span> FLUX to address<br>
+          To complete activation, send <span class="text-success">{{ toFixedLocaleString(selectedStake.collateral) }}</span> FLUX to address<br>
           <h5
             class="text-wrap ml-auto mr-auto text-warning mt-1"
             style="width: 25rem;"
@@ -1024,7 +1024,7 @@
             </a>
           </div>
           <h5 class="mt-1">
-            This stake will expire if the transaction is not on the blockchain before <span class="text-danger">{{ new Date(selectedStake.expiry * 1000).toLocaleString() }}</span>
+            This activation will expire if the transaction is not on the blockchain before <span class="text-danger">{{ new Date(selectedStake.expiry * 1000).toLocaleString() }}</span>
           </h5>
         </b-card-text>
       </b-card>
@@ -1033,7 +1033,7 @@
     <!-- Cancel Staking Dialog -->
     <b-modal
       v-model="confirmStakeDialogCloseShowing"
-      title="Cancel Staking?"
+      title="Cancel Activation?"
       size="sm"
       centered
       button-size="sm"
@@ -1042,14 +1042,14 @@
       @ok="confirmStakeDialogCloseShowing = false; stakeModalShowing = false;"
     >
       <h3 class="text-center">
-        Are you sure you want to cancel staking with Titan?
+        Are you sure you want to cancel activating with Titan?
       </h3>
     </b-modal>
 
     <!-- Finish Staking Confirmation Dialog -->
     <b-modal
       v-model="confirmStakeDialogFinishShowing"
-      title="Finish Staking?"
+      title="Finish Activation?"
       size="sm"
       centered
       button-size="sm"
@@ -1058,18 +1058,18 @@
       @ok="confirmStakeDialogFinishShowing = false; stakeModalShowing = false;"
     >
       <h3 class="text-center">
-        Please ensure that you have sent payment for your stake, or saved the payment details for later.
+        Please ensure that you have sent payment for your activation, or saved the payment details for later.
       </h3>
       <br>
       <h4 class="text-center">
-        Close the Titan Staking dialog?
+        Close the dialog?
       </h4>
     </b-modal>
 
-    <!-- Re-invest Expired Stake Dialog -->
+    <!-- Re-invest Expired Dialog -->
     <b-modal
       v-model="reinvestModalShowing"
-      title="Re-invest Expired Stake"
+      title="Re-invest Expired"
       size="lg"
       centered
       no-close-on-backdrop
@@ -1089,10 +1089,10 @@
         @on-complete="reinvestDialogFinish()"
       >
         <tab-content
-          title="Update Stake"
+          title="Update"
         >
           <b-card
-            title="Update Stake"
+            title="Update"
             class="text-center wizard-card"
           >
             <div
@@ -1105,7 +1105,7 @@
                 class="ml-auto mr-auto"
                 style="float: left;"
               >
-                Auto-reinvest this stake after expiry
+                Auto-reinvest this Flux after expiry
               </b-form-checkbox>
               <div
                 v-if="titanConfig && titanConfig.reinvestFee > 0 && titanConfig.maxReinvestFee"
@@ -1151,11 +1151,11 @@
           </b-card>
         </tab-content>
         <tab-content
-          title="Sign Stake"
+          title="Signing"
           :before-change="() => signature !== null"
         >
           <b-card
-            title="Sign Stake with Zelcore"
+            title="Sign with Zelcore"
             class="text-center wizard-card"
           >
             <a
@@ -1184,7 +1184,7 @@
           </b-card>
         </tab-content>
         <tab-content
-          title="Re-invest Stake"
+          title="Re-invest Flux"
           :before-change="() => stakeRegistered === true"
         >
           <b-card
@@ -1198,7 +1198,7 @@
                 variant="success"
                 @click="reinvestStake"
               >
-                Re-invest Stake
+                Re-invest Flux
               </b-button>
               <h4
                 v-if="stakeRegistered"
@@ -1221,7 +1221,7 @@
     <!-- Active Stake Details Dialog -->
     <b-modal
       v-model="activeStakeInfoModalShowing"
-      title="Active Stake Details"
+      title="Active Flux Details"
       size="sm"
       centered
       button-size="sm"
@@ -1237,7 +1237,7 @@
             class="ml-auto mr-auto"
             style="float: left;"
           >
-            Auto-reinvest this stake after expiry
+            Auto-reinvest this Flux after expiry
           </b-form-checkbox>
         </div>
       </b-card>
@@ -1246,7 +1246,7 @@
     <!-- Edit Active Stake Dialog -->
     <b-modal
       v-model="editStakeModalShowing"
-      title="Edit Active Stake"
+      title="Edit Active Flux"
       size="lg"
       centered
       no-close-on-backdrop
@@ -1266,10 +1266,10 @@
         @on-complete="editStakeModalShowing = false; getMyStakes(true);"
       >
         <tab-content
-          title="Update Stake"
+          title="Update"
         >
           <b-card
-            title="Update Stake"
+            title="Update"
             class="text-center wizard-card"
           >
             <div
@@ -1282,17 +1282,17 @@
                 class="ml-auto mr-auto"
                 style="float: left;"
               >
-                Auto-reinvest this stake after expiry
+                Auto-reinvest this Flux after expiry
               </b-form-checkbox>
             </div>
           </b-card>
         </tab-content>
         <tab-content
-          title="Sign Stake"
+          title="Signing"
           :before-change="() => signature !== null"
         >
           <b-card
-            title="Sign Stake with Zelcore"
+            title="Sign with Zelcore"
             class="text-center wizard-card"
           >
             <a
@@ -1321,11 +1321,11 @@
           </b-card>
         </tab-content>
         <tab-content
-          title="Send Stake"
+          title="Send to Titan"
           :before-change="() => stakeRegistered === true"
         >
           <b-card
-            title="Send edited Stake to Titan"
+            title="Send to Titan"
             class="text-center wizard-card"
           >
             <div class="mt-3 mb-auto ">
@@ -1335,19 +1335,19 @@
                 variant="success"
                 @click="sendModifiedStake"
               >
-                Send Stake
+                Send
               </b-button>
               <h4
                 v-if="stakeRegistered"
                 class="mt-3 text-success"
               >
-                Edited Stake received
+                Edits received by Titan
               </h4>
               <h4
                 v-if="stakeRegisterFailed"
                 class="mt-3 text-danger"
               >
-                Stake editing failed
+                Editing failed
               </h4>
             </div>
           </b-card>
@@ -1358,7 +1358,7 @@
     <!-- Stake Dialog -->
     <b-modal
       v-model="stakeModalShowing"
-      title="Stake Flux with Titan"
+      title="Activate Titan"
       size="lg"
       centered
       no-close-on-backdrop
@@ -1378,7 +1378,7 @@
         @on-complete="confirmStakeDialogFinish()"
       >
         <tab-content
-          title="Stake Amount"
+          title="Flux Amount"
         >
           <b-card
             v-if="reinvestingNewStake"
@@ -1389,7 +1389,7 @@
               <h5
                 class="mt-3"
               >
-                A new stake will be created using your available rewards:
+                A new Titan slot will be created using your available rewards:
               </h5>
               <h2
                 class="mt-3"
@@ -1413,7 +1413,7 @@
           </b-card>
           <b-card
             v-else
-            title="Choose Stake Amount"
+            title="Choose Flux Amount"
             class="text-center wizard-card"
           >
             <div>
@@ -1478,17 +1478,17 @@
                 class="ml-auto mr-auto"
                 style="float: left;"
               >
-                Auto-reinvest this stake after expiry
+                Auto-reinvest this Flux after expiry
               </b-form-checkbox>
             </div>
           </b-card>
         </tab-content>
         <tab-content
-          title="Sign Stake"
+          title="Signing"
           :before-change="() => signature !== null"
         >
           <b-card
-            title="Sign Stake with Zelcore"
+            title="Sign with Zelcore"
             class="text-center wizard-card"
           >
             <a
@@ -1517,11 +1517,11 @@
           </b-card>
         </tab-content>
         <tab-content
-          title="Register Stake"
+          title="Register with Titan"
           :before-change="() => stakeRegistered === true"
         >
           <b-card
-            title="Register Stake with Titan"
+            title="Register with Titan"
             class="text-center wizard-card"
           >
             <div class="mt-3 mb-auto ">
@@ -1532,7 +1532,7 @@
                 <span class="text-warning">{{ new Date(new Date().getTime() + (getLockupDuration()*1000)).toLocaleString() }}</span>
               </h5>
               <h5 class="mb-2">
-                You will not be able to withdraw your staked Flux until your stake has expired.
+                You will not be able to withdraw your Flux until the time has passed.
               </h5>
               <b-button
                 size="lg"
@@ -1540,7 +1540,7 @@
                 variant="success"
                 @click="registerStake"
               >
-                Register Stake
+                Register with Titan
               </b-button>
               <h4
                 v-if="stakeRegistered"
@@ -1569,7 +1569,7 @@
               class="text-center wizard-card"
             >
               <b-card-text>
-                To finish staking, make a transaction of <span class="text-success">{{ toFixedLocaleString(stakeAmount) }}</span> FLUX to address<br>
+                To finish activation, make a transaction of <span class="text-success">{{ toFixedLocaleString(stakeAmount) }}</span> FLUX to address<br>
                 <h5
                   class="text-wrap ml-auto mr-auto text-warning"
                   style="width: 25rem;"
@@ -1750,7 +1750,7 @@ export default {
     const autoReinvestStake = ref(true);
     const reinvestingNewStake = ref(false);
     const tooMuchStaked = ref(true); // the Stake Flux button will be disabled until we determine it can be enabled
-    const defaultStakeDisabledMessage = ref('Too much Flux has staked, please wait for more Nodes to be made available');
+    const defaultStakeDisabledMessage = ref('Too much Flux has registered with Titan, please wait for more Nodes to be made available');
 
     const redeemAmount = ref(0);
     const redeemAddress = ref(null);
@@ -2098,7 +2098,7 @@ export default {
         autoreinvest: selectedStake.value.autoreinvest,
         reinvest: false,
       };
-      showToast('info', 'Sending modified Stake to Titan...');
+      showToast('info', 'Sending modifications to Titan...');
 
       const axiosConfig = {
         headers: {
@@ -2240,7 +2240,7 @@ export default {
         reinvest: true,
         lockup: titanConfig.value.lockups[selectedLockupIndex.value],
       };
-      showToast('info', 'Re-investing Stake with Titan...');
+      showToast('info', 'Re-investing with Titan...');
 
       const axiosConfig = {
         headers: {
@@ -2276,7 +2276,7 @@ export default {
         autoreinvest: autoReinvestStake.value,
         stakefromrewards: reinvestingNewStake.value,
       };
-      showToast('info', 'Registering Stake with Titan...');
+      showToast('info', 'Registering with Titan...');
 
       const axiosConfig = {
         headers: {

@@ -64,7 +64,7 @@ const GlobalAppsSpawnLRUoptions = {
 };
 const longCache = {
   max: 500,
-  maxAge: 1000 * 60 * 60 * 8, // 8 hours
+  maxAge: 1000 * 60 * 60 * 3, // 3 hours
 };
 const myCacheRun = new LRU(LRUoptionsRun);
 const myCacheTemp = new LRU(LRUoptionsTemp);
@@ -3995,7 +3995,7 @@ async function getBlockedRepositores() {
     if (cachedResponse) {
       return cachedResponse;
     }
-    const resBlockedRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/runonflux/flux/master/helpers/blockedrepositories.json');
+    const resBlockedRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/RunOnFlux/flux/master/helpers/blockedrepositories.json');
     if (resBlockedRepo.data) {
       myLongCache.set('blockedRepositories', resBlockedRepo.data);
       return resBlockedRepo.data;
@@ -7872,19 +7872,7 @@ async function expireGlobalApplications() {
       }
     });
     const appsToRemoveNames = appsToRemove.map((app) => app.name);
-    if (appsInstalled.length > appsToRemoveNames.length) {
-      // only ask for blocked repositories if some apps installed are not getting removed
-      // eslint-disable-next-line no-restricted-syntax
-      for (const app of appsInstalled) {
-        // eslint-disable-next-line no-await-in-loop
-        const isAppBlocked = await checkApplicationImagesBlocked(app);
-        if (isAppBlocked) {
-          if (!appsToRemoveNames.includes(app.name)) {
-            appsToRemoveNames.push(app.name);
-          }
-        }
-      }
-    }
+
     // remove appsToRemoveNames apps from locally running
     // eslint-disable-next-line no-restricted-syntax
     for (const appName of appsToRemoveNames) {
@@ -7892,7 +7880,43 @@ async function expireGlobalApplications() {
       // eslint-disable-next-line no-await-in-loop
       await removeAppLocally(appName);
       // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(6 * 60 * 1000); // wait for 6 mins so we don't have more removals at the same time
+      await serviceHelper.delay(3 * 60 * 1000); // wait for 3 mins so we don't have more removals at the same time
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
+ * Removes applications that are blacklisted
+ */
+async function checkApplicationsCompliance() {
+  try {
+    // get list of locally installed apps.
+    const installedAppsRes = await installedApps();
+    if (installedAppsRes.status !== 'success') {
+      throw new Error('Failed to get installed Apps');
+    }
+    const appsInstalled = installedAppsRes.data;
+    const appsToRemoveNames = [];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const app of appsInstalled) {
+      // eslint-disable-next-line no-await-in-loop
+      const isAppBlocked = await checkApplicationImagesBlocked(app);
+      if (isAppBlocked) {
+        if (!appsToRemoveNames.includes(app.name)) {
+          appsToRemoveNames.push(app.name);
+        }
+      }
+    }
+    // remove appsToRemoveNames apps from locally running
+    // eslint-disable-next-line no-restricted-syntax
+    for (const appName of appsToRemoveNames) {
+      log.warn(`Application ${appName} is blacklisted, removing`);
+      // eslint-disable-next-line no-await-in-loop
+      await removeAppLocally(appName);
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(3 * 60 * 1000); // wait for 3 mins so we don't have more removals at the same time
     }
   } catch (error) {
     log.error(error);
@@ -8900,6 +8924,7 @@ async function checkMyAppsAvailability() {
     }
     let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
     myIP = myIP.split(':')[0];
+    const myPort = myIP.split(':')[1] || 16127;
     // go through all our installed apps and test if they are available on a random node
     let currentDos = 0;
     const installedAppsRes = await installedApps();
@@ -8937,7 +8962,7 @@ async function checkMyAppsAvailability() {
       const axiosConfig = {
         timeout,
       };
-      const data = {
+      let data = {
         ip: myIP,
         appname: app.name,
         ports: appPorts,
@@ -8947,19 +8972,49 @@ async function checkMyAppsAvailability() {
       // eslint-disable-next-line no-await-in-loop
       const signature = await signCheckAppData(stringData);
       data.signature = signature;
+      // first check against our IP address
       // eslint-disable-next-line no-await-in-loop
-      const resMyAppAvailability = await axios.post(`http://${askingIP}:${askingIpPort}/flux/checkappavailability`, JSON.stringify(data), axiosConfig).catch((error) => {
-        log.error(`${askingIP} for app availability is not reachable`);
+      const myAppAvailability = await axios.post(`http://${myIP}:${myPort}/flux/checkappavailability`, JSON.stringify(data), axiosConfig).catch((error) => {
+        log.error(`My node ${myIP} for app availability is not reachable`);
         log.error(error);
       });
-      if (resMyAppAvailability && resMyAppAvailability.data.status === 'error') {
-        log.warn(`Running application ${app.name} on ports ${JSON.stringify(appPorts)}, unavailability detected from ${askingIP}:${askingIpPort}`);
+      // now we check returned ports that were communicating well on other node
+      // if error, following request will fail increasing dos too
+      if (myAppAvailability && myAppAvailability.data.status === 'success') {
+        if (myAppAvailability.data.data) { // this is a data response containing array of ports listening
+          data = { // adjust data to only check for listening ports
+            ip: myIP,
+            appname: app.name,
+            ports: myAppAvailability.data.data,
+            pubKey,
+          };
+          const secondStringData = JSON.stringify(data);
+          // eslint-disable-next-line no-await-in-loop
+          const secondSignature = await signCheckAppData(secondStringData);
+          data.signature = secondSignature;
+          // eslint-disable-next-line no-await-in-loop
+          const resMyAppAvailability = await axios.post(`http://${askingIP}:${askingIpPort}/flux/checkappavailability`, JSON.stringify(data), axiosConfig).catch((error) => {
+            log.error(`${askingIP} for app availability is not reachable`);
+            log.error(error);
+          });
+          if (resMyAppAvailability && resMyAppAvailability.data.status === 'error') {
+            log.warn(`Running application ${app.name} on ports ${JSON.stringify(appPorts)}, unavailability detected from ${askingIP}:${askingIpPort}`);
+            log.warn(JSON.stringify(data));
+            currentDos += 0.4;
+            dosState += 0.4;
+          } else if (resMyAppAvailability && resMyAppAvailability.data.status === 'success') {
+            log.info(`${resMyAppAvailability.data.data.message} Detected from ${askingIP}:${askingIpPort}`);
+          }
+        } else {
+          log.info(`Running application ${app.name} on ports ${JSON.stringify(appPorts)} open but app not listening at them.`);
+        }
+      } else if (myAppAvailability && myAppAvailability.data.status === 'error') {
+        log.warn(`Running application ${app.name} on ports ${JSON.stringify(appPorts)}, unavailability detected from inside`);
         log.warn(JSON.stringify(data));
         currentDos += 0.4;
         dosState += 0.4;
-      } else if (resMyAppAvailability && resMyAppAvailability.data.status === 'success') {
-        log.info(`${resMyAppAvailability.data.data.message} Detected from ${askingIP}:${askingIpPort}`);
       }
+
       if (dosState > 10) {
         dosMessage = `Running application ${app.name} on ports ${JSON.stringify(appPorts)} is not reachable from outside!`;
       }
@@ -9086,6 +9141,7 @@ module.exports = {
   getChainParamsPriceUpdates,
   getAppsDOSState,
   checkMyAppsAvailability,
+  checkApplicationsCompliance,
 
   // exports for testing purposes
   setAppsMonitored,
