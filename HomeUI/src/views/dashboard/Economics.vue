@@ -507,9 +507,9 @@ export default {
       const stratuses = fluxnodecounts['stratus-enabled'];
       const nimbuses = fluxnodecounts['nimbus-enabled'];
       const cumuluses = fluxnodecounts['cumulus-enabled'];
-      const perCumulusNode = 5.625;
-      const perNimbusNode = 9.375;
-      const perStratusNode = 22.5;
+      const perCumulusNode = 2.8125;
+      const perNimbusNode = 4.6875;
+      const perStratusNode = 11.25;
       // eslint-disable-next-line no-mixed-operators
       const cumulusWeek = perCumulusNode * 720 * 7 / cumuluses;
       // eslint-disable-next-line no-mixed-operators
