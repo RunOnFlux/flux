@@ -540,6 +540,25 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     }
   }
 
+  if (options.Cmd.length) {
+    const fluxStorageCmd = options.Cmd.find((cmd) => cmd.startsWith(('FLUX_STORAGE_CMD=')));
+    if (fluxStorageCmd) {
+      const url = fluxStorageCmd.split('FLUX_STORAGE_CMD=')[1];
+      const envVars = await obtainPayloadFromStorage(url);
+      if (Array.isArray(envVars) && envVars.length < 200) {
+        envVars.forEach((parameter) => {
+          if (typeof parameter !== 'string' || parameter.length > 5000000) {
+            throw new Error(`Commands parameters from Flux Storage ${fluxStorageCmd} are invalid`);
+          } else {
+            options.Env.push(parameter);
+          }
+        });
+      } else {
+        throw new Error(`Commands parameters from Flux Storage ${fluxStorageCmd} are invalid`);
+      }
+    }
+  }
+
   const app = await docker.createContainer(options).catch((error) => {
     log.error(error);
     throw error;
