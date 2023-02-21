@@ -198,10 +198,10 @@ async function isPortOpen(ip, port, app, timeout = 5000) {
 async function isFluxAvailable(ip, port = config.server.apiport) {
   try {
     const ipchars = /^[1-9.]+$/;
-    if (ipchars.test(ip)) {
+    if (!ipchars.test(ip)) {
       throw new Error('Invalid IP');
     }
-    if (!Number.isInteger(+port)) {
+    if (!config.server.allowedPorts.includes(+port)) {
       throw new Error('Invalid Port');
     }
     const fluxResponse = await serviceHelper.axiosGet(`http://${ip}:${port}/flux/version`, axiosConfig);
