@@ -3181,6 +3181,15 @@
         class="mt-1"
       />
     </div>
+    <div>
+      <br>
+      By managing your application you agree with
+      <a
+        href="https://cdn.runonflux.io/Flux_Terms_of_Service.pdf"
+      >
+        Terms of Service
+      </a>
+    </div>
   </div>
 </template>
 

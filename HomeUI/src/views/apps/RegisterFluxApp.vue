@@ -1336,6 +1336,15 @@
         </b-col>
       </b-row>
     </div>
+    <div>
+      <br>
+      By registering an application you agree with
+      <a
+        href="https://cdn.runonflux.io/Flux_Terms_of_Service.pdf"
+      >
+        Terms of Service
+      </a>
+    </div>
   </div>
 </template>
 
