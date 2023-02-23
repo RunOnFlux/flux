@@ -7558,7 +7558,7 @@ async function trySpawningGlobalApplication() {
         const installedAppCompositedSpecification = installedApp.compose || [installedApp];
         // eslint-disable-next-line no-restricted-syntax
         for (const component of installedAppCompositedSpecification) {
-          if (component.repotag === componentToInstall.repotag) {
+          if (component.repotag === componentToInstall.repotag && componentToInstall.repotag.startsWith('presearch/node')) { // applies to presearch specifically
             log.info(`${componentToInstall.repotag} Image is already running on this Flux`);
             // eslint-disable-next-line no-await-in-loop
             await serviceHelper.delay(adjustedDelay);
