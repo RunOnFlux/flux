@@ -1977,6 +1977,23 @@
                         v-model="appUpdateSpecification.contacts"
                       />
                     </div>
+                    <div class="col-0">
+                      <b-button
+                        id="upload-contacts"
+                        v-b-tooltip.hover.top="
+                          'Uploads Contacts to Flux Storage. Contacts will be replaced with a link to Flux Storage instead. This increases maximum allowed contacts while adding enhanced privacy - nobody except FluxOS Team maintaining notifications system has access to contacts.'
+                        "
+                        variant="outline-primary"
+                      >
+                        <v-icon name="cloud-upload-alt" />
+                      </b-button>
+                      <confirm-dialog
+                        target="upload-contacts"
+                        confirm-button="Upload Contacts"
+                        :width="600"
+                        @confirm="uploadContactsToFluxStorage()"
+                      />
+                    </div>
                   </div>
                 </div>
                 <div v-if="appUpdateSpecification.version >= 5">
@@ -4921,8 +4938,8 @@ export default {
     },
     async uploadEnvToFluxStorage(componentIndex) {
       try {
-        const envid = new Date().getTime().toString() + Math.floor((Math.random() * 999999999999999)).toString();
-        if (this.appUpdateSpecification.compose[componentIndex].environmentParameters.toString().includes('FLUX_STORAGE_ENV=')) {
+        const envid = Math.floor((Math.random() * 999999999999999)).toString();
+        if (this.appUpdateSpecification.compose[componentIndex].environmentParameters.toString().includes('F_S_ENV=')) {
           this.showToast('warning', 'Environment parameters are already in Flux Storage');
           return;
         }
@@ -4935,7 +4952,7 @@ export default {
           this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else {
           this.showToast('success', 'Successful upload of Environment to Flux Storage');
-          this.appUpdateSpecification.compose[componentIndex].environmentParameters = `["FLUX_STORAGE_ENV=https://storage.runonflux.io/v1/env/${envid}"]  `;
+          this.appUpdateSpecification.compose[componentIndex].environmentParameters = `["F_S_ENV=https://storage.runonflux.io/v1/env/${envid}"]  `;
         }
       } catch (error) {
         this.showToast('danger', error.message || error);
@@ -4943,8 +4960,8 @@ export default {
     },
     async uploadCmdToFluxStorage(componentIndex) {
       try {
-        const cmdid = new Date().getTime().toString() + Math.floor((Math.random() * 999999999999999)).toString();
-        if (this.appUpdateSpecification.compose[componentIndex].commands.toString().includes('FLUX_STORAGE_CMD=')) {
+        const cmdid = Math.floor((Math.random() * 999999999999999)).toString();
+        if (this.appUpdateSpecification.compose[componentIndex].commands.toString().includes('F_S_CMD=')) {
           this.showToast('warning', 'Commands are already in Flux Storage');
           return;
         }
@@ -4957,7 +4974,29 @@ export default {
           this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else {
           this.showToast('success', 'Successful upload of Commands to Flux Storage');
-          this.appUpdateSpecification.compose[componentIndex].commands = `["FLUX_STORAGE_CMD=https://storage.runonflux.io/v1/cmd/${cmdid}"]  `;
+          this.appUpdateSpecification.compose[componentIndex].commands = `["F_S_CMD=https://storage.runonflux.io/v1/cmd/${cmdid}"]  `;
+        }
+      } catch (error) {
+        this.showToast('danger', error.message || error);
+      }
+    },
+    async uploadContactsToFluxStorage() {
+      try {
+        const contactsid = Math.floor((Math.random() * 999999999999999)).toString();
+        if (this.appUpdateSpecification.contacts.toString().includes('F_S_CONTACTS=')) {
+          this.showToast('warning', 'Contacts are already in Flux Storage');
+          return;
+        }
+        const data = {
+          contactsid,
+          contacts: JSON.parse(this.appUpdateSpecification.contacts),
+        };
+        const resp = await axios.post('https://storage.runonflux.io/v1/contacts', data);
+        if (resp.data.status === 'error') {
+          this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+        } else {
+          this.showToast('success', 'Successful upload of Contacts to Flux Storage');
+          this.appUpdateSpecification.contacts = `["F_S_CONTACTS=https://storage.runonflux.io/v1/contacts/${contactsid}"]  `;
         }
       } catch (error) {
         this.showToast('danger', error.message || error);

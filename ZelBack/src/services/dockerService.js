@@ -522,9 +522,9 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
   };
 
   if (options.Env.length) {
-    const fluxStorageEnv = options.Env.find((env) => env.startsWith(('FLUX_STORAGE_ENV=')));
+    const fluxStorageEnv = options.Env.find((env) => env.startsWith(('F_S_ENV=')));
     if (fluxStorageEnv) {
-      const url = fluxStorageEnv.split('FLUX_STORAGE_ENV=')[1];
+      const url = fluxStorageEnv.split('F_S_ENV=')[1];
       const envVars = await obtainPayloadFromStorage(url);
       if (Array.isArray(envVars) && envVars.length < 200) {
         envVars.forEach((parameter) => {
@@ -541,9 +541,9 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
   }
 
   if (options.Cmd.length) {
-    const fluxStorageCmd = options.Cmd.find((cmd) => cmd.startsWith(('FLUX_STORAGE_CMD=')));
+    const fluxStorageCmd = options.Cmd.find((cmd) => cmd.startsWith(('F_S_CMD=')));
     if (fluxStorageCmd) {
-      const url = fluxStorageCmd.split('FLUX_STORAGE_CMD=')[1];
+      const url = fluxStorageCmd.split('F_S_CMD=')[1];
       const envVars = await obtainPayloadFromStorage(url);
       if (Array.isArray(envVars) && envVars.length < 200) {
         envVars.forEach((parameter) => {
