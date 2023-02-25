@@ -7,7 +7,7 @@ export default {
   zelnodeCount() {
     return Api().get('/daemon/getzelnodecount');
   },
-  blockReward(){
+  blockReward() {
     return Api().get('/daemon/getblocksubsidy');
   },
 };

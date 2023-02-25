@@ -518,35 +518,35 @@ export default {
           },
         });
       } else {
-        perCumulusNode = (response.data.data['miner'] * .075).toFixed(4);
-        perNimbusNode = (response.data.data['miner'] * .125).toFixed(4);
-        perStratusNode = (response.data.data['miner'] * .300).toFixed(4);
+        perCumulusNode = (response.data.data.miner * 0.075).toFixed(4);
+        perNimbusNode = (response.data.data.miner * 0.125).toFixed(4);
+        perStratusNode = (response.data.data.miner * 0.300).toFixed(4);
       }
-        const stratuses = fluxnodecounts['stratus-enabled'];
-        const nimbuses = fluxnodecounts['nimbus-enabled'];
-        const cumuluses = fluxnodecounts['cumulus-enabled'];        
-        // eslint-disable-next-line no-mixed-operators
-        const cumulusWeek = perCumulusNode * 720 * 7 / cumuluses;
-        // eslint-disable-next-line no-mixed-operators
-        const nimbusWeek = perNimbusNode * 720 * 7 / nimbuses;
-        // eslint-disable-next-line no-mixed-operators
-        const stratusWeek = perStratusNode * 720 * 7 / stratuses;
-        const cumulusUSDReward = this.getFiatRate('FLUX') * perCumulusNode; // per one go
-        const nimbusUSDReward = this.getFiatRate('FLUX') * perNimbusNode; // per one go
-        const stratusUSDReward = this.getFiatRate('FLUX') * perStratusNode; // per one go
-        // 720 blocks per day.
-        // eslint-disable-next-line no-mixed-operators
-        const cumulusUSDRewardWeek = 7 * 720 * cumulusUSDReward / cumuluses;
-        // eslint-disable-next-line no-mixed-operators
-        const nimbusUSDRewardWeek = 7 * 720 * nimbusUSDReward / nimbuses;
-        // eslint-disable-next-line no-mixed-operators
-        const stratusUSDRewardWeek = 7 * 720 * stratusUSDReward / stratuses;
-        this.cumulusWeek = cumulusWeek;
-        this.nimbusWeek = nimbusWeek;
-        this.stratusWeek = stratusWeek;
-        this.cumulusUSDRewardWeek = cumulusUSDRewardWeek;
-        this.nimbusUSDRewardWeek = nimbusUSDRewardWeek;
-        this.stratusUSDRewardWeek = stratusUSDRewardWeek;    
+      const stratuses = fluxnodecounts['stratus-enabled'];
+      const nimbuses = fluxnodecounts['nimbus-enabled'];
+      const cumuluses = fluxnodecounts['cumulus-enabled'];
+      // eslint-disable-next-line no-mixed-operators
+      const cumulusWeek = perCumulusNode * 720 * 7 / cumuluses;
+      // eslint-disable-next-line no-mixed-operators
+      const nimbusWeek = perNimbusNode * 720 * 7 / nimbuses;
+      // eslint-disable-next-line no-mixed-operators
+      const stratusWeek = perStratusNode * 720 * 7 / stratuses;
+      const cumulusUSDReward = this.getFiatRate('FLUX') * perCumulusNode; // per one go
+      const nimbusUSDReward = this.getFiatRate('FLUX') * perNimbusNode; // per one go
+      const stratusUSDReward = this.getFiatRate('FLUX') * perStratusNode; // per one go
+      // 720 blocks per day.
+      // eslint-disable-next-line no-mixed-operators
+      const cumulusUSDRewardWeek = 7 * 720 * cumulusUSDReward / cumuluses;
+      // eslint-disable-next-line no-mixed-operators
+      const nimbusUSDRewardWeek = 7 * 720 * nimbusUSDReward / nimbuses;
+      // eslint-disable-next-line no-mixed-operators
+      const stratusUSDRewardWeek = 7 * 720 * stratusUSDReward / stratuses;
+      this.cumulusWeek = cumulusWeek;
+      this.nimbusWeek = nimbusWeek;
+      this.stratusWeek = stratusWeek;
+      this.cumulusUSDRewardWeek = cumulusUSDRewardWeek;
+      this.nimbusUSDRewardWeek = nimbusUSDRewardWeek;
+      this.stratusUSDRewardWeek = stratusUSDRewardWeek;
     },
     getFiatRate(coin) {
       const coinRateToUse = 'USD';
