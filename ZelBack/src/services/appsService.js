@@ -1,5 +1,7 @@
 const config = require('config');
 const axios = require('axios');
+const express = require('express');
+const http = require('http');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const os = require('os');
 const path = require('path');
@@ -46,6 +48,9 @@ const globalAppsMessages = config.database.appsglobal.collections.appsMessages;
 const globalAppsInformation = config.database.appsglobal.collections.appsInformation;
 const globalAppsTempMessages = config.database.appsglobal.collections.appsTemporaryMessages;
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
+
+const testingAppExpress = express();
+const testingAppserver = http.createServer(testingAppExpress);
 
 // cache for app running messages
 const LRUoptionsRun = { // cache for app running messages
@@ -7558,7 +7563,7 @@ async function trySpawningGlobalApplication() {
         const installedAppCompositedSpecification = installedApp.compose || [installedApp];
         // eslint-disable-next-line no-restricted-syntax
         for (const component of installedAppCompositedSpecification) {
-          if (component.repotag === componentToInstall.repotag) {
+          if (component.repotag === componentToInstall.repotag && componentToInstall.repotag.startsWith('presearch/node')) { // applies to presearch specifically
             log.info(`${componentToInstall.repotag} Image is already running on this Flux`);
             // eslint-disable-next-line no-await-in-loop
             await serviceHelper.delay(adjustedDelay);
@@ -8911,8 +8916,9 @@ async function signCheckAppData(message) {
 }
 
 /**
- * Periodically check for our installed applications availability
+ * Periodically check for our applications port range is available
 */
+let testingPort;
 async function checkMyAppsAvailability() {
   try {
     const isNodeConfirmed = await generalService.isNodeStatusConfirmed();
@@ -8933,92 +8939,82 @@ async function checkMyAppsAvailability() {
     }
     const apps = installedAppsRes.data;
     const pubKey = await fluxNetworkHelper.getFluxNodePublicKey();
+    const appPorts = [];
     // eslint-disable-next-line no-restricted-syntax
     for (const app of apps) {
-      const appPorts = [];
       if (app.version === 1) {
-        appPorts.push(app.port);
+        appPorts.push(+app.port);
       } else if (app.version <= 3) {
         app.ports.forEach((port) => {
-          appPorts.push(port);
+          appPorts.push(+port);
         });
       } else {
         app.compose.forEach((component) => {
           component.ports.forEach((port) => {
-            appPorts.push(port);
+            appPorts.push(+port);
           });
         });
       }
-      // eslint-disable-next-line no-await-in-loop
-      let askingIP = await fluxNetworkHelper.getRandomConnection();
-      let askingIpPort = config.server.apiport;
-      if (askingIP.includes(':')) { // has port specification
-        // it has port specification
-        const splittedIP = askingIP.split(':');
-        askingIP = splittedIP[0];
-        askingIpPort = splittedIP[1];
-      }
-      const timeout = 30000 + (appPorts.length * 30000);
-      const axiosConfig = {
-        timeout,
-      };
-      let data = {
-        ip: myIP,
-        appname: app.name,
-        ports: appPorts,
-        pubKey,
-      };
-      const stringData = JSON.stringify(data);
-      // eslint-disable-next-line no-await-in-loop
-      const signature = await signCheckAppData(stringData);
-      data.signature = signature;
-      // first check against our IP address
-      // eslint-disable-next-line no-await-in-loop
-      const myAppAvailability = await axios.post(`http://${myIP}:${myPort}/flux/checkappavailability`, JSON.stringify(data), axiosConfig).catch((error) => {
-        log.error(`My node ${myIP} for app availability is not reachable`);
-        log.error(error);
-      });
-      // now we check returned ports that were communicating well on other node
-      // if error, following request will fail increasing dos too
-      if (myAppAvailability && myAppAvailability.data.status === 'success') {
-        if (myAppAvailability.data.data) { // this is a data response containing array of ports listening
-          data = { // adjust data to only check for listening ports
-            ip: myIP,
-            appname: app.name,
-            ports: myAppAvailability.data.data,
-            pubKey,
-          };
-          const secondStringData = JSON.stringify(data);
-          // eslint-disable-next-line no-await-in-loop
-          const secondSignature = await signCheckAppData(secondStringData);
-          data.signature = secondSignature;
-          // eslint-disable-next-line no-await-in-loop
-          const resMyAppAvailability = await axios.post(`http://${askingIP}:${askingIpPort}/flux/checkappavailability`, JSON.stringify(data), axiosConfig).catch((error) => {
-            log.error(`${askingIP} for app availability is not reachable`);
-            log.error(error);
-          });
-          if (resMyAppAvailability && resMyAppAvailability.data.status === 'error') {
-            log.warn(`Running application ${app.name} on ports ${JSON.stringify(appPorts)}, unavailability detected from ${askingIP}:${askingIpPort}`);
-            log.warn(JSON.stringify(data));
-            currentDos += 0.4;
-            dosState += 0.4;
-          } else if (resMyAppAvailability && resMyAppAvailability.data.status === 'success') {
-            log.info(`${resMyAppAvailability.data.data.message} Detected from ${askingIP}:${askingIpPort}`);
-          }
-        } else {
-          log.info(`Running application ${app.name} on ports ${JSON.stringify(appPorts)} open but app not listening at them.`);
-        }
-      } else if (myAppAvailability && myAppAvailability.data.status === 'error') {
-        log.warn(`Running application ${app.name} on ports ${JSON.stringify(appPorts)}, unavailability detected from inside`);
-        log.warn(JSON.stringify(data));
-        currentDos += 0.4;
-        dosState += 0.4;
-      }
-
-      if (dosState > 10) {
-        dosMessage = `Running application ${app.name} on ports ${JSON.stringify(appPorts)} is not reachable from outside!`;
-      }
     }
+    // choose random port
+    const min = config.fluxapps.portMin - 1000;
+    const max = config.fluxapps.portMax;
+    testingPort = Math.floor(Math.random() * (max - min) + min);
+    if (appPorts.includes(testingPort)) {
+      // skip this check
+      await serviceHelper.delay(60 * 60 * 1000);
+      checkMyAppsAvailability();
+      return;
+    }
+    // now open this port properly and launch listening on it
+    // todo allow port, adjust upnp
+    testingAppserver.listen(testingPort);
+    await serviceHelper.delay(10 * 60 * 1000);
+    // eslint-disable-next-line no-await-in-loop
+    let askingIP = await fluxNetworkHelper.getRandomConnection();
+    let askingIpPort = config.server.apiport;
+    if (askingIP.includes(':')) { // has port specification
+      // it has port specification
+      const splittedIP = askingIP.split(':');
+      askingIP = splittedIP[0];
+      askingIpPort = splittedIP[1];
+    }
+    const timeout = 30000;
+    const axiosConfig = {
+      timeout,
+    };
+    const data = {
+      ip: myIP,
+      port: myPort,
+      appname: 'appPortsTest',
+      ports: [testingPort],
+      pubKey,
+    };
+    const stringData = JSON.stringify(data);
+    // eslint-disable-next-line no-await-in-loop
+    const signature = await signCheckAppData(stringData);
+    data.signature = signature;
+    // first check against our IP address
+    // eslint-disable-next-line no-await-in-loop
+    const resMyAppAvailability = await axios.post(`http://${askingIP}:${askingIpPort}/flux/checkappavailability`, JSON.stringify(data), axiosConfig).catch((error) => {
+      log.error(`${askingIP} for app availability is not reachable`);
+      log.error(error);
+    });
+    if (resMyAppAvailability && resMyAppAvailability.data.status === 'error') {
+      log.warn(`Applications port range unavailability detected from ${askingIP}:${askingIpPort}`);
+      log.warn(JSON.stringify(data));
+      currentDos += 0.4;
+      dosState += 0.4;
+    } else if (resMyAppAvailability && resMyAppAvailability.data.status === 'success') {
+      log.info(`${resMyAppAvailability.data.data.message} Detected from ${askingIP}:${askingIpPort}`);
+    }
+
+    if (dosState > 10) {
+      dosMessage = 'Applications port range is not reachable from outside!';
+    }
+    // stop listening on the port, close the port
+    // todo delete this port record, disallow upnp
+    testingAppserver.close();
     if (currentDos === 0) {
       dosState = 0;
       dosMessage = null;
@@ -9028,6 +9024,9 @@ async function checkMyAppsAvailability() {
     }
     checkMyAppsAvailability();
   } catch (error) {
+    // stop listening on the testing port, close the port
+    // todo delete port record, disallow upnp
+    testingAppserver.close();
     log.error(error);
     await serviceHelper.delay(4 * 60 * 1000);
     checkMyAppsAvailability();
