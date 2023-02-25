@@ -8920,6 +8920,7 @@ async function signCheckAppData(message) {
 */
 let testingPort;
 async function checkMyAppsAvailability() {
+  const isUPNP = upnpService.isUPNP();
   try {
     const isNodeConfirmed = await generalService.isNodeStatusConfirmed();
     if (!isNodeConfirmed) {
@@ -8967,7 +8968,11 @@ async function checkMyAppsAvailability() {
       return;
     }
     // now open this port properly and launch listening on it
-    // todo allow port, adjust upnp
+    await fluxNetworkHelper.allowPort(testingPort);
+    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+      await upnpService.mapUpnpPort(testingPort, 'Flux_Test_App');
+    }
+    await serviceHelper.delay(5 * 60 * 1000);
     testingAppserver.listen(testingPort);
     await serviceHelper.delay(10 * 60 * 1000);
     // eslint-disable-next-line no-await-in-loop
@@ -9013,7 +9018,10 @@ async function checkMyAppsAvailability() {
       dosMessage = 'Applications port range is not reachable from outside!';
     }
     // stop listening on the port, close the port
-    // todo delete this port record, disallow upnp
+    await fluxNetworkHelper.deleteAllowPortRule(testingPort);
+    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+      await upnpService.removeMapUpnpPort(testingPort, 'Flux_Test_App');
+    }
     testingAppserver.close();
     if (currentDos === 0) {
       dosState = 0;
@@ -9025,7 +9033,10 @@ async function checkMyAppsAvailability() {
     checkMyAppsAvailability();
   } catch (error) {
     // stop listening on the testing port, close the port
-    // todo delete port record, disallow upnp
+    await fluxNetworkHelper.deleteAllowPortRule(testingPort).catch((e) => log.error(e));
+    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+      await upnpService.removeMapUpnpPort(testingPort, 'Flux_Test_App').catch((e) => log.error(e));
+    }
     testingAppserver.close();
     log.error(error);
     await serviceHelper.delay(4 * 60 * 1000);
