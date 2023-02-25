@@ -902,7 +902,7 @@ export default {
               fontSize: '1.5rem',
             },
             value: {
-              formatter: (val) => ((parseFloat(val) * 7) / 100).toFixed(1),
+              formatter: (val) => ((parseFloat(val) * 15) / 100).toFixed(1),
               offsetY: 10,
               color: $themeColors.light,
               fontSize: '2.86rem',
@@ -957,7 +957,7 @@ export default {
               fontSize: '1.2rem',
             },
             value: {
-              formatter: (val) => ((parseFloat(val) * 7) / 100).toFixed(1),
+              formatter: (val) => ((parseFloat(val) * 15) / 100).toFixed(1),
               offsetY: 10,
               color: $themeColors.light,
               fontSize: '2rem',
@@ -1012,7 +1012,7 @@ export default {
               fontSize: '1.5rem',
             },
             value: {
-              formatter: (val) => ((parseFloat(val) * 28000) / 100).toFixed(0),
+              formatter: (val) => ((parseFloat(val) * 59000) / 100).toFixed(0),
               offsetY: 10,
               color: $themeColors.light,
               fontSize: '2.86rem',
@@ -1067,7 +1067,7 @@ export default {
               fontSize: '1.2rem',
             },
             value: {
-              formatter: (val) => ((parseFloat(val) * 28000) / 100).toFixed(0),
+              formatter: (val) => ((parseFloat(val) * 59000) / 100).toFixed(0),
               offsetY: 10,
               color: $themeColors.light,
               fontSize: '2rem',
@@ -1122,7 +1122,7 @@ export default {
               fontSize: '1.5rem',
             },
             value: {
-              formatter: (val) => ((parseFloat(val) * 570) / 100).toFixed(0),
+              formatter: (val) => ((parseFloat(val) * 840) / 100).toFixed(0),
               offsetY: 10,
               color: $themeColors.light,
               fontSize: '2.86rem',
@@ -1177,7 +1177,7 @@ export default {
               fontSize: '1.2rem',
             },
             value: {
-              formatter: (val) => ((parseFloat(val) * 570) / 100).toFixed(0),
+              formatter: (val) => ((parseFloat(val) * 840) / 100).toFixed(0),
               offsetY: 10,
               color: $themeColors.light,
               fontSize: '2rem',
