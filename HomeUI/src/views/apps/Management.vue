@@ -3094,7 +3094,7 @@
                   Note: Data has to be signed by the last application owner
                 </h4>
                 <b-card-text>
-                  Price per Month: {{ appPricePerMonthForUpdate }} FLUX
+                  Price: {{ appPricePerMonthForUpdate }} FLUX
                 </b-card-text>
                 <b-button
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"

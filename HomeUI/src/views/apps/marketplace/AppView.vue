@@ -409,7 +409,7 @@
             class="text-center wizard-card"
           >
             <b-card-text>
-              Price per Month: {{ appPricePerMonth }} FLUX
+              Price: {{ appPricePerMonth }} FLUX
             </b-card-text>
             <b-button
               v-ripple.400="'rgba(255, 255, 255, 0.15)'"
