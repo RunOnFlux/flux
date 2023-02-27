@@ -8962,7 +8962,7 @@ async function checkMyAppsAvailability() {
       log.warn(`Skipped checking ${testingPort} - in use.`);
       failedPort = null;
       // skip this check
-      await serviceHelper.delay(60 * 60 * 1000);
+      await serviceHelper.delay(2 * 60 * 1000);
       checkMyAppsAvailability();
       return;
     }
