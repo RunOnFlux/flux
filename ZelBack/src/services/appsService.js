@@ -7413,18 +7413,27 @@ async function trySpawningGlobalApplication() {
       return;
     }
 
-    const benchmarkBenchRes = await benchmarkService.getBenchmarks();
-    if (benchmarkBenchRes.status === 'error') {
+    const benchmarkResponse = await benchmarkService.getBenchmarks();
+    if (benchmarkResponse.status === 'error') {
       log.info('FluxBench status Error. Global applications will not be installed');
       await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
       trySpawningGlobalApplication();
       return;
     }
-    if (benchmarkBenchRes.data.thunder) {
+    if (benchmarkResponse.data.thunder) {
       log.info('Flux Node is a Thunder Storage Node. Global applications will not be installed');
       await serviceHelper.delay(24 * 3600 * 1000); // check again in one day as changing from and to only requires the restart of flux daemon
       trySpawningGlobalApplication();
       return;
+    }
+    // get my external IP and check that it is longer than 5 in length.
+    let myIP = null;
+    if (benchmarkResponse.data.ipaddress) {
+      log.info(`Gathered IP ${benchmarkResponse.data.ipaddress}`);
+      myIP = benchmarkResponse.data.ipaddress.length > 5 ? benchmarkResponse.data.ipaddress : null;
+    }
+    if (myIP === null) {
+      throw new Error('Unable to detect Flux IP address');
     }
 
     // get all the applications list names
@@ -7480,19 +7489,6 @@ async function trySpawningGlobalApplication() {
     const probLn = Math.log(2 + numberOfGlobalApps); // from ln(2) -> ln(2 + x)
     const adjustedDelay = delay / probLn;
 
-    // get my external IP and check that it is longer than 5 in length.
-    const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
-    let myIP = null;
-    if (benchmarkResponse.status === 'success') {
-      const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
-      if (benchmarkResponseData.ipaddress) {
-        log.info(`Gathered IP ${benchmarkResponseData.ipaddress}`);
-        myIP = benchmarkResponseData.ipaddress.length > 5 ? benchmarkResponseData.ipaddress : null;
-      }
-    }
-    if (myIP === null) {
-      throw new Error('Unable to detect Flux IP address');
-    }
     const adjustedIP = myIP.split(':')[0]; // just IP address
     // check if app not running on this device
     if (runningAppList.find((document) => document.ip.includes(adjustedIP))) {
