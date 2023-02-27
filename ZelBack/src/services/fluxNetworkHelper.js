@@ -197,6 +197,13 @@ async function isPortOpen(ip, port, app, timeout = 5000) {
  */
 async function isFluxAvailable(ip, port = config.server.apiport) {
   try {
+    const ipchars = /^[1-9.]+$/;
+    if (!ipchars.test(ip)) {
+      throw new Error('Invalid IP');
+    }
+    if (!config.server.allowedPorts.includes(+port)) {
+      throw new Error('Invalid Port');
+    }
     const fluxResponse = await serviceHelper.axiosGet(`http://${ip}:${port}/flux/version`, axiosConfig);
     if (fluxResponse.data.status !== 'success') return false;
 
@@ -268,6 +275,8 @@ async function checkAppAvailability(req, res) {
         ip, ports, appname, pubKey, signature,
       } = processedBody;
 
+      const ipPort = processedBody.port;
+
       // pubkey of the message has to be on the list
       const zl = await fluxCommunicationUtils.deterministicFluxList(pubKey); // this itself is sufficient.
       const node = zl.find((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
@@ -287,12 +296,12 @@ async function checkAppAvailability(req, res) {
         // eslint-disable-next-line no-await-in-loop
           const isOpen = await isPortOpen(ip, port, appname, 30000);
           if (!isOpen) {
-            throw new Error(`Flux App ${appname} on ${ip}:${port} is not available.`);
+            throw new Error(`Flux Applications on ${ip}:${ipPort} are not available.`);
           } else if (isOpen === 'listening') { // this port is in use and listening. Later do check from other node on this port
             portsListening.push(+port);
           }
         } else {
-          log.error(`Flux App ${appname} port ${port} is outside allowed range.`);
+          log.error(`Flux App port ${port} is outside allowed range.`);
         }
       }
       // if ip is my if, do a data response with ports that are listening
@@ -304,7 +313,7 @@ async function checkAppAvailability(req, res) {
         res.json(dataResponse);
         return;
       }
-      const successResponse = messageHelper.createSuccessMessage(`Flux App ${appname} is available.`);
+      const successResponse = messageHelper.createSuccessMessage(`Flux Applications on ${ip}:${ipPort} are available.`);
       res.json(successResponse);
     } catch (error) {
       const errorResponse = messageHelper.createErrorMessage(

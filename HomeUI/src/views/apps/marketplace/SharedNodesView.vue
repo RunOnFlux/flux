@@ -163,7 +163,7 @@
                 no-body
               >
                 <b-card-title class="text-white text-uppercase shared-node-info-title">
-                  Lockup Period Estimated APR
+                  Estimated % Lockup in Flux
                 </b-card-title>
                 <b-card-body
                   v-if="titanConfig"

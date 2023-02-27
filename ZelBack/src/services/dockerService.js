@@ -522,9 +522,9 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
   };
 
   if (options.Env.length) {
-    const fluxStorageEnv = options.Env.find((env) => env.startsWith(('FLUX_STORAGE_ENV=')));
+    const fluxStorageEnv = options.Env.find((env) => env.startsWith(('F_S_ENV=')));
     if (fluxStorageEnv) {
-      const url = fluxStorageEnv.split('FLUX_STORAGE_ENV=')[1];
+      const url = fluxStorageEnv.split('F_S_ENV=')[1];
       const envVars = await obtainPayloadFromStorage(url);
       if (Array.isArray(envVars) && envVars.length < 200) {
         envVars.forEach((parameter) => {
@@ -536,6 +536,25 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
         });
       } else {
         throw new Error(`Environment parameters from Flux Storage ${fluxStorageEnv} are invalid`);
+      }
+    }
+  }
+
+  if (options.Cmd.length) {
+    const fluxStorageCmd = options.Cmd.find((cmd) => cmd.startsWith(('F_S_CMD=')));
+    if (fluxStorageCmd) {
+      const url = fluxStorageCmd.split('F_S_CMD=')[1];
+      const envVars = await obtainPayloadFromStorage(url);
+      if (Array.isArray(envVars) && envVars.length < 200) {
+        envVars.forEach((parameter) => {
+          if (typeof parameter !== 'string' || parameter.length > 5000000) {
+            throw new Error(`Commands parameters from Flux Storage ${fluxStorageCmd} are invalid`);
+          } else {
+            options.Env.push(parameter);
+          }
+        });
+      } else {
+        throw new Error(`Commands parameters from Flux Storage ${fluxStorageCmd} are invalid`);
       }
     }
   }

@@ -25,6 +25,11 @@ let numberOfFluxNodes = 0;
 
 const blockedPubKeysCache = new LRU(LRUoptions);
 
+const privateIpsList = [
+  '192.168.', '10.',
+  '172.16.', '172.17.', '172.18.', '172.19.', '172.20.', '172.21.', '172.22.', '172.23.', '172.24.', '172.25.', '172.26.', '172.28.', '172.29.', '172.30.', '172.31.',
+];
+
 /**
  * To handle temporary app messages.
  * @param {object} message Message.
@@ -96,15 +101,26 @@ function handleIncomingConnection(ws, req, expressWS) {
     }, 1000);
     return;
   }
-  incomingConnections.push(ws);
   const peer = {
     ip: ws._socket.remoteAddress,
   };
+  const ipv4Peer = peer.ip.replace('::ffff:', '');
+  // eslint-disable-next-line no-restricted-syntax
+  for (const privateIp of privateIpsList) {
+    if (ipv4Peer.startsWith(privateIp)) {
+      setTimeout(() => {
+        ws.close(1000, 'Peer received is using internal IP');
+      }, 1000);
+      log.error(`Incoming connection of peer from internal IP not allowed: ${ipv4Peer}`);
+      return;
+    }
+  }
+  incomingConnections.push(ws);
   incomingPeers.push(peer);
   // verify data integrity, if not signed, close connection
   ws.on('message', async (msg) => {
     // check rate limit
-    const rateOK = fluxNetworkHelper.lruRateLimit(peer.ip.replace('::ffff:', ''), 30);
+    const rateOK = fluxNetworkHelper.lruRateLimit(ipv4Peer, 30);
     if (!rateOK) {
       return; // do not react to the message
     }

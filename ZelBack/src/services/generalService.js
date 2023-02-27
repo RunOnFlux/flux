@@ -167,7 +167,7 @@ async function checkSynced() {
     if (!syncStatus.data.synced) {
       throw new Error('Daemon not yet synced.');
     }
-    const daemonHeight = syncStatus.data.height;
+    const daemonHeight = serviceHelper.ensureNumber(syncStatus.data.height);
     const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
     const query = { generalScannedHeight: { $gte: 0 } };
@@ -183,7 +183,9 @@ async function checkSynced() {
     }
     const explorerHeight = serviceHelper.ensureNumber(result.generalScannedHeight);
 
-    if (explorerHeight + 1 === daemonHeight || explorerHeight === daemonHeight) {
+    log.info(`Explorer Sync Status check: ${explorerHeight}/${daemonHeight}`);
+    const difference = Math.abs(daemonHeight - explorerHeight);
+    if (difference <= 5) {
       return true;
     }
     return false;
