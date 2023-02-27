@@ -1147,6 +1147,22 @@
         </b-col>
       </b-row>
     </div>
+    <div>
+      <br>
+      <b-form-checkbox
+        id="tos"
+        v-model="tosAgreed"
+        switch
+        class="custom-control-primary inline"
+      />
+      I agree with
+      <a
+        href="https://cdn.runonflux.io/Flux_Terms_of_Service.pdf"
+        target="_blank"
+      >
+        Terms of Service
+      </a>
+    </div>
     <div
       v-if="appRegistrationSpecification.version >= 4 && appRegistrationSpecification.compose.length < (currentHeight < 1300000 ? 5 : 10)"
       class="text-center"
@@ -1335,15 +1351,6 @@
           </div>
         </b-col>
       </b-row>
-    </div>
-    <div>
-      <br>
-      By registering an application you agree with
-      <a
-        href="https://cdn.runonflux.io/Flux_Terms_of_Service.pdf"
-      >
-        Terms of Service
-      </a>
     </div>
   </div>
 </template>
@@ -1618,6 +1625,7 @@ export default {
       downloading: false,
       downloadOutput: {},
       nodeIP: '',
+      tosAgreed: false,
     };
   },
   computed: {
@@ -1740,6 +1748,9 @@ export default {
     },
     async checkFluxSpecificationsAndFormatMessage() {
       try {
+        if (!this.tosAgreed) {
+          throw new Error('Please agree to Terms of Service');
+        }
         // formation, pre verificaiton
         const appSpecification = this.appRegistrationSpecification;
         if (appSpecification.version >= 5) {
