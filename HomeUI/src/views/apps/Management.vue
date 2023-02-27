@@ -2859,7 +2859,7 @@
             <b-col xs="12">
               <b-card>
                 <b-card-title>
-                  Resources &nbsp;&nbsp;&nbsp;<h6 class="inline text-small">
+                  Resources &nbsp;&nbsp;&nbsp;<h6 class="inline etext-small">
                     Tiered:
                     <b-form-checkbox
                       id="tiered"
@@ -3048,6 +3048,21 @@
             </b-col>
           </b-row>
         </div>
+        <div class="flex">
+          <b-form-checkbox
+            id="tos"
+            v-model="tosAgreed"
+            switch
+            class="custom-control-primary inline"
+          /> I agree with
+          <a
+            href="https://cdn.runonflux.io/Flux_Terms_of_Service.pdf"
+            target="_blank"
+          >
+            Terms of Service
+          </a>
+          <br><br>
+        </div>
         <div>
           <b-button
             v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -3183,9 +3198,10 @@
     </div>
     <div>
       <br>
-      By managing your application you agree with
+      By managing an application I agree with
       <a
         href="https://cdn.runonflux.io/Flux_Terms_of_Service.pdf"
+        target="_blank"
       >
         Terms of Service
       </a>
@@ -3413,6 +3429,7 @@ export default {
           time: 365 * 24 * 60 * 60 * 1000,
         },
       ],
+      tosAgreed: false,
     };
   },
   computed: {
@@ -3833,6 +3850,9 @@ export default {
     },
     async checkFluxUpdateSpecificationsAndFormatMessage() {
       try {
+        if (!this.tosAgreed) {
+          throw new Error('Please agree to Terms of Service');
+        }
         const appSpecification = this.appUpdateSpecification;
         if (appSpecification.version >= 5) {
           appSpecification.geolocation = this.generateGeolocations();
@@ -5043,5 +5063,9 @@ a img {
 a:hover img {
   filter: opacity(70%);
   transform: scale(1.1);
+}
+
+.flex {
+  display: flex;
 }
 </style>
