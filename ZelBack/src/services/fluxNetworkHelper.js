@@ -313,7 +313,7 @@ async function checkAppAvailability(req, res) {
         res.json(dataResponse);
         return;
       }
-      const successResponse = messageHelper.createSuccessMessage(`Flux Application on ${ip}:${ipPort} are available.`);
+      const successResponse = messageHelper.createSuccessMessage(`Flux Applications on ${ip}:${ipPort} are available.`);
       res.json(successResponse);
     } catch (error) {
       const errorResponse = messageHelper.createErrorMessage(
