@@ -8919,6 +8919,7 @@ async function signCheckAppData(message) {
  * Periodically check for our applications port range is available
 */
 let testingPort;
+let failedPort;
 async function checkMyAppsAvailability() {
   const isUPNP = upnpService.isUPNP();
   try {
@@ -8960,8 +8961,10 @@ async function checkMyAppsAvailability() {
     // choose random port
     const min = config.fluxapps.portMin - 1000;
     const max = config.fluxapps.portMax;
-    testingPort = Math.floor(Math.random() * (max - min) + min);
+    testingPort = failedPort || Math.floor(Math.random() * (max - min) + min);
     if (appPorts.includes(testingPort)) {
+      log.warn(`Skipped checking ${testingPort} - in use.`);
+      failedPort = null;
       // skip this check
       await serviceHelper.delay(60 * 60 * 1000);
       checkMyAppsAvailability();
@@ -8972,9 +8975,9 @@ async function checkMyAppsAvailability() {
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       await upnpService.mapUpnpPort(testingPort, 'Flux_Test_App');
     }
-    await serviceHelper.delay(5 * 60 * 1000);
+    await serviceHelper.delay(5 * 1000);
     testingAppserver.listen(testingPort);
-    await serviceHelper.delay(10 * 60 * 1000);
+    await serviceHelper.delay(10 * 1000);
     // eslint-disable-next-line no-await-in-loop
     let askingIP = await fluxNetworkHelper.getRandomConnection();
     let askingIpPort = config.server.apiport;
@@ -9006,12 +9009,14 @@ async function checkMyAppsAvailability() {
       log.error(error);
     });
     if (resMyAppAvailability && resMyAppAvailability.data.status === 'error') {
-      log.warn(`Applications port range unavailability detected from ${askingIP}:${askingIpPort}`);
+      log.warn(`Applications port range unavailability detected from ${askingIP}:${askingIpPort} on ${testingPort}`);
       log.warn(JSON.stringify(data));
       currentDos += 0.4;
       dosState += 0.4;
+      failedPort = testingPort;
     } else if (resMyAppAvailability && resMyAppAvailability.data.status === 'success') {
-      log.info(`${resMyAppAvailability.data.data.message} Detected from ${askingIP}:${askingIpPort}`);
+      log.info(`${resMyAppAvailability.data.data.message} Detected from ${askingIP}:${askingIpPort} on ${testingPort}`);
+      failedPort = null;
     }
 
     if (dosState > 10) {
