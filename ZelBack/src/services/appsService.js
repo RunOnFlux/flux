@@ -8566,7 +8566,7 @@ async function reconstructAppMessagesHashCollection() {
       await dbHelper.updateOneInDatabase(databaseDaemon, appsHashesCollection, queryUpdate, update, options);
     } else {
       // update that we do not have the message
-      const update = { $set: { message: false } };
+      const update = { $set: { message: false, messageNotFound: false } };
       // eslint-disable-next-line no-await-in-loop
       await dbHelper.updateOneInDatabase(databaseDaemon, appsHashesCollection, queryUpdate, update, options);
     }
