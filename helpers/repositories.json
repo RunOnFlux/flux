@@ -285,4 +285,5 @@
    "fluxdapp"
    "ncleguizamon/forticlient:latest"
    "utunnelio/utunnel:production-18.04"
+   "tailscale/tailscale:latest"
 ]
