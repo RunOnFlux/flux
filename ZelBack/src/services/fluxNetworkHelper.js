@@ -972,7 +972,7 @@ async function denyPort(port) {
     status: false,
     message: null,
   };
-  if (+port < (config.fluxapps.portMin - 1000) || +port > config.fluxapps.portMax) {
+  if (+port >= (config.fluxapps.portMin - 1000) && +port <= config.fluxapps.portMax) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
@@ -1002,7 +1002,7 @@ async function deleteAllowPortRule(port) {
     status: false,
     message: null,
   };
-  if (+port < (config.fluxapps.portMin - 1000) || +port > config.fluxapps.portMax) {
+  if (+port >= (config.fluxapps.portMin - 1000) && +port <= config.fluxapps.portMax) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
@@ -1029,7 +1029,7 @@ async function deleteAllowOutPortRule(port) {
     status: false,
     message: null,
   };
-  if (+port < (config.fluxapps.portMin - 1000) || +port > config.fluxapps.portMax) {
+  if (+port >= (config.fluxapps.portMin - 1000) && +port <= config.fluxapps.portMax) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
