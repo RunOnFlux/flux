@@ -101,6 +101,13 @@ function handleIncomingConnection(ws, req, expressWS) {
     }, 1000);
     return;
   }
+  const findPeer = incomingPeers.find((p) => p.ip === ws._socket.remoteAddress);
+  if (findPeer) {
+    setTimeout(() => {
+      ws.close(1000, 'Peer received is already in incomingPeers list');
+    }, 1000);
+    return;
+  }
   const peer = {
     ip: ws._socket.remoteAddress,
   };
