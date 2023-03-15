@@ -6524,7 +6524,7 @@ async function appHashHasMessage(hash) {
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.daemon.database);
   const query = { hash };
-  const update = { $set: { message: true } };
+  const update = { $set: { message: true, messageNotFound: false } };
   const options = {};
   await dbHelper.updateOneInDatabase(database, appsHashesCollection, query, update, options);
   return true;
@@ -7001,8 +7001,13 @@ async function rescanGlobalAppsInformationAPI(req, res) {
 /**
  * To perform continuous checks for Flux app hashes that don't have a message.
  */
+let iterationRun = 0;
 async function continuousFluxAppHashesCheck() {
   try {
+    iterationRun += 1;
+    if (iterationRun > 20) {
+      iterationRun = 0;
+    }
     log.info('Requesting missing Flux App messages');
 
     const numberOfPeers = fluxCommunication.getNumberOfPeers();
@@ -7028,7 +7033,7 @@ async function continuousFluxAppHashesCheck() {
     const results = await dbHelper.findInDatabase(database, appsHashesCollection, query, projection);
     // eslint-disable-next-line no-restricted-syntax
     for (const result of results) {
-      if (!result.messageNotFound) { // wrong data, can be later removed
+      if (!result.messageNotFound || iterationRun % 20) { // most likely wrong data, if no message found, run request only once in 20 times
         let numberOfSearches = 1;
         if (hashesNumberOfSearchs.has(result.hash)) {
           numberOfSearches = hashesNumberOfSearchs.get(result.hash) + 1;
@@ -8561,7 +8566,7 @@ async function reconstructAppMessagesHashCollection() {
     const permanentMessageFound = permanentMessages.find((message) => message.hash === appHash.hash);
     if (permanentMessageFound) {
       // update that we have the message
-      const update = { $set: { message: true } };
+      const update = { $set: { message: true, messageNotFound: false } };
       // eslint-disable-next-line no-await-in-loop
       await dbHelper.updateOneInDatabase(databaseDaemon, appsHashesCollection, queryUpdate, update, options);
     } else {
