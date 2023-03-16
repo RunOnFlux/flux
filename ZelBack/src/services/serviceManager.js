@@ -86,12 +86,6 @@ async function startFluxFunctions() {
     log.info('Flux Discovery started');
     syncthingService.startSyncthing();
     log.info('Syncthing service started');
-    try {
-      appsService.reconstructAppMessagesHashCollection();
-      log.info('Validation of App Messages Hash Collection');
-    } catch (error) {
-      log.error(error);
-    }
     setTimeout(() => {
       appsService.stopAllNonFluxRunningApps();
       appsService.startMonitoringOfApps();

@@ -7001,13 +7001,8 @@ async function rescanGlobalAppsInformationAPI(req, res) {
 /**
  * To perform continuous checks for Flux app hashes that don't have a message.
  */
-let iterationRun = 0;
 async function continuousFluxAppHashesCheck() {
   try {
-    iterationRun += 1;
-    if (iterationRun > 20) {
-      iterationRun = 0;
-    }
     log.info('Requesting missing Flux App messages');
 
     const numberOfPeers = fluxCommunication.getNumberOfPeers();
@@ -7033,13 +7028,13 @@ async function continuousFluxAppHashesCheck() {
     const results = await dbHelper.findInDatabase(database, appsHashesCollection, query, projection);
     // eslint-disable-next-line no-restricted-syntax
     for (const result of results) {
-      if (!result.messageNotFound || iterationRun % 20) { // most likely wrong data, if no message found, run request only once in 20 times
+      if (!result.messageNotFound) { // most likely wrong data, if no message found. the attribute will be cleaned every 15 days so all nodes search again for missing apps
         let numberOfSearches = 1;
         if (hashesNumberOfSearchs.has(result.hash)) {
           numberOfSearches = hashesNumberOfSearchs.get(result.hash) + 1;
         }
         hashesNumberOfSearchs.set(result.hash, numberOfSearches);
-        if (numberOfSearches < 10) {
+        if (numberOfSearches < 11) {
           checkAndRequestApp(result.hash, result.txid, result.height, result.value);
           // eslint-disable-next-line no-await-in-loop
           await serviceHelper.delay(1234);

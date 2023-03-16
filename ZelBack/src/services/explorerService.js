@@ -654,6 +654,14 @@ async function processBlock(blockHeight, isInsightExplorer) {
     if (blockDataVerbose.height % 50 === 0) {
       log.info(`Processing Explorer Block Height: ${blockDataVerbose.height}`);
     }
+    if (blockDataVerbose.height % 21600 === 0) { // once per month
+      try {
+        appsService.reconstructAppMessagesHashCollection();
+        log.info('Validation of App Messages Hash Collection');
+      } catch (error) {
+        log.error(error);
+      }
+    }
     if (isInsightExplorer) {
       // only process Flux transactions
       await processInsight(blockDataVerbose, database);
