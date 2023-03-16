@@ -381,6 +381,7 @@ async function obtainPayloadFromStorage(url) {
         'flux-message': message,
         'flux-signature': signature,
       },
+      timeout: 20000,
     };
     const response = await serviceHelper.axiosGet(url, axiosConfig);
     return response.data;

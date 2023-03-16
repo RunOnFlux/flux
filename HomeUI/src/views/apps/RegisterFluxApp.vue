@@ -2226,7 +2226,7 @@ export default {
           this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else {
           this.showToast('success', 'Successful upload of Environment to Flux Storage');
-          this.appRegistrationSpecification.compose[componentIndex].environmentParameters = `["F_S_ENV=https://storage.runonflux.io/v1/env/${envid}"]  `;
+          this.appRegistrationSpecification.compose[componentIndex].environmentParameters = `["F_S_ENV=https://storage.runonflux.io/v1/env/${envid}"]`;
         }
       } catch (error) {
         this.showToast('danger', error.message || error);
@@ -2248,7 +2248,7 @@ export default {
           this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else {
           this.showToast('success', 'Successful upload of Commands to Flux Storage');
-          this.appRegistrationSpecification.compose[componentIndex].commands = `["F_S_CMD=https://storage.runonflux.io/v1/cmd/${cmdid}"]  `;
+          this.appRegistrationSpecification.compose[componentIndex].commands = `["F_S_CMD=https://storage.runonflux.io/v1/cmd/${cmdid}"]`;
         }
       } catch (error) {
         this.showToast('danger', error.message || error);
@@ -2270,7 +2270,7 @@ export default {
           this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else {
           this.showToast('success', 'Successful upload of Contacts to Flux Storage');
-          this.appRegistrationSpecification.contacts = `["F_S_CONTACTS=https://storage.runonflux.io/v1/contacts/${contactsid}"]  `;
+          this.appRegistrationSpecification.contacts = `["F_S_CONTACTS=https://storage.runonflux.io/v1/contacts/${contactsid}"]`;
         }
       } catch (error) {
         this.showToast('danger', error.message || error);
