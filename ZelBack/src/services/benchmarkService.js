@@ -219,6 +219,20 @@ async function getPublicIp(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To execute benchmark at the same time on all upnp nodes.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+async function startMultiPortBench(req, res) {
+  const rpccall = 'startmultiportbench';
+
+  response = await executeCall(rpccall);
+
+  return res ? res.json(response) : response;
+}
+
 module.exports = {
   // == Export for testing purposes ==
   executeCall,
@@ -227,6 +241,7 @@ module.exports = {
   restartNodeBenchmarks,
   signFluxTransaction,
   signFluxTransactionPost,
+  startMultiPortBench,
 
   // == Control ==
   help,

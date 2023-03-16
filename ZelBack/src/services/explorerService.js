@@ -12,6 +12,7 @@ const daemonServiceTransactionRpcs = require('./daemonService/daemonServiceTrans
 const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRpcs');
 const daemonServiceBlockchainRpcs = require('./daemonService/daemonServiceBlockchainRpcs');
 const appsService = require('./appsService');
+const fluxService = require('./fluxService');
 
 const coinbaseFusionIndexCollection = config.database.daemon.collections.coinbaseFusionIndex; // fusion
 const utxoIndexCollection = config.database.daemon.collections.utxoIndex;
@@ -658,6 +659,13 @@ async function processBlock(blockHeight, isInsightExplorer) {
       try {
         appsService.reconstructAppMessagesHashCollection();
         log.info('Validation of App Messages Hash Collection');
+      } catch (error) {
+        log.error(error);
+      }
+    }
+    if (blockDataVerbose.height % 6480 === 0) { // once every 9 days
+      try {
+        fluxService.executeUpnpBench();
       } catch (error) {
         log.error(error);
       }
