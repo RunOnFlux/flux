@@ -7010,9 +7010,21 @@ async function continuousFluxAppHashesCheck() {
       log.info('Not enough connected peers to request missing Flux App messages');
       return;
     }
-    // get flux app hashes that do not have a message;
     const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
+    const queryHeight = { generalScannedHeight: { $gte: 0 } };
+    const projectionHeight = {
+      projection: {
+        _id: 0,
+        generalScannedHeight: 1,
+      },
+    };
+    const scanHeight = await dbHelper.findOneInDatabase(database, scannedHeightCollection, queryHeight, projectionHeight);
+    if (!scanHeight) {
+      throw new Error('Scanning not initiated');
+    }
+    const explorerHeight = serviceHelper.ensureNumber(scanHeight.generalScannedHeight);
+    // get flux app hashes that do not have a message;
     const query = { message: false };
     const projection = {
       projection: {
@@ -7028,19 +7040,29 @@ async function continuousFluxAppHashesCheck() {
     const results = await dbHelper.findInDatabase(database, appsHashesCollection, query, projection);
     // eslint-disable-next-line no-restricted-syntax
     for (const result of results) {
-      if (!result.messageNotFound) { // most likely wrong data, if no message found. the attribute will be cleaned every 15 days so all nodes search again for missing apps
-        let numberOfSearches = 1;
+      if (!result.messageNotFound) { // most likely wrong data, if no message found. This attribute is cleaned every reconstructAppMessagesHashPeriod blocks so all nodes search again for missing messages
+        let heightDifference = explorerHeight - result.height;
+        if (heightDifference < 0) {
+          heightDifference = 0;
+        }
+        let maturity = Math.round(heightDifference / config.fluxapps.blocksLasting);
+        if (maturity > 12) {
+          maturity = 12; // maturity of max 12 representing its older than 1 year. Old messages will only be searched at twice, newer messages more oftenly
+        }
+        // every config.fluxapps.blocksLasting increment maturity by 2;
+        let numberOfSearches = maturity;
         if (hashesNumberOfSearchs.has(result.hash)) {
-          numberOfSearches = hashesNumberOfSearchs.get(result.hash) + 1;
+          numberOfSearches = hashesNumberOfSearchs.get(result.hash) + 2; // max 8 tries
         }
         hashesNumberOfSearchs.set(result.hash, numberOfSearches);
-        if (numberOfSearches < 11) {
+        if (numberOfSearches <= 16) { // up to 8 searches
           checkAndRequestApp(result.hash, result.txid, result.height, result.value);
           // eslint-disable-next-line no-await-in-loop
           await serviceHelper.delay(1234);
         } else {
           // eslint-disable-next-line no-await-in-loop
-          await appHashHasMessageNotFound(result.hash);
+          await appHashHasMessageNotFound(result.hash); // mark message as not found
+          hashesNumberOfSearchs.delete(result.hash); // remove from our map
         }
       }
     }
