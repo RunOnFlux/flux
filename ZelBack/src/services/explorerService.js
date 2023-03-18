@@ -655,21 +655,6 @@ async function processBlock(blockHeight, isInsightExplorer) {
     if (blockDataVerbose.height % 50 === 0) {
       log.info(`Processing Explorer Block Height: ${blockDataVerbose.height}`);
     }
-    if (blockDataVerbose.height % 21600 === 0) { // once per month
-      try {
-        appsService.reconstructAppMessagesHashCollection();
-        log.info('Validation of App Messages Hash Collection');
-      } catch (error) {
-        log.error(error);
-      }
-    }
-    if (blockDataVerbose.height % 6480 === 0) { // once every 9 days
-      try {
-        fluxService.executeUpnpBench();
-      } catch (error) {
-        log.error(error);
-      }
-    }
     if (isInsightExplorer) {
       // only process Flux transactions
       await processInsight(blockDataVerbose, database);
@@ -704,6 +689,21 @@ async function processBlock(blockHeight, isInsightExplorer) {
       if (blockHeight % config.fluxapps.updateFluxAppsPeriod === 0) {
         if (blockDataVerbose.height >= config.fluxapps.epochstart) {
           appsService.reinstallOldApplications();
+        }
+      }
+      if (blockDataVerbose.height % config.fluxapps.reconstructAppMessagesHashPeriod === 0) {
+        try {
+          appsService.reconstructAppMessagesHashCollection();
+          log.info('Validation of App Messages Hash Collection');
+        } catch (error) {
+          log.error(error);
+        }
+      }
+      if (blockDataVerbose.height % config.fluxapps.benchUpnpPeriod === 0) {
+        try {
+          fluxService.executeUpnpBench();
+        } catch (error) {
+          log.error(error);
         }
       }
     }
