@@ -1083,6 +1083,7 @@ async function executeUpnpBench() {
   }
   const isUPNP = upnpService.isUPNP();
   if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+    log.info('Calling FluxBench startMultiPortBench');
     benchmarkService.startMultiPortBench();
   }
 }
