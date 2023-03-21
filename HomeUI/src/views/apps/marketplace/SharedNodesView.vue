@@ -1890,7 +1890,8 @@ export default {
     ]);
     const titanConfig = ref();
     const titanStats = ref();
-    const nodeCount = ref(0);
+    const numStratusNodes = ref(0);
+    const numNimbusNodes = ref(0);
 
     const getRegistrationMessage = async () => {
       const response = await axios.get(`${apiURL}/registermessage`);
@@ -1924,6 +1925,28 @@ export default {
       tooMuchStaked.value = (totalCollateral.value <= (titanStats.value.total + titanConfig.value.minStake));
     };
 
+    const calcTierAPR = (lockup, reward, collateral, tierCount) => {
+      const fluxPerBlockReward = (reward * (100 - lockup.fee)) / 100;
+      const blocksPerDay = 720;
+      const payoutFrequency = blocksPerDay / tierCount;
+      const fluxPerMonth = (30 * payoutFrequency) * fluxPerBlockReward;
+      const rewardPerSeat = (fluxPerMonth / collateral);
+      const rewardPerYear = (rewardPerSeat * 12);
+      const apr = ((1 + rewardPerYear / 12) ** 12) - 1;
+      return apr;
+    };
+
+    const calcAPR = (lockup) => {
+      if (nodes.value.length === 0) {
+        return 0;
+      }
+      const stratusAPR = calcTierAPR(lockup, 11.25, 40000, numStratusNodes.value);
+      const nimbusAPR = calcTierAPR(lockup, 4.6875, 12500, numNimbusNodes.value);
+      const titanStratus = nodes.value.reduce((acc, value) => acc + (value.collateral === 40000 ? 1 : 0), 0);
+      const titanNimbus = nodes.value.reduce((acc, value) => acc + (value.collateral === 12500 ? 1 : 0), 0);
+      return ((stratusAPR * titanStratus) + (nimbusAPR * titanNimbus)) / (titanStratus + titanNimbus);
+    };
+
     const getSharedNodeList = async () => {
       const response = await axios.get(`${apiURL}/nodes`);
       const allNodes = [];
@@ -1933,8 +1956,12 @@ export default {
         allNodes.push(node);
         totalCollateral.value += node.collateral;
       });
-      // console.log(allNodes);
       nodes.value = allNodes.sort((a, b) => (a.name.toLowerCase() > b.name.toLowerCase() ? 1 : -1));
+      // try again to calculate the lockup APR, now the nodes have been loaded
+      titanConfig.value.lockups.forEach((lockup) => {
+        // eslint-disable-next-line no-param-reassign
+        lockup.apr = calcAPR(lockup);
+      });
     };
 
     const getMyStakes = async (force = false) => {
@@ -1985,20 +2012,7 @@ export default {
         return 0;
       }
       const fluxNodesData = response.data.data;
-      return fluxNodesData['stratus-enabled'];
-    };
-
-    const calcAPR = (lockup) => {
-      const fluxPerBlockReward = (11.25 * (100 - lockup.fee)) / 100;
-      const collateral = 40000;
-      const blocksPerDay = 720;
-      const numStratusNodes = nodeCount.value;
-      const payoutFrequency = blocksPerDay / numStratusNodes;
-      const fluxPerMonth = (30 * payoutFrequency) * fluxPerBlockReward;
-      const rewardPerSeat = (fluxPerMonth / collateral);
-      const rewardPerYear = (rewardPerSeat * 12);
-      const apr = ((1 + rewardPerYear / 12) ** 12) - 1;
-      return apr;
+      return fluxNodesData;
     };
 
     const showOverlay = () => {
@@ -2010,10 +2024,13 @@ export default {
 
     const fetchData = async () => {
       try {
-        nodeCount.value = await getNodeCount();
+        const nodeCount = await getNodeCount();
+        numStratusNodes.value = nodeCount['stratus-enabled'];
+        numNimbusNodes.value = nodeCount['nimbus-enabled'];
         const response = await axios.get(`${apiURL}/config`);
         titanConfig.value = response.data;
         titanConfig.value.lockups.sort((a, b) => a.blocks - b.blocks);
+        // try to calculate the lockup APR, which may fail if the Titan node list hasn't been fetched yet
         titanConfig.value.lockups.forEach((lockup) => {
           // eslint-disable-next-line no-param-reassign
           lockup.apr = calcAPR(lockup);

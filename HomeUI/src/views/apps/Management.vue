@@ -1864,7 +1864,7 @@
                   size="sm"
                   class="mr-1"
                   variant="danger"
-                  @click="openApp(locationRow.item.name, locationRow.item.ip.split(':')[0], getProperPort(JSON.parse(appUpdateSpecification)))"
+                  @click="openApp(locationRow.item.name, locationRow.item.ip.split(':')[0], getProperPort())"
                 >
                   Visit App
                 </b-button>
@@ -4477,16 +4477,18 @@ export default {
         this.showToast('danger', 'Unable to open App :(, App does not have a port.');
       }
     },
-    getProperPort(appSpecs) {
+    getProperPort(appSpecs = this.appUpdateSpecification) {
       if (appSpecs.port) {
         return appSpecs.port;
       }
       if (appSpecs.ports) {
-        return appSpecs.ports[0];
+        const ports = typeof appSpecs.ports === 'string' ? JSON.parse(appSpecs.ports) : appSpecs.ports;
+        return ports[0];
       }
       for (let i = 0; i < appSpecs.compose.length; i += 1) {
         for (let j = 0; j < appSpecs.compose[i].ports.length; j += 1) {
-          return appSpecs.compose[i].ports[j];
+          const ports = typeof appSpecs.compose[i].ports === 'string' ? JSON.parse(appSpecs.compose[i].ports) : appSpecs.compose[i].ports;
+          return ports[j];
         }
       }
       return null;
@@ -4981,7 +4983,7 @@ export default {
           this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else {
           this.showToast('success', 'Successful upload of Environment to Flux Storage');
-          this.appUpdateSpecification.compose[componentIndex].environmentParameters = `["F_S_ENV=https://storage.runonflux.io/v1/env/${envid}"]  `;
+          this.appUpdateSpecification.compose[componentIndex].environmentParameters = `["F_S_ENV=https://storage.runonflux.io/v1/env/${envid}"]`;
         }
       } catch (error) {
         this.showToast('danger', error.message || error);
@@ -5003,7 +5005,7 @@ export default {
           this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else {
           this.showToast('success', 'Successful upload of Commands to Flux Storage');
-          this.appUpdateSpecification.compose[componentIndex].commands = `["F_S_CMD=https://storage.runonflux.io/v1/cmd/${cmdid}"]  `;
+          this.appUpdateSpecification.compose[componentIndex].commands = `["F_S_CMD=https://storage.runonflux.io/v1/cmd/${cmdid}"]`;
         }
       } catch (error) {
         this.showToast('danger', error.message || error);
@@ -5025,7 +5027,7 @@ export default {
           this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else {
           this.showToast('success', 'Successful upload of Contacts to Flux Storage');
-          this.appUpdateSpecification.contacts = `["F_S_CONTACTS=https://storage.runonflux.io/v1/contacts/${contactsid}"]  `;
+          this.appUpdateSpecification.contacts = `["F_S_CONTACTS=https://storage.runonflux.io/v1/contacts/${contactsid}"]`;
         }
       } catch (error) {
         this.showToast('danger', error.message || error);
