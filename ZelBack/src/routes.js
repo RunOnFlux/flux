@@ -304,8 +304,11 @@ module.exports = (app, expressWs) => {
   app.get('/apps/temporarymessages/:hash?', cache('5 seconds'), (req, res) => {
     appsService.getAppsTemporaryMessages(req, res);
   });
-  app.get('/apps/permanentmessages/:hash?', cache('30 seconds'), (req, res) => {
+  app.get('/apps/permanentmessages', cache('30 seconds'), (req, res) => {
     appsService.getAppsPermanentMessages(req, res);
+  });
+  app.get('/apps/permanentmessages/:hash', cache('30 seconds'), (req, res) => {
+    appsService.getAppsPermanentMessagesWithHash(req, res);
   });
   app.get('/apps/globalappsspecifications', cache('30 seconds'), (req, res) => {
     appsService.getGlobalAppsSpecifications(req, res);

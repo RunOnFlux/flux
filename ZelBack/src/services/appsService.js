@@ -3755,24 +3755,17 @@ async function getAppsTemporaryMessages(req, res) {
 
 /**
  * To get permanent hash messages for global apps.
- * @param {object} req Request.
- * @param {object} res Response.
+ * @param {object} query DB query object.
  */
-async function getAppsPermanentMessages(req, res) {
+async function getPermanentMessages(query) {
   try {
     const db = dbHelper.databaseConnection();
 
     const database = db.db(config.database.appsglobal.database);
-    let query = {};
-    let { hash } = req.params;
-    hash = hash || req.query.hash;
-    if (hash) {
-      query = { hash };
-    }
     const projection = { projection: { _id: 0 } };
     const results = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
     const resultsResponse = messageHelper.createDataMessage(results);
-    res.json(resultsResponse);
+    return resultsResponse;
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
@@ -3780,8 +3773,38 @@ async function getAppsPermanentMessages(req, res) {
       error.name,
       error.code,
     );
-    res.json(errorResponse);
+    return errorResponse;
   }
+}
+
+/**
+ * To get permanent hash messages for global apps.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function getAppsPermanentMessages(req, res) {
+  let query = {};
+  if (req.query.owner) {
+    query = { owner };
+  }
+  const response = await getPermanentMessages(query);
+  res.json(response);
+}
+
+/**
+ * To get permanent hash messages for global apps filtered for hash.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function getAppsPermanentMessagesWithHash(req, res) {
+  let query = {};
+  let { hash } = req.params;
+  hash = hash || req.query.hash;
+  if (hash) {
+    query = { hash };
+  }
+  const response = await getPermanentMessages(query);
+  res.json(response);
 }
 
 /**
@@ -9121,6 +9144,7 @@ module.exports = {
   appPricePerMonth,
   getAppsTemporaryMessages,
   getAppsPermanentMessages,
+  getAppsPermanentMessagesWithHash,
   getGlobalAppsSpecifications,
   storeAppTemporaryMessage,
   verifyRepository,
