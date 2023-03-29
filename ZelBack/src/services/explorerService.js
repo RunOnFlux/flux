@@ -12,7 +12,7 @@ const daemonServiceTransactionRpcs = require('./daemonService/daemonServiceTrans
 const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRpcs');
 const daemonServiceBlockchainRpcs = require('./daemonService/daemonServiceBlockchainRpcs');
 const appsService = require('./appsService');
-const fluxService = require('./fluxService');
+const benchmarkService = require('./benchmarkService');
 
 const coinbaseFusionIndexCollection = config.database.daemon.collections.coinbaseFusionIndex; // fusion
 const utxoIndexCollection = config.database.daemon.collections.utxoIndex;
@@ -701,7 +701,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
       }
       if (blockDataVerbose.height % config.fluxapps.benchUpnpPeriod === 0) {
         try {
-          fluxService.executeUpnpBench();
+          benchmarkService.executeUpnpBench();
         } catch (error) {
           log.error(error);
         }
