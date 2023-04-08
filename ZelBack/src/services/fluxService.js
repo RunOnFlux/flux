@@ -23,7 +23,6 @@ const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const geolocationService = require('./geolocationService');
-const upnpService = require('./upnpService');
 const userconfig = require('../../../config/userconfig');
 
 /**
@@ -1071,23 +1070,6 @@ async function installFluxWatchTower() {
   }
 }
 
-/**
- * Execute benchmark on all upnp nodes at the same time
- */
-async function executeUpnpBench() {
-  // check if we are synced
-  const synced = await generalService.checkSynced();
-  if (synced !== true) {
-    log.info('executeUpnpBench - Flux not yet synced');
-    return;
-  }
-  const isUPNP = upnpService.isUPNP();
-  if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
-    log.info('Calling FluxBench startMultiPortBench');
-    benchmarkService.startMultiPortBench();
-  }
-}
-
 module.exports = {
   startDaemon,
   updateFlux,
@@ -1127,7 +1109,6 @@ module.exports = {
   installFluxWatchTower,
   enterDevelopment,
   enterMaster,
-  executeUpnpBench,
 
   // Exports for testing purposes
   fluxLog,
