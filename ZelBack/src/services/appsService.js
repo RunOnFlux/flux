@@ -3763,11 +3763,16 @@ async function getAppsPermanentMessages(req, res) {
     const db = dbHelper.databaseConnection();
 
     const database = db.db(config.database.appsglobal.database);
-    let query = {};
+    const query = {};
     let { hash } = req.params;
     hash = hash || req.query.hash;
+    let { owner } = req.params;
+    owner = owner || req.query.owner;
     if (hash) {
-      query = { hash };
+      query.hash = hash;
+    }
+    if (owner) {
+      query.owner = owner;
     }
     const projection = { projection: { _id: 0 } };
     const results = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
