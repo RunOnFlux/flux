@@ -3755,17 +3755,29 @@ async function getAppsTemporaryMessages(req, res) {
 
 /**
  * To get permanent hash messages for global apps.
- * @param {object} query DB query object.
+ * @param {object} req Request.
+ * @param {object} res Response.
  */
-async function getPermanentMessages(query) {
+async function getAppsPermanentMessages(req, res) {
   try {
     const db = dbHelper.databaseConnection();
 
     const database = db.db(config.database.appsglobal.database);
+    const query = {};
+    let { hash } = req.params;
+    hash = hash || req.query.hash;
+    let { owner } = req.params;
+    owner = owner || req.query.owner;
+    if (hash) {
+      query.hash = hash;
+    }
+    if (owner) {
+      query.owner = owner;
+    }
     const projection = { projection: { _id: 0 } };
     const results = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
     const resultsResponse = messageHelper.createDataMessage(results);
-    return resultsResponse;
+    res.json(resultsResponse);
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
@@ -3773,38 +3785,8 @@ async function getPermanentMessages(query) {
       error.name,
       error.code,
     );
-    return errorResponse;
+    res.json(errorResponse);
   }
-}
-
-/**
- * To get permanent hash messages for global apps.
- * @param {object} req Request.
- * @param {object} res Response.
- */
-async function getAppsPermanentMessages(req, res) {
-  let query = {};
-  if (req.query.owner) {
-    query = { owner };
-  }
-  const response = await getPermanentMessages(query);
-  res.json(response);
-}
-
-/**
- * To get permanent hash messages for global apps filtered for hash.
- * @param {object} req Request.
- * @param {object} res Response.
- */
-async function getAppsPermanentMessagesWithHash(req, res) {
-  let query = {};
-  let { hash } = req.params;
-  hash = hash || req.query.hash;
-  if (hash) {
-    query = { hash };
-  }
-  const response = await getPermanentMessages(query);
-  res.json(response);
 }
 
 /**
@@ -9144,7 +9126,6 @@ module.exports = {
   appPricePerMonth,
   getAppsTemporaryMessages,
   getAppsPermanentMessages,
-  getAppsPermanentMessagesWithHash,
   getGlobalAppsSpecifications,
   storeAppTemporaryMessage,
   verifyRepository,
