@@ -3458,7 +3458,7 @@ export default {
         if (this.appUpdateSpecification.name && this.marketPlaceApps.length) {
           const marketPlaceApp = this.marketPlaceApps.find((app) => this.appUpdateSpecification.name.toLowerCase().startsWith(app.name.toLowerCase()));
           if (marketPlaceApp) {
-            if (marketPlaceApp.lockedValues && marketPlaceApp.lockedValues.includse('instances')) {
+            if (marketPlaceApp.lockedValues && marketPlaceApp.lockedValues.includes('instances')) {
               return true;
             }
           }
