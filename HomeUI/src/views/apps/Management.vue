@@ -2210,7 +2210,7 @@
                     v-model="appUpdateSpecification.instances"
                     placeholder="Minimum number of application instances to be spawned"
                     type="range"
-                    min="3"
+                    :min="minInstances"
                     :max="maxInstances"
                     step="1"
                   />
@@ -2723,8 +2723,8 @@
                     v-model="appUpdateSpecification.instances"
                     placeholder="Minimum number of application instances to be spawned"
                     type="range"
-                    min="3"
-                    max="100"
+                    :min="minInstances"
+                    :max="maxInstances"
                     step="1"
                   />
                 </b-form-group>
@@ -3109,7 +3109,7 @@
                   Note: Data has to be signed by the last application owner
                 </h4>
                 <b-card-text>
-                  Price: {{ appPricePerMonthForUpdate }} FLUX
+                  Price: {{ appPricePerSpecs }} FLUX
                 </b-card-text>
                 <b-button
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -3152,7 +3152,7 @@
             >
               <b-card>
                 <b-card-text>
-                  To finish the application update, please make a transaction of {{ appPricePerMonthForUpdate }} FLUX to address
+                  To finish the application update, please make a transaction of {{ appPricePerSpecs }} FLUX to address
                   '{{ deploymentAddress }}'
                   with the following message:
                   '{{ updateHash }}'
@@ -3168,7 +3168,7 @@
               lg="4"
             >
               <b-card title="Pay with Zelcore">
-                <a :href="'zel:?action=pay&coin=zelcash&address=' + deploymentAddress + '&amount=' + appPricePerMonthForUpdate + '&message=' + updateHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png'">
+                <a :href="'zel:?action=pay&coin=zelcash&address=' + deploymentAddress + '&amount=' + appPricePerSpecs + '&message=' + updateHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png'">
                   <img
                     class="zelidLogin"
                     src="@/assets/images/zelID.svg"
@@ -3376,8 +3376,9 @@ export default {
       downloaded: '',
       abortToken: {},
       deploymentAddress: '',
-      appPricePerMonthForUpdate: 0,
+      appPricePerSpecs: 0,
       maxInstances: 100,
+      minInstances: 3,
       globalZelidAuthorized: false,
       monitoringStream: {},
       statsFields: [
@@ -3430,6 +3431,7 @@ export default {
         },
       ],
       tosAgreed: false,
+      marketPlaceApps: [],
     };
   },
   computed: {
@@ -3437,6 +3439,66 @@ export default {
       'config',
       'privilege',
     ]),
+    isMarketPlaceApp() {
+      try {
+        if (this.appUpdateSpecification.name && this.marketPlaceApps.length) {
+          const nameExists = this.marketPlaceApps.find((app) => this.appUpdateSpecification.name.toLowerCase().startsWith(app.name.toLowerCase()));
+          if (nameExists) {
+            return true;
+          }
+        }
+        return false;
+      } catch (error) {
+        console.log(error);
+        return false;
+      }
+    },
+    instancesLocked() {
+      try {
+        if (this.appUpdateSpecification.name && this.marketPlaceApps.length) {
+          const marketPlaceApp = this.marketPlaceApps.find((app) => this.appUpdateSpecification.name.toLowerCase().startsWith(app.name.toLowerCase()));
+          if (marketPlaceApp) {
+            if (marketPlaceApp.lockedValues && marketPlaceApp.lockedValues.includse('instances')) {
+              return true;
+            }
+          }
+        }
+        return false;
+      } catch (error) {
+        console.log(error);
+        return false;
+      }
+    },
+    originalInstances() {
+      try {
+        if (this.appUpdateSpecification.name && this.marketPlaceApps.length) {
+          const marketPlaceApp = this.marketPlaceApps.find((app) => this.appUpdateSpecification.name.toLowerCase().startsWith(app.name.toLowerCase()));
+          if (marketPlaceApp && marketPlaceApp.instances) {
+            return marketPlaceApp.instances;
+          }
+        }
+        return this.minInstances;
+      } catch (error) {
+        console.log(error);
+        return this.minInstances;
+      }
+    },
+    priceMultiplier() {
+      try {
+        if (this.appUpdateSpecification.name && this.marketPlaceApps.length) {
+          const marketPlaceApp = this.marketPlaceApps.find((app) => this.appUpdateSpecification.name.toLowerCase().startsWith(app.name.toLowerCase()));
+          if (marketPlaceApp) {
+            if (marketPlaceApp.multiplier > 1) {
+              return marketPlaceApp.multiplier;
+            }
+          }
+        }
+        return 1;
+      } catch (error) {
+        console.log(error);
+        return 1;
+      }
+    },
     callbackValue() {
       const { protocol, hostname, port } = window.location;
       let mybackend = '';
@@ -3621,8 +3683,19 @@ export default {
     }
     this.appsDeploymentInformation();
     this.getGeolocationData();
+    this.getMarketPlace();
   },
   methods: {
+    async getMarketPlace() {
+      try {
+        const response = await axios.get('https://stats.runonflux.io/marketplace/listapps');
+        if (response.data.status === 'success') {
+          this.marketPlaceApps = response.data.data;
+        }
+      } catch (error) {
+        console.log(error);
+      }
+    },
     async appsDeploymentInformation() {
       const response = await AppsService.appsDeploymentInformation();
       const { data } = response.data;
@@ -3774,6 +3847,11 @@ export default {
         console.log(specs);
         this.appUpdateSpecification = JSON.parse(JSON.stringify(specs));
         this.appUpdateSpecification.instances = specs.instances || 3;
+        if (this.instancesLocked) {
+          this.maxInstances = this.originalInstances;
+          this.minInstances = this.originalInstances;
+          this.appUpdateSpecification.instances = this.originalInstances;
+        }
         if (this.appUpdateSpecification.version <= 3) {
           this.appUpdateSpecification.version = 3; // enforce specs version 3
           this.appUpdateSpecification.ports = specs.port || this.ensureString(specs.ports); // v1 compatibility
@@ -3867,11 +3945,11 @@ export default {
         }
         const appSpecFormatted = responseAppSpecs.data.data;
         const response = await AppsService.appPrice(appSpecFormatted);
-        this.appPricePerMonthForUpdate = 0;
+        this.appPricePerSpecs = 0;
         if (response.data.status === 'error') {
           throw new Error(response.data.data.message || response.data.data);
         }
-        this.appPricePerMonthForUpdate = response.data.data;
+        this.appPricePerSpecs = (Math.ceil(((+response.data.data * this.priceMultiplier()) * 100))) / 100;
         this.timestamp = new Date().getTime();
         this.dataForAppUpdate = appSpecFormatted;
         this.dataToSign = this.updatetype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp;
@@ -4600,6 +4678,11 @@ export default {
         this.maxInstances = this.appUpdateSpecificationv5template.maxInstances;
         this.showToast('info', 'No geolocation set you can define up to maximum of 100 instances and up to the maximum hardware specs available on Flux network to your app.');
       }
+      if (this.instancesLocked) {
+        this.maxInstances = this.originalInstances;
+        this.minInstances = this.originalInstances;
+        this.appUpdateSpecification.instances = this.originalInstances;
+      }
     },
     countryChanged() {
       if (this.selectedCountry) {
@@ -4616,6 +4699,11 @@ export default {
           this.appUpdateSpecification.instances = this.maxInstances;
         }
         this.showToast('warning', `The node type may fluctuate based upon system requirements for your application. For better results in ${continent.text}, please consider specifications more suited to ${continent.nodeTier} hardware.`);
+      }
+      if (this.instancesLocked) {
+        this.maxInstances = this.originalInstances;
+        this.minInstances = this.originalInstances;
+        this.appUpdateSpecification.instances = this.originalInstances;
       }
     },
     generateStatsTableItems(statsData, specifications) {
@@ -4946,6 +5034,10 @@ export default {
       instances = instances > 3 ? instances : 3;
       const maxInstances = instances > 100 ? 100 : instances;
       this.maxInstances = maxInstances;
+      if (this.instancesLocked) {
+        this.maxInstances = this.originalInstances;
+        this.minInstances = this.originalInstances;
+      }
     },
     constructAutomaticDomains(appPorts, appName, index = 0) {
       const ports = JSON.parse(JSON.stringify(appPorts));
