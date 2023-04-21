@@ -3439,20 +3439,6 @@ export default {
       'config',
       'privilege',
     ]),
-    isMarketPlaceApp() {
-      try {
-        if (this.appUpdateSpecification.name && this.marketPlaceApps.length) {
-          const nameExists = this.marketPlaceApps.find((app) => this.appUpdateSpecification.name.toLowerCase().startsWith(app.name.toLowerCase()));
-          if (nameExists) {
-            return true;
-          }
-        }
-        return false;
-      } catch (error) {
-        console.log(error);
-        return false;
-      }
-    },
     instancesLocked() {
       try {
         if (this.appUpdateSpecification.name && this.marketPlaceApps.length) {
@@ -3949,7 +3935,7 @@ export default {
         if (response.data.status === 'error') {
           throw new Error(response.data.data.message || response.data.data);
         }
-        this.appPricePerSpecs = (Math.ceil(((+response.data.data * this.priceMultiplier()) * 100))) / 100;
+        this.appPricePerSpecs = (Math.ceil(((+response.data.data * this.priceMultiplier) * 100))) / 100;
         this.timestamp = new Date().getTime();
         this.dataForAppUpdate = appSpecFormatted;
         this.dataToSign = this.updatetype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp;
