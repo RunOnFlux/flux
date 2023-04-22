@@ -500,6 +500,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     HostConfig: {
       NanoCPUs: appSpecifications.cpu * 1e9,
       Memory: appSpecifications.ram * 1024 * 1024,
+      StorageOpts: { size: '12G' }, // root fs has max 12G
       Binds: constructedVolumes,
       Ulimits: [
         {

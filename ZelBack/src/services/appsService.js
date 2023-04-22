@@ -2862,6 +2862,26 @@ async function checkAppRequirements(appSpecs) {
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function installApplicationHard(appSpecifications, appName, isComponent, res, fullAppSpecs) {
+  // check image and its architecture
+  // eslint-disable-next-line no-use-before-define
+  const architecture = await systemArchitecture();
+  if (architecture !== 'arm64' && architecture !== 'amd64') {
+    throw new Error(`Invalid architecture ${architecture} detected.`);
+  }
+  // eslint-disable-next-line no-use-before-define
+  const repoArchitectures = await repositoryArchitectures(appSpecifications.repotag);
+  if (!repoArchitectures.includes(architecture)) { // if my system architecture is not in the image
+    throw new Error(`Architecture ${architecture} not supported by ${appSpecifications.repotag}`);
+  }
+  // check repository whitelisted
+  await generalService.checkWhitelistedRepository(appSpecifications.repotag);
+
+  // check repotag if available for download
+  // eslint-disable-next-line no-use-before-define
+  await verifyRepository(appSpecifications.repotag);
+  // check blacklist
+  // eslint-disable-next-line no-use-before-define
+  await checkApplicationImagesComplience(fullAppSpecs);
   // pull image
   // eslint-disable-next-line no-unused-vars
   await dockerPullStreamPromise(appSpecifications.repotag, res);
@@ -3191,6 +3211,26 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function installApplicationSoft(appSpecifications, appName, isComponent, res, fullAppSpecs) {
+  // check image and its architecture
+  // eslint-disable-next-line no-use-before-define
+  const architecture = await systemArchitecture();
+  if (architecture !== 'arm64' && architecture !== 'amd64') {
+    throw new Error(`Invalid architecture ${architecture} detected.`);
+  }
+  // eslint-disable-next-line no-use-before-define
+  const repoArchitectures = await repositoryArchitectures(appSpecifications.repotag);
+  if (!repoArchitectures.includes(architecture)) { // if my system architecture is not in the image
+    throw new Error(`Architecture ${architecture} not supported by ${appSpecifications.repotag}`);
+  }
+  // check repository whitelisted
+  await generalService.checkWhitelistedRepository(appSpecifications.repotag);
+
+  // check repotag if available for download
+  // eslint-disable-next-line no-use-before-define
+  await verifyRepository(appSpecifications.repotag);
+  // check blacklist
+  // eslint-disable-next-line no-use-before-define
+  await checkApplicationImagesComplience(fullAppSpecs);
   // pull image
   // eslint-disable-next-line no-unused-vars
   await dockerPullStreamPromise(appSpecifications.repotag, res);
@@ -3763,11 +3803,16 @@ async function getAppsPermanentMessages(req, res) {
     const db = dbHelper.databaseConnection();
 
     const database = db.db(config.database.appsglobal.database);
-    let query = {};
+    const query = {};
     let { hash } = req.params;
     hash = hash || req.query.hash;
+    let { owner } = req.params;
+    owner = owner || req.query.owner;
     if (hash) {
-      query = { hash };
+      query.hash = hash;
+    }
+    if (owner) {
+      query.owner = owner;
     }
     const projection = { projection: { _id: 0 } };
     const results = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
