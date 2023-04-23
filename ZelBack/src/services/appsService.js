@@ -3030,7 +3030,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
         res.write(serviceHelper.ensureString(rStatus));
         res.end();
       }
-      return;
+      return false;
     }
     if (installationInProgress) {
       const rStatus = messageHelper.createWarningMessage('Another application is undergoing installation. Installation not possible');
@@ -3039,7 +3039,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
         res.write(serviceHelper.ensureString(rStatus));
         res.end();
       }
-      return;
+      return false;
     }
     installationInProgress = true;
     const tier = await generalService.nodeTier().catch((error) => log.error(error));
@@ -3050,7 +3050,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
         res.write(serviceHelper.ensureString(rStatus));
         res.end();
       }
-      return;
+      return false;
     }
     const appSpecifications = appSpecs;
     const appComponent = componentSpecs;
@@ -3099,7 +3099,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
         res.write(rStatus);
         res.end();
       }
-      return;
+      return false;
     }
 
     if (!isComponent) {
@@ -3199,7 +3199,9 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     }
     installationInProgress = false;
     removeAppLocally(appSpecs.name, res, true);
+    return false;
   }
+  return true;
 }
 
 /**
@@ -7696,7 +7698,13 @@ async function trySpawningGlobalApplication() {
     }
     // an application was selected and checked that it can run on this node. try to install and run it locally
     // install the app
-    await registerAppLocally(appSpecifications); // can throw
+    const registerOk = await registerAppLocally(appSpecifications); // can throw
+    if (!registerOk) {
+      log.info('Error on registerAppLocally');
+      await serviceHelper.delay(adjustedDelay);
+      trySpawningGlobalApplication();
+      return;
+    }
 
     const broadcastedAt = new Date().getTime();
     const newAppRunningMessage = {
