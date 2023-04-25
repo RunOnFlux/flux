@@ -298,5 +298,8 @@
    "velodrome",
    "pvilalta",
    "isokoxyz",
-   "oxigraph"
+   "oxigraph",
+   "marketplace-frontend",
+   "marketplace-backend",
+   "marketplace-adminpanel"
 ]
