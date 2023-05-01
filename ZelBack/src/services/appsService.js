@@ -4034,7 +4034,9 @@ async function verifyRepository(repotag) {
       providerName = 'Github Containers';
     } else if (provider === 'gcr.io') {
       providerName = 'Google Containers';
-    } else if (provider === 'hub.docker.com') {
+    } else if (provider === 'registry.gitlab.com') {
+      providerName = 'GitLab Registrar';
+    } else if (provider === 'hub.docker.com' || provider === 'index.docker.io' || provider === 'registry.docker.io' || provider === 'registry-1.docker.io' || provider === 'auth.docker.io') {
       providerName = 'Docker Hub';
     }
     if (provider === 'hub.docker.com') { // favor docker hub api
@@ -4064,7 +4066,13 @@ async function verifyRepository(repotag) {
       }
     } else { // use docker v2 api, general for any public docker repositories
       // https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/mysql:pull
-      const authTokenRes = await serviceHelper.axiosGet(`https://${provider}/token?service=${provider}&scope=repository:${namespace}/${image}:pull`).catch(() => {
+      let authentication = provider;
+      let service = provider;
+      if (providerName === 'Docker Hub') {
+        authentication = 'auth.docker.io';
+        service = 'registry.docker.io';
+      }
+      const authTokenRes = await serviceHelper.axiosGet(`https://${authentication}/token?service=${service}&scope=repository:${namespace}/${image}:pull`).catch(() => {
         throw new Error(`Authentication token from ${provider} for ${namespace}/${image} not available`);
       });
       if (!authTokenRes) {
@@ -5310,7 +5318,9 @@ async function repositoryArchitectures(repotag) {
       providerName = 'Github Containers';
     } else if (provider === 'gcr.io') {
       providerName = 'Google Containers';
-    } else if (provider === 'hub.docker.com') {
+    } else if (provider === 'registry.gitlab.com') {
+      providerName = 'GitLab Registrar';
+    } else if (provider === 'hub.docker.com' || provider === 'index.docker.io' || provider === 'registry.docker.io' || provider === 'registry-1.docker.io' || provider === 'auth.docker.io') {
       providerName = 'Docker Hub';
     }
     const architectures = [];
@@ -5335,8 +5345,13 @@ async function repositoryArchitectures(repotag) {
         architectures.push(img.architecture);
       }
     } else { // use docker v2 api, general for any public docker repositories
-      // https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/mysql:pull
-      const authTokenRes = await serviceHelper.axiosGet(`https://${provider}/token?service=${provider}&scope=repository:${namespace}/${image}:pull`).catch(() => {
+      let authentication = provider;
+      let service = provider;
+      if (providerName === 'Docker Hub') {
+        authentication = 'auth.docker.io';
+        service = 'registry.docker.io';
+      }
+      const authTokenRes = await serviceHelper.axiosGet(`https://${authentication}/token?service=${service}&scope=repository:${namespace}/${image}:pull`).catch(() => {
         throw new Error(`Authentication token from ${provider} for ${namespace}/${image} not available`);
       });
       if (!authTokenRes) {
