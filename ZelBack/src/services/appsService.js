@@ -4037,29 +4037,99 @@ async function verifyRepository(repotag) {
     } else if (provider === 'hub.docker.com') {
       providerName = 'Docker Hub';
     }
-    const resDocker = await serviceHelper.axiosGet(`https://${provider}/v2/repositories/${namespace}/${image}/tags/${tag}`).catch(() => {
-      throw new Error(`Repository ${repotag} is not found on ${providerName} in expected format`);
-    });
-    if (!resDocker) {
-      throw new Error(`Unable to communicate with ${providerName}! Try again later.`);
-    }
-    if (resDocker.data.errinfo) {
-      throw new Error('Docker image not found');
-    }
-    if (!resDocker.data.images) {
-      throw new Error('Docker image not found2');
-    }
-    if (!resDocker.data.images[0]) {
-      throw new Error('Docker image not found3');
-    }
-    // eslint-disable-next-line no-restricted-syntax
-    for (const img of resDocker.data.images) {
-      if (img.size > config.fluxapps.maxImageSize) {
-        throw new Error(`Docker image ${repotag} of architecture ${img.architecture} size is over Flux limit`);
+    if (provider === 'hub.docker.com') { // favor docker hub api
+      const resDocker = await serviceHelper.axiosGet(`https://${provider}/v2/repositories/${namespace}/${image}/tags/${tag}`).catch(() => {
+        throw new Error(`Repository ${repotag} is not found on ${providerName} in expected format`);
+      });
+      if (!resDocker) {
+        throw new Error(`Unable to communicate with ${providerName}! Try again later.`);
       }
-    }
-    if (resDocker.data.full_size > config.fluxapps.maxImageSize) {
-      throw new Error(`Docker image ${repotag} size is over Flux limit`);
+      if (resDocker.data.errinfo) {
+        throw new Error('Docker image not found');
+      }
+      if (!resDocker.data.images) {
+        throw new Error('Docker image not found2');
+      }
+      if (!resDocker.data.images[0]) {
+        throw new Error('Docker image not found3');
+      }
+      // eslint-disable-next-line no-restricted-syntax
+      for (const img of resDocker.data.images) {
+        if (img.size > config.fluxapps.maxImageSize) {
+          throw new Error(`Docker image ${repotag} of architecture ${img.architecture} size is over Flux limit`);
+        }
+      }
+      if (resDocker.data.full_size > config.fluxapps.maxImageSize) {
+        throw new Error(`Docker image ${repotag} size is over Flux limit`);
+      }
+    } else { // use docker v2 api, general for any public docker repositories
+      // https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/mysql:pull
+      const authTokenRes = await serviceHelper.axiosGet(`https://${provider}/token?service=${provider}&scope=repository:${namespace}/${image}:pull`).catch(() => {
+        throw new Error(`Authentication token from ${provider} for ${namespace}/${image} not available`);
+      });
+      if (!authTokenRes) {
+        throw new Error(`Unable to communicate with authentication token provider ${provider}! Try again later.`);
+      }
+      const authToken = authTokenRes.data.token;
+      const axiosOptionsManifestList = {
+        timeout: 20000,
+        headers: {
+          // eslint-disable-next-line max-len
+          Authorization: `Bearer ${authToken}`,
+          Accept: 'application/vnd.docker.distribution.manifest.list.v2+json',
+        },
+      };
+      const axiosOptionsManifest = {
+        timeout: 20000,
+        headers: {
+          // eslint-disable-next-line max-len
+          Authorization: `Bearer ${authToken}`,
+          Accept: 'application/vnd.docker.distribution.manifest.v2+json',
+        },
+      };
+      const manifestsListResp = await serviceHelper.axiosGet(`https://${provider}/v2/${namespace}/${image}/manifests/${tag}`, axiosOptionsManifestList).catch(() => {
+        throw new Error(`Manifests List from ${provider} for ${namespace}/${image}:${tag} not available`);
+      });
+
+      if (!manifestsListResp) {
+        throw new Error(`Unable to communicate with manifest list provider ${provider}! Try again later.`);
+      }
+      if (manifestsListResp.data.schemaVersion !== 2) {
+        throw new Error(`Unsupported manifest list version from ${provider} for ${namespace}/${image}:${tag}.`);
+      }
+      const manifests = manifestsListResp.data.manifests || [];
+
+      if (manifestsListResp.data.mediaType === 'application/vnd.docker.distribution.manifest.v2+json') { // returned not a list like we wanted
+        manifests.push(manifestsListResp.data); // single platform amd64
+      } else if (manifestsListResp.data.mediaType !== 'application/vnd.docker.distribution.manifest.list.v2+json') { // we only want v2 or list
+        throw new Error(`Unsupported manifest from ${provider} for ${namespace}/${image}:${tag} media type ${manifestsListResp.data.mediaType}`);
+      }
+
+      // eslint-disable-next-line no-restricted-syntax
+      for (const mnfst of manifests) {
+        const { digest } = mnfst;
+        // eslint-disable-next-line no-await-in-loop
+        const manifestResp = await serviceHelper.axiosGet(`https://${provider}/v2/${namespace}/${image}/manifests/${digest}`, axiosOptionsManifest).catch(() => {
+          throw new Error(`Manifest from ${provider} for ${namespace}/${image}:${digest} not available`);
+        });
+        if (!manifestResp) {
+          throw new Error(`Unable to communicate with manifest provider ${provider}! Try again later.`);
+        }
+        const manifest = manifestResp.data;
+        if (manifest.schemaVersion !== 2) {
+          throw new Error(`Unsupported manifest version from ${provider} for ${namespace}/${image}:${digest}.`);
+        }
+        if (manifest.mediaType === 'application/vnd.docker.distribution.manifest.v2+json') {
+          throw new Error(`Unsupported manifest from ${provider} for ${namespace}/${image}:${tag} media type ${manifest.mediaType}`);
+        }
+        let size = 0;
+        manifest.layers.forEach((layer) => {
+          size += layer.size;
+        });
+        if (size > config.fluxapps.maxImageSize) {
+          throw new Error(`Docker image ${repotag} size is over Flux limit`);
+        }
+      }
     }
   } else {
     throw new Error(`Repository ${repotag} is not in valid format namespace/repository:tag`);
@@ -5243,25 +5313,67 @@ async function repositoryArchitectures(repotag) {
     } else if (provider === 'hub.docker.com') {
       providerName = 'Docker Hub';
     }
-    const resDocker = await serviceHelper.axiosGet(`https://${provider}/v2/repositories/${namespace}/${image}/tags/${tag}`).catch(() => {
-      throw new Error(`Repository ${repotag} is not found on ${providerName} in expected format`);
-    });
-    if (!resDocker) {
-      throw new Error(`Unable to communicate with ${providerName}! Try again later.`);
-    }
-    if (resDocker.data.errinfo) {
-      throw new Error('Docker image not found');
-    }
-    if (!resDocker.data.images) {
-      throw new Error('Docker image not found2');
-    }
-    if (!resDocker.data.images[0]) {
-      throw new Error('Docker image not found3');
-    }
     const architectures = [];
-    // eslint-disable-next-line no-restricted-syntax
-    for (const img of resDocker.data.images) {
-      architectures.push(img.architecture);
+    if (provider === 'hub.docker.com') { // favor docker hub api
+      const resDocker = await serviceHelper.axiosGet(`https://${provider}/v2/repositories/${namespace}/${image}/tags/${tag}`).catch(() => {
+        throw new Error(`Repository ${repotag} is not found on ${providerName} in expected format`);
+      });
+      if (!resDocker) {
+        throw new Error(`Unable to communicate with ${providerName}! Try again later.`);
+      }
+      if (resDocker.data.errinfo) {
+        throw new Error('Docker image not found');
+      }
+      if (!resDocker.data.images) {
+        throw new Error('Docker image not found2');
+      }
+      if (!resDocker.data.images[0]) {
+        throw new Error('Docker image not found3');
+      }
+      // eslint-disable-next-line no-restricted-syntax
+      for (const img of resDocker.data.images) {
+        architectures.push(img.architecture);
+      }
+    } else { // use docker v2 api, general for any public docker repositories
+      // https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/mysql:pull
+      const authTokenRes = await serviceHelper.axiosGet(`https://${provider}/token?service=${provider}&scope=repository:${namespace}/${image}:pull`).catch(() => {
+        throw new Error(`Authentication token from ${provider} for ${namespace}/${image} not available`);
+      });
+      if (!authTokenRes) {
+        throw new Error(`Unable to communicate with authentication token provider ${provider}! Try again later.`);
+      }
+      const authToken = authTokenRes.data.token;
+      const axiosOptionsManifestList = {
+        timeout: 20000,
+        headers: {
+          // eslint-disable-next-line max-len
+          Authorization: `Bearer ${authToken}`,
+          Accept: 'application/vnd.docker.distribution.manifest.list.v2+json',
+        },
+      };
+      const manifestsListResp = await serviceHelper.axiosGet(`https://${provider}/v2/${namespace}/${image}/manifests/${tag}`, axiosOptionsManifestList).catch(() => {
+        throw new Error(`Manifests List from ${provider} for ${namespace}/${image}:${tag} not available`);
+      });
+
+      if (!manifestsListResp) {
+        throw new Error(`Unable to communicate with manifest list provider ${provider}! Try again later.`);
+      }
+      if (manifestsListResp.data.schemaVersion !== 2) {
+        throw new Error(`Unsupported manifest list version from ${provider} for ${namespace}/${image}:${tag}.`);
+      }
+      const manifests = manifestsListResp.data.manifests || [];
+
+      if (manifestsListResp.data.mediaType === 'application/vnd.docker.distribution.manifest.v2+json') { // returned not a list like we wanted
+        // handle as single platform amd64.
+        architectures.push('amd64');
+      } else if (manifestsListResp.data.mediaType !== 'application/vnd.docker.distribution.manifest.list.v2+json') { // we only want v2 or list
+        throw new Error(`Unsupported manifest from ${provider} for ${namespace}/${image}:${tag} media type ${manifestsListResp.data.mediaType}`);
+      }
+
+      // eslint-disable-next-line no-restricted-syntax
+      for (const mnfst of manifests) {
+        architectures.push(mnfst.platform.architecture);
+      }
     }
     return architectures;
   }
