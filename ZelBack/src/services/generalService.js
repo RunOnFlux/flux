@@ -197,6 +197,9 @@ async function checkSynced() {
 
 /**
  * To check if an app's Git repository is whitelisted and able to be run on FluxOS.
+ * docker hub is namespace/repository:tag
+ * github is ghcr.io/namespace/repository:tag
+ * google is gcr.io/namespace/repository:tag
  * @param {string} repotag GitHub repository tag.
  * @returns {boolean} True or an error is thrown.
  */
@@ -205,7 +208,8 @@ async function checkWhitelistedRepository(repotag) {
     throw new Error('Invalid repotag');
   }
   const splittedRepo = repotag.split(':');
-  if (!splittedRepo[0] || !splittedRepo[1] || splittedRepo[2]) {
+  const repository = splittedRepo[0];
+  if (!repository || !splittedRepo[1] || splittedRepo[2]) {
     throw new Error(`Repository ${repotag} is not in valid format namespace/repository:tag`);
   }
   const resWhitelistRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/RunOnFlux/flux/master/helpers/repositories.json');
@@ -217,10 +221,12 @@ async function checkWhitelistedRepository(repotag) {
   const imageTags = resWhitelistRepo.data;
   const pureOrganisations = [];
   imageTags.forEach((imageTag) => {
-    const pureOrganisation = imageTag.split(':')[0].split('/')[0];
+    const image = imageTag.split(':')[0];
+    const pureOrganisation = image.substring(0, image.lastIndexOf('/')); // or domain/namespace
     pureOrganisations.push(pureOrganisation);
   });
-  const isWhitelisted = pureOrganisations.includes(splittedRepo[0].split('/')[0]);
+  const pureNamespace = repository.substring(0, repository.lastIndexOf('/'));
+  const isWhitelisted = pureOrganisations.includes(pureNamespace);
   if (!isWhitelisted) { // not exact match and general image not whitelisted either
     throw new Error('Repository is not whitelisted. Please contact Flux Team.');
   }

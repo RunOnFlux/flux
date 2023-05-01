@@ -4007,15 +4007,41 @@ async function verifyRepository(repotag) {
 
   const splittedRepo = repotag.split(':');
   if (splittedRepo[0] && splittedRepo[1] && !splittedRepo[2]) {
-    let repoToFetch = splittedRepo[0];
-    if (!repoToFetch.includes('/')) {
-      repoToFetch = `library/${splittedRepo[0]}`;
+    const repoToFetch = splittedRepo[0];
+    const tag = splittedRepo[1];
+    const splittedRepoToFetch = repoToFetch.split('/');
+    let provider = splittedRepoToFetch[0];
+    let namespace = splittedRepoToFetch[1];
+    let image = splittedRepoToFetch[2];
+    if (!namespace) { // only general library provided eg mysql, default to docker hub
+      provider = 'hub.docker.com';
+      namespace = 'library';
+      image = splittedRepoToFetch[0];
     }
-    const resDocker = await serviceHelper.axiosGet(`https://hub.docker.com/v2/repositories/${repoToFetch}/tags/${splittedRepo[1]}`).catch(() => {
-      throw new Error(`Repository ${repotag} is not found on docker hub in expected format`);
+    if (!image) {
+      if (provider.includes('.com') || provider.includes('.io')) { // provider specified from general library eg ghcr.io/mysql
+        namespace = 'library';
+        image = splittedRepoToFetch[1];
+      } else { // provider not specified, default to docker hub
+        provider = 'hub.docker.com';
+        namespace = splittedRepoToFetch[0];
+        image = splittedRepoToFetch[1];
+      }
+    }
+    // known providers
+    let providerName = 'Unkown provider';
+    if (provider === 'ghcr.io') {
+      providerName = 'Github Containers';
+    } else if (provider === 'gcr.io') {
+      providerName = 'Google Containers';
+    } else if (provider === 'hub.docker.com') {
+      providerName = 'Docker Hub';
+    }
+    const resDocker = await serviceHelper.axiosGet(`https://${provider}/v2/repositories/${namespace}/${image}/tags/${tag}`).catch(() => {
+      throw new Error(`Repository ${repotag} is not found on ${providerName} in expected format`);
     });
     if (!resDocker) {
-      throw new Error('Unable to communicate with Docker Hub! Try again later.');
+      throw new Error(`Unable to communicate with ${providerName}! Try again later.`);
     }
     if (resDocker.data.errinfo) {
       throw new Error('Docker image not found');
@@ -4027,9 +4053,9 @@ async function verifyRepository(repotag) {
       throw new Error('Docker image not found3');
     }
     // eslint-disable-next-line no-restricted-syntax
-    for (const image of resDocker.data.images) {
-      if (image.size > config.fluxapps.maxImageSize) {
-        throw new Error(`Docker image ${repotag} of architecture ${image.architecture} size is over Flux limit`);
+    for (const img of resDocker.data.images) {
+      if (img.size > config.fluxapps.maxImageSize) {
+        throw new Error(`Docker image ${repotag} of architecture ${img.architecture} size is over Flux limit`);
       }
     }
     if (resDocker.data.full_size > config.fluxapps.maxImageSize) {
@@ -4060,7 +4086,7 @@ async function getBlockedRepositores() {
 }
 
 /**
- * To check compliance of app images (including images for each component if a Docker Compose app). Checks Flux OS's GitHub repository for list of blocked Docker Hub repositories.
+ * To check compliance of app images (including images for each component if a Docker Compose app). Checks Flux OS's GitHub repository for list of blocked Docker Hub/Github/Google repositories.
  * @param {object} appSpecs App specifications.
  * @returns {boolean} True if no errors are thrown.
  */
@@ -4088,11 +4114,15 @@ async function checkApplicationImagesComplience(appSpecs) {
   const organisations = [];
   if (appSpecs.version <= 3) {
     images.push(appSpecs.repotag.split(':')[0]);
-    organisations.push(appSpecs.repotag.split(':')[0].split('/')[0]);
+    const repository = appSpecs.repotag.split(':')[0];
+    const pureNamespace = repository.substring(0, repository.lastIndexOf('/'));
+    organisations.push(pureNamespace);
   } else {
     appSpecs.compose.forEach((component) => {
       images.push(component.repotag.split(':')[0]);
-      organisations.push(component.repotag.split(':')[0].split('/')[0]);
+      const repository = component.repotag.split(':')[0];
+      const pureNamespace = repository.substring(0, repository.lastIndexOf('/'));
+      organisations.push(pureNamespace);
     });
   }
 
@@ -4141,11 +4171,15 @@ async function checkApplicationImagesBlocked(appSpecs) {
   const organisations = [];
   if (appSpecs.version <= 3) {
     images.push(appSpecs.repotag.split(':')[0]);
-    organisations.push(appSpecs.repotag.split(':')[0].split('/')[0]);
+    const repository = appSpecs.repotag.split(':')[0];
+    const pureNamespace = repository.substring(0, repository.lastIndexOf('/'));
+    organisations.push(pureNamespace);
   } else {
     appSpecs.compose.forEach((component) => {
       images.push(component.repotag.split(':')[0]);
-      organisations.push(component.repotag.split(':')[0].split('/')[0]);
+      const repository = component.repotag.split(':')[0];
+      const pureNamespace = repository.substring(0, repository.lastIndexOf('/'));
+      organisations.push(pureNamespace);
     });
   }
 
@@ -5179,15 +5213,41 @@ async function repositoryArchitectures(repotag) {
   }
   const splittedRepo = repotag.split(':');
   if (splittedRepo[0] && splittedRepo[1] && !splittedRepo[2]) {
-    let repoToFetch = splittedRepo[0];
-    if (!repoToFetch.includes('/')) {
-      repoToFetch = `library/${splittedRepo[0]}`;
+    const repoToFetch = splittedRepo[0];
+    const tag = splittedRepo[1];
+    const splittedRepoToFetch = repoToFetch.split('/');
+    let provider = splittedRepoToFetch[0];
+    let namespace = splittedRepoToFetch[1];
+    let image = splittedRepoToFetch[2];
+    if (!namespace) { // only general library provided eg mysql, default to docker hub
+      provider = 'hub.docker.com';
+      namespace = 'library';
+      image = splittedRepoToFetch[0];
     }
-    const resDocker = await serviceHelper.axiosGet(`https://hub.docker.com/v2/repositories/${repoToFetch}/tags/${splittedRepo[1]}`).catch(() => {
-      throw new Error(`Repository ${repotag} is not found on docker hub in expected format`);
+    if (!image) {
+      if (provider.includes('.com') || provider.includes('.io')) { // provider specified from general library eg ghcr.io/mysql
+        namespace = 'library';
+        image = splittedRepoToFetch[1];
+      } else { // provider not specified, default to docker hub
+        provider = 'hub.docker.com';
+        namespace = splittedRepoToFetch[0];
+        image = splittedRepoToFetch[1];
+      }
+    }
+    // known providers
+    let providerName = 'Unkown provider';
+    if (provider === 'ghcr.io') {
+      providerName = 'Github Containers';
+    } else if (provider === 'gcr.io') {
+      providerName = 'Google Containers';
+    } else if (provider === 'hub.docker.com') {
+      providerName = 'Docker Hub';
+    }
+    const resDocker = await serviceHelper.axiosGet(`https://${provider}/v2/repositories/${namespace}/${image}/tags/${tag}`).catch(() => {
+      throw new Error(`Repository ${repotag} is not found on ${providerName} in expected format`);
     });
     if (!resDocker) {
-      throw new Error('Unable to communicate with Docker Hub! Try again later.');
+      throw new Error(`Unable to communicate with ${providerName}! Try again later.`);
     }
     if (resDocker.data.errinfo) {
       throw new Error('Docker image not found');
@@ -5200,8 +5260,8 @@ async function repositoryArchitectures(repotag) {
     }
     const architectures = [];
     // eslint-disable-next-line no-restricted-syntax
-    for (const image of resDocker.data.images) {
-      architectures.push(image.architecture);
+    for (const img of resDocker.data.images) {
+      architectures.push(img.architecture);
     }
     return architectures;
   }
