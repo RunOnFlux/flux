@@ -300,5 +300,8 @@
    "isokoxyz",
    "oxigraph",
    "gladiatordocker",
-   "embedbblz"
+   "embedbblz",
+   "marketplace-frontend",
+   "marketplace-backend",
+   "marketplace-adminpanel"
 ]
