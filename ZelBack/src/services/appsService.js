@@ -4036,6 +4036,8 @@ async function verifyRepository(repotag) {
       providerName = 'Google Containers';
     } else if (provider === 'registry.gitlab.com') {
       providerName = 'GitLab Registrar';
+    } else if (provider === 'public.ecr.aws') {
+      providerName = 'Amazon ECR';
     } else if (provider === 'hub.docker.com' || provider === 'index.docker.io' || provider === 'registry.docker.io' || provider === 'registry-1.docker.io' || provider === 'auth.docker.io') {
       providerName = 'Docker Hub';
     }
@@ -5320,6 +5322,8 @@ async function repositoryArchitectures(repotag) {
       providerName = 'Google Containers';
     } else if (provider === 'registry.gitlab.com') {
       providerName = 'GitLab Registrar';
+    } else if (provider === 'public.ecr.aws') {
+      providerName = 'Amazon ECR';
     } else if (provider === 'hub.docker.com' || provider === 'index.docker.io' || provider === 'registry.docker.io' || provider === 'registry-1.docker.io' || provider === 'auth.docker.io') {
       providerName = 'Docker Hub';
     }
