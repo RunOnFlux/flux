@@ -1139,6 +1139,30 @@ async function adjustFirewall() {
   }
 }
 
+async function purgeUFW() {
+  try {
+    const cmdAsync = util.promisify(nodecmd.get);
+    const firewallActive = await isFirewallActive();
+    if (firewallActive) {
+      const execB = `sudo ufw status numbered | grep 'DENY' | grep -E '(3[0-9]{4})'`;
+      const cmdresB = await cmdAsync(execB);
+      if (serviceHelper.ensureString(cmdresB).includes('DENY')) {
+        const nodedpath = path.join(__dirname, '../../../helpers');
+        const execC = `cd ${nodedpath} && bash purgeUFW.sh`;
+        await cmdAsync(execC);
+        log.info('UFW app deny rules purged');
+        await serviceHelper.delay(30 * 1000);
+      } else {
+        log.info(`No UFW deny rules found`);
+      }
+    } else {
+      log.info('Firewall is not active. Purging UFW not necessary');
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
 const lruRateOptions = {
   max: 500,
   maxAge: 1000 * 15, // 15 seconds
@@ -1211,6 +1235,7 @@ module.exports = {
   deleteAllowOutPortRule,
   allowPortApi,
   adjustFirewall,
+  purgeUFW,
   checkRateLimit,
   closeConnection,
   closeIncomingConnection,

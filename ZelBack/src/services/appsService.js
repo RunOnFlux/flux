@@ -2049,7 +2049,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
-        await fluxNetworkHelper.denyPort(serviceHelper.ensureNumber(port));
+        await fluxNetworkHelper.deleteAllowPortRule(serviceHelper.ensureNumber(port));
       }
     }
     const isUPNP = upnpService.isUPNP();
@@ -2064,7 +2064,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   } else if (appSpecifications.port) {
     const firewallActive = await fluxNetworkHelper.isFirewallActive();
     if (firewallActive) {
-      await fluxNetworkHelper.denyPort(serviceHelper.ensureNumber(appSpecifications.port));
+      await fluxNetworkHelper.deleteAllowPortRule(serviceHelper.ensureNumber(appSpecifications.port));
     }
     const isUPNP = upnpService.isUPNP();
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
@@ -2506,7 +2506,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
-        await fluxNetworkHelper.denyPort(serviceHelper.ensureNumber(port));
+        await fluxNetworkHelper.deleteAllowPortRule(serviceHelper.ensureNumber(port));
       }
     }
     const isUPNP = upnpService.isUPNP();
@@ -2521,7 +2521,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   } else if (appSpecifications.port) {
     const firewallActive = await fluxNetworkHelper.isFirewallActive();
     if (firewallActive) {
-      await fluxNetworkHelper.denyPort(serviceHelper.ensureNumber(appSpecifications.port));
+      await fluxNetworkHelper.deleteAllowPortRule(serviceHelper.ensureNumber(appSpecifications.port));
     }
     const isUPNP = upnpService.isUPNP();
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
