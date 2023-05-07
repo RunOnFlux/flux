@@ -4017,7 +4017,8 @@ async function verifyRepository(repotag) {
   }
   const image = repository;
   if (providerName === 'Docker Hub') { // favor docker hub api
-    const resDocker = await serviceHelper.axiosGet(`https://hub.docker.com/v2/repositories/${namespace}/${image}/tags/${tag}`).catch(() => {
+    const resDocker = await serviceHelper.axiosGet(`https://hub.docker.com/v2/repositories/${namespace}/${image}/tags/${tag}`).catch((error) => {
+      log.warn(error);
       throw new Error(`Repository ${repotag} is not found on ${providerName} in expected format`);
     });
     if (!resDocker) {
@@ -4042,7 +4043,8 @@ async function verifyRepository(repotag) {
       throw new Error(`Docker image ${repotag} size is over Flux limit`);
     }
   } else { // use docker v2 api, general for any public docker repositories
-    const authTokenRes = await serviceHelper.axiosGet(`https://${authentication}/token?service=${service}&scope=repository:${namespace}/${image}:pull`).catch(() => {
+    const authTokenRes = await serviceHelper.axiosGet(`https://${authentication}/token?service=${service}&scope=repository:${namespace}/${image}:pull`).catch((error) => {
+      log.warn(error);
       throw new Error(`Authentication token from ${provider} for ${namespace}/${image} not available`);
     });
     if (!authTokenRes) {
@@ -4065,7 +4067,8 @@ async function verifyRepository(repotag) {
         Accept: 'application/vnd.docker.distribution.manifest.v2+json',
       },
     };
-    const manifestsListResp = await serviceHelper.axiosGet(`https://${provider}/v2/${namespace}/${image}/manifests/${tag}`, axiosOptionsManifestList).catch(() => {
+    const manifestsListResp = await serviceHelper.axiosGet(`https://${provider}/v2/${namespace}/${image}/manifests/${tag}`, axiosOptionsManifestList).catch((error) => {
+      log.warn(error);
       throw new Error(`Manifests List from ${provider} for ${namespace}/${image}:${tag} not available`);
     });
 
@@ -4087,7 +4090,8 @@ async function verifyRepository(repotag) {
     for (const mnfst of manifests) {
       const { digest } = mnfst;
       // eslint-disable-next-line no-await-in-loop
-      const manifestResp = await serviceHelper.axiosGet(`https://${provider}/v2/${namespace}/${image}/manifests/${digest}`, axiosOptionsManifest).catch(() => {
+      const manifestResp = await serviceHelper.axiosGet(`https://${provider}/v2/${namespace}/${image}/manifests/${digest}`, axiosOptionsManifest).catch((error) => {
+        log.warn(error);
         throw new Error(`Manifest from ${provider} for ${namespace}/${image}:${digest} not available`);
       });
       if (!manifestResp) {
@@ -5274,7 +5278,8 @@ async function repositoryArchitectures(repotag) {
   const image = repository;
   const architectures = [];
   if (providerName === 'Docker Hub') { // favor docker hub api
-    const resDocker = await serviceHelper.axiosGet(`https://${provider}/v2/repositories/${namespace}/${image}/tags/${tag}`).catch(() => {
+    const resDocker = await serviceHelper.axiosGet(`https://${provider}/v2/repositories/${namespace}/${image}/tags/${tag}`).catch((error) => {
+      log.warn(error);
       throw new Error(`Repository ${repotag} is not found on ${providerName} in expected format`);
     });
     if (!resDocker) {
@@ -5294,7 +5299,8 @@ async function repositoryArchitectures(repotag) {
       architectures.push(img.architecture);
     }
   } else { // use docker v2 api, general for any public docker repositories
-    const authTokenRes = await serviceHelper.axiosGet(`https://${authentication}/token?service=${service}&scope=repository:${namespace}/${image}:pull`).catch(() => {
+    const authTokenRes = await serviceHelper.axiosGet(`https://${authentication}/token?service=${service}&scope=repository:${namespace}/${image}:pull`).catch((error) => {
+      log.warn(error);
       throw new Error(`Authentication token from ${provider} for ${namespace}/${image} not available`);
     });
     if (!authTokenRes) {
@@ -5309,7 +5315,8 @@ async function repositoryArchitectures(repotag) {
         Accept: 'application/vnd.docker.distribution.manifest.list.v2+json',
       },
     };
-    const manifestsListResp = await serviceHelper.axiosGet(`https://${provider}/v2/${namespace}/${image}/manifests/${tag}`, axiosOptionsManifestList).catch(() => {
+    const manifestsListResp = await serviceHelper.axiosGet(`https://${provider}/v2/${namespace}/${image}/manifests/${tag}`, axiosOptionsManifestList).catch((error) => {
+      log.warn(error);
       throw new Error(`Manifests List from ${provider} for ${namespace}/${image}:${tag} not available`);
     });
 
