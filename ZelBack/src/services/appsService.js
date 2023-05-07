@@ -4090,7 +4090,7 @@ async function verifyRepository(repotag) {
     for (const mnfst of manifests) {
       // rate limit precaution
       // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(500); // catch for potential rate limit
+      await serviceHelper.delay(1000); // catch for potential rate limit
       const { digest } = mnfst;
       // eslint-disable-next-line no-await-in-loop
       const manifestResp = await serviceHelper.axiosGet(`https://${provider}/v2/${namespace}/${image}/manifests/${digest}`, axiosOptionsManifest).catch((error) => {
