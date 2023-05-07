@@ -858,4 +858,89 @@ describe('generalService tests', () => {
       expect(result).to.eql('157e8f3c4022fbc2c54bd60f6f3d6c1c05a5d0118707dcf2b7b1a752d267cb54');
     });
   });
+
+  describe('splitRepoTag tests', () => {
+    it('should split complex repository correctly', async () => {
+      const repotag = 'example.repository.com:50000/my/super/complex/namespace/image:latest';
+
+      const result = generalService.splitRepoTag(repotag);
+
+      expect(result.tag).to.eql('latest');
+      expect(result.provider).to.eql('example.repository.com');
+      expect(result.service).to.eql('example.repository.com');
+      expect(result.authentication).to.eql('example.repository.com');
+      expect(result.providerName).to.eql('Unkown provider');
+      expect(result.port).to.eql('50000');
+      expect(result.repository).to.eql('image');
+      expect(result.namespace).to.eql('my/super/complex/namespace');
+    });
+
+    it('should split basic repository correctly', async () => {
+      const repotag = 'runonflux/webiste:latest';
+
+      const result = generalService.splitRepoTag(repotag);
+
+      expect(result.tag).to.eql('latest');
+      expect(result.provider).to.eql('registry.docker.io');
+      expect(result.service).to.eql('registry-1.docker.io');
+      expect(result.authentication).to.eql('auth.docker.io');
+      expect(result.providerName).to.eql('Docker Hub');
+      expect(result.port).to.eql('');
+      expect(result.repository).to.eql('website');
+      expect(result.namespace).to.eql('runonflux');
+    });
+
+    it('should split library of docker correctly', async () => {
+      const repotag = 'mysql:latest';
+
+      const result = generalService.splitRepoTag(repotag);
+
+      expect(result.tag).to.eql('latest');
+      expect(result.provider).to.eql('registry.docker.io');
+      expect(result.service).to.eql('registry-1.docker.io');
+      expect(result.authentication).to.eql('auth.docker.io');
+      expect(result.providerName).to.eql('Docker Hub');
+      expect(result.port).to.eql('');
+      expect(result.repository).to.eql('website');
+      expect(result.namespace).to.eql('library');
+    });
+
+    it('should split basic docker api correctly', async () => {
+      const repotag = 'ghcr.io/iron-fish/ironfish:mytag';
+
+      const result = generalService.splitRepoTag(repotag);
+
+      expect(result.tag).to.eql('latest');
+      expect(result.provider).to.eql('ghcr.io');
+      expect(result.service).to.eql('ghcr.io');
+      expect(result.authentication).to.eql('ghcr.io');
+      expect(result.providerName).to.eql('Github Containers');
+      expect(result.port).to.eql('');
+      expect(result.repository).to.eql('ironfish');
+      expect(result.namespace).to.eql('iron-fish');
+    });
+
+    it('should split library of docker api correctly', async () => {
+      const repotag = 'public.ecr.aws/docker/library/mongo:latest';
+
+      const result = generalService.splitRepoTag(repotag);
+
+      expect(result.tag).to.eql('latest');
+      expect(result.provider).to.eql('public.ecr.aws');
+      expect(result.service).to.eql('public.ecr.aws');
+      expect(result.authentication).to.eql('public.ecr.aws');
+      expect(result.providerName).to.eql('Amazon ECR');
+      expect(result.port).to.eql('');
+      expect(result.repository).to.eql('mongo');
+      expect(result.namespace).to.eql('docker/library');
+    });
+
+    it('should fail if not correct repotag', async () => {
+      const repotag = 'example';
+
+      const result = generalService.splitRepoTag(repotag);
+
+      expect(result).to.be.an('Error');
+    });
+  });
 });

@@ -264,6 +264,97 @@ async function messageHash(message) {
 }
 
 /**
+ * Split docker repotag
+ * @param {string} repotag Docker repotag
+ * @returns {object} Object of splitted repotag, provider, auth, service, port, namespace, repository, tag, port
+ */
+function splitRepoTag(repotag) {
+  if (typeof repotag !== 'string') {
+    throw new Error('Invalid repotag');
+  }
+
+  if (/\s/.test(repotag)) {
+    throw new Error(`Repository "${repotag}" should not contain space characters.`);
+  }
+
+  const splittedRepoColumn = repotag.split(':');
+  const splittedRepoSlash = repotag.split('/');
+  const splittedRepo = {
+    provider: '',
+    service: '',
+    authentication: '',
+    providerName: '',
+    namespace: '',
+    repository: '',
+    tag: '',
+    port: '',
+  };
+  if (splittedRepoColumn[3]) {
+    throw new Error(`Repository ${repotag} is not in valid format namespace/repository:tag`);
+  } else if (splittedRepoColumn[2]) { // must be this form provider:port/namespace/repository:tag
+    // provider must include port
+    const provider = splittedRepoSlash[0];
+    splittedRepo.provider = provider; // provider domain
+    // must also have provider/namespace/image
+    if (!splittedRepoSlash[2]) {
+      throw new Error(`Repository ${repotag} is not in valid format provider:port/namespace/repository:tag`);
+    }
+    const tag = splittedRepoColumn[2];
+    splittedRepo.tag = tag; // tag
+    const namesapceWithImageAndPort = splittedRepoColumn[1]; // port/namespace/repository
+    const splittedNamesapceWithImageAndPort = namesapceWithImageAndPort.split('/');
+    const port = namesapceWithImageAndPort.shift(); // removes port
+    const repository = splittedNamesapceWithImageAndPort.pop();
+    const namespace = splittedNamesapceWithImageAndPort.join('/');
+    splittedRepo.port = port;
+    splittedRepo.namespace = namespace;
+    splittedRepo.repository = repository;
+  } else if (splittedRepoColumn[1]) { // must be provider/namespace/repository:tag or namespace/repository:tag or repository:tag
+    const tag = splittedRepoColumn[1];
+    splittedRepo.tag = tag; // tag
+    if (splittedRepoSlash[0].includes('.')) { // this is a provider then, provider is defined
+      const provider = splittedRepoSlash.shift(); // removes provider and assigns
+      splittedRepo.provider = provider; // provider domain
+      const repository = splittedRepoSlash.pop(); // removes repository and assigns;
+      const namespace = splittedRepoSlash.join('/');
+      splittedRepo.namespace = namespace;
+      splittedRepo.repository = repository;
+    } else { // provider not defined
+      const repository = splittedRepoSlash.pop(); // removes repository and assigns;
+      const namespace = splittedRepoSlash.join('/');
+      splittedRepo.namespace = namespace;
+      splittedRepo.repository = repository;
+    }
+    splittedRepo.authentication = splittedRepo.provider;
+    splittedRepo.service = splittedRepo.provider;
+    if (!splittedRepo.provider) { // defaults of docker hub
+      splittedRepo.provider = 'registry-1.docker.io';
+      splittedRepo.authentication = 'auth.docker.io';
+      splittedRepo.service = 'registry.docker.io';
+    }
+    let providerName = 'Unkown provider';
+    if (splittedRepo.provider === 'ghcr.io') {
+      providerName = 'Github Containers';
+    } else if (splittedRepo.provider === 'gcr.io') {
+      providerName = 'Google Containers';
+    } else if (splittedRepo.provider === 'registry.gitlab.com') {
+      providerName = 'GitLab Registrar';
+    } else if (splittedRepo.provider === 'public.ecr.aws') {
+      providerName = 'Amazon ECR';
+    } else if (splittedRepo.provider === 'hub.docker.com' || splittedRepo.provider === 'index.docker.io' || splittedRepo.provider === 'registry.docker.io' || splittedRepo.provider === 'registry-1.docker.io' || splittedRepo.provider === 'auth.docker.io') {
+      providerName = 'Docker Hub';
+    }
+    splittedRepo.providerName = providerName;
+    if (!splittedRepo.namespace) {
+      splittedRepo.name = 'library';
+    }
+  } else { // fail
+    throw new Error(`Repository ${repotag} is not in valid format namespace/repository:tag`);
+  }
+  return splittedRepo;
+}
+
+/**
  * Set nodeTier - created for testing purposes
  */
 function setStoredTier(newValue) {
@@ -303,6 +394,7 @@ module.exports = {
   whitelistedRepositories,
   messageHash,
   nodeCollateral,
+  splitRepoTag,
 
   // exported for testing purposes
   setStoredTier,
