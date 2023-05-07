@@ -301,5 +301,6 @@
    "oxigraph",
    "gladiatordocker",
    "embedbblz",
-   "kryptomerch"
+   "kryptomerch",
+   "public.ecr.aws/docker/library/hello-world:linux"
 ]
