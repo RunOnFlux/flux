@@ -4097,7 +4097,7 @@ async function verifyRepository(repotag) {
       if (manifest.schemaVersion !== 2) {
         throw new Error(`Unsupported manifest version from ${provider} for ${namespace}/${image}:${digest}.`);
       }
-      if (manifest.mediaType === 'application/vnd.docker.distribution.manifest.v2+json') {
+      if (manifest.mediaType !== 'application/vnd.docker.distribution.manifest.v2+json') {
         throw new Error(`Unsupported manifest from ${provider} for ${namespace}/${image}:${tag} media type ${manifest.mediaType}`);
       }
       let size = 0;
