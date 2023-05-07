@@ -293,7 +293,7 @@ function splitRepoTag(repotag) {
     throw new Error(`Repository ${repotag} is not in valid format namespace/repository:tag`);
   } else if (splittedRepoColumn[2]) { // must be this form provider:port/namespace/repository:tag
     // provider must include port
-    const provider = splittedRepoSlash[0];
+    const provider = splittedRepoColumn[0];
     splittedRepo.provider = provider; // provider domain
     // must also have provider/namespace/image
     if (!splittedRepoSlash[2]) {
@@ -303,7 +303,8 @@ function splitRepoTag(repotag) {
     splittedRepo.tag = tag; // tag
     const namesapceWithImageAndPort = splittedRepoColumn[1]; // port/namespace/repository
     const splittedNamesapceWithImageAndPort = namesapceWithImageAndPort.split('/');
-    const port = namesapceWithImageAndPort.shift(); // removes port
+    console.log(splittedNamesapceWithImageAndPort);
+    const port = splittedNamesapceWithImageAndPort.shift(); // removes port
     const repository = splittedNamesapceWithImageAndPort.pop();
     const namespace = splittedNamesapceWithImageAndPort.join('/');
     splittedRepo.port = port;
@@ -312,44 +313,45 @@ function splitRepoTag(repotag) {
   } else if (splittedRepoColumn[1]) { // must be provider/namespace/repository:tag or namespace/repository:tag or repository:tag
     const tag = splittedRepoColumn[1];
     splittedRepo.tag = tag; // tag
-    if (splittedRepoSlash[0].includes('.')) { // this is a provider then, provider is defined
-      const provider = splittedRepoSlash.shift(); // removes provider and assigns
+    const splashSplitted = splittedRepoColumn[0].split('/');
+    if (splashSplitted[0].includes('.')) { // this is a provider then, provider is defined
+      const provider = splashSplitted.shift(); // removes provider and assigns
       splittedRepo.provider = provider; // provider domain
-      const repository = splittedRepoSlash.pop(); // removes repository and assigns;
-      const namespace = splittedRepoSlash.join('/');
+      const repository = splashSplitted.pop(); // removes repository and assigns;
+      const namespace = splashSplitted.join('/');
       splittedRepo.namespace = namespace;
       splittedRepo.repository = repository;
     } else { // provider not defined
-      const repository = splittedRepoSlash.pop(); // removes repository and assigns;
-      const namespace = splittedRepoSlash.join('/');
+      const repository = splashSplitted.pop(); // removes repository and assigns;
+      const namespace = splashSplitted.join('/');
       splittedRepo.namespace = namespace;
       splittedRepo.repository = repository;
     }
-    splittedRepo.authentication = splittedRepo.provider;
-    splittedRepo.service = splittedRepo.provider;
-    if (!splittedRepo.provider) { // defaults of docker hub
-      splittedRepo.provider = 'registry-1.docker.io';
-      splittedRepo.authentication = 'auth.docker.io';
-      splittedRepo.service = 'registry.docker.io';
-    }
-    let providerName = 'Unkown provider';
-    if (splittedRepo.provider === 'ghcr.io') {
-      providerName = 'Github Containers';
-    } else if (splittedRepo.provider === 'gcr.io') {
-      providerName = 'Google Containers';
-    } else if (splittedRepo.provider === 'registry.gitlab.com') {
-      providerName = 'GitLab Registrar';
-    } else if (splittedRepo.provider === 'public.ecr.aws') {
-      providerName = 'Amazon ECR';
-    } else if (splittedRepo.provider === 'hub.docker.com' || splittedRepo.provider === 'index.docker.io' || splittedRepo.provider === 'registry.docker.io' || splittedRepo.provider === 'registry-1.docker.io' || splittedRepo.provider === 'auth.docker.io') {
-      providerName = 'Docker Hub';
-    }
-    splittedRepo.providerName = providerName;
-    if (!splittedRepo.namespace) {
-      splittedRepo.name = 'library';
-    }
   } else { // fail
     throw new Error(`Repository ${repotag} is not in valid format namespace/repository:tag`);
+  }
+  splittedRepo.authentication = splittedRepo.provider;
+  splittedRepo.service = splittedRepo.provider;
+  if (!splittedRepo.provider) { // defaults of docker hub
+    splittedRepo.provider = 'registry-1.docker.io';
+    splittedRepo.authentication = 'auth.docker.io';
+    splittedRepo.service = 'registry.docker.io';
+  }
+  let providerName = 'Unkown provider';
+  if (splittedRepo.provider === 'ghcr.io') {
+    providerName = 'Github Containers';
+  } else if (splittedRepo.provider === 'gcr.io') {
+    providerName = 'Google Containers';
+  } else if (splittedRepo.provider === 'registry.gitlab.com') {
+    providerName = 'GitLab Registrar';
+  } else if (splittedRepo.provider === 'public.ecr.aws') {
+    providerName = 'Amazon ECR';
+  } else if (splittedRepo.provider === 'hub.docker.com' || splittedRepo.provider === 'index.docker.io' || splittedRepo.provider === 'registry.docker.io' || splittedRepo.provider === 'registry-1.docker.io' || splittedRepo.provider === 'auth.docker.io') {
+    providerName = 'Docker Hub';
+  }
+  splittedRepo.providerName = providerName;
+  if (!splittedRepo.namespace) {
+    splittedRepo.name = 'library';
   }
   return splittedRepo;
 }
