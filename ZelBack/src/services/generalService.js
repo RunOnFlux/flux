@@ -208,8 +208,7 @@ async function checkWhitelistedRepository(repotag) {
     throw new Error('Invalid repotag');
   }
   const splittedRepo = repotag.split(':');
-  const repository = splittedRepo[0];
-  if (!repository || !splittedRepo[1] || splittedRepo[2]) {
+  if (!splittedRepo[1]) {
     throw new Error(`Repository ${repotag} is not in valid format namespace/repository:tag`);
   }
   const resWhitelistRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/RunOnFlux/flux/master/helpers/repositories.json');
@@ -221,10 +220,11 @@ async function checkWhitelistedRepository(repotag) {
   const imageTags = resWhitelistRepo.data;
   const pureOrganisations = [];
   imageTags.forEach((imageTag) => {
-    const image = imageTag.split(':')[0];
+    const image = imageTag.substring(0, imageTag.lastIndexOf(':'));
     const pureOrganisation = image.substring(0, image.lastIndexOf('/')); // or domain/namespace
     pureOrganisations.push(pureOrganisation);
   });
+  const repository = repotag.substring(0, repotag.lastIndexOf(':'));
   const pureNamespace = repository.substring(0, repository.lastIndexOf('/'));
   const isWhitelisted = pureOrganisations.includes(pureNamespace);
   if (!isWhitelisted) { // not exact match and general image not whitelisted either

@@ -4144,7 +4144,7 @@ async function checkApplicationImagesComplience(appSpecs) {
 
   const pureImagesOrOrganisationsRepos = [];
   repos.forEach((repo) => {
-    pureImagesOrOrganisationsRepos.push(repo.split(':')[0]);
+    pureImagesOrOrganisationsRepos.push(repo.substring(0, repo.lastIndexOf(':')));
   });
 
   // blacklist works also for zelid and app hash
@@ -4158,14 +4158,14 @@ async function checkApplicationImagesComplience(appSpecs) {
   const images = [];
   const organisations = [];
   if (appSpecs.version <= 3) {
-    images.push(appSpecs.repotag.split(':')[0]);
-    const repository = appSpecs.repotag.split(':')[0];
+    const repository = appSpecs.repotag.substring(0, appSpecs.repotag.lastIndexOf(':'));
+    images.push(repository);
     const pureNamespace = repository.substring(0, repository.lastIndexOf('/'));
     organisations.push(pureNamespace);
   } else {
     appSpecs.compose.forEach((component) => {
-      images.push(component.repotag.split(':')[0]);
-      const repository = component.repotag.split(':')[0];
+      const repository = component.repotag.substring(0, component.repotag.lastIndexOf(':'));
+      images.push(repository);
       const pureNamespace = repository.substring(0, repository.lastIndexOf('/'));
       organisations.push(pureNamespace);
     });
@@ -4201,7 +4201,7 @@ async function checkApplicationImagesBlocked(appSpecs) {
 
   const pureImagesOrOrganisationsRepos = [];
   repos.forEach((repo) => {
-    pureImagesOrOrganisationsRepos.push(repo.split(':')[0]);
+    pureImagesOrOrganisationsRepos.push(repo.substring(0, repo.lastIndexOf(':')));
   });
 
   // blacklist works also for zelid and app hash
@@ -4215,14 +4215,14 @@ async function checkApplicationImagesBlocked(appSpecs) {
   const images = [];
   const organisations = [];
   if (appSpecs.version <= 3) {
-    images.push(appSpecs.repotag.split(':')[0]);
-    const repository = appSpecs.repotag.split(':')[0];
+    const repository = appSpecs.repotag.substring(0, appSpecs.repotag.lastIndexOf(':'));
+    images.push(repository);
     const pureNamespace = repository.substring(0, repository.lastIndexOf('/'));
     organisations.push(pureNamespace);
   } else {
     appSpecs.compose.forEach((component) => {
-      images.push(component.repotag.split(':')[0]);
-      const repository = component.repotag.split(':')[0];
+      const repository = component.repotag.substring(0, component.repotag.lastIndexOf(':'));
+      images.push(repository);
       const pureNamespace = repository.substring(0, repository.lastIndexOf('/'));
       organisations.push(pureNamespace);
     });
