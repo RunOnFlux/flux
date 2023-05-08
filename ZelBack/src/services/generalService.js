@@ -351,7 +351,7 @@ function splitRepoTag(repotag) {
   }
   splittedRepo.providerName = providerName;
   if (!splittedRepo.namespace) {
-    splittedRepo.name = 'library';
+    splittedRepo.namespace = 'library';
   }
   return splittedRepo;
 }
