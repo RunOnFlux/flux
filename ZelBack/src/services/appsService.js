@@ -5207,7 +5207,11 @@ async function restoreAppsPortsSupport() {
         // eslint-disable-next-line no-restricted-syntax
         for (const port of application.ports) {
           // eslint-disable-next-line no-await-in-loop
-          await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`);
+          const upnpOk = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`);
+          if (!upnpOk) {
+            removeAppLocally(application, null, true); // remove entire app
+            break;
+          }
         }
       }
     }
