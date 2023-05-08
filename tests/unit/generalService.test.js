@@ -894,7 +894,7 @@ describe('generalService tests', () => {
     });
 
     it('should split basic repository correctly', async () => {
-      const repotag = 'runonflux/webiste:latest';
+      const repotag = 'runonflux/website:latest';
 
       const result = generalService.splitRepoTag(repotag);
 
@@ -919,7 +919,7 @@ describe('generalService tests', () => {
       expect(result.authentication).to.eql('auth.docker.io');
       expect(result.providerName).to.eql('Docker Hub');
       expect(result.port).to.eql('');
-      expect(result.repository).to.eql('website');
+      expect(result.repository).to.eql('mysql');
       expect(result.namespace).to.eql('library');
     });
 
