@@ -302,5 +302,8 @@
    "gladiatordocker",
    "embedbblz",
    "kryptomerch",
-   "public.ecr.aws/docker/library/hello-world:linux"
+   "public.ecr.aws/docker/library/hello-world:linux",
+   "gcr.io/google-samples/node-hello",
+   "ghcr.io/iron-fish/ironfish",
+   "ghcr.io/handshake-org/hsd"
 ]
