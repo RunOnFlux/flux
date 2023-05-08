@@ -417,7 +417,7 @@
                 <label class="col-3 col-form-label">
                   Repository
                   <v-icon
-                    v-b-tooltip.hover.top="'Docker Hub image namespace/repository:tag for component'"
+                    v-b-tooltip.hover.top="'Docker image namespace/repository:tag for component'"
                     name="info-circle"
                     class="mr-1"
                   />
@@ -426,7 +426,7 @@
                   <b-form-input
                     id="repo"
                     v-model="component.repotag"
-                    placeholder="Docker Hub namespace/repository:tag"
+                    placeholder="Docker image namespace/repository:tag"
                   />
                 </div>
               </div>
@@ -814,7 +814,7 @@
               <b-form-input
                 id="repo"
                 v-model="appRegistrationSpecification.repotag"
-                placeholder="Docker Hub namespace/repository:tag"
+                placeholder="Docker image namespace/repository:tag"
               />
             </b-form-group>
             <b-form-group

@@ -4151,7 +4151,7 @@ async function checkApplicationImagesComplience(appSpecs) {
 
   const pureImagesOrOrganisationsRepos = [];
   repos.forEach((repo) => {
-    pureImagesOrOrganisationsRepos.push(repo.substring(0, repo.lastIndexOf(':')));
+    pureImagesOrOrganisationsRepos.push(repo.substring(0, repo.lastIndexOf(':') > -1 ? repo.lastIndexOf(':') : repo.length));
   });
 
   // blacklist works also for zelid and app hash
@@ -4165,15 +4165,15 @@ async function checkApplicationImagesComplience(appSpecs) {
   const images = [];
   const organisations = [];
   if (appSpecs.version <= 3) {
-    const repository = appSpecs.repotag.substring(0, appSpecs.repotag.lastIndexOf(':'));
+    const repository = appSpecs.repotag.substring(0, appSpecs.repotag.lastIndexOf(':') > -1 ? appSpecs.repotag.lastIndexOf(':') : appSpecs.repotag.length);
     images.push(repository);
-    const pureNamespace = repository.substring(0, repository.lastIndexOf('/'));
+    const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
     organisations.push(pureNamespace);
   } else {
     appSpecs.compose.forEach((component) => {
-      const repository = component.repotag.substring(0, component.repotag.lastIndexOf(':'));
+      const repository = component.repotag.substring(0, component.repotag.lastIndexOf(':') > -1 ? component.repotag.lastIndexOf(':') : component.repotag.length);
       images.push(repository);
-      const pureNamespace = repository.substring(0, repository.lastIndexOf('/'));
+      const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
       organisations.push(pureNamespace);
     });
   }
@@ -4208,7 +4208,7 @@ async function checkApplicationImagesBlocked(appSpecs) {
 
   const pureImagesOrOrganisationsRepos = [];
   repos.forEach((repo) => {
-    pureImagesOrOrganisationsRepos.push(repo.substring(0, repo.lastIndexOf(':')));
+    pureImagesOrOrganisationsRepos.push(repo.substring(0, repo.lastIndexOf(':') > -1 ? repo.lastIndexOf(':') : repo.length));
   });
 
   // blacklist works also for zelid and app hash
@@ -4222,15 +4222,15 @@ async function checkApplicationImagesBlocked(appSpecs) {
   const images = [];
   const organisations = [];
   if (appSpecs.version <= 3) {
-    const repository = appSpecs.repotag.substring(0, appSpecs.repotag.lastIndexOf(':'));
+    const repository = appSpecs.repotag.substring(0, appSpecs.repotag.lastIndexOf(':') > -1 ? appSpecs.repotag.lastIndexOf(':') : appSpecs.repotag.length);
     images.push(repository);
-    const pureNamespace = repository.substring(0, repository.lastIndexOf('/'));
+    const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
     organisations.push(pureNamespace);
   } else {
     appSpecs.compose.forEach((component) => {
-      const repository = component.repotag.substring(0, component.repotag.lastIndexOf(':'));
+      const repository = component.repotag.substring(0, component.repotag.lastIndexOf(':') > -1 ? component.repotag.lastIndexOf(':') : component.repotag.length);
       images.push(repository);
-      const pureNamespace = repository.substring(0, repository.lastIndexOf('/'));
+      const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
       organisations.push(pureNamespace);
     });
   }

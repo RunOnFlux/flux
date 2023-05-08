@@ -220,12 +220,12 @@ async function checkWhitelistedRepository(repotag) {
   const imageTags = resWhitelistRepo.data;
   const pureOrganisations = [];
   imageTags.forEach((imageTag) => {
-    const image = imageTag.substring(0, imageTag.lastIndexOf(':'));
-    const pureOrganisation = image.substring(0, image.lastIndexOf('/')); // or domain/namespace
+    const image = imageTag.substring(0, imageTag.lastIndexOf(':') > -1 ? imageTag.lastIndexOf(':') : imageTag.length);
+    const pureOrganisation = image.substring(0, image.lastIndexOf('/') > -1 ? image.lastIndexOf('/') : image.length); // or domain/namespace
     pureOrganisations.push(pureOrganisation);
   });
-  const repository = repotag.substring(0, repotag.lastIndexOf(':'));
-  const pureNamespace = repository.substring(0, repository.lastIndexOf('/'));
+  const repository = repotag.substring(0, repotag.lastIndexOf(':') > -1 ? repotag.lastIndexOf(':') : repotag.length);
+  const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
   const isWhitelisted = pureOrganisations.includes(pureNamespace);
   if (!isWhitelisted) { // not exact match and general image not whitelisted either
     throw new Error('Repository is not whitelisted. Please contact Flux Team.');

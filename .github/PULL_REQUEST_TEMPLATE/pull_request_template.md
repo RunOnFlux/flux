@@ -1,8 +1,8 @@
 # Application whitelist
 
 - Whitelist is in a place acting as a first defence against malicious people that want to misuse Flux in order to for example mine cryptocurrencies or distribute illegal or copyrighted material. 
-- To whitelist an application for Flux, please adjust helpers/repositories.json file by adding your desired whitelist for a specific docker hub organisation (recommended), docker hub image or target a specific tag of an image:
-- Valid Examples: runonflux, runonflux/website, runonflux/website:latest
+- To whitelist an application for Flux, please adjust helpers/repositories.json file by adding your desired whitelist for a specific docker image organisation (recommended), docker image or target a specific tag of an image:
+- Valid Examples: runonflux, runonflux/website, runonflux/website:latest, public.ecr.aws/docker/library/hello-world:linux, ghcr.io/handshake-org/hsd
 
 # What do you want to Run On Flux?
 
@@ -20,7 +20,7 @@
 
 - [ ] Whitelist of application is only modifying repositories.json file
 - [ ] repositories.json is still a valid JSON file
-- [ ] Only whitelists single docker hub username (one whitelist at a time, more whitelists, more PRs)
+- [ ] Only whitelists single docker image organisation (one whitelist at a time, more whitelists, more PRs)
 - [ ] No other whitelist has been deleted
 - [ ] I agree with ToS https://cdn.runonflux.io/Flux_Terms_of_Service.pdf
 - [ ] Application follows ToS - Application is not malicious. Application is not a scam. Application does what is meant to do and does not mislead in any way. Application does not do anything illegal. Application is not a mining application (not even bandwidth mining).
