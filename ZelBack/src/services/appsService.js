@@ -4080,8 +4080,16 @@ async function verifyRepository(repotag) {
     }
     const manifests = manifestsListResp.data.manifests || [];
 
-    if (manifestsListResp.data.mediaType === 'application/vnd.docker.distribution.manifest.v2+json') { // returned not a list like we wanted
-      manifests.push(manifestsListResp.data); // single platform amd64
+    if (manifestsListResp.data.mediaType === 'application/vnd.docker.distribution.manifest.v2+json') {
+      // returned not a list like we wanted
+      // treat as single platform amd64
+      let size = 0;
+      manifestsListResp.data.layers.forEach((layer) => {
+        size += layer.size;
+      });
+      if (size > config.fluxapps.maxImageSize) {
+        throw new Error(`Docker image ${repotag} size is over Flux limit`);
+      }
     } else if (manifestsListResp.data.mediaType !== 'application/vnd.docker.distribution.manifest.list.v2+json') { // we only want v2 or list
       throw new Error(`Unsupported manifest from ${provider} for ${namespace}/${image}:${tag} media type ${manifestsListResp.data.mediaType}`);
     }
