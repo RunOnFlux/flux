@@ -1026,6 +1026,33 @@ async function deleteAllowPortRule(port) {
 }
 
 /**
+ * To delete a ufw deny rule on port.
+ * @param {string} port Port.
+ * @returns {object} Command status.
+ */
+async function deleteDenyPortRule(port) {
+  const cmdStat = {
+    status: false,
+    message: null,
+  };
+  if (+port < (config.fluxapps.portMin - 1000) || +port > config.fluxapps.portMax) {
+    cmdStat.message = 'Port out of deletable app ports range';
+    return cmdStat;
+  }
+  const exec = `sudo ufw delete deny ${port} && sudo ufw delete deny out ${port}`;
+  const cmdAsync = util.promisify(nodecmd.get);
+
+  const cmdres = await cmdAsync(exec);
+  cmdStat.message = cmdres;
+  if (serviceHelper.ensureString(cmdres).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
+    cmdStat.status = true;
+  } else {
+    cmdStat.status = false;
+  }
+  return cmdStat;
+}
+
+/**
  * To delete a ufw allow rule on port.
  * @param {string} port Port.
  * @returns {object} Command status.
@@ -1150,14 +1177,25 @@ async function purgeUFW() {
     const cmdAsync = util.promisify(nodecmd.get);
     const firewallActive = await isFirewallActive();
     if (firewallActive) {
-      const execB = 'sudo ufw status numbered | grep \'DENY\' | grep -E \'(3[0-9]{4})\'';
+      const execB = 'sudo ufw status | grep \'DENY\' | grep -E \'(3[0-9]{4})\''; // 30000 - 39999
       const cmdresB = await cmdAsync(execB);
       if (serviceHelper.ensureString(cmdresB).includes('DENY')) {
-        const nodedpath = path.join(__dirname, '../../../helpers');
-        const execC = `cd ${nodedpath} && bash purgeUFW.sh`;
-        await cmdAsync(execC);
+        const deniedPorts = cmdresB.split('\n'); // split by new line
+        const portsToDelete = [];
+        deniedPorts.forEach((port) => {
+          const adjPort = port.substring(0, port.indexOf(' '));
+          if (adjPort) { // last line is empty
+            if (!portsToDelete.includes(adjPort)) {
+              portsToDelete.push(adjPort);
+            }
+          }
+        });
+        // eslint-disable-next-line no-restricted-syntax
+        for (const port of portsToDelete) {
+          // eslint-disable-next-line no-await-in-loop
+          await deleteDenyPortRule(port);
+        }
         log.info('UFW app deny rules purged');
-        await serviceHelper.delay(30 * 1000);
       } else {
         log.info('No UFW deny rules found');
       }

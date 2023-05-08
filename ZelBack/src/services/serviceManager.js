@@ -75,8 +75,6 @@ async function startFluxFunctions() {
     log.info('Flux Apps locations prepared');
     fluxNetworkHelper.adjustFirewall();
     log.info('Firewalls checked');
-    fluxNetworkHelper.purgeUFW();
-    log.info('Firewall app rules checked');
     fluxCommunication.keepConnectionsAlive();
     log.info('Connections polling prepared');
     daemonServiceMiscRpcs.daemonBlockchainInfoService();
@@ -88,6 +86,10 @@ async function startFluxFunctions() {
     log.info('Flux Discovery started');
     syncthingService.startSyncthing();
     log.info('Syncthing service started');
+    setTimeout(() => {
+      fluxNetworkHelper.purgeUFW();
+      log.info('Firewall app rules checked');
+    }, 30 * 1000);
     setTimeout(() => {
       appsService.stopAllNonFluxRunningApps();
       appsService.startMonitoringOfApps();
