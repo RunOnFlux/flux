@@ -1178,7 +1178,7 @@ async function purgeUFW() {
     const firewallActive = await isFirewallActive();
     if (firewallActive) {
       const execB = 'sudo ufw status | grep \'DENY\' | grep -E \'(3[0-9]{4})\''; // 30000 - 39999
-      const cmdresB = await cmdAsync(execB);
+      const cmdresB = await cmdAsync(execB).catch(() => {}) || ''; // fail silently,
       if (serviceHelper.ensureString(cmdresB).includes('DENY')) {
         const deniedPorts = cmdresB.split('\n'); // split by new line
         const portsToDelete = [];
