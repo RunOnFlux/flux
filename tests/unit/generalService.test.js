@@ -723,7 +723,7 @@ describe('generalService tests', () => {
       expect(result).to.eql(true);
     });
 
-    it('should return false if explorerHeight-1 == daemonHeight', async () => {
+    it('should return true if explorerHeight - 1 == daemonHeight', async () => {
       isDaemonSyncedStub.returns(
         {
           data: {
@@ -738,10 +738,10 @@ describe('generalService tests', () => {
 
       const result = await generalService.checkSynced();
 
-      expect(result).to.eql(false);
+      expect(result).to.eql(true);
     });
 
-    it('should return false if explorerHeight + 2 == daemonHeight', async () => {
+    it('should return false if explorerHeight + 6 == daemonHeight', async () => {
       isDaemonSyncedStub.returns(
         {
           data: {
@@ -751,7 +751,25 @@ describe('generalService tests', () => {
         },
       );
       dbStub.returns({
-        generalScannedHeight: 8,
+        generalScannedHeight: 4,
+      });
+
+      const result = await generalService.checkSynced();
+
+      expect(result).to.eql(false);
+    });
+
+    it('should return false if explorerHeight - 6 == daemonHeight', async () => {
+      isDaemonSyncedStub.returns(
+        {
+          data: {
+            synced: true,
+            height: 10,
+          },
+        },
+      );
+      dbStub.returns({
+        generalScannedHeight: 16,
       });
 
       const result = await generalService.checkSynced();
@@ -881,8 +899,8 @@ describe('generalService tests', () => {
       const result = generalService.splitRepoTag(repotag);
 
       expect(result.tag).to.eql('latest');
-      expect(result.provider).to.eql('registry.docker.io');
-      expect(result.service).to.eql('registry-1.docker.io');
+      expect(result.provider).to.eql('registry-1.docker.io');
+      expect(result.service).to.eql('registry.docker.io');
       expect(result.authentication).to.eql('auth.docker.io');
       expect(result.providerName).to.eql('Docker Hub');
       expect(result.port).to.eql('');
@@ -896,8 +914,8 @@ describe('generalService tests', () => {
       const result = generalService.splitRepoTag(repotag);
 
       expect(result.tag).to.eql('latest');
-      expect(result.provider).to.eql('registry.docker.io');
-      expect(result.service).to.eql('registry-1.docker.io');
+      expect(result.provider).to.eql('registry-1.docker.io');
+      expect(result.service).to.eql('registry.docker.io');
       expect(result.authentication).to.eql('auth.docker.io');
       expect(result.providerName).to.eql('Docker Hub');
       expect(result.port).to.eql('');
@@ -910,7 +928,7 @@ describe('generalService tests', () => {
 
       const result = generalService.splitRepoTag(repotag);
 
-      expect(result.tag).to.eql('latest');
+      expect(result.tag).to.eql('mytag');
       expect(result.provider).to.eql('ghcr.io');
       expect(result.service).to.eql('ghcr.io');
       expect(result.authentication).to.eql('ghcr.io');
@@ -938,9 +956,10 @@ describe('generalService tests', () => {
     it('should fail if not correct repotag', async () => {
       const repotag = 'example';
 
-      const result = generalService.splitRepoTag(repotag);
+      // eslint-disable-next-line func-names
+      const result = function () { generalService.splitRepoTag(repotag); };
 
-      expect(result).to.be.an('Error');
+      expect(result).to.throw();
     });
   });
 });
