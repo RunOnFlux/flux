@@ -5160,10 +5160,13 @@ async function restoreFluxPortsSupport() {
     const homePort = +apiPort - 1;
     const syncthingPort = +apiPort + 2;
 
+    const firewallActive = await fluxNetworkHelper.isFirewallActive();
+    if (firewallActive) {
     // setup UFW if active
-    await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(apiPort));
-    await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(homePort));
-    await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(syncthingPort));
+      await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(apiPort));
+      await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(homePort));
+      await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(syncthingPort));
+    }
 
     // UPNP
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
@@ -5183,13 +5186,16 @@ async function restoreAppsPortsSupport() {
     const currentAppsPorts = await assignedPortsInstalledApps();
     const isUPNP = upnpService.isUPNP();
 
+    const firewallActive = await fluxNetworkHelper.isFirewallActive();
     // setup UFW for apps
+    if (firewallActive) {
     // eslint-disable-next-line no-restricted-syntax
-    for (const application of currentAppsPorts) {
+      for (const application of currentAppsPorts) {
       // eslint-disable-next-line no-restricted-syntax
-      for (const port of application.ports) {
+        for (const port of application.ports) {
         // eslint-disable-next-line no-await-in-loop
-        await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(port));
+          await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(port));
+        }
       }
     }
 
@@ -9188,7 +9194,10 @@ async function checkMyAppsAvailability() {
       return;
     }
     // now open this port properly and launch listening on it
-    await fluxNetworkHelper.allowPort(testingPort);
+    const firewallActive = await fluxNetworkHelper.isFirewallActive();
+    if (firewallActive) {
+      await fluxNetworkHelper.allowPort(testingPort);
+    }
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       await upnpService.mapUpnpPort(testingPort, 'Flux_Test_App');
     }
@@ -9240,7 +9249,9 @@ async function checkMyAppsAvailability() {
       dosMessage = 'Applications port range is not reachable from outside!';
     }
     // stop listening on the port, close the port
-    await fluxNetworkHelper.deleteAllowPortRule(testingPort);
+    if (firewallActive) {
+      await fluxNetworkHelper.deleteAllowPortRule(testingPort);
+    }
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       await upnpService.removeMapUpnpPort(testingPort, 'Flux_Test_App');
     }
@@ -9254,8 +9265,12 @@ async function checkMyAppsAvailability() {
     }
     checkMyAppsAvailability();
   } catch (error) {
+    let firewallActive = true;
+    firewallActive = await fluxNetworkHelper.isFirewallActive().catch((e) => log.error(e));
     // stop listening on the testing port, close the port
-    await fluxNetworkHelper.deleteAllowPortRule(testingPort).catch((e) => log.error(e));
+    if (firewallActive) {
+      await fluxNetworkHelper.deleteAllowPortRule(testingPort).catch((e) => log.error(e));
+    }
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       await upnpService.removeMapUpnpPort(testingPort, 'Flux_Test_App').catch((e) => log.error(e));
     }

@@ -118,13 +118,19 @@ async function isPortOpen(ip, port, app, timeout = 5000) {
   let resp;
   try {
     let portResponse = true;
-    // open port first
     // eslint-disable-next-line no-use-before-define
-    resp = await allowOutPort(port).catch((error) => { // requires allow out for apps checking, for our ports both
-      log.error(error);
-    });
-    if (!resp) {
-      resp = {};
+    const firewallActive = await isFirewallActive();
+    // open port first
+    if (firewallActive) {
+    // eslint-disable-next-line no-use-before-define
+      resp = await allowOutPort(port).catch((error) => { // requires allow out for apps checking, for our ports both
+        log.error(error);
+      });
+      if (!resp) {
+        resp = {};
+      }
+    } else {
+      resp.message = 'existing';
     }
 
     const promise = new Promise(((resolve, reject) => {
@@ -168,7 +174,7 @@ async function isPortOpen(ip, port, app, timeout = 5000) {
     setTimeout(() => { // timeout ensure return first
       if (app) {
         // delete the rule
-        if (resp.message !== 'existing') { // new or updated rule
+        if (resp.message !== 'existing') { // new or updated rule or firewall not active from above
           // eslint-disable-next-line no-use-before-define
           deleteAllowOutPortRule(port); // no need waiting for response. Delete if was not present before to not create huge firewall list
         }
@@ -179,7 +185,7 @@ async function isPortOpen(ip, port, app, timeout = 5000) {
     setTimeout(() => { // timeout ensure return first
       if (app) {
         // delete the rule
-        if (resp.message !== 'existing') { // new or updated rule
+        if (resp.message !== 'existing') { // new or updated rule or firewall not active from above
           // eslint-disable-next-line no-use-before-define
           deleteAllowOutPortRule(port); // no need waiting for response. Delete if was not present before to not create huge firewall list
         }
@@ -1144,7 +1150,7 @@ async function purgeUFW() {
     const cmdAsync = util.promisify(nodecmd.get);
     const firewallActive = await isFirewallActive();
     if (firewallActive) {
-      const execB = `sudo ufw status numbered | grep 'DENY' | grep -E '(3[0-9]{4})'`;
+      const execB = 'sudo ufw status numbered | grep \'DENY\' | grep -E \'(3[0-9]{4})\'';
       const cmdresB = await cmdAsync(execB);
       if (serviceHelper.ensureString(cmdresB).includes('DENY')) {
         const nodedpath = path.join(__dirname, '../../../helpers');
@@ -1153,7 +1159,7 @@ async function purgeUFW() {
         log.info('UFW app deny rules purged');
         await serviceHelper.delay(30 * 1000);
       } else {
-        log.info(`No UFW deny rules found`);
+        log.info('No UFW deny rules found');
       }
     } else {
       log.info('Firewall is not active. Purging UFW not necessary');
