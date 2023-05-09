@@ -5209,7 +5209,10 @@ async function restoreAppsPortsSupport() {
           // eslint-disable-next-line no-await-in-loop
           const upnpOk = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`);
           if (!upnpOk) {
-            removeAppLocally(application, null, true); // remove entire app
+            // eslint-disable-next-line no-await-in-loop
+            await removeAppLocally(application, null, true).catch((error) => log.error(error)); // remove entire app
+            // eslint-disable-next-line no-await-in-loop
+            await serviceHelper.delay(3 * 60 * 1000); // 3 mins
             break;
           }
         }
@@ -8898,10 +8901,17 @@ async function forceAppRemovals() {
         if (appDetails) {
           // it is global app
           // do removal
-          log.warn(`${dApp} does not exist in installed apps, forcing removal`);
-          removeAppLocally(dApp, null, true); // remove entire app
+          log.warn(`${dApp} does not exist in installed app. Forcing removal.`);
           // eslint-disable-next-line no-await-in-loop
-          await serviceHelper.delay(10 * 60 * 1000); // 10 mins
+          await removeAppLocally(dApp, null, true).catch((error) => log.error(error)); // remove entire app
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.delay(3 * 60 * 1000); // 3 mins
+        } else {
+          log.warn(`${dApp} does not exist in installed apps and global application specifications are missing. Forcing removal.`);
+          // eslint-disable-next-line no-await-in-loop
+          await removeAppLocally(dApp, null, true).catch((error) => log.error(error)); // remove entire app, as of missing specs will be done based on latest app specs message
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.delay(3 * 60 * 1000); // 3 mins
         }
       }
     }
