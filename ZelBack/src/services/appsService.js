@@ -52,8 +52,6 @@ const globalAppsLocations = config.database.appsglobal.collections.appsLocations
 const testingAppExpress = express();
 const testingAppserver = http.createServer(testingAppExpress);
 
-const testingAppPortserver = http.createServer(testingAppExpress);
-
 // cache for app running messages
 const LRUoptionsRun = { // cache for app running messages
   max: 50000, // store max 50000 values, eventhough we can have more values. this accounts for more than 15000 app instances. Less than 500 Bytes per value -> 25MB cache
@@ -2955,11 +2953,6 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
         }
       }
     }
-    // eslint-disable-next-line no-restricted-syntax
-    for (const port of appSpecifications.ports) {
-      // eslint-disable-next-line no-use-before-define, no-await-in-loop
-      await checkNewAppPortsAvailability(port);
-    }
   } else if (appSpecifications.port) {
     // v1 compatibility
     const firewallActive = await fluxNetworkHelper.isFirewallActive();
@@ -2995,8 +2988,6 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
         throw new Error(`Error: Port ${appSpecifications.port} FAILed to map.`);
       }
     }
-    // eslint-disable-next-line no-use-before-define
-    await checkNewAppPortsAvailability(appSpecifications.port);
   }
   const startStatus = {
     status: isComponent ? `Starting component ${appSpecifications.name} of Flux App ${appName}...` : `Starting Flux App ${appName}...`,
@@ -7864,6 +7855,7 @@ async function trySpawningGlobalApplication() {
       trySpawningGlobalApplication();
       return;
     }
+
     // an application was selected and checked that it can run on this node. try to install and run it locally
     // install the app
     const registerOk = await registerAppLocally(appSpecifications); // can throw
@@ -9327,65 +9319,6 @@ async function checkMyAppsAvailability() {
   }
 }
 
-/**
- * Check on app install if port range is good on node
- * @param {object} testPort port to be tested.
-*/
-async function checkNewAppPortsAvailability(testPort) {
-  try {
-    let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
-    myIP = myIP.split(':')[0];
-    const myPort = myIP.split(':')[1] || 16127;
-
-    const pubKey = await fluxNetworkHelper.getFluxNodePublicKey();
-
-    await serviceHelper.delay(5 * 1000);
-    testingAppPortserver.listen(testPort);
-    await serviceHelper.delay(10 * 1000);
-    // eslint-disable-next-line no-await-in-loop
-    let askingIP = await fluxNetworkHelper.getRandomConnection();
-    let askingIpPort = config.server.apiport;
-    if (askingIP.includes(':')) { // has port specification
-      // it has port specification
-      const splittedIP = askingIP.split(':');
-      askingIP = splittedIP[0];
-      askingIpPort = splittedIP[1];
-    }
-    const timeout = 30000;
-    const axiosConfig = {
-      timeout,
-    };
-    const data = {
-      ip: myIP,
-      port: myPort,
-      appname: 'appPortsTest',
-      ports: [testPort],
-      pubKey,
-    };
-    const stringData = JSON.stringify(data);
-    // eslint-disable-next-line no-await-in-loop
-    const signature = await signCheckAppData(stringData);
-    data.signature = signature;
-    // first check against our IP address
-    // eslint-disable-next-line no-await-in-loop
-    const resMyAppAvailability = await axios.post(`http://${askingIP}:${askingIpPort}/flux/checkappavailability`, JSON.stringify(data), axiosConfig).catch((error) => {
-      log.error(`${askingIP} for app availability is not reachable`);
-      log.error(error);
-    });
-    if (resMyAppAvailability && resMyAppAvailability.data.status === 'error') {
-      log.warn(`Applications port unavailability detected from ${askingIP}:${askingIpPort} on ${testPort}`);
-      log.warn(JSON.stringify(data));
-      dosState += 0.4;
-      failedPort = testPort;
-      throw new Error(`Applications port unavailability detected from ${askingIP}:${askingIpPort} on ${testPort}`);
-    }
-    testingAppPortserver.close();
-  } catch (error) {
-    testingAppPortserver.close();
-    throw error;
-  }
-}
-
 // Unmount Testing Functionality
 async function removeTestAppMount(specifiedVolume) {
   try {
@@ -9619,7 +9552,6 @@ module.exports = {
   checkMyAppsAvailability,
   checkApplicationsCompliance,
   testAppMount,
-  checkNewAppPortsAvailability,
 
   // exports for testing purposes
   setAppsMonitored,
