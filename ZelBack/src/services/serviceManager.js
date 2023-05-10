@@ -87,8 +87,9 @@ async function startFluxFunctions() {
     syncthingService.startSyncthing();
     log.info('Syncthing service started');
     setTimeout(() => {
-      log.info('Recheking firewall app rules');
+      log.info('Rechecking firewall app rules');
       fluxNetworkHelper.purgeUFW();
+      appsService.testAppMount(); // test if our node can mount a volume
     }, 30 * 1000);
     setTimeout(() => {
       appsService.stopAllNonFluxRunningApps();

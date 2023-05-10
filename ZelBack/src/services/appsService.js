@@ -9130,6 +9130,7 @@ async function syncthingApps() {
 
 let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
+let dosMountMessage = '';
 
 /**
  * To get DOS state.
@@ -9160,6 +9161,28 @@ let failedPort;
 async function checkMyAppsAvailability() {
   const isUPNP = upnpService.isUPNP();
   try {
+    const mountDosStateActivationHeight = 1394000;
+    const dbopen = dbHelper.databaseConnection();
+    const database = dbopen.db(config.database.daemon.database);
+    const query = { generalScannedHeight: { $gte: 0 } };
+    const projection = {
+      projection: {
+        _id: 0,
+        generalScannedHeight: 1,
+      },
+    };
+    const currentHeight = await dbHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
+    if (!currentHeight) {
+      throw new Error('No scanned height found');
+    }
+    if (dosMountMessage) {
+      // enable after height X
+      dosMessage = dosMountMessage;
+      if (currentHeight.generalScannedHeight > mountDosStateActivationHeight) {
+        dosState = 100;
+        return;
+      }
+    }
     const isNodeConfirmed = await generalService.isNodeStatusConfirmed();
     if (!isNodeConfirmed) {
       log.info('Flux Node not Confirmed. Application checks are disabled');
@@ -9295,6 +9318,126 @@ async function checkMyAppsAvailability() {
   }
 }
 
+// Unmount Testing Functionality
+async function removeTestAppMount() {
+  try {
+    const appId = 'flux_fluxTestVol';
+    log.info('Mount Test: Unmounting volume');
+    const execUnmount = `sudo umount ${appsFolder + appId}`;
+    await cmdAsync(execUnmount).then(() => {
+      log.info('Mount Test: Volume unmounted');
+    }).catch((e) => {
+      log.error(e);
+      log.error('Mount Test: An error occured while unmounting volume. Continuing. Most likely false positive.');
+    });
+
+    log.info('Mount Test: Cleaning up data');
+    const execDelete = `sudo rm -rf ${appsFolder + appId}`;
+    await cmdAsync(execDelete).catch((e) => {
+      log.error(e);
+      log.error('Mount Test: An error occured while cleaning up data. Continuing. Most likely false positive.');
+    });
+    log.info('Mount Test: Data cleaned');
+  } catch (error) {
+    log.error('Mount Test Remova: Error');
+    log.error(error);
+  }
+}
+
+// Mount Testing Functionality
+async function testAppMount() {
+  try {
+    // before running, try to remove first
+    await removeTestAppMount();
+    const appSize = 1;
+    const overHeadRequired = 2;
+    const dfAsync = util.promisify(df);
+    const appId = 'flux_fluxTestVol';
+
+    log.info('Mount Test: started');
+    log.info('Mount Test: Searching available space...');
+
+    // we want whole numbers in GB
+    const options = {
+      prefixMultiplier: 'GB',
+      isDisplayPrefixMultiplier: false,
+      precision: 0,
+    };
+
+    const dfres = await dfAsync(options);
+    const okVolumes = [];
+    dfres.forEach((volume) => {
+      if (volume.filesystem.includes('/dev/') && !volume.filesystem.includes('loop') && !volume.mount.includes('boot')) {
+        okVolumes.push(volume);
+      } else if (volume.filesystem.includes('loop') && volume.mount === '/') {
+        okVolumes.push(volume);
+      }
+    });
+
+    // check if space is not sharded in some bad way. Always count the fluxSystemReserve
+    let useThisVolume = null;
+    const totalVolumes = okVolumes.length;
+    for (let i = 0; i < totalVolumes; i += 1) {
+    // check available volumes one by one. If a sufficient is found. Use this one.
+      if (okVolumes[i].available > appSize + overHeadRequired) {
+        useThisVolume = okVolumes[i];
+        break;
+      }
+    }
+    if (!useThisVolume) {
+    // no useable volume has such a big space for the app
+      log.warn('Mount Test: Insufficient space on Flux Node. No useable volume found.');
+      // node marked OK
+      dosMountMessage = ''; // No Space Found actually
+      return;
+    }
+
+    // now we know there is a space and we have a volume we can operate with. Let's do volume magic
+    log.info('Mount Test: Space found');
+    log.info('Mount Test: Allocating space...');
+
+    let execDD = `sudo fallocate -l ${appSize}G ${useThisVolume.mount}/${appId}FLUXFSVOL`; // eg /mnt/sthMounted/zelappTEMP
+    if (useThisVolume.mount === '/') {
+      execDD = `sudo fallocate -l ${appSize}G ${fluxDirPath}appvolumes/${appId}FLUXFSVOL`; // if root mount then temp file is /tmp/zelappTEMP
+    }
+
+    await cmdAsync(execDD);
+
+    log.info('Mount Test: Space allocated');
+    log.info('Mount Test: Creating filesystem...');
+
+    let execFS = `sudo mke2fs -t ext4 ${useThisVolume.mount}/${appId}FLUXFSVOL`;
+    if (useThisVolume.mount === '/') {
+      execFS = `sudo mke2fs -t ext4 ${fluxDirPath}appvolumes/${appId}FLUXFSVOL`;
+    }
+    await cmdAsync(execFS);
+    log.info('Mount Test: Filesystem created');
+    log.info('Mount Test: Making directory...');
+
+    const execDIR = `sudo mkdir -p ${appsFolder + appId}/appdata`;
+    await cmdAsync(execDIR);
+    log.info('Mount Test: Directory made');
+    log.info('Mount Test: Mounting volume...');
+
+    let execMount = `sudo mount -o loop ${useThisVolume.mount}/${appId}FLUXFSVOL ${appsFolder + appId}`;
+    if (useThisVolume.mount === '/') {
+      execMount = `sudo mount -o loop ${fluxDirPath}appvolumes/${appId}FLUXFSVOL ${appsFolder + appId}`;
+    }
+    await cmdAsync(execMount);
+    log.info('Mount Test: Volume mounted. Test completed.');
+    dosMountMessage = '';
+    // run removal
+    removeTestAppMount();
+  } catch (error) {
+    log.error('Mount Test: Error...');
+    log.error(error);
+    // node marked OK
+    dosMountMessage = 'Unavailability to mount applications volumes. Impossible to run applications.';
+    // run removal
+    removeTestAppMount();
+  }
+}
+
 function removalInProgressReset() {
   removalInProgress = false;
 }
@@ -9403,6 +9546,7 @@ module.exports = {
   getAppsDOSState,
   checkMyAppsAvailability,
   checkApplicationsCompliance,
+  testAppMount,
 
   // exports for testing purposes
   setAppsMonitored,
