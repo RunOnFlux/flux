@@ -9319,7 +9319,7 @@ async function checkMyAppsAvailability() {
 }
 
 // Unmount Testing Functionality
-async function removeTestAppMount() {
+async function removeTestAppMount(specifiedVolume) {
   try {
     const appId = 'flux_fluxTestVol';
     log.info('Mount Test: Unmounting volume');
@@ -9338,8 +9338,16 @@ async function removeTestAppMount() {
       log.error('Mount Test: An error occured while cleaning up data. Continuing. Most likely false positive.');
     });
     log.info('Mount Test: Data cleaned');
+    log.info('Mount Test: Cleaning up data volume');
+    const volumeToRemove = specifiedVolume || `${fluxDirPath}appvolumes/${appId}FLUXFSVOL`;
+    const execVolumeDelete = `sudo rm -rf $${volumeToRemove}`;
+    await cmdAsync(execVolumeDelete).catch((e) => {
+      log.error(e);
+      log.error('Mount Test: An error occured while cleaning up volume. Continuing. Most likely false positive.');
+    });
+    log.info('Mount Test: Volume cleaned');
   } catch (error) {
-    log.error('Mount Test Remova: Error');
+    log.error('Mount Test Removal: Error');
     log.error(error);
   }
 }
@@ -9427,7 +9435,7 @@ async function testAppMount() {
     log.info('Mount Test: Volume mounted. Test completed.');
     dosMountMessage = '';
     // run removal
-    removeTestAppMount();
+    removeTestAppMount(`${useThisVolume.mount}/${appId}FLUXFSVOL`);
   } catch (error) {
     log.error('Mount Test: Error...');
     log.error(error);
