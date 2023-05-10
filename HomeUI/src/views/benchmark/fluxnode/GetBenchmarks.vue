@@ -40,7 +40,7 @@
     />
     <list-entry
       v-if="callResponse.data.disksinfo"
-      title="Disk(s) (Name/Size(GB)/Write Speed(MB))"
+      title="Disk(s) (Name/Size(GB)/Write Speed(MB/s))"
       :data="`${JSON.stringify(callResponse.data.disksinfo)}`"
     />
     <list-entry
