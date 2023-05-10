@@ -9340,7 +9340,7 @@ async function removeTestAppMount(specifiedVolume) {
     log.info('Mount Test: Data cleaned');
     log.info('Mount Test: Cleaning up data volume');
     const volumeToRemove = specifiedVolume || `${fluxDirPath}appvolumes/${appId}FLUXFSVOL`;
-    const execVolumeDelete = `sudo rm -rf $${volumeToRemove}`;
+    const execVolumeDelete = `sudo rm -rf ${volumeToRemove}`;
     await cmdAsync(execVolumeDelete).catch((e) => {
       log.error(e);
       log.error('Mount Test: An error occured while cleaning up volume. Continuing. Most likely false positive.');
