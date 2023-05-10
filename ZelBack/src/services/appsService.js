@@ -9404,20 +9404,19 @@ async function testAppMount() {
     log.info('Mount Test: Space found');
     log.info('Mount Test: Allocating space...');
 
-    let execDD = `sudo fallocate -l ${appSize}G ${useThisVolume.mount}/${appId}FLUXFSVOL`; // eg /mnt/sthMounted/zelappTEMP
+    let volumePath = `${useThisVolume.mount}/${appId}FLUXFSVOL`; // eg /mnt/sthMounted/
     if (useThisVolume.mount === '/') {
-      execDD = `sudo fallocate -l ${appSize}G ${fluxDirPath}appvolumes/${appId}FLUXFSVOL`; // if root mount then temp file is /tmp/zelappTEMP
+      volumePath = `${fluxDirPath}appvolumes/${appId}FLUXFSVOL`;// if root mount then temp file is in flux folder/appvolumes
     }
+
+    const execDD = `sudo fallocate -l ${appSize}G ${volumePath}`;
 
     await cmdAsync(execDD);
 
     log.info('Mount Test: Space allocated');
     log.info('Mount Test: Creating filesystem...');
 
-    let execFS = `sudo mke2fs -t ext4 ${useThisVolume.mount}/${appId}FLUXFSVOL`;
-    if (useThisVolume.mount === '/') {
-      execFS = `sudo mke2fs -t ext4 ${fluxDirPath}appvolumes/${appId}FLUXFSVOL`;
-    }
+    const execFS = `sudo mke2fs -t ext4 ${volumePath}`;
     await cmdAsync(execFS);
     log.info('Mount Test: Filesystem created');
     log.info('Mount Test: Making directory...');
@@ -9427,15 +9426,12 @@ async function testAppMount() {
     log.info('Mount Test: Directory made');
     log.info('Mount Test: Mounting volume...');
 
-    let execMount = `sudo mount -o loop ${useThisVolume.mount}/${appId}FLUXFSVOL ${appsFolder + appId}`;
-    if (useThisVolume.mount === '/') {
-      execMount = `sudo mount -o loop ${fluxDirPath}appvolumes/${appId}FLUXFSVOL ${appsFolder + appId}`;
-    }
+    const execMount = `sudo mount -o loop ${volumePath} ${appsFolder + appId}`;
     await cmdAsync(execMount);
     log.info('Mount Test: Volume mounted. Test completed.');
     dosMountMessage = '';
     // run removal
-    removeTestAppMount(`${useThisVolume.mount}/${appId}FLUXFSVOL`);
+    removeTestAppMount(volumePath);
   } catch (error) {
     log.error('Mount Test: Error...');
     log.error(error);
