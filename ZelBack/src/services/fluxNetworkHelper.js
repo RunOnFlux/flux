@@ -798,7 +798,8 @@ async function adjustExternalIP(ip) {
     testnet: ${userconfig.initial.testnet || false},
     development: ${userconfig.initial.development || false},
     apiport: ${Number(userconfig.initial.apiport || config.apiport)},
-    decryptionkey: '${userconfig.initial.decryptionkey || ''}',
+    pgpPrivateKey: '${userconfig.initial.pgpPrivateKey || ''}',
+    pgpPublicKey: '${userconfig.initial.pgpPublicKey || ''}',
   }
 }`;
 
