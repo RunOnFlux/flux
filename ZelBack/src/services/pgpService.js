@@ -96,6 +96,54 @@ async function generateIdentity() {
   }
 }
 
+/**
+ * To encrypt a message with an array of encryption public keys
+ * @param {string} message Message to encrypt
+ * @param {array} encryptionKeys Armored version of array of public key
+ * @returns {string} Return armored version of encrypted message
+ */
+async function encryptMessage(message, encryptionKeys) {
+  try {
+    const publicKeys = await Promise.all(encryptionKeys.map((armoredKey) => openpgp.readKey({ armoredKey })));
+
+    const pgpMessage = await openpgp.createMessage({ text: message });
+    const encryptedMessage = await openpgp.encrypt({
+      message: pgpMessage, // input as Message object
+      encryptionKeys: publicKeys,
+    });
+    // '-----BEGIN PGP MESSAGE ... END PGP MESSAGE-----'
+    return encryptedMessage;
+  } catch (error) {
+    log.error(error);
+    return null;
+  }
+}
+
+/**
+ * To decrypt a message with an armored private key
+ * @param {string} encryptedMessage Message to encrypt
+ * @param {string} decryptionKey Armored version of private key
+ * @returns {string} Return plain text message
+ */
+async function decryptMessage(encryptedMessage, decryptionKey) {
+  try {
+    const messageEncrypted = await openpgp.readMessage({
+      armoredMessage: encryptedMessage, // parse armored message
+    });
+    const privateKey = await openpgp.readPrivateKey({ armoredKey: decryptionKey });
+    const decryptedMessage = await openpgp.decrypt({
+      message: messageEncrypted,
+      decryptionKeys: privateKey,
+    });
+    return decryptedMessage.data;
+  } catch (error) {
+    log.error(error);
+    return null;
+  }
+}
+
 module.exports = {
   generateIdentity,
+  encryptMessage,
+  decryptMessage,
 };
