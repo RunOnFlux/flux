@@ -9296,13 +9296,16 @@ async function checkMyAppsAvailability() {
     testingAppserver.close();
     if (currentDos === 0) {
       dosState = 0;
-      dosMessage = null;
+      dosMessage = dosMountMessage || null;
       await serviceHelper.delay(60 * 60 * 1000);
     } else {
       await serviceHelper.delay(4 * 60 * 1000);
     }
     checkMyAppsAvailability();
   } catch (error) {
+    if (dosMountMessage) {
+      dosMessage = dosMountMessage;
+    }
     let firewallActive = true;
     firewallActive = await fluxNetworkHelper.isFirewallActive().catch((e) => log.error(e));
     // stop listening on the testing port, close the port
