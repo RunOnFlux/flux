@@ -39,7 +39,7 @@
       :data="`${callResponse.data.ram} GB`"
     />
     <list-entry
-      v-if="callResponse.data.disksinfo"
+      v-if="callResponse.data.disksinfo && callResponse.data.disksinfo.length > 0"
       title="Disk(s) (Name/Size(GB)/Write Speed(MB/s))"
       :data="`${JSON.stringify(callResponse.data.disksinfo)}`"
     />
