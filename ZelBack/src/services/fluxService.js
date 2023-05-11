@@ -449,6 +449,18 @@ function getFluxZelID(req, res) {
 }
 
 /**
+ * To show the node pgp public key
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+function getFluxPGPidentity(req, res) {
+  const pgp = userconfig.initial.pgpPublicKey;
+  const message = messageHelper.createDataMessage(pgp);
+  return res ? res.json(message) : message;
+}
+
+/**
  * To show the current CruxID that is being used with FluxOS.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -818,6 +830,11 @@ async function getFluxInfo(req, res) {
       throw zelidRes.data;
     }
     info.flux.zelid = zelidRes.data;
+    const pgp = await getFluxPGPidentity();
+    if (pgp.status === 'error') {
+      throw pgp.data;
+    }
+    info.flux.pgp = pgp.data;
     const cruxidRes = await getFluxCruxID();
     if (cruxidRes.status === 'error') {
       throw cruxidRes.data;
@@ -1086,6 +1103,7 @@ module.exports = {
   getFluxVersion,
   getFluxIP,
   getFluxZelID,
+  getFluxPGPidentity,
   getFluxCruxID,
   getFluxKadena,
   daemonDebug,

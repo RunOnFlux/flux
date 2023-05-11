@@ -249,6 +249,9 @@ module.exports = (app, expressWs) => {
   app.get('/flux/id', cache('30 seconds'), (req, res) => {
     fluxService.getFluxZelID(req, res);
   });
+  app.get('/flux/pgp', cache('30 seconds'), (req, res) => {
+    fluxService.getFluxPGPidentity(req, res);
+  });
   app.get('/flux/cruxid', cache('30 seconds'), (req, res) => {
     fluxService.getFluxCruxID(req, res);
   });
