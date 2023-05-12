@@ -17,7 +17,7 @@ const userconfig = require('../../../config/userconfig');
 async function adjustPGPidentity(privateKey, publicKey) {
   try {
     const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
-    if (publicKey === userconfig.initial.publicKey && privateKey === userconfig.initial.privateKey) {
+    if (publicKey === userconfig.initial.pgpPublicKey && privateKey === userconfig.initial.pgpPrivateKey) {
       return;
     }
     log.info(`Adjusting Identity to ${publicKey}`);
@@ -46,8 +46,8 @@ async function adjustPGPidentity(privateKey, publicKey) {
 async function identityExists() {
   try {
     // only generate new identity if private key or public key is missing, do not match
-    const existingPrivateKey = userconfig.initial.privateKey;
-    const existingPublicKey = userconfig.initial.publicKey;
+    const existingPrivateKey = userconfig.initial.pgpPrivateKey;
+    const existingPublicKey = userconfig.initial.pgpPublicKey;
     if (existingPrivateKey && existingPublicKey) {
       // check if public key belongs to our private key
       const privateKey = await openpgp.readPrivateKey({ armoredKey: existingPrivateKey });
