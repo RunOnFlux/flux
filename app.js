@@ -17,7 +17,7 @@ async function initiate() {
   const conFilePath = path.resolve(__dirname, './config/userconfig.js');
 
   const confFile = fs.readFileSync(conFilePath, 'utf-8');
-  const confFilePatch = confFile.replace("'", '`');
+  const confFilePatch = confFile.replaceAll("'", '`');
   fs.writeFileSync(conFilePath, confFilePatch, 'utf-8');
 
   // eslint-disable-next-line global-require
