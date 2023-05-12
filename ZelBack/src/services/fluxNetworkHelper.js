@@ -118,13 +118,19 @@ async function isPortOpen(ip, port, app, timeout = 5000) {
   let resp;
   try {
     let portResponse = true;
-    // open port first
     // eslint-disable-next-line no-use-before-define
-    resp = await allowOutPort(port).catch((error) => { // requires allow out for apps checking, for our ports both
-      log.error(error);
-    });
-    if (!resp) {
-      resp = {};
+    const firewallActive = await isFirewallActive();
+    // open port first
+    if (firewallActive) {
+    // eslint-disable-next-line no-use-before-define
+      resp = await allowOutPort(port).catch((error) => { // requires allow out for apps checking, for our ports both
+        log.error(error);
+      });
+      if (!resp) {
+        resp = {};
+      }
+    } else {
+      resp.message = 'existing';
     }
 
     const promise = new Promise(((resolve, reject) => {
@@ -168,7 +174,7 @@ async function isPortOpen(ip, port, app, timeout = 5000) {
     setTimeout(() => { // timeout ensure return first
       if (app) {
         // delete the rule
-        if (resp.message !== 'existing') { // new or updated rule
+        if (resp.message !== 'existing') { // new or updated rule or firewall not active from above
           // eslint-disable-next-line no-use-before-define
           deleteAllowOutPortRule(port); // no need waiting for response. Delete if was not present before to not create huge firewall list
         }
@@ -179,7 +185,7 @@ async function isPortOpen(ip, port, app, timeout = 5000) {
     setTimeout(() => { // timeout ensure return first
       if (app) {
         // delete the rule
-        if (resp.message !== 'existing') { // new or updated rule
+        if (resp.message !== 'existing') { // new or updated rule or firewall not active from above
           // eslint-disable-next-line no-use-before-define
           deleteAllowOutPortRule(port); // no need waiting for response. Delete if was not present before to not create huge firewall list
         }
@@ -1020,6 +1026,33 @@ async function deleteAllowPortRule(port) {
 }
 
 /**
+ * To delete a ufw deny rule on port.
+ * @param {string} port Port.
+ * @returns {object} Command status.
+ */
+async function deleteDenyPortRule(port) {
+  const cmdStat = {
+    status: false,
+    message: null,
+  };
+  if (+port < (config.fluxapps.portMin - 1000) || +port > config.fluxapps.portMax) {
+    cmdStat.message = 'Port out of deletable app ports range';
+    return cmdStat;
+  }
+  const exec = `sudo ufw delete deny ${port} && sudo ufw delete deny out ${port}`;
+  const cmdAsync = util.promisify(nodecmd.get);
+
+  const cmdres = await cmdAsync(exec);
+  cmdStat.message = cmdres;
+  if (serviceHelper.ensureString(cmdres).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
+    cmdStat.status = true;
+  } else {
+    cmdStat.status = false;
+  }
+  return cmdStat;
+}
+
+/**
  * To delete a ufw allow rule on port.
  * @param {string} port Port.
  * @returns {object} Command status.
@@ -1139,6 +1172,41 @@ async function adjustFirewall() {
   }
 }
 
+async function purgeUFW() {
+  try {
+    const cmdAsync = util.promisify(nodecmd.get);
+    const firewallActive = await isFirewallActive();
+    if (firewallActive) {
+      const execB = 'sudo ufw status | grep \'DENY\' | grep -E \'(3[0-9]{4})\''; // 30000 - 39999
+      const cmdresB = await cmdAsync(execB).catch(() => {}) || ''; // fail silently,
+      if (serviceHelper.ensureString(cmdresB).includes('DENY')) {
+        const deniedPorts = cmdresB.split('\n'); // split by new line
+        const portsToDelete = [];
+        deniedPorts.forEach((port) => {
+          const adjPort = port.substring(0, port.indexOf(' '));
+          if (adjPort) { // last line is empty
+            if (!portsToDelete.includes(adjPort)) {
+              portsToDelete.push(adjPort);
+            }
+          }
+        });
+        // eslint-disable-next-line no-restricted-syntax
+        for (const port of portsToDelete) {
+          // eslint-disable-next-line no-await-in-loop
+          await deleteDenyPortRule(port);
+        }
+        log.info('UFW app deny rules purged');
+      } else {
+        log.info('No UFW deny rules found');
+      }
+    } else {
+      log.info('Firewall is not active. Purging UFW not necessary');
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
 const lruRateOptions = {
   max: 500,
   maxAge: 1000 * 15, // 15 seconds
@@ -1211,6 +1279,7 @@ module.exports = {
   deleteAllowOutPortRule,
   allowPortApi,
   adjustFirewall,
+  purgeUFW,
   checkRateLimit,
   closeConnection,
   closeIncomingConnection,

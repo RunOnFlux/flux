@@ -2210,7 +2210,7 @@
                     v-model="appUpdateSpecification.instances"
                     placeholder="Minimum number of application instances to be spawned"
                     type="range"
-                    :min="minInstances"
+                    min="3"
                     :max="maxInstances"
                     step="1"
                   />
@@ -2294,7 +2294,7 @@
                     <label class="col-3 col-form-label">
                       Repository
                       <v-icon
-                        v-b-tooltip.hover.top="'Docker Hub image namespace/repository:tag for component'"
+                        v-b-tooltip.hover.top="'Docker image namespace/repository:tag for component'"
                         name="info-circle"
                         class="mr-1"
                       />
@@ -2303,7 +2303,7 @@
                       <b-form-input
                         :id="`repo-${component.name}_${appUpdateSpecification.name}`"
                         v-model="component.repotag"
-                        placeholder="Docker Hub namespace/repository:tag"
+                        placeholder="Docker image namespace/repository:tag"
                       />
                     </div>
                   </div>
@@ -2692,7 +2692,7 @@
                   <b-form-input
                     id="repo"
                     v-model="appUpdateSpecification.repotag"
-                    placeholder="Docker Hub namespace/repository:tag"
+                    placeholder="Docker image namespace/repository:tag"
                     readonly
                   />
                 </b-form-group>
@@ -2723,7 +2723,7 @@
                     v-model="appUpdateSpecification.instances"
                     placeholder="Minimum number of application instances to be spawned"
                     type="range"
-                    :min="minInstances"
+                    min="3"
                     :max="maxInstances"
                     step="1"
                   />
@@ -3455,20 +3455,6 @@ export default {
         return false;
       }
     },
-    originalInstances() {
-      try {
-        if (this.appUpdateSpecification.name && this.marketPlaceApps.length) {
-          const marketPlaceApp = this.marketPlaceApps.find((app) => this.appUpdateSpecification.name.toLowerCase().startsWith(app.name.toLowerCase()));
-          if (marketPlaceApp && marketPlaceApp.instances) {
-            return marketPlaceApp.instances;
-          }
-        }
-        return this.minInstances;
-      } catch (error) {
-        console.log(error);
-        return this.minInstances;
-      }
-    },
     priceMultiplier() {
       try {
         if (this.appUpdateSpecification.name && this.marketPlaceApps.length) {
@@ -3834,9 +3820,7 @@ export default {
         this.appUpdateSpecification = JSON.parse(JSON.stringify(specs));
         this.appUpdateSpecification.instances = specs.instances || 3;
         if (this.instancesLocked) {
-          this.maxInstances = this.originalInstances;
-          this.minInstances = this.originalInstances;
-          this.appUpdateSpecification.instances = this.originalInstances;
+          this.maxInstances = this.appUpdateSpecification.instances;
         }
         if (this.appUpdateSpecification.version <= 3) {
           this.appUpdateSpecification.version = 3; // enforce specs version 3
@@ -4665,9 +4649,7 @@ export default {
         this.showToast('info', 'No geolocation set you can define up to maximum of 100 instances and up to the maximum hardware specs available on Flux network to your app.');
       }
       if (this.instancesLocked) {
-        this.maxInstances = this.originalInstances;
-        this.minInstances = this.originalInstances;
-        this.appUpdateSpecification.instances = this.originalInstances;
+        this.maxInstances = this.appUpdateSpecification.instances;
       }
     },
     countryChanged() {
@@ -4687,9 +4669,7 @@ export default {
         this.showToast('warning', `The node type may fluctuate based upon system requirements for your application. For better results in ${continent.text}, please consider specifications more suited to ${continent.nodeTier} hardware.`);
       }
       if (this.instancesLocked) {
-        this.maxInstances = this.originalInstances;
-        this.minInstances = this.originalInstances;
-        this.appUpdateSpecification.instances = this.originalInstances;
+        this.maxInstances = this.appUpdateSpecification.instances;
       }
     },
     generateStatsTableItems(statsData, specifications) {
@@ -5021,8 +5001,7 @@ export default {
       const maxInstances = instances > 100 ? 100 : instances;
       this.maxInstances = maxInstances;
       if (this.instancesLocked) {
-        this.maxInstances = this.originalInstances;
-        this.minInstances = this.originalInstances;
+        this.maxInstances = this.appUpdateSpecification.instances;
       }
     },
     constructAutomaticDomains(appPorts, appName, index = 0) {

@@ -805,29 +805,6 @@ async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = fals
 // use reindexGlobalApps with caution!!!
 async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps) {
   try {
-    // fix for a node if they have corrupted global app list
-    const globalAppsSpecs = await appsService.getAllGlobalApplications(['height']); // already sorted from oldest lowest height to newest highest height
-    if (globalAppsSpecs.length >= 2) {
-      const defaultExpire = config.fluxapps.blocksLasting;
-      const minBlockheightDifference = defaultExpire * 0.9; // it is highly unlikely that there was no app registration or an update for default of 2200 blocks ~3days
-      const blockDifference = globalAppsSpecs[globalAppsSpecs.length - 1] - globalAppsSpecs[0]; // most recent app - oldest app
-      if (blockDifference < minBlockheightDifference) {
-        await appsService.reindexGlobalAppsInformation();
-      }
-    } else {
-      await appsService.reindexGlobalAppsInformation();
-    }
-    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-    if (!syncStatus.data.synced) {
-      setTimeout(() => {
-        initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps);
-      }, 2 * 60 * 1000);
-      return;
-    }
-    if (isInInitiationOfBP) {
-      return;
-    }
-    isInInitiationOfBP = true;
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.daemon.database);
     const query = { generalScannedHeight: { $gte: 0 } };
@@ -842,6 +819,31 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
     if (currentHeight && currentHeight.generalScannedHeight) {
       scannedBlockHeight = currentHeight.generalScannedHeight;
     }
+    // fix for a node if they have corrupted global app list
+    if (scannedBlockHeight >= config.fluxapps.epochstart) {
+      const globalAppsSpecs = await appsService.getAllGlobalApplications(['height']); // already sorted from oldest lowest height to newest highest height
+      if (globalAppsSpecs.length >= 2) {
+        const defaultExpire = config.fluxapps.blocksLasting;
+        const minBlockheightDifference = defaultExpire * 0.9; // it is highly unlikely that there was no app registration or an update for default of 2200 blocks ~3days
+        const blockDifference = globalAppsSpecs[globalAppsSpecs.length - 1] - globalAppsSpecs[0]; // most recent app - oldest app
+        if (blockDifference < minBlockheightDifference) {
+          await appsService.reindexGlobalAppsInformation();
+        }
+      } else {
+        await appsService.reindexGlobalAppsInformation();
+      }
+    }
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    if (!syncStatus.data.synced) {
+      setTimeout(() => {
+        initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps);
+      }, 2 * 60 * 1000);
+      return;
+    }
+    if (isInInitiationOfBP) {
+      return;
+    }
+    isInInitiationOfBP = true;
     const daemonGetInfo = await daemonServiceControlRpcs.getInfo();
     let daemonHeight = 0;
     if (daemonGetInfo.status === 'success') {

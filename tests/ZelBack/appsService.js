@@ -150,7 +150,7 @@ describe('checkHWParameters', () => {
     const repA = await appService.verifyRepository(fluxAppSpecs.repotag);
     expect(repA).to.be.equal(true);
     const repB = await appService.verifyRepository(fluxAppSpecs.repotagB).catch((error) => {
-      expect(error.message).to.be.equal('Repository yurinnick/folding-at-home:latestaaa is not found on docker hub in expected format');
+      expect(error.message).to.be.equal('Repository yurinnick/folding-at-home:latestaaa is not found on Docker Hub in expected format');
     });
     expect(repB).to.be.equal(undefined);
     const repC = await appService.verifyRepository(fluxAppSpecs.repotagC).catch((error) => {

@@ -834,11 +834,11 @@ async function getFluxInfo(req, res) {
     }
     info.flux.dos = dosResult.data;
 
-    const doAppssResult = await appsService.getAppsDOSState();
+    const dosAppsResult = await appsService.getAppsDOSState();
     if (dosResult.status === 'error') {
-      throw doAppssResult.data;
+      throw dosAppsResult.data;
     }
-    info.flux.appsDos = doAppssResult.data;
+    info.flux.appsDos = dosAppsResult.data;
     info.flux.development = `${userconfig.initial.development || false}`;
 
     const daemonInfoRes = await daemonServiceControlRpcs.getInfo();
