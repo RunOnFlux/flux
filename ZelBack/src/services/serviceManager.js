@@ -87,7 +87,7 @@ async function startFluxFunctions() {
     log.info('Flux Discovery started');
     syncthingService.startSyncthing();
     log.info('Syncthing service started');
-    // await pgpService.generateIdentity();
+    await pgpService.generateIdentity();
     log.info('PGP service initiated');
     setTimeout(() => {
       log.info('Rechecking firewall app rules');
