@@ -71,13 +71,16 @@ async function getTrustedList() {
       }
       const trustScore = collateralPoints + maturityPoints + pubKeyPoints;
       nodeInfo.score = Math.floor(trustScore);
+      nodeInfo.collateralPoints = collateralPoints;
+      nodeInfo.maturityPoints = maturityPoints;
+      nodeInfo.pubKeyPoints = pubKeyPoints;
       if (nodeInfo.ip && !nodeInfo.ip.includes(':')) {
         trustedList.push(nodeInfo);
       }
     });
     trustedList.sort((a, b) => {
-      if (a.score > b.score) return 1;
-      if (a.score < b.score) return -1;
+      if (a.score > b.score) return -1;
+      if (a.score < b.score) return 1;
       return 0;
     });
     return trustedList;
