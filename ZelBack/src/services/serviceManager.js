@@ -1,7 +1,4 @@
 const config = require('config');
-const path = require('path');
-const fs = require('fs');
-
 const log = require('../lib/log');
 
 const dbHelper = require('./dbHelper');
@@ -15,24 +12,16 @@ const geolocationService = require('./geolocationService');
 const upnpService = require('./upnpService');
 const syncthingService = require('./syncthingService');
 const pgpService = require('./pgpService');
+const userconfig = require('../../../config/userconfig');
+
+const apiPort = userconfig.initial.apiport || config.server.apiport;
+const development = userconfig.initial.development || false;
 
 /**
  * To start FluxOS. A series of checks are performed on port and UPnP (Universal Plug and Play) support and mapping. Database connections are established. The other relevant functions required to start FluxOS services are called.
  */
 async function startFluxFunctions() {
   try {
-    // TEMPORARY FIX
-    const conFilePath = path.resolve(__dirname, '../../../config/userconfig');
-
-    const confFile = fs.readFileSync(conFilePath, 'utf-8');
-    const confFilePatch = confFile.replace("'", '`');
-    fs.writeFileSync(conFilePath, confFilePatch, 'utf-8');
-
-    // eslint-disable-next-line global-require
-    const userconfig = require('../../../config/userconfig');
-
-    const apiPort = userconfig.initial.apiport || config.server.apiport;
-    const development = userconfig.initial.development || false;
     if (!config.server.allowedPorts.includes(+apiPort)) {
       log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
       process.exit();
@@ -161,7 +150,7 @@ async function startFluxFunctions() {
             await fluxService.softUpdateFluxInstall().catch((error) => log.error(error));
           }, 15 * 1000);
         }
-      }, 60 * 60 * 1000); // every 5 mins
+      }, 60 * 60 * 1000); // every 1 hour
     }
   } catch (e) {
     log.error(e);
