@@ -14,7 +14,7 @@ const path = require('path');
 
 async function initiate() {
   // TEMPORARY FIX
-  const conFilePath = path.resolve(__dirname, './ZelBack/config/userconfig.js');
+  const conFilePath = path.resolve(__dirname, './config/userconfig.js');
 
   const confFile = fs.readFileSync(conFilePath, 'utf-8');
   const confFilePatch = confFile.replace("'", '`');
