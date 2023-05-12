@@ -1,16 +1,7 @@
+/* eslint-disable global-require */
 process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
-// Flux configuration
-const config = require('config');
-const compression = require('compression');
 const fs = require('fs');
-// const https = require('https');
 const path = require('path');
-const express = require('express');
-const app = require('./ZelBack/src/lib/server');
-const log = require('./ZelBack/src/lib/log');
-const serviceManager = require('./ZelBack/src/services/serviceManager');
-const upnpService = require('./ZelBack/src/services/upnpService');
-
 // const key = fs.readFileSync(path.join(__dirname, './certs/selfsigned.key'), 'utf8');
 // const cert = fs.readFileSync(path.join(__dirname, './certs/selfsigned.crt'), 'utf8');
 // const credentials = { key, cert };
@@ -31,6 +22,16 @@ async function initiate() {
 
   // eslint-disable-next-line global-require
   const userconfig = require('./config/userconfig');
+  // Flux configuration
+  const config = require('config');
+  const compression = require('compression');
+
+  // const https = require('https');
+  const express = require('express');
+  const app = require('./ZelBack/src/lib/server');
+  const log = require('./ZelBack/src/lib/log');
+  const serviceManager = require('./ZelBack/src/services/serviceManager');
+  const upnpService = require('./ZelBack/src/services/upnpService');
   const apiPort = userconfig.initial.apiport || config.server.apiport;
   const homePort = +apiPort - 1;
   if (!config.server.allowedPorts.includes(+apiPort)) {
