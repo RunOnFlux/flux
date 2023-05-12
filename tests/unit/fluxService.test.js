@@ -2285,8 +2285,8 @@ describe('fluxService tests', () => {
           testnet: ${adminConfig.initial.testnet || false},
           development: ${adminConfig.initial.development || false},
           apiport: ${Number(adminConfig.initial.apiport)},
-          pgpPrivateKey: '${adminConfig.initial.pgpPrivateKey}',
-          pgpPublicKey: '${adminConfig.initial.pgpPublicKey}',
+          pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
+          pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
         }
       }`;
       const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
@@ -2442,8 +2442,8 @@ describe('fluxService tests', () => {
     testnet: ${adminConfig.initial.testnet},
     development: ${adminConfig.initial.development},
     apiport: ${Number(adminConfig.initial.apiport)},
-    pgpPrivateKey: '${adminConfig.initial.pgpPrivateKey}',
-    pgpPublicKey: '${adminConfig.initial.pgpPublicKey}',
+    pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
+    pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
   }
 }`;
       const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');

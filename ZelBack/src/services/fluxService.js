@@ -967,8 +967,8 @@ async function adjustCruxID(req, res) {
           testnet: ${userconfig.initial.testnet || false},
           development: ${userconfig.initial.development || false},
           apiport: ${Number(userconfig.initial.apiport || config.apiport)},
-          pgpPrivateKey: '${userconfig.initial.pgpPrivateKey || ''}',
-          pgpPublicKey: '${userconfig.initial.pgpPublicKey || ''}',
+          pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
+          pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
         }
       }`;
 
@@ -1020,8 +1020,8 @@ async function adjustKadenaAccount(req, res) {
     testnet: ${userconfig.initial.testnet || false},
     development: ${userconfig.initial.development || false},
     apiport: ${Number(userconfig.initial.apiport || config.apiport)},
-    pgpPrivateKey: '${userconfig.initial.pgpPrivateKey || ''}',
-    pgpPublicKey: '${userconfig.initial.pgpPublicKey || ''}',
+    pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
+    pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
   }
 }`;
 

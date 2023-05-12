@@ -29,8 +29,8 @@ async function adjustPGPidentity(privateKey, publicKey) {
     testnet: ${userconfig.initial.testnet || false},
     development: ${userconfig.initial.development || false},
     apiport: ${Number(userconfig.initial.apiport || config.apiport)},
-    pgpPrivateKey: '${privateKey}',
-    pgpPublicKey: '${publicKey}',
+    pgpPrivateKey: \`${privateKey}\`,
+    pgpPublicKey: \`${publicKey}\`,
   }
 }`;
 
