@@ -75,12 +75,12 @@ async function getTrustedList() {
         trustedList.push(nodeInfo);
       }
     });
-    nodeList.sort((a, b) => {
+    trustedList.sort((a, b) => {
       if (a.score > b.score) return 1;
       if (a.score < b.score) return -1;
       return 0;
     });
-    return nodeList;
+    return trustedList;
   } catch (error) {
     log.error(error);
     return [];
