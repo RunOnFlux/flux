@@ -1,7 +1,21 @@
-/* eslint-disable global-require */
 process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
-const fs = require('fs');
+// Flux configuration
+const config = require('config');
+const compression = require('compression');
+// const fs = require('fs');
+// const https = require('https');
 const path = require('path');
+const express = require('express');
+const app = require('./ZelBack/src/lib/server');
+const log = require('./ZelBack/src/lib/log');
+const serviceManager = require('./ZelBack/src/services/serviceManager');
+const upnpService = require('./ZelBack/src/services/upnpService');
+
+const userconfig = require('./config/userconfig');
+
+const apiPort = userconfig.initial.apiport || config.server.apiport;
+const homePort = +apiPort - 1;
+
 // const key = fs.readFileSync(path.join(__dirname, './certs/selfsigned.key'), 'utf8');
 // const cert = fs.readFileSync(path.join(__dirname, './certs/selfsigned.crt'), 'utf8');
 // const credentials = { key, cert };
@@ -13,27 +27,6 @@ const path = require('path');
 // });
 
 async function initiate() {
-  // TEMPORARY FIX
-  const conFilePath = path.resolve(__dirname, './config/userconfig.js');
-
-  const confFile = fs.readFileSync(conFilePath, 'utf-8');
-  const confFilePatch = confFile.replace(/'/g, '`');
-  fs.writeFileSync(conFilePath, confFilePatch, 'utf-8');
-
-  // eslint-disable-next-line global-require
-  const userconfig = require('./config/userconfig');
-  // Flux configuration
-  const config = require('config');
-  const compression = require('compression');
-
-  // const https = require('https');
-  const express = require('express');
-  const app = require('./ZelBack/src/lib/server');
-  const log = require('./ZelBack/src/lib/log');
-  const serviceManager = require('./ZelBack/src/services/serviceManager');
-  const upnpService = require('./ZelBack/src/services/upnpService');
-  const apiPort = userconfig.initial.apiport || config.server.apiport;
-  const homePort = +apiPort - 1;
   if (!config.server.allowedPorts.includes(+apiPort)) {
     log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
     process.exit();
