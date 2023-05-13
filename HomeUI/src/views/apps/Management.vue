@@ -3432,6 +3432,7 @@ export default {
       ],
       tosAgreed: false,
       marketPlaceApps: [],
+      generalMultiplier: 1,
     };
   },
   computed: {
@@ -3465,10 +3466,10 @@ export default {
             }
           }
         }
-        return 1;
+        return this.generalMultiplier;
       } catch (error) {
         console.log(error);
-        return 1;
+        return this.generalMultiplier;
       }
     },
     callbackValue() {
@@ -3656,6 +3657,7 @@ export default {
     this.appsDeploymentInformation();
     this.getGeolocationData();
     this.getMarketPlace();
+    this.getMultiplier();
   },
   methods: {
     async getMarketPlace() {
@@ -3663,6 +3665,18 @@ export default {
         const response = await axios.get('https://stats.runonflux.io/marketplace/listapps');
         if (response.data.status === 'success') {
           this.marketPlaceApps = response.data.data;
+        }
+      } catch (error) {
+        console.log(error);
+      }
+    },
+    async getMultiplier() {
+      try {
+        const response = await axios.get('https://stats.runonflux.io/apps/multiplier');
+        if (response.data.status === 'success') {
+          if (typeof response.data.data === 'number' && response.data.data >= 1) {
+            this.generalMultiplier = response.data.data;
+          }
         }
       } catch (error) {
         console.log(error);

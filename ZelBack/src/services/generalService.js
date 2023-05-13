@@ -30,6 +30,23 @@ function getCollateralInfo(collateralOutpoint) {
 }
 
 /**
+ * To return a transaction hash and index of our node collateral
+ * @returns {object} Collateral info object.
+ * @property {string} txhash Transaction hash.
+ * @property {number} txindex Transaction index.
+ */
+async function obtainNodeCollateralInformation() {
+  // get our collateral information to decide if app specifications are basic, super, bamf
+  // getzlenodestatus.collateral
+  const nodeStatus = await daemonServiceZelnodeRpcs.getZelNodeStatus();
+  if (nodeStatus.status === 'error') {
+    throw nodeStatus.data;
+  }
+  const collateralInformation = getCollateralInfo(nodeStatus.data.collateral);
+  return collateralInformation;
+}
+
+/**
  * To return the tier of a node in old naming scheme
  * @returns {string} Name of the node tier in old naming scheme
  */
@@ -397,6 +414,7 @@ module.exports = {
   messageHash,
   nodeCollateral,
   splitRepoTag,
+  obtainNodeCollateralInformation,
 
   // exported for testing purposes
   setStoredTier,

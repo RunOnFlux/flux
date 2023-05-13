@@ -1220,7 +1220,7 @@
         >
           <b-card title="Register App">
             <b-card-text>
-              Price: {{ appPricePerMonth }} FLUX
+              Price: {{ applicationPrice }} FLUX
             </b-card-text>
             <b-card-text>
               Subscription period: {{ getExpireLabel || (appRegistrationSpecification.expire ? appRegistrationSpecification.expire + ' blocks' : '1 month') }}
@@ -1266,7 +1266,7 @@
         >
           <b-card>
             <b-card-text>
-              To finish the application update, please make a transaction of {{ appPricePerMonth }} FLUX to address
+              To finish the application update, please make a transaction of {{ applicationPrice }} FLUX to address
               '{{ deploymentAddress }}'
               with the following message:
               '{{ registrationHash }}'
@@ -1282,7 +1282,7 @@
           lg="4"
         >
           <b-card title="Pay with Zelcore">
-            <a :href="'zel:?action=pay&coin=zelcash&address=' + deploymentAddress + '&amount=' + appPricePerMonth + '&message=' + registrationHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png'">
+            <a :href="'zel:?action=pay&coin=zelcash&address=' + deploymentAddress + '&amount=' + applicationPrice + '&message=' + registrationHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png'">
               <img
                 class="zelidLogin"
                 src="@/assets/images/zelID.svg"
@@ -1577,7 +1577,7 @@ export default {
         hddbamf: 285,
       },
       dataForAppRegistration: {},
-      appPricePerMonth: 0,
+      applicationPrice: 0,
       deploymentAddress: '',
       minInstances: 3,
       maxInstances: 100,
@@ -1626,6 +1626,7 @@ export default {
       downloadOutput: {},
       nodeIP: '',
       tosAgreed: false,
+      generalMultiplier: 1,
     };
   },
   computed: {
@@ -1723,6 +1724,7 @@ export default {
     this.getDaemonInfo();
     this.appsDeploymentInformation();
     this.getFluxnodeStatus();
+    this.getMultiplier();
     const zelidauth = localStorage.getItem('zelidauth');
     const auth = qs.parse(zelidauth);
     this.appRegistrationSpecification.owner = auth.zelid;
@@ -1735,6 +1737,18 @@ export default {
           this.showToast('danger', fluxnodeStatus.data.data.message || fluxnodeStatus.data.data);
         } else {
           this.nodeIP = fluxnodeStatus.data.data.ip.split(':')[0];
+        }
+      } catch (error) {
+        console.log(error);
+      }
+    },
+    async getMultiplier() {
+      try {
+        const response = await axios.get('https://stats.runonflux.io/apps/multiplier');
+        if (response.data.status === 'success') {
+          if (typeof response.data.data === 'number' && response.data.data >= 1) {
+            this.generalMultiplier = response.data.data;
+          }
         }
       } catch (error) {
         console.log(error);
@@ -1766,11 +1780,11 @@ export default {
         }
         const appSpecFormatted = responseAppSpecs.data.data;
         const response = await AppsService.appPrice(appSpecFormatted);
-        this.appPricePerMonth = 0;
+        this.applicationPrice = 0;
         if (response.data.status === 'error') {
           throw new Error(response.data.data.message || response.data.data);
         }
-        this.appPricePerMonth = response.data.data;
+        this.applicationPrice = (Math.ceil(((+response.data.data * this.generalMultiplier) * 100))) / 100;
         this.timestamp = new Date().getTime();
         this.dataForAppRegistration = appSpecFormatted;
         this.dataToSign = this.registrationtype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp;

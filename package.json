@@ -1,6 +1,6 @@
 {
   "name": "flux",
-  "version": "3.40.1",
+  "version": "3.41.0",
   "description": "Flux, Your Gateway to a Decentralized World",
   "repository": {
     "type": "git",
@@ -96,6 +96,7 @@
     "node-cmd": "~3.0.0",
     "node-df": "~0.1.4",
     "nodemon": "~2.0.20",
+    "openpgp": "~5.8.0",
     "path": "~0.12.7",
     "qs": "~6.11.0",
     "store": "~2.0.12",
