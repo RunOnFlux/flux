@@ -5302,7 +5302,7 @@ async function repositoryArchitectures(repotag) {
   const image = repository;
   const architectures = [];
   if (providerName === 'Docker Hub') { // favor docker hub api
-    const resDocker = await serviceHelper.axiosGet(`https://${provider}/v2/repositories/${namespace}/${image}/tags/${tag}`).catch((error) => {
+    const resDocker = await serviceHelper.axiosGet(`https://hub.docker.com/v2/repositories/${namespace}/${image}/tags/${tag}`).catch((error) => {
       log.warn(error);
       throw new Error(`Repository ${repotag} is not found on ${providerName} in expected format`);
     });
