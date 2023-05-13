@@ -20,7 +20,7 @@ async function getTrustedList() {
     // private image requires api key. We use IP (not collateral as of size limitations and as of easiness to obtain pgp) to determine a list where app will be spawned. Only those IPs can run the app - if the pgp can decrypt
     // v7: nodes field - array of IPs that can run the app, that should be able to decode the app.
     // each component now has secrets possibility - env variables field that gets encrypted by the IPs pgps
-    // each component now has repotag key - encrypted field for pulling private docker image
+    // each component now has repotag apikey - encrypted field for pulling private docker image
     const currentTime = new Date().getTime();
     const collateralized = {}; // pubkey: points
     nodeList.forEach((node) => {

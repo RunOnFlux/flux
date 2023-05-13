@@ -69,7 +69,7 @@ module.exports = {
     rpcporttestnet: 26124,
   },
   minimumFluxBenchAllowedVersion: '3.8.0',
-  minimumFluxOSAllowedVersion: '3.30.0',
+  minimumFluxOSAllowedVersion: '3.39.0',
   fluxTeamZelId: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
   deterministicNodesStart: 558000,
   fluxapps: {
@@ -109,6 +109,7 @@ module.exports = {
       4: 1004000, // v4 available, composition
       5: 1142000, // v5 available adding contacts, geolocation
       6: 1300000, // v6, expiration, app price, t3
+      7: 1420000, // v7, nodes selection, secrets, private images
     },
     address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
     addressMultisig: 't3aGJvdtd8NR6GrnqnRuVEzH6MbrXuJFLUX',

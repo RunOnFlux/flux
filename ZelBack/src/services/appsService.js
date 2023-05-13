@@ -4285,6 +4285,7 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
   const { contacts } = appSpecification;
   const { geolocation } = appSpecification;
   const { expire } = appSpecification;
+  const { nodes } = appSpecification;
 
   if (!version) {
     throw new Error('Missing Flux App specification parameter');
@@ -4518,6 +4519,16 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
           throw new Error('Invalid tiered HW specifications');
         }
       }
+
+      if (version >= 7) {
+        if (typeof appComponent.secrets !== 'string') {
+          throw new Error(`Secrets for Flux App component ${appComponent.name} are invalid`);
+        }
+
+        if (typeof appComponent.apikey !== 'string') {
+          throw new Error(`Secrets for Flux App component ${appComponent.name} are invalid`);
+        }
+      }
     });
   }
 
@@ -4572,6 +4583,21 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
     }
   }
 
+  if (version >= 7) {
+    if (!nodes) {
+      throw new Error('Missing Flux App specification parameter');
+    }
+    if (Array.isArray(nodes)) {
+      nodes.forEach((parameter) => {
+        if (typeof parameter !== 'string') {
+          throw new Error('Nodes for Flux App are invalid');
+        }
+      });
+    } else {
+      throw new Error('Nodes for Flux App are invalid');
+    }
+  }
+
   return true;
 }
 
@@ -4581,7 +4607,7 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
  * @returns {boolean} True if no errors are thrown.
  */
 function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
-  if (appSpecifications.version !== 1 && appSpecifications.version !== 2 && appSpecifications.version !== 3 && appSpecifications.version !== 4 && appSpecifications.version !== 5 && appSpecifications.version !== 6) {
+  if (appSpecifications.version !== 1 && appSpecifications.version !== 2 && appSpecifications.version !== 3 && appSpecifications.version !== 4 && appSpecifications.version !== 5 && appSpecifications.version !== 6 && appSpecifications.version !== 7) {
     throw new Error('Flux App message version specification is invalid');
   }
   if (appSpecifications.name.length > 32) {
@@ -4758,6 +4784,15 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
       if (appComponent.containerData.length < 2) {
         throw new Error(`Flux App container data folder not specified in in ${appComponent.name}. If no data folder is whished, use /tmp`);
       }
+
+      if (appSpecifications.version >= 7) {
+        if (appComponent.secrets.length > 15000) { // pgp encrypted message. Every signature encryption of node is about 100 characters. For 100 selected nodes, this gives ~5k chars limit
+          throw new Error('Maximum length of secrets is 15000. Consider uploading to Flux Storage for bigger payload.');
+        }
+        if (appComponent.apikey.length > 15000) { // pgp encrypted message.
+          throw new Error('Maximum length of apikey is 15000.');
+        }
+      }
     }
   }
 
@@ -4800,6 +4835,17 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
     if (appSpecifications.expire % config.fluxapps.blocksAllowanceInterval !== 0) {
       throw new Error(`Expiration of application has to be a multiple of ${config.fluxapps.blocksAllowanceInterval} blocks ~ 1 day`);
     }
+  }
+
+  if (appSpecifications.version >= 7) {
+    if (appSpecifications.nodes.length > 105) {
+      throw new Error('Minimum number of selecteed nodes is 105');
+    }
+    appSpecifications.nodes.forEach((node) => {
+      if (node.length > 70) { // 64 for txhash, : separator, max 5 for outidx
+        throw new Error('Invalid node length');
+      }
+    });
   }
 }
 
@@ -4925,14 +4971,36 @@ function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
     const specsKeys = Object.keys(appSpecifications);
     specsKeys.forEach((sKey) => {
       if (!specifications.includes((sKey))) {
-        throw new Error('Unsupported parameter for v5 app specifications');
+        throw new Error('Unsupported parameter for v6 app specifications');
       }
     });
     appSpecifications.compose.forEach((appComponent) => {
       const specsKeysComponent = Object.keys(appComponent);
       specsKeysComponent.forEach((sKey) => {
         if (!componentSpecifications.includes((sKey))) {
-          throw new Error('Unsupported parameter for v5 app specifications');
+          throw new Error('Unsupported parameter for v6 app specifications');
+        }
+      });
+    });
+  } else if (appSpecifications.version === 7) {
+    const specifications = [
+      'version', 'name', 'description', 'owner', 'compose', 'instances', 'contacts', 'geolocation', 'expire', 'nodes',
+    ];
+    const componentSpecifications = [
+      'name', 'description', 'repotag', 'ports', 'containerPorts', 'environmentParameters', 'commands', 'containerData', 'domains', 'secrets', 'apikey',
+      'cpu', 'ram', 'hdd', 'tiered', 'cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
+    ];
+    const specsKeys = Object.keys(appSpecifications);
+    specsKeys.forEach((sKey) => {
+      if (!specifications.includes((sKey))) {
+        throw new Error('Unsupported parameter for v7 app specifications');
+      }
+    });
+    appSpecifications.compose.forEach((appComponent) => {
+      const specsKeysComponent = Object.keys(appComponent);
+      specsKeysComponent.forEach((sKey) => {
+        if (!componentSpecifications.includes((sKey))) {
+          throw new Error('Unsupported parameter for v7 app specifications');
         }
       });
     });
