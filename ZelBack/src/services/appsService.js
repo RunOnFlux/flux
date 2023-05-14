@@ -5278,7 +5278,7 @@ async function restoreAppsPortsSupport() {
           const upnpOk = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`);
           if (!upnpOk) {
             // eslint-disable-next-line no-await-in-loop
-            await removeAppLocally(application, null, true).catch((error) => log.error(error)); // remove entire app
+            await removeAppLocally(application.name, null, true).catch((error) => log.error(error)); // remove entire app
             // eslint-disable-next-line no-await-in-loop
             await serviceHelper.delay(3 * 60 * 1000); // 3 mins
             break;
