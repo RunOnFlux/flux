@@ -23,7 +23,7 @@ const generalService = require('./services/generalService');
 const upnpService = require('./services/upnpService');
 const syncthingService = require('./services/syncthingService');
 const fluxNetworkHelper = require('./services/fluxNetworkHelper');
-const relianceNodesService = require('./services/relianceNodesService');
+const enterpriseNodesService = require('./services/enterpriseNodesService');
 
 function isLocal(req, res, next) {
   const remote = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || req.headers['x-forwarded-for'];
@@ -344,8 +344,8 @@ module.exports = (app, expressWs) => {
   app.get('/apps/deploymentinformation', cache('30 seconds'), (req, res) => {
     appsService.deploymentInformation(req, res);
   });
-  app.get('/apps/listreliancenodes', cache('30 seconds'), (req, res) => {
-    relianceNodesService.getRelianceNodesAPI(req, res);
+  app.get('/apps/enterprisenodes', cache('30 seconds'), (req, res) => {
+    enterpriseNodesService.getEnterpriseNodesAPI(req, res);
   });
 
   // app.get('/explorer/allutxos', (req, res) => {

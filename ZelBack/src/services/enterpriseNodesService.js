@@ -1,20 +1,22 @@
+const config = require('config');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const messageHelper = require('./messageHelper');
 const log = require('../lib/log');
 
 /**
- * To get reliance nodes list
- * @returns {array} return reliance node list
+ * To get enterprise nodes list
+ * @returns {array} return enterprise node list
  */
-async function getRelianceList() {
+async function getEnterpriseList() {
   try {
     const nodeList = await fluxCommunicationUtils.deterministicFluxList();
-    const relianceList = []; // txhash, outidx, pubkey, score, ip, payment_address?, tier,
-    // user collateralization, 200k in flux nodes is most reliable, get 500 points
-    // 200k flux in nodes, is most reliable, 5 * 40, 200 * 1, get 500 points
+    const enterpriseList = []; // txhash, outidx, pubkey, score, ip, payment_address?, tier,
+    // user collateralization, 200k in flux nodes is most trusted, get 500 points
+    // 200k flux in nodes, is most trusted, 5 * 40, 200 * 1, get 500 points
     // collaterals older than 1 year are the most reliable get 500 points 1 year is 720 * 365 = 262800 blocks
+    // KYCd public keys are the most trusted node ops. Get bonus 1000 points.
     // node tier collateralization - 2, 15, 30 points (cumulus, nimbus, stratus points)
-    // if node is having port defined, exclude from reliance list. This is because we require unique ip per app, otherwise a port clash will occur
+    // if node is having port defined, exclude from enterprise list. This is because we require unique ip per app, otherwise a port clash will occur
     // a node will always prioritize its assigned app for deployment
     // TODO get global app list specs and see if some app is specified to be locked for our node. If yes, decrease trust score by 25% once v7 app specs are finalized
     // private image requires api key. We use IP (not collateral as of size limitations and as of easiness to obtain pgp) to determine a list where app will be spawned. Only those IPs can run the app - if the pgp can decrypt
@@ -69,21 +71,27 @@ async function getRelianceList() {
         points *= 2.5;
         pubKeyPoints = Math.floor(points);
       }
-      const trustScore = collateralPoints + maturityPoints + pubKeyPoints;
-      nodeInfo.score = Math.floor(trustScore);
+      let enterprisePoints = 0;
+      const enterpriseNodesPubKees = config.enterprisePublicKeys;
+      if (enterpriseNodesPubKees.includes(nodeInfo.pubkey)) {
+        enterprisePoints = 1000;
+      }
+      const enterpriseScore = collateralPoints + maturityPoints + pubKeyPoints + enterprisePoints;
+      nodeInfo.score = Math.floor(enterpriseScore);
       nodeInfo.collateralPoints = collateralPoints;
       nodeInfo.maturityPoints = maturityPoints;
       nodeInfo.pubKeyPoints = pubKeyPoints;
+      nodeInfo.enterprisePoints = enterprisePoints;
       if (nodeInfo.ip && !nodeInfo.ip.includes(':')) {
-        relianceList.push(nodeInfo);
+        enterpriseList.push(nodeInfo);
       }
     });
-    relianceList.sort((a, b) => {
+    enterpriseList.sort((a, b) => {
       if (a.score > b.score) return -1;
       if (a.score < b.score) return 1;
       return 0;
     });
-    return relianceList;
+    return enterpriseList;
   } catch (error) {
     log.error(error);
     return [];
@@ -95,9 +103,9 @@ async function getRelianceList() {
  * @param {object} req Request.
  * @param {object} res Response.
  */
-async function getRelianceNodesAPI(req, res) {
+async function getEnterpriseNodesAPI(req, res) {
   try {
-    const nodes = await getRelianceList();
+    const nodes = await getEnterpriseList();
     const response = messageHelper.createDataMessage(nodes);
     return res ? res.json(response) : response;
   } catch (error) {
@@ -112,6 +120,6 @@ async function getRelianceNodesAPI(req, res) {
 }
 
 module.exports = {
-  getRelianceList,
-  getRelianceNodesAPI,
+  getEnterpriseList,
+  getEnterpriseNodesAPI,
 };
