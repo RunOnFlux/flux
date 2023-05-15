@@ -4526,7 +4526,7 @@ export default {
       this.executeCommand(app, 'redeploy', `Hard redeploying ${app} globally. This will take a while...`, 'true');
     },
     async removeAppGlobally(app) {
-      this.executeCommand(app, 'appremove', `Reinstalling ${app} globally. This will take a while...`);
+      this.executeCommand(app, 'appremove', `Reinstalling ${app} globally. This will take a while...`, 'true');
     },
     openApp(name, _ip, _port) {
       console.log(name, _ip, _port);
