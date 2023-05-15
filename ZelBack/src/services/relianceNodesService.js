@@ -3,18 +3,18 @@ const messageHelper = require('./messageHelper');
 const log = require('../lib/log');
 
 /**
- * To get trusted nodes list
- * @returns {array} return trusted node list
+ * To get reliance nodes list
+ * @returns {array} return reliance node list
  */
-async function getTrustedList() {
+async function getRelianceList() {
   try {
     const nodeList = await fluxCommunicationUtils.deterministicFluxList();
-    const trustedList = []; // txhash, outidx, pubkey, score, ip, payment_address?, tier,
-    // user collateralization, 200k in flux nodes is most trusted, get 500 points
-    // 200k flux in nodes, is most trusted, 5 * 40, 200 * 1, get 500 points
-    // collaterals older than 1 year are the most trusted get 500 points 1 year is 720 * 365 = 262800 blocks
+    const relianceList = []; // txhash, outidx, pubkey, score, ip, payment_address?, tier,
+    // user collateralization, 200k in flux nodes is most reliable, get 500 points
+    // 200k flux in nodes, is most reliable, 5 * 40, 200 * 1, get 500 points
+    // collaterals older than 1 year are the most reliable get 500 points 1 year is 720 * 365 = 262800 blocks
     // node tier collateralization - 2, 15, 30 points (cumulus, nimbus, stratus points)
-    // if node is having port defined, exclude from trusted list. This is because we require unique ip per app, otherwise a port clash will occur
+    // if node is having port defined, exclude from reliance list. This is because we require unique ip per app, otherwise a port clash will occur
     // a node will always prioritize its assigned app for deployment
     // TODO get global app list specs and see if some app is specified to be locked for our node. If yes, decrease trust score by 25% once v7 app specs are finalized
     // private image requires api key. We use IP (not collateral as of size limitations and as of easiness to obtain pgp) to determine a list where app will be spawned. Only those IPs can run the app - if the pgp can decrypt
@@ -75,15 +75,15 @@ async function getTrustedList() {
       nodeInfo.maturityPoints = maturityPoints;
       nodeInfo.pubKeyPoints = pubKeyPoints;
       if (nodeInfo.ip && !nodeInfo.ip.includes(':')) {
-        trustedList.push(nodeInfo);
+        relianceList.push(nodeInfo);
       }
     });
-    trustedList.sort((a, b) => {
+    relianceList.sort((a, b) => {
       if (a.score > b.score) return -1;
       if (a.score < b.score) return 1;
       return 0;
     });
-    return trustedList;
+    return relianceList;
   } catch (error) {
     log.error(error);
     return [];
@@ -95,9 +95,9 @@ async function getTrustedList() {
  * @param {object} req Request.
  * @param {object} res Response.
  */
-async function getTrustedNodesAPI(req, res) {
+async function getRelianceNodesAPI(req, res) {
   try {
-    const nodes = await getTrustedList();
+    const nodes = await getRelianceList();
     const response = messageHelper.createDataMessage(nodes);
     return res ? res.json(response) : response;
   } catch (error) {
@@ -112,6 +112,6 @@ async function getTrustedNodesAPI(req, res) {
 }
 
 module.exports = {
-  getTrustedList,
-  getTrustedNodesAPI,
+  getRelianceList,
+  getRelianceNodesAPI,
 };
