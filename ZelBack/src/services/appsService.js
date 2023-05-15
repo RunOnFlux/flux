@@ -137,6 +137,8 @@ async function getChainParamsPriceUpdates() {
           ram: +splittedMess[2],
           hdd: +splittedMess[3],
           minPrice: +splittedMess[4],
+          port: +splittedMess[5] || 2,
+          scope: +splittedMess[6] || 6,
         };
         priceForks.push(dataPoint);
       }

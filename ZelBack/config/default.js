@@ -80,6 +80,8 @@ module.exports = {
       ram: 1, // per 100mb,
       hdd: 0.5, // per 1gb,
       minPrice: 1, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
+      port: 2, // additional price per enterprise port
+      scope: 6, // additional price for application targetting specific nodes, private images
     },
     {
       height: 983000, // height from which price spec is valid. Counts from when app was registerd on blockchain!
@@ -87,6 +89,8 @@ module.exports = {
       ram: 0.1, // per 100mb,
       hdd: 0.05, // per 1gb,
       minPrice: 0.1, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
+      port: 2, // additional price per enterprise port
+      scope: 6, // additional price for application targetting specific nodes, private images
     },
     {
       height: 1004000, // height from which price spec is valid. Counts from when app was registerd on blockchain! 1004000
@@ -94,6 +98,8 @@ module.exports = {
       ram: 0.02, // per 100mb,
       hdd: 0.01, // per 1gb,
       minPrice: 0.01, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
+      port: 2, // additional price per enterprise port
+      scope: 6, // additional price for application targetting specific nodes, private images
     },
     {
       height: 1288000, // height from which price spec is valid. Counts from when app was registerd on blockchain! 1004000
@@ -101,6 +107,8 @@ module.exports = {
       ram: 0.05, // per 100mb,
       hdd: 0.02, // per 1gb,
       minPrice: 0.01, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
+      port: 2, // additional price per enterprise port
+      scope: 6, // additional price for application targetting specific nodes, private images
     }],
     appSpecsEnforcementHeights: {
       1: 0, // blockheight v1 is deprecated. Not possible to use api to update to its specs
@@ -109,7 +117,7 @@ module.exports = {
       4: 1004000, // v4 available, composition
       5: 1142000, // v5 available adding contacts, geolocation
       6: 1300000, // v6, expiration, app price, t3
-      7: 1420000, // v7, nodes selection, secrets, private images
+      7: 1420000, // v7, nodes selection, secrets, private images (nodes selection allows secrets, private image - scope)
     },
     address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
     addressMultisig: 't3aGJvdtd8NR6GrnqnRuVEzH6MbrXuJFLUX',
