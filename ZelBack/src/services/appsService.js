@@ -65,7 +65,7 @@ const LRUoptionsTemp = { // cache for temporary messages
 };
 const GlobalAppsSpawnLRUoptions = {
   max: 1000,
-  maxAge: 1000 * 60 * 30, // 30 minutes
+  maxAge: 1000 * 60 * 60 * 2, // 2 hours
 };
 const longCache = {
   max: 500,
@@ -7719,7 +7719,7 @@ async function trySpawningGlobalApplication() {
       return;
     }
     if (benchmarkResponse.data.thunder) {
-      log.info('Flux Node is a Thunder Storage Node. Global applications will not be installed');
+      log.info('Flux Node is a Fractus Storage Node. Global applications will not be installed');
       await serviceHelper.delay(24 * 3600 * 1000); // check again in one day as changing from and to only requires the restart of flux daemon
       trySpawningGlobalApplication();
       return;
@@ -7735,53 +7735,63 @@ async function trySpawningGlobalApplication() {
     }
 
     // get all the applications list names
-    const globalAppNamesLocation = await getAllGlobalApplications(['name', 'geolocation']);
-    // pick a random one
+    const globalAppNamesLocation = await getAllGlobalApplications(['name', 'geolocation', 'nodes']);
     const numberOfGlobalApps = globalAppNamesLocation.length;
-    const randomAppnumber = Math.floor((Math.random() * numberOfGlobalApps));
-    if (!globalAppNamesLocation[randomAppnumber] || !globalAppNamesLocation[randomAppnumber].name) {
-      log.info('No application specifications found');
+    if (!numberOfGlobalApps) {
+      log.info('No installable application found');
       await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
       trySpawningGlobalApplication();
       return;
     }
-    let randomApp = globalAppNamesLocation[randomAppnumber].name;
 
-    // force switch to run a geo restricted app
-    if (randomAppnumber % 5 === 0) { // every 5th run we are forcing application instalation that is in the nodes geolocation, esnuring highly geolocated apps spawn fast enough
-      // get this node location
-      const myNodeLocation = nodeFullGeolocation();
-      const appsInMyLocation = globalAppNamesLocation.filter((apps) => apps.geolocation && apps.geolocation.find((loc) => `ac${myNodeLocation}`.startsWith(loc)));
-      if (appsInMyLocation.length) {
-        const numberOfMyNodeGeoApps = appsInMyLocation.length;
-        const randomGeoAppNumber = Math.floor((Math.random() * numberOfMyNodeGeoApps));
-        if (!appsInMyLocation[randomGeoAppNumber] || !appsInMyLocation[randomGeoAppNumber].name) {
-          log.info('No application specifications found');
-          await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
-          trySpawningGlobalApplication();
-          return;
+    let appToRun;
+    // highly favor application that is targetting our node
+    // get my collateral
+    const myCollateral = await generalService.obtainNodeCollateralInformation();
+    // get my ip address
+    // filter apps only those that include my ip or my collateral
+    const scopedApps = globalAppNamesLocation.filter((app) => app.nodes && app.nodes.forEach((node) => node === myIP || node === `${myCollateral.txhash}:${myCollateral.txindex}`));
+    const scopedAppsNotRun = scopedApps.filter((app) => trySpawningGlobalAppCache.has(app.name));
+    // check if this app was already evaluated
+    const numberOfScopedAppsNotRun = scopedAppsNotRun.length;
+    if (numberOfScopedAppsNotRun) { // some app should be prioritized on our node
+      const appToRunNumber = Math.floor((Math.random() * numberOfScopedAppsNotRun));
+      appToRun = scopedAppsNotRun[appToRunNumber].name;
+    }
+
+    // no scoped applicaiton, run some global app
+    if (!appToRun) {
+      // pick a random one
+      const appToRunNumber = Math.floor((Math.random() * numberOfGlobalApps));
+      appToRun = globalAppNamesLocation[appToRunNumber].name;
+
+      // force switch to run a geo restricted app
+      if (appToRunNumber % 5 === 0) { // every 5th run we are forcing application instalation that is in the nodes geolocation, esnuring highly geolocated apps spawn fast enough
+        // get this node location
+        const myNodeLocation = nodeFullGeolocation();
+        const appsInMyLocation = globalAppNamesLocation.filter((apps) => apps.geolocation && apps.geolocation.find((loc) => `ac${myNodeLocation}`.startsWith(loc)));
+        if (appsInMyLocation.length) {
+          const numberOfMyNodeGeoApps = appsInMyLocation.length;
+          const randomGeoAppNumber = Math.floor((Math.random() * numberOfMyNodeGeoApps));
+          // install geo location restricted app instead
+          appToRun = appsInMyLocation[randomGeoAppNumber].name;
         }
-        // install geo location restricted app instead
-        randomApp = appsInMyLocation[randomGeoAppNumber].name;
       }
     }
 
-    // Check if App was checked in the last 30m.
+    trySpawningGlobalAppCache.set(appToRun, appToRun);
+
+    // Check if App was checked in the last 2 hours.
     // This is a small help because random can be getting the same app over and over
-    if (trySpawningGlobalAppCache.has(randomApp)) {
-      log.info(`App ${randomApp} was already evaluated in the last 30m.`);
-      if (numberOfGlobalApps < 20) {
-        await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
-      } else {
-        await serviceHelper.delay(config.fluxapps.installation.delay * 1000 * 0.1);
-      }
+    if (trySpawningGlobalAppCache.has(appToRun)) {
+      log.info(`App ${appToRun} was already evaluated in the last 2 hours.`);
+      const delay = numberOfGlobalApps < 20 ? config.fluxapps.installation.delay * 1000 : config.fluxapps.installation.delay * 1000 * 0.1;
+      await serviceHelper.delay(delay);
       trySpawningGlobalApplication();
       return;
     }
 
-    // check if there is < 5 instances of nodes running the app
-    // TODO evaluate if its not better to check locally running applications!
-    const runningAppList = await getRunningAppList(randomApp);
+    const runningAppList = await getRunningAppList(appToRun);
 
     const delay = config.fluxapps.installation.delay * 1000;
     const probLn = Math.log(2 + numberOfGlobalApps); // from ln(2) -> ln(2 + x)
@@ -7790,9 +7800,8 @@ async function trySpawningGlobalApplication() {
     const adjustedIP = myIP.split(':')[0]; // just IP address
     // check if app not running on this device
     if (runningAppList.find((document) => document.ip.includes(adjustedIP))) {
-      log.info(`Application ${randomApp} is reported as already running on this Flux IP`);
+      log.info(`Application ${appToRun} is reported as already running on this Flux IP`);
       await serviceHelper.delay(adjustedDelay);
-      trySpawningGlobalAppCache.set(randomApp, randomApp);
       trySpawningGlobalApplication();
       return;
     }
@@ -7801,27 +7810,24 @@ async function trySpawningGlobalApplication() {
     if (runningApps.status !== 'success') {
       throw new Error('Unable to check running apps on this Flux');
     }
-    if (runningApps.data.find((app) => app.Names[0].slice(5) === randomApp)) {
-      log.info(`${randomApp} application is already running on this Flux`);
+    if (runningApps.data.find((app) => app.Names[0].slice(5) === appToRun)) {
+      log.info(`${appToRun} application is already running on this Flux`);
       await serviceHelper.delay(adjustedDelay);
-      trySpawningGlobalAppCache.set(randomApp, randomApp);
       trySpawningGlobalApplication();
       return;
     }
 
     // get app specifications
-    const appSpecifications = await getApplicationGlobalSpecifications(randomApp);
+    const appSpecifications = await getApplicationGlobalSpecifications(appToRun);
     if (!appSpecifications) {
-      trySpawningGlobalAppCache.set(randomApp, randomApp);
-      throw new Error(`Specifications for application ${randomApp} were not found!`);
+      throw new Error(`Specifications for application ${appToRun} were not found!`);
     }
 
     // check if app is installed on the number of instances requested
     const minInstances = appSpecifications.instances || config.fluxapps.minimumInstances; // introduced in v3 of apps specs
     if (runningAppList.length >= minInstances) {
-      log.info(`Application ${randomApp} is already spawned on ${runningAppList.length} instances`);
+      log.info(`Application ${appToRun} is already spawned on ${runningAppList.length} instances`);
       await serviceHelper.delay(adjustedDelay);
-      trySpawningGlobalAppCache.set(randomApp, randomApp);
       trySpawningGlobalApplication();
       return;
     }
@@ -7844,7 +7850,6 @@ async function trySpawningGlobalApplication() {
     if (appExists) { // double checked in installation process.
       log.info(`Application ${appSpecifications.name} is already installed`);
       await serviceHelper.delay(adjustedDelay);
-      trySpawningGlobalAppCache.set(randomApp, randomApp);
       trySpawningGlobalApplication();
       return;
     }
@@ -7861,7 +7866,6 @@ async function trySpawningGlobalApplication() {
             log.info(`${componentToInstall.repotag} Image is already running on this Flux`);
             // eslint-disable-next-line no-await-in-loop
             await serviceHelper.delay(adjustedDelay);
-            trySpawningGlobalAppCache.set(randomApp, randomApp);
             trySpawningGlobalApplication();
             return;
           }
@@ -7877,18 +7881,10 @@ async function trySpawningGlobalApplication() {
     }
 
     // verify app compliance
-    await checkApplicationImagesComplience(appSpecifications).catch((error) => {
-      log.error(error);
-      trySpawningGlobalAppCache.set(randomApp, randomApp);
-      throw error;
-    });
+    await checkApplicationImagesComplience(appSpecifications);
 
     // verify requirements
-    await checkAppRequirements(appSpecifications).catch((error) => { // catch it so we can add it to prevention of spawning
-      log.error(error);
-      trySpawningGlobalAppCache.set(randomApp, randomApp);
-      throw error; // throw it again so we begin new cycle
-    });
+    await checkAppRequirements(appSpecifications);
 
     // ensure ports unused
     // appNames on Ip
@@ -7897,21 +7893,13 @@ async function trySpawningGlobalApplication() {
     runningAppsIp.forEach((app) => {
       runningAppsNames.push(app.name);
     });
-    await ensureApplicationPortsNotUsed(appSpecifications, runningAppsNames).catch((error) => {
-      log.error(error);
-      trySpawningGlobalAppCache.set(randomApp, randomApp);
-      throw error;
-    });
+    await ensureApplicationPortsNotUsed(appSpecifications, runningAppsNames);
 
     // ensure images exists for platform
-    const imagesArchitectureMatches = await ensureApplicationImagesExistsForPlatform(appSpecifications).catch((error) => {
-      log.error(error);
-      trySpawningGlobalAppCache.set(randomApp, randomApp);
-      throw error;
-    });
+    const imagesArchitectureMatches = await ensureApplicationImagesExistsForPlatform(appSpecifications);
+
     if (imagesArchitectureMatches !== true) {
-      log.info(`Application ${randomApp} does not support our node architecture, installation aborted.`);
-      trySpawningGlobalAppCache.set(randomApp, randomApp);
+      log.info(`Application ${appToRun} does not support our node architecture, installation aborted.`);
       await serviceHelper.delay(adjustedDelay);
       trySpawningGlobalApplication();
       return;
