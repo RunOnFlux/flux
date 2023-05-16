@@ -109,6 +109,15 @@ const appsMonitored = {
 };
 
 /**
+ * To get if port belongs to enterprise range for app price update
+ * @returns {boolean} Returns true if enterprise
+ */
+function isPortEnterprise(port) {
+  console.log(port);
+  return false;
+}
+
+/**
  * To get array of price specifications updates
  * @returns {(object|object[])} Returns an array of app objects.
  */
@@ -3584,7 +3593,20 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
       const hddTotalCount = dataForAppRegistration.hddbasic + dataForAppRegistration.hddsuper + dataForAppRegistration.hddbamf;
       const hddPrice = hddTotalCount * priceSpecifications.hdd;
       const hddTotal = hddPrice / 3;
-      const totalPrice = cpuTotal + ramTotal + hddTotal;
+      let totalPrice = cpuTotal + ramTotal + hddTotal;
+      if (dataForAppRegistration.port) {
+        if (isPortEnterprise(dataForAppRegistration.port)) {
+          totalPrice += priceSpecifications.port;
+        }
+      } else if (dataForAppRegistration.ports) {
+        const enterprisePorts = [];
+        dataForAppRegistration.ports.forEach((port) => {
+          if (isPortEnterprise(port)) {
+            enterprisePorts.push(port);
+          }
+        });
+        totalPrice += enterprisePorts.length * priceSpecifications.port; // enterprise ports
+      }
       let appPrice = Number(Math.ceil(totalPrice * 100) / 100);
       if (instancesAdditional > 0) {
         const additionalPrice = (appPrice * instancesAdditional) / 3;
@@ -3598,7 +3620,20 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
     const cpuTotal = dataForAppRegistration.cpu * priceSpecifications.cpu * 10;
     const ramTotal = (dataForAppRegistration.ram * priceSpecifications.ram) / 100;
     const hddTotal = dataForAppRegistration.hdd * priceSpecifications.hdd;
-    const totalPrice = cpuTotal + ramTotal + hddTotal;
+    let totalPrice = cpuTotal + ramTotal + hddTotal;
+    if (dataForAppRegistration.port) {
+      if (isPortEnterprise(dataForAppRegistration.port)) {
+        totalPrice += priceSpecifications.port;
+      }
+    } else if (dataForAppRegistration.ports) {
+      const enterprisePorts = [];
+      dataForAppRegistration.ports.forEach((port) => {
+        if (isPortEnterprise(port)) {
+          enterprisePorts.push(port);
+        }
+      });
+      totalPrice += enterprisePorts.length * priceSpecifications.port; // enterprise ports
+    }
     let appPrice = Number(Math.ceil(totalPrice * 100) / 100);
     if (instancesAdditional > 0) {
       const additionalPrice = (appPrice * instancesAdditional) / 3;
@@ -3613,6 +3648,7 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
   let cpuTotalCount = 0;
   let ramTotalCount = 0;
   let hddTotalCount = 0;
+  const enterprisePorts = [];
   dataForAppRegistration.compose.forEach((appComponent) => {
     if (appComponent.tiered) {
       cpuTotalCount += ((appComponent.cpubasic + appComponent.cpusuper + appComponent.cpubamf) / 3);
@@ -3623,11 +3659,20 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
       ramTotalCount += appComponent.ram;
       hddTotalCount += appComponent.hdd;
     }
+    appComponent.ports.forEach((port) => {
+      if (isPortEnterprise(port)) {
+        enterprisePorts.push(port);
+      }
+    });
   });
   const cpuPrice = cpuTotalCount * priceSpecifications.cpu * 10;
   const ramPrice = (ramTotalCount * priceSpecifications.ram) / 100;
   const hddPrice = hddTotalCount * priceSpecifications.hdd;
-  const totalPrice = cpuPrice + ramPrice + hddPrice;
+  let totalPrice = cpuPrice + ramPrice + hddPrice;
+  if (dataForAppRegistration.nodes && dataForAppRegistration.nodes.length) { // v7+ enterprise app scoped to nodes
+    totalPrice += priceSpecifications.scope;
+  }
+  totalPrice += enterprisePorts.length * priceSpecifications.port; // enterprise ports
   let appPrice = Number(Math.ceil(totalPrice * 100) / 100);
   if (instancesAdditional > 0) {
     const additionalPrice = (appPrice * instancesAdditional) / 3;
@@ -9613,6 +9658,7 @@ module.exports = {
   checkMyAppsAvailability,
   checkApplicationsCompliance,
   testAppMount,
+  isPortEnterprise,
 
   // exports for testing purposes
   setAppsMonitored,
