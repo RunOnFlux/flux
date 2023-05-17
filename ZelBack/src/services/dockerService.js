@@ -3,6 +3,7 @@ const Docker = require('dockerode');
 const path = require('path');
 const serviceHelper = require('./serviceHelper');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
+const pgpService = require('./pgpService');
 const log = require('../lib/log');
 
 const fluxDirPath = path.join(__dirname, '../../../');
@@ -496,6 +497,21 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
       constructedVolumes.push(vol);
     }
   });
+  const envParams = appSpecifications.environmentParameters || appSpecifications.enviromentParameters;
+  if (appSpecifications.secrets) {
+    const decodedEnvParams = await pgpService.decryptMessage(appSpecifications.secrets);
+    if (Array.isArray(decodedEnvParams)) {
+      decodedEnvParams.forEach((parameter) => {
+        if (typeof parameter !== 'string' || parameter.length > 5000000) {
+          throw new Error('Environment parameters from Secrets are invalid');
+        } else {
+          envParams.push(parameter);
+        }
+      });
+    } else {
+      throw new Error('Environment parameters from Secrets are invalid');
+    }
+  }
   const options = {
     Image: appSpecifications.repotag,
     name: getAppIdentifier(identifier),
@@ -503,7 +519,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     AttachStdout: true,
     AttachStderr: true,
     Cmd: appSpecifications.commands,
-    Env: appSpecifications.environmentParameters || appSpecifications.enviromentParameters,
+    Env: envParams,
     Tty: false,
     ExposedPorts: exposedPorts,
     HostConfig: {
