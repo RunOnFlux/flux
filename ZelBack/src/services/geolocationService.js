@@ -5,6 +5,7 @@ const serviceHelper = require('./serviceHelper');
 let storedGeolocation = null;
 let storedIp = null;
 let staticIp = false;
+let execution = 1;
 const staticIpOrgs = ['hetzner', 'ovh', 'netcup', 'hostnodes', 'contabo'];
 
 /**
@@ -16,7 +17,7 @@ async function setNodeGeolocation() {
     if (!myIP) {
       throw new Error('Flux IP not detected. Flux geolocation service is awaiting');
     }
-    if (!storedGeolocation || myIP !== storedIp) {
+    if (!storedGeolocation || myIP !== storedIp || execution % 4 === 0) {
       log.info(`Checking geolocation of ${myIP}`);
       storedIp = myIP;
       // consider another service failover or stats db
@@ -46,6 +47,7 @@ async function setNodeGeolocation() {
         break;
       }
     }
+    execution += 1;
     setTimeout(() => { // executes again in 12h
       setNodeGeolocation();
     }, 12 * 60 * 60 * 1000);
