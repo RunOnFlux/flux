@@ -244,6 +244,9 @@ module.exports = (app, expressWs) => {
   app.get('/flux/ip', cache('30 seconds'), (req, res) => {
     fluxService.getFluxIP(req, res);
   });
+  app.get('/flux/staticip', cache('30 seconds'), (req, res) => {
+    fluxService.isStaticIP(req, res);
+  });
   app.get('/flux/zelid', cache('30 seconds'), (req, res) => {
     fluxService.getFluxZelID(req, res);
   });

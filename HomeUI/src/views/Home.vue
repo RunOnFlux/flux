@@ -11,6 +11,10 @@
         :variant="getNodeStatusResponse.class"
       />
       <list-entry
+        title="Static Ip ISP/Org"
+        :data="staticIp ? 'Yes': 'No'"
+      />
+      <list-entry
         v-if="getInfoResponse.message !== ''"
         title="Daemon Version"
         :data="getInfoResponse.message.version.toString()"

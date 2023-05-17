@@ -449,6 +449,18 @@ function getFluxZelID(req, res) {
 }
 
 /**
+ * To show the if FluxNode is running under a known static ip ISP/Org.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+function isStaticIP(req, res) {
+  const staticIp = geolocationService.IsStaticIp();
+  const message = messageHelper.createDataMessage(staticIp);
+  return res ? res.json(message) : message;
+}
+
+/**
  * To show the node pgp public key
  * @param {object} req Request.
  * @param {object} res Response.
@@ -825,6 +837,7 @@ async function getFluxInfo(req, res) {
       throw ipRes.data;
     }
     info.flux.ip = ipRes.data;
+    info.flux.staticIp = geolocationService.IsStaticIp();
     const zelidRes = await getFluxZelID();
     if (zelidRes.status === 'error') {
       throw zelidRes.data;
@@ -1129,6 +1142,7 @@ module.exports = {
   installFluxWatchTower,
   enterDevelopment,
   enterMaster,
+  isStaticIP,
 
   // Exports for testing purposes
   fluxLog,

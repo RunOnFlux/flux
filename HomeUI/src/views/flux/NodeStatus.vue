@@ -118,6 +118,7 @@ export default {
       connectedPeers: [],
       incomingConnections: [],
       filterConnectedPeer: '',
+      staticIp: false,
     };
   },
   computed: {
@@ -143,6 +144,7 @@ export default {
     this.daemonGetInfo();
     this.daemonGetNodeStatus();
     this.getOwnerZelid();
+    this.getStaticIpInfo();
   },
   methods: {
     async getOwnerZelid() {
@@ -150,6 +152,12 @@ export default {
       const obtainedZelid = response.data.data;
       if (response.data.status === 'success' && typeof obtainedZelid === 'string') {
         this.$store.commit('flux/setUserZelid', obtainedZelid);
+      }
+    },
+    async getStaticIpInfo() {
+      const response = await FluxService.getStaticIpInfo();
+      if (response.data.status === 'success') {
+        this.staticIp = response.data.data;
       }
     },
     async daemonGetInfo() {
