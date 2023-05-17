@@ -1627,6 +1627,7 @@ export default {
       nodeIP: '',
       tosAgreed: false,
       generalMultiplier: 1,
+      enterpriseNodes: [],
     };
   },
   computed: {
@@ -1725,11 +1726,27 @@ export default {
     this.appsDeploymentInformation();
     this.getFluxnodeStatus();
     this.getMultiplier();
+    this.getEnterpriseNodes();
     const zelidauth = localStorage.getItem('zelidauth');
     const auth = qs.parse(zelidauth);
     this.appRegistrationSpecification.owner = auth.zelid;
   },
   methods: {
+    async getEnterpriseNodes() {
+      const enterpriseList = localStorage.getItem('flux_enterprise_nodes');
+      this.enterpriseNodes = enterpriseList || [];
+      try {
+        const entList = await AppsService.getEnterpriseNodes();
+        if (entList.data.status === 'error') {
+          this.showToast('danger', entList.data.data.message || entList.data.data);
+        } else {
+          this.enterpriseNodes = entList.data.data;
+          localStorage.setItem('flux_enterprise_nodes', this.enterpriseNodes);
+        }
+      } catch (error) {
+        console.log(error);
+      }
+    },
     async getFluxnodeStatus() {
       try {
         const fluxnodeStatus = await DaemonService.getZelNodeStatus();
