@@ -230,12 +230,21 @@ async function dockerContainerChanges(idOrName) {
 
 /**
  * To pull a Docker Hub image and follow progress of the stream.
- * @param {string} repoTag Docker Hub repo/image tag.
+ * @param {object} config Pulling config consisting of repoTag and optional authToken
  * @param {object} res Response.
  * @param {function} callback Callback.
  */
-function dockerPullStream(repoTag, res, callback) {
-  docker.pull(repoTag, (err, mystream) => {
+function dockerPullStream(config, res, callback) {
+  const { repoTag, authToken } = config;
+  let pullOptions;
+  if (authToken) {
+    pullOptions = {
+      authconfig: {
+        key: authToken,
+      },
+    };
+  }
+  docker.pull(repoTag, pullOptions, (err, mystream) => {
     function onFinished(error, output) {
       if (error) {
         callback(err);

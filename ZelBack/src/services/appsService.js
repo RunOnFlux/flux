@@ -29,6 +29,7 @@ const generalService = require('./generalService');
 const upnpService = require('./upnpService');
 const geolocationService = require('./geolocationService');
 const syncthingService = require('./syncthingService');
+const pgpSrevice = require('./pgpService');
 const log = require('../lib/log');
 const userconfig = require('../../../config/userconfig');
 
@@ -2894,8 +2895,14 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   // eslint-disable-next-line no-use-before-define
   await checkApplicationImagesComplience(fullAppSpecs);
   // pull image
+  const pullConfig = { repoTag: appSpecifications.repotag };
+  // decode apikey if exists
+  if (appSpecifications.apikey) {
+    const authToken = await pgpSrevice.decryptMessage(appSpecifications.apikey);
+    pullConfig.authToken = authToken;
+  }
   // eslint-disable-next-line no-unused-vars
-  await dockerPullStreamPromise(appSpecifications.repotag, res);
+  await dockerPullStreamPromise(pullConfig, res);
   const pullStatus = {
     status: isComponent ? `Pulling component ${appSpecifications.name} of Flux App ${appName}` : `Pulling global Flux App ${appName} was successful`,
   };
@@ -3245,8 +3252,14 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   // eslint-disable-next-line no-use-before-define
   await checkApplicationImagesComplience(fullAppSpecs);
   // pull image
+  const pullConfig = { repoTag: appSpecifications.repotag };
+  // decode apikey if exists
+  if (appSpecifications.apikey) {
+    const authToken = await pgpSrevice.decryptMessage(appSpecifications.apikey);
+    pullConfig.authToken = authToken;
+  }
   // eslint-disable-next-line no-unused-vars
-  await dockerPullStreamPromise(appSpecifications.repotag, res);
+  await dockerPullStreamPromise(pullConfig, res);
   const pullStatus = {
     status: isComponent ? `Pulling global Flux App ${appSpecifications.name} was successful` : `Pulling global Flux App ${appName} was successful`,
   };
@@ -5965,6 +5978,7 @@ function specificationFormatter(appSpecification) {
   let { contacts } = appSpecification;
   let { geolocation } = appSpecification;
   let { expire } = appSpecification;
+  let { nodes } = appSpecification;
 
   if (!version) {
     throw new Error('Missing Flux App specification parameter');
@@ -6209,6 +6223,10 @@ function specificationFormatter(appSpecification) {
         appComponentCorrect.hddbasic = hddbasic;
         appComponentCorrect.hddsuper = hddsuper;
         appComponentCorrect.hddbamf = hddbamf;
+        if (version >= 7) {
+          appComponentCorrect.secrets = serviceHelper.ensureString(appComponent.secrets);
+          appComponentCorrect.apikey = serviceHelper.ensureString(appComponent.apikey);
+        }
       }
       correctCompose.push(appComponentCorrect);
     });
@@ -6285,6 +6303,23 @@ function specificationFormatter(appSpecification) {
       throw new Error(`Expiration of application has to be a multiple of ${config.fluxapps.blocksAllowanceInterval} blocks ~ 1 day`);
     }
     appSpecFormatted.expire = expire;
+  }
+
+  if (version >= 7) {
+    if (!nodes) { // can be empty array for no nodes set
+      throw new Error('Missing Flux App specification parameter');
+    }
+    nodes = serviceHelper.ensureObject(nodes);
+    const nodesCorrect = [];
+    if (Array.isArray(nodes)) {
+      nodes.forEach((parameter) => {
+        const param = serviceHelper.ensureString(parameter); // string
+        nodesCorrect.push(param);
+      });
+    } else {
+      throw new Error('Nodes for Flux App are invalid');
+    }
+    appSpecFormatted.nodes = nodesCorrect;
   }
 
   return appSpecFormatted;

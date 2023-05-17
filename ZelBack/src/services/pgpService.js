@@ -125,7 +125,7 @@ async function encryptMessage(message, encryptionKeys) {
  * @param {string} decryptionKey Armored version of private key
  * @returns {string} Return plain text message
  */
-async function decryptMessage(encryptedMessage, decryptionKey) {
+async function decryptMessage(encryptedMessage, decryptionKey = userconfig.initial.pgpPrivateKey) {
   try {
     const messageEncrypted = await openpgp.readMessage({
       armoredMessage: encryptedMessage, // parse armored message
