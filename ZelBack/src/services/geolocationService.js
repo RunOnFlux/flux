@@ -20,7 +20,7 @@ async function setNodeGeolocation() {
       log.info(`Checking geolocation of ${myIP}`);
       storedIp = myIP;
       // consider another service failover or stats db
-      const ipApiUrl = `http://ip-api.com/json/${myIP.split(':')[0]}?fields=status,continent,continentCode,country,countryCode,region,regionName,lat,lon,query,org`;
+      const ipApiUrl = `http://ip-api.com/json/${myIP.split(':')[0]}?fields=status,continent,continentCode,country,countryCode,region,regionName,lat,lon,query,org,isp`;
       const ipRes = await serviceHelper.axiosGet(ipApiUrl);
       if (ipRes.data.status !== 'success') {
         throw new Error(`Geolocation of IP ${myIP} is unavailable`);
@@ -35,7 +35,7 @@ async function setNodeGeolocation() {
         regionName: ipRes.data.regionName,
         lat: ipRes.data.lat,
         lon: ipRes.data.lon,
-        org: ipRes.data.org,
+        org: ipRes.data.org || ipRes.data.isp,
       };
     }
     log.info(`Geolocation of ${myIP} is ${JSON.stringify(storedGeolocation)}`);
