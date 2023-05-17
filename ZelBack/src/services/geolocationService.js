@@ -4,6 +4,8 @@ const serviceHelper = require('./serviceHelper');
 
 let storedGeolocation = null;
 let storedIp = null;
+let staticIp = false;
+const staticIpOrgs = ['hetzner', 'ovh', 'netcup', 'hostnodes', 'contabo'];
 
 /**
  * Method responsable for setting node geolocation information
@@ -37,6 +39,13 @@ async function setNodeGeolocation() {
       };
     }
     log.info(`Geolocation of ${myIP} is ${JSON.stringify(storedGeolocation)}`);
+    for (let i = 0; i < staticIpOrgs.length; i += 1) {
+      const org = staticIpOrgs[i];
+      if (storedGeolocation.org.toLowerCase().includes(org)) {
+        staticIp = true;
+        break;
+      }
+    }
     setTimeout(() => { // executes again in 12h
       setNodeGeolocation();
     }, 12 * 60 * 60 * 1000);
@@ -56,7 +65,15 @@ function getNodeGeolocation() {
   return storedGeolocation;
 }
 
+/**
+ * Method responsible for returning if node ip is static based on IP org.
+ */
+function IsStaticIp() {
+  return staticIp;
+}
+
 module.exports = {
   setNodeGeolocation,
   getNodeGeolocation,
+  IsStaticIp,
 };
