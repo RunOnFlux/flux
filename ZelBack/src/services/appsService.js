@@ -2896,9 +2896,9 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   await checkApplicationImagesComplience(fullAppSpecs);
   // pull image
   const pullConfig = { repoTag: appSpecifications.repotag };
-  // decode apikey if exists
-  if (appSpecifications.apikey) {
-    const authToken = await pgpSrevice.decryptMessage(appSpecifications.apikey);
+  // decode repoauth if exists
+  if (appSpecifications.repoauth) {
+    const authToken = await pgpSrevice.decryptMessage(appSpecifications.repoauth);
     pullConfig.authToken = authToken;
   }
   // eslint-disable-next-line no-unused-vars
@@ -3253,9 +3253,9 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   await checkApplicationImagesComplience(fullAppSpecs);
   // pull image
   const pullConfig = { repoTag: appSpecifications.repotag };
-  // decode apikey if exists
-  if (appSpecifications.apikey) {
-    const authToken = await pgpSrevice.decryptMessage(appSpecifications.apikey);
+  // decode repoauth if exists
+  if (appSpecifications.repoauth) {
+    const authToken = await pgpSrevice.decryptMessage(appSpecifications.repoauth);
     pullConfig.authToken = authToken;
   }
   // eslint-disable-next-line no-unused-vars
@@ -4585,7 +4585,7 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
           throw new Error(`Secrets for Flux App component ${appComponent.name} are invalid`);
         }
 
-        if (typeof appComponent.apikey !== 'string') {
+        if (typeof appComponent.repoauth !== 'string') {
           throw new Error(`Secrets for Flux App component ${appComponent.name} are invalid`);
         }
       }
@@ -4849,8 +4849,8 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
         if (appComponent.secrets.length > 15000) { // pgp encrypted message. Every signature encryption of node is about 100 characters. For 100 selected nodes, this gives ~5k chars limit
           throw new Error('Maximum length of secrets is 15000. Consider uploading to Flux Storage for bigger payload.');
         }
-        if (appComponent.apikey.length > 15000) { // pgp encrypted message.
-          throw new Error('Maximum length of apikey is 15000.');
+        if (appComponent.repoauth.length > 15000) { // pgp encrypted message.
+          throw new Error('Maximum length of repoauth is 15000.');
         }
       }
     }
@@ -5047,7 +5047,7 @@ function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
       'version', 'name', 'description', 'owner', 'compose', 'instances', 'contacts', 'geolocation', 'expire', 'nodes',
     ];
     const componentSpecifications = [
-      'name', 'description', 'repotag', 'ports', 'containerPorts', 'environmentParameters', 'commands', 'containerData', 'domains', 'secrets', 'apikey',
+      'name', 'description', 'repotag', 'ports', 'containerPorts', 'environmentParameters', 'commands', 'containerData', 'domains', 'secrets', 'repoauth',
       'cpu', 'ram', 'hdd', 'tiered', 'cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
     ];
     const specsKeys = Object.keys(appSpecifications);
@@ -6225,7 +6225,7 @@ function specificationFormatter(appSpecification) {
         appComponentCorrect.hddbamf = hddbamf;
         if (version >= 7) {
           appComponentCorrect.secrets = serviceHelper.ensureString(appComponent.secrets);
-          appComponentCorrect.apikey = serviceHelper.ensureString(appComponent.apikey);
+          appComponentCorrect.repoauth = serviceHelper.ensureString(appComponent.repoauth);
         }
       }
       correctCompose.push(appComponentCorrect);
