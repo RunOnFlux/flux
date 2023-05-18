@@ -1923,6 +1923,9 @@ async function getDeviceID(req, res) {
       const successResponse = messageHelper.createDataMessage(deviceID);
       return res ? res.json(successResponse) : successResponse;
     }
+    log.error(meta);
+    log.error(healthy);
+    log.error(pingResponse);
     throw new Error('Syncthing is not running properly');
   } catch (error) {
     log.error(error);
@@ -1944,11 +1947,19 @@ async function installSyncthing() { // can throw
 /**
  * To Start Syncthing
  */
+let previousSyncthingErrored = false;
 async function startSyncthing() {
   try {
     // check wether syncthing is running or not
     const myDevice = await getDeviceID();
     if (myDevice.status === 'error') {
+      // retry before killing and restarting
+      if (previousSyncthingErrored === false) {
+        previousSyncthingErrored = true;
+        await serviceHelper.delay(60 * 1000);
+        startSyncthing();
+      }
+      previousSyncthingErrored = false;
       log.error('Syncthing Error');
       log.error(myDevice);
       const execDIRcr = 'mkdir -p $HOME/.config'; // create .config folder first for it to have standard user ownership. With -p no error will be thrown in case of exists
