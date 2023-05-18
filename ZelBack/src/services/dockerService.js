@@ -4,6 +4,7 @@ const path = require('path');
 const serviceHelper = require('./serviceHelper');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
 const pgpService = require('./pgpService');
+const generalService = require('./generalService');
 const log = require('../lib/log');
 
 const fluxDirPath = path.join(__dirname, '../../../');
@@ -238,12 +239,34 @@ async function dockerContainerChanges(idOrName) {
 function dockerPullStream(config, res, callback) {
   const { repoTag, authToken } = config;
   let pullOptions;
+  const splittedRepo = generalService.splitRepoTag(repoTag);
+  const {
+    provider,
+    port,
+    providerName,
+  } = splittedRepo;
+  let serveraddress;
+  if (port) {
+    serveraddress = `${provider}:${port}`;
+  } else if (providerName !== 'Docker Hub') {
+    serveraddress = provider;
+  }
   if (authToken) {
-    pullOptions = {
-      authconfig: {
-        key: authToken,
-      },
-    };
+    if (authToken.includes(':')) { // specified by username:apikey
+      pullOptions = {
+        username: authToken.split(':')[0],
+        password: authToken.split(':')[2],
+      };
+      if (serveraddress) {
+        pullOptions.serveraddress = serveraddress;
+      }
+    } else { // base64 encoded auth object
+      pullOptions = {
+        authconfig: {
+          key: authToken,
+        },
+      };
+    }
   }
   docker.pull(repoTag, pullOptions, (err, mystream) => {
     function onFinished(error, output) {
