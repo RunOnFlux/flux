@@ -2881,7 +2881,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
     throw new Error(`Invalid architecture ${architecture} detected.`);
   }
   // eslint-disable-next-line no-use-before-define
-  const repoArchitectures = await repositoryArchitectures(appSpecifications.repotag);
+  const repoArchitectures = await repositoryArchitectures(appSpecifications.repotag, appSpecifications.repoauth);
   if (!repoArchitectures.includes(architecture)) { // if my system architecture is not in the image
     throw new Error(`Architecture ${architecture} not supported by ${appSpecifications.repotag}`);
   }
@@ -2890,7 +2890,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
 
   // check repotag if available for download
   // eslint-disable-next-line no-use-before-define
-  await verifyRepository(appSpecifications.repotag);
+  await verifyRepository(appSpecifications.repotag, appSpecifications.repoauth);
   // check blacklist
   // eslint-disable-next-line no-use-before-define
   await checkApplicationImagesComplience(fullAppSpecs);
@@ -2899,6 +2899,9 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   // decode repoauth if exists
   if (appSpecifications.repoauth) {
     const authToken = await pgpSrevice.decryptMessage(appSpecifications.repoauth);
+    if (!authToken) {
+      throw new Error('Unable to decrypt provided credentials');
+    }
     pullConfig.authToken = authToken;
   }
   // eslint-disable-next-line no-unused-vars
@@ -3238,7 +3241,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
     throw new Error(`Invalid architecture ${architecture} detected.`);
   }
   // eslint-disable-next-line no-use-before-define
-  const repoArchitectures = await repositoryArchitectures(appSpecifications.repotag);
+  const repoArchitectures = await repositoryArchitectures(appSpecifications.repotag, appSpecifications.repoauth);
   if (!repoArchitectures.includes(architecture)) { // if my system architecture is not in the image
     throw new Error(`Architecture ${architecture} not supported by ${appSpecifications.repotag}`);
   }
@@ -3247,7 +3250,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
 
   // check repotag if available for download
   // eslint-disable-next-line no-use-before-define
-  await verifyRepository(appSpecifications.repotag);
+  await verifyRepository(appSpecifications.repotag, appSpecifications.repoauth);
   // check blacklist
   // eslint-disable-next-line no-use-before-define
   await checkApplicationImagesComplience(fullAppSpecs);
@@ -3256,6 +3259,9 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   // decode repoauth if exists
   if (appSpecifications.repoauth) {
     const authToken = await pgpSrevice.decryptMessage(appSpecifications.repoauth);
+    if (!authToken) {
+      throw new Error('Unable to decrypt provided credentials');
+    }
     pullConfig.authToken = authToken;
   }
   // eslint-disable-next-line no-unused-vars
@@ -4056,7 +4062,7 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
  * @param {string} repotag Docker Hub repository tag.
  * @returns {boolean} True if no errors are thrown.
  */
-async function verifyRepository(repotag) {
+async function verifyRepository(repotag, repoauth, skipVerification = false) {
   const splittedRepo = generalService.splitRepoTag(repotag);
   let {
     provider,
@@ -4076,8 +4082,41 @@ async function verifyRepository(repotag) {
     authentication = `${authentication}:${port}`;
   }
   const image = repository;
+  if (repoauth && skipVerification) {
+    return true;
+  }
+  let decryptedRepoAuth;
+  if (repoauth) {
+    decryptedRepoAuth = pgpSrevice.decryptMessage(repoauth);
+    if (!decryptedRepoAuth) {
+      throw new Error('Unable to decrypt provided credentials');
+    }
+  }
   if (providerName === 'Docker Hub') { // favor docker hub api
-    const resDocker = await serviceHelper.axiosGet(`https://hub.docker.com/v2/repositories/${namespace}/${image}/tags/${tag}`).catch((error) => {
+    // if we are using private image, we need to authenticate first
+    let axiosConfig = {};
+    if (decryptedRepoAuth) {
+      let loginData = {};
+      if (decryptedRepoAuth.includes(':')) { // specified by username:apikey
+        loginData = {
+          username: decryptedRepoAuth.split(':')[0],
+          password: decryptedRepoAuth.split(':')[1],
+        };
+      } else {
+        throw new Error('Invalid login credentials for docker provided');
+      }
+      const loginResp = await axios.post('https://hub.docker.com/v2/users/login', loginData).catch((error) => {
+        console.log(error);
+      });
+      console.log(loginResp);
+      const { token } = loginResp.data;
+      axiosConfig = {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      };
+    }
+    const resDocker = await serviceHelper.axiosGet(`https://hub.docker.com/v2/repositories/${namespace}/${image}/tags/${tag}`, axiosConfig).catch((error) => {
       log.warn(error);
       throw new Error(`Repository ${repotag} is not found on ${providerName} in expected format`);
     });
@@ -5161,7 +5200,7 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
       await generalService.checkWhitelistedRepository(appSpecifications.repotag);
 
       // check repotag if available for download
-      await verifyRepository(appSpecifications.repotag);
+      await verifyRepository(appSpecifications.repotag, appSpecifications.repoauth, true);
     } else {
       // eslint-disable-next-line no-restricted-syntax
       for (const appComponent of appSpecifications.compose) {
@@ -5171,7 +5210,7 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
 
         // check repotag if available for download
         // eslint-disable-next-line no-await-in-loop
-        await verifyRepository(appComponent.repotag);
+        await verifyRepository(appComponent.repotag, appComponent.repoauth, true);
       }
     }
     // check blacklist
@@ -5408,7 +5447,7 @@ async function ensureApplicationPortsNotUsed(appSpecFormatted, globalCheckedApps
  * @param {string} repotag Docker Hub repository tag.
  * @returns {string[]} List of Docker image architectures.
  */
-async function repositoryArchitectures(repotag) {
+async function repositoryArchitectures(repotag, repoauth) {
   const splittedRepo = generalService.splitRepoTag(repotag);
   let {
     provider,
@@ -5429,8 +5468,38 @@ async function repositoryArchitectures(repotag) {
   }
   const image = repository;
   const architectures = [];
+  let decryptedRepoAuth;
+  if (repoauth) {
+    decryptedRepoAuth = pgpSrevice.decryptMessage(repoauth);
+    if (!decryptedRepoAuth) {
+      throw new Error('Unable to decrypt provided credentials');
+    }
+  }
   if (providerName === 'Docker Hub') { // favor docker hub api
-    const resDocker = await serviceHelper.axiosGet(`https://hub.docker.com/v2/repositories/${namespace}/${image}/tags/${tag}`).catch((error) => {
+    // if we are using private image, we need to authenticate first
+    let axiosConfig = {};
+    if (decryptedRepoAuth) {
+      let loginData = {};
+      if (decryptedRepoAuth.includes(':')) { // specified by username:apikey
+        loginData = {
+          username: decryptedRepoAuth.split(':')[0],
+          password: decryptedRepoAuth.split(':')[1],
+        };
+      } else {
+        throw new Error('Invalid login credentials for docker provided');
+      }
+      const loginResp = await axios.post('https://hub.docker.com/v2/users/login', loginData).catch((error) => {
+        console.log(error);
+      });
+      console.log(loginResp);
+      const { token } = loginResp.data;
+      axiosConfig = {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      };
+    }
+    const resDocker = await serviceHelper.axiosGet(`https://hub.docker.com/v2/repositories/${namespace}/${image}/tags/${tag}`, axiosConfig).catch((error) => {
       log.warn(error);
       throw new Error(`Repository ${repotag} is not found on ${providerName} in expected format`);
     });
@@ -5518,25 +5587,22 @@ async function ensureApplicationImagesExistsForPlatform(appSpecFormatted) {
   if (architecture !== 'arm64' && architecture !== 'amd64') {
     throw new Error(`Invalid architecture ${architecture} detected.`);
   }
-  // get all images in apps specifications
-  const appRepos = [];
   if (appSpecFormatted.version <= 3) {
-    appRepos.push(appSpecFormatted.repotag);
-  } else {
-    // eslint-disable-next-line no-restricted-syntax
-    for (const appComponent of appSpecFormatted.compose) {
-      appRepos.push(appComponent.repotag);
-    }
-  }
-  // eslint-disable-next-line no-restricted-syntax
-  for (const appRepo of appRepos) {
-    // eslint-disable-next-line no-await-in-loop
-    const repoArchitectures = await repositoryArchitectures(appRepo);
+    const repoArchitectures = await repositoryArchitectures(appSpecFormatted.repotag, appSpecFormatted.repoauth); // repoauth is undefined
     if (!repoArchitectures.includes(architecture)) { // if my system architecture is not in the image
       return false;
     }
-    // eslint-disable-next-line no-await-in-loop
-    await serviceHelper.delay(500); // catch for potential rate limit
+  } else {
+    // eslint-disable-next-line no-restricted-syntax
+    for (const appComponent of appSpecFormatted.compose) {
+      // eslint-disable-next-line no-await-in-loop
+      const repoArchitectures = await repositoryArchitectures(appComponent.repotag, appComponent.repoauth);
+      if (!repoArchitectures.includes(architecture)) { // if my system architecture is not in the image
+        return false;
+      }
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(500); // catch for potential rate limit
+    }
   }
   return true; // all images have my system architecture
 }
@@ -7957,7 +8023,7 @@ async function trySpawningGlobalApplication() {
 
       // check repotag if available for download
       // eslint-disable-next-line no-await-in-loop
-      await verifyRepository(componentToInstall.repotag);
+      await verifyRepository(componentToInstall.repotag, componentToInstall.repoauth);
     }
 
     // verify app compliance

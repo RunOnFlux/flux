@@ -260,12 +260,8 @@ function dockerPullStream(config, res, callback) {
       if (serveraddress) {
         pullOptions.serveraddress = serveraddress;
       }
-    } else { // base64 encoded auth object
-      pullOptions = {
-        authconfig: {
-          key: authToken,
-        },
-      };
+    } else {
+      throw new Error('Invalid login credentials for docker provided');
     }
   }
   docker.pull(repoTag, pullOptions, (err, mystream) => {
