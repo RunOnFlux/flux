@@ -853,9 +853,9 @@ async function checkDeterministicNodesCollisions() {
           // prevent new activation
         } else if (result.length === 1) {
           if (!myNode) {
-            log.error('Flux collision detection');
+            log.error('Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.');
             dosState = 100;
-            setDosMessage('Flux collision detection');
+            setDosMessage('Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.');
             setTimeout(() => {
               checkDeterministicNodesCollisions();
             }, 60 * 1000);

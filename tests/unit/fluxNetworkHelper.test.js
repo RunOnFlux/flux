@@ -1464,7 +1464,7 @@ describe('fluxNetworkHelper tests', () => {
 
       await fluxNetworkHelper.checkDeterministicNodesCollisions();
 
-      expect(fluxNetworkHelper.getDosMessage()).to.equal('Flux collision detection');
+      expect(fluxNetworkHelper.getDosMessage()).to.equal('Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.');
       expect(fluxNetworkHelper.getDosStateValue()).to.equal(100);
     });
   });
