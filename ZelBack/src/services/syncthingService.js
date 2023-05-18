@@ -1949,6 +1949,8 @@ async function startSyncthing() {
     // check wether syncthing is running or not
     const myDevice = await getDeviceID();
     if (myDevice.status === 'error') {
+      log.error('Syncthing Error');
+      log.error(myDevice);
       const execDIRcr = 'mkdir -p $HOME/.config'; // create .config folder first for it to have standard user ownership. With -p no error will be thrown in case of exists
       await cmdAsync(execDIRcr).catch((error) => log.error(error));
       const execDIRown = 'sudo chown $USER:$USER $HOME/.config'; // adjust .config folder for ownership of running user
@@ -2026,7 +2028,7 @@ async function startSyncthing() {
       if (restartRequired.status === 'success' && restartRequired.data.requiresRestart === true) {
         await systemRestart();
       }
-      await serviceHelper.delay(8 * 60 * 1000);
+      await serviceHelper.delay(0.5 * 60 * 1000);
       startSyncthing();
     }
   } catch (error) {
