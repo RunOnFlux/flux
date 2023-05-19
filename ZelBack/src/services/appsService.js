@@ -4094,7 +4094,7 @@ async function verifyRepository(repotag, repoauth, skipVerification = false) {
   }
   if (providerName === 'Docker Hub') { // favor docker hub api
     // if we are using private image, we need to authenticate first
-    let axiosConfig = {};
+    let axiosConfig;
     if (decryptedRepoAuth) {
       let loginData = {};
       if (decryptedRepoAuth.includes(':')) { // specified by username:token
@@ -4116,8 +4116,6 @@ async function verifyRepository(repotag, repoauth, skipVerification = false) {
         },
       };
     }
-    console.log(`https://hub.docker.com/v2/repositories/${namespace}/${image}/tags/${tag}`);
-    console.log(axiosConfig);
     const resDocker = await serviceHelper.axiosGet(`https://hub.docker.com/v2/repositories/${namespace}/${image}/tags/${tag}`, axiosConfig).catch((error) => {
       log.warn(error);
       throw new Error(`Repository ${repotag} is not found on ${providerName} in expected format`);
@@ -4145,7 +4143,7 @@ async function verifyRepository(repotag, repoauth, skipVerification = false) {
     }
   } else { // use docker v2 api, general for any public docker repositories
     // if we are using private image, we need to authenticate first
-    let axiosConfig = {};
+    let axiosConfig;
     if (decryptedRepoAuth) {
       let loginData = {};
       if (decryptedRepoAuth.includes(':')) { // specified by username:token
@@ -5495,7 +5493,7 @@ async function repositoryArchitectures(repotag, repoauth) {
   }
   if (providerName === 'Docker Hub') { // favor docker hub api
     // if we are using private image, we need to authenticate first
-    let axiosConfig = {};
+    let axiosConfig;
     if (decryptedRepoAuth) {
       let loginData = {};
       if (decryptedRepoAuth.includes(':')) { // specified by username:token
@@ -5539,7 +5537,7 @@ async function repositoryArchitectures(repotag, repoauth) {
     }
   } else { // use docker v2 api, general for any public docker repositories
     // if we are using private image, we need to authenticate first
-    let axiosConfig = {};
+    let axiosConfig;
     if (decryptedRepoAuth) {
       let loginData = {};
       if (decryptedRepoAuth.includes(':')) { // specified by username:token
