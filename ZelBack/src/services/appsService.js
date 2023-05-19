@@ -4097,7 +4097,7 @@ async function verifyRepository(repotag, repoauth, skipVerification = false) {
     let axiosConfig = {};
     if (decryptedRepoAuth) {
       let loginData = {};
-      if (decryptedRepoAuth.includes(':')) { // specified by username:apikey
+      if (decryptedRepoAuth.includes(':')) { // specified by username:token
         loginData = {
           username: decryptedRepoAuth.split(':')[0],
           password: decryptedRepoAuth.split(':')[1],
@@ -4142,7 +4142,23 @@ async function verifyRepository(repotag, repoauth, skipVerification = false) {
       throw new Error(`Docker image ${repotag} size is over Flux limit`);
     }
   } else { // use docker v2 api, general for any public docker repositories
-    const authTokenRes = await serviceHelper.axiosGet(`https://${authentication}/token?service=${service}&scope=repository:${namespace}/${image}:pull`).catch((error) => {
+    // if we are using private image, we need to authenticate first
+    let axiosConfig = {};
+    if (decryptedRepoAuth) {
+      let loginData = {};
+      if (decryptedRepoAuth.includes(':')) { // specified by username:token
+        loginData = {
+          username: decryptedRepoAuth.split(':')[0],
+          password: decryptedRepoAuth.split(':')[1],
+        };
+      } else {
+        throw new Error('Invalid login credentials for docker provided');
+      }
+      axiosConfig = {
+        auth: loginData,
+      };
+    }
+    const authTokenRes = await serviceHelper.axiosGet(`https://${authentication}/token?service=${service}&scope=repository:${namespace}/${image}:pull`, axiosConfig).catch((error) => {
       log.warn(error);
       throw new Error(`Authentication token from ${provider} for ${namespace}/${image} not available`);
     });
@@ -5480,7 +5496,7 @@ async function repositoryArchitectures(repotag, repoauth) {
     let axiosConfig = {};
     if (decryptedRepoAuth) {
       let loginData = {};
-      if (decryptedRepoAuth.includes(':')) { // specified by username:apikey
+      if (decryptedRepoAuth.includes(':')) { // specified by username:token
         loginData = {
           username: decryptedRepoAuth.split(':')[0],
           password: decryptedRepoAuth.split(':')[1],
@@ -5520,7 +5536,23 @@ async function repositoryArchitectures(repotag, repoauth) {
       architectures.push(img.architecture);
     }
   } else { // use docker v2 api, general for any public docker repositories
-    const authTokenRes = await serviceHelper.axiosGet(`https://${authentication}/token?service=${service}&scope=repository:${namespace}/${image}:pull`).catch((error) => {
+    // if we are using private image, we need to authenticate first
+    let axiosConfig = {};
+    if (decryptedRepoAuth) {
+      let loginData = {};
+      if (decryptedRepoAuth.includes(':')) { // specified by username:token
+        loginData = {
+          username: decryptedRepoAuth.split(':')[0],
+          password: decryptedRepoAuth.split(':')[1],
+        };
+      } else {
+        throw new Error('Invalid login credentials for docker provided');
+      }
+      axiosConfig = {
+        auth: loginData,
+      };
+    }
+    const authTokenRes = await serviceHelper.axiosGet(`https://${authentication}/token?service=${service}&scope=repository:${namespace}/${image}:pull`, axiosConfig).catch((error) => {
       log.warn(error);
       throw new Error(`Authentication token from ${provider} for ${namespace}/${image} not available`);
     });
