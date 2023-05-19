@@ -4116,6 +4116,8 @@ async function verifyRepository(repotag, repoauth, skipVerification = false) {
         },
       };
     }
+    console.log(`https://hub.docker.com/v2/repositories/${namespace}/${image}/tags/${tag}`);
+    console.log(axiosConfig);
     const resDocker = await serviceHelper.axiosGet(`https://hub.docker.com/v2/repositories/${namespace}/${image}/tags/${tag}`, axiosConfig).catch((error) => {
       log.warn(error);
       throw new Error(`Repository ${repotag} is not found on ${providerName} in expected format`);
