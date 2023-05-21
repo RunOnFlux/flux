@@ -1500,7 +1500,7 @@
             </b-card>
             <b-card
               v-for="(component, index) in callBResponse.data.compose"
-              v-else
+              v-if="callBResponse.data.version >= 4"
               :key="index"
             >
               <b-card-title>

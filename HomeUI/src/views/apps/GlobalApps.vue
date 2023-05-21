@@ -88,6 +88,10 @@
                         title="Period"
                         :data="labelForExpire(row.item.expire)"
                       />
+                      <list-entry
+                        title="Enteprise Nodes"
+                        :data="row.item.nodes ? row.item.nodes.toString() : 'Not scoped'"
+                      />
                       <h4>Composition</h4>
                       <div v-if="row.item.version <= 3">
                         <b-card>
@@ -198,6 +202,10 @@
                             :data="component.repotag"
                           />
                           <list-entry
+                            title="Repository Authentication"
+                            :data="component.repoauth ? 'Content Encrypted' : 'Public'"
+                          />
+                          <list-entry
                             title="Custom Domains"
                             :data="component.domains.toString() || 'none'"
                           />
@@ -224,6 +232,10 @@
                           <list-entry
                             title="Commands"
                             :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
+                          />
+                          <list-entry
+                            title="Secret Environment Parameters"
+                            :data="component.secrets ? 'Content Encrypted' : 'none'"
                           />
                           <div v-if="component.tiered">
                             <list-entry
@@ -409,6 +421,10 @@
                         title="Period"
                         :data="labelForExpire(row.item.expire)"
                       />
+                      <list-entry
+                        title="Enteprise Nodes"
+                        :data="row.item.nodes.toString() || 'Public'"
+                      />
                       <h4>Composition</h4>
                       <div v-if="row.item.version <= 3">
                         <b-card>
@@ -519,6 +535,10 @@
                             :data="component.repotag"
                           />
                           <list-entry
+                            title="Repository Authentication"
+                            :data="component.repoauth ? 'Content Encrypted' : 'Public'"
+                          />
+                          <list-entry
                             title="Custom Domains"
                             :data="component.domains.toString() || 'none'"
                           />
@@ -545,6 +565,10 @@
                           <list-entry
                             title="Commands"
                             :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
+                          />
+                          <list-entry
+                            title="Secret Environment Parameters"
+                            :data="component.secrets ? 'Content Encrypted' : 'none'"
                           />
                           <div v-if="component.tiered">
                             <list-entry
