@@ -4901,11 +4901,20 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
       }
 
       if (appSpecifications.version >= 7) {
-        if (appComponent.secrets.length > 15000) { // pgp encrypted message. Every signature encryption of node is about 100 characters. For 100 selected nodes, this gives ~5k chars limit
-          throw new Error('Maximum length of secrets is 15000. Consider uploading to Flux Storage for bigger payload.');
-        }
-        if (appComponent.repoauth.length > 15000) { // pgp encrypted message.
-          throw new Error('Maximum length of repoauth is 15000.');
+        if (!appSpecifications.nodes.length) { // this is NOT an enterprise app, no nodes scoping
+          if (appComponent.secrets.length) { // pgp encrypted message. Every signature encryption of node is about 100 characters. For 100 selected nodes, this gives ~5k chars limit
+            throw new Error('Secrets can not be defined for non Enterprise Applications');
+          }
+          if (appComponent.repoauth.length) { // pgp encrypted message.
+            throw new Error('Private repositories are only allowed for Enteprise Applications');
+          }
+        } else {
+          if (appComponent.secrets.length > 15000) { // pgp encrypted message. Every signature encryption of node is about 100 characters. For 100 selected nodes, this gives ~5k chars limit
+            throw new Error('Maximum length of secrets is 15000. Consider uploading to Flux Storage for bigger payload.');
+          }
+          if (appComponent.repoauth.length > 15000) { // pgp encrypted message.
+            throw new Error('Maximum length of repoauth is 15000.');
+          }
         }
       }
     }
@@ -4953,8 +4962,8 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
   }
 
   if (appSpecifications.version >= 7) {
-    if (appSpecifications.nodes.length > 105) {
-      throw new Error('Minimum number of selecteed nodes is 105');
+    if (appSpecifications.nodes.length > 110) {
+      throw new Error('Maximum number of selecteed nodes is 110');
     }
     appSpecifications.nodes.forEach((node) => {
       if (node.length > 70) { // 64 for txhash, : separator, max 5 for outidx
