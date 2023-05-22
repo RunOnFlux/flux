@@ -106,6 +106,50 @@ function minVersionSatisfy(version, minimumVersion) {
 }
 
 /**
+ * To get if port belongs to enterprise range
+ * @returns {boolean} Returns true if enterprise
+ */
+function isPortEnterprise(port) {
+  const { enterprisePorts } = config.fluxapps;
+  let portEnterprise = false;
+  enterprisePorts.forEach((portOrInterval) => {
+    if (typeof portOrInterval === 'string') { // '0-10'
+      const minPort = Number(portOrInterval.split('-')[0]);
+      const maxPort = Number(portOrInterval.split('-')[1]);
+      if (+port >= minPort && +port <= maxPort) {
+        portEnterprise = true;
+      }
+    } else if (portOrInterval === +port) {
+      portEnterprise = true;
+    }
+  });
+  console.log(port);
+  return portEnterprise;
+}
+
+/**
+ * To get if port belongs to banned range
+ * @returns {boolean} Returns true if port is banned
+ */
+function isPortBanned(port) {
+  const { bannedPorts } = config.fluxapps;
+  let portBanned = false;
+  bannedPorts.forEach((portOrInterval) => {
+    if (typeof portOrInterval === 'string') { // '0-10'
+      const minPort = Number(portOrInterval.split('-')[0]);
+      const maxPort = Number(portOrInterval.split('-')[1]);
+      if (+port >= minPort && +port <= maxPort) {
+        portBanned = true;
+      }
+    } else if (portOrInterval === +port) {
+      portBanned = true;
+    }
+  });
+  console.log(port);
+  return portBanned;
+}
+
+/**
  * To perform a basic check if port on an ip is opened
  * This requires our port to be also open on out
  * @param {string} ip IP address.
@@ -290,15 +334,20 @@ async function checkAppAvailability(req, res) {
       delete dataToVerify.signature;
       const messageToVerify = JSON.stringify(dataToVerify);
       const verified = verificationHelper.verifyMessage(messageToVerify, pubKey, signature);
-      if ((verified !== true || !node) && authorized !== true) {
+      if ((verified !== true || !node) && authorized !== true) { // TODO
         log.error('Unable to verify request authenticity');
         // throw new Error('Unable to verify request authenticity');
       }
 
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+      const daemonHeight = syncStatus.data.height;
+      const minPort = daemonHeight >= config.fluxapps.portBockheightChange ? config.fluxapps.portMinNew : config.fluxapps.portMin - 1000;
+      const maxPort = daemonHeight >= config.fluxapps.portBockheightChange ? config.fluxapps.portMaxNew : config.fluxapps.portMax;
       const portsListening = [];
       // eslint-disable-next-line no-restricted-syntax
       for (const port of ports) {
-        if (+port >= (config.fluxapps.portMin - 1000) && +port <= config.fluxapps.portMax) {
+        const iBP = isPortBanned(+port);
+        if (+port >= minPort && +port <= maxPort && !iBP) {
         // eslint-disable-next-line no-await-in-loop
           const isOpen = await isPortOpen(ip, port, appname, 30000);
           if (!isOpen) {
@@ -979,7 +1028,8 @@ async function denyPort(port) {
     status: false,
     message: null,
   };
-  if (+port < (config.fluxapps.portMin - 1000) || +port > config.fluxapps.portMax) {
+  const portBanned = isPortBanned(+port);
+  if (+port < (config.fluxapps.portMinNew) || +port > config.fluxapps.portMaxNew || portBanned) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
@@ -1009,7 +1059,8 @@ async function deleteAllowPortRule(port) {
     status: false,
     message: null,
   };
-  if (+port < (config.fluxapps.portMin - 1000) || +port > config.fluxapps.portMax) {
+  const portBanned = isPortBanned(+port);
+  if (+port < (config.fluxapps.portMinNew) || +port > config.fluxapps.portMaxNew || portBanned) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
@@ -1036,7 +1087,8 @@ async function deleteDenyPortRule(port) {
     status: false,
     message: null,
   };
-  if (+port < (config.fluxapps.portMin - 1000) || +port > config.fluxapps.portMax) {
+  const portBanned = isPortBanned(+port);
+  if (+port < (config.fluxapps.portMinNew) || +port > config.fluxapps.portMaxNew || portBanned) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
@@ -1063,7 +1115,8 @@ async function deleteAllowOutPortRule(port) {
     status: false,
     message: null,
   };
-  if (+port < (config.fluxapps.portMin - 1000) || +port > config.fluxapps.portMax) {
+  const portBanned = isPortBanned(+port);
+  if (+port < (config.fluxapps.portMinNew) || +port > config.fluxapps.portMaxNew || portBanned) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
@@ -1303,4 +1356,6 @@ module.exports = {
   lruRateLimit,
   isPortOpen,
   checkAppAvailability,
+  isPortEnterprise,
+  isPortBanned,
 };

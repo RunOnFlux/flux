@@ -110,15 +110,6 @@ const appsMonitored = {
 };
 
 /**
- * To get if port belongs to enterprise range for app price update
- * @returns {boolean} Returns true if enterprise
- */
-function isPortEnterprise(port) {
-  console.log(port);
-  return false;
-}
-
-/**
  * To get array of price specifications updates
  * @returns {(object|object[])} Returns an array of app objects.
  */
@@ -3614,13 +3605,13 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
       const hddTotal = hddPrice / 3;
       let totalPrice = cpuTotal + ramTotal + hddTotal;
       if (dataForAppRegistration.port) {
-        if (isPortEnterprise(dataForAppRegistration.port)) {
+        if (fluxNetworkHelper.isPortEnterprise(dataForAppRegistration.port)) {
           totalPrice += priceSpecifications.port;
         }
       } else if (dataForAppRegistration.ports) {
         const enterprisePorts = [];
         dataForAppRegistration.ports.forEach((port) => {
-          if (isPortEnterprise(port)) {
+          if (fluxNetworkHelper.isPortEnterprise(port)) {
             enterprisePorts.push(port);
           }
         });
@@ -3641,13 +3632,13 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
     const hddTotal = dataForAppRegistration.hdd * priceSpecifications.hdd;
     let totalPrice = cpuTotal + ramTotal + hddTotal;
     if (dataForAppRegistration.port) {
-      if (isPortEnterprise(dataForAppRegistration.port)) {
+      if (fluxNetworkHelper.isPortEnterprise(dataForAppRegistration.port)) {
         totalPrice += priceSpecifications.port;
       }
     } else if (dataForAppRegistration.ports) {
       const enterprisePorts = [];
       dataForAppRegistration.ports.forEach((port) => {
-        if (isPortEnterprise(port)) {
+        if (fluxNetworkHelper.isPortEnterprise(port)) {
           enterprisePorts.push(port);
         }
       });
@@ -3679,7 +3670,7 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
       hddTotalCount += appComponent.hdd;
     }
     appComponent.ports.forEach((port) => {
-      if (isPortEnterprise(port)) {
+      if (fluxNetworkHelper.isPortEnterprise(port)) {
         enterprisePorts.push(port);
       }
     });
@@ -4722,6 +4713,8 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
  * @returns {boolean} True if no errors are thrown.
  */
 function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
+  const minPort = height >= config.fluxapps.portBockheightChange ? config.fluxapps.portMinNew : config.fluxapps.portMin;
+  const maxPort = height >= config.fluxapps.portBockheightChange ? config.fluxapps.portMaxNew : config.fluxapps.portMax;
   if (appSpecifications.version !== 1 && appSpecifications.version !== 2 && appSpecifications.version !== 3 && appSpecifications.version !== 4 && appSpecifications.version !== 5 && appSpecifications.version !== 6 && appSpecifications.version !== 7) {
     throw new Error('Flux App message version specification is invalid');
   }
@@ -4744,8 +4737,12 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
 
   if (appSpecifications.version === 1) {
     // check port is within range
-    if (appSpecifications.port < config.fluxapps.portMin || appSpecifications.port > config.fluxapps.portMax) {
-      throw new Error(`Assigned port ${appSpecifications.port} is not within Flux Apps range ${config.fluxapps.portMin}-${config.fluxapps.portMax}`);
+    if (appSpecifications.port < minPort || appSpecifications.port > maxPort) {
+      throw new Error(`Assigned port ${appSpecifications.port} is not within Flux Apps range ${minPort}-${maxPort}`);
+    }
+    const iBP = fluxNetworkHelper.isPortBanned(appSpecifications.port);
+    if (iBP) {
+      throw new Error(`Assigned port ${appSpecifications.port} is not allowed for Flux Apps`);
     }
     // check if containerPort makes sense
     if (appSpecifications.containerPort < 0 || appSpecifications.containerPort > 65535) {
@@ -4754,8 +4751,12 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
   } else if (appSpecifications.version <= 3) {
     // check port is within range
     appSpecifications.ports.forEach((port) => {
-      if (port < config.fluxapps.portMin || port > config.fluxapps.portMax) {
-        throw new Error(`Assigned port ${port} is not within Flux Apps range ${config.fluxapps.portMin}-${config.fluxapps.portMax}`);
+      if (port < minPort || port > maxPort) {
+        throw new Error(`Assigned port ${port} is not within Flux Apps range ${minPort}-${maxPort}`);
+      }
+      const iBP = fluxNetworkHelper.isPortBanned(port);
+      if (iBP) {
+        throw new Error(`Assigned port ${port} is not allowed for Flux Apps`);
       }
     });
     // check if containerPort makes sense
@@ -4849,8 +4850,12 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
         throw new Error('Description is too long. Maximum of 256 characters is allowed.');
       }
       appComponent.ports.forEach((port) => {
-        if (port < config.fluxapps.portMin || port > config.fluxapps.portMax) {
-          throw new Error(`Assigned port ${port} is not within Flux Apps range ${config.fluxapps.portMin}-${config.fluxapps.portMax}`);
+        if (port < minPort || port > maxPort) {
+          throw new Error(`Assigned port ${port} is not within Flux Apps range ${minPort}-${maxPort}`);
+        }
+        const iBP = fluxNetworkHelper.isPortBanned(port);
+        if (iBP) {
+          throw new Error(`Assigned port ${port} is not allowed for Flux Apps`);
         }
       });
       if (appComponent.repotag.length > 200) {
@@ -8991,12 +8996,16 @@ async function deploymentInformation(req, res) {
     }
     // search in chainparams db for chainmessages of p version
     const appPrices = await getChainParamsPriceUpdates();
+    const minPort = daemonHeight >= config.fluxapps.portBockheightChange ? config.fluxapps.portMinNew : config.fluxapps.portMin;
+    const maxPort = daemonHeight >= config.fluxapps.portBockheightChange ? config.fluxapps.portMaxNew : config.fluxapps.portMax;
     const information = {
       price: appPrices,
       appSpecsEnforcementHeights: config.fluxapps.appSpecsEnforcementHeights,
       address: deployAddr,
-      portMin: config.fluxapps.portMin,
-      portMax: config.fluxapps.portMax,
+      portMin: minPort,
+      portMax: maxPort,
+      enterprisePorts: config.fluxapps.enterprisePorts,
+      bannedPorts: config.fluxapps.bannedPorts,
       maxImageSize: config.fluxapps.maxImageSize,
       minimumInstances: config.fluxapps.minimumInstances,
       maximumInstances: config.fluxapps.maximumInstances,
@@ -9464,10 +9473,19 @@ async function checkMyAppsAvailability() {
         });
       }
     }
+    const minPort = currentHeight.generalScannedHeight >= config.fluxapps.portBockheightChange ? config.fluxapps.portMinNew : config.fluxapps.portMin - 1000;
+    const maxPort = currentHeight.generalScannedHeight >= config.fluxapps.portBockheightChange ? config.fluxapps.portMaxNew : config.fluxapps.portMax;
     // choose random port
-    const min = config.fluxapps.portMin - 1000;
-    const max = config.fluxapps.portMax;
+    const min = minPort;
+    const max = maxPort;
     testingPort = failedPort || Math.floor(Math.random() * (max - min) + min);
+    const iBP = fluxNetworkHelper.isPortBanned(testingPort);
+    if (iBP) {
+      // skip this check, port is not possible to run on flux
+      await serviceHelper.delay(15 * 1000);
+      checkMyAppsAvailability();
+      return;
+    }
     if (appPorts.includes(testingPort)) {
       log.warn(`Skipped checking ${testingPort} - in use.`);
       failedPort = null;
@@ -9800,7 +9818,6 @@ module.exports = {
   checkMyAppsAvailability,
   checkApplicationsCompliance,
   testAppMount,
-  isPortEnterprise,
 
   // exports for testing purposes
   setAppsMonitored,
