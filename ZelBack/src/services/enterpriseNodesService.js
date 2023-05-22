@@ -74,7 +74,7 @@ async function getEnterpriseList() {
       let enterprisePoints = 0;
       const enterpriseNodesPubKees = config.enterprisePublicKeys;
       if (enterpriseNodesPubKees.includes(nodeInfo.pubkey)) {
-        enterprisePoints = 1000;
+        enterprisePoints = 2000;
       }
       const enterpriseScore = collateralPoints + maturityPoints + pubKeyPoints + enterprisePoints;
       nodeInfo.score = Math.floor(enterpriseScore);
