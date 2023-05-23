@@ -454,8 +454,8 @@ function getFluxZelID(req, res) {
  * @param {object} res Response.
  * @returns {object} Message.
  */
-function isStaticIP(req, res) {
-  const staticIp = geolocationService.IsStaticIp();
+function isStaticIPapi(req, res) {
+  const staticIp = geolocationService.isStaticIP();
   const message = messageHelper.createDataMessage(staticIp);
   return res ? res.json(message) : message;
 }
@@ -837,7 +837,7 @@ async function getFluxInfo(req, res) {
       throw ipRes.data;
     }
     info.flux.ip = ipRes.data;
-    info.flux.staticIp = geolocationService.IsStaticIp();
+    info.flux.staticIp = geolocationService.isStaticIP();
     const zelidRes = await getFluxZelID();
     if (zelidRes.status === 'error') {
       throw zelidRes.data;
@@ -1142,7 +1142,7 @@ module.exports = {
   installFluxWatchTower,
   enterDevelopment,
   enterMaster,
-  isStaticIP,
+  isStaticIPapi,
 
   // Exports for testing purposes
   fluxLog,

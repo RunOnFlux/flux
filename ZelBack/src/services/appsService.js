@@ -2742,6 +2742,22 @@ function nodeFullGeolocation() {
 }
 
 /**
+ * To check app requirements of staticip restrictions for a node
+ * @param {object} appSpecs App specifications.
+ * @returns {boolean} True if all checks passed.
+ */
+function checkAppStaticIpRequirements(appSpecs) {
+  // check geolocation
+  if (appSpecs.version >= 7 && appSpecs.staticip) {
+    const isMyNodeStaticIP = geolocationService.isStaticIP();
+    if (isMyNodeStaticIP !== appSpecs.staticip) {
+      throw new Error(`Application ${appSpecs.name} requires static IP address to run. Aborting.`);
+    }
+  }
+  return true;
+}
+
+/**
  * To check app requirements of geolocation restrictions for a node
  * @param {object} appSpecs App specifications.
  * @returns {boolean} True if all checks passed.
@@ -2749,11 +2765,11 @@ function nodeFullGeolocation() {
 function checkAppGeolocationRequirements(appSpecs) {
   // check geolocation
   if (appSpecs.version >= 5) {
-    const nodeGeo = geolocationService.getNodeGeolocation();
-    if (!nodeGeo) {
-      throw new Error('Node Geolocation not set. Aborting.');
-    }
     if (appSpecs.geolocation && appSpecs.geolocation.length > 0) {
+      const nodeGeo = geolocationService.getNodeGeolocation();
+      if (!nodeGeo) {
+        throw new Error('Node Geolocation not set. Aborting.');
+      }
       // previous geolocation specification version (a, b) [aEU, bFR]
       // current geolocation style [acEU], [acEU_CZ], [acEU_CZ_PRG], [a!cEU], [a!cEU_CZ], [a!cEU_CZ_PRG]
       const appContinent = appSpecs.geolocation.find((x) => x.startsWith('a'));
@@ -2851,6 +2867,8 @@ async function checkAppRequirements(appSpecs) {
   // appSpecs has hdd, cpu and ram assigned to correct tier
   await checkAppHWRequirements(appSpecs);
   // check geolocation
+
+  checkAppStaticIpRequirements(appSpecs);
 
   checkAppGeolocationRequirements(appSpecs);
 

@@ -70,12 +70,12 @@ function getNodeGeolocation() {
 /**
  * Method responsible for returning if node ip is static based on IP org.
  */
-function IsStaticIp() {
+function isStaticIP() {
   return staticIp;
 }
 
 module.exports = {
   setNodeGeolocation,
   getNodeGeolocation,
-  IsStaticIp,
+  isStaticIP,
 };
