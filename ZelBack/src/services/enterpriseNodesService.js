@@ -1,7 +1,10 @@
 const config = require('config');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const messageHelper = require('./messageHelper');
+const dbHelper = require('./dbHelper');
 const log = require('../lib/log');
+
+const globalAppsInformation = config.database.appsglobal.collections.appsInformation;
 
 /**
  * To get enterprise nodes list
@@ -18,11 +21,27 @@ async function getEnterpriseList() {
     // node tier collateralization - 2, 15, 30 points (cumulus, nimbus, stratus points)
     // if node is having port defined, exclude from enterprise list. This is because we require unique ip per app, otherwise a port clash will occur
     // a node will always prioritize its assigned app for deployment
-    // TODO get global app list specs and see if some app is specified to be locked for our node. If yes, decrease trust score by 25% once v7 app specs are finalized
+    // get global app list specs and see if some app is specified to be locked for our node. If yes, decrease trust score by 25%
     // private image requires api key. We use IP (not collateral as of size limitations and as of easiness to obtain pgp) to determine a list where app will be spawned. Only those IPs can run the app - if the pgp can decrypt
     // v7: nodes field - array of IPs that can run the app, that should be able to decode the app.
     // each component now has secrets possibility - env variables field that gets encrypted by the IPs pgps
     // each component now has  repoauth username:token or auth token. - encrypted field for pulling private docker image
+    const dbopen = dbHelper.databaseConnection();
+    const database = dbopen.db(config.database.appsglobal.database);
+    const query = { version: { $gte: 7 } };
+    const projection = { projection: { _id: 0 } };
+    const globalApps = await dbHelper.findInDatabase(database, globalAppsInformation, query, projection); // get apps v7
+    const globalAppsScoped = globalApps.filter((apps) => apps.nodes.length); // only enterprise apps
+    const isAlreadyEnterprised = {}; // ip/collateral: points
+    globalAppsScoped.forEach((app) => {
+      app.nodes.forEach((node) => {
+        if (isAlreadyEnterprised[node]) {
+          isAlreadyEnterprised[node] += 1;
+        } else {
+          isAlreadyEnterprised[node] = 1;
+        }
+      });
+    });
     const currentTime = new Date().getTime();
     const collateralized = {}; // pubkey: points
     nodeList.forEach((node) => {
@@ -76,12 +95,23 @@ async function getEnterpriseList() {
       if (enterpriseNodesPubKees.includes(nodeInfo.pubkey)) {
         enterprisePoints = 2000;
       }
-      const enterpriseScore = collateralPoints + maturityPoints + pubKeyPoints + enterprisePoints;
-      nodeInfo.score = Math.floor(enterpriseScore);
       nodeInfo.collateralPoints = collateralPoints;
       nodeInfo.maturityPoints = maturityPoints;
       nodeInfo.pubKeyPoints = pubKeyPoints;
       nodeInfo.enterprisePoints = enterprisePoints;
+      let enterpriseApps = 0;
+      if (isAlreadyEnterprised[nodeInfo.ip]) {
+        enterpriseApps += isAlreadyEnterprised[nodeInfo.ip];
+      }
+      if (isAlreadyEnterprised[`${nodeInfo.txhash}:${nodeInfo.outidx}`]) {
+        enterpriseApps += isAlreadyEnterprised[`${nodeInfo.txhash}:${nodeInfo.outidx}`];
+      }
+      nodeInfo.enterpriseApps = enterpriseApps;
+      let enterpriseScore = collateralPoints + maturityPoints + pubKeyPoints + enterprisePoints;
+      for (let i = 0; i < enterpriseApps; i += 1) {
+        enterpriseScore *= 0.75; // reduce score by 25%
+      }
+      nodeInfo.score = Math.floor(enterpriseScore);
       if (nodeInfo.ip && !nodeInfo.ip.includes(':')) {
         enterpriseList.push(nodeInfo);
       }
