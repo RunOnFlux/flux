@@ -82,6 +82,7 @@ module.exports = {
       minPrice: 1, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
       port: 2, // additional price per enterprise port
       scope: 6, // additional price for application targetting specific nodes, private images
+      staticip: 3, // additional price per application for targetting nodes that have static ip address
     },
     {
       height: 983000, // height from which price spec is valid. Counts from when app was registerd on blockchain!
@@ -91,6 +92,7 @@ module.exports = {
       minPrice: 0.1, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
       port: 2, // additional price per enterprise port
       scope: 6, // additional price for application targetting specific nodes, private images
+      staticip: 3, // additional price per application for targetting nodes that have static ip address
     },
     {
       height: 1004000, // height from which price spec is valid. Counts from when app was registerd on blockchain! 1004000
@@ -100,6 +102,7 @@ module.exports = {
       minPrice: 0.01, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
       port: 2, // additional price per enterprise port
       scope: 6, // additional price for application targetting specific nodes, private images
+      staticip: 3, // additional price per application for targetting nodes that have static ip address
     },
     {
       height: 1288000, // height from which price spec is valid. Counts from when app was registerd on blockchain! 1004000
@@ -109,6 +112,7 @@ module.exports = {
       minPrice: 0.01, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
       port: 2, // additional price per enterprise port
       scope: 6, // additional price for application targetting specific nodes, private images
+      staticip: 3, // additional price per application for targetting nodes that have static ip address
     }],
     appSpecsEnforcementHeights: {
       1: 0, // blockheight v1 is deprecated. Not possible to use api to update to its specs
@@ -117,7 +121,7 @@ module.exports = {
       4: 1004000, // v4 available, composition
       5: 1142000, // v5 available adding contacts, geolocation
       6: 1300000, // v6, expiration, app price, t3
-      7: 1420000, // v7, nodes selection, secrets, private images (nodes selection allows secrets, private image - scope)
+      7: 1420000, // v7, nodes selection, secrets, private images (nodes selection allows secrets, private image - scope), staticip
     },
     address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
     addressMultisig: 't3aGJvdtd8NR6GrnqnRuVEzH6MbrXuJFLUX',
@@ -128,7 +132,7 @@ module.exports = {
     portBockheightChange: 1420000,
     portMinNew: 1,
     portMaxNew: 65535,
-    bannedPorts: ['16100-16299', '26100-26299', '30000-30099', 8384, 27017, 22, 23, 25, 3389, 5900, 5800, 161, 512, 513, 5901, 3388, 4444],
+    bannedPorts: ['16100-16299', '26100-26299', '30000-30099', 8384, 27017, 22, 23, 25, 3389, 5900, 5800, 161, 512, 513, 5901, 3388, 4444, 123],
     enterprisePorts: ['0-1023', 8080, 8081, 8443, 25565, 6667],
     maxImageSize: 2000000000, // 2000mb
     minimumInstances: 3,

@@ -140,6 +140,7 @@ async function getChainParamsPriceUpdates() {
           minPrice: +splittedMess[4],
           port: +splittedMess[5] || 2,
           scope: +splittedMess[6] || 6,
+          staticip: +splittedMess[7] || 3,
         };
         priceForks.push(dataPoint);
       }
@@ -3682,6 +3683,9 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
   if (dataForAppRegistration.nodes && dataForAppRegistration.nodes.length) { // v7+ enterprise app scoped to nodes
     totalPrice += priceSpecifications.scope;
   }
+  if (dataForAppRegistration.staticip) { // v7+ staticip option
+    totalPrice += priceSpecifications.staticip;
+  }
   totalPrice += enterprisePorts.length * priceSpecifications.port; // enterprise ports
   let appPrice = Number(Math.ceil(totalPrice * 100) / 100);
   if (instancesAdditional > 0) {
@@ -4392,6 +4396,7 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
   const { geolocation } = appSpecification;
   const { expire } = appSpecification;
   const { nodes } = appSpecification;
+  const { staticip } = appSpecification;
 
   if (!version) {
     throw new Error('Missing Flux App specification parameter');
@@ -4632,7 +4637,7 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
         }
 
         if (typeof appComponent.repoauth !== 'string') {
-          throw new Error(`Secrets for Flux App component ${appComponent.name} are invalid`);
+          throw new Error(`Repository Authentication for Flux App component ${appComponent.name} are invalid`);
         }
       }
     });
@@ -4701,6 +4706,10 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
       });
     } else {
       throw new Error('Nodes for Flux App are invalid');
+    }
+
+    if (typeof staticip !== 'boolean') {
+      throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
     }
   }
 
@@ -5113,7 +5122,7 @@ function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
     });
   } else if (appSpecifications.version === 7) {
     const specifications = [
-      'version', 'name', 'description', 'owner', 'compose', 'instances', 'contacts', 'geolocation', 'expire', 'nodes',
+      'version', 'name', 'description', 'owner', 'compose', 'instances', 'contacts', 'geolocation', 'expire', 'nodes', 'staticip',
     ];
     const componentSpecifications = [
       'name', 'description', 'repotag', 'ports', 'containerPorts', 'environmentParameters', 'commands', 'containerData', 'domains', 'secrets', 'repoauth',
@@ -6086,11 +6095,12 @@ function specificationFormatter(appSpecification) {
   let { cpu } = appSpecification;
   let { ram } = appSpecification;
   let { hdd } = appSpecification;
-  const { tiered } = appSpecification;
+  let { tiered } = appSpecification;
   let { contacts } = appSpecification;
   let { geolocation } = appSpecification;
   let { expire } = appSpecification;
   let { nodes } = appSpecification;
+  let { staticip } = appSpecification;
 
   if (!version) {
     throw new Error('Missing Flux App specification parameter');
@@ -6178,6 +6188,7 @@ function specificationFormatter(appSpecification) {
     cpu = serviceHelper.ensureNumber(cpu);
     ram = serviceHelper.ensureNumber(ram);
     hdd = serviceHelper.ensureNumber(hdd);
+    tiered = serviceHelper.ensureBoolean(tiered);
     if (typeof tiered !== 'boolean') {
       throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
     }
@@ -6432,6 +6443,12 @@ function specificationFormatter(appSpecification) {
       throw new Error('Nodes for Flux App are invalid');
     }
     appSpecFormatted.nodes = nodesCorrect;
+
+    staticip = serviceHelper.ensureBoolean(staticip);
+    if (typeof staticip !== 'boolean') {
+      throw new Error('Invalid staticip specification. Only boolean as true or false allowed.');
+    }
+    appSpecFormatted.staticip = staticip;
   }
 
   return appSpecFormatted;
