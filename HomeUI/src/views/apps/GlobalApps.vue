@@ -92,6 +92,10 @@
                         title="Enteprise Nodes"
                         :data="row.item.nodes ? row.item.nodes.toString() : 'Not scoped'"
                       />
+                      <list-entry
+                        title="Static IP"
+                        :data="row.item.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
+                      />
                       <h4>Composition</h4>
                       <div v-if="row.item.version <= 3">
                         <b-card>
@@ -424,6 +428,10 @@
                       <list-entry
                         title="Enteprise Nodes"
                         :data="row.item.nodes.toString() || 'Public'"
+                      />
+                      <list-entry
+                        title="Static IP"
+                        :data="row.item.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
                       />
                       <h4>Composition</h4>
                       <div v-if="row.item.version <= 3">
