@@ -519,8 +519,9 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
   const envParams = appSpecifications.environmentParameters || appSpecifications.enviromentParameters;
   if (appSpecifications.secrets) {
     const decodedEnvParams = await pgpService.decryptMessage(appSpecifications.secrets);
-    if (Array.isArray(decodedEnvParams)) {
-      decodedEnvParams.forEach((parameter) => {
+    const arraySecrets = JSON.parse(decodedEnvParams);
+    if (Array.isArray(arraySecrets)) {
+      arraySecrets.forEach((parameter) => {
         if (typeof parameter !== 'string' || parameter.length > 5000000) {
           throw new Error('Environment parameters from Secrets are invalid');
         } else {
