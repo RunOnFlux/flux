@@ -427,7 +427,7 @@
                       />
                       <list-entry
                         title="Enteprise Nodes"
-                        :data="row.item.nodes.toString() || 'Public'"
+                        :data="row.item.nodes ? row.item.nodes.toString() : 'Not scoped'"
                       />
                       <list-entry
                         title="Static IP"

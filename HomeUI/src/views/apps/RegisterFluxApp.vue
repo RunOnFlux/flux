@@ -349,6 +349,28 @@
                 :step="1"
               />
             </b-form-group>
+            <br>
+            <div
+              v-if="appRegistrationSpecification.version >= 7"
+              class="form-row form-group"
+            >
+              <label class="col-1 col-form-label">
+                Static IP
+                <v-icon
+                  v-b-tooltip.hover.top="'Select if your application strictly requires static IP address'"
+                  name="info-circle"
+                  class="mr-1"
+                />
+              </label>
+              <div class="col">
+                <b-form-checkbox
+                  id="staticip"
+                  v-model="appRegistrationSpecification.staticip"
+                  switch
+                  class="custom-control-primary inline"
+                />
+              </div>
+            </div>
           </b-card>
         </b-col>
       </b-row>
@@ -427,6 +449,26 @@
                     id="repo"
                     v-model="component.repotag"
                     placeholder="Docker image namespace/repository:tag"
+                  />
+                </div>
+              </div>
+              <div
+                v-if="appRegistrationSpecification.version >= 7"
+                class="form-row form-group"
+              >
+                <label class="col-3 col-form-label">
+                  Repository Authentication
+                  <v-icon
+                    v-b-tooltip.hover.top="'Docker image authentication for private images in the format of username:apikey. This field will be encrypted and accessible to selected enterprise nodes only.'"
+                    name="info-circle"
+                    class="mr-1"
+                  />
+                </label>
+                <div class="col">
+                  <b-form-input
+                    id="repoauth"
+                    v-model="component.repoauth"
+                    placeholder="Docker authentication username:apikey"
                   />
                 </div>
               </div>
@@ -553,6 +595,26 @@
                     confirm-button="Upload Commands"
                     :width="600"
                     @confirm="uploadCmdToFluxStorage(index)"
+                  />
+                </div>
+              </div>
+              <div
+                v-if="appRegistrationSpecification.version >= 7"
+                class="form-row form-group"
+              >
+                <label class="col-3 col-form-label">
+                  Secrets
+                  <v-icon
+                    v-b-tooltip.hover.top="'Array of strings of Secret Environmental Parameters. This will be encrypted and accessible to selected Enterprise Nodes only'"
+                    name="info-circle"
+                    class="mr-1"
+                  />
+                </label>
+                <div class="col">
+                  <b-form-input
+                    id="secrets"
+                    v-model="component.secrets"
+                    placeholder="[]"
                   />
                 </div>
               </div>
@@ -762,6 +824,218 @@
             </b-card>
           </b-col>
         </b-row>
+      </b-card>
+      <b-card
+        v-if="appRegistrationSpecification.version >= 7"
+        title="Enterprise Nodes"
+      >
+        Only these selected enterprise nodes will be able to run your application and are used for encryption. Only these nodes are able access your private image, secrets.
+        Changing the node list after message is computed, encrypted will result in failiure to run. Secrets and Repository Authentication would be needed to be adjusted again.
+        <b-row>
+          <b-col
+            md="4"
+            sm="4"
+            class="my-1"
+          >
+            <b-form-group class="mb-0">
+              <label class="d-inline-block text-left mr-50">Per page</label>
+              <b-form-select
+                id="perPageSelect"
+                v-model="entNodesTable.perPage"
+                size="sm"
+                :options="entNodesTable.pageOptions"
+                class="w-50"
+              />
+            </b-form-group>
+          </b-col>
+          <b-col
+            md="8"
+            class="my-1"
+          >
+            <b-form-group
+              label="Filter"
+              label-cols-sm="1"
+              label-align-sm="right"
+              label-for="filterInput"
+              class="mb-0"
+            >
+              <b-input-group size="sm">
+                <b-form-input
+                  id="filterInput"
+                  v-model="entNodesTable.filter"
+                  type="search"
+                  placeholder="Type to Search"
+                />
+                <b-input-group-append>
+                  <b-button
+                    :disabled="!entNodesTable.filter"
+                    @click="entNodesTable.filter = ''"
+                  >
+                    Clear
+                  </b-button>
+                </b-input-group-append>
+              </b-input-group>
+            </b-form-group>
+          </b-col>
+
+          <b-col cols="16">
+            <b-table
+              class="app-enterprise-nodes-table"
+              striped
+              hover
+              responsive
+              :per-page="entNodesTable.perPage"
+              :current-page="entNodesTable.currentPage"
+              :items="selectedEnterpriseNodes"
+              :fields="entNodesTable.fields"
+              :sort-by.sync="entNodesTable.sortBy"
+              :sort-desc.sync="entNodesTable.sortDesc"
+              :sort-direction="entNodesTable.sortDirection"
+              :filter="entNodesTable.filter"
+              :filter-included-fields="entNodesTable.filterOn"
+              show-empty
+              :empty-text="'No Enterprise Nodes selected'"
+            >
+              <template #cell(show_details)="row">
+                <a @click="row.toggleDetails">
+                  <v-icon
+                    v-if="!row.detailsShowing"
+                    name="chevron-down"
+                  />
+                  <v-icon
+                    v-if="row.detailsShowing"
+                    name="chevron-up"
+                  />
+                </a>
+              </template>
+              <template #row-details="row">
+                <b-card class="mx-2">
+                  <list-entry
+                    title="IP Address"
+                    :data="row.item.ip"
+                  />
+                  <list-entry
+                    title="Public Key"
+                    :data="row.item.pubkey"
+                  />
+                  <list-entry
+                    title="Payment Address"
+                    :data="row.item.payment_address"
+                  />
+                  <list-entry
+                    title="Collateral"
+                    :data="`${row.item.txhash}:${row.item.outidx}`"
+                  />
+                  <list-entry
+                    title="Tier"
+                    :data="row.item.tier"
+                  />
+                  <list-entry
+                    title="Enterprise Score"
+                    :data="row.item.score.toString()"
+                  />
+                  <list-entry
+                    title="Collateral Score"
+                    :data="row.item.collateralPoints.toString()"
+                  />
+                  <list-entry
+                    title="Maturity Score"
+                    :data="row.item.maturityPoints.toString()"
+                  />
+                  <list-entry
+                    title="Public Key Score"
+                    :data="row.item.pubKeyPoints.toString()"
+                  />
+                  <list-entry
+                    title="Eterprise Apps Assigned"
+                    :data="row.item.enterpriseApps.toString()"
+                  />
+                  <div>
+                    <b-button
+                      size="sm"
+                      class="mr-0"
+                      variant="primary"
+                      @click="openNodeFluxOS(row.item.ip.split(':')[0], row.item.ip.split(':')[1] ? +row.item.ip.split(':')[1] - 1 : 16126)"
+                    >
+                      Visit FluxNode
+                    </b-button>
+                  </div>
+                </b-card>
+              </template>
+              <template #cell(ip)="row">
+                {{ row.item.ip }}
+              </template>
+              <template #cell(publickey)="row">
+                {{ row.item.pubkey.slice(0, 8) }}...{{ row.item.pubkey.slice(row.item.pubkey.length - 8, row.item.pubkey.length) }}
+              </template>
+              <template #cell(payment_address)="row">
+                {{ row.item.payment_address.slice(0, 8) }}...{{ row.item.payment_address.slice(row.item.payment_address.length - 8, row.item.payment_address.length) }}
+              </template>
+              <template #cell(tier)="row">
+                {{ row.item.tier }}
+              </template>
+              <template #cell(score)="row">
+                {{ row.item.score }}
+              </template>
+              <template #cell(actions)="locationRow">
+                <b-button
+                  :id="`remove-${locationRow.item.ip}`"
+                  size="sm"
+                  class="mr-1 mb-1"
+                  variant="danger"
+                >
+                  Remove
+                </b-button>
+                <confirm-dialog
+                  :target="`remove-${locationRow.item.ip}`"
+                  confirm-button="Remove FluxNode"
+                  @confirm="removeFluxNode(locationRow.item.ip)"
+                />
+                <b-button
+                  size="sm"
+                  class="mr-1 mb-1"
+                  variant="primary"
+                  @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
+                >
+                  Visit
+                </b-button>
+              </template>
+            </b-table>
+          </b-col>
+          <b-col cols="12">
+            <b-pagination
+              v-model="entNodesTable.currentPage"
+              :total-rows="selectedEnterpriseNodes.length"
+              :per-page="entNodesTable.perPage"
+              align="center"
+              size="sm"
+              class="my-0"
+            />
+            <span class="table-total">Total: {{ selectedEnterpriseNodes.length }}</span>
+          </b-col>
+        </b-row>
+        <br>
+        <br>
+        <div class="text-center">
+          <b-button
+            v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+            variant="primary"
+            aria-label="Auto Select Enterprise Nodes"
+            class="mb-2 mr-2"
+            @click="autoSelectNodes"
+          >
+            Auto Select Enterprise Nodes
+          </b-button>
+          <b-button
+            v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+            variant="primary"
+            aria-label="Choose Enterprise Nodes"
+            class="mb-2 mr-2"
+            @click="chooseEnterpriseDialog = true"
+          >
+            Choose Enterprise Nodes
+          </b-button>
+        </div>
       </b-card>
     </div>
     <div v-else>
@@ -1352,6 +1626,195 @@
         </b-col>
       </b-row>
     </div>
+    <b-modal
+      v-model="chooseEnterpriseDialog"
+      title="Select Enterprise Nodes"
+      size="xl"
+      centered
+      button-size="sm"
+      ok-only
+      ok-title="Done"
+    >
+      <b-row>
+        <b-col
+          md="4"
+          sm="4"
+          class="my-1"
+        >
+          <b-form-group class="mb-0">
+            <label class="d-inline-block text-left mr-50">Per page</label>
+            <b-form-select
+              id="perPageSelect"
+              v-model="entNodesSelectTable.perPage"
+              size="sm"
+              :options="entNodesSelectTable.pageOptions"
+              class="w-50"
+            />
+          </b-form-group>
+        </b-col>
+        <b-col
+          md="8"
+          class="my-1"
+        >
+          <b-form-group
+            label="Filter"
+            label-cols-sm="1"
+            label-align-sm="right"
+            label-for="filterInput"
+            class="mb-0"
+          >
+            <b-input-group size="sm">
+              <b-form-input
+                id="filterInput"
+                v-model="entNodesSelectTable.filter"
+                type="search"
+                placeholder="Type to Search"
+              />
+              <b-input-group-append>
+                <b-button
+                  :disabled="!entNodesSelectTable.filter"
+                  @click="entNodesSelectTable.filter = ''"
+                >
+                  Clear
+                </b-button>
+              </b-input-group-append>
+            </b-input-group>
+          </b-form-group>
+        </b-col>
+
+        <b-col cols="12">
+          <b-table
+            class="app-enterprise-nodes-table"
+            striped
+            hover
+            responsive
+            :per-page="entNodesSelectTable.perPage"
+            :current-page="entNodesSelectTable.currentPage"
+            :items="adjustedEnterpriseNodes"
+            :fields="entNodesSelectTable.fields"
+            :sort-by.sync="entNodesSelectTable.sortBy"
+            :sort-desc.sync="entNodesSelectTable.sortDesc"
+            :sort-direction="entNodesSelectTable.sortDirection"
+            :filter="entNodesSelectTable.filter"
+            :filter-included-fields="entNodesSelectTable.filterOn"
+            show-empty
+            :empty-text="'No Enterprise Nodes For Addition Found'"
+          >
+            <template #cell(show_details)="row">
+              <a @click="row.toggleDetails">
+                <v-icon
+                  v-if="!row.detailsShowing"
+                  name="chevron-down"
+                />
+                <v-icon
+                  v-if="row.detailsShowing"
+                  name="chevron-up"
+                />
+              </a>
+            </template>
+            <template #row-details="row">
+              <b-card class="mx-2">
+                <list-entry
+                  title="IP Address"
+                  :data="row.item.ip"
+                />
+                <list-entry
+                  title="Public Key"
+                  :data="row.item.pubkey"
+                />
+                <list-entry
+                  title="Payment Address"
+                  :data="row.item.payment_address"
+                />
+                <list-entry
+                  title="Collateral"
+                  :data="`${row.item.txhash}:${row.item.outidx}`"
+                />
+                <list-entry
+                  title="Tier"
+                  :data="row.item.tier"
+                />
+                <list-entry
+                  title="Enterprise Score"
+                  :data="row.item.score.toString()"
+                />
+                <list-entry
+                  title="Collateral Score"
+                  :data="row.item.collateralPoints.toString()"
+                />
+                <list-entry
+                  title="Maturity Score"
+                  :data="row.item.maturityPoints.toString()"
+                />
+                <list-entry
+                  title="Public Key Score"
+                  :data="row.item.pubKeyPoints.toString()"
+                />
+                <list-entry
+                  title="Eterprise Apps Assigned"
+                  :data="row.item.enterpriseApps.toString()"
+                />
+                <div>
+                  <b-button
+                    size="sm"
+                    class="mr-0"
+                    variant="primary"
+                    @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
+                  >
+                    Visit FluxNode
+                  </b-button>
+                </div>
+              </b-card>
+            </template>
+            <template #cell(ip)="row">
+              {{ row.item.ip }}
+            </template>
+            <template #cell(publickey)="row">
+              {{ row.item.pubkey.slice(0, 8) }}...{{ row.item.pubkey.slice(row.item.pubkey.length - 8, row.item.pubkey.length) }}
+            </template>
+            <template #cell(payment_address)="row">
+              {{ row.item.payment_address.slice(0, 8) }}...{{ row.item.payment_address.slice(row.item.payment_address.length - 8, row.item.payment_address.length) }}
+            </template>
+            <template #cell(tier)="row">
+              {{ row.item.tier }}
+            </template>
+            <template #cell(score)="row">
+              {{ row.item.score }}
+            </template>
+            <template #cell(actions)="locationRow">
+              <b-button
+                :id="`add-${locationRow.item.ip}`"
+                size="sm"
+                class="mr-1 mb-1"
+                variant="success"
+                @click="addFluxNode(locationRow.item.ip)"
+              >
+                Add
+              </b-button>
+              <b-button
+                size="sm"
+                class="mr-1 mb-1"
+                variant="primary"
+                @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
+              >
+                Visit
+              </b-button>
+            </template>
+          </b-table>
+        </b-col>
+        <b-col cols="12">
+          <b-pagination
+            v-model="entNodesSelectTable.currentPage"
+            :total-rows="enterpriseNodes.length"
+            :per-page="entNodesSelectTable.perPage"
+            align="center"
+            size="sm"
+            class="my-0"
+          />
+          <span class="table-total">Total: {{ enterpriseNodes.length }}</span>
+        </b-col>
+      </b-row>
+    </b-modal>
   </div>
 </template>
 
@@ -1369,6 +1832,10 @@ import {
   BFormSelectOption,
   BFormTextarea,
   BLink,
+  BTable,
+  BPagination,
+  BInputGroup,
+  BInputGroupAppend,
   VBTooltip,
 } from 'bootstrap-vue';
 
@@ -1378,10 +1845,12 @@ import ToastificationContent from '@core/components/toastification/Toastificatio
 import AppsService from '@/services/AppsService';
 import DaemonService from '@/services/DaemonService';
 import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
+import ListEntry from '@/views/components/ListEntry.vue';
 
 const qs = require('qs');
 const axios = require('axios');
 const store = require('store');
+const openpgp = require('openpgp');
 const timeoptions = require('@/libs/dateFormat');
 
 const geolocations = require('../../libs/geolocation');
@@ -1400,9 +1869,14 @@ export default {
     BFormSelectOption,
     BFormTextarea,
     BLink,
+    BTable,
+    BPagination,
+    BInputGroup,
+    BInputGroupAppend,
     // eslint-disable-next-line vue/no-unused-components
     ToastificationContent,
     ConfirmDialog,
+    ListEntry,
   },
   directives: {
     'b-tooltip': VBTooltip,
@@ -1418,8 +1892,8 @@ export default {
       signature: '',
       registrationHash: '',
       registrationtype: 'fluxappregister',
-      currentHeight: 1250000,
-      specificationVersion: 4,
+      currentHeight: 1350000,
+      specificationVersion: 6,
       appRegistrationSpecification: {},
       appRegistrationSpecificationV3Template: {
         version: 3,
@@ -1552,6 +2026,46 @@ export default {
           },
         ],
       },
+      appRegistrationSpecificationV7Template: {
+        version: 7,
+        name: '',
+        description: '',
+        owner: '',
+        instances: 3,
+        contacts: '[]',
+        geolocation: [],
+        nodes: [],
+        expire: 22000,
+        staticip: false,
+        compose: [
+          {
+            name: '',
+            description: '',
+            repotag: '',
+            repoauth: '',
+            ports: '[]',
+            domains: '[]',
+            environmentParameters: '[]',
+            secrets: '', // at encryption will become string
+            commands: '[]',
+            containerPorts: '[]',
+            containerData: '',
+            cpu: 0.5,
+            ram: 2000,
+            hdd: 40,
+            tiered: false,
+            cpubasic: 0.5,
+            rambasic: 500,
+            hddbasic: 10,
+            cpusuper: 1.5,
+            ramsuper: 2500,
+            hddsuper: 60,
+            cpubamf: 3.5,
+            rambamf: 14000,
+            hddbamf: 285,
+          },
+        ],
+      },
       composeTemplate: {
         name: '',
         description: '',
@@ -1628,6 +2142,48 @@ export default {
       tosAgreed: false,
       generalMultiplier: 1,
       enterpriseNodes: [],
+      selectedEnterpriseNodes: [],
+      enterprisePublicKeys: [], // {nodeip, nodekey}
+      maximumEnterpriseNodes: 110,
+      entNodesTable: {
+        fields: [
+          { key: 'show_details', label: '' },
+          { key: 'ip', label: 'IP Address', sortable: true },
+          { key: 'publickey', label: 'Public Key', sortable: true },
+          { key: 'payment_address', label: 'Payment Address', sortable: true },
+          { key: 'tier', label: 'Tier', sortable: true },
+          { key: 'score', label: 'Enterprise Score', sortable: true },
+          { key: 'actions', label: 'Actions' },
+        ],
+        perPage: 10,
+        pageOptions: [5, 10, 25, 50, 100],
+        sortBy: '',
+        sortDesc: false,
+        sortDirection: 'asc',
+        filter: '',
+        filterOn: [],
+        currentPage: 1,
+      },
+      entNodesSelectTable: {
+        fields: [
+          { key: 'show_details', label: '' },
+          { key: 'ip', label: 'IP Address', sortable: true },
+          { key: 'publickey', label: 'Public Key', sortable: true },
+          { key: 'payment_address', label: 'Payment Address', sortable: true },
+          { key: 'tier', label: 'Tier', sortable: true },
+          { key: 'score', label: 'Enterprise Score', sortable: true },
+          { key: 'actions', label: 'Actions' },
+        ],
+        perPage: 25,
+        pageOptions: [5, 10, 25, 50, 100],
+        sortBy: '',
+        sortDesc: false,
+        sortDirection: 'asc',
+        filter: '',
+        filterOn: [],
+        currentPage: 1,
+      },
+      chooseEnterpriseDialog: false,
     };
   },
   computed: {
@@ -1635,6 +2191,9 @@ export default {
       'config',
       'privilege',
     ]),
+    adjustedEnterpriseNodes() {
+      return this.enterpriseNodes.filter((node) => !this.selectedEnterpriseNodes.includes(node));
+    },
     validTill() {
       const expTime = this.timestamp + 60 * 60 * 1000; // 1 hour
       return expTime;
@@ -1732,21 +2291,6 @@ export default {
     this.appRegistrationSpecification.owner = auth.zelid;
   },
   methods: {
-    async getEnterpriseNodes() {
-      const enterpriseList = localStorage.getItem('flux_enterprise_nodes');
-      this.enterpriseNodes = enterpriseList || [];
-      try {
-        const entList = await AppsService.getEnterpriseNodes();
-        if (entList.data.status === 'error') {
-          this.showToast('danger', entList.data.data.message || entList.data.data);
-        } else {
-          this.enterpriseNodes = entList.data.data;
-          localStorage.setItem('flux_enterprise_nodes', this.enterpriseNodes);
-        }
-      } catch (error) {
-        console.log(error);
-      }
-    },
     async getFluxnodeStatus() {
       try {
         const fluxnodeStatus = await DaemonService.getZelNodeStatus();
@@ -1784,6 +2328,80 @@ export default {
         }
         // formation, pre verificaiton
         const appSpecification = this.appRegistrationSpecification;
+        let secretsPresent = false;
+        if (appSpecification.version >= 7) {
+          // encryption
+          // if we have secrets or repoauth
+          this.appRegistrationSpecification.compose.forEach((component) => {
+            if (component.repoauth || component.secrets) {
+              secretsPresent = true;
+              // construct nodes
+              this.constructNodes();
+              // we must have some nodes
+              if (!this.appRegistrationSpecification.nodes.length) {
+                throw new Error('Private repositories and secrets can only run on Enterprise Nodes');
+              }
+            }
+          });
+        }
+        if (secretsPresent) { // we do encryption
+          this.showToast('info', 'Encrypting specifications, this will take a while...');
+          const fetchedKeys = [];
+          // eslint-disable-next-line no-restricted-syntax
+          for (const node of this.appRegistrationSpecification.nodes) {
+            const keyExists = this.enterprisePublicKeys.find((key) => key.nodeip === node);
+            if (keyExists) {
+              fetchedKeys.push(keyExists.nodekey);
+            } else {
+              // eslint-disable-next-line no-await-in-loop
+              const pgpKey = await this.fetchEntepriseKey(node);
+              if (pgpKey) {
+                const pair = {
+                  nodeip: node.ip,
+                  nodekey: pgpKey,
+                };
+                const keyExistsB = this.enterprisePublicKeys.find((key) => key.nodeip === node.ip);
+                if (!keyExistsB) {
+                  this.enterprisePublicKeys.push(pair);
+                }
+                fetchedKeys.push(pgpKey);
+              } // else silently fail
+            }
+          }
+          // time to encrypt
+          // eslint-disable-next-line no-restricted-syntax
+          for (const component of this.appRegistrationSpecification.compose) {
+            if (component.secrets && !component.secrets.startsWith('-----BEGIN PGP MESSAGE')) {
+              // need encryption
+              // eslint-disable-next-line no-await-in-loop
+              const encryptedMessage = await this.encryptMessage(component.secrets, fetchedKeys);
+              if (!encryptedMessage) {
+                return;
+              }
+              component.secrets = encryptedMessage;
+            }
+            if (component.repoauth && !component.repoauth.startsWith('-----BEGIN PGP MESSAGE')) {
+              // need encryption
+              // eslint-disable-next-line no-await-in-loop
+              const encryptedMessage = await this.encryptMessage(component.repoauth, fetchedKeys);
+              if (!encryptedMessage) {
+                return;
+              }
+              component.repoauth = encryptedMessage;
+            }
+          }
+        }
+        // recheck if encryption ok
+        if (secretsPresent) {
+          this.appRegistrationSpecification.compose.forEach((component) => {
+            if (component.secrets && !component.secrets.startsWith('-----BEGIN PGP MESSAGE')) {
+              throw new Error('Encryption failed');
+            }
+            if (component.repoauth && !component.repoauth.startsWith('-----BEGIN PGP MESSAGE')) {
+              throw new Error('Encryption failed');
+            }
+          });
+        }
         if (appSpecification.version >= 5) {
           appSpecification.geolocation = this.generateGeolocations();
         }
@@ -1839,13 +2457,25 @@ export default {
           // eslint-disable-next-line no-param-reassign
           component.ports = ports;
         });
-      } else {
+      } else if (this.currentHeight < 1420000) {
         this.specificationVersion = 6;
         this.appRegistrationSpecification = this.appRegistrationSpecificationV6Template;
         this.appRegistrationSpecification.compose.forEach((component) => {
           const ports = this.getRandomPort();
           // eslint-disable-next-line no-param-reassign
           component.ports = ports;
+          // eslint-disable-next-line no-param-reassign
+          component.domains = '[""]';
+        });
+      } else {
+        this.specificationVersion = 7;
+        this.appRegistrationSpecification = this.appRegistrationSpecificationV7Template;
+        this.appRegistrationSpecification.compose.forEach((component) => {
+          const ports = this.getRandomPort();
+          // eslint-disable-next-line no-param-reassign
+          component.ports = ports;
+          // eslint-disable-next-line no-param-reassign
+          component.domains = '[""]';
         });
       }
       const zelidauth = localStorage.getItem('zelidauth');
@@ -2305,6 +2935,150 @@ export default {
         }
       } catch (error) {
         this.showToast('danger', error.message || error);
+      }
+    },
+    openNodeFluxOS(_ip, _port) {
+      console.log(_ip, _port);
+      if ((_port && _ip)) {
+        const ip = _ip;
+        const port = _port;
+        const url = `http://${ip}:${port}`;
+        this.openSite(url);
+      } else {
+        this.showToast('danger', 'Unable to open FluxOS :(');
+      }
+    },
+    openSite(url) {
+      const win = window.open(url, '_blank');
+      win.focus();
+    },
+    removeFluxNode(ip) {
+      const nodeExists = this.selectedEnterpriseNodes.findIndex((node) => node.ip === ip);
+      if (nodeExists > -1) {
+        this.selectedEnterpriseNodes.splice(nodeExists, 1);
+      }
+    },
+    async addFluxNode(ip) {
+      try {
+        const nodeExists = this.selectedEnterpriseNodes.find((node) => node.ip === ip);
+        console.log(ip);
+        if (!nodeExists) {
+          const nodeToAdd = this.enterpriseNodes.find((node) => node.ip === ip);
+          this.selectedEnterpriseNodes.push(nodeToAdd);
+          console.log(this.selectedEnterpriseNodes);
+          // fetch pgp key
+          const keyExists = this.enterprisePublicKeys.find((key) => key.nodeip === ip);
+          if (!keyExists) {
+            const pgpKey = await this.fetchEntepriseKey(ip);
+            if (pgpKey) {
+              const pair = {
+                nodeip: ip,
+                nodekey: pgpKey,
+              };
+              const keyExistsB = this.enterprisePublicKeys.find((key) => key.nodeip === ip);
+              if (!keyExistsB) {
+                this.enterprisePublicKeys.push(pair);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.log(error);
+      }
+    },
+    async autoSelectNodes() {
+      const { instances } = this.appRegistrationSpecification;
+      const maxNumberOfNodes = +instances + Math.ceil(Math.max(5, +instances * 0.1));
+      const nodesSelected = this.selectedEnterpriseNodes.length;
+      const nodesToSelect = [];
+      for (let i = 0; i < (maxNumberOfNodes - nodesSelected); i += 1) {
+        nodesToSelect.push(this.adjustedEnterpriseNodes[i]);
+      }
+      nodesToSelect.forEach(async (node) => {
+        const nodeExists = this.selectedEnterpriseNodes.find((existingNode) => existingNode.ip === node.ip);
+        if (!nodeExists) {
+          this.selectedEnterpriseNodes.push(node);
+          // fetch pgp key
+          const keyExists = this.enterprisePublicKeys.find((key) => key.nodeip === node.ip);
+          if (!keyExists) {
+            const pgpKey = await this.fetchEntepriseKey(node.ip);
+            if (pgpKey) {
+              const pair = {
+                nodeip: node.ip,
+                nodekey: pgpKey,
+              };
+              const keyExistsB = this.enterprisePublicKeys.find((key) => key.nodeip === node.ip);
+              if (!keyExistsB) {
+                this.enterprisePublicKeys.push(pair);
+              }
+            }
+          }
+        }
+      });
+    },
+    constructNodes() {
+      this.selectedEnterpriseNodes.forEach((node) => {
+        this.appRegistrationSpecification.nodes.push(node.ip);
+      });
+      if (this.appRegistrationSpecification.nodes.length > this.maximumEnterpriseNodes) {
+        throw new Error('Maximum of 110 Enterprise Nodes allowed');
+      }
+    },
+    async getEnterpriseNodes() {
+      const enterpriseList = localStorage.getItem('flux_enterprise_nodes');
+      if (enterpriseList) {
+        this.enterpriseNodes = JSON.parse(enterpriseList);
+      }
+      try {
+        const entList = await AppsService.getEnterpriseNodes();
+        if (entList.data.status === 'error') {
+          this.showToast('danger', entList.data.data.message || entList.data.data);
+        } else {
+          this.enterpriseNodes = entList.data.data;
+          localStorage.setItem('flux_enterprise_nodes', JSON.stringify(this.enterpriseNodes));
+        }
+      } catch (error) {
+        console.log(error);
+      }
+    },
+    async fetchEntepriseKey(nodeip) { // we must have at least +5 nodes or up to 10% of spare keys
+      try {
+        const node = nodeip.split(':')[0];
+        const port = nodeip.split(':')[1] || 16127;
+        const response = await axios.get(`http://${node}:${port}/flux/pgp`); // ip with port
+        if (response.data.status === 'error') {
+          this.showToast('danger', response.data.data.message || response.data.data);
+        } else {
+          const pgpKey = response.data.data;
+          return pgpKey;
+        }
+        return null;
+      } catch (error) {
+        console.log(error);
+        return null;
+      }
+    },
+    /**
+     * To encrypt a message with an array of encryption public keys
+     * @param {string} message Message to encrypt
+     * @param {array} encryptionKeys Armored version of array of public key
+     * @returns {string} Return armored version of encrypted message
+     */
+    async encryptMessage(message, encryptionKeys) {
+      try {
+        const publicKeys = await Promise.all(encryptionKeys.map((armoredKey) => openpgp.readKey({ armoredKey })));
+        console.log(encryptionKeys);
+        console.log(message);
+        const pgpMessage = await openpgp.createMessage({ text: message });
+        const encryptedMessage = await openpgp.encrypt({
+          message: pgpMessage, // input as Message object
+          encryptionKeys: publicKeys,
+        });
+        // '-----BEGIN PGP MESSAGE ... END PGP MESSAGE-----'
+        return encryptedMessage;
+      } catch (error) {
+        this.showToast('danger', 'Data encryption failed');
+        return null;
       }
     },
   },
