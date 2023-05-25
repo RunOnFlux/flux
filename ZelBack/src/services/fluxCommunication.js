@@ -72,6 +72,7 @@ async function handleAppRunningMessage(message, fromIP) {
     if (message.data.ip === '144.76.73.6') {
       log.info('DEBUG');
       log.info(JSON.stringify(message));
+      log.info(fromIP);
     }
     if (rebroadcastToPeers === true) {
       const messageString = serviceHelper.ensureString(message);
