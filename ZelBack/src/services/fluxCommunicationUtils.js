@@ -102,8 +102,12 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
   if (!node) {
     // node that broadcasted the message has to be on list
     // pubkey of the broadcast has to be on the list
-    const zl = await deterministicFluxList(pubKey); // this itself is sufficient.
-    node = zl.find((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
+    const zl = await deterministicFluxList(pubKey);
+    if (dataObj.data && dataObj.data.type === 'fluxapprunning') {
+      node = zl.find((key) => key.pubkey === pubKey && dataObj.data.ip && dataObj.data.ip === key.ip); // check ip is on the network and belongs to broadcasted public key
+    } else {
+      node = zl.find((key) => key.pubkey === pubKey);
+    }
   }
   if (!node) {
     return false;
@@ -142,8 +146,10 @@ async function verifyTimestampInFluxBroadcast(data, currentTimeStamp) {
  * @returns {boolean} False unless message is successfully verified.
  */
 async function verifyOriginalFluxBroadcast(data, obtainedFluxNodeList, currentTimeStamp) {
-  if (await verifyTimestampInFluxBroadcast(data, currentTimeStamp)) {
-    return verifyFluxBroadcast(data, obtainedFluxNodeList, currentTimeStamp);
+  const timeStampOK = verifyTimestampInFluxBroadcast(data, currentTimeStamp);
+  if (timeStampOK) {
+    const broadcastOK = verifyFluxBroadcast(data, obtainedFluxNodeList, currentTimeStamp);
+    return broadcastOK;
   }
   return false;
 }
