@@ -126,7 +126,7 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
  * @param {number} currentTimeStamp Current timestamp.
  * @returns {boolean} False unless current timestamp is within 5 minutes of the data object's timestamp.
  */
-async function verifyTimestampInFluxBroadcast(data, currentTimeStamp) {
+function verifyTimestampInFluxBroadcast(data, currentTimeStamp) {
   // eslint-disable-next-line no-param-reassign
   const dataObj = serviceHelper.ensureObject(data);
   const { timestamp } = dataObj; // ms
@@ -148,7 +148,7 @@ async function verifyTimestampInFluxBroadcast(data, currentTimeStamp) {
 async function verifyOriginalFluxBroadcast(data, obtainedFluxNodeList, currentTimeStamp) {
   const timeStampOK = verifyTimestampInFluxBroadcast(data, currentTimeStamp);
   if (timeStampOK) {
-    const broadcastOK = verifyFluxBroadcast(data, obtainedFluxNodeList, currentTimeStamp);
+    const broadcastOK = await verifyFluxBroadcast(data, obtainedFluxNodeList, currentTimeStamp);
     return broadcastOK;
   }
   return false;

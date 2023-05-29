@@ -484,7 +484,7 @@ describe('fluxCommunicationUtils tests', () => {
         timestamp: timeStamp,
       };
 
-      const isValid = await fluxCommunicationUtils.verifyTimestampInFluxBroadcast(data);
+      const isValid = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(data);
 
       expect(isValid).to.equal(true);
     });
@@ -496,7 +496,7 @@ describe('fluxCommunicationUtils tests', () => {
         timestamp: timeStamp,
       };
 
-      const isValid = await fluxCommunicationUtils.verifyTimestampInFluxBroadcast(data, providedTimestamp);
+      const isValid = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(data, providedTimestamp);
 
       expect(isValid).to.equal(true);
     });
@@ -508,7 +508,7 @@ describe('fluxCommunicationUtils tests', () => {
         timestamp: timeStamp,
       };
 
-      const isValid = await fluxCommunicationUtils.verifyTimestampInFluxBroadcast(data, providedTimestamp);
+      const isValid = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(data, providedTimestamp);
 
       expect(isValid).to.equal(false);
     });
@@ -519,7 +519,7 @@ describe('fluxCommunicationUtils tests', () => {
         timestamp: timeStamp,
       };
 
-      const isValid = await fluxCommunicationUtils.verifyTimestampInFluxBroadcast(data);
+      const isValid = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(data);
 
       expect(isValid).to.equal(false);
     });

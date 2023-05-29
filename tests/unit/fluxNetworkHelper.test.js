@@ -1585,7 +1585,7 @@ describe('fluxNetworkHelper tests', () => {
       const result = await fluxNetworkHelper.allowPort(port);
 
       expect(result.status).to.eql(true);
-      expect(result.message).to.eql('Skipping adding existing rule\nSkipping adding existing rule (v6)\nSkipping adding existing rule\nSkipping adding existing rule (v6)\n');
+      expect(result.message).to.eql('existing');
     }).timeout(5000);
 
     it('should throw error if the parameter is not a proper number', async () => {
@@ -1632,7 +1632,7 @@ describe('fluxNetworkHelper tests', () => {
       const result = await fluxNetworkHelper.denyPort(port);
 
       expect(result.status).to.eql(true);
-      expect(result.message).to.eql('Skipping adding existing rule\nSkipping adding existing rule (v6)\nSkipping adding existing rule\nSkipping adding existing rule (v6)\n');
+      expect(result.message).to.eql('existing');
     }).timeout(5000);
 
     it('should throw error if the parameter is not a proper number', async () => {
@@ -1915,7 +1915,7 @@ describe('fluxNetworkHelper tests', () => {
       data: {
         code: undefined,
         name: undefined,
-        message: 'Not enough outgoing connections established to Flux network',
+        message: 'Not enough outgoing connections established to Flux network. Minimum required 8 found 7',
       },
     };
     const expectedErrorResponseIncoming = {
@@ -1923,7 +1923,7 @@ describe('fluxNetworkHelper tests', () => {
       data: {
         code: undefined,
         name: undefined,
-        message: 'Not enough incoming connections from Flux network',
+        message: 'Not enough incoming connections from Flux network. Minimum required 4 found 3',
       },
     };
 
