@@ -358,7 +358,7 @@ async function appStart(req, res) {
 
     if (global) {
       executeAppGlobalCommand(appname, 'appstart', req.headers.zelidauth); // do not wait
-      const appResponse = messageHelper.createDataMessage(`${appname} queried for global start`);
+      const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global start`);
       return res ? res.json(appResponse) : appResponse;
     }
     const isComponent = appname.includes('_'); // it is a component start. Proceed with starting just component
@@ -431,7 +431,7 @@ async function appStop(req, res) {
     }
     if (global) {
       executeAppGlobalCommand(appname, 'appstop', req.headers.zelidauth); // do not wait
-      const appResponse = messageHelper.createDataMessage(`${appname} queried for global stop`);
+      const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global stop`);
       return res ? res.json(appResponse) : appResponse;
     }
 
@@ -505,7 +505,7 @@ async function appRestart(req, res) {
     }
     if (global) {
       executeAppGlobalCommand(appname, 'apprestart', req.headers.zelidauth); // do not wait
-      const appResponse = messageHelper.createDataMessage(`${appname} queried for global restart`);
+      const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global restart`);
       return res ? res.json(appResponse) : appResponse;
     }
 
@@ -633,7 +633,7 @@ async function appPause(req, res) {
     }
     if (global) {
       executeAppGlobalCommand(appname, 'apppause', req.headers.zelidauth); // do not wait
-      const appResponse = messageHelper.createDataMessage(`${appname} queried for global pause`);
+      const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global pause`);
       return res ? res.json(appResponse) : appResponse;
     }
 
@@ -701,7 +701,7 @@ async function appUnpause(req, res) {
     }
     if (global) {
       executeAppGlobalCommand(appname, 'appunpause', req.headers.zelidauth); // do not wait
-      const appResponse = messageHelper.createDataMessage(`${appname} queried for global unpase`);
+      const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global unpase`);
       return res ? res.json(appResponse) : appResponse;
     }
 
@@ -2666,7 +2666,7 @@ async function removeAppLocallyApi(req, res) {
       res.json(errMessage);
     } else if (global) {
       executeAppGlobalCommand(appname, 'appremove', req.headers.zelidauth); // do not wait
-      const appResponse = messageHelper.createDataMessage(`${appname} queried for global reinstallation`);
+      const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global reinstallation`);
       res.json(appResponse);
     } else {
       // remove app from local machine.
@@ -8511,7 +8511,7 @@ async function softRedeploy(appSpecs, res) {
   try {
     if (removalInProgress) {
       log.warn('Another application is undergoing removal');
-      const appRedeployResponse = messageHelper.createDataMessage('Another application is undergoing removal');
+      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing removal');
       if (res) {
         res.write(serviceHelper.ensureString(appRedeployResponse));
       }
@@ -8519,7 +8519,7 @@ async function softRedeploy(appSpecs, res) {
     }
     if (installationInProgress) {
       log.warn('Another application is undergoing installation');
-      const appRedeployResponse = messageHelper.createDataMessage('Another application is undergoing installation');
+      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing installation');
       if (res) {
         res.write(serviceHelper.ensureString(appRedeployResponse));
       }
@@ -8532,7 +8532,7 @@ async function softRedeploy(appSpecs, res) {
       removalInProgress = false;
       throw error;
     }
-    const appRedeployResponse = messageHelper.createDataMessage('Application softly removed. Awaiting installation...');
+    const appRedeployResponse = messageHelper.createSuccessMessage('Application softly removed. Awaiting installation...');
     log.info(appRedeployResponse);
     if (res) {
       res.write(serviceHelper.ensureString(appRedeployResponse));
@@ -8557,7 +8557,7 @@ async function softRedeploy(appSpecs, res) {
 async function hardRedeploy(appSpecs, res) {
   try {
     await removeAppLocally(appSpecs.name, res, false, false);
-    const appRedeployResponse = messageHelper.createDataMessage('Application removed. Awaiting installation...');
+    const appRedeployResponse = messageHelper.createSuccessMessage('Application removed. Awaiting installation...');
     log.info(appRedeployResponse);
     if (res) {
       res.write(serviceHelper.ensureString(appRedeployResponse));
@@ -8900,7 +8900,7 @@ async function redeployAPI(req, res) {
     if (global) {
       executeAppGlobalCommand(appname, 'redeploy', req.headers.zelidauth); // do not wait
       const hardOrSoft = force ? 'hard' : 'soft';
-      const appResponse = messageHelper.createDataMessage(`${appname} queried for global ${hardOrSoft} redeploy`);
+      const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global ${hardOrSoft} redeploy`);
       res.json(appResponse);
       return;
     }
