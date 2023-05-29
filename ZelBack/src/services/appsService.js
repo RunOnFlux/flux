@@ -9429,6 +9429,7 @@ async function syncthingApps() {
 let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
 let dosMountMessage = '';
+let dosDuplicateAppMessage = '';
 
 /**
  * To get DOS state.
@@ -9459,7 +9460,6 @@ let failedPort;
 async function checkMyAppsAvailability() {
   const isUPNP = upnpService.isUPNP();
   try {
-    const mountDosStateActivationHeight = 1394000;
     const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
     const query = { generalScannedHeight: { $gte: 0 } };
@@ -9473,13 +9473,10 @@ async function checkMyAppsAvailability() {
     if (!currentHeight) {
       throw new Error('No scanned height found');
     }
-    if (dosMountMessage) {
-      // enable after height X
-      dosMessage = dosMountMessage;
-      if (currentHeight.generalScannedHeight > mountDosStateActivationHeight) {
-        dosState = 100;
-        return;
-      }
+    if (dosMountMessage || dosDuplicateAppMessage) {
+      dosMessage = dosMountMessage || dosDuplicateAppMessage;
+      dosState = 100;
+      return;
     }
     const isNodeConfirmed = await generalService.isNodeStatusConfirmed();
     if (!isNodeConfirmed) {
@@ -9602,15 +9599,15 @@ async function checkMyAppsAvailability() {
     testingAppserver.close();
     if (currentDos === 0) {
       dosState = 0;
-      dosMessage = dosMountMessage || null;
+      dosMessage = dosMountMessage || dosDuplicateAppMessage || null;
       await serviceHelper.delay(60 * 60 * 1000);
     } else {
       await serviceHelper.delay(4 * 60 * 1000);
     }
     checkMyAppsAvailability();
   } catch (error) {
-    if (dosMountMessage) {
-      dosMessage = dosMountMessage;
+    if (dosMountMessage || dosDuplicateAppMessage) {
+      dosMessage = dosMountMessage || dosDuplicateAppMessage;
     }
     let firewallActive = true;
     firewallActive = await fluxNetworkHelper.isFirewallActive().catch((e) => log.error(e));
@@ -9752,6 +9749,46 @@ async function testAppMount() {
   }
 }
 
+/**
+ * Check on apps Logs if there is reported another instance of the app on the same network (public ip).
+ * For start we will check for PresearchNodes, in the future we can add other masternode apps
+ */
+async function checkForNonAllowedAppsOnLocalNetwork() {
+  try {
+    // get list of locally installed apps.
+    const installedAppsRes = await installedApps();
+    if (installedAppsRes.status !== 'success') {
+      throw new Error('Failed to get installed Apps');
+    }
+    const appsInstalled = installedAppsRes.data;
+    dosDuplicateAppMessage = '';
+    // eslint-disable-next-line no-restricted-syntax
+    for (const app of appsInstalled) {
+      if (app.name.toLowerCase().startsWith('presearchnode')) {
+      // eslint-disable-next-line no-await-in-loop
+        const logs = await dockerService.dockerContainerLogs(app.name, 5);
+        if (logs.toLowerCase().includes('duplicate ip: this ip address is already running another node')) {
+          dosDuplicateAppMessage = 'Another PresearchNode was detected running on your local network.';
+          break;
+        }
+      }
+    }
+    if (dosDuplicateAppMessage) {
+      setTimeout(() => {
+        checkForNonAllowedAppsOnLocalNetwork();
+      }, 5 * 60 * 1000);
+    }
+    setTimeout(() => {
+      checkForNonAllowedAppsOnLocalNetwork();
+    }, 12 * 60 * 60 * 1000);
+  } catch (error) {
+    log.error(error);
+    setTimeout(() => {
+      checkForNonAllowedAppsOnLocalNetwork();
+    }, 5 * 60 * 1000);
+  }
+}
+
 function removalInProgressReset() {
   removalInProgress = false;
 }
@@ -9883,4 +9920,5 @@ module.exports = {
   setRemovalInProgressToTrue,
   installationInProgressReset,
   setInstallationInProgressTrue,
+  checkForNonAllowedAppsOnLocalNetwork,
 };
