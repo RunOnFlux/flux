@@ -5218,7 +5218,7 @@ export default {
       for (let i = 0; i < appSpecs.compose.length; i += 1) {
         for (let j = 0; j < appSpecs.compose[i].ports.length; j += 1) {
           const ports = typeof appSpecs.compose[i].ports === 'string' ? JSON.parse(appSpecs.compose[i].ports) : appSpecs.compose[i].ports;
-          return ports[j];
+          if (ports[j]) return ports[j];
         }
       }
       return null;

@@ -2501,7 +2501,7 @@ export default {
       }
       for (let i = 0; i < appSpecs.compose.length; i += 1) {
         for (let j = 0; j < appSpecs.compose[i].ports.length; j += 1) {
-          return appSpecs.compose[i].ports[j];
+          if (appSpecs.compose[i].ports[j]) return appSpecs.compose[i].ports[j];
         }
       }
       return null;
