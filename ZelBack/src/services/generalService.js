@@ -213,74 +213,6 @@ async function checkSynced() {
 }
 
 /**
- * To check if an app's Git repository is whitelisted and able to be run on FluxOS.
- * docker hub is namespace/repository:tag
- * github is ghcr.io/namespace/repository:tag
- * google is gcr.io/namespace/repository:tag
- * @param {string} repotag GitHub repository tag.
- * @returns {boolean} True or an error is thrown.
- */
-async function checkWhitelistedRepository(repotag) {
-  if (typeof repotag !== 'string') {
-    throw new Error('Invalid repotag');
-  }
-  const splittedRepo = repotag.split(':');
-  if (!splittedRepo[1]) {
-    throw new Error(`Repository ${repotag} is not in valid format namespace/repository:tag`);
-  }
-  const resWhitelistRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/RunOnFlux/flux/master/helpers/repositories.json');
-
-  if (!resWhitelistRepo) {
-    throw new Error('Unable to communicate with Flux Services! Try again later.');
-  }
-
-  const imageTags = resWhitelistRepo.data;
-  const pureOrganisations = [];
-  imageTags.forEach((imageTag) => {
-    const image = imageTag.substring(0, imageTag.lastIndexOf(':') > -1 ? imageTag.lastIndexOf(':') : imageTag.length);
-    const pureOrganisation = image.substring(0, image.lastIndexOf('/') > -1 ? image.lastIndexOf('/') : image.length); // or domain/namespace
-    pureOrganisations.push(pureOrganisation);
-  });
-  const repository = repotag.substring(0, repotag.lastIndexOf(':') > -1 ? repotag.lastIndexOf(':') : repotag.length);
-  const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
-  const isWhitelisted = pureOrganisations.includes(pureNamespace);
-  if (!isWhitelisted) { // not exact match and general image not whitelisted either
-    throw new Error('Repository is not whitelisted. Please contact Flux Team.');
-  }
-
-  return true;
-}
-
-/**
- * To create a JSON response showing a list of whitelisted Github repositories.
- * @param {object} req Request.
- * @param {object} res Response.
- */
-async function whitelistedRepositories(req, res) {
-  try {
-    const whitelisted = await serviceHelper.axiosGet('https://raw.githubusercontent.com/RunOnFlux/flux/master/helpers/repositories.json');
-    const resultsResponse = messageHelper.createDataMessage(whitelisted.data);
-    res.json(resultsResponse);
-  } catch (error) {
-    log.error(error);
-    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-  }
-}
-
-/**
- * To hash a message using sha256 encryption.
- * @param {string} message Message to be hashed.
- * @returns {string} Hashed message.
- */
-async function messageHash(message) {
-  if (typeof message !== 'string') {
-    return new Error('Invalid message');
-  }
-  return crypto.createHash('sha256').update(message).digest('hex');
-}
-
-/**
  * Split docker repotag
  * @param {string} repotag Docker repotag
  * @returns {object} Object of splitted repotag, provider, auth, service, port, namespace, repository, tag, port
@@ -371,6 +303,111 @@ function splitRepoTag(repotag) {
     splittedRepo.namespace = 'library';
   }
   return splittedRepo;
+}
+
+/**
+ * To check if an app's Git repository is whitelisted and able to be run on FluxOS.
+ * docker hub is namespace/repository:tag
+ * github is ghcr.io/namespace/repository:tag
+ * google is gcr.io/namespace/repository:tag
+ * @param {string} repotag GitHub repository tag.
+ * @returns {boolean} True or an error is thrown.
+ */
+async function checkWhitelistedRepository(repotag) {
+  if (typeof repotag !== 'string') {
+    throw new Error('Invalid repotag');
+  }
+  const splittedRepo = splitRepoTag(repotag);
+  if (!splittedRepo.tag) {
+    throw new Error(`Repository ${repotag} is not in valid format namespace/repository:tag`);
+  }
+  const resWhitelistRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/RunOnFlux/flux/master/helpers/repositories.json');
+
+  if (!resWhitelistRepo) {
+    throw new Error('Unable to communicate with Flux Services! Try again later.');
+  }
+
+  const imageTags = resWhitelistRepo.data;
+  const pureOrganisations = [];
+  imageTags.forEach((imageTag) => {
+    const sRT = splitRepoTag(imageTag);
+    if (sRT.providerName === 'Docker Hub') {
+      if (sRT.tag) {
+        pureOrganisations.push(`${sRT.namespace}/${sRT.repository}:${sRT.tag}`);
+      } else if (sRT.repository) {
+        pureOrganisations.push(`${sRT.namespace}/${sRT.repository}`);
+      } else {
+        pureOrganisations.push(sRT.namespace);
+      }
+    } else {
+      let providerNameSpace = `${sRT.provider}/${sRT.namespace}`;
+      if (sRT.port) {
+        providerNameSpace = `${sRT.provider}:${sRT.port}/${sRT.namespace}`;
+      }
+      if (sRT.repository) {
+        providerNameSpace += `/${sRT.repository}`;
+      }
+      if (sRT.tag) {
+        providerNameSpace += `/${sRT.tag}`;
+      }
+      pureOrganisations.push(providerNameSpace);
+    }
+  });
+
+  const splitRepoWhitelistAllowance = [];
+  if (splittedRepo.providerName === 'Docker Hub') {
+    splitRepoWhitelistAllowance.push(`${splittedRepo.namespace}/${splittedRepo.repository}:${splittedRepo.tag}`);
+    splitRepoWhitelistAllowance.push(`${splittedRepo.namespace}/${splittedRepo.repository}`);
+    splitRepoWhitelistAllowance.push(splittedRepo.namespace);
+  } else if (splittedRepo.port) {
+    splitRepoWhitelistAllowance.push(`${splittedRepo.provider}:${splittedRepo.port}/${splittedRepo.namespace}`);
+    splitRepoWhitelistAllowance.push(`${splittedRepo.provider}:${splittedRepo.port}/${splittedRepo.namespace}/${splittedRepo.repository}`);
+    splitRepoWhitelistAllowance.push(`${splittedRepo.provider}:${splittedRepo.port}/${splittedRepo.namespace}/${splittedRepo.repository}/${splittedRepo.tag}`);
+  } else {
+    splitRepoWhitelistAllowance.push(`${splittedRepo.provider}/${splittedRepo.namespace}`);
+    splitRepoWhitelistAllowance.push(`${splittedRepo.provider}/${splittedRepo.namespace}/${splittedRepo.repository}`);
+    splitRepoWhitelistAllowance.push(`${splittedRepo.provider}/${splittedRepo.namespace}/${splittedRepo.repository}/${splittedRepo.tag}`);
+  }
+  let isWhitelisted = false;
+  splitRepoWhitelistAllowance.forEach((allowedPart) => {
+    if (pureOrganisations.includes(allowedPart)) {
+      isWhitelisted = true;
+    }
+  });
+
+  if (!isWhitelisted) {
+    throw new Error('Repository is not whitelisted. Please contact Flux Team.');
+  }
+  return true;
+}
+
+/**
+ * To create a JSON response showing a list of whitelisted Github repositories.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function whitelistedRepositories(req, res) {
+  try {
+    const whitelisted = await serviceHelper.axiosGet('https://raw.githubusercontent.com/RunOnFlux/flux/master/helpers/repositories.json');
+    const resultsResponse = messageHelper.createDataMessage(whitelisted.data);
+    res.json(resultsResponse);
+  } catch (error) {
+    log.error(error);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
+}
+
+/**
+ * To hash a message using sha256 encryption.
+ * @param {string} message Message to be hashed.
+ * @returns {string} Hashed message.
+ */
+async function messageHash(message) {
+  if (typeof message !== 'string') {
+    return new Error('Invalid message');
+  }
+  return crypto.createHash('sha256').update(message).digest('hex');
 }
 
 /**
