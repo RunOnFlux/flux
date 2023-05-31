@@ -814,6 +814,42 @@ describe('generalService tests', () => {
 
       expect(result).to.eql(true);
     });
+
+    it('should return true if repository is whitelisted B', async () => {
+      const repotag = 'gcr.io/google-samples/node-hello:latest';
+
+      const result = await generalService.checkWhitelistedRepository(repotag);
+
+      expect(result).to.eql(true);
+    });
+
+    it('should return true if repository is whitelisted C', async () => {
+      const repotag = 'public.ecr.aws/docker/library/hello-world:linux';
+
+      const result = await generalService.checkWhitelistedRepository(repotag);
+
+      expect(result).to.eql(true);
+    });
+
+    it('should return true if repository is whitelisted D', async () => {
+      const repotag = 'download.lootlink.xyz/wirewrex/kappa:delta';
+
+      const result = await generalService.checkWhitelistedRepository(repotag);
+
+      expect(result).to.eql(true);
+    });
+
+    it('should return false if repository is not whitelisted', async () => {
+      const repotag = 'public.ecr.aws/docker/library/hello-world:notlisted';
+
+      await expect(generalService.checkWhitelistedRepository(repotag)).to.eventually.be.rejectedWith('Repository is not whitelisted. Please contact Flux Team.');
+    });
+
+    it('should return false if repository is not whitelisted B', async () => {
+      const repotag = 'ghcr.io/handshake-org/london';
+
+      await expect(generalService.checkWhitelistedRepository(repotag)).to.eventually.be.rejectedWith('Repository is not whitelisted. Please contact Flux Team.');
+    });
   });
 
   describe('whitelistedRepositories tests', () => {
