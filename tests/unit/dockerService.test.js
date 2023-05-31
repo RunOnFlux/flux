@@ -699,6 +699,7 @@ describe('dockerService tests', () => {
         HostConfig: {
           NanoCPUs: 800000000,
           Memory: 1887436800,
+          StorageOpts: { size: '12G' },
           Ulimits: [{ Name: 'nofile', Soft: 100000, Hard: 100000 }],
           RestartPolicy: { Name: 'unless-stopped' },
           NetworkMode: 'fluxDockerNetwork_fluxwebsite',
@@ -755,6 +756,7 @@ describe('dockerService tests', () => {
         HostConfig: {
           NanoCPUs: 800000000,
           Memory: 1887436800,
+          StorageOpts: { size: '12G' },
           Binds: [`${appsFolder}fluxwebsite/appdata:/chaindata`],
           Ulimits: [{ Name: 'nofile', Soft: 100000, Hard: 100000 }],
           PortBindings: {
@@ -792,6 +794,7 @@ describe('dockerService tests', () => {
         HostConfig: {
           NanoCPUs: 800000000,
           Memory: 1887436800,
+          StorageOpts: { size: '12G' },
           Binds: [`${appsFolder}fluxwebsite_fluxwebsite/appdata:/chaindata`],
           Ulimits: [{ Name: 'nofile', Soft: 100000, Hard: 100000 }],
           PortBindings: {
