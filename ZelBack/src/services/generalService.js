@@ -329,28 +329,18 @@ async function checkWhitelistedRepository(repotag) {
 
   const imageTags = resWhitelistRepo.data;
   const pureOrganisations = [];
-  imageTags.forEach((imageTag) => {
-    const sRT = splitRepoTag(imageTag);
-    if (sRT.providerName === 'Docker Hub') {
-      if (sRT.tag) {
-        pureOrganisations.push(`${sRT.namespace}/${sRT.repository}:${sRT.tag}`);
-      } else if (sRT.repository) {
-        pureOrganisations.push(`${sRT.namespace}/${sRT.repository}`);
+  imageTags.forEach((imageTag) => { // todo revisit for more strict
+    const image = imageTag.substring(0, imageTag.lastIndexOf(':') > -1 ? imageTag.lastIndexOf(':') : imageTag.length);
+    if (image.includes('.')) {
+      if (image.split('/')[2]) { // abc.xyz/namespace/repository
+        const pureOrganisation = image.substring(0, image.lastIndexOf('/') > -1 ? image.lastIndexOf('/') : image.length); // or domain/namespace
+        pureOrganisations.push(pureOrganisation);
       } else {
-        pureOrganisations.push(sRT.namespace);
+        pureOrganisations.push(image);
       }
     } else {
-      let providerNameSpace = `${sRT.provider}/${sRT.namespace}`;
-      if (sRT.port) {
-        providerNameSpace = `${sRT.provider}:${sRT.port}/${sRT.namespace}`;
-      }
-      if (sRT.repository) {
-        providerNameSpace += `/${sRT.repository}`;
-      }
-      if (sRT.tag) {
-        providerNameSpace += `/${sRT.tag}`;
-      }
-      pureOrganisations.push(providerNameSpace);
+      const pureOrganisation = image.substring(0, image.lastIndexOf('/') > -1 ? image.lastIndexOf('/') : image.length); // or domain/namespace
+      pureOrganisations.push(pureOrganisation);
     }
   });
 
