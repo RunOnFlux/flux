@@ -4762,6 +4762,7 @@ describe('appsService tests', () => {
       geolocationServiceStub.returns(undefined);
       const appSpec = {
         version: 5,
+        geolocaion: ['acEU'],
       };
 
       // eslint-disable-next-line func-names
