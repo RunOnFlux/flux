@@ -287,6 +287,13 @@ describe('daemonServiceAddressRpcs tests', () => {
         end: 167068000,
         chaininfo: true,
       };
+
+      const expectedParams = {
+        addresses: '12QSasdfggYy4sditOpQzsee',
+        start: 1670654443,
+        end: 167068000,
+        chainInfo: true,
+      };
       const mockStream = new PassThrough();
       mockStream.push(JSON.stringify(params));
       mockStream.end();
@@ -297,7 +304,7 @@ describe('daemonServiceAddressRpcs tests', () => {
       // await because of the async nature of the request processing
       await serviceHelper.delay(150);
 
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getaddressdeltas', [params]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getaddressdeltas', [expectedParams]);
       sinon.assert.calledOnceWithExactly(res.json, 'success');
     });
 

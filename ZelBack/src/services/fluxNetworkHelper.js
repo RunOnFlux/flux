@@ -245,7 +245,7 @@ async function isPortOpen(ip, port, app, timeout = 5000) {
  * @param {string} port Port. Defaults to config.server.apiport.
  * @returns {boolean} False unless FluxOS version meets or exceeds the minimum allowed version.
  */
-async function isFluxAvailable(ip, port = config.server.apiport) {
+async function isFluxAvailable(ip, port = config.server.apiport, ifTestSyncthingPort = true) {
   try {
     const ipchars = /^[0-9.]+$/;
     if (!ipchars.test(ip)) {
@@ -266,9 +266,11 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
     const UIok = fluxResponseUI.data.includes('<title>');
     if (!UIok) return false;
 
-    const syncthingPort = +port + 2;
-    const syncthingOpen = await isPortOpen(ip, syncthingPort);
-    if (!syncthingOpen) return false;
+    if (ifTestSyncthingPort) {
+      const syncthingPort = +port + 2;
+      const syncthingOpen = await isPortOpen(ip, syncthingPort);
+      if (!syncthingOpen) return false;
+    }
 
     return true;
   } catch (e) {
