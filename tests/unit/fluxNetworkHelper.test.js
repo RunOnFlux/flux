@@ -42,7 +42,13 @@ const { expect } = chai;
 describe('fluxNetworkHelper tests', () => {
   describe('checkFluxAvailability tests', () => {
     let stub;
-    stub = sinon.stub(fluxNetworkHelper, 'isPortOpen').resolves(true);
+    before(() => {
+      stub = sinon.stub(fluxNetworkHelper, 'isPortOpen').resolves(true);
+    });
+    after(() => {
+      fluxNetworkHelper.isPortOpen.restore(); // Unwraps the spy
+    });
+
     const axiosConfig = {
       timeout: 5000,
     };
@@ -295,7 +301,13 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('isFluxAvailable tests', () => {
-    let stub = sinon.stub(fluxNetworkHelper, 'isPortOpen').resolves(true);
+    let stub;
+    before(() => {
+      stub = sinon.stub(fluxNetworkHelper, 'isPortOpen').resolves(true);
+    });
+    after(() => {
+      fluxNetworkHelper.isPortOpen.restore(); // Unwraps the spy
+    });
     const ip = '127.0.0.1';
     const port = '16127';
     const axiosConfig = {
