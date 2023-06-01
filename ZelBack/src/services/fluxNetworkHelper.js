@@ -267,7 +267,8 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
     if (!UIok) return false;
 
     const syncthingPort = +port + 2;
-    const syncthingOpen = await isPortOpen(ip, syncthingPort);
+    // eslint-disable-next-line no-use-before-define
+    const syncthingOpen = await services.isPortOpen(ip, syncthingPort);
     if (!syncthingOpen) return false;
 
     return true;
@@ -1316,7 +1317,7 @@ function lruRateLimit(ip, limitPerSecond = 20) {
   return true;
 }
 
-module.exports = {
+const services = {
   minVersionSatisfy,
   isFluxAvailable,
   checkFluxAvailability,
@@ -1359,3 +1360,5 @@ module.exports = {
   isPortEnterprise,
   isPortBanned,
 };
+
+module.exports = services;
