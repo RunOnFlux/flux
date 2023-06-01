@@ -40,7 +40,6 @@ chai.use(chaiAsPromised);
 const { expect } = chai;
 
 describe('fluxNetworkHelper tests', () => {
-  sinon.stub(fluxNetworkHelper, 'isPortOpen').resolves(true);
   describe('checkFluxAvailability tests', () => {
     let stub;
     const axiosConfig = {
@@ -296,6 +295,7 @@ describe('fluxNetworkHelper tests', () => {
 
   describe('isFluxAvailable tests', () => {
     let stub;
+    sinon.stub(fluxNetworkHelper, 'isPortOpen').resolves(true);
     const ip = '127.0.0.1';
     const port = '16127';
     const axiosConfig = {
