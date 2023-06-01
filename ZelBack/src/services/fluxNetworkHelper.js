@@ -266,9 +266,9 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
     const UIok = fluxResponseUI.data.includes('<title>');
     if (!UIok) return false;
 
-    const syncthingPort = +port + 2;
-    const syncthingOpen = await isPortOpen(ip, syncthingPort);
-    if (!syncthingOpen) return false;
+    // const syncthingPort = +port + 2;
+    // const syncthingOpen = await isPortOpen(ip, syncthingPort);
+    // if (!syncthingOpen) return false;
 
     return true;
   } catch (e) {
