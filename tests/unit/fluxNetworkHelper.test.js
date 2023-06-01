@@ -40,15 +40,9 @@ chai.use(chaiAsPromised);
 const { expect } = chai;
 
 describe('fluxNetworkHelper tests', () => {
+  sinon.stub(fluxNetworkHelper, 'isPortOpen').resolves(true);
   describe('checkFluxAvailability tests', () => {
     let stub;
-    before(() => {
-      stub = sinon.stub(fluxNetworkHelper, 'isPortOpen').resolves(true);
-    });
-    after(() => {
-      fluxNetworkHelper.isPortOpen.restore(); // Unwraps the spy
-    });
-
     const axiosConfig = {
       timeout: 5000,
     };
@@ -107,7 +101,7 @@ describe('fluxNetworkHelper tests', () => {
 
       const checkFluxAvailabilityResult = await fluxNetworkHelper.checkFluxAvailability(req, mockResponse);
 
-      sinon.assert.calledOnceWithExactly(stub, expectedAddress, axiosConfig);
+      sinon.assert.calledWithExactly(stub, expectedAddress, axiosConfig);
       sinon.assert.calledWithExactly(stub, expectedAddressHome, axiosConfig);
       sinon.assert.calledOnceWithExactly(mockResponse.json, expectedMessage);
       expect(checkFluxAvailabilityResult).to.eql(expectedMessage);
@@ -139,7 +133,7 @@ describe('fluxNetworkHelper tests', () => {
 
       const checkFluxAvailabilityResult = await fluxNetworkHelper.checkFluxAvailability(req, mockResponse);
 
-      sinon.assert.calledOnceWithExactly(stub, expectedAddress, axiosConfig);
+      sinon.assert.calledWithExactly(stub, expectedAddress, axiosConfig);
       sinon.assert.calledWithExactly(stub, expectedAddressHome, axiosConfig);
       sinon.assert.calledOnceWithExactly(mockResponse.json, expectedMessage);
       expect(checkFluxAvailabilityResult).to.eql(expectedMessage);
@@ -302,12 +296,6 @@ describe('fluxNetworkHelper tests', () => {
 
   describe('isFluxAvailable tests', () => {
     let stub;
-    before(() => {
-      stub = sinon.stub(fluxNetworkHelper, 'isPortOpen').resolves(true);
-    });
-    after(() => {
-      fluxNetworkHelper.isPortOpen.restore(); // Unwraps the spy
-    });
     const ip = '127.0.0.1';
     const port = '16127';
     const axiosConfig = {
