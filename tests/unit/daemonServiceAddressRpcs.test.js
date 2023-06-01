@@ -297,7 +297,7 @@ describe('daemonServiceAddressRpcs tests', () => {
       // await because of the async nature of the request processing
       await serviceHelper.delay(150);
 
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getaddressdeltas', params);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getaddressdeltas', [params]);
       sinon.assert.calledOnceWithExactly(res.json, 'success');
     });
 
@@ -315,12 +315,9 @@ describe('daemonServiceAddressRpcs tests', () => {
       // await because of the async nature of the request processing
       await serviceHelper.delay(150);
 
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getaddressdeltas', {
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getaddressdeltas', [{
         addresses: undefined,
-        start: undefined,
-        end: undefined,
-        chainInfo: undefined,
-      });
+      }]);
       sinon.assert.calledOnceWithExactly(res.json, 'NoParamsGiven');
     });
   });
@@ -356,7 +353,7 @@ describe('daemonServiceAddressRpcs tests', () => {
       const result = await daemonServiceAddressRpcs.getSingleAddressDeltas(req);
 
       expect(result).to.eql('success');
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getaddressdeltas', expectedParams);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getaddressdeltas', [expectedParams]);
     });
 
     it('should execute RPC if parameters are passed in query, response passed', async () => {
