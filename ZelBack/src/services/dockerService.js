@@ -750,7 +750,7 @@ async function createFluxDockerNetwork() {
     Name: 'fluxDockerNetwork',
     IPAM: {
       Config: [{
-        Subnet: '172.23.0.0/16',
+        Subnet: '172.23.0.0/24',
         Gateway: '172.23.0.1',
       }],
     },
@@ -781,7 +781,7 @@ async function createFluxAppDockerNetwork(appname, number) {
     Name: `fluxDockerNetwork_${appname}`,
     IPAM: {
       Config: [{
-        Subnet: `172.23.${number}.0/16`,
+        Subnet: `172.23.${number}.0/24`,
         Gateway: `172.23.${number}.1`,
       }],
     },
