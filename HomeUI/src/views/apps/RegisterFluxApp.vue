@@ -2457,7 +2457,7 @@ export default {
           // eslint-disable-next-line no-param-reassign
           component.ports = ports;
         });
-      } else if (this.currentHeight < 1420000) {
+      } else if (this.currentHeight < 1390000) {
         this.specificationVersion = 6;
         this.appRegistrationSpecification = this.appRegistrationSpecificationV6Template;
         this.appRegistrationSpecification.compose.forEach((component) => {
