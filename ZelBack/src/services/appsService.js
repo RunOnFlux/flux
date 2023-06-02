@@ -4119,7 +4119,6 @@ async function verifyRepository(repotag, repoauth, skipVerification = false) {
       const loginResp = await axios.post('https://hub.docker.com/v2/users/login', loginData).catch((error) => {
         console.log(error);
       });
-      console.log(loginResp);
       const { token } = loginResp.data;
       axiosConfig = {
         headers: {
@@ -5558,7 +5557,6 @@ async function repositoryArchitectures(repotag, repoauth) {
       const loginResp = await axios.post('https://hub.docker.com/v2/users/login', loginData).catch((error) => {
         console.log(error);
       });
-      console.log(loginResp);
       const { token } = loginResp.data;
       axiosConfig = {
         headers: {
