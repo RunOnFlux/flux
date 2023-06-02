@@ -255,7 +255,7 @@ function dockerPullStream(config, res, callback) {
     if (authToken.includes(':')) { // specified by username:token
       pullOptions = {
         username: authToken.split(':')[0],
-        password: authToken.split(':')[2],
+        password: authToken.split(':')[1],
       };
       if (serveraddress) {
         pullOptions.serveraddress = serveraddress;
