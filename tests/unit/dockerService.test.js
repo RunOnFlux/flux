@@ -538,8 +538,8 @@ describe('dockerService tests', () => {
       Name: 'fluxDockerNetwork',
       IPAM: {
         Config: [{
-          Subnet: '172.15.0.0/16',
-          Gateway: '172.15.0.1',
+          Subnet: '172.23.0.0/16',
+          Gateway: '172.23.0.1',
         }],
       },
     };
@@ -581,8 +581,8 @@ describe('dockerService tests', () => {
       Name: 'fluxDockerNetwork_MyAppName',
       IPAM: {
         Config: [{
-          Subnet: '172.52.0.0/16',
-          Gateway: '172.52.0.1',
+          Subnet: '172.23.52.0/16',
+          Gateway: '172.23.52.1',
         }],
       },
     };
