@@ -254,11 +254,13 @@ function dockerPullStream(config, res, callback) {
   if (authToken) {
     if (authToken.includes(':')) { // specified by username:token
       pullOptions = {
-        username: authToken.split(':')[0],
-        password: authToken.split(':')[1],
+        authconfig: {
+          username: authToken.split(':')[0],
+          password: authToken.split(':')[1],
+        },
       };
       if (serveraddress) {
-        pullOptions.serveraddress = serveraddress;
+        pullOptions.authconfig.serveraddress = serveraddress;
       }
     } else {
       throw new Error('Invalid login credentials for docker provided');
