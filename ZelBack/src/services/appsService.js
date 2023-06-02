@@ -4753,6 +4753,9 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
     throw new Error('Flux App name is too long');
   }
   // furthermore name cannot contain any special character
+  if (!appSpecifications.name) {
+    throw new Error('Please provide a valid Flux App name');
+  }
   if (!appSpecifications.name.match(/^[a-zA-Z0-9]+$/)) {
     throw new Error('Flux App name contains special characters. Only a-z, A-Z and 0-9 are allowed');
   }
@@ -4859,6 +4862,9 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
       }
       if (typeof appComponent !== 'object') {
         throw new Error('Invalid Flux App Specifications');
+      }
+      if (!appComponent.name) {
+        throw new Error('Please provide a valid Flux App Component name');
       }
       if (appComponent.name.length > 32) {
         throw new Error('Flux App name is too long');
@@ -6376,10 +6382,10 @@ function specificationFormatter(appSpecification) {
         appComponentCorrect.hddbasic = hddbasic;
         appComponentCorrect.hddsuper = hddsuper;
         appComponentCorrect.hddbamf = hddbamf;
-        if (version >= 7) {
-          appComponentCorrect.secrets = serviceHelper.ensureString(appComponent.secrets);
-          appComponentCorrect.repoauth = serviceHelper.ensureString(appComponent.repoauth);
-        }
+      }
+      if (version >= 7) {
+        appComponentCorrect.secrets = serviceHelper.ensureString(appComponent.secrets);
+        appComponentCorrect.repoauth = serviceHelper.ensureString(appComponent.repoauth);
       }
       correctCompose.push(appComponentCorrect);
     });
