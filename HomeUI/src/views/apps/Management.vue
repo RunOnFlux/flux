@@ -5837,6 +5837,7 @@ export default {
       });
     },
     constructNodes() {
+      this.appUpdateSpecification.nodes = [];
       this.selectedEnterpriseNodes.forEach((node) => {
         this.appUpdateSpecification.nodes.push(node.ip);
       });

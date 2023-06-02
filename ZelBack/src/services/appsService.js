@@ -4098,7 +4098,7 @@ async function verifyRepository(repotag, repoauth, skipVerification = false) {
   }
   let decryptedRepoAuth;
   if (repoauth) {
-    decryptedRepoAuth = pgpSrevice.decryptMessage(repoauth);
+    decryptedRepoAuth = await pgpSrevice.decryptMessage(repoauth);
     if (!decryptedRepoAuth) {
       throw new Error('Unable to decrypt provided credentials');
     }
@@ -5537,7 +5537,7 @@ async function repositoryArchitectures(repotag, repoauth) {
   const architectures = [];
   let decryptedRepoAuth;
   if (repoauth) {
-    decryptedRepoAuth = pgpSrevice.decryptMessage(repoauth);
+    decryptedRepoAuth = await pgpSrevice.decryptMessage(repoauth);
     if (!decryptedRepoAuth) {
       throw new Error('Unable to decrypt provided credentials');
     }

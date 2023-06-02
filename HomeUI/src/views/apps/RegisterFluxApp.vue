@@ -3017,6 +3017,7 @@ export default {
       });
     },
     constructNodes() {
+      this.appRegistrationSpecification.nodes = [];
       this.selectedEnterpriseNodes.forEach((node) => {
         this.appRegistrationSpecification.nodes.push(node.ip);
       });
