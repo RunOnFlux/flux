@@ -69,11 +69,6 @@ async function handleAppRunningMessage(message, fromIP) {
     // eslint-disable-next-line global-require
     const appsService = require('./appsService');
     const rebroadcastToPeers = await appsService.storeAppRunningMessage(message.data);
-    if (message.data.ip === '144.76.73.6') {
-      log.info('DEBUG');
-      log.info(JSON.stringify(message));
-      log.info(fromIP);
-    }
     if (rebroadcastToPeers === true) {
       const messageString = serviceHelper.ensureString(message);
       const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP);

@@ -335,9 +335,8 @@ async function checkAppAvailability(req, res) {
       delete dataToVerify.signature;
       const messageToVerify = JSON.stringify(dataToVerify);
       const verified = verificationHelper.verifyMessage(messageToVerify, pubKey, signature);
-      if ((verified !== true || !node) && authorized !== true) { // TODO
-        log.error('Unable to verify request authenticity');
-        // throw new Error('Unable to verify request authenticity');
+      if ((verified !== true || !node) && authorized !== true) {
+        throw new Error('Unable to verify request authenticity');
       }
 
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
