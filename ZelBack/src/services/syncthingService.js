@@ -1923,9 +1923,6 @@ async function getDeviceID(req, res) {
       const successResponse = messageHelper.createDataMessage(deviceID);
       return res ? res.json(successResponse) : successResponse;
     }
-    log.error(meta);
-    log.error(healthy);
-    log.error(pingResponse);
     throw new Error('Syncthing is not running properly');
   } catch (error) {
     log.error(error);
@@ -2039,7 +2036,7 @@ async function startSyncthing() {
       if (restartRequired.status === 'success' && restartRequired.data.requiresRestart === true) {
         await systemRestart();
       }
-      await serviceHelper.delay(0.5 * 60 * 1000);
+      await serviceHelper.delay(8 * 60 * 1000);
       startSyncthing();
     }
   } catch (error) {

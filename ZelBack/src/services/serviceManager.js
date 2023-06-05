@@ -151,7 +151,7 @@ async function startFluxFunctions() {
             await fluxService.softUpdateFluxInstall().catch((error) => log.error(error));
           }, 15 * 1000);
         }
-      }, 60 * 60 * 1000); // every 1 hour
+      }, 20 * 60 * 1000); // every 20 minutes
     }
   } catch (e) {
     log.error(e);
