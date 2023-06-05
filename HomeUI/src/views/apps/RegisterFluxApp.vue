@@ -1711,7 +1711,7 @@
             responsive
             :per-page="entNodesSelectTable.perPage"
             :current-page="entNodesSelectTable.currentPage"
-            :items="adjustedEnterpriseNodes"
+            :items="enterpriseNodes"
             :fields="entNodesSelectTable.fields"
             :sort-by.sync="entNodesSelectTable.sortBy"
             :sort-desc.sync="entNodesSelectTable.sortDesc"
@@ -1720,6 +1720,7 @@
             :filter-included-fields="entNodesSelectTable.filterOn"
             show-empty
             :empty-text="'No Enterprise Nodes For Addition Found'"
+            @filtered="onFilteredSelection"
           >
             <template #cell(show_details)="row">
               <a @click="row.toggleDetails">
@@ -1804,6 +1805,15 @@
             </template>
             <template #cell(actions)="locationRow">
               <b-button
+                size="sm"
+                class="mr-1 mb-1"
+                variant="primary"
+                @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
+              >
+                Visit
+              </b-button>
+              <b-button
+                v-if="!selectedEnterpriseNodes.find((node) => node.ip === locationRow.item.ip)"
                 :id="`add-${locationRow.item.ip}`"
                 size="sm"
                 class="mr-1 mb-1"
@@ -1813,12 +1823,14 @@
                 Add
               </b-button>
               <b-button
+                v-if="selectedEnterpriseNodes.find((node) => node.ip === locationRow.item.ip)"
+                :id="`add-${locationRow.item.ip}`"
                 size="sm"
                 class="mr-1 mb-1"
-                variant="primary"
-                @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
+                variant="danger"
+                @click="removeFluxNode(locationRow.item.ip)"
               >
-                Visit
+                Remove
               </b-button>
             </template>
           </b-table>
@@ -1826,13 +1838,13 @@
         <b-col cols="12">
           <b-pagination
             v-model="entNodesSelectTable.currentPage"
-            :total-rows="enterpriseNodes.length"
+            :total-rows="entNodesSelectTable.totalRows"
             :per-page="entNodesSelectTable.perPage"
             align="center"
             size="sm"
             class="my-0"
           />
-          <span class="table-total">Total: {{ enterpriseNodes.length }}</span>
+          <span class="table-total">Total: {{ entNodesSelectTable.totalRows }}</span>
         </b-col>
       </b-row>
     </b-modal>
@@ -2204,6 +2216,7 @@ export default {
         filter: '',
         filterOn: [],
         currentPage: 1,
+        totalRows: 1,
       },
       chooseEnterpriseDialog: false,
     };
@@ -2213,9 +2226,6 @@ export default {
       'config',
       'privilege',
     ]),
-    adjustedEnterpriseNodes() {
-      return this.enterpriseNodes.filter((node) => !this.selectedEnterpriseNodes.includes(node));
-    },
     validTill() {
       const expTime = this.timestamp + 60 * 60 * 1000; // 1 hour
       return expTime;
@@ -2335,6 +2345,11 @@ export default {
     this.appRegistrationSpecification.owner = auth.zelid;
   },
   methods: {
+    onFilteredSelection(filteredItems) {
+      // Trigger pagination to update the number of buttons/pages due to filtering
+      this.entNodesSelectTable.totalRows = filteredItems.length;
+      this.entNodesSelectTable.currentPage = 1;
+    },
     async getFluxnodeStatus() {
       try {
         const fluxnodeStatus = await DaemonService.getZelNodeStatus();
@@ -3033,10 +3048,11 @@ export default {
     async autoSelectNodes() {
       const { instances } = this.appRegistrationSpecification;
       const maxNumberOfNodes = +instances + Math.ceil(Math.max(5, +instances * 0.1));
+      const notSelectedEnterpriseNodes = this.enterpriseNodes.filter((node) => !this.selectedEnterpriseNodes.includes(node));
       const nodesSelected = this.selectedEnterpriseNodes.length;
       const nodesToSelect = [];
       for (let i = 0; i < (maxNumberOfNodes - nodesSelected); i += 1) {
-        nodesToSelect.push(this.adjustedEnterpriseNodes[i]);
+        nodesToSelect.push(notSelectedEnterpriseNodes[i]);
       }
       nodesToSelect.forEach(async (node) => {
         const nodeExists = this.selectedEnterpriseNodes.find((existingNode) => existingNode.ip === node.ip);
@@ -3073,6 +3089,7 @@ export default {
       const enterpriseList = localStorage.getItem('flux_enterprise_nodes');
       if (enterpriseList) {
         this.enterpriseNodes = JSON.parse(enterpriseList);
+        this.entNodesSelectTable.totalRows = this.enterpriseNodes.length;
       }
       try {
         const entList = await AppsService.getEnterpriseNodes();
@@ -3080,6 +3097,7 @@ export default {
           this.showToast('danger', entList.data.data.message || entList.data.data);
         } else {
           this.enterpriseNodes = entList.data.data;
+          this.entNodesSelectTable.totalRows = this.enterpriseNodes.length;
           localStorage.setItem('flux_enterprise_nodes', JSON.stringify(this.enterpriseNodes));
         }
       } catch (error) {
