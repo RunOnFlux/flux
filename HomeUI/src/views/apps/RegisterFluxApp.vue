@@ -354,7 +354,7 @@
               v-if="appRegistrationSpecification.version >= 7"
               class="form-row form-group"
             >
-              <label class="col-1 col-form-label">
+              <label class="col-form-label">
                 Static IP
                 <v-icon
                   v-b-tooltip.hover.top="'Select if your application strictly requires static IP address'"
@@ -366,6 +366,27 @@
                 <b-form-checkbox
                   id="staticip"
                   v-model="appRegistrationSpecification.staticip"
+                  switch
+                  class="custom-control-primary inline"
+                />
+              </div>
+            </div>
+            <div
+              v-if="appRegistrationSpecification.version >= 7"
+              class="form-row form-group"
+            >
+              <label class="col-form-label">
+                Enterprise Application
+                <v-icon
+                  v-b-tooltip.hover.top="'Select if your application requires private image, secrets or if you want to target specific nodes on which application can run'"
+                  name="info-circle"
+                  class="mr-1"
+                />
+              </label>
+              <div class="col">
+                <b-form-checkbox
+                  id="enterpriseapp"
+                  v-model="isPrivateApp"
                   switch
                   class="custom-control-primary inline"
                 />
@@ -453,7 +474,7 @@
                 </div>
               </div>
               <div
-                v-if="appRegistrationSpecification.version >= 7"
+                v-if="appRegistrationSpecification.version >= 7 && isPrivateApp"
                 class="form-row form-group"
               >
                 <label class="col-3 col-form-label">
@@ -598,8 +619,24 @@
                   />
                 </div>
               </div>
+              <div class="form-row form-group">
+                <label class="col-3 col-form-label">
+                  Cont. Data
+                  <v-icon
+                    v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with s: for synced data between instances. Eg. s:/data'"
+                    name="info-circle"
+                    class="mr-1"
+                  />
+                </label>
+                <div class="col">
+                  <b-form-input
+                    id="containerData"
+                    v-model="component.containerData"
+                  />
+                </div>
+              </div>
               <div
-                v-if="appRegistrationSpecification.version >= 7"
+                v-if="appRegistrationSpecification.version >= 7 && isPrivateApp"
                 class="form-row form-group"
               >
                 <label class="col-3 col-form-label">
@@ -615,22 +652,6 @@
                     id="secrets"
                     v-model="component.secrets"
                     placeholder="[]"
-                  />
-                </div>
-              </div>
-              <div class="form-row form-group">
-                <label class="col-3 col-form-label">
-                  Cont. Data
-                  <v-icon
-                    v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with s: for synced data between instances. Eg. s:/data'"
-                    name="info-circle"
-                    class="mr-1"
-                  />
-                </label>
-                <div class="col">
-                  <b-form-input
-                    id="containerData"
-                    v-model="component.containerData"
                   />
                 </div>
               </div>
@@ -826,7 +847,7 @@
         </b-row>
       </b-card>
       <b-card
-        v-if="appRegistrationSpecification.version >= 7"
+        v-if="appRegistrationSpecification.version >= 7 && isPrivateApp"
         title="Enterprise Nodes"
       >
         Only these selected enterprise nodes will be able to run your application and are used for encryption. Only these nodes are able access your private image, secrets.
@@ -1569,7 +1590,7 @@
         </b-col>
       </b-row>
     </div>
-    <div v-if="registrationHash">
+    <div v-if="registrationHash && !isPrivateApp">
       <b-row>
         <b-card title="Test Launch">
           <b-card-text>
@@ -2066,6 +2087,7 @@ export default {
           },
         ],
       },
+      isPrivateApp: false,
       composeTemplate: {
         name: '',
         description: '',
@@ -2274,6 +2296,28 @@ export default {
           this.websocket = null;
         }
       },
+    },
+    isPrivateApp(value) {
+      console.log(value);
+      if (this.appRegistrationSpecification.version >= 7 && value === false) {
+        this.appRegistrationSpecification.nodes = [];
+        this.appRegistrationSpecification.compose.forEach((component) => {
+          // eslint-disable-next-line no-param-reassign
+          component.secrets = '';
+          // eslint-disable-next-line no-param-reassign
+          component.repoauth = '';
+        });
+        this.selectedEnterpriseNodes = [];
+      }
+      this.dataToSign = '';
+      this.signature = '';
+      this.timestamp = null;
+      this.dataForAppRegistration = {};
+      this.registrationHash = '';
+      if (this.websocket !== null) {
+        this.websocket.close();
+        this.websocket = null;
+      }
     },
   },
   beforeMount() {
