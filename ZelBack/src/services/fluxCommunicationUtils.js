@@ -7,7 +7,7 @@ const daemonServiceZelnodeRpcs = require('./daemonService/daemonServiceZelnodeRp
 // default cache
 const LRUoptions = {
   max: 20000, // currently 20000 nodes
-  maxAge: 1000 * 150, // 150 seconds slightly over average blocktime. Allowing 1 block expired too.
+  maxAge: 1000 * 480, // 480 seconds, allow up to 4 blocks
 };
 
 const myCache = new LRU(LRUoptions);
@@ -107,7 +107,7 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
     if (dataObj.data && dataObj.data.type === 'fluxapprunning') {
       node = zl.find((key) => key.pubkey === pubKey && dataObj.data.ip && dataObj.data.ip === key.ip); // check ip is on the network and belongs to broadcasted public key
       if (!node) {
-        log.error('Error fluxapprunning message');
+        log.error('Invalid fluxapprunning message');
         log.error(JSON.stringify(dataObj));
         log.error(pubKey);
         log.error(dataObj.data.ip);

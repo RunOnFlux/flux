@@ -18,7 +18,7 @@ let response = messageHelper.createErrorMessage();
 // default cache
 const LRUoptions = {
   max: 20000, // currently 20000 nodes
-  maxAge: 1000 * 150, // 150 seconds slightly over average blocktime. Allowing 1 block expired too.
+  maxAge: 1000 * 360, // 360 seconds, 3 blocks
 };
 
 let numberOfFluxNodes = 0;
@@ -176,7 +176,7 @@ function handleIncomingConnection(ws, req, expressWS) {
         const possibleNodes = zl.filter((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
         const nodeFound = possibleNodes.find((n) => n.ip === peer.ip.replace('::ffff:', ''));
         if (!nodeFound) {
-          log.warn(`Message received from incoming peer ${peer.ip} but is not an originating node of ${pubKey}.`);
+          log.warn(`Invalid message received from incoming peer ${peer.ip} which is not an originating node of ${pubKey}.`);
           ws.close(1000, 'invalid message, disconnect'); // close as of policy violation
         } else {
           blockedPubKeysCache.set(pubKey, pubKey); // blocks ALL the nodes corresponding to the pubKey
@@ -420,7 +420,7 @@ async function initiateAndHandleConnection(connection) {
         const possibleNodes = zl.filter((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
         const nodeFound = possibleNodes.find((n) => n.ip === connection);
         if (!nodeFound) {
-          log.warn(`Message received from outgoing peer ${connection} but is not an originating node of ${pubKey}.`);
+          log.warn(`Invalid message received from outgoing peer ${connection} which is not an originating node of ${pubKey}.`);
           websocket.close(1000, 'invalid message, disconnect'); // close as of policy violation
         } else {
           blockedPubKeysCache.set(pubKey, pubKey); // blocks ALL the nodes corresponding to the pubKey
