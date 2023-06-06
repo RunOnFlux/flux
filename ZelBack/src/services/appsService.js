@@ -53,9 +53,6 @@ const globalAppsLocations = config.database.appsglobal.collections.appsLocations
 const testingAppExpress = express();
 const testingAppserver = http.createServer(testingAppExpress);
 
-const beforeAppInstallTestingExpress = express();
-const beforeAppInstallTestingServer = http.createServer(beforeAppInstallTestingExpress);
-
 // cache for app running messages
 const LRUoptionsRun = { // cache for app running messages
   max: 50000, // store max 50000 values, eventhough we can have more values. this accounts for more than 15000 app instances. Less than 500 Bytes per value -> 25MB cache
@@ -9671,6 +9668,7 @@ async function checkMyAppsAvailability() {
  * @param {array} portsToTest array of ports we will be testing
  * @returns boolean if ports are publicly available. So app installation can proceed
  */
+let beforeAppInstallTestingServers = [];
 async function checkInstallingAppPortAvailable(portsToTest = []) {
   const isUPNP = upnpService.isUPNP();
   let portsStatus = false;
@@ -9701,9 +9699,12 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
         // eslint-disable-next-line no-await-in-loop
         await upnpService.mapUpnpPort(portToTest, 'Flux_Test_App');
       }
+      const beforeAppInstallTestingExpress = express();
+      const beforeAppInstallTestingServer = http.createServer(beforeAppInstallTestingExpress);
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(5 * 1000);
       beforeAppInstallTestingServer.listen(portToTest);
+      beforeAppInstallTestingServers.push(beforeAppInstallTestingExpress);
     }
     await serviceHelper.delay(10 * 1000);
     // eslint-disable-next-line no-await-in-loop
@@ -9760,6 +9761,10 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
         await upnpService.removeMapUpnpPort(portToTest, `Flux_Prelaunch_App_${portToTest}`);
       }
     }
+    beforeAppInstallTestingServers.forEach((beforeAppInstallTestingServer) => {
+      beforeAppInstallTestingServer.close();
+    });
+    beforeAppInstallTestingServers = [];
     return portsStatus;
   } catch (error) {
     if (dosMountMessage || dosDuplicateAppMessage) {
@@ -9779,7 +9784,10 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
         await upnpService.removeMapUpnpPort(portToTest, `Flux_Prelaunch_App_${portToTest}`).catch((e) => log.error(e));
       }
     }
-    beforeAppInstallTestingServer.close();
+    beforeAppInstallTestingServers.forEach((beforeAppInstallTestingServer) => {
+      beforeAppInstallTestingServer.close();
+    });
+    beforeAppInstallTestingServers = [];
     log.error(error);
     return false;
   }
