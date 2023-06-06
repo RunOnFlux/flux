@@ -129,7 +129,7 @@ module.exports = {
     publicepochstart: 705000,
     portMin: 31000, // ports 30000 - 30999 are reserved for local applications
     portMax: 39999,
-    portBockheightChange: 1420000,
+    portBlockheightChange: 1420000,
     portMinNew: 1,
     portMaxNew: 65535,
     bannedPorts: ['16100-16299', '26100-26299', '30000-30099', 8384, 27017, 22, 23, 25, 3389, 5900, 5800, 161, 512, 513, 5901, 3388, 4444, 123],

@@ -53,6 +53,9 @@ const globalAppsLocations = config.database.appsglobal.collections.appsLocations
 const testingAppExpress = express();
 const testingAppserver = http.createServer(testingAppExpress);
 
+const beforeAppInstallTestingExpress = express();
+const beforeAppInstallTestingServer = http.createServer(beforeAppInstallTestingExpress);
+
 // cache for app running messages
 const LRUoptionsRun = { // cache for app running messages
   max: 50000, // store max 50000 values, eventhough we can have more values. this accounts for more than 15000 app instances. Less than 500 Bytes per value -> 25MB cache
@@ -4743,8 +4746,8 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
  * @returns {boolean} True if no errors are thrown.
  */
 function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
-  const minPort = height >= config.fluxapps.portBockheightChange ? config.fluxapps.portMinNew : config.fluxapps.portMin;
-  const maxPort = height >= config.fluxapps.portBockheightChange ? config.fluxapps.portMaxNew : config.fluxapps.portMax;
+  const minPort = height >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMinNew : config.fluxapps.portMin;
+  const maxPort = height >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMaxNew : config.fluxapps.portMax;
   if (appSpecifications.version !== 1 && appSpecifications.version !== 2 && appSpecifications.version !== 3 && appSpecifications.version !== 4 && appSpecifications.version !== 5 && appSpecifications.version !== 6 && appSpecifications.version !== 7) {
     throw new Error('Flux App message version specification is invalid');
   }
@@ -7926,6 +7929,30 @@ async function getApplicationOwnerAPI(req, res) {
 }
 
 /**
+ * Get all application ports
+ * @param {object} appSpecs application specifications
+ * @return {array} Returns array of ports
+ */
+function getAppPorts(appSpecs) {
+  const appPorts = [];
+  // eslint-disable-next-line no-restricted-syntax
+  if (appSpecs.version === 1) {
+    appPorts.push(+appSpecs.port);
+  } else if (appSpecs.version <= 3) {
+    appSpecs.ports.forEach((port) => {
+      appPorts.push(+port);
+    });
+  } else {
+    appSpecs.compose.forEach((component) => {
+      component.ports.forEach((port) => {
+        appPorts.push(+port);
+      });
+    });
+  }
+  return appPorts;
+}
+
+/**
  * To try spawning a global application. Performs various checks before the app is spawned. Checks that app is not already running on the FluxNode/IP address.
  * Checks if app already has the required number of instances deployed. Checks that application image is not blacklisted. Checks that ports not already in use.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
@@ -8148,6 +8175,16 @@ async function trySpawningGlobalApplication() {
     const randomNumber = Math.floor((Math.random() * (config.fluxapps.installation.probability / probLn))); // higher probability for more apps on network
     if (randomNumber !== 0) {
       log.info('Other Fluxes are evaluating application installation');
+      await serviceHelper.delay(adjustedDelay);
+      trySpawningGlobalApplication();
+      return;
+    }
+
+    const appPorts = getAppPorts(appSpecifications);
+    // eslint-disable-next-line no-use-before-define
+    const portsPubliclyAvailable = await checkInstallingAppPortAvailable(appPorts);
+    if (portsPubliclyAvailable === false) {
+      log.error(`Some of application ports of ${appSpecifications.name} are not available publicly. Installation aborted`);
       await serviceHelper.delay(adjustedDelay);
       trySpawningGlobalApplication();
       return;
@@ -9043,8 +9080,8 @@ async function deploymentInformation(req, res) {
     }
     // search in chainparams db for chainmessages of p version
     const appPrices = await getChainParamsPriceUpdates();
-    const minPort = daemonHeight >= config.fluxapps.portBockheightChange ? config.fluxapps.portMinNew : config.fluxapps.portMin;
-    const maxPort = daemonHeight >= config.fluxapps.portBockheightChange ? config.fluxapps.portMaxNew : config.fluxapps.portMax;
+    const minPort = daemonHeight >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMinNew : config.fluxapps.portMin;
+    const maxPort = daemonHeight >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMaxNew : config.fluxapps.portMax;
     const information = {
       price: appPrices,
       appSpecsEnforcementHeights: config.fluxapps.appSpecsEnforcementHeights,
@@ -9517,8 +9554,8 @@ async function checkMyAppsAvailability() {
         });
       }
     }
-    const minPort = currentHeight.generalScannedHeight >= config.fluxapps.portBockheightChange ? config.fluxapps.portMinNew : config.fluxapps.portMin - 1000;
-    const maxPort = currentHeight.generalScannedHeight >= config.fluxapps.portBockheightChange ? config.fluxapps.portMaxNew : config.fluxapps.portMax;
+    const minPort = currentHeight.generalScannedHeight >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMinNew : config.fluxapps.portMin - 1000;
+    const maxPort = currentHeight.generalScannedHeight >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMaxNew : config.fluxapps.portMax;
     // choose random port
     const min = minPort;
     const max = maxPort;
@@ -9626,6 +9663,125 @@ async function checkMyAppsAvailability() {
     log.error(error);
     await serviceHelper.delay(4 * 60 * 1000);
     checkMyAppsAvailability();
+  }
+}
+
+/**
+ * Check wheter ports of an installing applications are opened and publicly available
+ * @param {array} portsToTest array of ports we will be testing
+ * @returns boolean if ports are publicly available. So app installation can proceed
+ */
+async function checkInstallingAppPortAvailable(portsToTest = []) {
+  const isUPNP = upnpService.isUPNP();
+  let portsStatus = false;
+  try {
+    let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+    myIP = myIP.split(':')[0];
+    const myPort = myIP.split(':')[1] || 16127;
+    const pubKey = await fluxNetworkHelper.getFluxNodePublicKey();
+    let somePortBanned = false;
+    portsToTest.forEach((portToTest) => {
+      const iBP = fluxNetworkHelper.isPortBanned(portToTest);
+      if (iBP) {
+        somePortBanned = true;
+      }
+    });
+    if (somePortBanned) {
+      return false;
+    }
+    const firewallActive = await fluxNetworkHelper.isFirewallActive();
+    // eslint-disable-next-line no-restricted-syntax
+    for (const portToTest of portsToTest) {
+    // now open this port properly and launch listening on it
+      if (firewallActive) {
+        // eslint-disable-next-line no-await-in-loop
+        await fluxNetworkHelper.allowPort(portToTest);
+      }
+      if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+        // eslint-disable-next-line no-await-in-loop
+        await upnpService.mapUpnpPort(portToTest, 'Flux_Test_App');
+      }
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(5 * 1000);
+      beforeAppInstallTestingServer.listen(portToTest);
+    }
+    await serviceHelper.delay(10 * 1000);
+    // eslint-disable-next-line no-await-in-loop
+    let askingIP = await fluxNetworkHelper.getRandomConnection();
+    let askingIpPort = config.server.apiport;
+    if (askingIP.includes(':')) { // has port specification
+      // it has port specification
+      const splittedIP = askingIP.split(':');
+      askingIP = splittedIP[0];
+      askingIpPort = splittedIP[1];
+    }
+    const timeout = 30000;
+    const axiosConfig = {
+      timeout,
+    };
+    const data = {
+      ip: myIP,
+      port: myPort,
+      appname: 'appPortsTest',
+      ports: portsToTest,
+      pubKey,
+    };
+    const stringData = JSON.stringify(data);
+    // eslint-disable-next-line no-await-in-loop
+    const signature = await signCheckAppData(stringData);
+    data.signature = signature;
+    // first check against our IP address
+    // eslint-disable-next-line no-await-in-loop
+    const resMyAppAvailability = await axios.post(`http://${askingIP}:${askingIpPort}/flux/checkappavailability`, JSON.stringify(data), axiosConfig).catch((error) => {
+      log.error(`${askingIP} for app availability is not reachable`);
+      log.error(error);
+    });
+    if (resMyAppAvailability && resMyAppAvailability.data.status === 'error') {
+      if (resMyAppAvailability.data.data && resMyAppAvailability.data.data.message && resMyAppAvailability.data.data.message.includes('Failed port: ')) {
+        const portToRetest = serviceHelper.ensureNumber(resMyAppAvailability.data.data.message.split('Failed port: ')[1]);
+        if (portToRetest > 0) {
+          failedPort = portToRetest;
+        }
+      }
+      portsStatus = false;
+    } else if (resMyAppAvailability && resMyAppAvailability.data.status === 'success') {
+      portsStatus = true;
+    }
+
+    // stop listening on the port, close the port
+    // eslint-disable-next-line no-restricted-syntax
+    for (const portToTest of portsToTest) {
+      if (firewallActive) {
+        // eslint-disable-next-line no-await-in-loop
+        await fluxNetworkHelper.deleteAllowPortRule(portToTest);
+      }
+      if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+        // eslint-disable-next-line no-await-in-loop
+        await upnpService.removeMapUpnpPort(portToTest, `Flux_Prelaunch_App_${portToTest}`);
+      }
+    }
+    return portsStatus;
+  } catch (error) {
+    if (dosMountMessage || dosDuplicateAppMessage) {
+      dosMessage = dosMountMessage || dosDuplicateAppMessage;
+    }
+    let firewallActive = true;
+    firewallActive = await fluxNetworkHelper.isFirewallActive().catch((e) => log.error(e));
+    // stop listening on the testing port, close the port
+    // eslint-disable-next-line no-restricted-syntax
+    for (const portToTest of portsToTest) {
+      if (firewallActive) {
+        // eslint-disable-next-line no-await-in-loop
+        await fluxNetworkHelper.deleteAllowPortRule(portToTest).catch((e) => log.error(e));
+      }
+      if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+        // eslint-disable-next-line no-await-in-loop
+        await upnpService.removeMapUpnpPort(portToTest, `Flux_Prelaunch_App_${portToTest}`).catch((e) => log.error(e));
+      }
+    }
+    beforeAppInstallTestingServer.close();
+    log.error(error);
+    return false;
   }
 }
 

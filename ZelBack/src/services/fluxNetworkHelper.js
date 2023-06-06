@@ -306,7 +306,7 @@ async function checkFluxAvailability(req, res) {
 }
 
 /**
- * To get app price.
+ * To check if application is available
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {object} Message.
@@ -341,8 +341,8 @@ async function checkAppAvailability(req, res) {
 
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       const daemonHeight = syncStatus.data.height;
-      const minPort = daemonHeight >= config.fluxapps.portBockheightChange ? config.fluxapps.portMinNew : config.fluxapps.portMin - 1000;
-      const maxPort = daemonHeight >= config.fluxapps.portBockheightChange ? config.fluxapps.portMaxNew : config.fluxapps.portMax;
+      const minPort = daemonHeight >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMinNew : config.fluxapps.portMin - 1000;
+      const maxPort = daemonHeight >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMaxNew : config.fluxapps.portMax;
       const portsListening = [];
       // eslint-disable-next-line no-restricted-syntax
       for (const port of ports) {
@@ -351,7 +351,7 @@ async function checkAppAvailability(req, res) {
         // eslint-disable-next-line no-await-in-loop
           const isOpen = await isPortOpen(ip, port, appname, 30000);
           if (!isOpen) {
-            throw new Error(`Flux Applications on ${ip}:${ipPort} are not available.`);
+            throw new Error(`Flux Applications on ${ip}:${ipPort} are not available. Failed port: ${port}`);
           } else if (isOpen === 'listening') { // this port is in use and listening. Later do check from other node on this port
             portsListening.push(+port);
           }
