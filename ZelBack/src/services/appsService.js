@@ -9495,6 +9495,7 @@ async function signCheckAppData(message) {
 */
 let testingPort;
 let failedPort;
+let previouslyFailedPort;
 async function checkMyAppsAvailability() {
   const isUPNP = upnpService.isUPNP();
   try {
@@ -9556,6 +9557,13 @@ async function checkMyAppsAvailability() {
     // choose random port
     const min = minPort;
     const max = maxPort;
+    if (failedPort && previouslyFailedPort === failedPort) {
+      failedPort = null;
+      previouslyFailedPort = null; // prevent testing the same failed port
+    }
+    if (failedPort) {
+      previouslyFailedPort = failedPort;
+    }
     testingPort = failedPort || Math.floor(Math.random() * (max - min) + min);
     const iBP = fluxNetworkHelper.isPortBanned(testingPort);
     if (iBP) {
