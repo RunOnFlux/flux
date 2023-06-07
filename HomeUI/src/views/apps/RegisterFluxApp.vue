@@ -1853,6 +1853,7 @@
 
 <script>
 import {
+  BProgress,
   BButton,
   BCard,
   BCardSubTitle,
@@ -1890,6 +1891,7 @@ const geolocations = require('../../libs/geolocation');
 
 export default {
   components: {
+    BProgress,
     BButton,
     BCard,
     BCardSubTitle,

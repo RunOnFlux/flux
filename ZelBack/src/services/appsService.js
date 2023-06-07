@@ -3202,9 +3202,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     }
 
     // all done message
-    const successStatus = {
-      status: `Flux App ${appName} successfully installed and launched`,
-    };
+    const successStatus = messageHelper.createSuccessMessage(`Flux App ${appName} successfully installed and launched`);
     log.info(successStatus);
     if (res) {
       res.write(serviceHelper.ensureString(successStatus));
@@ -3560,9 +3558,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       await installApplicationSoft(specificationsToInstall, appName, isComponent, res, appSpecifications);
     }
     // all done message
-    const successStatus = {
-      status: `Flux App ${appName} successfully installed and launched`,
-    };
+    const successStatus = messageHelper.createSuccessMessage(`Flux App ${appName} successfully installed and launched`);
     log.info(successStatus);
     if (res) {
       res.write(serviceHelper.ensureString(successStatus));
