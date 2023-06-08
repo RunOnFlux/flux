@@ -250,10 +250,10 @@ describe('fluxCommunication tests', () => {
           name,
           broadcastedAt,
           version,
-          timestamp,
           hash,
           ip: fromIp,
         },
+        timestamp,
       };
 
       const wsuri = 'wss://api.runonflux.io/ws/flux/';
