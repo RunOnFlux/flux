@@ -148,7 +148,7 @@ async function startFluxFunctions() {
         await fluxService.enterDevelopment().catch((error) => log.error(error));
         if (development === true || development === 'true' || development === 1 || development === '1') { // in other cases pause git pull
           setTimeout(async () => {
-            await fluxService.softUpdateFluxInstall().catch((error) => log.error(error));
+            await fluxService.softUpdateFlux().catch((error) => log.error(error));
           }, 15 * 1000);
         }
       }, 20 * 60 * 1000); // every 20 minutes
