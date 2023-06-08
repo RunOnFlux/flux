@@ -43,9 +43,7 @@ async function handleAppMessages(message, fromIP) {
     // eslint-disable-next-line global-require
     const appsService = require('./appsService');
     const rebroadcastToPeers = await appsService.storeAppTemporaryMessage(message.data, true);
-    const currentTimeStamp = new Date().getTime();
-    const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
-    if (rebroadcastToPeers === true && timestampOK) {
+    if (rebroadcastToPeers === true) {
       const messageString = serviceHelper.ensureString(message);
       const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
       fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
