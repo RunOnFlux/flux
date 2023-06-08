@@ -22,6 +22,7 @@ const development = userconfig.initial.development || false;
  */
 async function startFluxFunctions() {
   try {
+    log.info(userconfig.initial.blockedPorts);
     if (!config.server.allowedPorts.includes(+apiPort)) {
       log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
       process.exit();
