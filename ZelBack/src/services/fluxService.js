@@ -981,10 +981,10 @@ async function adjustCruxID(req, res) {
           kadena: '${userconfig.initial.kadena || ''}',
           testnet: ${userconfig.initial.testnet || false},
           development: ${userconfig.initial.development || false},
-          apiport: ${Number(userconfig.initial.apiport || config.apiport)},
+          apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
           pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
           pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-          blockedPorts: ${userconfig.initial.blockedPorts || []},
+          blockedPorts: ${userconfig.initial.blockedPorts || '[]'},
         }
       }`;
 
@@ -1035,10 +1035,10 @@ async function adjustKadenaAccount(req, res) {
     kadena: '${kadenaURI}',
     testnet: ${userconfig.initial.testnet || false},
     development: ${userconfig.initial.development || false},
-    apiport: ${Number(userconfig.initial.apiport || config.apiport)},
+    apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
     pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
     pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-    blockedPorts: ${userconfig.initial.blockedPorts || []},
+    blockedPorts: ${userconfig.initial.blockedPorts || '[]'},
   }
 }`;
 

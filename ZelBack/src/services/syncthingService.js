@@ -1928,6 +1928,9 @@ async function getDeviceID(req, res) {
       const successResponse = messageHelper.createDataMessage(deviceID);
       return res ? res.json(successResponse) : successResponse;
     }
+    log.info(meta.status);
+    log.info(pingResponse.data);
+    log.info(healthy.data);
     throw new Error('Syncthing is not running properly');
   } catch (error) {
     log.error(error);

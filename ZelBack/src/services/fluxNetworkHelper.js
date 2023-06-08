@@ -877,10 +877,10 @@ async function adjustExternalIP(ip) {
     kadena: '${userconfig.initial.kadena || ''}',
     testnet: ${userconfig.initial.testnet || false},
     development: ${userconfig.initial.development || false},
-    apiport: ${Number(userconfig.initial.apiport || config.apiport)},
+    apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
     pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
     pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-    blockedPorts: ${userconfig.initial.blockedPorts || []},
+    blockedPorts: ${userconfig.initial.blockedPorts || '[]'},
   }
 }`;
 

@@ -412,7 +412,6 @@ async function initiateAndHandleConnection(connection) {
       // we dont like this peer as it sent wrong message (wrong, or message belonging to node no longer on network). Lets close the connection
       // and add him to blocklist
       try {
-        log.error(msgObj);
         // check if message comes from IP belonging to the public Key
         const zl = await fluxCommunicationUtils.deterministicFluxList(pubKey); // this itself is sufficient.
         const possibleNodes = zl.filter((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level

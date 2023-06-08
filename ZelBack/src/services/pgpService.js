@@ -28,10 +28,10 @@ async function adjustPGPidentity(privateKey, publicKey) {
     kadena: '${userconfig.initial.kadena || ''}',
     testnet: ${userconfig.initial.testnet || false},
     development: ${userconfig.initial.development || false},
-    apiport: ${Number(userconfig.initial.apiport || config.apiport)},
+    apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
     pgpPrivateKey: \`${privateKey}\`,
     pgpPublicKey: \`${publicKey}\`,
-    blockedPorts: ${userconfig.initial.blockedPorts || []},
+    blockedPorts: ${userconfig.initial.blockedPorts || '[]'},
   }
 }`;
 
