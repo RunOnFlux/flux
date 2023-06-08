@@ -155,20 +155,22 @@ async function softUpdateFlux(req, res) {
  */
 // eslint-disable-next-line consistent-return
 async function softUpdateFluxInstall(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized !== true) {
-    const errMessage = messageHelper.errUnauthorizedMessage();
-    return res.json(errMessage);
+  if (req) {
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized !== true) {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      return res ? res.json(errMessage) : errMessage;
+    }
   }
   const nodedpath = path.join(__dirname, '../../../');
   const exec = `cd ${nodedpath} && npm run softupdateinstall`;
   nodecmd.get(exec, (err) => {
     if (err) {
       const errMessage = messageHelper.createErrorMessage(`Error softly updating Flux with installation: ${err.message}`, err.name, err.code);
-      return res.json(errMessage);
+      return res ? res.json(errMessage) : errMessage;
     }
     const message = messageHelper.createSuccessMessage('Flux successfully updated softly with installation');
-    return res.json(message);
+    return res ? res.json(message) : message;
   });
 }
 
