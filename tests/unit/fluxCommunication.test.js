@@ -964,7 +964,7 @@ describe('fluxCommunication tests', () => {
         // slight delay to let onopen to be triggered
         await serviceHelper.delay(100);
 
-        sinon.assert.calledOnceWithExactly(verifyOriginalFluxBroadcastStub, message, undefined, sinon.match.number);
+        sinon.assert.calledOnceWithExactly(verifyOriginalFluxBroadcastStub, JSON.parse(message), undefined, sinon.match.number);
         sinon.assert.calledWith(respondWithAppMessageStub, JSON.parse(message));
       });
     }
@@ -1004,7 +1004,7 @@ describe('fluxCommunication tests', () => {
         // slight delay to let onopen to be triggered
         await serviceHelper.delay(100);
 
-        sinon.assert.calledOnceWithExactly(verifyOriginalFluxBroadcastStub, message, undefined, sinon.match.number);
+        sinon.assert.calledOnceWithExactly(verifyOriginalFluxBroadcastStub, JSON.parse(message), undefined, sinon.match.number);
         sinon.assert.calledOnceWithExactly(storeAppTemporaryMessageStub, JSON.parse(message).data, true);
       });
     }
@@ -1044,7 +1044,7 @@ describe('fluxCommunication tests', () => {
         // slight delay to let onopen to be triggered
         await serviceHelper.delay(100);
 
-        sinon.assert.calledOnceWithExactly(verifyOriginalFluxBroadcastStub, message, undefined, sinon.match.number);
+        sinon.assert.calledOnceWithExactly(verifyOriginalFluxBroadcastStub, JSON.parse(message), undefined, sinon.match.number);
         sinon.assert.calledOnceWithExactly(storeAppRunningMessageStub, JSON.parse(message).data);
       });
     }
