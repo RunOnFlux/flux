@@ -8174,10 +8174,17 @@ async function trySpawningGlobalApplication() {
     }
 
     const appPorts = getAppPorts(appSpecifications);
+    // check port is not user blocked
+    appPorts.forEach((port) => {
+      const isUserBlocked = fluxNetworkHelper.isPortUserBlocked(port);
+      if (isUserBlocked) {
+        throw new Error(`Port ${port} is blocked by user. Installation aborted.`);
+      }
+    });
     // eslint-disable-next-line no-use-before-define
     const portsPubliclyAvailable = await checkInstallingAppPortAvailable(appPorts);
     if (portsPubliclyAvailable === false) {
-      log.error(`Some of application ports of ${appSpecifications.name} are not available publicly. Installation aborted`);
+      log.error(`Some of application ports of ${appSpecifications.name} are not available publicly. Installation aborted.`);
       await serviceHelper.delay(adjustedDelay);
       trySpawningGlobalApplication();
       return;
@@ -9491,7 +9498,6 @@ async function signCheckAppData(message) {
 */
 let testingPort;
 let failedPort;
-let previouslyFailedPort;
 async function checkMyAppsAvailability() {
   const isUPNP = upnpService.isUPNP();
   try {
@@ -9553,17 +9559,19 @@ async function checkMyAppsAvailability() {
     // choose random port
     const min = minPort;
     const max = maxPort;
-    if (failedPort && previouslyFailedPort === failedPort) {
-      failedPort = null;
-      previouslyFailedPort = null; // prevent testing the same failed port
-    }
-    if (failedPort) {
-      previouslyFailedPort = failedPort;
-    }
     testingPort = failedPort || Math.floor(Math.random() * (max - min) + min);
     const iBP = fluxNetworkHelper.isPortBanned(testingPort);
     if (iBP) {
+      failedPort = null;
       // skip this check, port is not possible to run on flux
+      await serviceHelper.delay(15 * 1000);
+      checkMyAppsAvailability();
+      return;
+    }
+    const isPortUserBlocked = fluxNetworkHelper.isPortUserBlocked(testingPort);
+    if (isPortUserBlocked) {
+      failedPort = null;
+      // skip this check, port is not allowed for this flux node by user
       await serviceHelper.delay(15 * 1000);
       checkMyAppsAvailability();
       return;

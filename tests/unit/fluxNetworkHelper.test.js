@@ -31,6 +31,7 @@ const userconfig = {
     development: false,
     pgpPrivateKey: '',
     pgpPublicKey: '',
+    blockedPorts: [],
   },
 };
 const fluxNetworkHelper = proxyquire('../../ZelBack/src/services/fluxNetworkHelper',
@@ -1313,6 +1314,7 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/apiport: 16127,/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/pgpPrivateKey: ``,/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/pgpPublicKey: ``,/gm));
+      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/blockedPorts: \[\],/gm));
     });
 
     it('should not write to file if the config already has same exact ip', () => {

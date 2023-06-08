@@ -128,6 +128,28 @@ function isPortEnterprise(port) {
 }
 
 /**
+ * To get if port belongs to user blocked range
+ * @returns {boolean} Returns true if port is user blocked
+ */
+function isPortUserBlocked(port) {
+  try {
+    let blockedPorts = userconfig.initial.blockedPorts || [];
+    blockedPorts = serviceHelper.ensureObject(blockedPorts);
+    let portBanned = false;
+    blockedPorts.forEach((portOrInterval) => {
+      if (portOrInterval === +port) {
+        portBanned = true;
+      }
+    });
+    console.log(port);
+    return portBanned;
+  } catch (error) {
+    log.error(error);
+    return false;
+  }
+}
+
+/**
  * To get if port belongs to banned range
  * @returns {boolean} Returns true if port is banned
  */
@@ -706,6 +728,15 @@ function isCommunicationEstablished(req, res) {
  * @returns {boolean} True if all checks passed.
  */
 async function checkMyFluxAvailability(retryNumber = 0) {
+  let userBlockedPorst = userconfig.initial.blockedPorts || [];
+  userBlockedPorst = serviceHelper.ensureObject(userBlockedPorst);
+  if (Array.isArray(userBlockedPorst)) {
+    if (userBlockedPorst.length > 100) {
+      dosState += 11;
+      setDosMessage('User blocked Pports above 100 limit');
+      return false;
+    }
+  }
   const fluxBenchVersionAllowed = await checkFluxbenchVersionAllowed();
   if (!fluxBenchVersionAllowed) {
     return false;
@@ -849,6 +880,7 @@ async function adjustExternalIP(ip) {
     apiport: ${Number(userconfig.initial.apiport || config.apiport)},
     pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
     pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
+    blockedPorts: ${userconfig.initial.blockedPorts || []},
   }
 }`;
 
@@ -1358,4 +1390,5 @@ module.exports = {
   checkAppAvailability,
   isPortEnterprise,
   isPortBanned,
+  isPortUserBlocked,
 };

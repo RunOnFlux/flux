@@ -31,6 +31,7 @@ async function adjustPGPidentity(privateKey, publicKey) {
     apiport: ${Number(userconfig.initial.apiport || config.apiport)},
     pgpPrivateKey: \`${privateKey}\`,
     pgpPublicKey: \`${publicKey}\`,
+    blockedPorts: ${userconfig.initial.blockedPorts || []},
   }
 }`;
 

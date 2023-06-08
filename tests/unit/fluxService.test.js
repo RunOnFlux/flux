@@ -32,6 +32,7 @@ const adminConfig = {
     development: false,
     pgpPrivateKey: '',
     pgpPublicKey: '',
+    blockedPorts: [],
   },
 };
 
@@ -2287,6 +2288,7 @@ describe('fluxService tests', () => {
           apiport: ${Number(adminConfig.initial.apiport)},
           pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
           pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
+          blockedPorts: ${adminConfig.initial.blockedPorts || []},
         }
       }`;
       const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
@@ -2444,6 +2446,7 @@ describe('fluxService tests', () => {
     apiport: ${Number(adminConfig.initial.apiport)},
     pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
     pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
+    blockedPorts: ${adminConfig.initial.blockedPorts}
   }
 }`;
       const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
