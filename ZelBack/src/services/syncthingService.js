@@ -1914,8 +1914,13 @@ async function getSvcReport(req, res) {
 async function getDeviceID(req, res) {
   try {
     const meta = await getMeta();
+    log.info(meta);
+    await serviceHelper.delay(500);
     const healthy = await getHealth(); // check that syncthing instance is healthy
+    log.info(healthy);
+    await serviceHelper.delay(500);
     const pingResponse = await systemPing(); // check that flux has proper api key
+    log.info(pingResponse);
     if (meta.status === 'success' && pingResponse.data.ping === 'pong' && healthy.data.status === 'OK') {
       const adjustedString = meta.data.slice(15).slice(0, -2);
       const deviceObject = JSON.parse(adjustedString);
