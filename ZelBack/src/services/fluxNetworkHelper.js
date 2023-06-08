@@ -880,7 +880,7 @@ async function adjustExternalIP(ip) {
     apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
     pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
     pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-    blockedPorts: ${userconfig.initial.blockedPorts || '[]'},
+    blockedPorts: '${userconfig.initial.blockedPorts || []}',
   }
 }`;
 
