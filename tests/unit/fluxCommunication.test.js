@@ -935,6 +935,7 @@ describe('fluxCommunication tests', () => {
       // eslint-disable-next-line no-loop-func
       it(`should handle the ${command} message properly`, async () => {
         const message = JSON.stringify({
+          timestamp: new Date().getTime(),
           pubKey: '1234asd',
           data: {
             type: `${command}`,
@@ -974,6 +975,7 @@ describe('fluxCommunication tests', () => {
       // eslint-disable-next-line no-loop-func
       it(`should handle the ${command} message properly`, async () => {
         const message = JSON.stringify({
+          timestamp: new Date().getTime(),
           pubKey: '1234asd',
           data: {
             type: `${command}`,
@@ -1013,6 +1015,7 @@ describe('fluxCommunication tests', () => {
       // eslint-disable-next-line no-loop-func
       it(`should handle the ${command} message properly`, async () => {
         const message = JSON.stringify({
+          timestamp: new Date().getTime(),
           pubKey: '1234asd',
           data: {
             type: `${command}`,
