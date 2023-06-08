@@ -733,7 +733,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   if (Array.isArray(userBlockedPorst)) {
     if (userBlockedPorst.length > 100) {
       dosState += 11;
-      setDosMessage('User blocked Pports above 100 limit');
+      setDosMessage('User blocked ports above 100 limit');
       return false;
     }
   }
