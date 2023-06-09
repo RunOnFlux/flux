@@ -2126,6 +2126,30 @@ export default {
         rambamf: 14000,
         hddbamf: 285,
       },
+      composeTemplatev7: {
+        name: '',
+        description: '',
+        repotag: '',
+        repoauth: '',
+        ports: '[]',
+        domains: '[]',
+        environmentParameters: '[]',
+        secrets: '', // at encryption will become string
+        commands: '[]',
+        containerPorts: '[]',
+        containerData: '',
+        cpu: 0.5,
+        ram: 2000,
+        hdd: 40,
+        tiered: false,
+        cpubasic: 0.5,
+        rambasic: 500,
+        hddbasic: 10,
+        cpusuper: 1.5,
+        ramsuper: 2500,
+        hddsuper: 60,
+        cpubamf: 3.5,
+      },
       dataForAppRegistration: {},
       applicationPrice: 0,
       deploymentAddress: '',
@@ -2530,6 +2554,7 @@ export default {
         });
       } else {
         this.specificationVersion = 7;
+        this.composeTemplate = this.composeTemplatev7;
         this.appRegistrationSpecification = this.appRegistrationSpecificationV7Template;
         this.appRegistrationSpecification.compose.forEach((component) => {
           const ports = this.getRandomPort();
@@ -2637,6 +2662,7 @@ export default {
       // insert composeTemplate to appSpecs
       const ports = this.getRandomPort();
       this.composeTemplate.ports = ports;
+      this.composeTemplate.domains = '[""]';
       this.appRegistrationSpecification.compose.push(JSON.parse(JSON.stringify(this.composeTemplate)));
     },
 
