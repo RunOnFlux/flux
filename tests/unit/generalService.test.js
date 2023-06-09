@@ -848,7 +848,23 @@ describe('generalService tests', () => {
     });
 
     it('should return true if repository namespace is whitelisted B', async () => {
+      const repotag = 'wirewrex/uptimekuma:latest';
+
+      const result = await generalService.checkWhitelistedRepository(repotag);
+
+      expect(result).to.eql(true);
+    });
+
+    it('should return true if repository namespace is whitelisted C', async () => {
       const repotag = 'ghcr.io/handshake-org/london:latest';
+
+      const result = await generalService.checkWhitelistedRepository(repotag);
+
+      expect(result).to.eql(true);
+    });
+
+    it('should return true if repository namespace is whitelisted D', async () => {
+      const repotag = 'mysql:latest';
 
       const result = await generalService.checkWhitelistedRepository(repotag);
 

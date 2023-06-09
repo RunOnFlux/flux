@@ -349,6 +349,9 @@ async function checkWhitelistedRepository(repotag) {
     splitRepoWhitelistAllowance.push(`${splittedRepo.namespace}/${splittedRepo.repository}:${splittedRepo.tag}`);
     splitRepoWhitelistAllowance.push(`${splittedRepo.namespace}/${splittedRepo.repository}`);
     splitRepoWhitelistAllowance.push(splittedRepo.namespace);
+    if (splittedRepo.namespace === 'library') {
+      splitRepoWhitelistAllowance.push(splittedRepo.repository);
+    }
   } else if (splittedRepo.port) {
     splitRepoWhitelistAllowance.push(`${splittedRepo.provider}:${splittedRepo.port}/${splittedRepo.namespace}`);
     splitRepoWhitelistAllowance.push(`${splittedRepo.provider}:${splittedRepo.port}/${splittedRepo.namespace}/${splittedRepo.repository}`);
