@@ -4999,8 +4999,8 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
   }
 
   if (appSpecifications.version >= 7) {
-    if (appSpecifications.nodes.length > 110) {
-      throw new Error('Maximum number of selecteed nodes is 110');
+    if (appSpecifications.nodes.length > 120) {
+      throw new Error('Maximum number of selecteed nodes is 120');
     }
     appSpecifications.nodes.forEach((node) => {
       if (node.length > 70) { // 64 for txhash, : separator, max 5 for outidx
