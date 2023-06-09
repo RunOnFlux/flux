@@ -1921,6 +1921,9 @@ async function getDeviceID(req, res) {
     await serviceHelper.delay(500);
     const pingResponse = await systemPing(); // check that flux has proper api key
     log.info(pingResponse);
+    const execSynct = 'ps aux | grep -i syncthing';
+    const synthingRunning = await cmdAsync(execSynct);
+    log.info(synthingRunning);
     if (meta.status === 'success' && pingResponse.data.ping === 'pong' && healthy.data.status === 'OK') {
       const adjustedString = meta.data.slice(15).slice(0, -2);
       const deviceObject = JSON.parse(adjustedString);
@@ -1960,6 +1963,7 @@ async function startSyncthing() {
     if (myDevice.status === 'error') {
       // retry before killing and restarting
       if (previousSyncthingErrored === false) {
+        await systemRestart();
         previousSyncthingErrored = true;
         await serviceHelper.delay(60 * 1000);
         startSyncthing();
