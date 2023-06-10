@@ -728,10 +728,10 @@ function isCommunicationEstablished(req, res) {
  * @returns {boolean} True if all checks passed.
  */
 async function checkMyFluxAvailability(retryNumber = 0) {
-  let userBlockedPorst = userconfig.initial.blockedPorts || [];
-  userBlockedPorst = serviceHelper.ensureObject(userBlockedPorst);
-  if (Array.isArray(userBlockedPorst)) {
-    if (userBlockedPorst.length > 100) {
+  let userBlockedPorts = userconfig.initial.blockedPorts || [];
+  userBlockedPorts = serviceHelper.ensureObject(userBlockedPorts);
+  if (Array.isArray(userBlockedPorts)) {
+    if (userBlockedPorts.length > 100) {
       dosState += 11;
       setDosMessage('User blocked ports above 100 limit');
       return false;

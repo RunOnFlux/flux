@@ -111,7 +111,7 @@
               :data="getExpireLabel || (callResponse.data.expire ? callResponse.data.expire + ' blocks' : '1 month')"
             />
             <list-entry
-              title="Enteprise Nodes"
+              title="Enterprise Nodes"
               :data="callResponse.data.nodes ? callResponse.data.nodes.toString() : 'Not scoped'"
             />
             <list-entry
@@ -396,7 +396,7 @@
               :data="getExpireLabel || (callBResponse.data.expire ? callBResponse.data.expire + ' blocks' : '1 month')"
             />
             <list-entry
-              title="Enteprise Nodes"
+              title="Enterprise Nodes"
               :data="callBResponse.data.nodes ? callBResponse.data.nodes.toString() : 'Not scoped'"
             />
             <list-entry
@@ -1444,7 +1444,7 @@
               :data="getExpireLabel || (callBResponse.data.expire ? callBResponse.data.expire + ' blocks' : '1 month')"
             />
             <list-entry
-              title="Enteprise Nodes"
+              title="Enterprise Nodes"
               :data="callBResponse.data.nodes ? callBResponse.data.nodes.toString() : 'Not scoped'"
             />
             <list-entry
@@ -2895,7 +2895,7 @@
                         :data="row.item.pubKeyPoints.toString()"
                       />
                       <list-entry
-                        title="Eterprise Apps Assigned"
+                        title="Enterprise Apps Assigned"
                         :data="row.item.enterpriseApps.toString()"
                       />
                       <div>
@@ -3676,7 +3676,7 @@
                   :data="row.item.pubKeyPoints.toString()"
                 />
                 <list-entry
-                  title="Eterprise Apps Assigned"
+                  title="Enterprise Apps Assigned"
                   :data="row.item.enterpriseApps.toString()"
                 />
                 <div>
@@ -3982,7 +3982,7 @@ export default {
       enterpriseNodes: [],
       selectedEnterpriseNodes: [],
       enterprisePublicKeys: [], // {nodeip, nodekey}
-      maximumEnterpriseNodes: 110,
+      maximumEnterpriseNodes: 120,
       entNodesTable: {
         fields: [
           { key: 'show_details', label: '' },
@@ -4497,7 +4497,7 @@ export default {
             // fetch pgp key
               const keyExists = this.enterprisePublicKeys.find((key) => key.nodeip === node);
               if (!keyExists) {
-                const pgpKey = await this.fetchEntepriseKey(node);
+                const pgpKey = await this.fetchEnterpriseKey(node);
                 if (pgpKey) {
                   const pair = {
                     nodeip: node.ip,
@@ -4598,7 +4598,7 @@ export default {
               fetchedKeys.push(keyExists.nodekey);
             } else {
               // eslint-disable-next-line no-await-in-loop
-              const pgpKey = await this.fetchEntepriseKey(node);
+              const pgpKey = await this.fetchEnterpriseKey(node);
               if (pgpKey) {
                 const pair = {
                   nodeip: node.ip,
@@ -5851,7 +5851,7 @@ export default {
           // fetch pgp key
           const keyExists = this.enterprisePublicKeys.find((key) => key.nodeip === ip);
           if (!keyExists) {
-            const pgpKey = await this.fetchEntepriseKey(ip);
+            const pgpKey = await this.fetchEnterpriseKey(ip);
             if (pgpKey) {
               const pair = {
                 nodeip: ip,
@@ -5884,7 +5884,7 @@ export default {
           // fetch pgp key
           const keyExists = this.enterprisePublicKeys.find((key) => key.nodeip === node.ip);
           if (!keyExists) {
-            const pgpKey = await this.fetchEntepriseKey(node.ip);
+            const pgpKey = await this.fetchEnterpriseKey(node.ip);
             if (pgpKey) {
               const pair = {
                 nodeip: node.ip,
@@ -5905,7 +5905,7 @@ export default {
         this.appUpdateSpecification.nodes.push(node.ip);
       });
       if (this.appUpdateSpecification.nodes.length > this.maximumEnterpriseNodes) {
-        throw new Error('Maximum of 110 Enterprise Nodes allowed');
+        throw new Error('Maximum of 120 Enterprise Nodes allowed');
       }
     },
     async getEnterpriseNodes() {
@@ -5927,7 +5927,7 @@ export default {
         console.log(error);
       }
     },
-    async fetchEntepriseKey(nodeip) { // we must have at least +5 nodes or up to 10% of spare keys
+    async fetchEnterpriseKey(nodeip) { // we must have at least +5 nodes or up to 10% of spare keys
       try {
         const node = nodeip.split(':')[0];
         const port = nodeip.split(':')[1] || 16127;

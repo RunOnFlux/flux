@@ -29,7 +29,7 @@ const generalService = require('./generalService');
 const upnpService = require('./upnpService');
 const geolocationService = require('./geolocationService');
 const syncthingService = require('./syncthingService');
-const pgpSrevice = require('./pgpService');
+const pgpService = require('./pgpService');
 const log = require('../lib/log');
 const userconfig = require('../../../config/userconfig');
 
@@ -2906,7 +2906,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   const pullConfig = { repoTag: appSpecifications.repotag };
   // decode repoauth if exists
   if (appSpecifications.repoauth) {
-    const authToken = await pgpSrevice.decryptMessage(appSpecifications.repoauth);
+    const authToken = await pgpService.decryptMessage(appSpecifications.repoauth);
     if (!authToken) {
       throw new Error('Unable to decrypt provided credentials');
     }
@@ -3264,7 +3264,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   const pullConfig = { repoTag: appSpecifications.repotag };
   // decode repoauth if exists
   if (appSpecifications.repoauth) {
-    const authToken = await pgpSrevice.decryptMessage(appSpecifications.repoauth);
+    const authToken = await pgpService.decryptMessage(appSpecifications.repoauth);
     if (!authToken) {
       throw new Error('Unable to decrypt provided credentials');
     }
@@ -4094,7 +4094,7 @@ async function verifyRepository(repotag, repoauth, skipVerification = false) {
   }
   let decryptedRepoAuth;
   if (repoauth) {
-    decryptedRepoAuth = await pgpSrevice.decryptMessage(repoauth);
+    decryptedRepoAuth = await pgpService.decryptMessage(repoauth);
     if (!decryptedRepoAuth) {
       throw new Error('Unable to decrypt provided credentials');
     }
@@ -4943,7 +4943,7 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
             throw new Error('Secrets can not be defined for non Enterprise Applications');
           }
           if (appComponent.repoauth.length) { // pgp encrypted message.
-            throw new Error('Private repositories are only allowed for Enteprise Applications');
+            throw new Error('Private repositories are only allowed for Enterprise Applications');
           }
         } else {
           if (appComponent.secrets.length > 15000) { // pgp encrypted message. Every signature encryption of node is about 100 characters. For 100 selected nodes, this gives ~5k chars limit
@@ -5532,7 +5532,7 @@ async function repositoryArchitectures(repotag, repoauth) {
   const architectures = [];
   let decryptedRepoAuth;
   if (repoauth) {
-    decryptedRepoAuth = await pgpSrevice.decryptMessage(repoauth);
+    decryptedRepoAuth = await pgpService.decryptMessage(repoauth);
     if (!decryptedRepoAuth) {
       throw new Error('Unable to decrypt provided credentials');
     }

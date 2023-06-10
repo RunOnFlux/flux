@@ -89,7 +89,7 @@
                         :data="labelForExpire(row.item.expire)"
                       />
                       <list-entry
-                        title="Enteprise Nodes"
+                        title="Enterprise Nodes"
                         :data="row.item.nodes ? row.item.nodes.toString() : 'Not scoped'"
                       />
                       <list-entry
@@ -426,7 +426,7 @@
                         :data="labelForExpire(row.item.expire)"
                       />
                       <list-entry
-                        title="Enteprise Nodes"
+                        title="Enterprise Nodes"
                         :data="row.item.nodes ? row.item.nodes.toString() : 'Not scoped'"
                       />
                       <list-entry
