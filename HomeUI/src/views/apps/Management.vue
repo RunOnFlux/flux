@@ -5870,12 +5870,20 @@ export default {
     },
     async autoSelectNodes() {
       const { instances } = this.appUpdateSpecification;
-      const maxNumberOfNodes = +instances + Math.ceil(Math.max(5, +instances * 0.1));
+      const maxSamePubKeyNodes = +instances + 3;
+      const maxNumberOfNodes = +instances + Math.ceil(Math.max(7, +instances * 0.15));
       const notSelectedEnterpriseNodes = this.enterpriseNodes.filter((node) => !this.selectedEnterpriseNodes.includes(node));
-      const nodesSelected = this.selectedEnterpriseNodes.length;
       const nodesToSelect = [];
-      for (let i = 0; i < (maxNumberOfNodes - nodesSelected); i += 1) {
-        nodesToSelect.push(notSelectedEnterpriseNodes[i]);
+      for (let i = 0; i < notSelectedEnterpriseNodes.length; i += 1) {
+        // todo here check if max same pub key is satisfied
+        const alreadySelectedPubKeyOccurances = this.selectedEnterpriseNodes.filter((node) => node.pubkey === notSelectedEnterpriseNodes[i].pubkey).length;
+        const toSelectPubKeyOccurances = nodesToSelect.filter((node) => node.pubkey === notSelectedEnterpriseNodes[i].pubkey).length;
+        if (alreadySelectedPubKeyOccurances + toSelectPubKeyOccurances < maxSamePubKeyNodes) {
+          nodesToSelect.push(notSelectedEnterpriseNodes[i]);
+        }
+        if (nodesToSelect.length + this.selectedEnterpriseNodes.length >= maxNumberOfNodes) {
+          break;
+        }
       }
       nodesToSelect.forEach(async (node) => {
         const nodeExists = this.selectedEnterpriseNodes.find((existingNode) => existingNode.ip === node.ip);
