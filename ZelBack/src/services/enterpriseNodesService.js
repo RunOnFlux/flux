@@ -129,7 +129,7 @@ async function getEnterpriseList() {
 }
 
 /**
- * To get FluxOS tail error logs. Only accessible by admins and Flux team members.
+ * To get list of enterprise nodes via API request.
  * @param {object} req Request.
  * @param {object} res Response.
  */
