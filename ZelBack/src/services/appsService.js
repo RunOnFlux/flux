@@ -65,8 +65,8 @@ const LRUoptionsTemp = { // cache for temporary messages
   maxAge: 1000 * 60 * 70, // 70 minutes
 };
 const GlobalAppsSpawnLRUoptions = {
-  max: 1000,
-  maxAge: 1000 * 60 * 60 * 2, // 2 hours
+  max: 2000,
+  maxAge: 1000 * 60 * 60 * 3, // 3 hours
 };
 const longCache = {
   max: 500,
@@ -7983,6 +7983,7 @@ async function trySpawningGlobalApplication() {
       trySpawningGlobalApplication();
       return;
     }
+
     // get my external IP and check that it is longer than 5 in length.
     let myIP = null;
     if (benchmarkResponse.data.ipaddress) {
@@ -8003,6 +8004,10 @@ async function trySpawningGlobalApplication() {
       return;
     }
 
+    const installDelay = config.fluxapps.installation.delay * 1000;
+    let probLn = Math.log(2 + numberOfGlobalApps); // from ln(2) -> ln(2 + x)
+    const adjustedDelay = installDelay / probLn;
+
     let appToRun;
     // highly favor application that is targetting our node
     // get my collateral
@@ -8016,6 +8021,18 @@ async function trySpawningGlobalApplication() {
     if (numberOfScopedAppsNotRun) { // some app should be prioritized on our node
       const appToRunNumber = Math.floor((Math.random() * numberOfScopedAppsNotRun));
       appToRun = scopedAppsNotRun[appToRunNumber].name;
+    }
+
+    if (appToRun) {
+      probLn *= 5;
+    }
+    // if all ok Check hashes comparison if its out turn to start the app. higher than 2% probability.
+    const randomNumber = Math.floor((Math.random() * (config.fluxapps.installation.probability / probLn))); // higher probability for more apps on network
+    if (randomNumber !== 0) {
+      log.info('Other Fluxes are evaluating application installation');
+      await serviceHelper.delay(adjustedDelay);
+      trySpawningGlobalApplication();
+      return;
     }
 
     // no scoped applicaiton, run some global app
@@ -8038,23 +8055,19 @@ async function trySpawningGlobalApplication() {
       }
     }
 
-    trySpawningGlobalAppCache.set(appToRun, appToRun);
-
-    // Check if App was checked in the last 2 hours.
+    // Check if App was checked in the last 3 hours.
     // This is a small help because random can be getting the same app over and over
     if (trySpawningGlobalAppCache.has(appToRun)) {
-      log.info(`App ${appToRun} was already evaluated in the last 2 hours.`);
+      log.info(`App ${appToRun} was already evaluated in the last 3 hours.`);
       const delay = numberOfGlobalApps < 20 ? config.fluxapps.installation.delay * 1000 : config.fluxapps.installation.delay * 1000 * 0.1;
       await serviceHelper.delay(delay);
       trySpawningGlobalApplication();
       return;
     }
 
-    const runningAppList = await getRunningAppList(appToRun);
+    trySpawningGlobalAppCache.set(appToRun, appToRun);
 
-    const delay = config.fluxapps.installation.delay * 1000;
-    const probLn = Math.log(2 + numberOfGlobalApps); // from ln(2) -> ln(2 + x)
-    const adjustedDelay = delay / probLn;
+    const runningAppList = await getRunningAppList(appToRun);
 
     const adjustedIP = myIP.split(':')[0]; // just IP address
     // check if app not running on this device
@@ -8159,15 +8172,6 @@ async function trySpawningGlobalApplication() {
 
     if (imagesArchitectureMatches !== true) {
       log.info(`Application ${appToRun} does not support our node architecture, installation aborted.`);
-      await serviceHelper.delay(adjustedDelay);
-      trySpawningGlobalApplication();
-      return;
-    }
-
-    // if all ok Check hashes comparison if its out turn to start the app. 1% probability.
-    const randomNumber = Math.floor((Math.random() * (config.fluxapps.installation.probability / probLn))); // higher probability for more apps on network
-    if (randomNumber !== 0) {
-      log.info('Other Fluxes are evaluating application installation');
       await serviceHelper.delay(adjustedDelay);
       trySpawningGlobalApplication();
       return;
