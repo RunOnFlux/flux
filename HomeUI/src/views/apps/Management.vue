@@ -2009,7 +2009,7 @@
                     placeholder="ZelID of Application Owner"
                   />
                 </b-form-group>
-                <div v-if="appUpdateSpecification.version >= 5">
+                <div v-if="appUpdateSpecification.version >= 5 && !isPrivateApp">
                   <div class="form-row form-group">
                     <label class="col-1 col-form-label">
                       Contacts
@@ -2044,7 +2044,7 @@
                     </div>
                   </div>
                 </div>
-                <div v-if="appUpdateSpecification.version >= 5">
+                <div v-if="appUpdateSpecification.version >= 5 && !isPrivateApp">
                   <h4>Allowed Geolocation</h4>
                   <div
                     v-for="n in numberOfGeolocations"
@@ -2314,7 +2314,7 @@
                   <label class="col-form-label">
                     Enterprise Application
                     <v-icon
-                      v-b-tooltip.hover.top="'Select if your application requires private image, secrets or if you want to target specific nodes on which application can run'"
+                      v-b-tooltip.hover.top="'Select if your application requires private image, secrets or if you want to target specific nodes on which application can run. Geolocation targetting is not possible in this case.'"
                       name="info-circle"
                       class="mr-1"
                     />
@@ -2776,8 +2776,11 @@
             v-if="appUpdateSpecification.version >= 7 && isPrivateApp"
             title="Enterprise Nodes"
           >
-            Only these selected enterprise nodes will be able to run your application and are used for encryption. Only these nodes are able access your private image, secrets.
-            Secrets and Repository Authentication needs to be set again if this node list changes!
+            Only these selected enterprise nodes will be able to run your application and are used for encryption. Only these nodes are able to access your private image and secrets.<br>
+            Changing the node list after the message is computed and encrypted will result in a failure to run. Secrets and Repository Authentication would need to be adjusted again.<br>
+            The score determines how reputable a node and node operator are. The higher the score, the higher the reputation on the network.<br>
+            Secrets and Repository Authentication need to be set again if this node list changes.<br>
+            The more nodes can run your application, the more stable it is. On the other hand, more nodes will have access to your private data!<br>
             <b-row>
               <b-col
                 md="4"
@@ -2867,7 +2870,7 @@
                         :data="row.item.pubkey"
                       />
                       <list-entry
-                        title="Payment Address"
+                        title="Node Address"
                         :data="row.item.payment_address"
                       />
                       <list-entry
@@ -2879,7 +2882,7 @@
                         :data="row.item.tier"
                       />
                       <list-entry
-                        title="Enterprise Score"
+                        title="Overall Score"
                         :data="row.item.score.toString()"
                       />
                       <list-entry
@@ -2912,9 +2915,6 @@
                   </template>
                   <template #cell(ip)="row">
                     {{ row.item.ip }}
-                  </template>
-                  <template #cell(publickey)="row">
-                    {{ row.item.pubkey.slice(0, 8) }}...{{ row.item.pubkey.slice(row.item.pubkey.length - 8, row.item.pubkey.length) }}
                   </template>
                   <template #cell(payment_address)="row">
                     {{ row.item.payment_address.slice(0, 8) }}...{{ row.item.payment_address.slice(row.item.payment_address.length - 8, row.item.payment_address.length) }}
@@ -3648,7 +3648,7 @@
                   :data="row.item.pubkey"
                 />
                 <list-entry
-                  title="Payment Address"
+                  title="Node Address"
                   :data="row.item.payment_address"
                 />
                 <list-entry
@@ -3660,7 +3660,7 @@
                   :data="row.item.tier"
                 />
                 <list-entry
-                  title="Enterprise Score"
+                  title="Overall Score"
                   :data="row.item.score.toString()"
                 />
                 <list-entry
@@ -3693,9 +3693,6 @@
             </template>
             <template #cell(ip)="row">
               {{ row.item.ip }}
-            </template>
-            <template #cell(publickey)="row">
-              {{ row.item.pubkey.slice(0, 8) }}...{{ row.item.pubkey.slice(row.item.pubkey.length - 8, row.item.pubkey.length) }}
             </template>
             <template #cell(payment_address)="row">
               {{ row.item.payment_address.slice(0, 8) }}...{{ row.item.payment_address.slice(row.item.payment_address.length - 8, row.item.payment_address.length) }}
@@ -3987,10 +3984,9 @@ export default {
         fields: [
           { key: 'show_details', label: '' },
           { key: 'ip', label: 'IP Address', sortable: true },
-          { key: 'publickey', label: 'Public Key', sortable: true },
-          { key: 'payment_address', label: 'Payment Address', sortable: true },
+          { key: 'payment_address', label: 'Node Address', sortable: true },
           { key: 'tier', label: 'Tier', sortable: true },
-          { key: 'score', label: 'Enterprise Score', sortable: true },
+          { key: 'score', label: 'Score', sortable: true },
           { key: 'actions', label: 'Actions' },
         ],
         perPage: 10,
@@ -4006,8 +4002,7 @@ export default {
         fields: [
           { key: 'show_details', label: '' },
           { key: 'ip', label: 'IP Address', sortable: true },
-          { key: 'publickey', label: 'Public Key', sortable: true },
-          { key: 'payment_address', label: 'Payment Address', sortable: true },
+          { key: 'payment_address', label: 'Node Address', sortable: true },
           { key: 'tier', label: 'Tier', sortable: true },
           { key: 'score', label: 'Enterprise Score', sortable: true },
           { key: 'actions', label: 'Actions' },
@@ -4239,6 +4234,9 @@ export default {
         });
         this.selectedEnterpriseNodes = [];
       }
+      // remove any geolocation
+      this.allowedGeolocations = {};
+      this.forbiddenGeolocations = {};
       this.dataToSign = '';
       this.signature = '';
       this.timestamp = null;
