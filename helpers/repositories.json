@@ -312,5 +312,6 @@
    "beastob",
    "ngcheewee/gpt4summarizer:latest",
    "hughparry",
-   "woodpeckerci"
+   "woodpeckerci",
+   "gitea"
 ]
