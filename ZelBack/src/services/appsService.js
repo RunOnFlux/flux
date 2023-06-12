@@ -8014,7 +8014,7 @@ async function trySpawningGlobalApplication() {
     const myCollateral = await generalService.obtainNodeCollateralInformation();
     // get my ip address
     // filter apps only those that include my ip or my collateral
-    const scopedApps = globalAppNamesLocation.filter((app) => app.nodes && app.nodes.forEach((node) => node === myIP || node === `${myCollateral.txhash}:${myCollateral.txindex}`));
+    const scopedApps = globalAppNamesLocation.filter((app) => app.nodes && app.nodes.includes((node) => node === myIP || node === `${myCollateral.txhash}:${myCollateral.txindex}`));
     const scopedAppsNotRun = scopedApps.filter((app) => trySpawningGlobalAppCache.has(app.name));
     // check if this app was already evaluated
     const numberOfScopedAppsNotRun = scopedAppsNotRun.length;
