@@ -311,5 +311,6 @@
    "download.lootlink.xyz/wirewrex",
    "beastob",
    "ngcheewee/gpt4summarizer:latest",
-   "hughparry/noderank:latest"
+   "hughparry,
+   "woodpeckerci"
 ]
