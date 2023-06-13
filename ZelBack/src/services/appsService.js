@@ -9949,7 +9949,10 @@ async function checkForNonAllowedAppsOnLocalNetwork() {
     // eslint-disable-next-line no-restricted-syntax
     for (const app of appsInstalled) {
       if (app.name.toLowerCase().startsWith('presearchnode')) {
-        const containerName = `${app.compose[0].name}${app.name}`;
+        let containerName = app.name;
+        if (app.version >= 4) {
+          containerName = `${app.compose[0].name}_${app.name}`;
+        }
         // eslint-disable-next-line no-await-in-loop
         const logs = await dockerService.dockerContainerLogs(containerName, 5);
         if (logs.toLowerCase().includes('duplicate ip: this ip address is already running another node')) {
