@@ -8014,7 +8014,7 @@ async function trySpawningGlobalApplication() {
     const myCollateral = await generalService.obtainNodeCollateralInformation();
     // get my ip address
     // filter apps only those that include my ip or my collateral
-    const scopedApps = globalAppNamesLocation.filter((app) => app.nodes && app.nodes.includes((node) => node === myIP || node === `${myCollateral.txhash}:${myCollateral.txindex}`));
+    const scopedApps = globalAppNamesLocation.filter((app) => app.nodes && (app.nodes.includes(myIP) || app.nodes.includes(`${myCollateral.txhash}:${myCollateral.txindex}`)));
     const scopedAppsToRun = scopedApps.filter((app) => !trySpawningGlobalAppCache.has(app.name));
     // check if this app was already evaluated
     const numberOfScopedAppsToRun = scopedAppsToRun.length;
@@ -8035,7 +8035,7 @@ async function trySpawningGlobalApplication() {
       return;
     }
 
-    // no scoped applicaiton, run some global app
+    // no scoped applicaton, run some global app
     if (!appToRun) {
       // pick a random one
       const appToRunNumber = Math.floor((Math.random() * numberOfGlobalApps));
@@ -9801,7 +9801,11 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       }
     }
     beforeAppInstallTestingServers.forEach((beforeAppInstallTestingServer) => {
-      beforeAppInstallTestingServer.close();
+      try {
+        beforeAppInstallTestingServer.close();
+      } catch (e) {
+        log.warn(e);
+      }
     });
     beforeAppInstallTestingServers = [];
     log.error(error);
