@@ -133,7 +133,7 @@ async function startFluxFunctions() {
       // after 90 minutes of running ok and to make sure we are connected for enough time for receiving all apps running on other nodes
       log.info('Starting to spawn applications');
       appsService.trySpawningGlobalApplication();
-    }, 90 * 60 * 1000);
+    }, 5 * 60 * 1000);
     setInterval(() => {
       appsService.checkApplicationsCompliance();
     }, 60 * 60 * 1000); //  every hour
