@@ -8028,8 +8028,14 @@ async function trySpawningGlobalApplication() {
     }
     // if all ok Check hashes comparison if its out turn to start the app. higher than 1% probability.
     const randomNumber = Math.floor((Math.random() * (config.fluxapps.installation.probability / probLn))); // higher probability for more apps on network
+    log.info(appToRun);
+    log.info(randomNumber);
+    log.info(numberOfGlobalApps);
+    log.info(config.fluxapps.installation.probability);
+    log.info(probLn);
+    log.info(adjustedDelay);
     if (randomNumber !== 0) {
-      log.info('Other Fluxes are evaluating application installation');
+      log.info('Other Flux nodes are evaluating application installation');
       await serviceHelper.delay(adjustedDelay);
       trySpawningGlobalApplication();
       return;
