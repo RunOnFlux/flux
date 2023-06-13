@@ -8028,12 +8028,6 @@ async function trySpawningGlobalApplication() {
     }
     // if all ok Check hashes comparison if its out turn to start the app. higher than 1% probability.
     const randomNumber = Math.floor((Math.random() * (config.fluxapps.installation.probability / probLn))); // higher probability for more apps on network
-    log.info(appToRun);
-    log.info(randomNumber);
-    log.info(numberOfGlobalApps);
-    log.info(config.fluxapps.installation.probability);
-    log.info(probLn);
-    log.info(adjustedDelay);
     if (randomNumber !== 0) {
       log.info('Other Flux nodes are evaluating application installation');
       await serviceHelper.delay(adjustedDelay);
@@ -9692,6 +9686,7 @@ async function checkMyAppsAvailability() {
  */
 let beforeAppInstallTestingServers = [];
 async function checkInstallingAppPortAvailable(portsToTest = []) {
+  beforeAppInstallTestingServers = [];
   const isUPNP = upnpService.isUPNP();
   let portsStatus = false;
   try {
@@ -9726,7 +9721,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(5 * 1000);
       beforeAppInstallTestingServer.listen(portToTest);
-      beforeAppInstallTestingServers.push(beforeAppInstallTestingExpress);
+      beforeAppInstallTestingServers.push(beforeAppInstallTestingServer);
     }
     await serviceHelper.delay(10 * 1000);
     // eslint-disable-next-line no-await-in-loop
@@ -9786,7 +9781,6 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
     beforeAppInstallTestingServers.forEach((beforeAppInstallTestingServer) => {
       beforeAppInstallTestingServer.close();
     });
-    beforeAppInstallTestingServers = [];
     return portsStatus;
   } catch (error) {
     if (dosMountMessage || dosDuplicateAppMessage) {
@@ -9813,7 +9807,6 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
         log.warn(e);
       }
     });
-    beforeAppInstallTestingServers = [];
     log.error(error);
     return false;
   }
