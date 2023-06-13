@@ -18,7 +18,7 @@ let response = messageHelper.createErrorMessage();
 // default cache
 const LRUoptions = {
   max: 20000, // currently 20000 nodes
-  maxAge: 1000 * 150, // 150 seconds slightly over average blocktime. Allowing 1 block expired too.
+  maxAge: 1000 * 360, // 360 seconds, 3 blocks
 };
 
 let numberOfFluxNodes = 0;
@@ -69,7 +69,9 @@ async function handleAppRunningMessage(message, fromIP) {
     // eslint-disable-next-line global-require
     const appsService = require('./appsService');
     const rebroadcastToPeers = await appsService.storeAppRunningMessage(message.data);
-    if (rebroadcastToPeers === true) {
+    const currentTimeStamp = new Date().getTime();
+    const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
+    if (rebroadcastToPeers === true && timestampOK) {
       const messageString = serviceHelper.ensureString(message);
       const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
       fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
@@ -146,7 +148,7 @@ function handleIncomingConnection(ws, req, expressWS) {
     const currentTimeStamp = Date.now();
     const messageOK = await fluxCommunicationUtils.verifyFluxBroadcast(msg, undefined, currentTimeStamp);
     if (messageOK === true) {
-      const timestampOK = await fluxCommunicationUtils.verifyTimestampInFluxBroadcast(msg, currentTimeStamp);
+      const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(msg, currentTimeStamp);
       if (timestampOK === true) {
         try {
           const msgObj = serviceHelper.ensureObject(msg);
@@ -172,7 +174,7 @@ function handleIncomingConnection(ws, req, expressWS) {
         const possibleNodes = zl.filter((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
         const nodeFound = possibleNodes.find((n) => n.ip === peer.ip.replace('::ffff:', ''));
         if (!nodeFound) {
-          log.warn(`Message received from incoming peer ${peer.ip} but is not an originating node of ${pubKey}.`);
+          log.warn(`Invalid message received from incoming peer ${peer.ip} which is not an originating node of ${pubKey}.`);
           ws.close(1000, 'invalid message, disconnect'); // close as of policy violation
         } else {
           blockedPubKeysCache.set(pubKey, pubKey); // blocks ALL the nodes corresponding to the pubKey
@@ -397,7 +399,7 @@ async function initiateAndHandleConnection(connection) {
       }
       return;
     }
-    const messageOK = await fluxCommunicationUtils.verifyOriginalFluxBroadcast(evt.data, undefined, currentTimeStamp);
+    const messageOK = await fluxCommunicationUtils.verifyOriginalFluxBroadcast(msgObj, undefined, currentTimeStamp);
     if (messageOK === true) {
       if (msgObj.data.type === 'zelappregister' || msgObj.data.type === 'zelappupdate' || msgObj.data.type === 'fluxappregister' || msgObj.data.type === 'fluxappupdate') {
         handleAppMessages(msgObj, ip);
@@ -415,7 +417,7 @@ async function initiateAndHandleConnection(connection) {
         const possibleNodes = zl.filter((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
         const nodeFound = possibleNodes.find((n) => n.ip === connection);
         if (!nodeFound) {
-          log.warn(`Message received from outgoing peer ${connection} but is not an originating node of ${pubKey}.`);
+          log.warn(`Invalid message received from outgoing peer ${connection} which is not an originating node of ${pubKey}.`);
           websocket.close(1000, 'invalid message, disconnect'); // close as of policy violation
         } else {
           blockedPubKeysCache.set(pubKey, pubKey); // blocks ALL the nodes corresponding to the pubKey

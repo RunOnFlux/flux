@@ -367,7 +367,7 @@ describe('idService tests', () => {
         status: 'success',
         data: {
           dosState: 11,
-          dosMessage: 'Flux collision detection',
+          dosMessage: 'Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.',
           nodeHardwareSpecsGood: true,
         },
       });
@@ -377,7 +377,7 @@ describe('idService tests', () => {
         data: {
           code: 11,
           name: 'DOS',
-          message: 'Flux collision detection',
+          message: 'Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.',
         },
       };
 

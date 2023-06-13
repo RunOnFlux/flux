@@ -86,6 +86,14 @@
                           title="Period"
                           :data="labelForExpire(row.item.expire)"
                         />
+                        <list-entry
+                          title="Enterprise Nodes"
+                          :data="row.item.nodes ? row.item.nodes.toString() : 'Not scoped'"
+                        />
+                        <list-entry
+                          title="Static IP"
+                          :data="row.item.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
+                        />
                         <h4>Composition</h4>
                         <div v-if="row.item.version <= 3">
                           <b-card>
@@ -196,6 +204,10 @@
                               :data="component.repotag"
                             />
                             <list-entry
+                              title="Repository Authentication"
+                              :data="component.repoauth ? 'Content Encrypted' : 'Public'"
+                            />
+                            <list-entry
                               title="Custom Domains"
                               :data="component.domains.toString() || 'none'"
                             />
@@ -222,6 +234,10 @@
                             <list-entry
                               title="Commands"
                               :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
+                            />
+                            <list-entry
+                              title="Secret Environment Parameters"
+                              :data="component.secrets ? 'Content Encrypted' : 'none'"
                             />
                             <div v-if="component.tiered">
                               <list-entry
@@ -400,6 +416,14 @@
                           title="Period"
                           :data="labelForExpire(row.item.expire)"
                         />
+                        <list-entry
+                          title="Enterprise Nodes"
+                          :data="row.item.nodes ? row.item.nodes.toString() : 'Not scoped'"
+                        />
+                        <list-entry
+                          title="Static IP"
+                          :data="row.item.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
+                        />
                         <h4>Composition</h4>
                         <div v-if="row.item.version <= 3">
                           <b-card>
@@ -434,6 +458,10 @@
                             <list-entry
                               title="Commands"
                               :data="row.item.commands.length > 0 ? row.item.commands.toString() : 'none'"
+                            />
+                            <list-entry
+                              title="Secret Environment Parameters"
+                              :data="row.item.secrets || 'none'"
                             />
                             <div v-if="row.item.tiered">
                               <list-entry
@@ -510,6 +538,10 @@
                               :data="component.repotag"
                             />
                             <list-entry
+                              title="Repository Authentication"
+                              :data="component.repoauth ? 'Content Encrypted' : 'Public'"
+                            />
+                            <list-entry
                               title="Custom Domains"
                               :data="component.domains.toString() || 'none'"
                             />
@@ -536,6 +568,10 @@
                             <list-entry
                               title="Commands"
                               :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
+                            />
+                            <list-entry
+                              title="Secret Environment Parameters"
+                              :data="component.secrets ? 'Content Encrypted' : 'none'"
                             />
                             <div v-if="component.tiered">
                               <list-entry
@@ -832,6 +868,14 @@
                           title="Period"
                           :data="labelForExpire(row.item.expire)"
                         />
+                        <list-entry
+                          title="Enterprise Nodes"
+                          :data="row.item.nodes ? row.item.nodes.toString() : 'Not scoped'"
+                        />
+                        <list-entry
+                          title="Static IP"
+                          :data="row.item.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
+                        />
                         <h4>Composition</h4>
                         <div v-if="row.item.version <= 3">
                           <b-card>
@@ -942,6 +986,10 @@
                               :data="component.repotag"
                             />
                             <list-entry
+                              title="Repository Authentication"
+                              :data="component.repoauth ? 'Content Encrypted' : 'Public'"
+                            />
+                            <list-entry
                               title="Custom Domains"
                               :data="component.domains.toString() || 'none'"
                             />
@@ -968,6 +1016,10 @@
                             <list-entry
                               title="Commands"
                               :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
+                            />
+                            <list-entry
+                              title="Secret Environment Parameters"
+                              :data="component.secrets ? 'Content Encrypted' : 'none'"
                             />
                             <div v-if="component.tiered">
                               <list-entry
@@ -1212,6 +1264,14 @@
                           title="Period"
                           :data="labelForExpire(row.item.expire)"
                         />
+                        <list-entry
+                          title="Enterprise Nodes"
+                          :data="row.item.nodes ? row.item.nodes.toString() : 'Not scoped'"
+                        />
+                        <list-entry
+                          title="Static IP"
+                          :data="row.item.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
+                        />
                         <h4>Composition</h4>
                         <div v-if="row.item.version <= 3">
                           <b-card>
@@ -1322,6 +1382,10 @@
                               :data="component.repotag"
                             />
                             <list-entry
+                              title="Repository Authentication"
+                              :data="component.repoauth ? 'Content Encrypted' : 'Public'"
+                            />
+                            <list-entry
                               title="Custom Domains"
                               :data="component.domains.toString() || 'none'"
                             />
@@ -1348,6 +1412,10 @@
                             <list-entry
                               title="Commands"
                               :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
+                            />
+                            <list-entry
+                              title="Secret Environment Parameters"
+                              :data="component.secrets ? 'Content Encrypted' : 'none'"
                             />
                             <div v-if="component.tiered">
                               <list-entry
@@ -1656,6 +1724,14 @@
                           title="Period"
                           :data="labelForExpire(row.item.expire)"
                         />
+                        <list-entry
+                          title="Enterprise Nodes"
+                          :data="row.item.nodes ? row.item.nodes.toString() : 'Not scoped'"
+                        />
+                        <list-entry
+                          title="Static IP"
+                          :data="row.item.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
+                        />
                         <h4>Composition</h4>
                         <div v-if="row.item.version <= 3">
                           <b-card>
@@ -1766,6 +1842,10 @@
                               :data="component.repotag"
                             />
                             <list-entry
+                              title="Repository Authentication"
+                              :data="component.repoauth ? 'Content Encrypted' : 'Public'"
+                            />
+                            <list-entry
                               title="Custom Domains"
                               :data="component.domains.toString() || 'none'"
                             />
@@ -1792,6 +1872,10 @@
                             <list-entry
                               title="Commands"
                               :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
+                            />
+                            <list-entry
+                              title="Secret Environment Parameters"
+                              :data="component.secrets ? 'Content Encrypted' : 'none'"
                             />
                             <div v-if="component.tiered">
                               <list-entry
@@ -2417,7 +2501,7 @@ export default {
       }
       for (let i = 0; i < appSpecs.compose.length; i += 1) {
         for (let j = 0; j < appSpecs.compose[i].ports.length; j += 1) {
-          return appSpecs.compose[i].ports[j];
+          if (appSpecs.compose[i].ports[j]) return appSpecs.compose[i].ports[j];
         }
       }
       return null;

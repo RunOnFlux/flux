@@ -11,6 +11,10 @@
         :variant="getNodeStatusResponse.class"
       />
       <list-entry
+        title="Static Ip ISP/Org"
+        :data="staticIp ? 'Yes': 'No'"
+      />
+      <list-entry
         v-if="getInfoResponse.message !== ''"
         title="Daemon Version"
         :data="getInfoResponse.message.version.toString()"
@@ -171,6 +175,7 @@ export default {
         signature: '',
         loginPhrase: '',
       },
+      staticIp: false,
     };
   },
   computed: {
@@ -190,6 +195,7 @@ export default {
     this.daemonWelcomeGetZelNodeStatus();
     this.getZelIdLoginPhrase();
     this.getOwnerZelid();
+    this.getStaticIpInfo();
   },
   methods: {
     backendURL() {
@@ -221,6 +227,13 @@ export default {
       const obtainedZelid = response.data.data;
       if (response.data.status === 'success' && typeof obtainedZelid === 'string') {
         this.$store.commit('flux/setUserZelid', obtainedZelid);
+      }
+    },
+    async getStaticIpInfo() {
+      const response = await FluxService.getStaticIpInfo();
+      console.log(response);
+      if (response.data.status === 'success') {
+        this.staticIp = response.data.data;
       }
     },
     async daemonGetInfo() {

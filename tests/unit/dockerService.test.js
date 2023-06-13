@@ -538,8 +538,8 @@ describe('dockerService tests', () => {
       Name: 'fluxDockerNetwork',
       IPAM: {
         Config: [{
-          Subnet: '172.15.0.0/16',
-          Gateway: '172.15.0.1',
+          Subnet: '172.23.0.0/24',
+          Gateway: '172.23.0.1',
         }],
       },
     };
@@ -581,8 +581,8 @@ describe('dockerService tests', () => {
       Name: 'fluxDockerNetwork_MyAppName',
       IPAM: {
         Config: [{
-          Subnet: '172.52.0.0/16',
-          Gateway: '172.52.0.1',
+          Subnet: '172.23.52.0/24',
+          Gateway: '172.23.52.1',
         }],
       },
     };
@@ -699,6 +699,7 @@ describe('dockerService tests', () => {
         HostConfig: {
           NanoCPUs: 800000000,
           Memory: 1887436800,
+          StorageOpts: { size: '12G' },
           Ulimits: [{ Name: 'nofile', Soft: 100000, Hard: 100000 }],
           RestartPolicy: { Name: 'unless-stopped' },
           NetworkMode: 'fluxDockerNetwork_fluxwebsite',
@@ -755,6 +756,7 @@ describe('dockerService tests', () => {
         HostConfig: {
           NanoCPUs: 800000000,
           Memory: 1887436800,
+          StorageOpts: { size: '12G' },
           Binds: [`${appsFolder}fluxwebsite/appdata:/chaindata`],
           Ulimits: [{ Name: 'nofile', Soft: 100000, Hard: 100000 }],
           PortBindings: {
@@ -792,6 +794,7 @@ describe('dockerService tests', () => {
         HostConfig: {
           NanoCPUs: 800000000,
           Memory: 1887436800,
+          StorageOpts: { size: '12G' },
           Binds: [`${appsFolder}fluxwebsite_fluxwebsite/appdata:/chaindata`],
           Ulimits: [{ Name: 'nofile', Soft: 100000, Hard: 100000 }],
           PortBindings: {

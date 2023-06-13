@@ -23,6 +23,7 @@ const generalService = require('./services/generalService');
 const upnpService = require('./services/upnpService');
 const syncthingService = require('./services/syncthingService');
 const fluxNetworkHelper = require('./services/fluxNetworkHelper');
+const enterpriseNodesService = require('./services/enterpriseNodesService');
 
 function isLocal(req, res, next) {
   const remote = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || req.headers['x-forwarded-for'];
@@ -243,11 +244,17 @@ module.exports = (app, expressWs) => {
   app.get('/flux/ip', cache('30 seconds'), (req, res) => {
     fluxService.getFluxIP(req, res);
   });
+  app.get('/flux/staticip', cache('30 seconds'), (req, res) => {
+    fluxService.isStaticIPapi(req, res);
+  });
   app.get('/flux/zelid', cache('30 seconds'), (req, res) => {
     fluxService.getFluxZelID(req, res);
   });
   app.get('/flux/id', cache('30 seconds'), (req, res) => {
     fluxService.getFluxZelID(req, res);
+  });
+  app.get('/flux/pgp', cache('30 seconds'), (req, res) => {
+    fluxService.getFluxPGPidentity(req, res);
   });
   app.get('/flux/cruxid', cache('30 seconds'), (req, res) => {
     fluxService.getFluxCruxID(req, res);
@@ -339,6 +346,9 @@ module.exports = (app, expressWs) => {
   });
   app.get('/apps/deploymentinformation', cache('30 seconds'), (req, res) => {
     appsService.deploymentInformation(req, res);
+  });
+  app.get('/apps/enterprisenodes', cache('30 seconds'), (req, res) => {
+    enterpriseNodesService.getEnterpriseNodesAPI(req, res);
   });
 
   // app.get('/explorer/allutxos', (req, res) => {

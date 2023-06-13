@@ -30,7 +30,9 @@ const adminConfig = {
     apiport: '5550',
     testnet: true,
     development: false,
-    decryptionkey: '',
+    pgpPrivateKey: '',
+    pgpPublicKey: '',
+    blockedPorts: [],
   },
 };
 
@@ -255,7 +257,7 @@ describe('fluxService tests', () => {
         status: 'error',
       };
 
-      const response = await fluxService.softUpdateFluxInstall(undefined, res);
+      const response = await fluxService.softUpdateFluxInstall({}, res);
 
       expect(response).to.eql(`Response: ${expectedResponse}`);
       sinon.assert.calledWithExactly(res.json, expectedResponse);
@@ -2284,7 +2286,9 @@ describe('fluxService tests', () => {
           testnet: ${adminConfig.initial.testnet || false},
           development: ${adminConfig.initial.development || false},
           apiport: ${Number(adminConfig.initial.apiport)},
-          decryptionkey: '${adminConfig.initial.decryptionkey}',
+          pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
+          pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
+          blockedPorts: [${adminConfig.initial.blockedPorts || ''}],
         }
       }`;
       const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
@@ -2440,7 +2444,9 @@ describe('fluxService tests', () => {
     testnet: ${adminConfig.initial.testnet},
     development: ${adminConfig.initial.development},
     apiport: ${Number(adminConfig.initial.apiport)},
-    decryptionkey: '${adminConfig.initial.decryptionkey}',
+    pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
+    pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
+    blockedPorts: [],
   }
 }`;
       const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');

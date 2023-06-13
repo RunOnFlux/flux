@@ -1914,8 +1914,16 @@ async function getSvcReport(req, res) {
 async function getDeviceID(req, res) {
   try {
     const meta = await getMeta();
+    log.info(meta);
+    await serviceHelper.delay(500);
     const healthy = await getHealth(); // check that syncthing instance is healthy
+    log.info(healthy);
+    await serviceHelper.delay(500);
     const pingResponse = await systemPing(); // check that flux has proper api key
+    log.info(pingResponse);
+    const execSynct = 'ps aux | grep -i syncthing';
+    const synthingRunning = await cmdAsync(execSynct);
+    log.info(synthingRunning);
     if (meta.status === 'success' && pingResponse.data.ping === 'pong' && healthy.data.status === 'OK') {
       const adjustedString = meta.data.slice(15).slice(0, -2);
       const deviceObject = JSON.parse(adjustedString);
@@ -1923,6 +1931,9 @@ async function getDeviceID(req, res) {
       const successResponse = messageHelper.createDataMessage(deviceID);
       return res ? res.json(successResponse) : successResponse;
     }
+    log.info(meta.status);
+    log.info(pingResponse.data);
+    log.info(healthy.data);
     throw new Error('Syncthing is not running properly');
   } catch (error) {
     log.error(error);
@@ -1944,11 +1955,22 @@ async function installSyncthing() { // can throw
 /**
  * To Start Syncthing
  */
+let previousSyncthingErrored = false;
 async function startSyncthing() {
   try {
     // check wether syncthing is running or not
     const myDevice = await getDeviceID();
     if (myDevice.status === 'error') {
+      // retry before killing and restarting
+      if (previousSyncthingErrored === false) {
+        await systemRestart();
+        previousSyncthingErrored = true;
+        await serviceHelper.delay(60 * 1000);
+        startSyncthing();
+      }
+      previousSyncthingErrored = false;
+      log.error('Syncthing Error');
+      log.error(myDevice);
       const execDIRcr = 'mkdir -p $HOME/.config'; // create .config folder first for it to have standard user ownership. With -p no error will be thrown in case of exists
       await cmdAsync(execDIRcr).catch((error) => log.error(error));
       const execDIRown = 'sudo chown $USER:$USER $HOME/.config'; // adjust .config folder for ownership of running user
@@ -1961,7 +1983,7 @@ async function startSyncthing() {
       await serviceHelper.delay(10 * 1000);
       await cmdAsync(execKill).catch((error) => log.error(error));
       await cmdAsync(execKillB).catch((error) => log.error(error));
-      const exec = 'sudo syncthing --allow-newer-config --no-browser --home=$HOME/.config/syncthing';
+      const exec = 'sudo nohup syncthing --allow-newer-config --no-browser --home=$HOME/.config/syncthing &';
       log.info('Spawning Syncthing instance...');
       let errored = false;
       nodecmd.get(exec, async (err) => {

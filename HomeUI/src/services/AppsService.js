@@ -13,6 +13,9 @@ export default {
   availableApps() {
     return Api().get('/apps/availableapps');
   },
+  getEnterpriseNodes() {
+    return Api().get('/apps/enterprisenodes');
+  },
   stopApp(zelidauthHeader, app) {
     const axiosConfig = {
       headers: {

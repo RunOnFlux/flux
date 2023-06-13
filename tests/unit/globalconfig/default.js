@@ -1,7 +1,7 @@
 module.exports = {
   server: {
+    allowedPorts: [11, 13, 16127, 16137, 16147, 16157, 16167, 16177, 16187, 16197],
     apiport: 16127, // homeport is -1, ssl port is +1
-    allowedPorts: [11, 13],
   },
   database: {
     url: '127.0.0.1',
@@ -80,6 +80,9 @@ module.exports = {
       ram: 1, // per 100mb,
       hdd: 0.5, // per 1gb,
       minPrice: 1, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
+      port: 2, // additional price per enterprise port
+      scope: 6, // additional price for application targetting specific nodes, private images
+      staticip: 3, // additional price per application for targetting nodes that have static ip address
     },
     {
       height: 983000, // height from which price spec is valid. Counts from when app was registerd on blockchain!
@@ -87,6 +90,9 @@ module.exports = {
       ram: 0.1, // per 100mb,
       hdd: 0.05, // per 1gb,
       minPrice: 0.1, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
+      port: 2, // additional price per enterprise port
+      scope: 6, // additional price for application targetting specific nodes, private images
+      staticip: 3, // additional price per application for targetting nodes that have static ip address
     },
     {
       height: 1004000, // height from which price spec is valid. Counts from when app was registerd on blockchain! 1004000
@@ -94,6 +100,9 @@ module.exports = {
       ram: 0.02, // per 100mb,
       hdd: 0.01, // per 1gb,
       minPrice: 0.01, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
+      port: 2, // additional price per enterprise port
+      scope: 6, // additional price for application targetting specific nodes, private images
+      staticip: 3, // additional price per application for targetting nodes that have static ip address
     },
     {
       height: 1288000, // height from which price spec is valid. Counts from when app was registerd on blockchain! 1004000
@@ -101,6 +110,9 @@ module.exports = {
       ram: 0.05, // per 100mb,
       hdd: 0.02, // per 1gb,
       minPrice: 0.01, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
+      port: 2, // additional price per enterprise port
+      scope: 6, // additional price for application targetting specific nodes, private images
+      staticip: 3, // additional price per application for targetting nodes that have static ip address
     }],
     appSpecsEnforcementHeights: {
       1: 0, // blockheight v1 is deprecated. Not possible to use api to update to its specs
@@ -109,6 +121,7 @@ module.exports = {
       4: 1004000, // v4 available, composition
       5: 1142000, // v5 available adding contacts, geolocation
       6: 1300000, // v6, expiration, app price, t3
+      7: 1420000, // v7, nodes selection, secrets, private images (nodes selection allows secrets, private image - scope), staticip
     },
     address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
     addressMultisig: 't3aGJvdtd8NR6GrnqnRuVEzH6MbrXuJFLUX',
@@ -116,6 +129,11 @@ module.exports = {
     publicepochstart: 705000,
     portMin: 31000, // ports 30000 - 30999 are reserved for local applications
     portMax: 39999,
+    portBlockheightChange: 1420000,
+    portMinNew: 1,
+    portMaxNew: 65535,
+    bannedPorts: ['16100-16299', '26100-26299', '30000-30099', 8384, 27017, 22, 23, 25, 3389, 5900, 5800, 161, 512, 513, 5901, 3388, 4444, 123],
+    enterprisePorts: ['0-1023', 8080, 8081, 8443, 25565, 6667],
     maxImageSize: 2000000000, // 2000mb
     minimumInstances: 3,
     maximumInstances: 100,
@@ -182,4 +200,7 @@ module.exports = {
     ip: '127.0.0.1', // local
     port: 8384, // local
   },
+  enterprisePublicKeys: [ // list of whitelisted nodes indentity public keys. Most trusted node operators that are publicly known, kyc. Eg Flux team members, Titan.
+    '042ebcb3a94fe66b9ded6e456871346d6984502bbadf14ed07644e0eb91f8cc0b1f07632c428e1e6793f372d9c303d680de80ae0499d51095676cabf68599e9591',
+  ],
 };

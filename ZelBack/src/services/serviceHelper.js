@@ -145,9 +145,11 @@ function isDecimalLimit(value, decimals = 8) {
  * @returns {object} Response.
  */
 // helper function for timeout on axios connection
-const axiosGet = (url, options = {
-  timeout: 20000,
-}) => {
+const axiosGet = (url, options = {}) => {
+  if (!options.timeout) {
+    // eslint-disable-next-line no-param-reassign
+    options.timeout = 20000;
+  }
   const abort = axios.CancelToken.source();
   const id = setTimeout(
     () => abort.cancel(`Timeout of ${options.timeout}ms.`),

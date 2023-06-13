@@ -14,6 +14,9 @@ appvolumes
 .nyc_output/
 coverage/
 test.js
+test2.js
+test3.js
+test4.js
 
 # Editor directories and files
 .idea

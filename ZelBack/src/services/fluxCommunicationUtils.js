@@ -7,7 +7,7 @@ const daemonServiceZelnodeRpcs = require('./daemonService/daemonServiceZelnodeRp
 // default cache
 const LRUoptions = {
   max: 20000, // currently 20000 nodes
-  maxAge: 1000 * 150, // 150 seconds slightly over average blocktime. Allowing 1 block expired too.
+  maxAge: 1000 * 480, // 480 seconds, allow up to 4 blocks
 };
 
 const myCache = new LRU(LRUoptions);
@@ -89,6 +89,7 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
   // eslint-disable-next-line no-param-reassign
   currentTimeStamp = currentTimeStamp || Date.now(); // ms
   if (currentTimeStamp < (timestamp - 120000)) { // message was broadcasted in the future. Allow 120 sec clock sync
+    log.error('Message from future');
     return false;
   }
 
@@ -102,10 +103,21 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
   if (!node) {
     // node that broadcasted the message has to be on list
     // pubkey of the broadcast has to be on the list
-    const zl = await deterministicFluxList(pubKey); // this itself is sufficient.
-    node = zl.find((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
+    const zl = await deterministicFluxList(pubKey);
+    if (dataObj.data && dataObj.data.type === 'fluxapprunning') {
+      node = zl.find((key) => key.pubkey === pubKey && dataObj.data.ip && dataObj.data.ip === key.ip); // check ip is on the network and belongs to broadcasted public key
+      if (!node) {
+        log.error('Invalid fluxapprunning message');
+        log.error(JSON.stringify(dataObj));
+        log.error(pubKey);
+        log.error(dataObj.data.ip);
+      }
+    } else {
+      node = zl.find((key) => key.pubkey === pubKey);
+    }
   }
   if (!node) {
+    log.error(`No node belonging to ${pubKey} found`);
     return false;
   }
   const messageToVerify = version + message + timestamp;
@@ -122,15 +134,16 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
  * @param {number} currentTimeStamp Current timestamp.
  * @returns {boolean} False unless current timestamp is within 5 minutes of the data object's timestamp.
  */
-async function verifyTimestampInFluxBroadcast(data, currentTimeStamp) {
+function verifyTimestampInFluxBroadcast(data, currentTimeStamp, maxOld = 300000) {
   // eslint-disable-next-line no-param-reassign
   const dataObj = serviceHelper.ensureObject(data);
   const { timestamp } = dataObj; // ms
   // eslint-disable-next-line no-param-reassign
   currentTimeStamp = currentTimeStamp || Date.now(); // ms
-  if (currentTimeStamp < (timestamp + 300000)) { // bigger than 5 mins
+  if (currentTimeStamp < (timestamp + maxOld)) { // not older than 5 mins
     return true;
   }
+  log.error(`Timestamp ${timestamp} of message is too old ${currentTimeStamp}`);
   return false;
 }
 
@@ -142,8 +155,10 @@ async function verifyTimestampInFluxBroadcast(data, currentTimeStamp) {
  * @returns {boolean} False unless message is successfully verified.
  */
 async function verifyOriginalFluxBroadcast(data, obtainedFluxNodeList, currentTimeStamp) {
-  if (await verifyTimestampInFluxBroadcast(data, currentTimeStamp)) {
-    return verifyFluxBroadcast(data, obtainedFluxNodeList, currentTimeStamp);
+  const timeStampOK = verifyTimestampInFluxBroadcast(data, currentTimeStamp);
+  if (timeStampOK) {
+    const broadcastOK = await verifyFluxBroadcast(data, obtainedFluxNodeList, currentTimeStamp);
+    return broadcastOK;
   }
   return false;
 }

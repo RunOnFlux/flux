@@ -4762,6 +4762,7 @@ describe('appsService tests', () => {
       geolocationServiceStub.returns(undefined);
       const appSpec = {
         version: 5,
+        geolocation: ['acEU'],
       };
 
       // eslint-disable-next-line func-names
@@ -5056,7 +5057,7 @@ describe('appsService tests', () => {
       });
     });
 
-    it('should return if node tier does not return anything', async () => {
+    it('should return false if node tier does not return anything', async () => {
       const componentSpecs = false;
       const res = generateResponse();
       nodeTierStub.resolves(undefined);
@@ -5071,16 +5072,16 @@ describe('appsService tests', () => {
           message: 'Failed to get Node Tier',
         },
       }));
-      expect(result).to.eql(undefined);
+      expect(result).to.eql(false);
     });
 
-    it('should return if node tier does not return anything', async () => {
+    it('should return false if app already installed', async () => {
       const componentSpecs = false;
       const res = generateResponse();
       nodeTierStub.resolves('cumulus');
       dbStub.returns('testapp');
 
-      await appsService.registerAppLocally(appSpec, componentSpecs, res);
+      const result = await appsService.registerAppLocally(appSpec, componentSpecs, res);
 
       sinon.assert.calledOnceWithExactly(logSpy, 'Flux App testapp already installed');
       sinon.assert.calledWithExactly(res.write, {
@@ -5091,6 +5092,8 @@ describe('appsService tests', () => {
           message: 'Flux App testapp already installed',
         },
       });
+
+      expect(result).to.eql(false);
     });
 
     it.skip('should install app if v < 4', async () => {

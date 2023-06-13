@@ -106,6 +106,72 @@ function minVersionSatisfy(version, minimumVersion) {
 }
 
 /**
+ * To get if port belongs to enterprise range
+ * @returns {boolean} Returns true if enterprise
+ */
+function isPortEnterprise(port) {
+  const { enterprisePorts } = config.fluxapps;
+  let portEnterprise = false;
+  enterprisePorts.forEach((portOrInterval) => {
+    if (typeof portOrInterval === 'string') { // '0-10'
+      const minPort = Number(portOrInterval.split('-')[0]);
+      const maxPort = Number(portOrInterval.split('-')[1]);
+      if (+port >= minPort && +port <= maxPort) {
+        portEnterprise = true;
+      }
+    } else if (portOrInterval === +port) {
+      portEnterprise = true;
+    }
+  });
+  console.log(port);
+  return portEnterprise;
+}
+
+/**
+ * To get if port belongs to user blocked range
+ * @returns {boolean} Returns true if port is user blocked
+ */
+function isPortUserBlocked(port) {
+  try {
+    let blockedPorts = userconfig.initial.blockedPorts || [];
+    blockedPorts = serviceHelper.ensureObject(blockedPorts);
+    let portBanned = false;
+    blockedPorts.forEach((portOrInterval) => {
+      if (portOrInterval === +port) {
+        portBanned = true;
+      }
+    });
+    console.log(port);
+    return portBanned;
+  } catch (error) {
+    log.error(error);
+    return false;
+  }
+}
+
+/**
+ * To get if port belongs to banned range
+ * @returns {boolean} Returns true if port is banned
+ */
+function isPortBanned(port) {
+  const { bannedPorts } = config.fluxapps;
+  let portBanned = false;
+  bannedPorts.forEach((portOrInterval) => {
+    if (typeof portOrInterval === 'string') { // '0-10'
+      const minPort = Number(portOrInterval.split('-')[0]);
+      const maxPort = Number(portOrInterval.split('-')[1]);
+      if (+port >= minPort && +port <= maxPort) {
+        portBanned = true;
+      }
+    } else if (portOrInterval === +port) {
+      portBanned = true;
+    }
+  });
+  console.log(port);
+  return portBanned;
+}
+
+/**
  * To perform a basic check if port on an ip is opened
  * This requires our port to be also open on out
  * @param {string} ip IP address.
@@ -223,6 +289,7 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
     if (!UIok) return false;
 
     const syncthingPort = +port + 2;
+    // eslint-disable-next-line no-use-before-define
     const syncthingOpen = await isPortOpen(ip, syncthingPort);
     if (!syncthingOpen) return false;
 
@@ -261,7 +328,7 @@ async function checkFluxAvailability(req, res) {
 }
 
 /**
- * To get app price.
+ * To check if application is available
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {object} Message.
@@ -291,18 +358,22 @@ async function checkAppAvailability(req, res) {
       const messageToVerify = JSON.stringify(dataToVerify);
       const verified = verificationHelper.verifyMessage(messageToVerify, pubKey, signature);
       if ((verified !== true || !node) && authorized !== true) {
-        log.error('Unable to verify request authenticity');
-        // throw new Error('Unable to verify request authenticity');
+        throw new Error('Unable to verify request authenticity');
       }
 
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+      const daemonHeight = syncStatus.data.height;
+      const minPort = daemonHeight >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMinNew : config.fluxapps.portMin - 1000;
+      const maxPort = daemonHeight >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMaxNew : config.fluxapps.portMax;
       const portsListening = [];
       // eslint-disable-next-line no-restricted-syntax
       for (const port of ports) {
-        if (+port >= (config.fluxapps.portMin - 1000) && +port <= config.fluxapps.portMax) {
+        const iBP = isPortBanned(+port);
+        if (+port >= minPort && +port <= maxPort && !iBP) {
         // eslint-disable-next-line no-await-in-loop
           const isOpen = await isPortOpen(ip, port, appname, 30000);
           if (!isOpen) {
-            throw new Error(`Flux Applications on ${ip}:${ipPort} are not available.`);
+            throw new Error(`Flux Applications on ${ip}:${ipPort} are not available. Failed port: ${port}`);
           } else if (isOpen === 'listening') { // this port is in use and listening. Later do check from other node on this port
             portsListening.push(+port);
           }
@@ -657,6 +728,15 @@ function isCommunicationEstablished(req, res) {
  * @returns {boolean} True if all checks passed.
  */
 async function checkMyFluxAvailability(retryNumber = 0) {
+  let userBlockedPorts = userconfig.initial.blockedPorts || [];
+  userBlockedPorts = serviceHelper.ensureObject(userBlockedPorts);
+  if (Array.isArray(userBlockedPorts)) {
+    if (userBlockedPorts.length > 100) {
+      dosState += 11;
+      setDosMessage('User blocked ports above 100 limit');
+      return false;
+    }
+  }
   const fluxBenchVersionAllowed = await checkFluxbenchVersionAllowed();
   if (!fluxBenchVersionAllowed) {
     return false;
@@ -797,8 +877,10 @@ async function adjustExternalIP(ip) {
     kadena: '${userconfig.initial.kadena || ''}',
     testnet: ${userconfig.initial.testnet || false},
     development: ${userconfig.initial.development || false},
-    apiport: ${Number(userconfig.initial.apiport || config.apiport)},
-    decryptionkey: '${userconfig.initial.decryptionkey || ''}',
+    apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
+    pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
+    pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
+    blockedPorts: [${userconfig.initial.blockedPorts || ''}],
   }
 }`;
 
@@ -852,9 +934,9 @@ async function checkDeterministicNodesCollisions() {
           // prevent new activation
         } else if (result.length === 1) {
           if (!myNode) {
-            log.error('Flux collision detection');
+            log.error('Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.');
             dosState = 100;
-            setDosMessage('Flux collision detection');
+            setDosMessage('Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.');
             setTimeout(() => {
               checkDeterministicNodesCollisions();
             }, 60 * 1000);
@@ -978,7 +1060,8 @@ async function denyPort(port) {
     status: false,
     message: null,
   };
-  if (+port < (config.fluxapps.portMin - 1000) || +port > config.fluxapps.portMax) {
+  const portBanned = isPortBanned(+port);
+  if (+port < (config.fluxapps.portMinNew) || +port > config.fluxapps.portMaxNew || portBanned) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
@@ -1008,7 +1091,8 @@ async function deleteAllowPortRule(port) {
     status: false,
     message: null,
   };
-  if (+port < (config.fluxapps.portMin - 1000) || +port > config.fluxapps.portMax) {
+  const portBanned = isPortBanned(+port);
+  if (+port < (config.fluxapps.portMinNew) || +port > config.fluxapps.portMaxNew || portBanned) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
@@ -1035,7 +1119,8 @@ async function deleteDenyPortRule(port) {
     status: false,
     message: null,
   };
-  if (+port < (config.fluxapps.portMin - 1000) || +port > config.fluxapps.portMax) {
+  const portBanned = isPortBanned(+port);
+  if (+port < (config.fluxapps.portMinNew) || +port > config.fluxapps.portMaxNew || portBanned) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
@@ -1062,7 +1147,8 @@ async function deleteAllowOutPortRule(port) {
     status: false,
     message: null,
   };
-  if (+port < (config.fluxapps.portMin - 1000) || +port > config.fluxapps.portMax) {
+  const portBanned = isPortBanned(+port);
+  if (+port < (config.fluxapps.portMinNew) || +port > config.fluxapps.portMaxNew || portBanned) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
@@ -1302,4 +1388,7 @@ module.exports = {
   lruRateLimit,
   isPortOpen,
   checkAppAvailability,
+  isPortEnterprise,
+  isPortBanned,
+  isPortUserBlocked,
 };

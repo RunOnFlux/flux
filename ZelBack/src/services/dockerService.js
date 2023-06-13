@@ -3,6 +3,8 @@ const Docker = require('dockerode');
 const path = require('path');
 const serviceHelper = require('./serviceHelper');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
+const pgpService = require('./pgpService');
+const generalService = require('./generalService');
 const log = require('../lib/log');
 
 const fluxDirPath = path.join(__dirname, '../../../');
@@ -230,12 +232,42 @@ async function dockerContainerChanges(idOrName) {
 
 /**
  * To pull a Docker Hub image and follow progress of the stream.
- * @param {string} repoTag Docker Hub repo/image tag.
+ * @param {object} config Pulling config consisting of repoTag and optional authToken
  * @param {object} res Response.
  * @param {function} callback Callback.
  */
-function dockerPullStream(repoTag, res, callback) {
-  docker.pull(repoTag, (err, mystream) => {
+function dockerPullStream(config, res, callback) {
+  const { repoTag, authToken } = config;
+  let pullOptions;
+  const splittedRepo = generalService.splitRepoTag(repoTag);
+  const {
+    provider,
+    port,
+    providerName,
+  } = splittedRepo;
+  let serveraddress;
+  if (port) {
+    serveraddress = `${provider}:${port}`;
+  } else if (providerName !== 'Docker Hub') {
+    serveraddress = provider;
+  }
+  if (authToken) {
+    if (authToken.includes(':')) { // specified by username:token
+      pullOptions = {
+        authconfig: {
+          username: authToken.split(':')[0],
+          password: authToken.split(':')[1],
+        },
+      };
+      if (serveraddress) {
+        pullOptions.authconfig.serveraddress = serveraddress;
+      }
+    } else {
+      throw new Error('Invalid login credentials for docker provided');
+    }
+  }
+  log.info(pullOptions);
+  docker.pull(repoTag, pullOptions, (err, mystream) => {
     function onFinished(error, output) {
       if (error) {
         callback(err);
@@ -487,6 +519,22 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
       constructedVolumes.push(vol);
     }
   });
+  const envParams = appSpecifications.environmentParameters || appSpecifications.enviromentParameters;
+  if (appSpecifications.secrets) {
+    const decodedEnvParams = await pgpService.decryptMessage(appSpecifications.secrets);
+    const arraySecrets = JSON.parse(decodedEnvParams);
+    if (Array.isArray(arraySecrets)) {
+      arraySecrets.forEach((parameter) => {
+        if (typeof parameter !== 'string' || parameter.length > 5000000) {
+          throw new Error('Environment parameters from Secrets are invalid');
+        } else {
+          envParams.push(parameter);
+        }
+      });
+    } else {
+      throw new Error('Environment parameters from Secrets are invalid');
+    }
+  }
   const options = {
     Image: appSpecifications.repotag,
     name: getAppIdentifier(identifier),
@@ -494,7 +542,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     AttachStdout: true,
     AttachStderr: true,
     Cmd: appSpecifications.commands,
-    Env: appSpecifications.environmentParameters || appSpecifications.enviromentParameters,
+    Env: envParams,
     Tty: false,
     ExposedPorts: exposedPorts,
     HostConfig: {
@@ -705,8 +753,8 @@ async function createFluxDockerNetwork() {
     Name: 'fluxDockerNetwork',
     IPAM: {
       Config: [{
-        Subnet: '172.15.0.0/16',
-        Gateway: '172.15.0.1',
+        Subnet: '172.23.0.0/24',
+        Gateway: '172.23.0.1',
       }],
     },
   };
@@ -736,8 +784,8 @@ async function createFluxAppDockerNetwork(appname, number) {
     Name: `fluxDockerNetwork_${appname}`,
     IPAM: {
       Config: [{
-        Subnet: `172.${number}.0.0/16`,
-        Gateway: `172.${number}.0.1`,
+        Subnet: `172.23.${number}.0/24`,
+        Gateway: `172.23.${number}.1`,
       }],
     },
   };

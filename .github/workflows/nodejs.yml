@@ -18,9 +18,9 @@ jobs:
           - 27017:27017
 
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v3
     - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v1
+      uses: actions/setup-node@v3
       with:
         node-version: ${{ matrix.node-version }}
     - name: Check Hash
@@ -87,7 +87,7 @@ jobs:
       env:
         CI: true
     - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v2
+      uses: codecov/codecov-action@v3
     - name: Push docs to other repo # Push services directory from RunOnFlux/flux to RunOnFlux/fluxjsdocs repo to build JSDocs separately.
       uses: cpina/github-action-push-to-another-repository@main
       env:

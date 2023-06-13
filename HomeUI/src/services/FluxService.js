@@ -125,6 +125,9 @@ export default {
   getZelid() {
     return Api().get('/flux/zelid');
   },
+  getStaticIpInfo() {
+    return Api().get('/flux/staticip');
+  },
   // DEBUG
   tailFluxLog(name, zelidauthHeader) {
     return Api().get(`/flux/tail${name}log`, {

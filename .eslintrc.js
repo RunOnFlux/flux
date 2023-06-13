@@ -19,6 +19,7 @@ module.exports = {
       },
     ],
     'no-console': 'off',
+    'vue/no-use-v-if-with-v-for': 'off',
     'linebreak-style': [
       'error',
       'unix',
