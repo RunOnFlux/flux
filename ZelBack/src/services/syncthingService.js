@@ -1983,7 +1983,7 @@ async function startSyncthing() {
       await serviceHelper.delay(10 * 1000);
       await cmdAsync(execKill).catch((error) => log.error(error));
       await cmdAsync(execKillB).catch((error) => log.error(error));
-      const exec = 'sudo nohup syncthing -logfile $HOME/.config/syncthing/syncthing.log --allow-newer-config --no-browser --home=$HOME/.config/syncthing &';
+      const exec = 'sudo nohup syncthing -logfile $HOME/.config/syncthing/syncthing.log --allow-newer-config --no-browser --home=$HOME/.config/syncthing';
       log.info('Spawning Syncthing instance...');
       let errored = false;
       nodecmd.get(exec, async (err) => {
