@@ -9968,7 +9968,7 @@ async function checkForNonAllowedAppsOnLocalNetwork() {
     if (dosDuplicateAppMessage) {
       setTimeout(() => {
         checkForNonAllowedAppsOnLocalNetwork();
-      }, 5 * 60 * 1000);
+      }, 60 * 60 * 1000);
     } else {
       setTimeout(() => {
         checkForNonAllowedAppsOnLocalNetwork();

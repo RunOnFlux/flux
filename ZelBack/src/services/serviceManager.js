@@ -111,7 +111,7 @@ async function startFluxFunctions() {
       log.info('Flux Block Processing Service started');
     }, 2 * 60 * 1000);
     setTimeout(() => {
-      // appsService.checkForNonAllowedAppsOnLocalNetwork();
+      appsService.checkForNonAllowedAppsOnLocalNetwork();
       appsService.checkMyAppsAvailability(); // periodically checks
     }, 3 * 60 * 1000);
     setTimeout(() => {
