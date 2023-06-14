@@ -9714,7 +9714,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       }
       if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
         // eslint-disable-next-line no-await-in-loop
-        await upnpService.mapUpnpPort(portToTest, 'Flux_Test_App');
+        await upnpService.mapUpnpPort(portToTest, `Flux_Prelaunch_App_${portToTest}`);
       }
       const beforeAppInstallTestingExpress = express();
       const beforeAppInstallTestingServer = http.createServer(beforeAppInstallTestingExpress);
