@@ -9961,7 +9961,7 @@ async function checkForNonAllowedAppsOnLocalNetwork() {
         if (logs.toLowerCase().includes('duplicate ip: this ip address is already running another node')) {
           log.error('Another PresearchNode was detected running on your local network.');
           // dosDuplicateAppMessage = 'Another PresearchNode was detected running on your local network.';
-          // break;
+          break;
         }
       }
     }
@@ -9969,10 +9969,11 @@ async function checkForNonAllowedAppsOnLocalNetwork() {
       setTimeout(() => {
         checkForNonAllowedAppsOnLocalNetwork();
       }, 5 * 60 * 1000);
+    } else {
+      setTimeout(() => {
+        checkForNonAllowedAppsOnLocalNetwork();
+      }, 12 * 60 * 60 * 1000);
     }
-    setTimeout(() => {
-      checkForNonAllowedAppsOnLocalNetwork();
-    }, 12 * 60 * 60 * 1000);
   } catch (error) {
     log.error(error);
     setTimeout(() => {
