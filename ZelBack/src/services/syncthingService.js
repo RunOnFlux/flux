@@ -1983,6 +1983,7 @@ async function installSyncthing() { // can throw
  * To Start Syncthing
  */
 let previousSyncthingErrored = false;
+let lastGetDeviceIdCallOk = false;
 async function startSyncthing() {
   try {
     if (!syncthingInstalled) {
@@ -1994,12 +1995,14 @@ async function startSyncthing() {
     const myDevice = await getDeviceID();
     if (myDevice.status === 'error') {
       // retry before killing and restarting
-      if (previousSyncthingErrored === false) {
+      if (!previousSyncthingErrored && lastGetDeviceIdCallOk) {
         await systemRestart();
+        lastGetDeviceIdCallOk = false;
         previousSyncthingErrored = true;
         await serviceHelper.delay(60 * 1000);
         startSyncthing();
       }
+      lastGetDeviceIdCallOk = false;
       previousSyncthingErrored = false;
       log.error('Syncthing Error');
       log.error(myDevice);
@@ -2026,6 +2029,7 @@ async function startSyncthing() {
       await serviceHelper.delay(60 * 1000);
       startSyncthing();
     } else {
+      lastGetDeviceIdCallOk = true;
       const currentConfigOptions = await getConfigOptions();
       const currentDefaultsFolderOptions = await getConfigDefaultsFolder();
       const apiPort = userconfig.initial.apiport || config.server.apiport;
