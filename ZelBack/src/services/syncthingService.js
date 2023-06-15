@@ -2012,7 +2012,7 @@ async function startSyncthing() {
           log.info('Error starting synchting.');
         }
       });
-      await serviceHelper.delay(30 * 1000);
+      await serviceHelper.delay(60 * 1000);
       startSyncthing();
     } else {
       const currentConfigOptions = await getConfigOptions();
