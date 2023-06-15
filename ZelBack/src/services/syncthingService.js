@@ -1958,6 +1958,33 @@ async function installSyncthing() { // can throw
 let previousSyncthingErrored = false;
 async function startSyncthing() {
   try {
+    // check if syncthing is installed or not
+    log.info('Checking if Syncthing is installed...');
+    const execIsInstalled = 'syncthing --version';
+    let errored = false;
+    let isInstalled = false;
+    nodecmd.get(execIsInstalled, async (err, data) => {
+      if (err) {
+        log.error(err);
+        log.info('Error checking if syncthing is installed.');
+        errored = true;
+        return;
+      }
+      const regex = new RegExp('syncahing v([0-9.-]+)');
+      if (regex.test(data)) {
+        log.info('Syncthing already installed...');
+        isInstalled = true;
+      }
+    });
+    if (errored) {
+      await serviceHelper.delay(60 * 1000);
+      await startSyncthing();
+    } else if (!isInstalled) {
+      log.info('Installing Syncthing...');
+      await installSyncthing();
+      await serviceHelper.delay(60 * 1000);
+    }
+
     // check wether syncthing is running or not
     const myDevice = await getDeviceID();
     if (myDevice.status === 'error') {
@@ -1985,19 +2012,13 @@ async function startSyncthing() {
       await cmdAsync(execKillB).catch((error) => log.error(error));
       const exec = 'sudo nohup syncthing -logfile $HOME/.config/syncthing/syncthing.log --allow-newer-config --no-browser --home=$HOME/.config/syncthing &';
       log.info('Spawning Syncthing instance...');
-      let errored = false;
       nodecmd.get(exec, async (err) => {
         if (err) {
-          errored = true;
           log.error(err);
-          log.info('Syncthing is not installed, proceeding with installation');
+          log.info('Error starting synchting.');
         }
       });
       await serviceHelper.delay(30 * 1000);
-      if (errored) {
-        await installSyncthing();
-        await serviceHelper.delay(60 * 1000);
-      }
       startSyncthing();
     } else {
       const currentConfigOptions = await getConfigOptions();
