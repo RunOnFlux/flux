@@ -1961,25 +1961,20 @@ async function startSyncthing() {
     // check if syncthing is installed or not
     log.info('Checking if Syncthing is installed...');
     const execIsInstalled = 'syncthing --version';
-    let errored = false;
     let isInstalled = false;
     nodecmd.get(execIsInstalled, async (err, data) => {
       if (err) {
         log.error(err);
-        log.info('Error checking if syncthing is installed.');
-        errored = true;
+        log.info('Syncthing not installed....');
         return;
       }
-      const regex = new RegExp('syncahing v([0-9.-]+)');
+      const regex = new RegExp('syncthing v([0-9.-]+)');
       if (regex.test(data)) {
         log.info('Syncthing already installed...');
         isInstalled = true;
       }
     });
-    if (errored) {
-      await serviceHelper.delay(60 * 1000);
-      await startSyncthing();
-    } else if (!isInstalled) {
+    if (!isInstalled) {
       log.info('Installing Syncthing...');
       await installSyncthing();
       await serviceHelper.delay(60 * 1000);
