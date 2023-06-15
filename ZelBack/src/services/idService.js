@@ -109,7 +109,6 @@ async function loginPhrase(req, res) {
     if (syncthingDeviceID.status === 'error') {
       if (syncthingWorking) {
         syncthingWorking = false;
-        syncthingService.systemRestart();
       } else {
         throw new Error('Syncthing is not running properly');
       }
