@@ -9978,7 +9978,7 @@ async function checkForNonAllowedAppsOnLocalNetwork() {
     log.error(error);
     setTimeout(() => {
       checkForNonAllowedAppsOnLocalNetwork();
-    }, 5 * 60 * 1000);
+    }, 60 * 60 * 1000);
   }
 }
 
