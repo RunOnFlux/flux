@@ -1943,12 +1943,28 @@ async function getDeviceID(req, res) {
 }
 
 /**
- * To install Syncthing
+ * Check if Synchtng is installed and if not install it
  */
+let syncthingInstalled = false;
 async function installSyncthing() { // can throw
-  const nodedpath = path.join(__dirname, '../../../helpers');
-  const exec = `cd ${nodedpath} && bash installSyncthing.sh`;
-  await cmdAsync(exec);
+  // check if syncthing is installed or not
+  log.info('Checking if Syncthing is installed...');
+  const execIsInstalled = 'syncthing --version';
+  let isInstalled = true;
+  await cmdAsync(execIsInstalled).catch((error) => {
+    if (error) {
+      log.error(error);
+      log.info('Syncthing not installed....');
+      isInstalled = false;
+    }
+  });
+  if (!isInstalled) {
+    log.info('Installing Syncthing...');
+    const nodedpath = path.join(__dirname, '../../../helpers');
+    const exec = `cd ${nodedpath} && bash installSyncthing.sh`;
+    await cmdAsync(exec);
+  }
+  syncthingInstalled = true;
   log.info('Syncthing installed');
 }
 
@@ -1958,23 +1974,11 @@ async function installSyncthing() { // can throw
 let previousSyncthingErrored = false;
 async function startSyncthing() {
   try {
-    // check if syncthing is installed or not
-    log.info('Checking if Syncthing is installed...');
-    const execIsInstalled = 'syncthing --version';
-    let isInstalled = true;
-    await cmdAsync(execIsInstalled).catch((error) => {
-      if (error) {
-        log.error(error);
-        log.info('Syncthing not installed....');
-        isInstalled = false;
-      }
-    });
-    if (!isInstalled) {
-      log.info('Installing Syncthing...');
+    if (!syncthingInstalled) {
       await installSyncthing();
       await serviceHelper.delay(60 * 1000);
+      startSyncthing();
     }
-
     // check wether syncthing is running or not
     const myDevice = await getDeviceID();
     if (myDevice.status === 'error') {
