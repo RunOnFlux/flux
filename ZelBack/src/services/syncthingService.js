@@ -1963,6 +1963,7 @@ async function startSyncthing() {
     const execIsInstalled = 'syncthing --version';
     let isInstalled = false;
     nodecmd.get(execIsInstalled, async (err, data) => {
+      log.info(data);
       if (err) {
         log.error(err);
         log.info('Syncthing not installed....');
