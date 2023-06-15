@@ -1976,7 +1976,7 @@ async function startSyncthing() {
   try {
     if (!syncthingInstalled) {
       await installSyncthing();
-      await serviceHelper.delay(60 * 1000);
+      await serviceHelper.delay(10 * 1000);
       startSyncthing();
     }
     // check wether syncthing is running or not
