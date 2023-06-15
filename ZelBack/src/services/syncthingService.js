@@ -1911,6 +1911,7 @@ async function getSvcReport(req, res) {
  * @param {object} res Response.
  * @returns {object} Message
  */
+let syncthingStatusOk = false;
 async function getDeviceID(req, res) {
   try {
     const meta = await getMeta();
@@ -1929,6 +1930,7 @@ async function getDeviceID(req, res) {
       const deviceObject = JSON.parse(adjustedString);
       const { deviceID } = deviceObject;
       const successResponse = messageHelper.createDataMessage(deviceID);
+      syncthingStatusOk = true;
       return res ? res.json(successResponse) : successResponse;
     }
     log.info(meta.status);
@@ -1936,10 +1938,19 @@ async function getDeviceID(req, res) {
     log.info(healthy.data);
     throw new Error('Syncthing is not running properly');
   } catch (error) {
+    syncthingStatusOk = false;
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
     return res ? res.json(errorResponse) : errorResponse;
   }
+}
+
+/**
+ * Returns if syncthing service is running ok
+ * @returns {boolean} True if getDeviceID last execution was successful
+ */
+function isRunning() {
+  return syncthingStatusOk;
 }
 
 /**
@@ -2160,4 +2171,6 @@ module.exports = {
   // helpers
   adjustConfigFolders,
   adjustConfigDevices,
+  // status
+  isRunning,
 };
