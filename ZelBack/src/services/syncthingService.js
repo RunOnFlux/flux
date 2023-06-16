@@ -2088,6 +2088,11 @@ async function startSyncthing() {
   }
 }
 
+// test helper
+function setSyncthingRunningState(value) {
+  syncthingStatusOk = value;
+}
+
 module.exports = {
   startSyncthing,
   getDeviceID,
@@ -2177,4 +2182,6 @@ module.exports = {
   adjustConfigDevices,
   // status
   isRunning,
+  // test
+  setSyncthingRunningState,
 };
