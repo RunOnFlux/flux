@@ -13,6 +13,7 @@ const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const generalService = require('../../ZelBack/src/services/generalService');
 const dockerService = require('../../ZelBack/src/services/dockerService');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+const syncthingService = require('../../ZelBack/src/services/syncthingService');
 
 const adminConfig = {
   fluxTeamZelId: '1zasdfg',
@@ -272,6 +273,7 @@ describe('idService tests', () => {
       tierStub = sinon.stub(generalService, 'nodeTier');
       collateralStub = sinon.stub(generalService, 'nodeCollateral');
       getDOSStateStub = sinon.stub(fluxNetworkHelper, 'getDOSState');
+      syncthingService.setSyncthingRunningState(true);
       // only checks for docker availablity
       sinon.stub(dockerService, 'dockerListImages').returns(true);
     });
