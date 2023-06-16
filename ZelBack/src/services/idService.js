@@ -94,6 +94,7 @@ async function confirmNodeTierHardware() {
  * @param {object} res Response.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
+let firstloginPhraseExecution = true;
 async function loginPhrase(req, res) {
   try {
     // check db
@@ -105,7 +106,7 @@ async function loginPhrase(req, res) {
     await dbHelper.findOneInDatabase(database, collection, query, projection); // fast find call for db test
 
     // check synthing availability
-    if (!syncthingService.isRunning()) {
+    if (!syncthingService.isRunning() && !firstloginPhraseExecution) {
       if (syncthingWorking) {
         syncthingWorking = false;
       } else {
@@ -114,6 +115,7 @@ async function loginPhrase(req, res) {
     } else {
       syncthingWorking = true;
     }
+    firstloginPhraseExecution = false;
     // check docker availablility
     await dockerService.dockerListImages();
     // check Node Hardware Requirements are ok.
