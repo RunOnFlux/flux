@@ -9714,7 +9714,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       }
       if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
         // eslint-disable-next-line no-await-in-loop
-        await upnpService.mapUpnpPort(portToTest, 'Flux_Test_App');
+        await upnpService.mapUpnpPort(portToTest, `Flux_Prelaunch_App_${portToTest}`);
       }
       const beforeAppInstallTestingExpress = express();
       const beforeAppInstallTestingServer = http.createServer(beforeAppInstallTestingExpress);
@@ -9961,23 +9961,24 @@ async function checkForNonAllowedAppsOnLocalNetwork() {
         if (logs.toLowerCase().includes('duplicate ip: this ip address is already running another node')) {
           log.error('Another PresearchNode was detected running on your local network.');
           // dosDuplicateAppMessage = 'Another PresearchNode was detected running on your local network.';
-          // break;
+          break;
         }
       }
     }
     if (dosDuplicateAppMessage) {
       setTimeout(() => {
         checkForNonAllowedAppsOnLocalNetwork();
-      }, 5 * 60 * 1000);
+      }, 60 * 60 * 1000);
+    } else {
+      setTimeout(() => {
+        checkForNonAllowedAppsOnLocalNetwork();
+      }, 12 * 60 * 60 * 1000);
     }
-    setTimeout(() => {
-      checkForNonAllowedAppsOnLocalNetwork();
-    }, 12 * 60 * 60 * 1000);
   } catch (error) {
     log.error(error);
     setTimeout(() => {
       checkForNonAllowedAppsOnLocalNetwork();
-    }, 5 * 60 * 1000);
+    }, 60 * 60 * 1000);
   }
 }
 
