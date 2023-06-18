@@ -130,9 +130,9 @@ describe('verificationHelper tests', () => {
       expect(verification).to.be.true;
     });
 
-    it('should return error if the address is invalid', () => {
+    it('should return false if the address is invalid', () => {
       const verification = verifyMessage(message, '12355', validSignature);
-      expect(verification).to.be.an('error');
+      expect(verification).to.be.false;
     });
 
     it('should return false if the publicKey is invalid', () => {
@@ -140,9 +140,9 @@ describe('verificationHelper tests', () => {
       expect(verification).to.be.false;
     });
 
-    it('should return error if there is no signature', () => {
+    it('should return false if there is no signature', () => {
       const verification = verifyMessage(message, address);
-      expect(verification).to.be.an('error');
+      expect(verification).to.be.false;
     });
 
     it('should return false if the address is wrong', () => {
@@ -150,9 +150,9 @@ describe('verificationHelper tests', () => {
       expect(verification).to.be.false;
     });
 
-    it('should return error if the signature is invalid', () => {
+    it('should return false if the signature is invalid', () => {
       const verification = verifyMessage(message, address, '1234567ASDFG');
-      expect(verification).to.be.an('error');
+      expect(verification).to.be.false;
     });
   });
 

@@ -36,7 +36,6 @@ function verifySignature(message, address, signature) {
     }
   } catch (e) {
     log.error(e);
-    isValid = e;
   }
   return isValid;
 }
