@@ -92,6 +92,7 @@
     "lru-cache": "~6.0.0",
     "mongodb": "~4.16.0",
     "morgan": "~1.10.0",
+    "nano-ethereum-signer": "~0.1.2",
     "node-cmd": "~3.0.0",
     "node-df": "~0.1.4",
     "nodemon": "~2.0.22",

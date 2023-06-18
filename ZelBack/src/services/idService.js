@@ -1,5 +1,4 @@
 const config = require('config');
-const bitcoinMessage = require('bitcoinjs-message');
 const qs = require('qs');
 const os = require('os');
 
@@ -14,6 +13,7 @@ const dockerService = require('./dockerService');
 const syncthingService = require('./syncthingService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const appsService = require('./appsService');
+const signatureVerifier = require('./signatureVerifier');
 
 const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/;
 
@@ -285,7 +285,7 @@ async function verifyLogin(req, res) {
           // Second verify that this address signed this message
           let valid = false;
           try {
-            valid = bitcoinMessage.verify(message, address, signature);
+            valid = signatureVerifier.verifySignature(message, address, signature);
           } catch (error) {
             throw new Error('Invalid signature');
           }
