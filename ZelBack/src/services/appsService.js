@@ -30,6 +30,7 @@ const upnpService = require('./upnpService');
 const geolocationService = require('./geolocationService');
 const syncthingService = require('./syncthingService');
 const pgpService = require('./pgpService');
+const signatureVerifier = require('./signatureVerifier');
 const log = require('../lib/log');
 const userconfig = require('../../../config/userconfig');
 
@@ -4033,7 +4034,7 @@ async function verifyAppMessageSignature(type, version, appSpec, timestamp, sign
     throw new Error('Invalid Flux App message specifications');
   }
   const messageToVerify = type + version + JSON.stringify(appSpec) + timestamp;
-  const isValidSignature = verificationHelper.verifyMessage(messageToVerify, appSpec.owner, signature);
+  const isValidSignature = signatureVerifier.verifySignature(messageToVerify, appSpec.owner, signature);
   if (isValidSignature !== true) {
     const errorMessage = isValidSignature === false ? 'Received signature is invalid or Flux App specifications are not properly formatted' : isValidSignature;
     throw new Error(errorMessage);
@@ -4056,7 +4057,7 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
     throw new Error('Invalid Flux App message specifications');
   }
   const messageToVerify = type + version + JSON.stringify(appSpec) + timestamp;
-  const isValidSignature = verificationHelper.verifyMessage(messageToVerify, appOwner, signature);
+  const isValidSignature = signatureVerifier.verifySignature(messageToVerify, appOwner, signature);
   if (isValidSignature !== true) {
     const errorMessage = isValidSignature === false ? 'Received signature does not correspond with Flux App owner or Flux App specifications are not properly formatted' : isValidSignature;
     throw new Error(errorMessage);
