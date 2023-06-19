@@ -4034,7 +4034,10 @@ async function verifyAppMessageSignature(type, version, appSpec, timestamp, sign
     throw new Error('Invalid Flux App message specifications');
   }
   const messageToVerify = type + version + JSON.stringify(appSpec) + timestamp;
-  const isValidSignature = signatureVerifier.verifySignature(messageToVerify, appSpec.owner, signature);
+  let isValidSignature = verificationHelper.verifyMessage(messageToVerify, appSpec.owner, signature); // only btc
+  if (timestamp > 1688947200000) { // remove after this time passed
+    isValidSignature = signatureVerifier.verifySignature(messageToVerify, appSpec.owner, signature); // btc, eth
+  }
   if (isValidSignature !== true) {
     const errorMessage = isValidSignature === false ? 'Received signature is invalid or Flux App specifications are not properly formatted' : isValidSignature;
     throw new Error(errorMessage);
@@ -4057,7 +4060,10 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
     throw new Error('Invalid Flux App message specifications');
   }
   const messageToVerify = type + version + JSON.stringify(appSpec) + timestamp;
-  const isValidSignature = signatureVerifier.verifySignature(messageToVerify, appOwner, signature);
+  let isValidSignature = verificationHelper.verifyMessage(messageToVerify, appOwner, signature); // only btc
+  if (timestamp > 1688947200000) { // remove after this time passed
+    isValidSignature = signatureVerifier.verifySignature(messageToVerify, appOwner, signature); // btc, eth
+  }
   if (isValidSignature !== true) {
     const errorMessage = isValidSignature === false ? 'Received signature does not correspond with Flux App owner or Flux App specifications are not properly formatted' : isValidSignature;
     throw new Error(errorMessage);
