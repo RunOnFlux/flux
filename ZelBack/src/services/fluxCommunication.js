@@ -579,7 +579,7 @@ async function fluxDiscovery() {
       log.info('sortedNodeList stored in cache');
     }
     log.info('Searching for my node on sortedNodeList');
-    const fluxNodeIndex = sortedNodeList.findIndex(((node) => node.ip === myIP);
+    const fluxNodeIndex = sortedNodeList.findIndex((node) => node.ip === myIP);
     log.info(`My node was found on index: ${fluxNodeIndex} of ${sortedNodeList.length} nodes`);
     const minDeterministicOutPeers = 8;
     const minDeterministicIncPeers = 4;
