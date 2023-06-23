@@ -4759,6 +4759,9 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
   if (appSpecifications.name.startsWith('zel')) {
     throw new Error('Flux App name can not start with zel');
   }
+  if (appSpecifications.name.toLowerCase() === 'watchtower') {
+    throw new Error('Flux App name is conflicting with another application');
+  }
   if (appSpecifications.name.startsWith('flux')) {
     throw new Error('Flux App name can not start with flux');
   }
