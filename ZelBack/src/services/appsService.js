@@ -9442,17 +9442,12 @@ async function syncthingApps() {
         }
       }
     }
-    // now we have new accurate devicesConfiguration and foldersConfiguration
-    // add more of current devices
-    // excludes our current deviceID adjustment
-    await syncthingService.adjustConfigDevices('put', devicesConfiguration);
-    // add more of current folders
-    await syncthingService.adjustConfigFolders('put', foldersConfiguration);
     // remove folders that should not be synced anymore (this shall actually not trigger)
     const allFoldersResp = await syncthingService.getConfigFolders();
     const nonUsedFolders = allFoldersResp.data.filter((syncthingFolder) => !folderIds.includes(syncthingFolder.id));
     // eslint-disable-next-line no-restricted-syntax
     for (const nonUsedFolder of nonUsedFolders) {
+      log.info(`Removing unused Syncthing of folder ${nonUsedFolder.id}`);
       // eslint-disable-next-line no-await-in-loop
       await syncthingService.adjustConfigFolders('delete', undefined, nonUsedFolder.id);
     }
@@ -9463,20 +9458,35 @@ async function syncthingApps() {
     for (const nonUsedDevice of nonUsedDevices) {
       // exclude our deviceID
       if (nonUsedDevice.deviceID !== myDeviceID.data) {
+        log.info(`Removing unused Syncthing device ${nonUsedDevice.deviceID}`);
         // eslint-disable-next-line no-await-in-loop
         await syncthingService.adjustConfigDevices('delete', undefined, nonUsedDevice.deviceID);
       }
     }
+    // finally apply all new configuration
+    // now we have new accurate devicesConfiguration and foldersConfiguration
+    // add more of current devices
+    // excludes our current deviceID adjustment
+    log.info(JSON.stringify(allDevicesResp.data));
+    log.info(JSON.stringify(devicesConfiguration));
+    await syncthingService.adjustConfigDevices('put', devicesConfiguration);
+    // add more of current folders
+    log.info(JSON.stringify(allFoldersResp.data));
+    log.info(JSON.stringify(foldersConfiguration));
+    await syncthingService.adjustConfigFolders('put', foldersConfiguration);
     // all configuration changes applied
     // check if restart is needed
     const restartRequired = await syncthingService.getConfigRestartRequired();
     if (restartRequired.status === 'success' && restartRequired.data.requiresRestart === true) {
+      log.info('New configuration applied. Syncthing restart required, restarting...');
       await syncthingService.systemRestart();
     }
   } catch (error) {
     log.error(error);
   } finally {
     updateSyncthingRunning = false;
+    await serviceHelper.delay(1 * 60 * 1000);
+    syncthingApps();
   }
 }
 
