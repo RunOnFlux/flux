@@ -75,5 +75,9 @@ function recoverSigner(message, signature) {
 }
 
 module.exports = {
+  isHexStrict,
+  toHex,
+  hexToBytes,
+  hashMessage,
   recoverSigner,
 };
