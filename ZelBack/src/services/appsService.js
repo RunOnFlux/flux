@@ -9459,8 +9459,7 @@ async function syncthingApps() {
     for (const nonUsedFolder of nonUsedFolders) {
       log.info(`Removing unused Syncthing of folder ${nonUsedFolder.id}`);
       // eslint-disable-next-line no-await-in-loop
-      const result = await syncthingService.adjustConfigFolders('delete', undefined, nonUsedFolder.id);
-      log.info(result);
+      await syncthingService.adjustConfigFolders('delete', undefined, nonUsedFolder.id);
     }
     // remove obsolete devices
     const allDevicesResp = await syncthingService.getConfigDevices();
@@ -9478,12 +9477,8 @@ async function syncthingApps() {
     // now we have new accurate devicesConfiguration and foldersConfiguration
     // add more of current devices
     // excludes our current deviceID adjustment
-    log.info(JSON.stringify(allDevicesResp.data));
-    log.info(JSON.stringify(devicesConfiguration));
     await syncthingService.adjustConfigDevices('put', devicesConfiguration);
     // add more of current folders
-    log.info(JSON.stringify(allFoldersResp.data));
-    log.info(JSON.stringify(foldersConfiguration));
     await syncthingService.adjustConfigFolders('put', foldersConfiguration);
     // all configuration changes applied
     // check if restart is needed
