@@ -2451,9 +2451,6 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
     res.write(serviceHelper.ensureString(stopStatus2));
   }
 
-  // eslint-disable-next-line no-use-before-define
-  await stopSyncthingApp(monitoredName, res);
-
   const removeStatus = {
     status: isComponent ? `Removing Flux App component ${appSpecifications.name} container...` : `Removing Flux App ${appName} container...`,
   };
@@ -3028,7 +3025,6 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   }
   const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
   const app = await dockerService.appDockerStart(identifier);
-  installationInProgress = false;
   if (!app) {
     return;
   }
@@ -3209,6 +3205,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
       res.write(serviceHelper.ensureString(successStatus));
       res.end();
     }
+    installationInProgress = false;
   } catch (error) {
     installationInProgress = false;
     const errorResponse = messageHelper.createErrorMessage(
@@ -3225,7 +3222,6 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     if (res) {
       res.write(serviceHelper.ensureString(removeStatus));
     }
-    installationInProgress = false;
     removeAppLocally(appSpecs.name, res, true);
     return false;
   }
@@ -3384,7 +3380,6 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   }
   const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
   const app = await dockerService.appDockerStart(identifier);
-  installationInProgress = false;
   if (!app) {
     return;
   }
@@ -3565,6 +3560,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       res.write(serviceHelper.ensureString(successStatus));
       res.end();
     }
+    installationInProgress = false;
   } catch (error) {
     installationInProgress = false;
     const errorResponse = messageHelper.createErrorMessage(
@@ -3581,7 +3577,6 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     if (res) {
       res.write(serviceHelper.ensureString(removeStatus));
     }
-    installationInProgress = false;
     removeAppLocally(appSpecs.name, res, true);
   }
 }
@@ -9328,13 +9323,15 @@ async function getDeviceID(fluxIP) {
   }
 }
 
+let updateSyncthingRunning = false;
 // update syncthing configuration for locally installed apps
 async function syncthingApps() {
   try {
     // do not run if installationInProgress or removalInProgress
-    if (installationInProgress || removalInProgress) {
+    if (installationInProgress || removalInProgress || updateSyncthingRunning) {
       return;
     }
+    updateSyncthingRunning = true;
     // get list of all installed apps
     const appsInstalled = await installedApps();
     if (appsInstalled.status === 'error') {
@@ -9475,6 +9472,8 @@ async function syncthingApps() {
     }
   } catch (error) {
     log.error(error);
+  } finally {
+    updateSyncthingRunning = false;
   }
 }
 
