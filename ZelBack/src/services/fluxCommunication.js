@@ -557,7 +557,6 @@ async function fluxDiscovery() {
     }
 
     let nodeList = [];
-    let sortedNodeList = [];
     const currentIpsConnTried = [];
 
     const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
@@ -570,8 +569,8 @@ async function fluxDiscovery() {
     } else {
       throw new Error('Flux IP not detected. Flux discovery is awaiting.');
     }
-    sortedNodeList = sortedNodeListCache.get('sortedNodeList');
-    if (sortedNodeList === -1) {
+    let sortedNodeList = sortedNodeListCache.get('sortedNodeList');
+    if (!sortedNodeList) {
       log.info('sortedNodeList not found in cache');
       sortedNodeList = [...nodeList];
       // eslint-disable-next-line no-nested-ternary
@@ -580,7 +579,7 @@ async function fluxDiscovery() {
       log.info('sortedNodeList stored in cache');
     }
     log.info('Searching for my node on sortedNodeList');
-    const fluxNodeIndex = sortedNodeList.indexOf((node) => node.ip === myIP);
+    const fluxNodeIndex = sortedNodeList.findIndex(((node) => node.ip === myIP);
     log.info(`My node was found on index: ${fluxNodeIndex} of ${sortedNodeList.length} nodes`);
     const minDeterministicOutPeers = 8;
     const minDeterministicIncPeers = 4;
