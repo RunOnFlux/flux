@@ -29,7 +29,7 @@ const parserOptions = {
 };
 const parser = new XMLParser(parserOptions);
 
-const goodSyncthingChars = /^[a-zA-Z0-9-]+$/;
+const goodSyncthingChars = /^[a-zA-Z0-9-_]+$/;
 
 /**
  * To get syncthing config xml file

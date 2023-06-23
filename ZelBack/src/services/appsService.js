@@ -9371,7 +9371,12 @@ async function syncthingApps() {
             // eslint-disable-next-line no-await-in-loop
             const deviceID = await getDeviceID(name);
             if (deviceID) {
-              devices.push({ deviceID });
+              if (deviceID !== myDeviceID.data) { // skip my id, already present
+                const folderDeviceExists = devices.find((device) => device.deviceID === deviceID);
+                if (!folderDeviceExists) { // double check if not multiple the same ids
+                  devices.push({ deviceID });
+                }
+              }
               const deviceExists = devicesConfiguration.find((device) => device.name === name);
               if (!deviceExists) {
                 const newDevice = {
@@ -9416,7 +9421,12 @@ async function syncthingApps() {
               // eslint-disable-next-line no-await-in-loop
               const deviceID = await getDeviceID(name);
               if (deviceID) {
-                devices.push({ deviceID });
+                if (deviceID !== myDeviceID.data) { // skip my id, already present
+                  const folderDeviceExists = devices.find((device) => device.deviceID === deviceID);
+                  if (!folderDeviceExists) { // double check if not multiple the same ids
+                    devices.push({ deviceID });
+                  }
+                }
                 const deviceExists = devicesConfiguration.find((device) => device.name === name);
                 if (!deviceExists) {
                   const newDevice = {
@@ -9449,7 +9459,8 @@ async function syncthingApps() {
     for (const nonUsedFolder of nonUsedFolders) {
       log.info(`Removing unused Syncthing of folder ${nonUsedFolder.id}`);
       // eslint-disable-next-line no-await-in-loop
-      await syncthingService.adjustConfigFolders('delete', undefined, nonUsedFolder.id);
+      const result = await syncthingService.adjustConfigFolders('delete', undefined, nonUsedFolder.id);
+      log.info(result);
     }
     // remove obsolete devices
     const allDevicesResp = await syncthingService.getConfigDevices();
