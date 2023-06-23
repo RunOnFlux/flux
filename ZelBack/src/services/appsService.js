@@ -9491,7 +9491,7 @@ async function syncthingApps() {
     log.error(error);
   } finally {
     updateSyncthingRunning = false;
-    await serviceHelper.delay(1 * 60 * 1000);
+    await serviceHelper.delay(2 * 60 * 1000);
     syncthingApps();
   }
 }
