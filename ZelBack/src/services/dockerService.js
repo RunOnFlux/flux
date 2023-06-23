@@ -20,7 +20,6 @@ const docker = new Docker();
  * @returns {object} docker container object
  */
 function getDockerContainer(id) {
-  log.warn('DOCKER getDockerContainer');
   const dockerContainer = docker.getContainer(id);
   return dockerContainer;
 }
@@ -52,7 +51,6 @@ function getAppIdentifier(appName) {
  * @returns {string} app docker name id
  */
 function getAppDockerNameIdentifier(appName) {
-  log.warn('DOCKER getAppDockerNameIdentifier');
   // this id is used for volumes, docker names so we know it reall belongs to flux
   const name = getAppIdentifier(appName);
   if (name.startsWith('/')) {
@@ -80,7 +78,6 @@ function getAppDockerNameIdentifier(appName) {
  * @returns {object} Network
  */
 async function dockerCreateNetwork(options) {
-  log.warn('DOCKER dockerCreateNetwork');
   const network = await docker.createNetwork(options);
   return network;
 }
@@ -93,7 +90,6 @@ async function dockerCreateNetwork(options) {
  * @returns {Buffer}
  */
 async function dockerRemoveNetwork(netw) {
-  log.warn('DOCKER dockerRemoveNetwork');
   const network = await netw.remove();
   return network;
 }
@@ -106,7 +102,6 @@ async function dockerRemoveNetwork(netw) {
  * @returns {object} ispect network object
  */
 async function dockerNetworkInspect(netw) {
-  log.warn('DOCKER dockerNetworkInspect');
   const network = await netw.inspect();
   return network;
 }
@@ -122,7 +117,6 @@ async function dockerNetworkInspect(netw) {
  * @returns {array} containers list
  */
 async function dockerListContainers(all, limit, size, filter) {
-  log.warn('DOCKER dockerListContainers');
   const options = {
     all,
     limit,
@@ -139,7 +133,6 @@ async function dockerListContainers(all, limit, size, filter) {
  * @returns {array} images list
  */
 async function dockerListImages() {
-  log.warn('DOCKER dockerListImages');
   const containers = await docker.listImages();
   return containers;
 }
@@ -151,7 +144,6 @@ async function dockerListImages() {
  * @returns {object} dockerContainer
  */
 async function getDockerContainerByIdOrName(idOrName) {
-  log.warn('DOCKER getDockerContainerByIdOrName');
   const containers = await dockerListContainers(true);
   const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
   const dockerContainer = docker.getContainer(myContainer.Id);
@@ -164,7 +156,6 @@ async function getDockerContainerByIdOrName(idOrName) {
  * @returns {object}
  */
 async function dockerContainerInspect(idOrName) {
-  log.warn('DOCKER dockerContainerInspect');
   // container ID or name
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
@@ -179,7 +170,6 @@ async function dockerContainerInspect(idOrName) {
  * @returns docker container statistics
  */
 async function dockerContainerStats(idOrName) {
-  log.warn('DOCKER dockerContainerStats');
   // container ID or name
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
@@ -197,7 +187,6 @@ async function dockerContainerStats(idOrName) {
  * @param {function} callback Callback.
  */
 async function dockerContainerStatsStream(idOrName, req, res, callback) {
-  log.warn('DOCKER dockerContainerStatsStream');
   // container ID or name
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
@@ -234,7 +223,6 @@ async function dockerContainerStatsStream(idOrName, req, res, callback) {
  * @returns {string}
  */
 async function dockerContainerChanges(idOrName) {
-  log.warn('DOCKER dockerContainerChanges');
   // container ID or name
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
@@ -249,7 +237,6 @@ async function dockerContainerChanges(idOrName) {
  * @param {function} callback Callback.
  */
 function dockerPullStream(config, res, callback) {
-  log.warn('DOCKER dockerPullStream');
   const { repoTag, authToken } = config;
   let pullOptions;
   const splittedRepo = generalService.splitRepoTag(repoTag);
@@ -312,7 +299,6 @@ function dockerPullStream(config, res, callback) {
  * @param {function} callback
  */
 async function dockerContainerExec(container, cmd, env, res, callback) {
-  log.warn('DOCKER dockerContainerExec');
   try {
     const options = {
       AttachStdin: false,
@@ -348,7 +334,6 @@ async function dockerContainerExec(container, cmd, env, res, callback) {
  * @param {function} callback
  */
 async function dockerContainerLogsStream(idOrName, res, callback) {
-  log.warn('DOCKER dockerContainerLogsStream');
   try {
     // container ID or name
     const containers = await dockerListContainers(true);
@@ -399,7 +384,6 @@ async function dockerContainerLogsStream(idOrName, res, callback) {
  * @returns {string}
  */
 async function dockerContainerLogs(idOrName, lines) {
-  log.warn('DOCKER dockerContainerLogs');
   // container ID or name
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
@@ -407,14 +391,13 @@ async function dockerContainerLogs(idOrName, lines) {
     follow: false,
     stdout: true,
     stderr: true,
-    tail: lines,
+    tail: lines, // TODO FIXME if using tail, some nodes hang on execution
   };
   const logs = await dockerContainer.logs(options);
   return logs.toString();
 }
 
 async function obtainPayloadFromStorage(url, appName) {
-  log.warn('DOCKER obtainPayloadFromStorage');
   try {
     // do a signed request in headers
     // we want to be able to fetch even from unsecure storages that may not have all the auths
@@ -450,7 +433,6 @@ async function obtainPayloadFromStorage(url, appName) {
  * @returns {object}
  */
 async function appDockerCreate(appSpecifications, appName, isComponent, fullAppSpecs) {
-  log.warn('DOCKER appDockerCreate');
   const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
   let exposedPorts = {};
   let portBindings = {};
@@ -642,7 +624,6 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
  * @returns {string} message
  */
 async function appDockerStart(idOrName) {
-  log.warn('DOCKER appDockerStart');
   // container ID or name
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
@@ -657,7 +638,6 @@ async function appDockerStart(idOrName) {
  * @returns {string} message
  */
 async function appDockerStop(idOrName) {
-  log.warn('DOCKER appDockerStop');
   // container ID or name
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
@@ -672,7 +652,6 @@ async function appDockerStop(idOrName) {
  * @returns {string} message
  */
 async function appDockerRestart(idOrName) {
-  log.warn('DOCKER appDockerRestart');
   // container ID or name
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
@@ -687,7 +666,6 @@ async function appDockerRestart(idOrName) {
  * @returns {string} message
  */
 async function appDockerKill(idOrName) {
-  log.warn('DOCKER appDockerKill');
   // container ID or name
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
@@ -702,7 +680,6 @@ async function appDockerKill(idOrName) {
  * @returns {string} message
  */
 async function appDockerRemove(idOrName) {
-  log.warn('DOCKER appDockerRemove');
   // container ID or name
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
@@ -717,7 +694,6 @@ async function appDockerRemove(idOrName) {
  * @returns {string} message
  */
 async function appDockerImageRemove(idOrName) {
-  log.warn('DOCKER appDockerImageRemove');
   // container ID or name
   const dockerImage = docker.getImage(idOrName);
   await dockerImage.remove();
@@ -731,7 +707,6 @@ async function appDockerImageRemove(idOrName) {
  * @returns {string} message
  */
 async function appDockerPause(idOrName) {
-  log.warn('DOCKER appDockerPause');
   // container ID or name
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
@@ -746,7 +721,6 @@ async function appDockerPause(idOrName) {
  * @returns {string} message
  */
 async function appDockerUnpause(idOrName) {
-  log.warn('DOCKER appDockerUnpause');
   // container ID or name
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
@@ -761,7 +735,6 @@ async function appDockerUnpause(idOrName) {
  * @returns {string} message
  */
 async function appDockerTop(idOrName) {
-  log.warn('DOCKER appDockerTop');
   // container ID or name
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
@@ -775,7 +748,6 @@ async function appDockerTop(idOrName) {
  * @returns {object} response
  */
 async function createFluxDockerNetwork() {
-  log.warn('DOCKER createFluxDockerNetwork');
   // check if fluxDockerNetwork exists
   const fluxNetworkOptions = {
     Name: 'fluxDockerNetwork',
@@ -807,7 +779,6 @@ async function createFluxDockerNetwork() {
  * @returns {object} response
  */
 async function createFluxAppDockerNetwork(appname, number) {
-  log.warn('DOCKER createFluxAppDockerNetwork');
   // check if fluxDockerNetwork of an appexists
   const fluxNetworkOptions = {
     Name: `fluxDockerNetwork_${appname}`,
@@ -839,7 +810,6 @@ async function createFluxAppDockerNetwork(appname, number) {
  * @returns {object} response
  */
 async function removeFluxAppDockerNetwork(appname) {
-  log.warn('DOCKER removeFluxAppDockerNetwork');
   // check if fluxDockerNetwork of an app exists
   const fluxAppNetworkName = `fluxDockerNetwork_${appname}`;
   let fluxNetworkExists = true;
