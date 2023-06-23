@@ -244,7 +244,7 @@ async function verifyLogin(req, res) {
         throw new Error('No ZelID is specified');
       }
 
-      if (address[0] !== '1' || address[0] !== '0') {
+      if (address[0] !== '1' && address[0] !== '0') {
         throw new Error('ZelID is not valid');
       }
 
@@ -375,7 +375,7 @@ async function provideSign(req, res) {
         throw new Error('No ZelID is specified');
       }
 
-      if (address[0] !== '1' || address[0] !== '0') {
+      if (address[0] !== '1' && address[0] !== '0') {
         throw new Error('ZelID is not valid');
       }
 
