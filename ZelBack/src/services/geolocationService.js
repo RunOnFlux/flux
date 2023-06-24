@@ -6,7 +6,7 @@ let storedGeolocation = null;
 let storedIp = null;
 let staticIp = false;
 let execution = 1;
-const staticIpOrgs = ['hetzner', 'ovh', 'netcup', 'hostnodes', 'contabo'];
+const staticIpOrgs = ['hetzner', 'ovh', 'netcup', 'hostnodes', 'contabo', 'hostslim'];
 
 /**
  * Method responsable for setting node geolocation information
