@@ -598,8 +598,8 @@ async function fluxDiscovery() {
         initiateAndHandleConnection(ip);
       }
     }
-    // established deterministic incoming connections
-    for (let i = 1; i <= minDeterministicIncPeers; i += 1) {
+    // established deterministic 8 incoming connections
+    for (let i = 1; i <= minDeterministicOutPeers; i += 1) {
       const fixedIndex = fluxNodeIndex - i > 0 ? fluxNodeIndex - i : sortedNodeList.length - fluxNodeIndex - i;
       const { ip } = sortedNodeList[fixedIndex];
       // additional precaution
