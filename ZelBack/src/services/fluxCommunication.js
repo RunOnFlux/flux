@@ -585,7 +585,7 @@ async function fluxDiscovery() {
     const minDeterministicIncPeers = 4;
     log.info(`Current number of outgoing connections:${outgoingConnections.length}`);
     log.info(`Current number of incoming connections:${incomingConnections.length}`);
-    // coonect to peers as min connections not yet established
+    // always try to connect to deterministic nodes
     // established deterministic outgoing connections
     for (let i = 1; i <= minDeterministicOutPeers; i += 1) {
       const fixedIndex = fluxNodeIndex + i < sortedNodeList.length ? fluxNodeIndex + i : fluxNodeIndex + i - sortedNodeList.length;
@@ -632,7 +632,8 @@ async function fluxDiscovery() {
         }
         // Max of 8 incoming connections - 8 possible deterministic + x random if needed;
         // We can have more incoming connections as it will be outgoing connections from other nodes + random
-        if (incomingConnections.length < minDeterministicIncPeers + 4) {
+        // we only add randoming incoming peers if currently it's bellow minimum
+        if (incomingConnections.length < minDeterministicIncPeers) {
           // eslint-disable-next-line no-await-in-loop
           const connectionInc = await fluxNetworkHelper.getRandomConnection();
           if (connectionInc) {
