@@ -28,7 +28,7 @@ const LRUNodeListSortedoptions = {
 
 const sortedNodeListCache = new LRU(LRUNodeListSortedoptions);
 
-const numberOfFluxNodes = 0;
+let numberOfFluxNodes = 0;
 
 const blockedPubKeysCache = new LRU(LRUoptions);
 
@@ -102,7 +102,8 @@ async function handleAppRunningMessage(message, fromIP) {
 function handleIncomingConnection(ws, req, expressWS) {
   // now we are in connections state. push the websocket to our incomingconnections
   const maxPeers = 4 * config.fluxapps.minIncoming;
-  const maxNumberOfConnections = numberOfFluxNodes / 40 < 9 * config.fluxapps.minIncoming ? numberOfFluxNodes / 40 : 9 * config.fluxapps.minIncoming;
+  // eslint-disable-next-line no-nested-ternary
+  const maxNumberOfConnections = numberOfFluxNodes === 0 ? 0 : numberOfFluxNodes / 40 < 9 * config.fluxapps.minIncoming ? numberOfFluxNodes / 40 : 9 * config.fluxapps.minIncoming;
   const maxCon = Math.max(maxPeers, maxNumberOfConnections);
   if (incomingConnections.length > maxCon) {
     setTimeout(() => {
@@ -562,6 +563,7 @@ async function fluxDiscovery() {
     const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
     if (myIP) {
       nodeList = await fluxCommunicationUtils.deterministicFluxList();
+      numberOfFluxNodes = nodeList.length;
       const fluxNode = nodeList.find((node) => node.ip === myIP);
       if (!fluxNode) {
         throw new Error('Node not confirmed. Flux discovery is awaiting.');
