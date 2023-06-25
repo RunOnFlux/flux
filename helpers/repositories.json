@@ -314,9 +314,10 @@
    "hughparry",
    "woodpeckerci",
    "gitea",
-   "privacyfreedom/peertube:latest",
+   "theraw/peertube:latest",
    "zar1f",
    "prosopo",
    "goastler",
-   "helloskyy"
+   "helloskyy",
+   "privacyfreedom/peertube:latest"
 ]
