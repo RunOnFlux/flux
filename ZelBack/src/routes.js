@@ -6,7 +6,7 @@ const daemonServiceBlockchainRpcs = require('./services/daemonService/daemonServ
 const daemonServiceBenchmarkRpcs = require('./services/daemonService/daemonServiceBenchmarkRpcs');
 const daemonServiceMiningRpcs = require('./services/daemonService/daemonServiceMiningRpcs');
 const daemonServiceNetworkRpcs = require('./services/daemonService/daemonServiceNetworkRpcs');
-const daemonServiceZelnodeRpcs = require('./services/daemonService/daemonServiceZelnodeRpcs');
+const daemonServiceNodeRpcs = require('./services/daemonService/daemonServiceFluxnodeRpcs');
 const daemonServiceWalletRpcs = require('./services/daemonService/daemonServiceWalletRpcs');
 const daemonServiceUtilityRpcs = require('./services/daemonService/daemonServiceUtilityRpcs');
 const daemonServiceZcashRpcs = require('./services/daemonService/daemonServiceZcashRpcs');
@@ -41,47 +41,56 @@ module.exports = (app, expressWs) => {
   app.get('/daemon/getinfo', cache('30 seconds'), (req, res) => {
     daemonServiceControlRpcs.getInfo(req, res);
   });
+  app.get('/daemon/getfluxnodestatus', cache('30 seconds'), (req, res) => {
+    daemonServiceNodeRpcs.getZelNodeStatus(req, res);
+  });
   app.get('/daemon/getzelnodestatus', cache('30 seconds'), (req, res) => {
-    daemonServiceZelnodeRpcs.getZelNodeStatus(req, res);
+    daemonServiceNodeRpcs.getZelNodeStatus(req, res);
+  });
+  app.get('/daemon/listfluxnodes/:filter?', cache('30 seconds'), (req, res) => {
+    daemonServiceNodeRpcs.listZelNodes(req, res);
   });
   app.get('/daemon/listzelnodes/:filter?', cache('30 seconds'), (req, res) => {
-    daemonServiceZelnodeRpcs.listZelNodes(req, res);
+    daemonServiceNodeRpcs.listZelNodes(req, res);
+  });
+  app.get('/daemon/viewdeterministicfluxnodelist/:filter?', cache('30 seconds'), (req, res) => {
+    daemonServiceNodeRpcs.viewDeterministicZelNodeList(req, res);
   });
   app.get('/daemon/viewdeterministiczelnodelist/:filter?', cache('30 seconds'), (req, res) => {
-    daemonServiceZelnodeRpcs.viewDeterministicZelNodeList(req, res);
+    daemonServiceNodeRpcs.viewDeterministicZelNodeList(req, res);
   });
   app.get('/daemon/znsync/:mode?', cache('30 seconds'), (req, res) => {
-    daemonServiceZelnodeRpcs.znsync(req, res);
+    daemonServiceNodeRpcs.znsync(req, res);
   });
   app.get('/daemon/decodezelnodebroadcast/:hexstring?', cache('30 seconds'), (req, res) => {
-    daemonServiceZelnodeRpcs.decodeZelNodeBroadcast(req, res);
+    daemonServiceNodeRpcs.decodeZelNodeBroadcast(req, res);
   });
   app.get('/daemon/getzelnodecount', cache('30 seconds'), (req, res) => {
-    daemonServiceZelnodeRpcs.getZelNodeCount(req, res);
+    daemonServiceNodeRpcs.getZelNodeCount(req, res);
   });
   app.get('/daemon/getdoslist', cache('30 seconds'), (req, res) => {
-    daemonServiceZelnodeRpcs.getDOSList(req, res);
+    daemonServiceNodeRpcs.getDOSList(req, res);
   });
   app.get('/daemon/getstartlist', cache('30 seconds'), (req, res) => {
-    daemonServiceZelnodeRpcs.getStartList(req, res);
+    daemonServiceNodeRpcs.getStartList(req, res);
   });
   app.get('/daemon/getzelnodescores/:blocks?', cache('30 seconds'), (req, res) => { // defaults to 10
-    daemonServiceZelnodeRpcs.getZelNodeScores(req, res);
+    daemonServiceNodeRpcs.getZelNodeScores(req, res);
   });
   app.get('/daemon/getzelnodewinners/:blocks?/:filter?', cache('30 seconds'), (req, res) => {
-    daemonServiceZelnodeRpcs.getZelNodeWinners(req, res);
+    daemonServiceNodeRpcs.getZelNodeWinners(req, res);
   });
   app.get('/daemon/relayzelnodebroadcast/:hexstring?', cache('30 seconds'), (req, res) => {
-    daemonServiceZelnodeRpcs.relayZelNodeBroadcast(req, res);
+    daemonServiceNodeRpcs.relayZelNodeBroadcast(req, res);
   });
   app.get('/daemon/spork/:name?/:value?', cache('30 seconds'), (req, res) => {
-    daemonServiceZelnodeRpcs.spork(req, res);
+    daemonServiceNodeRpcs.spork(req, res);
   });
   app.get('/daemon/fluxcurrentwinner', cache('30 seconds'), (req, res) => {
-    daemonServiceZelnodeRpcs.zelNodeCurrentWinner(req, res);
+    daemonServiceNodeRpcs.zelNodeCurrentWinner(req, res);
   });
   app.get('/daemon/fluxdebug', cache('30 seconds'), (req, res) => {
-    daemonServiceZelnodeRpcs.zelNodeDebug(req, res);
+    daemonServiceNodeRpcs.zelNodeDebug(req, res);
   });
   app.get('/daemon/getbestblockhash', cache('30 seconds'), (req, res) => {
     daemonServiceBlockchainRpcs.getBestBlockHash(req, res);
@@ -197,10 +206,10 @@ module.exports = (app, expressWs) => {
   app.get('/daemon/estimatepriority/:nblocks?', cache('30 seconds'), (req, res) => {
     daemonServiceUtilityRpcs.estimatePriority(req, res);
   });
-  app.get('/daemon/validateaddress/:zelcashaddress?', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/validateaddress/:fluxaddress?', cache('30 seconds'), (req, res) => {
     daemonServiceUtilityRpcs.validateAddress(req, res);
   });
-  app.get('/daemon/verifymessage/:zelcashaddress?/:signature?/:message?', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/verifymessage/:fluxaddress?/:signature?/:message?', cache('30 seconds'), (req, res) => {
     daemonServiceUtilityRpcs.verifyMessage(req, res);
   });
   app.get('/daemon/gettransaction/:txid?/:includewatchonly?', cache('30 seconds'), (req, res) => {
@@ -606,22 +615,22 @@ module.exports = (app, expressWs) => {
     fluxService.reindexDaemon(req, res);
   });
   app.get('/daemon/createzelnodekey', (req, res) => {
-    daemonServiceZelnodeRpcs.createZelNodeKey(req, res);
+    daemonServiceNodeRpcs.createZelNodeKey(req, res);
   });
   app.get('/daemon/createzelnodebroadcast/:command?/:alias?', (req, res) => {
-    daemonServiceZelnodeRpcs.createZelNodeBroadcast(req, res);
+    daemonServiceNodeRpcs.createZelNodeBroadcast(req, res);
   });
   app.get('/daemon/listzelnodeconf/:filter?', (req, res) => {
-    daemonServiceZelnodeRpcs.listZelNodeConf(req, res);
+    daemonServiceNodeRpcs.listZelNodeConf(req, res);
   });
   app.get('/daemon/getzelnodeoutputs', (req, res) => {
-    daemonServiceZelnodeRpcs.getZelNodeOutputs(req, res);
+    daemonServiceNodeRpcs.getZelNodeOutputs(req, res);
   });
   app.get('/daemon/startzelnode/:set?/:lockwallet?/:alias?', (req, res) => {
-    daemonServiceZelnodeRpcs.startZelNode(req, res);
+    daemonServiceNodeRpcs.startZelNode(req, res);
   });
   app.get('/daemon/startdeterministiczelnode/:alias?/:lockwallet?', (req, res) => {
-    daemonServiceZelnodeRpcs.startDeterministicZelNode(req, res);
+    daemonServiceNodeRpcs.startDeterministicZelNode(req, res);
   });
   app.get('/daemon/verifychain/:checklevel?/:numblocks?', (req, res) => {
     daemonServiceBlockchainRpcs.verifyChain(req, res);
@@ -662,7 +671,7 @@ module.exports = (app, expressWs) => {
   app.get('/daemon/getrawchangeaddress', (req, res) => {
     daemonServiceWalletRpcs.getRawChangeAddress(req, res);
   });
-  app.get('/daemon/getreceivedbyaddress/:zelcashaddress?/:minconf?', (req, res) => {
+  app.get('/daemon/getreceivedbyaddress/:fluxaddress?/:minconf?', (req, res) => {
     daemonServiceWalletRpcs.getReceivedByAddress(req, res);
   });
   app.get('/daemon/getunconfirmedbalance', (req, res) => {
@@ -674,7 +683,7 @@ module.exports = (app, expressWs) => {
   app.get('/daemon/importaddress/:address?/:label?/:rescan?', (req, res) => {
     daemonServiceWalletRpcs.importAddress(req, res);
   });
-  app.get('/daemon/importprivkey/:zelcashprivkey?/:label?/:rescan?', (req, res) => {
+  app.get('/daemon/importprivkey/:fluxprivkey?/:label?/:rescan?', (req, res) => {
     daemonServiceWalletRpcs.importPrivKey(req, res);
   });
   app.get('/daemon/importwallet/:filename?', (req, res) => {
@@ -707,13 +716,13 @@ module.exports = (app, expressWs) => {
   app.get('/daemon/rescanblockchain/:startheight?', (req, res) => {
     daemonServiceWalletRpcs.rescanBlockchain(req, res);
   });
-  app.get('/daemon/sendfrom/:tozelcashaddress?/:amount?/:minconf?/:comment?/:commentto?', (req, res) => {
+  app.get('/daemon/sendfrom/:tofluxaddress?/:amount?/:minconf?/:comment?/:commentto?', (req, res) => {
     daemonServiceWalletRpcs.sendFrom(req, res);
   });
   app.get('/daemon/sendmany/:amounts?/:minconf?/:comment?/:substractfeefromamount?', (req, res) => {
     daemonServiceWalletRpcs.sendMany(req, res);
   });
-  app.get('/daemon/sendtoaddress/:zelcashaddress?/:amount?/:comment?/:commentto?/:substractfeefromamount?', (req, res) => {
+  app.get('/daemon/sendtoaddress/:fluxaddress?/:amount?/:comment?/:commentto?/:substractfeefromamount?', (req, res) => {
     daemonServiceWalletRpcs.sendToAddress(req, res);
   });
   app.get('/daemon/settxfee/:amount?', (req, res) => {

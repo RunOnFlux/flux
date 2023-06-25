@@ -13,7 +13,7 @@ const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
 const messageHelper = require('./messageHelper');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
-const daemonServiceZelnodeRpcs = require('./daemonService/daemonServiceZelnodeRpcs');
+const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
 const daemonServiceBenchmarkRpcs = require('./daemonService/daemonServiceBenchmarkRpcs');
 const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRpcs');
 const benchmarkService = require('./benchmarkService');
@@ -879,7 +879,7 @@ async function getFluxInfo(req, res) {
     }
     info.daemon.info = daemonInfoRes.data;
 
-    const daemonNodeStatusRes = await daemonServiceZelnodeRpcs.getZelNodeStatus();
+    const daemonNodeStatusRes = await daemonServiceFluxnodeRpcs.getZelNodeStatus();
     if (daemonNodeStatusRes.status === 'error') {
       throw daemonNodeStatusRes.data;
     }

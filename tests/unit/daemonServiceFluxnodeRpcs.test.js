@@ -2,7 +2,7 @@ const sinon = require('sinon');
 const { expect } = require('chai');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
-const daemonServiceZelnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceZelnodeRpcs');
+const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
 
 const generateResponse = () => {
   const res = { test: 'testing' };
@@ -11,7 +11,7 @@ const generateResponse = () => {
   return res;
 };
 
-describe('daemonServiceZelnodeRpcs tests', () => {
+describe('daemonServiceFluxnodeRpcs tests', () => {
   describe('getZelNodeStatus tests', () => {
     let daemonServiceUtilsStub;
 
@@ -28,7 +28,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
 
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.getZelNodeStatus();
+      const result = await daemonServiceFluxnodeRpcs.getZelNodeStatus();
 
       expect(result).to.equal(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getzelnodestatus');
@@ -40,7 +40,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       const res = generateResponse();
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.getZelNodeStatus(undefined, res);
+      const result = await daemonServiceFluxnodeRpcs.getZelNodeStatus(undefined, res);
 
       expect(result).to.equal(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
@@ -64,7 +64,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
 
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.getZelNodeCount();
+      const result = await daemonServiceFluxnodeRpcs.getZelNodeCount();
 
       expect(result).to.equal(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getzelnodecount');
@@ -76,7 +76,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       const res = generateResponse();
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.getZelNodeCount(undefined, res);
+      const result = await daemonServiceFluxnodeRpcs.getZelNodeCount(undefined, res);
 
       expect(result).to.equal(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
@@ -100,7 +100,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
 
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.getDOSList();
+      const result = await daemonServiceFluxnodeRpcs.getDOSList();
 
       expect(result).to.equal(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getdoslist');
@@ -112,7 +112,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       const res = generateResponse();
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.getDOSList(undefined, res);
+      const result = await daemonServiceFluxnodeRpcs.getDOSList(undefined, res);
 
       expect(result).to.equal(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
@@ -136,7 +136,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
 
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.getStartList();
+      const result = await daemonServiceFluxnodeRpcs.getStartList();
 
       expect(result).to.equal(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getstartlist');
@@ -148,7 +148,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       const res = generateResponse();
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.getStartList(undefined, res);
+      const result = await daemonServiceFluxnodeRpcs.getStartList(undefined, res);
 
       expect(result).to.equal(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
@@ -172,7 +172,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
 
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.zelNodeCurrentWinner();
+      const result = await daemonServiceFluxnodeRpcs.zelNodeCurrentWinner();
 
       expect(result).to.equal(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zelnodecurrentwinner');
@@ -184,7 +184,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       const res = generateResponse();
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.zelNodeCurrentWinner(undefined, res);
+      const result = await daemonServiceFluxnodeRpcs.zelNodeCurrentWinner(undefined, res);
 
       expect(result).to.equal(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
@@ -208,7 +208,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
 
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.zelNodeDebug();
+      const result = await daemonServiceFluxnodeRpcs.zelNodeDebug();
 
       expect(result).to.equal(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zelnodedebug');
@@ -220,7 +220,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       const res = generateResponse();
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.zelNodeDebug(undefined, res);
+      const result = await daemonServiceFluxnodeRpcs.zelNodeDebug(undefined, res);
 
       expect(result).to.equal(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
@@ -251,7 +251,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.listZelNodes(req);
+      const result = await daemonServiceFluxnodeRpcs.listZelNodes(req);
 
       expect(result).to.equal(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listzelnodes', []);
@@ -270,7 +270,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       const res = generateResponse();
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.listZelNodes(req, res);
+      const result = await daemonServiceFluxnodeRpcs.listZelNodes(req, res);
 
       expect(result).to.equal(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
@@ -289,7 +289,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.listZelNodes(req);
+      const result = await daemonServiceFluxnodeRpcs.listZelNodes(req);
 
       expect(result).to.equal(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listzelnodes', [req.params.filter]);
@@ -307,7 +307,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.listZelNodes(req);
+      const result = await daemonServiceFluxnodeRpcs.listZelNodes(req);
 
       expect(result).to.equal(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listzelnodes', [req.query.filter]);
@@ -337,7 +337,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.decodeZelNodeBroadcast(req);
+      const result = await daemonServiceFluxnodeRpcs.decodeZelNodeBroadcast(req);
 
       expect(result).to.equal(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'decodezelnodebroadcast', []);
@@ -356,7 +356,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       const res = generateResponse();
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.decodeZelNodeBroadcast(req, res);
+      const result = await daemonServiceFluxnodeRpcs.decodeZelNodeBroadcast(req, res);
 
       expect(result).to.equal(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
@@ -375,7 +375,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.decodeZelNodeBroadcast(req);
+      const result = await daemonServiceFluxnodeRpcs.decodeZelNodeBroadcast(req);
 
       expect(result).to.equal(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'decodezelnodebroadcast', [req.params.hexstring]);
@@ -393,7 +393,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.decodeZelNodeBroadcast(req);
+      const result = await daemonServiceFluxnodeRpcs.decodeZelNodeBroadcast(req);
 
       expect(result).to.equal(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'decodezelnodebroadcast', [req.query.hexstring]);
@@ -423,7 +423,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.getZelNodeScores(req);
+      const result = await daemonServiceFluxnodeRpcs.getZelNodeScores(req);
 
       expect(result).to.equal(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getzelnodescores', ['10']);
@@ -442,7 +442,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       const res = generateResponse();
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.getZelNodeScores(req, res);
+      const result = await daemonServiceFluxnodeRpcs.getZelNodeScores(req, res);
 
       expect(result).to.equal(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
@@ -461,7 +461,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.getZelNodeScores(req);
+      const result = await daemonServiceFluxnodeRpcs.getZelNodeScores(req);
 
       expect(result).to.equal(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getzelnodescores', [req.params.blocks]);
@@ -479,7 +479,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.getZelNodeScores(req);
+      const result = await daemonServiceFluxnodeRpcs.getZelNodeScores(req);
 
       expect(result).to.equal(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getzelnodescores', [req.query.blocks]);
@@ -509,7 +509,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.getZelNodeWinners(req);
+      const result = await daemonServiceFluxnodeRpcs.getZelNodeWinners(req);
 
       expect(result).to.equal(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getzelnodewinners', ['10']);
@@ -528,7 +528,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       const res = generateResponse();
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.getZelNodeWinners(req, res);
+      const result = await daemonServiceFluxnodeRpcs.getZelNodeWinners(req, res);
 
       expect(result).to.equal(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
@@ -548,7 +548,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.getZelNodeWinners(req);
+      const result = await daemonServiceFluxnodeRpcs.getZelNodeWinners(req);
 
       expect(result).to.equal(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getzelnodewinners', [req.params.blocks, req.params.filter]);
@@ -567,7 +567,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.getZelNodeWinners(req);
+      const result = await daemonServiceFluxnodeRpcs.getZelNodeWinners(req);
 
       expect(result).to.equal(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getzelnodewinners', [req.query.blocks, req.query.filter]);
@@ -597,7 +597,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.relayZelNodeBroadcast(req);
+      const result = await daemonServiceFluxnodeRpcs.relayZelNodeBroadcast(req);
 
       expect(result).to.equal(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'relayzelnodebroadcast', []);
@@ -616,7 +616,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       const res = generateResponse();
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.relayZelNodeBroadcast(req, res);
+      const result = await daemonServiceFluxnodeRpcs.relayZelNodeBroadcast(req, res);
 
       expect(result).to.equal(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
@@ -635,7 +635,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.relayZelNodeBroadcast(req);
+      const result = await daemonServiceFluxnodeRpcs.relayZelNodeBroadcast(req);
 
       expect(result).to.equal(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'relayzelnodebroadcast', [req.params.hexstring]);
@@ -653,7 +653,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.relayZelNodeBroadcast(req);
+      const result = await daemonServiceFluxnodeRpcs.relayZelNodeBroadcast(req);
 
       expect(result).to.equal(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'relayzelnodebroadcast', [req.query.hexstring]);
@@ -683,7 +683,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.spork(req);
+      const result = await daemonServiceFluxnodeRpcs.spork(req);
 
       expect(result).to.equal(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'spork', ['show']);
@@ -702,7 +702,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       const res = generateResponse();
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.spork(req, res);
+      const result = await daemonServiceFluxnodeRpcs.spork(req, res);
 
       expect(result).to.equal(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
@@ -722,7 +722,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.spork(req);
+      const result = await daemonServiceFluxnodeRpcs.spork(req);
 
       expect(result).to.equal(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'spork', [req.params.name, +req.params.value]);
@@ -741,7 +741,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.spork(req);
+      const result = await daemonServiceFluxnodeRpcs.spork(req);
 
       expect(result).to.equal(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'spork', [req.query.name, req.query.value]);
@@ -771,7 +771,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.viewDeterministicZelNodeList(req);
+      const result = await daemonServiceFluxnodeRpcs.viewDeterministicZelNodeList(req);
 
       expect(result).to.equal(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'viewdeterministiczelnodelist', []);
@@ -790,7 +790,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       const res = generateResponse();
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.viewDeterministicZelNodeList(req, res);
+      const result = await daemonServiceFluxnodeRpcs.viewDeterministicZelNodeList(req, res);
 
       expect(result).to.equal(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
@@ -809,7 +809,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.viewDeterministicZelNodeList(req);
+      const result = await daemonServiceFluxnodeRpcs.viewDeterministicZelNodeList(req);
 
       expect(result).to.equal(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'viewdeterministiczelnodelist', [req.params.filter]);
@@ -827,7 +827,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.viewDeterministicZelNodeList(req);
+      const result = await daemonServiceFluxnodeRpcs.viewDeterministicZelNodeList(req);
 
       expect(result).to.equal(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'viewdeterministiczelnodelist', [req.query.filter]);
@@ -863,7 +863,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
         status: 'error',
       };
 
-      const result = await daemonServiceZelnodeRpcs.listZelNodeConf(req);
+      const result = await daemonServiceFluxnodeRpcs.listZelNodeConf(req);
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.notCalled(daemonServiceUtilsStub);
@@ -879,7 +879,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.listZelNodeConf(req);
+      const result = await daemonServiceFluxnodeRpcs.listZelNodeConf(req);
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listzelnodeconf', [req.params.filter]);
@@ -898,7 +898,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.listZelNodeConf(req);
+      const result = await daemonServiceFluxnodeRpcs.listZelNodeConf(req);
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listzelnodeconf', [req.query.filter]);
@@ -918,7 +918,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.listZelNodeConf(req);
+      const result = await daemonServiceFluxnodeRpcs.listZelNodeConf(req);
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listzelnodeconf', []);
@@ -935,7 +935,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       const expectedResponse = 'success';
       const res = generateResponse();
 
-      const result = await daemonServiceZelnodeRpcs.listZelNodeConf(req, res);
+      const result = await daemonServiceFluxnodeRpcs.listZelNodeConf(req, res);
 
       expect(result).to.equal(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
@@ -967,7 +967,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
         status: 'error',
       };
 
-      const result = await daemonServiceZelnodeRpcs.createZelNodeKey(undefined);
+      const result = await daemonServiceFluxnodeRpcs.createZelNodeKey(undefined);
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.notCalled(daemonServiceUtilsStub);
@@ -983,7 +983,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.createZelNodeKey(req);
+      const result = await daemonServiceFluxnodeRpcs.createZelNodeKey(req);
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'createzelnodekey');
@@ -995,7 +995,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       const expectedResponse = 'success';
       const res = generateResponse();
 
-      const result = await daemonServiceZelnodeRpcs.createZelNodeKey(undefined, res);
+      const result = await daemonServiceFluxnodeRpcs.createZelNodeKey(undefined, res);
 
       expect(result).to.equal(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
@@ -1032,7 +1032,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
         status: 'error',
       };
 
-      const result = await daemonServiceZelnodeRpcs.znsync(req);
+      const result = await daemonServiceFluxnodeRpcs.znsync(req);
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.notCalled(daemonServiceUtilsStub);
@@ -1048,7 +1048,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.znsync(req);
+      const result = await daemonServiceFluxnodeRpcs.znsync(req);
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.notCalled(verifyPrivilegeStub);
@@ -1065,7 +1065,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.znsync(req);
+      const result = await daemonServiceFluxnodeRpcs.znsync(req);
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.calledOnce(verifyPrivilegeStub);
@@ -1085,7 +1085,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.znsync(req);
+      const result = await daemonServiceFluxnodeRpcs.znsync(req);
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.notCalled(verifyPrivilegeStub);
@@ -1105,7 +1105,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.znsync(req);
+      const result = await daemonServiceFluxnodeRpcs.znsync(req);
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.notCalled(verifyPrivilegeStub);
@@ -1125,7 +1125,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.znsync(req);
+      const result = await daemonServiceFluxnodeRpcs.znsync(req);
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'znsync', [req.query.filter]);
@@ -1142,7 +1142,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       const expectedResponse = 'success';
       const res = generateResponse();
 
-      const result = await daemonServiceZelnodeRpcs.znsync(req, res);
+      const result = await daemonServiceFluxnodeRpcs.znsync(req, res);
 
       expect(result).to.equal(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
@@ -1180,7 +1180,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
         status: 'error',
       };
 
-      const result = await daemonServiceZelnodeRpcs.createZelNodeBroadcast(req);
+      const result = await daemonServiceFluxnodeRpcs.createZelNodeBroadcast(req);
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.notCalled(daemonServiceUtilsStub);
@@ -1197,7 +1197,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.createZelNodeBroadcast(req);
+      const result = await daemonServiceFluxnodeRpcs.createZelNodeBroadcast(req);
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'createzelnodebroadcast', [req.params.command, req.params.alias]);
@@ -1216,7 +1216,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.createZelNodeBroadcast(req);
+      const result = await daemonServiceFluxnodeRpcs.createZelNodeBroadcast(req);
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'createzelnodebroadcast', ['', req.params.alias]);
@@ -1235,7 +1235,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.createZelNodeBroadcast(req);
+      const result = await daemonServiceFluxnodeRpcs.createZelNodeBroadcast(req);
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'createzelnodebroadcast', [req.params.command, '']);
@@ -1255,7 +1255,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.createZelNodeBroadcast(req);
+      const result = await daemonServiceFluxnodeRpcs.createZelNodeBroadcast(req);
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'createzelnodebroadcast', [req.query.command, req.query.alias]);
@@ -1275,7 +1275,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.createZelNodeBroadcast(req);
+      const result = await daemonServiceFluxnodeRpcs.createZelNodeBroadcast(req);
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'createzelnodebroadcast', ['', '']);
@@ -1293,7 +1293,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       const expectedResponse = 'success';
       const res = generateResponse();
 
-      const result = await daemonServiceZelnodeRpcs.createZelNodeBroadcast(req, res);
+      const result = await daemonServiceFluxnodeRpcs.createZelNodeBroadcast(req, res);
 
       expect(result).to.equal(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
@@ -1325,7 +1325,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
         status: 'error',
       };
 
-      const result = await daemonServiceZelnodeRpcs.getZelNodeOutputs();
+      const result = await daemonServiceFluxnodeRpcs.getZelNodeOutputs();
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.notCalled(daemonServiceUtilsStub);
@@ -1337,7 +1337,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
 
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.getZelNodeOutputs();
+      const result = await daemonServiceFluxnodeRpcs.getZelNodeOutputs();
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getzelnodeoutputs');
@@ -1350,7 +1350,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       const expectedResponse = 'success';
       const res = generateResponse();
 
-      const result = await daemonServiceZelnodeRpcs.getZelNodeOutputs(undefined, res);
+      const result = await daemonServiceFluxnodeRpcs.getZelNodeOutputs(undefined, res);
 
       expect(result).to.equal(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
@@ -1388,7 +1388,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
         status: 'error',
       };
 
-      const result = await daemonServiceZelnodeRpcs.startDeterministicZelNode(req);
+      const result = await daemonServiceFluxnodeRpcs.startDeterministicZelNode(req);
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.notCalled(daemonServiceUtilsStub);
@@ -1405,7 +1405,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.startDeterministicZelNode(req);
+      const result = await daemonServiceFluxnodeRpcs.startDeterministicZelNode(req);
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startdeterministiczelnode', ['alias1', false]);
@@ -1424,7 +1424,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.startDeterministicZelNode(req);
+      const result = await daemonServiceFluxnodeRpcs.startDeterministicZelNode(req);
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startdeterministiczelnode', ['alias1', false]);
@@ -1443,7 +1443,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.startDeterministicZelNode(req);
+      const result = await daemonServiceFluxnodeRpcs.startDeterministicZelNode(req);
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startdeterministiczelnode', [undefined, true]);
@@ -1463,7 +1463,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.startDeterministicZelNode(req);
+      const result = await daemonServiceFluxnodeRpcs.startDeterministicZelNode(req);
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startdeterministiczelnode', ['alias1', true]);
@@ -1483,7 +1483,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.startDeterministicZelNode(req);
+      const result = await daemonServiceFluxnodeRpcs.startDeterministicZelNode(req);
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startdeterministiczelnode', [undefined, false]);
@@ -1501,7 +1501,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       const expectedResponse = 'success';
       const res = generateResponse();
 
-      const result = await daemonServiceZelnodeRpcs.startDeterministicZelNode(req, res);
+      const result = await daemonServiceFluxnodeRpcs.startDeterministicZelNode(req, res);
 
       expect(result).to.equal(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
@@ -1540,7 +1540,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
         status: 'error',
       };
 
-      const result = await daemonServiceZelnodeRpcs.startZelNode(req);
+      const result = await daemonServiceFluxnodeRpcs.startZelNode(req);
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.notCalled(daemonServiceUtilsStub);
@@ -1558,7 +1558,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.startZelNode(req);
+      const result = await daemonServiceFluxnodeRpcs.startZelNode(req);
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startzelnode', ['set1', false, 'alias1']);
@@ -1578,7 +1578,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.startZelNode(req);
+      const result = await daemonServiceFluxnodeRpcs.startZelNode(req);
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startzelnode', ['set1', undefined, 'alias1']);
@@ -1598,7 +1598,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.startZelNode(req);
+      const result = await daemonServiceFluxnodeRpcs.startZelNode(req);
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startzelnode', [undefined, false, 'alias1']);
@@ -1618,7 +1618,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.startZelNode(req);
+      const result = await daemonServiceFluxnodeRpcs.startZelNode(req);
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startzelnode', ['set1', 'true']);
@@ -1639,7 +1639,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.startZelNode(req);
+      const result = await daemonServiceFluxnodeRpcs.startZelNode(req);
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startzelnode', ['set1', false, 'alias1']);
@@ -1659,7 +1659,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       };
       const expectedResponse = 'success';
 
-      const result = await daemonServiceZelnodeRpcs.startZelNode(req);
+      const result = await daemonServiceFluxnodeRpcs.startZelNode(req);
 
       expect(result).to.eql(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startzelnode', [undefined, undefined]);
@@ -1678,7 +1678,7 @@ describe('daemonServiceZelnodeRpcs tests', () => {
       const expectedResponse = 'success';
       const res = generateResponse();
 
-      const result = await daemonServiceZelnodeRpcs.startZelNode(req, res);
+      const result = await daemonServiceFluxnodeRpcs.startZelNode(req, res);
 
       expect(result).to.equal(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);

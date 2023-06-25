@@ -5,7 +5,7 @@ const log = require('../lib/log');
 
 const serviceHelper = require('./serviceHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
-const daemonServiceZelnodeRpcs = require('./daemonService/daemonServiceZelnodeRpcs');
+const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
 const daemonServiceTransactionRpcs = require('./daemonService/daemonServiceTransactionRpcs');
 const messageHelper = require('./messageHelper');
 const dbHelper = require('./dbHelper');
@@ -38,7 +38,7 @@ function getCollateralInfo(collateralOutpoint) {
 async function obtainNodeCollateralInformation() {
   // get our collateral information to decide if app specifications are basic, super, bamf
   // getzlenodestatus.collateral
-  const nodeStatus = await daemonServiceZelnodeRpcs.getZelNodeStatus();
+  const nodeStatus = await daemonServiceFluxnodeRpcs.getZelNodeStatus();
   if (nodeStatus.status === 'error') {
     throw nodeStatus.data;
   }
@@ -56,7 +56,7 @@ async function nodeTier() {
   }
   // get our collateral information to decide if app specifications are basic, super, bamf
   // getzlenodestatus.collateral
-  const nodeStatus = await daemonServiceZelnodeRpcs.getZelNodeStatus();
+  const nodeStatus = await daemonServiceFluxnodeRpcs.getZelNodeStatus();
   if (nodeStatus.status === 'error') {
     throw nodeStatus.data;
   }
@@ -117,7 +117,7 @@ async function nodeCollateral() {
   }
   // get our collateral information to decide if app specifications are basic, super, bamf
   // getzlenodestatus.collateral
-  const nodeStatus = await daemonServiceZelnodeRpcs.getZelNodeStatus();
+  const nodeStatus = await daemonServiceFluxnodeRpcs.getZelNodeStatus();
   if (nodeStatus.status === 'error') {
     throw nodeStatus.data;
   }
@@ -159,7 +159,7 @@ async function nodeCollateral() {
  */
 async function isNodeStatusConfirmed() {
   try {
-    const response = await daemonServiceZelnodeRpcs.getZelNodeStatus();
+    const response = await daemonServiceFluxnodeRpcs.getZelNodeStatus();
     if (response.status === 'error') {
       throw response.data;
     }

@@ -240,7 +240,7 @@ async function getZelNodeScores(req, res) {
  */
 async function getZelNodeWinners(req, res) {
   let { blocks, filter } = req.params;
-  blocks = blocks || req.query.blocks || '10'; // defaults to 10 as default zelcash value
+  blocks = blocks || req.query.blocks || '10'; // defaults to 10 as default flux value
   filter = filter || req.query.filter;
 
   const rpccall = 'getzelnodewinners';

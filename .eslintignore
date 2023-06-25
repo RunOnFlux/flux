@@ -1,6 +1,5 @@
 /HomeUI/dist/
 /config/userconfig.js
-/lib/zelcashrpc/
 /lib/daemonrpc/
 /tests/e2e/
 /ZelApps/

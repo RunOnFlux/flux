@@ -4,7 +4,7 @@ const chaiAsPromised = require('chai-as-promised');
 const generalService = require('../../ZelBack/src/services/generalService');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
-const daemonServiceZelnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceZelnodeRpcs');
+const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
 const daemonServiceTransactionRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceTransactionRpcs');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 
@@ -34,7 +34,7 @@ describe('generalService tests', () => {
     let getRawTransactionStub;
 
     beforeEach(() => {
-      getZelNodeStatusStub = sinon.stub(daemonServiceZelnodeRpcs, 'getZelNodeStatus');
+      getZelNodeStatusStub = sinon.stub(daemonServiceFluxnodeRpcs, 'getZelNodeStatus');
       getRawTransactionStub = sinon.stub(daemonServiceTransactionRpcs, 'getRawTransaction');
       generalService.setStoredTier(null);
       generalService.setStoredCollateral(null);
@@ -327,7 +327,7 @@ describe('generalService tests', () => {
     let getRawTransactionStub;
 
     beforeEach(() => {
-      getZelNodeStatusStub = sinon.stub(daemonServiceZelnodeRpcs, 'getZelNodeStatus');
+      getZelNodeStatusStub = sinon.stub(daemonServiceFluxnodeRpcs, 'getZelNodeStatus');
       getRawTransactionStub = sinon.stub(daemonServiceTransactionRpcs, 'getRawTransaction');
       generalService.setStoredTier(null);
       generalService.setStoredCollateral(null);
@@ -589,7 +589,7 @@ describe('generalService tests', () => {
     let getZelNodeStatusStub;
 
     beforeEach(() => {
-      getZelNodeStatusStub = sinon.stub(daemonServiceZelnodeRpcs, 'getZelNodeStatus');
+      getZelNodeStatusStub = sinon.stub(daemonServiceFluxnodeRpcs, 'getZelNodeStatus');
     });
 
     afterEach(() => {
@@ -878,9 +878,9 @@ describe('generalService tests', () => {
       data: [
         'yurinnick/folding-at-home:latest',
         'kadena/chainweb-node:latest',
-        'zelcash/dibi-fetch:latest',
-        'zelcash/rates-api:latest',
-        'zelcash/kadena-chainweb-node:2.7',
+        't1dev/dibi-fetch:latest',
+        'thetrunk/rates-api:latest',
+        'runonflux/kadena-chainweb-node:2.7',
       ],
     };
 

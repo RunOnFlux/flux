@@ -3,7 +3,7 @@ const LRU = require('lru-cache');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
-const daemonServiceZelnodeRpcs = require('./daemonService/daemonServiceZelnodeRpcs');
+const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
 // default cache
 const LRUoptions = {
   max: 20000, // currently 20000 nodes
@@ -40,7 +40,7 @@ async function deterministicFluxList(filter) {
           params: {},
           query: {},
         };
-        const daemonFluxNodesList = await daemonServiceZelnodeRpcs.viewDeterministicZelNodeList(request);
+        const daemonFluxNodesList = await daemonServiceFluxnodeRpcs.viewDeterministicZelNodeList(request);
         if (daemonFluxNodesList.status === 'success') {
           generalFluxList = daemonFluxNodesList.data || [];
           myCache.set('fluxList', generalFluxList);
