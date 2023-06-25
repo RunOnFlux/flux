@@ -2379,7 +2379,7 @@ export default {
     },
   },
   mounted() {
-    this.getZelNodeStatus();
+    this.getFluxNodeStatus();
     this.appsGetAvailableApps();
     this.appsGetListRunningApps();
     this.appsGetInstalledApps();
@@ -2418,8 +2418,8 @@ export default {
       this.tableconfig.globalAvailable.loading = false;
       this.tableconfig.globalAvailable.status = response.data.status;
     },
-    async getZelNodeStatus() {
-      const response = await DaemonService.getZelNodeStatus();
+    async getFluxNodeStatus() {
+      const response = await DaemonService.getFluxNodeStatus();
       if (response.data.status === 'success') {
         this.tier = response.data.data.tier;
       }

@@ -40,7 +40,7 @@ async function deterministicFluxList(filter) {
           params: {},
           query: {},
         };
-        const daemonFluxNodesList = await daemonServiceFluxnodeRpcs.viewDeterministicZelNodeList(request);
+        const daemonFluxNodesList = await daemonServiceFluxnodeRpcs.viewDeterministicFluxNodeList(request);
         if (daemonFluxNodesList.status === 'success') {
           generalFluxList = daemonFluxNodesList.data || [];
           myCache.set('fluxList', generalFluxList);

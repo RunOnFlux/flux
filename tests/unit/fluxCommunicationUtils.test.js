@@ -72,7 +72,7 @@ describe('fluxCommunicationUtils tests', () => {
     let daemonStub;
 
     beforeEach(() => {
-      daemonStub = sinon.stub(daemonServiceFluxnodeRpcs, 'viewDeterministicZelNodeList');
+      daemonStub = sinon.stub(daemonServiceFluxnodeRpcs, 'viewDeterministicFluxNodeList');
     });
 
     afterEach(() => {
@@ -384,7 +384,7 @@ describe('fluxCommunicationUtils tests', () => {
           },
         ],
       };
-      sinon.stub(daemonServiceFluxnodeRpcs, 'viewDeterministicZelNodeList').resolves(deterministicZelnodeListResponse);
+      sinon.stub(daemonServiceFluxnodeRpcs, 'viewDeterministicFluxNodeList').resolves(deterministicZelnodeListResponse);
       const timeStamp = Date.now();
       const version = 1;
       const messageToSign = version + message + timeStamp;

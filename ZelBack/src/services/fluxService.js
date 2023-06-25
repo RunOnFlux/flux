@@ -879,7 +879,7 @@ async function getFluxInfo(req, res) {
     }
     info.daemon.info = daemonInfoRes.data;
 
-    const daemonNodeStatusRes = await daemonServiceFluxnodeRpcs.getZelNodeStatus();
+    const daemonNodeStatusRes = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
     if (daemonNodeStatusRes.status === 'error') {
       throw daemonNodeStatusRes.data;
     }

@@ -11,7 +11,7 @@ let response = messageHelper.createErrorMessage();
  * @param {object} res Response.
  * @returns {object} Message.
  */
-async function getZelNodeStatus(req, res) {
+async function getFluxNodeStatus(req, res) {
   const rpccall = 'getzelnodestatus';
 
   response = await daemonServiceUtils.executeCall(rpccall);
@@ -25,7 +25,7 @@ async function getZelNodeStatus(req, res) {
  * @param {object} res Response.
  * @returns {object} Message.
  */
-async function listZelNodes(req, res) {
+async function listFluxNodes(req, res) {
   let { filter } = req.params;
   filter = filter || req.query.filter;
   const rpccall = 'listzelnodes';
@@ -45,7 +45,7 @@ async function listZelNodes(req, res) {
  * @param {object} res Response.
  * @returns {object} Message.
  */
-async function listZelNodeConf(req, res) { // practically useless
+async function listFluxNodeConf(req, res) { // practically useless
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   let { filter } = req.params;
   filter = filter || req.query.filter;
@@ -70,7 +70,7 @@ async function listZelNodeConf(req, res) { // practically useless
  * @param {object} res Response.
  * @returns {object} Message.
  */
-async function createZelNodeKey(req, res) { // practically useless
+async function createFluxNodeKey(req, res) { // practically useless
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
     const rpccall = 'createzelnodekey';
@@ -114,7 +114,7 @@ async function znsync(req, res) {
  * @param {object} res Response.
  * @returns {object} Message.
  */
-async function createZelNodeBroadcast(req, res) {
+async function createFluxNodeBroadcast(req, res) {
   let { command, alias } = req.params;
   command = command || req.query.command || '';
   alias = alias || req.query.alias || '';
@@ -138,7 +138,7 @@ async function createZelNodeBroadcast(req, res) {
  * @param {object} res Response.
  * @returns {object} Message.
  */
-async function decodeZelNodeBroadcast(req, res) {
+async function decodeFluxNodeBroadcast(req, res) {
   let { hexstring } = req.params;
   hexstring = hexstring || req.query.hexstring;
 
@@ -159,7 +159,7 @@ async function decodeZelNodeBroadcast(req, res) {
  * @param {object} res Response.
  * @returns {object} Message.
  */
-async function getZelNodeCount(req, res) {
+async function getFluxNodeCount(req, res) {
   const rpccall = 'getzelnodecount';
 
   response = await daemonServiceUtils.executeCall(rpccall);
@@ -201,7 +201,7 @@ async function getStartList(req, res) {
  * @param {object} res Response.
  * @returns {object} Message.
  */
-async function getZelNodeOutputs(req, res) {
+async function getFluxNodeOutputs(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
@@ -219,7 +219,7 @@ async function getZelNodeOutputs(req, res) {
  * @param {object} res Response.
  * @returns {object} Message.
  */
-async function getZelNodeScores(req, res) {
+async function getFluxNodeScores(req, res) {
   let { blocks } = req.params;
   blocks = blocks || req.query.blocks || '10';
 
@@ -238,7 +238,7 @@ async function getZelNodeScores(req, res) {
  * @param {object} res Response.
  * @returns {object} Message.
  */
-async function getZelNodeWinners(req, res) {
+async function getFluxNodeWinners(req, res) {
   let { blocks, filter } = req.params;
   blocks = blocks || req.query.blocks || '10'; // defaults to 10 as default flux value
   filter = filter || req.query.filter;
@@ -261,7 +261,7 @@ async function getZelNodeWinners(req, res) {
  * @param {object} res Response.
  * @returns {object} Message.
  */
-async function relayZelNodeBroadcast(req, res) {
+async function relayFluxNodeBroadcast(req, res) {
   let { hexstring } = req.params;
   hexstring = hexstring || req.query.hexstring;
 
@@ -306,7 +306,7 @@ async function spork(req, res) {
  * @param {object} res Response.
  * @returns {object} Message.
  */
-async function startDeterministicZelNode(req, res) {
+async function startDeterministicFluxNode(req, res) {
   let { alias, lockwallet } = req.params;
   alias = alias || req.query.alias;
   lockwallet = lockwallet ?? req.query.lockwallet ?? false;
@@ -332,7 +332,7 @@ async function startDeterministicZelNode(req, res) {
  * @param {object} res Response.
  * @returns {object} Message.
  */
-async function startZelNode(req, res) {
+async function startFluxNode(req, res) {
   let { set, lockwallet, alias } = req.params;
   set = set || req.query.set;
   lockwallet = lockwallet ?? req.query.lockwallet;
@@ -361,7 +361,7 @@ async function startZelNode(req, res) {
  * @param {object} res Response.
  * @returns {object} Message.
  */
-async function viewDeterministicZelNodeList(req, res) {
+async function viewDeterministicFluxNodeList(req, res) {
   let { filter } = req.params;
   filter = filter || req.query.filter;
   const rpccall = 'viewdeterministiczelnodelist';
@@ -404,21 +404,21 @@ async function zelNodeDebug(req, res) {
 }
 
 module.exports = {
-  createZelNodeBroadcast,
-  createZelNodeKey,
-  decodeZelNodeBroadcast,
-  getZelNodeCount,
-  getZelNodeOutputs,
-  getZelNodeScores,
-  getZelNodeStatus,
-  getZelNodeWinners,
-  listZelNodeConf,
-  listZelNodes,
-  relayZelNodeBroadcast,
+  createFluxNodeBroadcast,
+  createFluxNodeKey,
+  decodeFluxNodeBroadcast,
+  getFluxNodeCount,
+  getFluxNodeOutputs,
+  getFluxNodeScores,
+  getFluxNodeStatus,
+  getFluxNodeWinners,
+  listFluxNodeConf,
+  listFluxNodes,
+  relayFluxNodeBroadcast,
   spork,
-  startDeterministicZelNode,
-  startZelNode,
-  viewDeterministicZelNodeList,
+  startDeterministicFluxNode,
+  startFluxNode,
+  viewDeterministicFluxNodeList,
   zelNodeCurrentWinner,
   zelNodeDebug,
   znsync,

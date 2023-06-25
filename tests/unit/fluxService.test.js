@@ -1871,7 +1871,7 @@ describe('fluxService tests', () => {
 
     beforeEach(() => {
       daemonServiceControlRpcsStub = sinon.stub(daemonServiceControlRpcs, 'getInfo');
-      daemonServiceFluxnodeRpcsStub = sinon.stub(daemonServiceFluxnodeRpcs, 'getZelNodeStatus');
+      daemonServiceFluxnodeRpcsStub = sinon.stub(daemonServiceFluxnodeRpcs, 'getFluxNodeStatus');
       benchmarkServiceGetInfoStub = sinon.stub(benchmarkService, 'getInfo');
       benchmarkServiceGetStatusStub = sinon.stub(benchmarkService, 'getStatus');
       benchmarkServiceGetBenchmarksStub = sinon.stub(benchmarkService, 'getBenchmarks');

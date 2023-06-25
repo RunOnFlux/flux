@@ -1353,7 +1353,7 @@ describe('fluxNetworkHelper tests', () => {
     let getBenchmarksStub;
     let isDaemonSyncedStub;
     let deterministicFluxListStub;
-    let getZelNodeStatusStub;
+    let getFluxNodeStatusStub;
     let deterministicZelnodeListResponse;
 
     beforeEach(() => {
@@ -1383,7 +1383,7 @@ describe('fluxNetworkHelper tests', () => {
       getBenchmarksStub = sinon.stub(daemonServiceBenchmarkRpcs, 'getBenchmarks');
       isDaemonSyncedStub = sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced');
       deterministicFluxListStub = sinon.stub(fluxCommunicationUtils, 'deterministicFluxList');
-      getZelNodeStatusStub = sinon.stub(daemonServiceFluxnodeRpcs, 'getZelNodeStatus');
+      getFluxNodeStatusStub = sinon.stub(daemonServiceFluxnodeRpcs, 'getFluxNodeStatus');
       fluxNetworkHelper.setDosMessage(null);
       fluxNetworkHelper.setDosStateValue(0);
     });
@@ -1401,7 +1401,7 @@ describe('fluxNetworkHelper tests', () => {
       getBenchmarksStub.resolves(getBenchmarkResponseData);
       isDaemonSyncedStub.returns({ data: { synced: true } });
       deterministicFluxListStub.returns(deterministicZelnodeListResponse);
-      getZelNodeStatusStub.returns(
+      getFluxNodeStatusStub.returns(
         {
           status: 'success',
           data: {
@@ -1446,7 +1446,7 @@ describe('fluxNetworkHelper tests', () => {
       getBenchmarksStub.resolves(getBenchmarkResponseData);
       isDaemonSyncedStub.returns({ data: { synced: true } });
       deterministicFluxListStub.returns(multipleNodesList);
-      getZelNodeStatusStub.returns(
+      getFluxNodeStatusStub.returns(
         {
           status: 'success',
           data: {
@@ -1470,7 +1470,7 @@ describe('fluxNetworkHelper tests', () => {
       getBenchmarksStub.resolves(getBenchmarkResponseData);
       isDaemonSyncedStub.returns({ data: { synced: true } });
       deterministicFluxListStub.returns(deterministicZelnodeListResponse);
-      getZelNodeStatusStub.returns(
+      getFluxNodeStatusStub.returns(
         {
           status: 'success',
           data: {

@@ -30,11 +30,11 @@ describe('generalService tests', () => {
   });
 
   describe('nodeTier tests', () => {
-    let getZelNodeStatusStub;
+    let getFluxNodeStatusStub;
     let getRawTransactionStub;
 
     beforeEach(() => {
-      getZelNodeStatusStub = sinon.stub(daemonServiceFluxnodeRpcs, 'getZelNodeStatus');
+      getFluxNodeStatusStub = sinon.stub(daemonServiceFluxnodeRpcs, 'getFluxNodeStatus');
       getRawTransactionStub = sinon.stub(daemonServiceTransactionRpcs, 'getRawTransaction');
       generalService.setStoredTier(null);
       generalService.setStoredCollateral(null);
@@ -53,7 +53,7 @@ describe('generalService tests', () => {
     });
 
     it('should throw if getZelnodeStatus returns error', async () => {
-      getZelNodeStatusStub.returns(
+      getFluxNodeStatusStub.returns(
         {
           status: 'error',
           data: {
@@ -69,7 +69,7 @@ describe('generalService tests', () => {
     });
 
     it('should throw error if getRawTransaction returns error', async () => {
-      getZelNodeStatusStub.returns(
+      getFluxNodeStatusStub.returns(
         {
           status: 'success',
           data: {
@@ -98,7 +98,7 @@ describe('generalService tests', () => {
     });
 
     it('should return proper tier for 10000 - basic', async () => {
-      getZelNodeStatusStub.returns(
+      getFluxNodeStatusStub.returns(
         {
           status: 'success',
           data: {
@@ -126,7 +126,7 @@ describe('generalService tests', () => {
     });
 
     it('should return proper tier for 1000 - basic', async () => {
-      getZelNodeStatusStub.returns(
+      getFluxNodeStatusStub.returns(
         {
           status: 'success',
           data: {
@@ -154,7 +154,7 @@ describe('generalService tests', () => {
     });
 
     it('should return proper tier for 25000 - super', async () => {
-      getZelNodeStatusStub.returns(
+      getFluxNodeStatusStub.returns(
         {
           status: 'success',
           data: {
@@ -182,7 +182,7 @@ describe('generalService tests', () => {
     });
 
     it('should return proper tier for 12500 - super', async () => {
-      getZelNodeStatusStub.returns(
+      getFluxNodeStatusStub.returns(
         {
           status: 'success',
           data: {
@@ -210,7 +210,7 @@ describe('generalService tests', () => {
     });
 
     it('should return proper tier for 100000 - bamf', async () => {
-      getZelNodeStatusStub.returns(
+      getFluxNodeStatusStub.returns(
         {
           status: 'success',
           data: {
@@ -238,7 +238,7 @@ describe('generalService tests', () => {
     });
 
     it('should return proper tier for 40000 - bamf', async () => {
-      getZelNodeStatusStub.returns(
+      getFluxNodeStatusStub.returns(
         {
           status: 'success',
           data: {
@@ -266,7 +266,7 @@ describe('generalService tests', () => {
     });
 
     it('should throw errror for improper collateral', async () => {
-      getZelNodeStatusStub.returns(
+      getFluxNodeStatusStub.returns(
         {
           status: 'success',
           data: {
@@ -323,11 +323,11 @@ describe('generalService tests', () => {
   });
 
   describe('nodeCollateral tests', () => {
-    let getZelNodeStatusStub;
+    let getFluxNodeStatusStub;
     let getRawTransactionStub;
 
     beforeEach(() => {
-      getZelNodeStatusStub = sinon.stub(daemonServiceFluxnodeRpcs, 'getZelNodeStatus');
+      getFluxNodeStatusStub = sinon.stub(daemonServiceFluxnodeRpcs, 'getFluxNodeStatus');
       getRawTransactionStub = sinon.stub(daemonServiceTransactionRpcs, 'getRawTransaction');
       generalService.setStoredTier(null);
       generalService.setStoredCollateral(null);
@@ -346,7 +346,7 @@ describe('generalService tests', () => {
     });
 
     it('should throw if getZelnodeStatus returns error', async () => {
-      getZelNodeStatusStub.returns(
+      getFluxNodeStatusStub.returns(
         {
           status: 'error',
           data: {
@@ -362,7 +362,7 @@ describe('generalService tests', () => {
     });
 
     it('should throw error if getRawTransaction returns error', async () => {
-      getZelNodeStatusStub.returns(
+      getFluxNodeStatusStub.returns(
         {
           status: 'success',
           data: {
@@ -391,7 +391,7 @@ describe('generalService tests', () => {
     });
 
     it('should return proper collateral of 10000 - basic', async () => {
-      getZelNodeStatusStub.returns(
+      getFluxNodeStatusStub.returns(
         {
           status: 'success',
           data: {
@@ -419,7 +419,7 @@ describe('generalService tests', () => {
     });
 
     it('should return proper collateral of 1000 - basic', async () => {
-      getZelNodeStatusStub.returns(
+      getFluxNodeStatusStub.returns(
         {
           status: 'success',
           data: {
@@ -447,7 +447,7 @@ describe('generalService tests', () => {
     });
 
     it('should return proper collateral of 25000 - super', async () => {
-      getZelNodeStatusStub.returns(
+      getFluxNodeStatusStub.returns(
         {
           status: 'success',
           data: {
@@ -475,7 +475,7 @@ describe('generalService tests', () => {
     });
 
     it('should return proper collateral of 12500 - super', async () => {
-      getZelNodeStatusStub.returns(
+      getFluxNodeStatusStub.returns(
         {
           status: 'success',
           data: {
@@ -503,7 +503,7 @@ describe('generalService tests', () => {
     });
 
     it('should return proper collateral of 100000 - bamf', async () => {
-      getZelNodeStatusStub.returns(
+      getFluxNodeStatusStub.returns(
         {
           status: 'success',
           data: {
@@ -531,7 +531,7 @@ describe('generalService tests', () => {
     });
 
     it('should return proper collateral of 40000 - bamf', async () => {
-      getZelNodeStatusStub.returns(
+      getFluxNodeStatusStub.returns(
         {
           status: 'success',
           data: {
@@ -559,7 +559,7 @@ describe('generalService tests', () => {
     });
 
     it('should throw errror for improper collateral', async () => {
-      getZelNodeStatusStub.returns(
+      getFluxNodeStatusStub.returns(
         {
           status: 'success',
           data: {
@@ -586,10 +586,10 @@ describe('generalService tests', () => {
   });
 
   describe('isNodeStatusConfirmed tests', () => {
-    let getZelNodeStatusStub;
+    let getFluxNodeStatusStub;
 
     beforeEach(() => {
-      getZelNodeStatusStub = sinon.stub(daemonServiceFluxnodeRpcs, 'getZelNodeStatus');
+      getFluxNodeStatusStub = sinon.stub(daemonServiceFluxnodeRpcs, 'getFluxNodeStatus');
     });
 
     afterEach(() => {
@@ -597,7 +597,7 @@ describe('generalService tests', () => {
     });
 
     it('should return false if getZelnodeStatus returns error', async () => {
-      getZelNodeStatusStub.returns(
+      getFluxNodeStatusStub.returns(
         {
           status: 'error',
           data: {
@@ -612,7 +612,7 @@ describe('generalService tests', () => {
     });
 
     it('should return true if getZelnodeStatus returns succcess and confirmed status', async () => {
-      getZelNodeStatusStub.returns(
+      getFluxNodeStatusStub.returns(
         {
           status: 'success',
           data: {
@@ -627,7 +627,7 @@ describe('generalService tests', () => {
     });
 
     it('should return false if getZelnodeStatus returns succcess and any other status', async () => {
-      getZelNodeStatusStub.returns(
+      getFluxNodeStatusStub.returns(
         {
           status: 'success',
           data: {

@@ -454,7 +454,7 @@ export default {
       axios.get('https://vipdrates.zelcore.io/rates', this.retryOptions)
         .then((resultB) => {
           this.rates = resultB.data;
-          this.getZelNodeCount();
+          this.getFluxNodeCount();
         });
     },
     async getPriceData() {
@@ -473,7 +473,7 @@ export default {
           this.loadingPrice = false;
         });
     },
-    async getZelNodeCount() {
+    async getFluxNodeCount() {
       const response = await DashboardService.zelnodeCount();
       if (response.data.status === 'error') {
         this.$toast({

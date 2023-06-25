@@ -911,7 +911,7 @@ async function checkDeterministicNodesCollisions() {
       }
       const nodeList = await fluxCommunicationUtils.deterministicFluxList();
       const result = nodeList.filter((node) => node.ip === myIP);
-      const nodeStatus = await daemonServiceFluxnodeRpcs.getZelNodeStatus();
+      const nodeStatus = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
       if (nodeStatus.status === 'success') { // different scenario is caught elsewhere
         const myCollateral = nodeStatus.data.collateral;
         const myNode = result.find((node) => node.collateral === myCollateral);

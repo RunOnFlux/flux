@@ -408,14 +408,14 @@ export default {
       fetchApps();
     });
 
-    const getZelNodeStatus = async () => {
-      const response = await DaemonService.getZelNodeStatus();
+    const getFluxNodeStatus = async () => {
+      const response = await DaemonService.getFluxNodeStatus();
       if (response.data.status === 'success') {
         tier.value = response.data.data.tier;
       }
       fetchApps();
     };
-    getZelNodeStatus();
+    getFluxNodeStatus();
 
     const handleAppClick = (appData) => {
       app.value = appData;

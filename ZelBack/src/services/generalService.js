@@ -38,7 +38,7 @@ function getCollateralInfo(collateralOutpoint) {
 async function obtainNodeCollateralInformation() {
   // get our collateral information to decide if app specifications are basic, super, bamf
   // getzlenodestatus.collateral
-  const nodeStatus = await daemonServiceFluxnodeRpcs.getZelNodeStatus();
+  const nodeStatus = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
   if (nodeStatus.status === 'error') {
     throw nodeStatus.data;
   }
@@ -56,7 +56,7 @@ async function nodeTier() {
   }
   // get our collateral information to decide if app specifications are basic, super, bamf
   // getzlenodestatus.collateral
-  const nodeStatus = await daemonServiceFluxnodeRpcs.getZelNodeStatus();
+  const nodeStatus = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
   if (nodeStatus.status === 'error') {
     throw nodeStatus.data;
   }
@@ -117,7 +117,7 @@ async function nodeCollateral() {
   }
   // get our collateral information to decide if app specifications are basic, super, bamf
   // getzlenodestatus.collateral
-  const nodeStatus = await daemonServiceFluxnodeRpcs.getZelNodeStatus();
+  const nodeStatus = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
   if (nodeStatus.status === 'error') {
     throw nodeStatus.data;
   }
@@ -159,7 +159,7 @@ async function nodeCollateral() {
  */
 async function isNodeStatusConfirmed() {
   try {
-    const response = await daemonServiceFluxnodeRpcs.getZelNodeStatus();
+    const response = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
     if (response.status === 'error') {
       throw response.data;
     }
