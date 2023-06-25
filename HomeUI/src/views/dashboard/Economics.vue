@@ -474,7 +474,7 @@ export default {
         });
     },
     async getFluxNodeCount() {
-      const response = await DashboardService.zelnodeCount();
+      const response = await DashboardService.fluxnodeCount();
       if (response.data.status === 'error') {
         this.$toast({
           component: ToastificationContent,

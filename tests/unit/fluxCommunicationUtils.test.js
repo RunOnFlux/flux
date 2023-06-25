@@ -11,7 +11,7 @@ const fluxList = require('./data/listfluxnodes.json');
 
 describe('fluxCommunicationUtils tests', () => {
   describe('deterministicFluxList tests', () => {
-    const deterministicZelnodeListResponseBase = {
+    const deterministicFluxnodeListResponseBase = {
       data: [
         {
           collateral: 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)',
@@ -84,15 +84,15 @@ describe('fluxCommunicationUtils tests', () => {
       // Start with clear cache
       fluxCommunicationUtils = proxyquire('../../ZelBack/src/services/fluxCommunicationUtils',
         { 'lru-cache': LRU });
-      const deterministicZelnodeListResponse = {
-        ...deterministicZelnodeListResponseBase,
+      const deterministicFluxnodeListResponse = {
+        ...deterministicFluxnodeListResponseBase,
         status: 'success',
       };
-      daemonStub.resolves(deterministicZelnodeListResponse);
+      daemonStub.resolves(deterministicFluxnodeListResponse);
 
       const deterministicFluxListResult = await fluxCommunicationUtils.deterministicFluxList();
 
-      expect(deterministicFluxListResult).to.eql(deterministicZelnodeListResponse.data);
+      expect(deterministicFluxListResult).to.eql(deterministicFluxnodeListResponse.data);
       sinon.assert.calledOnce(daemonStub);
     });
 
@@ -138,11 +138,11 @@ describe('fluxCommunicationUtils tests', () => {
         rank: 1,
       }];
 
-      const deterministicZelnodeListResponse = {
-        ...deterministicZelnodeListResponseBase,
+      const deterministicFluxnodeListResponse = {
+        ...deterministicFluxnodeListResponseBase,
         status: 'success',
       };
-      daemonStub.resolves(deterministicZelnodeListResponse);
+      daemonStub.resolves(deterministicFluxnodeListResponse);
 
       const deterministicFluxListResult = await fluxCommunicationUtils.deterministicFluxList(filteredPubKey);
 
@@ -157,11 +157,11 @@ describe('fluxCommunicationUtils tests', () => {
       const filteredPubKey = '04d50620a31f045c61be42bad44b7a9424asdfde37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc';
       const expectedResult = [];
 
-      const deterministicZelnodeListResponse = {
-        ...deterministicZelnodeListResponseBase,
+      const deterministicFluxnodeListResponse = {
+        ...deterministicFluxnodeListResponseBase,
         status: 'success',
       };
-      daemonStub.resolves(deterministicZelnodeListResponse);
+      daemonStub.resolves(deterministicFluxnodeListResponse);
 
       const deterministicFluxListResult = await fluxCommunicationUtils.deterministicFluxList(filteredPubKey);
 
@@ -175,13 +175,13 @@ describe('fluxCommunicationUtils tests', () => {
       const stubCache = sinon.stub().callsFake(() => ({
         get: getCacheStub,
       }));
-      getCacheStub.withArgs('fluxList').returns(deterministicZelnodeListResponseBase.data);
+      getCacheStub.withArgs('fluxList').returns(deterministicFluxnodeListResponseBase.data);
       fluxCommunicationUtils = proxyquire('../../ZelBack/src/services/fluxCommunicationUtils',
         { 'lru-cache': stubCache });
 
       const deterministicFluxListResult = await fluxCommunicationUtils.deterministicFluxList();
 
-      expect(deterministicFluxListResult).to.eql(deterministicZelnodeListResponseBase.data);
+      expect(deterministicFluxListResult).to.eql(deterministicFluxnodeListResponseBase.data);
       sinon.assert.calledOnceWithExactly(getCacheStub, 'fluxList');
     });
 
@@ -361,7 +361,7 @@ describe('fluxCommunicationUtils tests', () => {
     });
 
     it('should return true if broadcast is verifiable, flux node list from deterministicFluxList', async () => {
-      const deterministicZelnodeListResponse = {
+      const deterministicFluxnodeListResponse = {
         status: 'success',
         data: [
           {
@@ -384,7 +384,7 @@ describe('fluxCommunicationUtils tests', () => {
           },
         ],
       };
-      sinon.stub(daemonServiceFluxnodeRpcs, 'viewDeterministicFluxNodeList').resolves(deterministicZelnodeListResponse);
+      sinon.stub(daemonServiceFluxnodeRpcs, 'viewDeterministicFluxNodeList').resolves(deterministicFluxnodeListResponse);
       const timeStamp = Date.now();
       const version = 1;
       const messageToSign = version + message + timeStamp;

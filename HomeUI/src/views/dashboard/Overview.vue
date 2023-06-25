@@ -397,7 +397,7 @@ export default {
     },
     async getFluxNodeCount() {
       try {
-        const resCount = await DashboardService.zelnodeCount();
+        const resCount = await DashboardService.fluxnodeCount();
         const counts = resCount.data.data;
         const stratuses = counts['stratus-enabled'];
         let nimbuses = counts['nimbus-enabled'];

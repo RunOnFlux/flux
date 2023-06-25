@@ -102,10 +102,10 @@ module.exports = (app, expressWs) => {
     daemonServiceNodeRpcs.spork(req, res);
   });
   app.get('/daemon/fluxcurrentwinner', cache('30 seconds'), (req, res) => {
-    daemonServiceNodeRpcs.zelNodeCurrentWinner(req, res);
+    daemonServiceNodeRpcs.fluxNodeCurrentWinner(req, res);
   });
   app.get('/daemon/fluxdebug', cache('30 seconds'), (req, res) => {
-    daemonServiceNodeRpcs.zelNodeDebug(req, res);
+    daemonServiceNodeRpcs.fluxNodeDebug(req, res);
   });
   app.get('/daemon/getbestblockhash', cache('30 seconds'), (req, res) => {
     daemonServiceBlockchainRpcs.getBestBlockHash(req, res);

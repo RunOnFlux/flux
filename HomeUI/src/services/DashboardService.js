@@ -4,7 +4,7 @@ export default {
   listFluxNodes() {
     return Api().get('/daemon/listzelnodes');
   },
-  zelnodeCount() {
+  fluxnodeCount() {
     return Api().get('/daemon/getzelnodecount');
   },
   blockReward() {

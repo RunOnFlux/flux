@@ -381,7 +381,7 @@ async function viewDeterministicFluxNodeList(req, res) {
  * @param {object} res Response.
  * @returns {object} Message.
  */
-async function zelNodeCurrentWinner(req, res) {
+async function fluxNodeCurrentWinner(req, res) {
   const rpccall = 'zelnodecurrentwinner';
 
   response = await daemonServiceUtils.executeCall(rpccall);
@@ -395,7 +395,7 @@ async function zelNodeCurrentWinner(req, res) {
  * @param {object} res Response.
  * @returns {object} Message.
  */
-async function zelNodeDebug(req, res) {
+async function fluxNodeDebug(req, res) {
   const rpccall = 'zelnodedebug';
 
   response = await daemonServiceUtils.executeCall(rpccall);
@@ -419,8 +419,8 @@ module.exports = {
   startDeterministicFluxNode,
   startFluxNode,
   viewDeterministicFluxNodeList,
-  zelNodeCurrentWinner,
-  zelNodeDebug,
+  fluxNodeCurrentWinner,
+  fluxNodeDebug,
   znsync,
   getDOSList,
   getStartList,

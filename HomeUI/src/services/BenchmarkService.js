@@ -48,7 +48,7 @@ export default {
       },
     });
   },
-  // == Zelnode ==
+  // == Fluxnode ==
   getBenchmarks() {
     return Api().get('/benchmark/getbenchmarks');
   },

@@ -52,7 +52,7 @@ describe('generalService tests', () => {
       expect(result).to.equal('CUMULUS');
     });
 
-    it('should throw if getZelnodeStatus returns error', async () => {
+    it('should throw if getFluxnodeStatus returns error', async () => {
       getFluxNodeStatusStub.returns(
         {
           status: 'error',
@@ -345,7 +345,7 @@ describe('generalService tests', () => {
       expect(result).to.equal(10000);
     });
 
-    it('should throw if getZelnodeStatus returns error', async () => {
+    it('should throw if getFluxnodeStatus returns error', async () => {
       getFluxNodeStatusStub.returns(
         {
           status: 'error',
@@ -596,7 +596,7 @@ describe('generalService tests', () => {
       sinon.restore();
     });
 
-    it('should return false if getZelnodeStatus returns error', async () => {
+    it('should return false if getFluxnodeStatus returns error', async () => {
       getFluxNodeStatusStub.returns(
         {
           status: 'error',
@@ -611,7 +611,7 @@ describe('generalService tests', () => {
       expect(result).to.eql(false);
     });
 
-    it('should return true if getZelnodeStatus returns succcess and confirmed status', async () => {
+    it('should return true if getFluxnodeStatus returns succcess and confirmed status', async () => {
       getFluxNodeStatusStub.returns(
         {
           status: 'success',
@@ -626,7 +626,7 @@ describe('generalService tests', () => {
       expect(result).to.eql(true);
     });
 
-    it('should return false if getZelnodeStatus returns succcess and any other status', async () => {
+    it('should return false if getFluxnodeStatus returns succcess and any other status', async () => {
       getFluxNodeStatusStub.returns(
         {
           status: 'success',
@@ -657,7 +657,7 @@ describe('generalService tests', () => {
       sinon.restore();
     });
 
-    it('should return false if getZelnodeStatus returns error', async () => {
+    it('should return false if getFluxnodeStatus returns error', async () => {
       isDaemonSyncedStub.returns(
         {
           data: {

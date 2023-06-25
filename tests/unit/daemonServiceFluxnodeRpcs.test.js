@@ -156,7 +156,7 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
     });
   });
 
-  describe('zelNodeCurrentWinner tests', () => {
+  describe('fluxNodeCurrentWinner tests', () => {
     let daemonServiceUtilsStub;
 
     beforeEach(() => {
@@ -172,7 +172,7 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
 
       const expectedResponse = 'success';
 
-      const result = await daemonServiceFluxnodeRpcs.zelNodeCurrentWinner();
+      const result = await daemonServiceFluxnodeRpcs.fluxNodeCurrentWinner();
 
       expect(result).to.equal(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zelnodecurrentwinner');
@@ -184,7 +184,7 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
       const res = generateResponse();
       const expectedResponse = 'success';
 
-      const result = await daemonServiceFluxnodeRpcs.zelNodeCurrentWinner(undefined, res);
+      const result = await daemonServiceFluxnodeRpcs.fluxNodeCurrentWinner(undefined, res);
 
       expect(result).to.equal(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
@@ -192,7 +192,7 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
     });
   });
 
-  describe('zelNodeDebug tests', () => {
+  describe('fluxNodeDebug tests', () => {
     let daemonServiceUtilsStub;
 
     beforeEach(() => {
@@ -208,7 +208,7 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
 
       const expectedResponse = 'success';
 
-      const result = await daemonServiceFluxnodeRpcs.zelNodeDebug();
+      const result = await daemonServiceFluxnodeRpcs.fluxNodeDebug();
 
       expect(result).to.equal(expectedResponse);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'zelnodedebug');
@@ -220,7 +220,7 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
       const res = generateResponse();
       const expectedResponse = 'success';
 
-      const result = await daemonServiceFluxnodeRpcs.zelNodeDebug(undefined, res);
+      const result = await daemonServiceFluxnodeRpcs.fluxNodeDebug(undefined, res);
 
       expect(result).to.equal(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);

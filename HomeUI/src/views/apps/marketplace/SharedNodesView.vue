@@ -1999,7 +1999,7 @@ export default {
     };
 
     const getNodeCount = async () => {
-      const response = await DashboardService.zelnodeCount();
+      const response = await DashboardService.fluxnodeCount();
       if (response.data.status === 'error') {
         showToast({
           component: ToastificationContent,
