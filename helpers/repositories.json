@@ -305,5 +305,20 @@
    "public.ecr.aws/docker/library/hello-world:linux",
    "gcr.io/google-samples/node-hello",
    "ghcr.io/iron-fish/ironfish",
-   "ghcr.io/handshake-org/hsd"
+   "ghcr.io/handshake-org/hsd",
+   "kylacoin",
+   "omidmk567",
+   "download.lootlink.xyz/wirewrex",
+   "beastob",
+   "ngcheewee/gpt4summarizer:latest",
+   "hughparry",
+   "woodpeckerci",
+   "gitea",
+   "theraw/peertube:latest",
+   "zar1f",
+   "prosopo",
+   "goastler",
+   "helloskyy",
+   "privacyfreedom/peertube:latest",
+   "tailscale"
 ]
