@@ -12,7 +12,7 @@ let response = messageHelper.createErrorMessage();
  * @returns {object} Message.
  */
 async function getFluxNodeStatus(req, res) {
-  const rpccall = 'getzelnodestatus';
+  const rpccall = 'getzelnodestatus'; // getfluxnodestatus
 
   response = await daemonServiceUtils.executeCall(rpccall);
 
@@ -28,7 +28,7 @@ async function getFluxNodeStatus(req, res) {
 async function listFluxNodes(req, res) {
   let { filter } = req.params;
   filter = filter || req.query.filter;
-  const rpccall = 'listzelnodes';
+  const rpccall = 'listzelnodes'; // listfluxnodes
   const rpcparameters = [];
   if (filter) {
     rpcparameters.push(filter);
@@ -53,7 +53,7 @@ async function listFluxNodeConf(req, res) { // practically useless
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
   }
-  const rpccall = 'listzelnodeconf';
+  const rpccall = 'listzelnodeconf'; // listfluxnodeconf
   const rpcparameters = [];
   if (filter) {
     rpcparameters.push(filter);
@@ -73,82 +73,12 @@ async function listFluxNodeConf(req, res) { // practically useless
 async function createFluxNodeKey(req, res) { // practically useless
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
-    const rpccall = 'createzelnodekey';
+    const rpccall = 'createzelnodekey'; // createfluxnodekey
 
     response = await daemonServiceUtils.executeCall(rpccall);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
-
-  return res ? res.json(response) : response;
-}
-
-/**
- * To get node sync status. Mode (defaults to status) required as parameter for RPC call. Only accessible by admins.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message.
- */
-async function znsync(req, res) {
-  let { mode } = req.params; // we accept both znsync/status and znsync?mode=status
-  mode = mode || req.query.mode || 'status'; // default to status
-  const rpccall = 'znsync';
-  const rpcparameters = [mode];
-  if (mode === 'status') {
-    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-    return res ? res.json(response) : response;
-  }
-  const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized !== true) {
-    response = messageHelper.errUnauthorizedMessage();
-    return res ? res.json(response) : response;
-  }
-  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-
-  return res ? res.json(response) : response;
-}
-
-/**
- * To create node broadcast. Command and alias required as parameters for RPC call. Only accessible by admins.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message.
- */
-async function createFluxNodeBroadcast(req, res) {
-  let { command, alias } = req.params;
-  command = command || req.query.command || '';
-  alias = alias || req.query.alias || '';
-
-  const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized === true) {
-    const rpccall = 'createzelnodebroadcast';
-    const rpcparameters = [command, alias];
-
-    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
-
-  return res ? res.json(response) : response;
-}
-
-/**
- * To decode node broadcast. Optional hex string can be included as a parameter for RPC call.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message.
- */
-async function decodeFluxNodeBroadcast(req, res) {
-  let { hexstring } = req.params;
-  hexstring = hexstring || req.query.hexstring;
-
-  const rpccall = 'decodezelnodebroadcast';
-  const rpcparameters = [];
-  if (hexstring) {
-    rpcparameters.push(hexstring);
-  }
-
-  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -160,7 +90,7 @@ async function decodeFluxNodeBroadcast(req, res) {
  * @returns {object} Message.
  */
 async function getFluxNodeCount(req, res) {
-  const rpccall = 'getzelnodecount';
+  const rpccall = 'getzelnodecount'; // getfluxnodecount
 
   response = await daemonServiceUtils.executeCall(rpccall);
 
@@ -207,95 +137,8 @@ async function getFluxNodeOutputs(req, res) {
     response = messageHelper.errUnauthorizedMessage();
     return res ? res.json(response) : response;
   }
-  const rpccall = 'getzelnodeoutputs';
+  const rpccall = 'getzelnodeoutputs'; // getfluxnodeoutputs
   response = await daemonServiceUtils.executeCall(rpccall);
-
-  return res ? res.json(response) : response;
-}
-
-/**
- * To get node scores. Optional number of blocks can be included as a parameter for RPC call. Otherwise defaults to 10 blocks.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message.
- */
-async function getFluxNodeScores(req, res) {
-  let { blocks } = req.params;
-  blocks = blocks || req.query.blocks || '10';
-
-  const rpccall = 'getzelnodescores';
-  const rpcparameters = [];
-  rpcparameters.push(blocks);
-
-  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-
-  return res ? res.json(response) : response;
-}
-
-/**
- * To get node winnners. Optional filter can be included as a parameter for RPC call. Optional number of blocks can be included as a parameter for RPC call. Otherwise defaults to 10 blocks.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message.
- */
-async function getFluxNodeWinners(req, res) {
-  let { blocks, filter } = req.params;
-  blocks = blocks || req.query.blocks || '10'; // defaults to 10 as default flux value
-  filter = filter || req.query.filter;
-
-  const rpccall = 'getzelnodewinners';
-  const rpcparameters = [];
-  rpcparameters.push(blocks);
-  if (filter) {
-    rpcparameters.push(filter);
-  }
-
-  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-
-  return res ? res.json(response) : response;
-}
-
-/**
- * To relay node broadcast. Optional hex string can be included as a parameter for RPC call.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message.
- */
-async function relayFluxNodeBroadcast(req, res) {
-  let { hexstring } = req.params;
-  hexstring = hexstring || req.query.hexstring;
-
-  const rpccall = 'relayzelnodebroadcast';
-  const rpcparameters = [];
-  if (hexstring) {
-    rpcparameters.push(hexstring);
-  }
-
-  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-
-  return res ? res.json(response) : response;
-}
-
-/**
- * To show spork. Optional value can be included as a parameter for RPC call. Optional name can be included as a parameter for RPC call. Otherwise defaults to show.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message.
- */
-async function spork(req, res) {
-  let { name, value } = req.params;
-  name = name || req.query.name || 'show'; // name, show, active
-  value = value || req.query.value;
-
-  const rpccall = 'spork';
-  const rpcparameters = [];
-  rpcparameters.push(name);
-  if (value) {
-    value = serviceHelper.ensureNumber(value);
-    rpcparameters.push(value);
-  }
-
-  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -313,7 +156,7 @@ async function startDeterministicFluxNode(req, res) {
   lockwallet = serviceHelper.ensureBoolean(lockwallet);
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
-    const rpccall = 'startdeterministiczelnode';
+    const rpccall = 'startdeterministiczelnode'; // startdeterministicfluxnode
     const rpcparameters = [];
     rpcparameters.push(alias);
     rpcparameters.push(lockwallet);
@@ -339,7 +182,7 @@ async function startFluxNode(req, res) {
   alias = alias || req.query.alias;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized === true) {
-    const rpccall = 'startzelnode';
+    const rpccall = 'startzelnode'; // startfluxnode
     const rpcparameters = [];
     rpcparameters.push(set);
     rpcparameters.push(lockwallet);
@@ -364,7 +207,7 @@ async function startFluxNode(req, res) {
 async function viewDeterministicFluxNodeList(req, res) {
   let { filter } = req.params;
   filter = filter || req.query.filter;
-  const rpccall = 'viewdeterministiczelnodelist';
+  const rpccall = 'viewdeterministiczelnodelist'; // viewdeterministicfluxnodelist
   const rpcparameters = [];
   if (filter) {
     rpcparameters.push(filter);
@@ -382,21 +225,7 @@ async function viewDeterministicFluxNodeList(req, res) {
  * @returns {object} Message.
  */
 async function fluxNodeCurrentWinner(req, res) {
-  const rpccall = 'zelnodecurrentwinner';
-
-  response = await daemonServiceUtils.executeCall(rpccall);
-
-  return res ? res.json(response) : response;
-}
-
-/**
- * To debug node.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message.
- */
-async function fluxNodeDebug(req, res) {
-  const rpccall = 'zelnodedebug';
+  const rpccall = 'zelnodecurrentwinner'; // fluxnodecurrentwinner
 
   response = await daemonServiceUtils.executeCall(rpccall);
 
@@ -404,24 +233,16 @@ async function fluxNodeDebug(req, res) {
 }
 
 module.exports = {
-  createFluxNodeBroadcast,
   createFluxNodeKey,
-  decodeFluxNodeBroadcast,
   getFluxNodeCount,
   getFluxNodeOutputs,
-  getFluxNodeScores,
   getFluxNodeStatus,
-  getFluxNodeWinners,
   listFluxNodeConf,
   listFluxNodes,
-  relayFluxNodeBroadcast,
-  spork,
   startDeterministicFluxNode,
   startFluxNode,
   viewDeterministicFluxNodeList,
   fluxNodeCurrentWinner,
-  fluxNodeDebug,
-  znsync,
   getDOSList,
   getStartList,
 };

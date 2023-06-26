@@ -44,34 +44,25 @@ module.exports = (app, expressWs) => {
   app.get('/daemon/getfluxnodestatus', cache('30 seconds'), (req, res) => {
     daemonServiceNodeRpcs.getFluxNodeStatus(req, res);
   });
-  app.get('/daemon/getzelnodestatus', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/getzelnodestatus', cache('30 seconds'), (req, res) => { // DEPRECATED
     daemonServiceNodeRpcs.getFluxNodeStatus(req, res);
   });
   app.get('/daemon/listfluxnodes/:filter?', cache('30 seconds'), (req, res) => {
     daemonServiceNodeRpcs.listFluxNodes(req, res);
   });
-  app.get('/daemon/listzelnodes/:filter?', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/listzelnodes/:filter?', cache('30 seconds'), (req, res) => { // DEPRECATED
     daemonServiceNodeRpcs.listFluxNodes(req, res);
   });
   app.get('/daemon/viewdeterministicfluxnodelist/:filter?', cache('30 seconds'), (req, res) => {
     daemonServiceNodeRpcs.viewDeterministicFluxNodeList(req, res);
   });
-  app.get('/daemon/viewdeterministiczelnodelist/:filter?', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/viewdeterministiczelnodelist/:filter?', cache('30 seconds'), (req, res) => { // DEPRECATED
     daemonServiceNodeRpcs.viewDeterministicFluxNodeList(req, res);
-  });
-  app.get('/daemon/znsync/:mode?', cache('30 seconds'), (req, res) => {
-    daemonServiceNodeRpcs.znsync(req, res);
-  });
-  app.get('/daemon/decodefluxnodebroadcast/:hexstring?', cache('30 seconds'), (req, res) => {
-    daemonServiceNodeRpcs.decodeFluxNodeBroadcast(req, res);
-  });
-  app.get('/daemon/decodezelnodebroadcast/:hexstring?', cache('30 seconds'), (req, res) => {
-    daemonServiceNodeRpcs.decodeFluxNodeBroadcast(req, res);
   });
   app.get('/daemon/getfluxnodecount', cache('30 seconds'), (req, res) => {
     daemonServiceNodeRpcs.getFluxNodeCount(req, res);
   });
-  app.get('/daemon/getzelnodecount', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/getzelnodecount', cache('30 seconds'), (req, res) => { // DEPRECATED
     daemonServiceNodeRpcs.getFluxNodeCount(req, res);
   });
   app.get('/daemon/getdoslist', cache('30 seconds'), (req, res) => {
@@ -80,32 +71,11 @@ module.exports = (app, expressWs) => {
   app.get('/daemon/getstartlist', cache('30 seconds'), (req, res) => {
     daemonServiceNodeRpcs.getStartList(req, res);
   });
-  app.get('/daemon/getfluxnodescores/:blocks?', cache('30 seconds'), (req, res) => { // defaults to 10
-    daemonServiceNodeRpcs.getFluxNodeScores(req, res);
-  });
-  app.get('/daemon/getzelnodescores/:blocks?', cache('30 seconds'), (req, res) => { // defaults to 10
-    daemonServiceNodeRpcs.getFluxNodeScores(req, res);
-  });
-  app.get('/daemon/getfluxnodewinners/:blocks?/:filter?', cache('30 seconds'), (req, res) => {
-    daemonServiceNodeRpcs.getFluxNodeWinners(req, res);
-  });
-  app.get('/daemon/getzelnodewinners/:blocks?/:filter?', cache('30 seconds'), (req, res) => {
-    daemonServiceNodeRpcs.getFluxNodeWinners(req, res);
-  });
-  app.get('/daemon/relayfluxnodebroadcast/:hexstring?', cache('30 seconds'), (req, res) => {
-    daemonServiceNodeRpcs.relayFluxNodeBroadcast(req, res);
-  });
-  app.get('/daemon/relayzelnodebroadcast/:hexstring?', cache('30 seconds'), (req, res) => {
-    daemonServiceNodeRpcs.relayFluxNodeBroadcast(req, res);
-  });
   app.get('/daemon/spork/:name?/:value?', cache('30 seconds'), (req, res) => {
     daemonServiceNodeRpcs.spork(req, res);
   });
   app.get('/daemon/fluxcurrentwinner', cache('30 seconds'), (req, res) => {
     daemonServiceNodeRpcs.fluxNodeCurrentWinner(req, res);
-  });
-  app.get('/daemon/fluxdebug', cache('30 seconds'), (req, res) => {
-    daemonServiceNodeRpcs.fluxNodeDebug(req, res);
   });
   app.get('/daemon/getbestblockhash', cache('30 seconds'), (req, res) => {
     daemonServiceBlockchainRpcs.getBestBlockHash(req, res);
@@ -246,10 +216,10 @@ module.exports = (app, expressWs) => {
   app.get('/id/emergencyphrase', (req, res) => {
     idService.emergencyPhrase(req, res);
   });
-  app.get('/zelid/loginphrase', (req, res) => {
+  app.get('/zelid/loginphrase', (req, res) => { // DEPRECATED
     idService.loginPhrase(req, res);
   });
-  app.get('/zelid/emergencyphrase', (req, res) => {
+  app.get('/zelid/emergencyphrase', (req, res) => { // DEPRECATED
     idService.emergencyPhrase(req, res);
   });
 
@@ -271,7 +241,7 @@ module.exports = (app, expressWs) => {
   app.get('/flux/staticip', cache('30 seconds'), (req, res) => {
     fluxService.isStaticIPapi(req, res);
   });
-  app.get('/flux/zelid', cache('30 seconds'), (req, res) => {
+  app.get('/flux/zelid', cache('30 seconds'), (req, res) => { // DEPERCATED
     fluxService.getFluxZelID(req, res);
   });
   app.get('/flux/id', cache('30 seconds'), (req, res) => {
@@ -356,7 +326,7 @@ module.exports = (app, expressWs) => {
   app.get('/apps/locations', cache('30 seconds'), (req, res) => {
     appsService.getAppsLocations(req, res);
   });
-  app.post('/apps/calculateprice', (req, res) => { // returns price in zel for both new registration of app and update of app
+  app.post('/apps/calculateprice', (req, res) => { // returns price in flux for both new registration of app and update of app
     appsService.getAppPrice(req, res);
   });
   app.get('/apps/whitelistedrepositories', cache('30 seconds'), (req, res) => {
@@ -427,13 +397,13 @@ module.exports = (app, expressWs) => {
   app.get('/id/logoutallsessions', cache('30 seconds'), (req, res) => {
     idService.logoutAllSessions(req, res);
   });
-  app.get('/zelid/loggedsessions', cache('30 seconds'), (req, res) => {
+  app.get('/zelid/loggedsessions', cache('30 seconds'), (req, res) => { // DEPRECATED
     idService.loggedSessions(req, res);
   });
-  app.get('/zelid/logoutcurrentsession', cache('30 seconds'), (req, res) => {
+  app.get('/zelid/logoutcurrentsession', cache('30 seconds'), (req, res) => { // DEPRECATED
     idService.logoutCurrentSession(req, res);
   });
-  app.get('/zelid/logoutallsessions', cache('30 seconds'), (req, res) => {
+  app.get('/zelid/logoutallsessions', cache('30 seconds'), (req, res) => { // DEPRECATED
     idService.logoutAllSessions(req, res);
   });
 
@@ -632,37 +602,31 @@ module.exports = (app, expressWs) => {
   app.get('/daemon/createfluxnodekey', (req, res) => {
     daemonServiceNodeRpcs.createFluxNodeKey(req, res);
   });
-  app.get('/daemon/createzelnodekey', (req, res) => {
+  app.get('/daemon/createzelnodekey', (req, res) => { // DEPRECATED
     daemonServiceNodeRpcs.createFluxNodeKey(req, res);
-  });
-  app.get('/daemon/createfluxnodebroadcast/:command?/:alias?', (req, res) => {
-    daemonServiceNodeRpcs.createFluxNodeBroadcast(req, res);
-  });
-  app.get('/daemon/createzelnodebroadcast/:command?/:alias?', (req, res) => {
-    daemonServiceNodeRpcs.createFluxNodeBroadcast(req, res);
   });
   app.get('/daemon/listfluxnodeconf/:filter?', (req, res) => {
     daemonServiceNodeRpcs.listFluxNodeConf(req, res);
   });
-  app.get('/daemon/listzelnodeconf/:filter?', (req, res) => {
+  app.get('/daemon/listzelnodeconf/:filter?', (req, res) => { // DEPRECATED
     daemonServiceNodeRpcs.listFluxNodeConf(req, res);
   });
   app.get('/daemon/getfluxnodeoutputs', (req, res) => {
     daemonServiceNodeRpcs.getFluxNodeOutputs(req, res);
   });
-  app.get('/daemon/getzelnodeoutputs', (req, res) => {
+  app.get('/daemon/getzelnodeoutputs', (req, res) => { // DEPRECATED
     daemonServiceNodeRpcs.getFluxNodeOutputs(req, res);
   });
   app.get('/daemon/startfluxnode/:set?/:lockwallet?/:alias?', (req, res) => {
     daemonServiceNodeRpcs.startFluxNode(req, res);
   });
-  app.get('/daemon/startzelnode/:set?/:lockwallet?/:alias?', (req, res) => {
+  app.get('/daemon/startzelnode/:set?/:lockwallet?/:alias?', (req, res) => { // DEPRECATED
     daemonServiceNodeRpcs.startFluxNode(req, res);
   });
   app.get('/daemon/startdeterministicfluxnode/:alias?/:lockwallet?', (req, res) => {
     daemonServiceNodeRpcs.startDeterministicFluxNode(req, res);
   });
-  app.get('/daemon/startdeterministiczelnode/:alias?/:lockwallet?', (req, res) => {
+  app.get('/daemon/startdeterministiczelnode/:alias?/:lockwallet?', (req, res) => { // DEPRECATED
     daemonServiceNodeRpcs.startDeterministicFluxNode(req, res);
   });
   app.get('/daemon/verifychain/:checklevel?/:numblocks?', (req, res) => {
@@ -858,13 +822,13 @@ module.exports = (app, expressWs) => {
   app.get('/id/logoutallusers', (req, res) => {
     idService.logoutAllUsers(req, res);
   });
-  app.get('/zelid/loggedusers', (req, res) => {
+  app.get('/zelid/loggedusers', (req, res) => { // DEPRECATED
     idService.loggedUsers(req, res);
   });
-  app.get('/zelid/activeloginphrases', (req, res) => {
+  app.get('/zelid/activeloginphrases', (req, res) => { // DEPRECATED
     idService.activeLoginPhrases(req, res);
   });
-  app.get('/zelid/logoutallusers', (req, res) => {
+  app.get('/zelid/logoutallusers', (req, res) => { // DEPRECATED
     idService.logoutAllUsers(req, res);
   });
 
@@ -881,7 +845,7 @@ module.exports = (app, expressWs) => {
   app.get('/benchmark/signfluxnodetransaction/:hexstring?', (req, res) => {
     benchmarkService.signFluxTransaction(req, res);
   });
-  app.get('/benchmark/signzelnodetransaction/:hexstring?', (req, res) => {
+  app.get('/benchmark/signzelnodetransaction/:hexstring?', (req, res) => { // DEPRECATED
     benchmarkService.signFluxTransaction(req, res);
   });
   app.get('/benchmark/stop', (req, res) => {
@@ -1136,13 +1100,13 @@ module.exports = (app, expressWs) => {
   app.post('/id/checkprivilege', (req, res) => {
     idService.checkLoggedUser(req, res);
   });
-  app.post('/zelid/verifylogin', (req, res) => {
+  app.post('/zelid/verifylogin', (req, res) => { // DEPRECATED
     idService.verifyLogin(req, res);
   });
-  app.post('/zelid/providesign', (req, res) => {
+  app.post('/zelid/providesign', (req, res) => { // DEPRECATED
     idService.provideSign(req, res);
   });
-  app.post('/zelid/checkprivilege', (req, res) => {
+  app.post('/zelid/checkprivilege', (req, res) => { // DEPRECATED
     idService.checkLoggedUser(req, res);
   });
 
@@ -1193,7 +1157,7 @@ module.exports = (app, expressWs) => {
   app.post('/id/logoutspecificsession', (req, res) => { // requires the knowledge of a session loginPhrase so users level is sufficient and user cannot logout another user as he does not know the loginPhrase.
     idService.logoutSpecificSession(req, res);
   });
-  app.post('/zelid/logoutspecificsession', (req, res) => { // requires the knowledge of a session loginPhrase so users level is sufficient and user cannot logout another user as he does not know the loginPhrase.
+  app.post('/zelid/logoutspecificsession', (req, res) => { // DEPRECATED
     idService.logoutSpecificSession(req, res);
   });
 
@@ -1243,7 +1207,7 @@ module.exports = (app, expressWs) => {
   app.post('/benchmark/signfluxnodetransaction', (req, res) => {
     benchmarkService.signFluxTransactionPost(req, res);
   });
-  app.post('/benchmark/signzelnodetransaction', (req, res) => {
+  app.post('/benchmark/signzelnodetransaction', (req, res) => { // DEPRECATED
     benchmarkService.signFluxTransactionPost(req, res);
   });
 
@@ -1320,7 +1284,7 @@ module.exports = (app, expressWs) => {
   app.ws('/ws/id/:loginphrase', (ws, req) => {
     idService.wsRespondLoginPhrase(ws, req);
   });
-  app.ws('/ws/zelid/:loginphrase', (ws, req) => {
+  app.ws('/ws/zelid/:loginphrase', (ws, req) => { // DEPRECATED
     idService.wsRespondLoginPhrase(ws, req);
   });
   app.ws('/ws/sign/:message', (ws, req) => {
