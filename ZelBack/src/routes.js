@@ -71,9 +71,6 @@ module.exports = (app, expressWs) => {
   app.get('/daemon/getstartlist', cache('30 seconds'), (req, res) => {
     daemonServiceNodeRpcs.getStartList(req, res);
   });
-  app.get('/daemon/spork/:name?/:value?', cache('30 seconds'), (req, res) => {
-    daemonServiceNodeRpcs.spork(req, res);
-  });
   app.get('/daemon/fluxcurrentwinner', cache('30 seconds'), (req, res) => {
     daemonServiceNodeRpcs.fluxNodeCurrentWinner(req, res);
   });
