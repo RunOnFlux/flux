@@ -1139,11 +1139,16 @@ async function getAllFluxTransactions(req, res) {
         collateralHash: 1,
         collateralIndex: 1,
         zelAddress: 1,
+        fluxAddress: 1,
         lockedAmount: 1,
         height: 1,
       },
     };
     const results = await dbHelper.findInDatabase(database, fluxTransactionCollection, query, projection);
+    results.forEach((rec) => {
+      // eslint-disable-next-line no-param-reassign
+      rec.fluxAddress = rec.fluxAddress || rec.zelAddress;
+    });
     const resMessage = messageHelper.createDataMessage(results);
     res.json(resMessage);
   } catch (error) {
@@ -1356,11 +1361,16 @@ async function getFilteredFluxTxs(req, res) {
         collateralHash: 1,
         collateralIndex: 1,
         zelAddress: 1,
+        fluxAddress: 1,
         lockedAmount: 1,
         height: 1,
       },
     };
     const results = await dbHelper.findInDatabase(database, fluxTransactionCollection, query, projection);
+    results.forEach((rec) => {
+      // eslint-disable-next-line no-param-reassign
+      rec.fluxAddress = rec.fluxAddress || rec.zelAddress;
+    });
     const resMessage = messageHelper.createDataMessage(results);
     res.json(resMessage);
   } catch (error) {
