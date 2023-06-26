@@ -103,7 +103,6 @@ function verifyMessage(message, address, signature, strMessageMagic, checkSegwit
     isValid = bitcoinMessage.verify(message, signingAddress, signature, strMessageMagic, checkSegwitAlways);
   } catch (e) {
     log.error(e);
-    isValid = e;
   }
   return isValid;
 }

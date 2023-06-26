@@ -1,5 +1,4 @@
 const config = require('config');
-const bitcoinMessage = require('bitcoinjs-message');
 const qs = require('qs');
 const os = require('os');
 
@@ -14,8 +13,10 @@ const dockerService = require('./dockerService');
 const syncthingService = require('./syncthingService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const appsService = require('./appsService');
+const signatureVerifier = require('./signatureVerifier');
 
 const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/;
+const ethRegex = /^0x[a-fA-F0-9]{40}$/gm;
 
 let syncthingWorking = false;
 
@@ -243,15 +244,18 @@ async function verifyLogin(req, res) {
         throw new Error('No ZelID is specified');
       }
 
-      if (!goodchars.test(address)) {
+      if (address[0] !== '1' && address[0] !== '0') {
         throw new Error('ZelID is not valid');
       }
 
-      if (address[0] !== '1') {
-        throw new Error('ZelID is not valid');
-      }
-
-      if (address.length > 34 || address.length < 25) {
+      if (address[0] === '1') {
+        if (!goodchars.test(address)) {
+          throw new Error('ZelID is not valid');
+        }
+        if (address.length > 34 || address.length < 25) {
+          throw new Error('ZelID is not valid');
+        }
+      } else if (!ethRegex.test(address)) {
         throw new Error('ZelID is not valid');
       }
 
@@ -285,7 +289,7 @@ async function verifyLogin(req, res) {
           // Second verify that this address signed this message
           let valid = false;
           try {
-            valid = bitcoinMessage.verify(message, address, signature);
+            valid = signatureVerifier.verifySignature(message, address, signature);
           } catch (error) {
             throw new Error('Invalid signature');
           }
@@ -371,15 +375,18 @@ async function provideSign(req, res) {
         throw new Error('No ZelID is specified');
       }
 
-      if (!goodchars.test(address)) {
+      if (address[0] !== '1' && address[0] !== '0') {
         throw new Error('ZelID is not valid');
       }
 
-      if (address[0] !== '1') {
-        throw new Error('ZelID is not valid');
-      }
-
-      if (address.length > 34 || address.length < 25) {
+      if (address[0] === '1') {
+        if (!goodchars.test(address)) {
+          throw new Error('ZelID is not valid');
+        }
+        if (address.length > 34 || address.length < 25) {
+          throw new Error('ZelID is not valid');
+        }
+      } else if (!ethRegex.test(address)) {
         throw new Error('ZelID is not valid');
       }
 

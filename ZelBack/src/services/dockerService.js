@@ -391,7 +391,7 @@ async function dockerContainerLogs(idOrName, lines) {
     follow: false,
     stdout: true,
     stderr: true,
-    tail: lines,
+    tail: lines, // TODO FIXME when using tail, some nodes hang on execution, those nodes need to update, upgrade restart docker daemon.
   };
   const logs = await dockerContainer.logs(options);
   return logs.toString();
