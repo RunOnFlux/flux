@@ -111,7 +111,7 @@ async function startFluxFunctions() {
       log.info('Flux Block Processing Service started');
     }, 2 * 60 * 1000);
     setTimeout(() => {
-      appsService.checkForNonAllowedAppsOnLocalNetwork();
+      // appsService.checkForNonAllowedAppsOnLocalNetwork();
       appsService.checkMyAppsAvailability(); // periodically checks
     }, 3 * 60 * 1000);
     setTimeout(() => {
@@ -121,10 +121,7 @@ async function startFluxFunctions() {
       }, 60 * 60 * 1000);
     }, 4 * 60 * 1000);
     setTimeout(() => {
-      appsService.syncthingApps(); // after 6 mins adjust our syncthing configuration
-      setInterval(() => { // recheck and possibly adjust syncthing configuration every minute
-        appsService.syncthingApps();
-      }, 1 * 60 * 1000);
+      appsService.syncthingApps(); // rechecks and possibly adjust syncthing configuration every minute
     }, 6 * 60 * 1000);
     setInterval(() => { // every 12 mins (6 blocks)
       appsService.continuousFluxAppHashesCheck();

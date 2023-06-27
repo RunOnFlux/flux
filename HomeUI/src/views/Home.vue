@@ -59,7 +59,7 @@
         </dd>
         <dd class="col-sm-8">
           <b-card-text class="text-center">
-            or sign the following message with any Bitcoin address
+            or sign the following message with any ZelID/Bitcoin/Ethereum address
           </b-card-text>
           <b-form
             class="mx-5"

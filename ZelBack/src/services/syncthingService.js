@@ -29,7 +29,7 @@ const parserOptions = {
 };
 const parser = new XMLParser(parserOptions);
 
-const goodSyncthingChars = /^[a-zA-Z0-9-]+$/;
+const goodSyncthingChars = /^[a-zA-Z0-9-_]+$/;
 
 /**
  * To get syncthing config xml file
@@ -2018,7 +2018,7 @@ async function startSyncthing() {
       await serviceHelper.delay(10 * 1000);
       await cmdAsync(execKill).catch((error) => log.error(error));
       await cmdAsync(execKillB).catch((error) => log.error(error));
-      const exec = 'sudo nohup syncthing -logfile $HOME/.config/syncthing/syncthing.log --allow-newer-config --no-browser --home=$HOME/.config/syncthing &';
+      const exec = 'sudo nohup syncthing -logfile $HOME/.config/syncthing/syncthing.log --logflags=3 --log-max-old-files=2 --log-max-size=26214400 --allow-newer-config --no-browser --home=$HOME/.config/syncthing &';
       log.info('Spawning Syncthing instance...');
       nodecmd.get(exec, async (err) => {
         if (err) {
