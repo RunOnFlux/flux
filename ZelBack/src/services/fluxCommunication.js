@@ -102,8 +102,7 @@ async function handleAppRunningMessage(message, fromIP) {
 function handleIncomingConnection(ws, req, expressWS) {
   // now we are in connections state. push the websocket to our incomingconnections
   const maxPeers = 4 * config.fluxapps.minIncoming;
-  // eslint-disable-next-line no-nested-ternary
-  const maxNumberOfConnections = numberOfFluxNodes === 0 ? 0 : numberOfFluxNodes / 40 < 9 * config.fluxapps.minIncoming ? numberOfFluxNodes / 40 : 9 * config.fluxapps.minIncoming;
+  const maxNumberOfConnections = numberOfFluxNodes / 40 < 9 * config.fluxapps.minIncoming ? numberOfFluxNodes / 40 : 9 * config.fluxapps.minIncoming;
   const maxCon = Math.max(maxPeers, maxNumberOfConnections);
   if (incomingConnections.length > maxCon) {
     setTimeout(() => {
@@ -574,17 +573,21 @@ async function fluxDiscovery() {
     let sortedNodeList = sortedNodeListCache.get('sortedNodeList');
     if (!sortedNodeList) {
       log.info('sortedNodeList not found in cache');
-      sortedNodeList = [...nodeList];
-      // eslint-disable-next-line no-nested-ternary
-      sortedNodeList.sort((a, b) => (a.added_height > b.added_height ? 1 : b.added_height > a.added_height ? -1 : b.txhash > a.txhash ? 1 : -1));
+      sortedNodeList = nodeList;
+      sortedNodeList.sort((a, b) => {
+        if (a.added_height > b.added_height) return 1;
+        if (b.added_height > a.added_height) return -1;
+        if (b.txhash > a.txhash) return 1;
+        return 0;
+      });
       sortedNodeListCache.set('sortedNodeList', sortedNodeList);
       log.info('sortedNodeList stored in cache');
     }
     log.info('Searching for my node on sortedNodeList');
     const fluxNodeIndex = sortedNodeList.findIndex((node) => node.ip === myIP);
     log.info(`My node was found on index: ${fluxNodeIndex} of ${sortedNodeList.length} nodes`);
-    const minDeterministicOutPeers = 8;
-    const minDeterministicIncPeers = 4;
+    const minDeterministicOutPeers = Math.min(sortedNodeList.length, 2 * config.fluxapps.minOutgoing);
+    const minDeterministicIncPeers = Math.min(sortedNodeList.length, 2 * config.fluxapps.minIncoming);
     log.info(`Current number of outgoing connections:${outgoingConnections.length}`);
     log.info(`Current number of incoming connections:${incomingConnections.length}`);
     // always try to connect to deterministic nodes
@@ -598,6 +601,8 @@ async function fluxDiscovery() {
       if (!clientExists && !clientIncomingExists) {
         log.info(`Adding Flux peer: ${ip}`);
         initiateAndHandleConnection(ip);
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(500);
       }
     }
     // established deterministic 8 incoming connections
@@ -617,7 +622,7 @@ async function fluxDiscovery() {
 
     await serviceHelper.delay(500);
     let index = 0;
-    while (outgoingConnections.length < minDeterministicOutPeers + 4 && index < 100) { // Max of 12 outgoing connections - 8 possible deterministic + min. 4 random
+    while (outgoingConnections.length < (minDeterministicOutPeers + minDeterministicOutPeers / 2) && index < 100) { // Max of 24 outgoing connections - 16 possible deterministic + min. 8 random
       index += 1;
       // eslint-disable-next-line no-await-in-loop
       const connection = await fluxNetworkHelper.getRandomConnection();
