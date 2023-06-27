@@ -586,8 +586,8 @@ async function fluxDiscovery() {
     log.info('Searching for my node on sortedNodeList');
     const fluxNodeIndex = sortedNodeList.findIndex((node) => node.ip === myIP);
     log.info(`My node was found on index: ${fluxNodeIndex} of ${sortedNodeList.length} nodes`);
-    const minDeterministicOutPeers = Math.min(sortedNodeList.length, 2 * config.fluxapps.minOutgoing);
-    const minDeterministicIncPeers = Math.min(sortedNodeList.length, 2 * config.fluxapps.minIncoming);
+    const minDeterministicOutPeers = Math.min(sortedNodeList.length, 1.5 * config.fluxapps.minOutgoing);
+    const minIncomingPeers = Math.min(sortedNodeList.length, 1.5 * config.fluxapps.minIncoming);
     log.info(`Current number of outgoing connections:${outgoingConnections.length}`);
     log.info(`Current number of incoming connections:${incomingConnections.length}`);
     // always try to connect to deterministic nodes
@@ -622,7 +622,7 @@ async function fluxDiscovery() {
 
     await serviceHelper.delay(500);
     let index = 0;
-    while (outgoingConnections.length < (minDeterministicOutPeers + minDeterministicOutPeers / 2) && index < 100) { // Max of 24 outgoing connections - 16 possible deterministic + min. 8 random
+    while (outgoingConnections.length < (minDeterministicOutPeers + minDeterministicOutPeers / 2) && index < 100) { // Max of 18 outgoing connections - 12 possible deterministic + min. 6 random
       index += 1;
       // eslint-disable-next-line no-await-in-loop
       const connection = await fluxNetworkHelper.getRandomConnection();
@@ -640,7 +640,7 @@ async function fluxDiscovery() {
         // Max of 8 incoming connections - 8 possible deterministic + x random if needed;
         // We can have more incoming connections as it will be outgoing connections from other nodes + random
         // we only add randoming incoming peers if currently it's bellow minimum
-        if (incomingConnections.length < minDeterministicIncPeers) {
+        if (incomingConnections.length < minIncomingPeers) {
           // eslint-disable-next-line no-await-in-loop
           const connectionInc = await fluxNetworkHelper.getRandomConnection();
           if (connectionInc) {
