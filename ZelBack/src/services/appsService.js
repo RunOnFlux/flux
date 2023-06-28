@@ -7955,6 +7955,7 @@ function getAppPorts(appSpecs) {
  * Checks if app already has the required number of instances deployed. Checks that application image is not blacklisted. Checks that ports not already in use.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
+let firstExecutionAfterItsSynced = true;
 async function trySpawningGlobalApplication() {
   try {
     // how do we continue with this function?
@@ -7967,6 +7968,13 @@ async function trySpawningGlobalApplication() {
       trySpawningGlobalApplication();
       return;
     }
+    if (firstExecutionAfterItsSynced === true) {
+      log.info('Explorer Synced, checking for expired apps');
+      // eslint-disable-next-line no-use-before-define
+      await expireGlobalApplications();
+      firstExecutionAfterItsSynced = false;
+    }
+
     const isNodeConfirmed = await generalService.isNodeStatusConfirmed();
     if (!isNodeConfirmed) {
       log.info('Flux Node not Confirmed. Global applications will not be installed');
