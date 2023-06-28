@@ -28,19 +28,19 @@
         classes="skinny-list-entry"
       />
       <list-entry
-        v-if="transaction.type === 'Confirming a FluxNode'"
+        v-if="transaction.type === 'Confirming a fluxnode'"
         title="Flux Network"
         :data="transaction.ip"
         classes="skinny-list-entry"
       />
       <list-entry
-        v-if="transaction.type === 'Confirming a FluxNode'"
+        v-if="transaction.type === 'Confirming a fluxnode'"
         title="Update Type"
         :number="transaction.updateType"
         classes="skinny-list-entry"
       />
       <list-entry
-        v-if="transaction.type === 'Confirming a FluxNode'"
+        v-if="transaction.type === 'Confirming a fluxnode'"
         title="Benchmark Tier"
         :data="transaction.benchTier"
         classes="skinny-list-entry"
