@@ -1729,7 +1729,7 @@ export default {
     const userZelid = ref('');
     userZelid.value = props.zelid;
 
-    const apiURL = 'https://titan.runonflux.io';
+    const apiURL = 'https://api.titan.runonflux.io';
 
     const totalReward = ref(0);
     const totalRewardForFee = ref(0);
