@@ -429,7 +429,7 @@ describe('daemonServiceUtilityRpcs tests', () => {
     it('should call rpc, no response, all params in req', async () => {
       const req = {
         params: {
-          zelcashaddress: 'ACEFDABB1235AAC',
+          fluxaddress: 'ACEFDABB1235AAC',
         },
       };
       const expectedResult = {
@@ -440,7 +440,7 @@ describe('daemonServiceUtilityRpcs tests', () => {
       const result = await daemonServiceUtilityRpcs.validateAddress(req);
 
       expect(result).to.eql(expectedResult);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'validateAddress', [req.params.zelcashaddress]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'validateAddress', [req.params.fluxaddress]);
     });
 
     it('should call rpc, no response, all params in query', async () => {
@@ -449,7 +449,7 @@ describe('daemonServiceUtilityRpcs tests', () => {
           test: 'test',
         },
         query: {
-          zelcashaddress: 'ACEFDABB1235AAC',
+          fluxaddress: 'ACEFDABB1235AAC',
         },
       };
       const expectedResult = {
@@ -460,7 +460,7 @@ describe('daemonServiceUtilityRpcs tests', () => {
       const result = await daemonServiceUtilityRpcs.validateAddress(req);
 
       expect(result).to.eql(expectedResult);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'validateAddress', [req.query.zelcashaddress]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'validateAddress', [req.query.fluxaddress]);
     });
 
     it('should call rpc, no response, no params in req', async () => {
@@ -487,7 +487,7 @@ describe('daemonServiceUtilityRpcs tests', () => {
       verifyPrivilegeStub.returns(false);
       const req = {
         params: {
-          zelcashaddress: 'ACEFDABB1235AAC',
+          fluxaddress: 'ACEFDABB1235AAC',
         },
       };
       const expectedResult = {
@@ -501,14 +501,14 @@ describe('daemonServiceUtilityRpcs tests', () => {
 
       expect(result).to.equal(`Response: ${expectedResult}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResult);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'validateAddress', [req.params.zelcashaddress]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'validateAddress', [req.params.fluxaddress]);
     });
 
     it('should trigger rpc, all parameters passed in params, response passed, user is admin', async () => {
       verifyPrivilegeStub.returns(true);
       const req = {
         params: {
-          zelcashaddress: 'ACEFDABB1235AAC',
+          fluxaddress: 'ACEFDABB1235AAC',
         },
       };
       const expectedResult = {
@@ -524,7 +524,7 @@ describe('daemonServiceUtilityRpcs tests', () => {
 
       expect(result).to.equal(`Response: ${expectedResult}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResult);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'validateAddress', [req.params.zelcashaddress]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'validateAddress', [req.params.fluxaddress]);
     });
   });
 
@@ -581,7 +581,7 @@ describe('daemonServiceUtilityRpcs tests', () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
-          zelcashaddress: '112376589445679ACFED',
+          fluxaddress: '112376589445679ACFED',
           signature: '76589445679ACFED',
           message: 'my test message',
         },
@@ -594,10 +594,10 @@ describe('daemonServiceUtilityRpcs tests', () => {
       const result = await daemonServiceUtilityRpcs.verifyMessage(req);
 
       expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'verifyMessage', [req.params.zelcashaddress, req.params.signature, req.params.message]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'verifyMessage', [req.params.fluxaddress, req.params.signature, req.params.message]);
     });
 
-    it('should trigger rpc, data passed in params, no zelcashaddress param,, no response passed', async () => {
+    it('should trigger rpc, data passed in params, no fluxaddress param,, no response passed', async () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
@@ -620,7 +620,7 @@ describe('daemonServiceUtilityRpcs tests', () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
-          zelcashaddress: '112376589445679ACFED',
+          fluxaddress: '112376589445679ACFED',
           message: 'my test message',
         },
         query: {
@@ -639,7 +639,7 @@ describe('daemonServiceUtilityRpcs tests', () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
-          zelcashaddress: '112376589445679ACFED',
+          fluxaddress: '112376589445679ACFED',
           signature: '76589445679ACFED',
         },
         query: {
@@ -661,7 +661,7 @@ describe('daemonServiceUtilityRpcs tests', () => {
           test: 'test',
         },
         query: {
-          zelcashaddress: '112376589445679ACFED',
+          fluxaddress: '112376589445679ACFED',
           signature: '76589445679ACFED',
           message: 'my test message',
         },
@@ -671,7 +671,7 @@ describe('daemonServiceUtilityRpcs tests', () => {
       const result = await daemonServiceUtilityRpcs.verifyMessage(req);
 
       expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'verifyMessage', [req.query.zelcashaddress, req.query.signature, req.query.message]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'verifyMessage', [req.query.fluxaddress, req.query.signature, req.query.message]);
     });
   });
 
@@ -792,7 +792,7 @@ describe('daemonServiceUtilityRpcs tests', () => {
 
     it('should call verifyMessage with all params', async () => {
       const params = {
-        zelcashaddress: '112376589445679ACFED',
+        fluxaddress: '112376589445679ACFED',
         signature: '76589445679ACFED',
         message: 'my test message',
       };
@@ -806,12 +806,12 @@ describe('daemonServiceUtilityRpcs tests', () => {
       await serviceHelper.delay(150);
 
       sinon.assert.calledOnceWithExactly(res.json, execCallResult);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'verifyMessage', [params.zelcashaddress, params.signature, params.message]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'verifyMessage', [params.fluxaddress, params.signature, params.message]);
     });
 
     it('should call createMultiSig with no keys param', async () => {
       const params = {
-        zelcashaddress: '112376589445679ACFED',
+        fluxaddress: '112376589445679ACFED',
         signature: '76589445679ACFED',
       };
       const mockStream = new PassThrough();
@@ -829,7 +829,7 @@ describe('daemonServiceUtilityRpcs tests', () => {
 
     it('should call rpc with no n param', async () => {
       const params = {
-        zelcashaddress: '112376589445679ACFED',
+        fluxaddress: '112376589445679ACFED',
         message: 'my test message',
       };
       const mockStream = new PassThrough();

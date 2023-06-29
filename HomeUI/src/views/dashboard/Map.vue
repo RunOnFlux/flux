@@ -154,7 +154,7 @@ export default {
         this.fluxListLoading = true;
         const resLoc = await axios.get('https://stats.runonflux.io/fluxinfo?projection=geolocation,ip,tier');
         this.fluxList = resLoc.data.data;
-        const resList = await DashboardService.zelnodeCount();
+        const resList = await DashboardService.fluxnodeCount();
         this.fluxNodeCount = resList.data.data.total;
         this.fluxListLoading = false;
         await this.generateMap();
