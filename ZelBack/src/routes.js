@@ -71,7 +71,7 @@ module.exports = (app, expressWs) => {
   app.get('/daemon/getstartlist', cache('30 seconds'), (req, res) => {
     daemonServiceNodeRpcs.getStartList(req, res);
   });
-  app.get('/daemon/fluxcurrentwinner', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/fluxnodecurrentwinner', cache('30 seconds'), (req, res) => {
     daemonServiceNodeRpcs.fluxNodeCurrentWinner(req, res);
   });
   app.get('/daemon/getbestblockhash', cache('30 seconds'), (req, res) => {
