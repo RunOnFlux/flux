@@ -102,11 +102,11 @@ async function handleAppRunningMessage(message, fromIP) {
 function handleIncomingConnection(ws, req, expressWS) {
   // now we are in connections state. push the websocket to our incomingconnections
   const maxPeers = 4 * config.fluxapps.minIncoming;
-  const maxNumberOfConnections = numberOfFluxNodes / 40 < 9 * config.fluxapps.minIncoming ? numberOfFluxNodes / 40 : 9 * config.fluxapps.minIncoming;
+  const maxNumberOfConnections = numberOfFluxNodes / 160 < 9 * config.fluxapps.minIncoming ? numberOfFluxNodes / 160 : 9 * config.fluxapps.minIncoming;
   const maxCon = Math.max(maxPeers, maxNumberOfConnections);
   if (incomingConnections.length > maxCon) {
     setTimeout(() => {
-      ws.close(1000, 'Max number of incomming connections reached');
+      ws.close(1000, `Max number of incomming connections ${maxCon} reached`);
     }, 1000);
     return;
   }
