@@ -1729,7 +1729,7 @@ export default {
     const userZelid = ref('');
     userZelid.value = props.zelid;
 
-    const apiURL = 'https://titan.runonflux.io';
+    const apiURL = 'https://api.titan.runonflux.io';
 
     const totalReward = ref(0);
     const totalRewardForFee = ref(0);
@@ -1999,7 +1999,7 @@ export default {
     };
 
     const getNodeCount = async () => {
-      const response = await DashboardService.zelnodeCount();
+      const response = await DashboardService.fluxnodeCount();
       if (response.data.status === 'error') {
         showToast({
           component: ToastificationContent,

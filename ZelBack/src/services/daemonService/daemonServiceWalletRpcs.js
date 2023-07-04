@@ -181,8 +181,8 @@ async function getRawChangeAddress(req, res) {
  * @returns {object} Message.
  */
 async function getReceivedByAddress(req, res) {
-  let { zelcashaddress, minconf } = req.params;
-  zelcashaddress = zelcashaddress || req.query.zelcashaddress;
+  let { fluxaddress, minconf } = req.params;
+  fluxaddress = fluxaddress || req.query.fluxaddress;
   minconf = minconf || req.query.minconf || 1;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   if (authorized !== true) {
@@ -191,9 +191,9 @@ async function getReceivedByAddress(req, res) {
   }
   const rpccall = 'getReceivedByAddress';
   let rpcparameters = [];
-  if (zelcashaddress) {
+  if (fluxaddress) {
     minconf = serviceHelper.ensureNumber(minconf);
-    rpcparameters = [zelcashaddress, minconf];
+    rpcparameters = [fluxaddress, minconf];
   }
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
@@ -293,8 +293,8 @@ async function importAddress(req, res) {
  * @returns {object} Message.
  */
 async function importPrivKey(req, res) {
-  let { zelcashprivkey, label, rescan } = req.params;
-  zelcashprivkey = zelcashprivkey || req.query.zelcashprivkey;
+  let { fluxprivkey, label, rescan } = req.params;
+  fluxprivkey = fluxprivkey || req.query.fluxprivkey;
   label = label || req.query.label || '';
   rescan = rescan ?? req.query.rescan ?? true;
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
@@ -304,9 +304,9 @@ async function importPrivKey(req, res) {
   }
   const rpccall = 'importPrivKey';
   let rpcparameters = [];
-  if (zelcashprivkey) {
+  if (fluxprivkey) {
     rescan = serviceHelper.ensureBoolean(rescan);
-    rpcparameters = [zelcashprivkey, label, rescan];
+    rpcparameters = [fluxprivkey, label, rescan];
   }
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
@@ -562,9 +562,9 @@ async function lockUnspent(req, res) {
 async function sendFrom(req, res) {
   const account = '';
   let {
-    tozelcashaddress, amount, minconf, comment, commentto,
+    tofluxaddress, amount, minconf, comment, commentto,
   } = req.params;
-  tozelcashaddress = tozelcashaddress || req.query.tozelcashaddress;
+  tofluxaddress = tofluxaddress || req.query.tofluxaddress;
   amount = amount || req.query.amount;
   minconf = minconf || req.query.minconf || 1;
   comment = comment || req.query.comment || '';
@@ -576,10 +576,10 @@ async function sendFrom(req, res) {
   }
   const rpccall = 'sendFrom';
   let rpcparameters = [];
-  if (tozelcashaddress && amount) {
+  if (tofluxaddress && amount) {
     amount = serviceHelper.ensureNumber(amount);
     minconf = serviceHelper.ensureNumber(minconf);
-    rpcparameters = [account, tozelcashaddress, amount, minconf, comment, commentto];
+    rpcparameters = [account, tofluxaddress, amount, minconf, comment, commentto];
   }
 
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
@@ -600,7 +600,7 @@ async function sendFromPost(req, res) {
   });
   req.on('end', async () => {
     const processedBody = serviceHelper.ensureObject(body);
-    const { tozelcashaddress } = processedBody;
+    const { tofluxaddress } = processedBody;
     let {
       amount, minconf, comment, commentto,
     } = processedBody;
@@ -615,10 +615,10 @@ async function sendFromPost(req, res) {
     }
     const rpccall = 'sendFrom';
     let rpcparameters = [];
-    if (tozelcashaddress && amount) {
+    if (tofluxaddress && amount) {
       amount = serviceHelper.ensureNumber(amount);
       minconf = serviceHelper.ensureNumber(minconf);
-      rpcparameters = [account, tozelcashaddress, amount, minconf, comment, commentto];
+      rpcparameters = [account, tofluxaddress, amount, minconf, comment, commentto];
     }
 
     response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
@@ -718,9 +718,9 @@ async function sendManyPost(req, res) {
  */
 async function sendToAddress(req, res) {
   let {
-    zelcashaddress, amount, comment, commentto, substractfeefromamount,
+    fluxaddress, amount, comment, commentto, substractfeefromamount,
   } = req.params;
-  zelcashaddress = zelcashaddress || req.query.zelcashaddress;
+  fluxaddress = fluxaddress || req.query.fluxaddress;
   amount = amount || req.query.amount;
   comment = comment || req.query.comment || '';
   commentto = commentto || req.query.commentto || '';
@@ -732,10 +732,10 @@ async function sendToAddress(req, res) {
   }
   const rpccall = 'sendToAddress';
   let rpcparameters = [];
-  if (zelcashaddress && amount) {
+  if (fluxaddress && amount) {
     amount = serviceHelper.ensureNumber(amount);
     substractfeefromamount = serviceHelper.ensureBoolean(substractfeefromamount);
-    rpcparameters = [zelcashaddress, amount, comment, commentto, substractfeefromamount];
+    rpcparameters = [fluxaddress, amount, comment, commentto, substractfeefromamount];
   }
 
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
@@ -756,7 +756,7 @@ async function sendToAddressPost(req, res) {
   });
   req.on('end', async () => {
     const processedBody = serviceHelper.ensureObject(body);
-    const { zelcashaddress } = processedBody;
+    const { fluxaddress } = processedBody;
     let { amount } = processedBody;
     let { comment } = processedBody;
     let { commentto } = processedBody;
@@ -771,10 +771,10 @@ async function sendToAddressPost(req, res) {
     }
     const rpccall = 'sendToAddress';
     let rpcparameters = [];
-    if (zelcashaddress && amount) {
+    if (fluxaddress && amount) {
       amount = serviceHelper.ensureNumber(amount);
       substractfeefromamount = serviceHelper.ensureBoolean(substractfeefromamount);
-      rpcparameters = [zelcashaddress, amount, comment, commentto, substractfeefromamount];
+      rpcparameters = [fluxaddress, amount, comment, commentto, substractfeefromamount];
     }
 
     response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);

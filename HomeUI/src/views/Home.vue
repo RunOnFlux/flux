@@ -192,7 +192,7 @@ export default {
   },
   mounted() {
     this.daemonGetInfo();
-    this.daemonWelcomeGetZelNodeStatus();
+    this.daemonWelcomeGetFluxNodeStatus();
     this.getZelIdLoginPhrase();
     this.getOwnerZelid();
     this.getStaticIpInfo();
@@ -241,8 +241,8 @@ export default {
       this.getInfoResponse.status = response.data.status;
       this.getInfoResponse.message = response.data.data;
     },
-    async daemonWelcomeGetZelNodeStatus() {
-      const response = await DaemonService.getZelNodeStatus();
+    async daemonWelcomeGetFluxNodeStatus() {
+      const response = await DaemonService.getFluxNodeStatus();
       this.getNodeStatusResponse.status = response.data.status;
       this.getNodeStatusResponse.data = response.data.data;
       if (this.getNodeStatusResponse.data) {

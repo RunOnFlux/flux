@@ -67,11 +67,11 @@ export default {
     };
   },
   mounted() {
-    this.daemonGetZelNodeCount();
+    this.daemonGetFluxNodeCount();
   },
   methods: {
-    async daemonGetZelNodeCount() {
-      const response = await DaemonService.getZelNodeCount();
+    async daemonGetFluxNodeCount() {
+      const response = await DaemonService.getFluxNodeCount();
       if (response.data.status === 'error') {
         this.$toast({
           component: ToastificationContent,

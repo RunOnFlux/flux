@@ -13,7 +13,7 @@ const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBenchmarkRpcs');
 const daemonServiceWalletRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceWalletRpcs');
-const daemonServiceZelnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceZelnodeRpcs');
+const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
@@ -463,10 +463,10 @@ describe('fluxNetworkHelper tests', () => {
   describe('getRandomConnection tests', () => {
     let deterministicFluxListStub;
     const ipList = ['47.199.51.61:16137', '47.199.51.61:16147', '44.192.51.11:16128'];
-    let deterministicZelnodeListResponse;
+    let deterministicFluxnodeListResponse;
 
     beforeEach(() => {
-      deterministicZelnodeListResponse = [
+      deterministicFluxnodeListResponse = [
         {
           collateral: 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)',
           txhash: '38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174',
@@ -531,7 +531,7 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('should return a random ip out of list of nodes', async () => {
-      deterministicZelnodeListResponse = deterministicFluxListStub.returns(deterministicZelnodeListResponse);
+      deterministicFluxnodeListResponse = deterministicFluxListStub.returns(deterministicFluxnodeListResponse);
 
       const getRandomConnectionResponse = await fluxNetworkHelper.getRandomConnection();
 
@@ -539,12 +539,12 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('should return null if ip is the same as userconfig.initial.ipaddress', async () => {
-      const nodesListWrongIp = deterministicZelnodeListResponse.map((node) => node);
+      const nodesListWrongIp = deterministicFluxnodeListResponse.map((node) => node);
       nodesListWrongIp.forEach((node) => {
         // eslint-disable-next-line no-param-reassign
         node.ip = '83.52.214.240';
       });
-      deterministicFluxListStub.returns(deterministicZelnodeListResponse);
+      deterministicFluxListStub.returns(deterministicFluxnodeListResponse);
 
       const getRandomConnectionResponse = await fluxNetworkHelper.getRandomConnection();
 
@@ -552,12 +552,12 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('should return null if ip is null', async () => {
-      const nodesListWrongIp = deterministicZelnodeListResponse.map((node) => node);
+      const nodesListWrongIp = deterministicFluxnodeListResponse.map((node) => node);
       nodesListWrongIp.forEach((node) => {
         // eslint-disable-next-line no-param-reassign
         node.ip = null;
       });
-      deterministicFluxListStub.returns(deterministicZelnodeListResponse);
+      deterministicFluxListStub.returns(deterministicFluxnodeListResponse);
 
       const getRandomConnectionResponse = await fluxNetworkHelper.getRandomConnection();
 
@@ -565,12 +565,12 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('should return null if ip is the same as userconfig.initial.ipaddress', async () => {
-      const nodesListWrongIp = deterministicZelnodeListResponse.map((node) => node);
+      const nodesListWrongIp = deterministicFluxnodeListResponse.map((node) => node);
       nodesListWrongIp.forEach((node) => {
         // eslint-disable-next-line no-param-reassign
         node.ip = '83.52.214.240:16127';
       });
-      deterministicFluxListStub.returns(deterministicZelnodeListResponse);
+      deterministicFluxListStub.returns(deterministicFluxnodeListResponse);
 
       const getRandomConnectionResponse = await fluxNetworkHelper.getRandomConnection();
 
@@ -1104,7 +1104,7 @@ describe('fluxNetworkHelper tests', () => {
     beforeEach(() => {
       fluxNetworkHelper.setStoredFluxBenchAllowed('4.0.0');
       fluxNetworkHelper.setMyFluxIp('129.3.3.3');
-      const deterministicZelnodeListResponse = [
+      const deterministicFluxnodeListResponse = [
         {
           collateral: 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)',
           txhash: '38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174',
@@ -1124,7 +1124,7 @@ describe('fluxNetworkHelper tests', () => {
           rank: 0,
         },
       ];
-      sinon.stub(fluxCommunicationUtils, 'deterministicFluxList').returns(deterministicZelnodeListResponse);
+      sinon.stub(fluxCommunicationUtils, 'deterministicFluxList').returns(deterministicFluxnodeListResponse);
       sinon.stub(daemonServiceWalletRpcs, 'createConfirmationTransaction').returns(true);
       sinon.stub(serviceHelper, 'delay').returns(true);
     });
@@ -1353,15 +1353,15 @@ describe('fluxNetworkHelper tests', () => {
     let getBenchmarksStub;
     let isDaemonSyncedStub;
     let deterministicFluxListStub;
-    let getZelNodeStatusStub;
-    let deterministicZelnodeListResponse;
+    let getFluxNodeStatusStub;
+    let deterministicFluxnodeListResponse;
 
     beforeEach(() => {
       fluxNetworkHelper.setStoredFluxBenchAllowed('4.0.0');
       fluxNetworkHelper.setMyFluxIp('129.3.3.3');
       sinon.stub(daemonServiceWalletRpcs, 'createConfirmationTransaction').returns(true);
       sinon.stub(serviceHelper, 'delay').returns(true);
-      deterministicZelnodeListResponse = [
+      deterministicFluxnodeListResponse = [
         {
           collateral: 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)',
           txhash: '38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174',
@@ -1383,7 +1383,7 @@ describe('fluxNetworkHelper tests', () => {
       getBenchmarksStub = sinon.stub(daemonServiceBenchmarkRpcs, 'getBenchmarks');
       isDaemonSyncedStub = sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced');
       deterministicFluxListStub = sinon.stub(fluxCommunicationUtils, 'deterministicFluxList');
-      getZelNodeStatusStub = sinon.stub(daemonServiceZelnodeRpcs, 'getZelNodeStatus');
+      getFluxNodeStatusStub = sinon.stub(daemonServiceFluxnodeRpcs, 'getFluxNodeStatus');
       fluxNetworkHelper.setDosMessage(null);
       fluxNetworkHelper.setDosStateValue(0);
     });
@@ -1400,8 +1400,8 @@ describe('fluxNetworkHelper tests', () => {
       };
       getBenchmarksStub.resolves(getBenchmarkResponseData);
       isDaemonSyncedStub.returns({ data: { synced: true } });
-      deterministicFluxListStub.returns(deterministicZelnodeListResponse);
-      getZelNodeStatusStub.returns(
+      deterministicFluxListStub.returns(deterministicFluxnodeListResponse);
+      getFluxNodeStatusStub.returns(
         {
           status: 'success',
           data: {
@@ -1418,7 +1418,7 @@ describe('fluxNetworkHelper tests', () => {
 
     it('should find the same node instances and warn about earlier collision detection', async () => {
       const multipleNodesList = [
-        deterministicZelnodeListResponse[0],
+        deterministicFluxnodeListResponse[0],
         {
           collateral: 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)',
           txhash: '38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174',
@@ -1446,7 +1446,7 @@ describe('fluxNetworkHelper tests', () => {
       getBenchmarksStub.resolves(getBenchmarkResponseData);
       isDaemonSyncedStub.returns({ data: { synced: true } });
       deterministicFluxListStub.returns(multipleNodesList);
-      getZelNodeStatusStub.returns(
+      getFluxNodeStatusStub.returns(
         {
           status: 'success',
           data: {
@@ -1469,8 +1469,8 @@ describe('fluxNetworkHelper tests', () => {
       };
       getBenchmarksStub.resolves(getBenchmarkResponseData);
       isDaemonSyncedStub.returns({ data: { synced: true } });
-      deterministicFluxListStub.returns(deterministicZelnodeListResponse);
-      getZelNodeStatusStub.returns(
+      deterministicFluxListStub.returns(deterministicFluxnodeListResponse);
+      getFluxNodeStatusStub.returns(
         {
           status: 'success',
           data: {

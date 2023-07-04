@@ -1,10 +1,10 @@
 import Api from '@/services/Api';
 
 export default {
-  listZelNodes() {
+  listFluxNodes() {
     return Api().get('/daemon/listzelnodes');
   },
-  zelnodeCount() {
+  fluxnodeCount() {
     return Api().get('/daemon/getzelnodecount');
   },
   blockReward() {
