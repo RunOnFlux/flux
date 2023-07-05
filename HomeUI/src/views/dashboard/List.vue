@@ -176,7 +176,7 @@ export default {
         this.fluxListLoading = true;
         const resLoc = await axios.get('https://stats.runonflux.io/fluxlocations');
         const locations = resLoc.data.data;
-        const resList = await DashboardService.listZelNodes();
+        const resList = await DashboardService.listFluxNodes();
         const fluxList = resList.data.data;
         const adjustedFluxList = [];
         fluxList.forEach((node) => {

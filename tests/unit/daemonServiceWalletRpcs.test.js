@@ -1065,7 +1065,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       const req = {
         params: {
           minconf: '3',
-          zelcashaddress: '1111ZZZZACEF12345',
+          fluxaddress: '1111ZZZZACEF12345',
         },
         query: {
           test: 'test',
@@ -1133,7 +1133,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       const req = {
         params: {
           minconf: '3',
-          zelcashaddress: '1111ZZZZACEF12345',
+          fluxaddress: '1111ZZZZACEF12345',
         },
         query: {
           test: 'test',
@@ -1144,14 +1144,14 @@ describe('daemonServiceWalletRpcs tests', () => {
       const result = await daemonServiceWalletRpcs.getReceivedByAddress(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getReceivedByAddress', [req.params.zelcashaddress, +req.params.minconf]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getReceivedByAddress', [req.params.fluxaddress, +req.params.minconf]);
     });
 
     it('should trigger rpc, no minconf param, no response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
-        params: { zelcashaddress: '1111ZZZZACEF12345' },
+        params: { fluxaddress: '1111ZZZZACEF12345' },
         query: {
           test: 'test',
         },
@@ -1161,10 +1161,10 @@ describe('daemonServiceWalletRpcs tests', () => {
       const result = await daemonServiceWalletRpcs.getReceivedByAddress(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getReceivedByAddress', [req.params.zelcashaddress, 1]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getReceivedByAddress', [req.params.fluxaddress, 1]);
     });
 
-    it('should trigger rpc, no zelcashadress, no response passed', async () => {
+    it('should trigger rpc, no fluxaddress, no response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -1189,7 +1189,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       const req = {
         query: {
           minconf: '3',
-          zelcashaddress: '1111ZZZZACEF12345',
+          fluxaddress: '1111ZZZZACEF12345',
         },
         params: {
           test: 'test',
@@ -1200,7 +1200,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       const result = await daemonServiceWalletRpcs.getReceivedByAddress(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getReceivedByAddress', [req.query.zelcashaddress, +req.query.minconf]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getReceivedByAddress', [req.query.fluxaddress, +req.query.minconf]);
     });
   });
 
@@ -1747,7 +1747,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       const res = generateResponse();
       const req = {
         params: {
-          zelcashprivkey: '111Z12345',
+          fluxprivkey: '111Z12345',
           label: 'somelabel',
           rescan: 'false',
         },
@@ -1816,7 +1816,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
-          zelcashprivkey: '111Z12345',
+          fluxprivkey: '111Z12345',
           label: 'somelabel',
           rescan: 'false',
         },
@@ -1829,7 +1829,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       const result = await daemonServiceWalletRpcs.importPrivKey(req);
 
       expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'importPrivKey', [req.params.zelcashprivkey, req.params.label, false]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'importPrivKey', [req.params.fluxprivkey, req.params.label, false]);
     });
 
     it('should trigger rpc, no rescan in params, no response passed', async () => {
@@ -1837,7 +1837,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
-          zelcashprivkey: '111Z12345',
+          fluxprivkey: '111Z12345',
           label: 'somelabel',
         },
         query: {
@@ -1849,10 +1849,10 @@ describe('daemonServiceWalletRpcs tests', () => {
       const result = await daemonServiceWalletRpcs.importPrivKey(req);
 
       expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'importPrivKey', [req.params.zelcashprivkey, req.params.label, true]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'importPrivKey', [req.params.fluxprivkey, req.params.label, true]);
     });
 
-    it('should trigger rpc, no zelcashprivkey in params, no response passed', async () => {
+    it('should trigger rpc, no fluxprivkey in params, no response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -1877,7 +1877,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
-          zelcashprivkey: '111Z12345',
+          fluxprivkey: '111Z12345',
           rescan: false,
         },
         query: {
@@ -1889,7 +1889,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       const result = await daemonServiceWalletRpcs.importPrivKey(req);
 
       expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'importPrivKey', [req.params.zelcashprivkey, '', false]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'importPrivKey', [req.params.fluxprivkey, '', false]);
     });
 
     it('should trigger rpc, data passed in query, no response passed', async () => {
@@ -1900,7 +1900,7 @@ describe('daemonServiceWalletRpcs tests', () => {
           test: 'test',
         },
         query: {
-          zelcashprivkey: '111Z12345',
+          fluxprivkey: '111Z12345',
           label: 'somelabel',
           rescan: false,
         },
@@ -1910,7 +1910,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       const result = await daemonServiceWalletRpcs.importPrivKey(req);
 
       expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'importPrivKey', [req.query.zelcashprivkey, req.query.label, false]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'importPrivKey', [req.query.fluxprivkey, req.query.label, false]);
     });
   });
 
@@ -3567,7 +3567,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       verifyPrivilegeStub.returns(false);
       const req = {
         params: {
-          tozelcashaddress: '1111ZASCVDF',
+          tofluxaddress: '1111ZASCVDF',
           amount: '111111',
           minconf: '3',
           comment: 'testcomment',
@@ -3597,7 +3597,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       const res = generateResponse();
       const req = {
         params: {
-          tozelcashaddress: '1111ZASCVDF',
+          tofluxaddress: '1111ZASCVDF',
           amount: '111111',
           minconf: '3',
           comment: 'testcomment',
@@ -3668,7 +3668,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
-          tozelcashaddress: '1111ZASCVDF',
+          tofluxaddress: '1111ZASCVDF',
           amount: '111111',
           minconf: '3',
           comment: 'testcomment',
@@ -3683,10 +3683,10 @@ describe('daemonServiceWalletRpcs tests', () => {
       const result = await daemonServiceWalletRpcs.sendFrom(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendFrom', ['', req.params.tozelcashaddress, +req.params.amount, +req.params.minconf, req.params.comment, req.params.commentto]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendFrom', ['', req.params.tofluxaddress, +req.params.amount, +req.params.minconf, req.params.comment, req.params.commentto]);
     });
 
-    it('should trigger rpc, no tozelcashaddress, no response passed', async () => {
+    it('should trigger rpc, no tofluxaddress, no response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -3713,7 +3713,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
-          tozelcashaddress: '1111ZASCVDF',
+          tofluxaddress: '1111ZASCVDF',
           minconf: '3',
           comment: 'testcomment',
           commentto: 'testcommentto',
@@ -3735,7 +3735,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
-          tozelcashaddress: '1111ZASCVDF',
+          tofluxaddress: '1111ZASCVDF',
           amount: '111111',
           comment: 'testcomment',
           commentto: 'testcommentto',
@@ -3749,7 +3749,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       const result = await daemonServiceWalletRpcs.sendFrom(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendFrom', ['', req.params.tozelcashaddress, +req.params.amount, 1, req.params.comment, req.params.commentto]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendFrom', ['', req.params.tofluxaddress, +req.params.amount, 1, req.params.comment, req.params.commentto]);
     });
 
     it('should trigger rpc, no comment, no response passed', async () => {
@@ -3757,7 +3757,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
-          tozelcashaddress: '1111ZASCVDF',
+          tofluxaddress: '1111ZASCVDF',
           amount: '111111',
           minconf: '3',
           commentto: 'testcommentto',
@@ -3771,7 +3771,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       const result = await daemonServiceWalletRpcs.sendFrom(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendFrom', ['', req.params.tozelcashaddress, +req.params.amount, +req.params.minconf, '', req.params.commentto]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendFrom', ['', req.params.tofluxaddress, +req.params.amount, +req.params.minconf, '', req.params.commentto]);
     });
 
     it('should trigger rpc, no commentto, no response passed', async () => {
@@ -3779,7 +3779,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
-          tozelcashaddress: '1111ZASCVDF',
+          tofluxaddress: '1111ZASCVDF',
           amount: '111111',
           minconf: '3',
           comment: 'testcomment',
@@ -3793,7 +3793,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       const result = await daemonServiceWalletRpcs.sendFrom(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendFrom', ['', req.params.tozelcashaddress, +req.params.amount, +req.params.minconf, req.params.comment, '']);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendFrom', ['', req.params.tofluxaddress, +req.params.amount, +req.params.minconf, req.params.comment, '']);
     });
 
     it('should trigger rpc, data in query, no response passed', async () => {
@@ -3801,7 +3801,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         query: {
-          tozelcashaddress: '1111ZASCVDF',
+          tofluxaddress: '1111ZASCVDF',
           amount: '111111',
           minconf: '3',
           comment: 'testcomment',
@@ -3816,7 +3816,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       const result = await daemonServiceWalletRpcs.sendFrom(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendFrom', ['', req.query.tozelcashaddress, +req.query.amount, +req.query.minconf, req.query.comment, req.query.commentto]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendFrom', ['', req.query.tofluxaddress, +req.query.amount, +req.query.minconf, req.query.comment, req.query.commentto]);
     });
   });
 
@@ -3880,7 +3880,7 @@ describe('daemonServiceWalletRpcs tests', () => {
     it('should call rpc with all params', async () => {
       verifyPrivilegeStub.returns(true);
       const params = {
-        tozelcashaddress: '1111ZASCVDF',
+        tofluxaddress: '1111ZASCVDF',
         amount: '111111',
         minconf: '3',
         comment: 'testcomment',
@@ -3896,10 +3896,10 @@ describe('daemonServiceWalletRpcs tests', () => {
       await serviceHelper.delay(150);
 
       sinon.assert.calledOnceWithExactly(res.json, execCallResult);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendFrom', ['', params.tozelcashaddress, +params.amount, +params.minconf, params.comment, params.commentto]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendFrom', ['', params.tofluxaddress, +params.amount, +params.minconf, params.comment, params.commentto]);
     });
 
-    it('should call rpc with no tozelcashaddress param', async () => {
+    it('should call rpc with no tofluxaddress param', async () => {
       verifyPrivilegeStub.returns(true);
       const params = {
         amount: '111111',
@@ -3923,7 +3923,7 @@ describe('daemonServiceWalletRpcs tests', () => {
     it('should call rpc with no amount param', async () => {
       verifyPrivilegeStub.returns(true);
       const params = {
-        tozelcashaddress: '1111ZASCVDF',
+        tofluxaddress: '1111ZASCVDF',
         minconf: '3',
         comment: 'testcomment',
         commentto: 'testcommentto',
@@ -3944,7 +3944,7 @@ describe('daemonServiceWalletRpcs tests', () => {
     it('should call rpc with no minconf param', async () => {
       verifyPrivilegeStub.returns(true);
       const params = {
-        tozelcashaddress: '1111ZASCVDF',
+        tofluxaddress: '1111ZASCVDF',
         amount: '111111',
         comment: 'testcomment',
         commentto: 'testcommentto',
@@ -3959,13 +3959,13 @@ describe('daemonServiceWalletRpcs tests', () => {
       await serviceHelper.delay(150);
 
       sinon.assert.calledOnceWithExactly(res.json, execCallResult);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendFrom', ['', params.tozelcashaddress, +params.amount, 1, params.comment, params.commentto]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendFrom', ['', params.tofluxaddress, +params.amount, 1, params.comment, params.commentto]);
     });
 
     it('should call rpc with no comment param', async () => {
       verifyPrivilegeStub.returns(true);
       const params = {
-        tozelcashaddress: '1111ZASCVDF',
+        tofluxaddress: '1111ZASCVDF',
         amount: '111111',
         minconf: '3',
         commentto: 'testcommentto',
@@ -3980,13 +3980,13 @@ describe('daemonServiceWalletRpcs tests', () => {
       await serviceHelper.delay(150);
 
       sinon.assert.calledOnceWithExactly(res.json, execCallResult);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendFrom', ['', params.tozelcashaddress, +params.amount, +params.minconf, '', params.commentto]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendFrom', ['', params.tofluxaddress, +params.amount, +params.minconf, '', params.commentto]);
     });
 
     it('should call rpc with no commentto param', async () => {
       verifyPrivilegeStub.returns(true);
       const params = {
-        tozelcashaddress: '1111ZASCVDF',
+        tofluxaddress: '1111ZASCVDF',
         amount: '111111',
         minconf: '3',
         comment: 'testcomment',
@@ -4001,7 +4001,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       await serviceHelper.delay(150);
 
       sinon.assert.calledOnceWithExactly(res.json, execCallResult);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendFrom', ['', params.tozelcashaddress, +params.amount, +params.minconf, params.comment, '']);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendFrom', ['', params.tofluxaddress, +params.amount, +params.minconf, params.comment, '']);
     });
   });
 
@@ -4509,7 +4509,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       verifyPrivilegeStub.returns(false);
       const req = {
         params: {
-          zelcashaddress: '1111ZZZZASD',
+          fluxaddress: '1111ZZZZASD',
           amount: '123456',
           comment: 'testcomment',
           commentto: 'testcommentto',
@@ -4539,7 +4539,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       const res = generateResponse();
       const req = {
         params: {
-          zelcashaddress: '1111ZZZZASD',
+          fluxaddress: '1111ZZZZASD',
           amount: '123456',
           comment: 'testcomment',
           commentto: 'testcommentto',
@@ -4610,7 +4610,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
-          zelcashaddress: '1111ZZZZASD',
+          fluxaddress: '1111ZZZZASD',
           amount: '123456',
           comment: 'testcomment',
           commentto: 'testcommentto',
@@ -4625,10 +4625,10 @@ describe('daemonServiceWalletRpcs tests', () => {
       const result = await daemonServiceWalletRpcs.sendToAddress(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendToAddress', [req.params.zelcashaddress, +req.params.amount, req.params.comment, req.params.commentto, false]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendToAddress', [req.params.fluxaddress, +req.params.amount, req.params.comment, req.params.commentto, false]);
     });
 
-    it('should trigger rpc, no zelcashaddress, no response passed', async () => {
+    it('should trigger rpc, no fluxaddress, no response passed', async () => {
       verifyPrivilegeStub.returns(true);
       daemonServiceUtilsStub.returns('success');
       const req = {
@@ -4655,7 +4655,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
-          zelcashaddress: '1111ZZZZASD',
+          fluxaddress: '1111ZZZZASD',
           comment: 'testcomment',
           commentto: 'testcommentto',
           substractfeefromamount: 'false',
@@ -4677,7 +4677,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
-          zelcashaddress: '1111ZZZZASD',
+          fluxaddress: '1111ZZZZASD',
           amount: '123456',
           commentto: 'testcommentto',
           substractfeefromamount: 'false',
@@ -4691,7 +4691,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       const result = await daemonServiceWalletRpcs.sendToAddress(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendToAddress', [req.params.zelcashaddress, +req.params.amount, '', req.params.commentto, false]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendToAddress', [req.params.fluxaddress, +req.params.amount, '', req.params.commentto, false]);
     });
 
     it('should trigger rpc, no commentto, no response passed', async () => {
@@ -4699,7 +4699,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
-          zelcashaddress: '1111ZZZZASD',
+          fluxaddress: '1111ZZZZASD',
           amount: '123456',
           comment: 'testcomment',
           substractfeefromamount: 'false',
@@ -4713,7 +4713,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       const result = await daemonServiceWalletRpcs.sendToAddress(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendToAddress', [req.params.zelcashaddress, +req.params.amount, req.params.comment, '', false]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendToAddress', [req.params.fluxaddress, +req.params.amount, req.params.comment, '', false]);
     });
 
     it('should trigger rpc, no subtractfeefromamount, no response passed', async () => {
@@ -4721,7 +4721,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         params: {
-          zelcashaddress: '1111ZZZZASD',
+          fluxaddress: '1111ZZZZASD',
           amount: '123456',
           comment: 'testcomment',
           commentto: 'testcommentto',
@@ -4735,7 +4735,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       const result = await daemonServiceWalletRpcs.sendToAddress(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendToAddress', [req.params.zelcashaddress, +req.params.amount, req.params.comment, req.params.commentto, false]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendToAddress', [req.params.fluxaddress, +req.params.amount, req.params.comment, req.params.commentto, false]);
     });
 
     it('should trigger rpc, data in query, no response passed', async () => {
@@ -4743,7 +4743,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       daemonServiceUtilsStub.returns('success');
       const req = {
         query: {
-          zelcashaddress: '1111ZZZZASD',
+          fluxaddress: '1111ZZZZASD',
           amount: '123456',
           comment: 'testcomment',
           commentto: 'testcommentto',
@@ -4758,7 +4758,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       const result = await daemonServiceWalletRpcs.sendToAddress(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendToAddress', [req.query.zelcashaddress, +req.query.amount, req.query.comment, req.query.commentto, true]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendToAddress', [req.query.fluxaddress, +req.query.amount, req.query.comment, req.query.commentto, true]);
     });
   });
 
@@ -4822,7 +4822,7 @@ describe('daemonServiceWalletRpcs tests', () => {
     it('should call rpc with all params', async () => {
       verifyPrivilegeStub.returns(true);
       const params = {
-        zelcashaddress: '1111ZZZZASD',
+        fluxaddress: '1111ZZZZASD',
         amount: '123456',
         comment: 'testcomment',
         commentto: 'testcommentto',
@@ -4838,13 +4838,13 @@ describe('daemonServiceWalletRpcs tests', () => {
       await serviceHelper.delay(150);
 
       sinon.assert.calledOnceWithExactly(res.json, execCallResult);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendToAddress', [params.zelcashaddress, +params.amount, params.comment, params.commentto, true]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendToAddress', [params.fluxaddress, +params.amount, params.comment, params.commentto, true]);
     });
 
     it('should call rpc with no amount param', async () => {
       verifyPrivilegeStub.returns(true);
       const params = {
-        zelcashaddress: '1111ZZZZASD',
+        fluxaddress: '1111ZZZZASD',
         comment: 'testcomment',
         commentto: 'testcommentto',
         substractfeefromamount: 'true',
@@ -4862,7 +4862,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendToAddress', []);
     });
 
-    it('should call rpc with no zelcashaddress param', async () => {
+    it('should call rpc with no fluxaddress param', async () => {
       verifyPrivilegeStub.returns(true);
       const params = {
         amount: '123456',
@@ -4886,7 +4886,7 @@ describe('daemonServiceWalletRpcs tests', () => {
     it('should call rpc with no comment param', async () => {
       verifyPrivilegeStub.returns(true);
       const params = {
-        zelcashaddress: '1111ZZZZASD',
+        fluxaddress: '1111ZZZZASD',
         amount: '123456',
         commentto: 'testcommentto',
         substractfeefromamount: 'true',
@@ -4901,13 +4901,13 @@ describe('daemonServiceWalletRpcs tests', () => {
       await serviceHelper.delay(150);
 
       sinon.assert.calledOnceWithExactly(res.json, execCallResult);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendToAddress', [params.zelcashaddress, +params.amount, '', params.commentto, true]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendToAddress', [params.fluxaddress, +params.amount, '', params.commentto, true]);
     });
 
     it('should call rpc with no commentto param', async () => {
       verifyPrivilegeStub.returns(true);
       const params = {
-        zelcashaddress: '1111ZZZZASD',
+        fluxaddress: '1111ZZZZASD',
         amount: '123456',
         comment: 'testcomment',
         substractfeefromamount: 'true',
@@ -4922,12 +4922,12 @@ describe('daemonServiceWalletRpcs tests', () => {
       await serviceHelper.delay(150);
 
       sinon.assert.calledOnceWithExactly(res.json, execCallResult);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendToAddress', [params.zelcashaddress, +params.amount, params.comment, '', true]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendToAddress', [params.fluxaddress, +params.amount, params.comment, '', true]);
     });
     it('should call rpc with no subtractfeefromamount param', async () => {
       verifyPrivilegeStub.returns(true);
       const params = {
-        zelcashaddress: '1111ZZZZASD',
+        fluxaddress: '1111ZZZZASD',
         amount: '123456',
         comment: 'testcomment',
         commentto: 'testcommentto',
@@ -4942,7 +4942,7 @@ describe('daemonServiceWalletRpcs tests', () => {
       await serviceHelper.delay(150);
 
       sinon.assert.calledOnceWithExactly(res.json, execCallResult);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendToAddress', [params.zelcashaddress, +params.amount, params.comment, params.commentto, false]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'sendToAddress', [params.fluxaddress, +params.amount, params.comment, params.commentto, false]);
     });
   });
 

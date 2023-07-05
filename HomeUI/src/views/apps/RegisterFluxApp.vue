@@ -2376,7 +2376,7 @@ export default {
     },
     async getFluxnodeStatus() {
       try {
-        const fluxnodeStatus = await DaemonService.getZelNodeStatus();
+        const fluxnodeStatus = await DaemonService.getFluxNodeStatus();
         if (fluxnodeStatus.data.status === 'error') {
           this.showToast('danger', fluxnodeStatus.data.data.message || fluxnodeStatus.data.data);
         } else {

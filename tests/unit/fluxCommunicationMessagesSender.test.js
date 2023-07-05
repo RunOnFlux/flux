@@ -1855,7 +1855,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
     it('should send a message to incoming and outgoing connections when app message is properly formatted', async () => {
       const temporaryAppMessage = { // specification of temp message, these are not verified in this function
-        type: 'zelnodeapp',
+        type: 'fluxapp',
         version: 3,
         appSpecifications: {
           specs: 'some specs',
@@ -1872,7 +1872,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
       sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match.string);
       sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/type/gm));
-      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/zelnodeapp/gm));
+      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/fluxapp/gm));
       sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/appSpecifications/gm));
       sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/specs/gm));
       sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/specs 2/gm));
@@ -1885,7 +1885,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/signature12345/gm));
       sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match.string);
       sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/type/gm));
-      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/zelnodeapp/gm));
+      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/fluxapp/gm));
       sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/appSpecifications/gm));
       sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/specs/gm));
       sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/specs 2/gm));
@@ -1932,7 +1932,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
     it('should throw an error if the message.version is not a number', async () => {
       const temporaryAppMessage = { // specification of temp message, these are not verified in this function
-        type: 'zelnodeapp',
+        type: 'fluxapp',
         version: '3',
         appSpecifications: {
           specs: 'some specs',
@@ -1953,7 +1953,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
     it('should throw an error if the message.appSpecifications is not an object', async () => {
       const temporaryAppMessage = { // specification of temp message, these are not verified in this function
-        type: 'zelnodeapp',
+        type: 'fluxapp',
         version: 3,
         appSpecifications: 'test',
         hash: '12346789asdfghj',
@@ -1971,7 +1971,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
     it('should throw an error if the message.hash is not a string', async () => {
       const temporaryAppMessage = { // specification of temp message, these are not verified in this function
-        type: 'zelnodeapp',
+        type: 'fluxapp',
         version: 3,
         appSpecifications: {
           specs: 'some specs',
@@ -1992,7 +1992,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
     it('should throw an error if the message.timestamp is not a number', async () => {
       const temporaryAppMessage = { // specification of temp message, these are not verified in this function
-        type: 'zelnodeapp',
+        type: 'fluxapp',
         version: 3,
         appSpecifications: {
           specs: 'some specs',
@@ -2013,7 +2013,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
     it('should throw an error if the message.singature is not a string', async () => {
       const temporaryAppMessage = { // specification of temp message, these are not verified in this function
-        type: 'zelnodeapp',
+        type: 'fluxapp',
         version: 3,
         appSpecifications: {
           specs: 'some specs',
