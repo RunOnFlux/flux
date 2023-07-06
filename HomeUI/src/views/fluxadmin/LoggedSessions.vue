@@ -252,6 +252,7 @@ export default {
             if (row.loginPhrase === auth.loginPhrase) {
               localStorage.removeItem('zelidauth');
               this.$store.commit('flux/setPrivilege', 'none');
+              this.$store.commit('flux/setZelid', '');
               // Navigate back to the home screen
               this.$router.replace('/');
             } else {
@@ -274,6 +275,7 @@ export default {
           } else {
             localStorage.removeItem('zelidauth');
             this.$store.commit('flux/setPrivilege', 'none');
+            this.$store.commit('flux/setZelid', '');
             // Navigate back to the home screen
             this.$router.replace('/');
             this.showToast('success', response.data.data.message || response.data.data);

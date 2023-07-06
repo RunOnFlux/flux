@@ -1535,7 +1535,7 @@
           xs="6"
           lg="4"
         >
-          <b-card title="Sign with Zelcore">
+          <b-card title="Sign with">
             <a
               :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=' + callbackValue"
               @click="initiateSignWS"
@@ -1544,6 +1544,28 @@
                 class="zelidLogin"
                 src="@/assets/images/zelID.svg"
                 alt="Zel ID"
+                height="100%"
+                width="100%"
+              >
+            </a>
+            <a
+              @click="initWalletConnect"
+            >
+              <img
+                class="walletconnectLogin"
+                src="@/assets/images/walletconnect.svg"
+                alt="WalletConnect"
+                height="100%"
+                width="100%"
+              >
+            </a>
+            <a
+              @click="initMetamask"
+            >
+              <img
+                class="metamaskLogin"
+                src="@/assets/images/metamask.svg"
+                alt="Metamask"
                 height="100%"
                 width="100%"
               >
@@ -1877,6 +1899,30 @@ import AppsService from '@/services/AppsService';
 import DaemonService from '@/services/DaemonService';
 import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
 import ListEntry from '@/views/components/ListEntry.vue';
+
+import SignClient from '@walletconnect/sign-client';
+import { WalletConnectModal } from '@walletconnect/modal';
+import { MetaMaskSDK } from '@metamask/sdk';
+
+const projectId = 'df787edc6839c7de49d527bba9199eaa';
+
+const walletConnectOptions = {
+  projectId,
+  metadata: {
+    name: 'Flux Cloud',
+    description: 'Flux, Your Gateway to a Decentralized World',
+    url: 'https://home.runonflux.io',
+    icons: ['https://home.runonflux.io/img/logo.png'],
+  },
+};
+const walletConnectModal = new WalletConnectModal(walletConnectOptions);
+
+const metamaskOptions = {
+  enableDebug: true,
+};
+
+const MMSDK = new MetaMaskSDK(metamaskOptions);
+const ethereum = MMSDK.getProvider();
 
 const qs = require('qs');
 const axios = require('axios');
@@ -3178,6 +3224,121 @@ export default {
         return null;
       }
     },
+    async onSessionConnect(session) {
+      console.log(session);
+      // const msg = `0x${Buffer.from(this.loginPhrase, 'utf8').toString('hex')}`;
+      const result = await this.signClient.request({
+        topic: session.topic,
+        chainId: 'eip155:1',
+        request: {
+          method: 'personal_sign',
+          params: [
+            this.loginPhrase,
+            session.namespaces.eip155.accounts[0].split(':')[2],
+          ],
+        },
+      });
+      console.log(result);
+      this.signature = result;
+    },
+    onSessionUpdate(session) {
+      console.log(session);
+    },
+    async initWalletConnect() {
+      const self = this;
+      if (this.walletConnectButton.disabled) {
+        return;
+      }
+      try {
+        this.walletConnectButton.disabled = true;
+        const signClient = await SignClient.init(walletConnectOptions);
+        this.signClient = signClient;
+        const lastKeyIndex = signClient.session.getAll().length - 1;
+        const lastSession = signClient.session.getAll()[lastKeyIndex];
+        this.onSessionConnect(lastSession);
+        // await this.signClient.ping({ topic: lastSession.topic });
+        signClient.on('session_event', ({ event }) => {
+          console.log(event);
+          // Handle session events, such as "chainChanged", "accountsChanged", etc.
+        });
+
+        signClient.on('session_update', ({ topic, params }) => {
+          const { namespaces } = params;
+          // eslint-disable-next-line no-underscore-dangle
+          const _session = signClient.session.get(topic);
+          // Overwrite the `namespaces` of the existing session with the incoming one.
+          const updatedSession = { ..._session, namespaces };
+          // Integrate the updated session state into your dapp state.
+          self.onSessionUpdate(updatedSession);
+        });
+
+        signClient.on('session_delete', () => {
+          // Session was deleted -> reset the dapp state, clean up from user session, etc.
+        });
+
+        const { uri, approval } = await signClient.connect({
+          // Provide the namespaces and chains (e.g. `eip155` for EVM-based chains) we want to use in this session.
+          requiredNamespaces: {
+            eip155: {
+              methods: [
+                'personal_sign',
+              ],
+              chains: ['eip155:1'],
+              events: ['chainChanged', 'accountsChanged'],
+            },
+          },
+        });
+
+        // Open QRCode modal if a URI was returned (i.e. we're not connecting an existing pairing).
+        if (uri) {
+          walletConnectModal.openModal({ uri });
+          // Await session approval from the wallet.
+          const session = await approval();
+          // Handle the returned session (e.g. update UI to "connected" state).
+          // * You will need to create this function *
+          this.onSessionConnect(session);
+          // Close the QRCode modal in case it was open.
+          walletConnectModal.closeModal();
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        this.walletConnectButton.disabled = false;
+      }
+    },
+    async siwe(siweMessage, from) {
+      try {
+        const msg = `0x${Buffer.from(siweMessage, 'utf8').toString('hex')}`;
+        const sign = await ethereum.request({
+          method: 'personal_sign',
+          params: [msg, from],
+        });
+        console.log(sign); // this is signature
+        this.signature = sign;
+      } catch (error) {
+        console.error(error); // rejection occured
+        this.showToast('danger', error.message);
+      }
+    },
+    async initMetamask() {
+      try {
+        if (!ethereum) {
+          this.showToast('danger', 'Metamask not detected');
+          return;
+        }
+        let account;
+        if (ethereum && !ethereum.selectedAddress) {
+          const accounts = await ethereum.request({ method: 'eth_requestAccounts', params: [] });
+          console.log(accounts);
+          account = accounts[0];
+        } else {
+          account = ethereum.selectedAddress;
+        }
+        this.siwe(this.dataToSign, account);
+      } catch (error) {
+        this.showToast('danger', error.message);
+      }
+    },
   },
 };
 </script>
@@ -3188,9 +3349,37 @@ export default {
   padding-left: 5px;
 }
 .zelidLogin {
-  height: 100px;
+  height: 90px;
+  padding: 10px;
 }
 .zelidLogin img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
+
+.walletconnectLogin {
+  height: 100px;
+  padding: 10px;
+}
+.walletconnectLogin img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
+
+.metamaskLogin {
+  height: 80px;
+  padding: 10px;
+}
+.metamaskLogin img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
+
+.metamaskLogin {
+  height: 80px;
+  padding: 10px;
+}
+.metamaskLogin img {
   -webkit-app-region: no-drag;
   transition: 0.1s;
 }
