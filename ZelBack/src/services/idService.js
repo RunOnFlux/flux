@@ -256,6 +256,12 @@ async function verifyLogin(req, res) {
           throw new Error('ZelID is not valid');
         }
       } else if (!ethRegex.test(address)) {
+        log.error('debug');
+        log.error(address);
+        log.error(processedBody.zelid);
+        log.error(processedBody.address);
+        log.error(processedBody);
+        log.error(body);
         throw new Error('ZelID is not valid');
       }
 
