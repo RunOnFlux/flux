@@ -2286,6 +2286,10 @@ export default {
         totalRows: 1,
       },
       chooseEnterpriseDialog: false,
+      walletConnectButton: {
+        disabled: false,
+      },
+      signClient: null,
     };
   },
   computed: {
@@ -3233,7 +3237,7 @@ export default {
         request: {
           method: 'personal_sign',
           params: [
-            this.loginPhrase,
+            this.dataToSign,
             session.namespaces.eip155.accounts[0].split(':')[2],
           ],
         },
@@ -3255,7 +3259,9 @@ export default {
         this.signClient = signClient;
         const lastKeyIndex = signClient.session.getAll().length - 1;
         const lastSession = signClient.session.getAll()[lastKeyIndex];
+        // TODO check if session is still valid
         this.onSessionConnect(lastSession);
+        // TODO check if session is still valid
         // await this.signClient.ping({ topic: lastSession.topic });
         signClient.on('session_event', ({ event }) => {
           console.log(event);

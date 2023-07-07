@@ -473,6 +473,7 @@ export default {
         this.signClient = signClient;
         const lastKeyIndex = signClient.session.getAll().length - 1;
         const lastSession = signClient.session.getAll()[lastKeyIndex];
+        // TODO check if session is still valid
         this.onSessionConnect(lastSession);
         // await this.signClient.ping({ topic: lastSession.topic });
         signClient.on('session_event', ({ event }) => {
