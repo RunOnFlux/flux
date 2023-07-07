@@ -1901,7 +1901,6 @@ import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
 import ListEntry from '@/views/components/ListEntry.vue';
 
 import SignClient from '@walletconnect/sign-client';
-import { WalletConnectModal } from '@walletconnect/modal';
 import { MetaMaskSDK } from '@metamask/sdk';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
@@ -1915,7 +1914,6 @@ const walletConnectOptions = {
     icons: ['https://home.runonflux.io/img/logo.png'],
   },
 };
-const walletConnectModal = new WalletConnectModal(walletConnectOptions);
 
 const metamaskOptions = {
   enableDebug: true,
@@ -3245,11 +3243,7 @@ export default {
       console.log(result);
       this.signature = result;
     },
-    onSessionUpdate(session) {
-      console.log(session);
-    },
     async initWalletConnect() {
-      const self = this;
       if (this.walletConnectButton.disabled) {
         return;
       }
@@ -3259,55 +3253,14 @@ export default {
         this.signClient = signClient;
         const lastKeyIndex = signClient.session.getAll().length - 1;
         const lastSession = signClient.session.getAll()[lastKeyIndex];
-        // TODO check if session is still valid
-        this.onSessionConnect(lastSession);
-        // TODO check if session is still valid
-        // await this.signClient.ping({ topic: lastSession.topic });
-        signClient.on('session_event', ({ event }) => {
-          console.log(event);
-          // Handle session events, such as "chainChanged", "accountsChanged", etc.
-        });
-
-        signClient.on('session_update', ({ topic, params }) => {
-          const { namespaces } = params;
-          // eslint-disable-next-line no-underscore-dangle
-          const _session = signClient.session.get(topic);
-          // Overwrite the `namespaces` of the existing session with the incoming one.
-          const updatedSession = { ..._session, namespaces };
-          // Integrate the updated session state into your dapp state.
-          self.onSessionUpdate(updatedSession);
-        });
-
-        signClient.on('session_delete', () => {
-          // Session was deleted -> reset the dapp state, clean up from user session, etc.
-        });
-
-        const { uri, approval } = await signClient.connect({
-          // Provide the namespaces and chains (e.g. `eip155` for EVM-based chains) we want to use in this session.
-          requiredNamespaces: {
-            eip155: {
-              methods: [
-                'personal_sign',
-              ],
-              chains: ['eip155:1'],
-              events: ['chainChanged', 'accountsChanged'],
-            },
-          },
-        });
-
-        // Open QRCode modal if a URI was returned (i.e. we're not connecting an existing pairing).
-        if (uri) {
-          walletConnectModal.openModal({ uri });
-          // Await session approval from the wallet.
-          const session = await approval();
-          // Handle the returned session (e.g. update UI to "connected" state).
-          // * You will need to create this function *
-          this.onSessionConnect(session);
-          // Close the QRCode modal in case it was open.
-          walletConnectModal.closeModal();
+        if (lastSession) {
+          this.onSessionConnect(lastSession);
+        } else {
+          throw new Error('WalletConnect session expired. Please log into FluxOS again');
         }
-      } catch (err) {
-        console.error(err);
+      } catch (error) {
+        console.error(error);
+        this.showToast('danger', error.message);
       } finally {
         this.walletConnectButton.disabled = false;
       }

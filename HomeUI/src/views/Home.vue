@@ -471,11 +471,6 @@ export default {
         this.walletConnectButton.disabled = true;
         const signClient = await SignClient.init(walletConnectOptions);
         this.signClient = signClient;
-        const lastKeyIndex = signClient.session.getAll().length - 1;
-        const lastSession = signClient.session.getAll()[lastKeyIndex];
-        // TODO check if session is still valid
-        this.onSessionConnect(lastSession);
-        // await this.signClient.ping({ topic: lastSession.topic });
         signClient.on('session_event', ({ event }) => {
           console.log(event);
           // Handle session events, such as "chainChanged", "accountsChanged", etc.
@@ -519,8 +514,9 @@ export default {
           // Close the QRCode modal in case it was open.
           walletConnectModal.closeModal();
         }
-      } catch (err) {
-        console.error(err);
+      } catch (error) {
+        console.error(error);
+        this.showToast('danger', error.message);
       } finally {
         this.walletConnectButton.disabled = false;
       }
