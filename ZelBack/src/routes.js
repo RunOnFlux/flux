@@ -570,7 +570,7 @@ module.exports = (app, expressWs) => {
   app.get('/syncthing/svc/:deviceid?', cache('30 seconds'), (req, res) => {
     syncthingService.getSvcDeviceID(req, res);
   });
-  app.get('/syncthing/debug/peerCompletion', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/debug/peercompletion', cache('30 seconds'), (req, res) => {
     syncthingService.debugPeerCompletion(req, res);
   });
   app.get('/syncthing/debug/httpmetrics', cache('30 seconds'), (req, res) => {
@@ -1222,7 +1222,7 @@ module.exports = (app, expressWs) => {
   app.post('/syncthing/system/error', (req, res) => {
     syncthingService.postSystemError(req, res);
   });
-  app.get('/syncthing/system/upgrade', (req, res) => {
+  app.post('/syncthing/system/upgrade', (req, res) => {
     syncthingService.postSystemUpgrade(req, res);
   });
   app.post('/syncthing/config', (req, res) => {
