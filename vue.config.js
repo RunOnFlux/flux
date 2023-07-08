@@ -70,6 +70,11 @@ module.exports = {
   },
   chainWebpack: (config) => {
     config.module
+      .rule('walletConnect')
+      .test(/node_modules[\\/](@walletconnect|@wagmi|@web3modal|viem|abitype)/)
+      .use('babel-loader')
+      .loader('babel-loader');
+    config.module
       .rule('vue')
       .use('vue-loader')
       .loader('vue-loader')
