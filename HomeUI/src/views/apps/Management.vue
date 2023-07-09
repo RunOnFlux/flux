@@ -4620,13 +4620,13 @@ export default {
         const appSpecification = this.appUpdateSpecification;
         let secretsPresent = false;
         if (appSpecification.version >= 7) {
+          // construct nodes
+          this.constructNodes();
           // encryption
           // if we have secrets or repoauth
           this.appUpdateSpecification.compose.forEach((component) => {
             if (component.repoauth || component.secrets) {
               secretsPresent = true;
-              // construct nodes
-              this.constructNodes();
               // we must have some nodes
               if (!this.appUpdateSpecification.nodes.length) {
                 throw new Error('Private repositories and secrets can only run on Enterprise Nodes');
