@@ -116,7 +116,7 @@
             />
             <list-entry
               title="Static IP"
-              :data="callResponse.datastaticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
+              :data="callResponse.data.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
             />
             <h4>Composition</h4>
             <div v-if="callResponse.data.version <= 3">
@@ -401,7 +401,7 @@
             />
             <list-entry
               title="Static IP"
-              :data="callBResponse.datastaticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
+              :data="callBResponse.data.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
             />
             <h4>Composition</h4>
             <div v-if="callBResponse.data.version <= 3">
@@ -1449,7 +1449,7 @@
             />
             <list-entry
               title="Static IP"
-              :data="callBResponse.datastaticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
+              :data="callBResponse.data.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
             />
             <h4>Composition</h4>
             <b-card v-if="callBResponse.data.version <= 3">
