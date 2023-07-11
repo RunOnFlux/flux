@@ -12,6 +12,7 @@ export default {
       fluxTeamZelId: config.fluxTeamZelId,
     },
     privilege: 'none', // user, admin, fluxteam
+    zelid: '', // logged user zelid
     fluxVersion: '',
     xdaoOpen: 0,
   },
@@ -23,6 +24,9 @@ export default {
   mutations: {
     setPrivilege(state, privilege) {
       state.privilege = privilege;
+    },
+    setZelid(state, zelid) {
+      state.zelid = zelid;
     },
     setFluxVersion(state, version) {
       state.fluxVersion = version;

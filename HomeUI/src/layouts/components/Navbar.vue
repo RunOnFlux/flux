@@ -43,6 +43,7 @@
     </div>
 
     <b-navbar-nav class="nav align-items-center ml-auto">
+      {{ zelid }}
       <dark-Toggler class="d-block" />
       <menu-Collapse-Toggler class="d-block" />
       <b-button
@@ -108,6 +109,7 @@ export default {
       'userconfig',
       'config',
       'privilege',
+      'zelid',
     ]),
   },
   mounted() {
@@ -155,6 +157,7 @@ export default {
       const auth = qs.parse(zelidauth);
       localStorage.removeItem('zelidauth');
       this.$store.commit('flux/setPrivilege', 'none');
+      this.$store.commit('flux/setZelid', '');
       console.log(auth);
       IDService.logoutCurrentSession(zelidauth)
         .then((response) => {

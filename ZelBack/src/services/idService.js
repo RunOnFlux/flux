@@ -16,7 +16,7 @@ const appsService = require('./appsService');
 const signatureVerifier = require('./signatureVerifier');
 
 const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/;
-const ethRegex = /^0x[a-fA-F0-9]{40}$/gm;
+const ethRegex = /^0x[a-fA-F0-9]{40}$/;
 
 let syncthingWorking = false;
 

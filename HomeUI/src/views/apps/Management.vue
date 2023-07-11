@@ -116,7 +116,7 @@
             />
             <list-entry
               title="Static IP"
-              :data="callResponse.datastaticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
+              :data="callResponse.data.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
             />
             <h4>Composition</h4>
             <div v-if="callResponse.data.version <= 3">
@@ -401,7 +401,7 @@
             />
             <list-entry
               title="Static IP"
-              :data="callBResponse.datastaticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
+              :data="callBResponse.data.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
             />
             <h4>Composition</h4>
             <div v-if="callBResponse.data.version <= 3">
@@ -1449,7 +1449,7 @@
             />
             <list-entry
               title="Static IP"
-              :data="callBResponse.datastaticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
+              :data="callBResponse.data.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
             />
             <h4>Composition</h4>
             <b-card v-if="callBResponse.data.version <= 3">
@@ -3471,7 +3471,7 @@
               xs="6"
               lg="4"
             >
-              <b-card title="Sign with Zelcore">
+              <b-card title="Sign with">
                 <a
                   :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=' + callbackValue"
                   @click="initiateSignWSUpdate"
@@ -3480,6 +3480,28 @@
                     class="zelidLogin"
                     src="@/assets/images/zelID.svg"
                     alt="Zel ID"
+                    height="100%"
+                    width="100%"
+                  >
+                </a>
+                <a
+                  @click="initWalletConnect"
+                >
+                  <img
+                    class="walletconnectLogin"
+                    src="@/assets/images/walletconnect.svg"
+                    alt="WalletConnect"
+                    height="100%"
+                    width="100%"
+                  >
+                </a>
+                <a
+                  @click="initMetamask"
+                >
+                  <img
+                    class="metamaskLogin"
+                    src="@/assets/images/metamask.svg"
+                    alt="Metamask"
                     height="100%"
                     width="100%"
                   >
@@ -3784,6 +3806,28 @@ import ListEntry from '@/views/components/ListEntry.vue';
 import AppsService from '@/services/AppsService';
 import DaemonService from '@/services/DaemonService';
 
+import SignClient from '@walletconnect/sign-client';
+import { MetaMaskSDK } from '@metamask/sdk';
+
+const projectId = 'df787edc6839c7de49d527bba9199eaa';
+
+const walletConnectOptions = {
+  projectId,
+  metadata: {
+    name: 'Flux Cloud',
+    description: 'Flux, Your Gateway to a Decentralized World',
+    url: 'https://home.runonflux.io',
+    icons: ['https://home.runonflux.io/img/logo.png'],
+  },
+};
+
+const metamaskOptions = {
+  enableDebug: true,
+};
+
+const MMSDK = new MetaMaskSDK(metamaskOptions);
+const ethereum = MMSDK.getProvider();
+
 const axios = require('axios');
 const qs = require('qs');
 const store = require('store');
@@ -4019,6 +4063,10 @@ export default {
       },
       chooseEnterpriseDialog: false,
       isPrivateApp: false,
+      walletConnectButton: {
+        disabled: false,
+      },
+      signClient: null,
     };
   },
   computed: {
@@ -4572,13 +4620,13 @@ export default {
         const appSpecification = this.appUpdateSpecification;
         let secretsPresent = false;
         if (appSpecification.version >= 7) {
+          // construct nodes
+          this.constructNodes();
           // encryption
           // if we have secrets or repoauth
           this.appUpdateSpecification.compose.forEach((component) => {
             if (component.repoauth || component.secrets) {
               secretsPresent = true;
-              // construct nodes
-              this.constructNodes();
               // we must have some nodes
               if (!this.appUpdateSpecification.nodes.length) {
                 throw new Error('Private repositories and secrets can only run on Enterprise Nodes');
@@ -5973,6 +6021,78 @@ export default {
         return null;
       }
     },
+    async onSessionConnect(session) {
+      console.log(session);
+      // const msg = `0x${Buffer.from(this.loginPhrase, 'utf8').toString('hex')}`;
+      const result = await this.signClient.request({
+        topic: session.topic,
+        chainId: 'eip155:1',
+        request: {
+          method: 'personal_sign',
+          params: [
+            this.dataToSign,
+            session.namespaces.eip155.accounts[0].split(':')[2],
+          ],
+        },
+      });
+      console.log(result);
+      this.signature = result;
+    },
+    async initWalletConnect() {
+      if (this.walletConnectButton.disabled) {
+        return;
+      }
+      try {
+        this.walletConnectButton.disabled = true;
+        const signClient = await SignClient.init(walletConnectOptions);
+        this.signClient = signClient;
+        const lastKeyIndex = signClient.session.getAll().length - 1;
+        const lastSession = signClient.session.getAll()[lastKeyIndex];
+        if (lastSession) {
+          this.onSessionConnect(lastSession);
+        } else {
+          throw new Error('WalletConnect session expired. Please log into FluxOS again');
+        }
+      } catch (error) {
+        console.error(error);
+        this.showToast('danger', error.message);
+      } finally {
+        this.walletConnectButton.disabled = false;
+      }
+    },
+    async siwe(siweMessage, from) {
+      try {
+        const msg = `0x${Buffer.from(siweMessage, 'utf8').toString('hex')}`;
+        const sign = await ethereum.request({
+          method: 'personal_sign',
+          params: [msg, from],
+        });
+        console.log(sign); // this is signature
+        this.signature = sign;
+      } catch (error) {
+        console.error(error); // rejection occured
+        this.showToast('danger', error.message);
+      }
+    },
+    async initMetamask() {
+      try {
+        if (!ethereum) {
+          this.showToast('danger', 'Metamask not detected');
+          return;
+        }
+        let account;
+        if (ethereum && !ethereum.selectedAddress) {
+          const accounts = await ethereum.request({ method: 'eth_requestAccounts', params: [] });
+          console.log(accounts);
+          account = accounts[0];
+        } else {
+          account = ethereum.selectedAddress;
+        }
+        this.siwe(this.dataToSign, account);
+      } catch (error) {
+        this.showToast('danger', error.message);
+      }
+    },
   },
 };
 </script>
@@ -5991,9 +6111,28 @@ export default {
   width: 105px;
 }
 .zelidLogin {
-  height: 100px;
+  height: 90px;
+  padding: 10px;
 }
 .zelidLogin img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
+
+.walletconnectLogin {
+  height: 100px;
+  padding: 10px;
+}
+.walletconnectLogin img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
+
+.metamaskLogin {
+  height: 80px;
+  padding: 10px;
+}
+.metamaskLogin img {
   -webkit-app-region: no-drag;
   transition: 0.1s;
 }
