@@ -1658,7 +1658,13 @@ async function postDbScan(req, res) {
  * @returns {object} Message
  */
 async function debugPeerCompletion(req, res) {
-  const response = await performRequest('get', '/rest/debug/peerCompletion');
+  const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
+  let response = null;
+  if (authorized === true) {
+    response = await performRequest('get', '/rest/debug/peerCompletion');
+  } else {
+    response = messageHelper.errUnauthorizedMessage();
+  }
   return res ? res.json(response) : response;
 }
 
@@ -1669,7 +1675,13 @@ async function debugPeerCompletion(req, res) {
  * @returns {object} Message
  */
 async function debugHttpmetrics(req, res) {
-  const response = await performRequest('get', '/rest/debug/httpmetrics');
+  const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
+  let response = null;
+  if (authorized === true) {
+    response = await performRequest('get', '/rest/debug/httpmetrics');
+  } else {
+    response = messageHelper.errUnauthorizedMessage();
+  }
   return res ? res.json(response) : response;
 }
 
@@ -1680,7 +1692,13 @@ async function debugHttpmetrics(req, res) {
  * @returns {object} Message
  */
 async function debugCpuprof(req, res) {
-  const response = await performRequest('get', '/rest/debug/cpuprof');
+  const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
+  let response = null;
+  if (authorized === true) {
+    response = await performRequest('get', '/rest/debug/cpuprof');
+  } else {
+    response = messageHelper.errUnauthorizedMessage();
+  }
   return res ? res.json(response) : response;
 }
 
@@ -1691,7 +1709,13 @@ async function debugCpuprof(req, res) {
  * @returns {object} Message
  */
 async function debugHeapprof(req, res) {
-  const response = await performRequest('get', '/rest/debug/heapprof');
+  const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
+  let response = null;
+  if (authorized === true) {
+    response = await performRequest('get', '/rest/debug/heapprof');
+  } else {
+    response = messageHelper.errUnauthorizedMessage();
+  }
   return res ? res.json(response) : response;
 }
 
@@ -1702,7 +1726,13 @@ async function debugHeapprof(req, res) {
  * @returns {object} Message
  */
 async function debugSupport(req, res) {
-  const response = await performRequest('get', '/rest/debug/support');
+  const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
+  let response = null;
+  if (authorized === true) {
+    response = await performRequest('get', '/rest/debug/support');
+  } else {
+    response = messageHelper.errUnauthorizedMessage();
+  }
   return res ? res.json(response) : response;
 }
 
@@ -1729,7 +1759,13 @@ async function debugFile(req, res) {
     } else {
       throw new Error('file parameter is mandatory');
     }
-    const response = await performRequest('get', apiPath);
+    const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
+    let response = null;
+    if (authorized === true) {
+      response = await performRequest('get', apiPath);
+    } else {
+      response = messageHelper.errUnauthorizedMessage();
+    }
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
@@ -1989,6 +2025,13 @@ async function startSyncthing() {
       const restartRequired = await getConfigRestartRequired();
       if (restartRequired.status === 'success' && restartRequired.data.requiresRestart === true) {
         await systemRestart();
+      }
+      // enable gui debugging
+      const currentGUIOptions = await getConfigGui();
+      if (currentGUIOptions.status === 'success') {
+        const newGUIOptions = currentGUIOptions.data;
+        newGUIOptions.debugging = true;
+        await performRequest('patch', '/rest/config/gui', newGUIOptions);
       }
       await serviceHelper.delay(8 * 60 * 1000);
       startSyncthing();
