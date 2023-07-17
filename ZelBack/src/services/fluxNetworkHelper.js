@@ -1352,9 +1352,13 @@ function lruRateLimit(ip, limitPerSecond = 20) {
  * Allow Node to bind to privileged without sudo
  */
 async function allowNodeToBindPrivilegedPorts() {
-  const exec = "sudo setcap 'cap_net_bind_service=+ep' `which node`";
-  const cmdAsync = util.promisify(nodecmd.get);
-  await cmdAsync(exec);
+  try {
+    const exec = "sudo setcap 'cap_net_bind_service=+ep' `which node`";
+    const cmdAsync = util.promisify(nodecmd.get);
+    await cmdAsync(exec);
+  } catch (error) {
+    log.error(error);
+  }
 }
 
 module.exports = {
