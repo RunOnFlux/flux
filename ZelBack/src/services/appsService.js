@@ -9598,6 +9598,7 @@ async function checkMyAppsAvailability() {
     const min = minPort;
     const max = maxPort;
     testingPort = failedPort || Math.floor(Math.random() * (max - min) + min);
+    log.info(`checkMyAppsAvailability testing port ${testingPort}.`);
     const iBP = fluxNetworkHelper.isPortBanned(testingPort);
     if (iBP) {
       failedPort = null;
