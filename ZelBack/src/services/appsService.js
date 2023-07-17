@@ -6034,7 +6034,16 @@ async function storeAppRunningMessage(message) {
   * @param name string
   * @param ip string
   */
-  if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number' || typeof message.broadcastedAt !== 'number' || typeof message.hash !== 'string' || typeof message.name !== 'string' || typeof message.ip !== 'string') {
+  if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
+    || typeof message.broadcastedAt !== 'number' || typeof message.ip !== 'string') {
+    return new Error('Invalid Flux App Running message for storing');
+  }
+
+  if (message.version === 1 && (typeof message.hash !== 'string' || typeof message.name !== 'string')) {
+    return new Error('Invalid Flux App Running message for storing');
+  }
+
+  if (message.version === 2 && !message.apps) {
     return new Error('Invalid Flux App Running message for storing');
   }
 
@@ -6056,30 +6065,73 @@ async function storeAppRunningMessage(message) {
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
-  const newAppRunningMessage = {
-    name: message.name,
-    hash: message.hash, // hash of application specifics that are running
-    ip: message.ip,
-    broadcastedAt: new Date(message.broadcastedAt),
-    expireAt: new Date(validTill),
-  };
 
-  // indexes over name, hash, ip. Then name + ip and name + ip + broadcastedAt.
-  const queryFind = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip, broadcastedAt: { $gte: newAppRunningMessage.broadcastedAt } };
-  const projection = { _id: 0 };
-  // we already have the exact same data
-  const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
-  if (result) {
-    // it is already stored
-    return false;
+  if (message.version === 1) {
+    const newAppRunningMessage = {
+      name: message.name,
+      hash: message.hash, // hash of application specifics that are running
+      ip: message.ip,
+      broadcastedAt: new Date(message.broadcastedAt),
+      expireAt: new Date(validTill),
+    };
+
+    // indexes over name, hash, ip. Then name + ip and name + ip + broadcastedAt.
+    const queryFind = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip, broadcastedAt: { $gte: newAppRunningMessage.broadcastedAt } };
+    const projection = { _id: 0 };
+    // we already have the exact same data
+    const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
+    if (result) {
+      // it is already stored
+      return false;
+    }
+    const queryUpdate = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
+    const update = { $set: newAppRunningMessage };
+    const options = {
+      upsert: true,
+    };
+    await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
+  } else if (message.version === 2) {
+    let messageNotOk = false;
+    for (let i = 0; i < message.apps.length; i += 1) {
+      const app = message.apps[i];
+      if (typeof app.hash !== 'string' || typeof app.name !== 'string') {
+        return new Error('Invalid Flux App Running v2 message for storing');
+      }
+      const newAppRunningMessage = {
+        name: app.name,
+        hash: app.hash, // hash of application specifics that are running
+        ip: message.ip,
+        broadcastedAt: new Date(message.broadcastedAt),
+        expireAt: new Date(validTill),
+      };
+
+      // indexes over name, hash, ip. Then name + ip and name + ip + broadcastedAt.
+      const queryFind = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip, broadcastedAt: { $gte: newAppRunningMessage.broadcastedAt } };
+      const projection = { _id: 0 };
+      // we already have the exact same data
+      // eslint-disable-next-line no-await-in-loop
+      const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
+      if (result) {
+        // found a message that was already stored/bad message
+        messageNotOk = true;
+        break;
+      }
+      const queryUpdate = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
+      const update = { $set: newAppRunningMessage };
+      const options = {
+        upsert: true,
+      };
+      // eslint-disable-next-line no-await-in-loop
+      await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
+    }
+    if (messageNotOk) {
+      return false;
+    }
+  } else {
+    return new Error(`Flux App Running message version ${message.version} not supported`);
   }
-  const queryUpdate = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
-  const update = { $set: newAppRunningMessage };
-  const options = {
-    upsert: true,
-  };
-  await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
-  // it is now stored, rebroadcast
+
+  // all stored, rebroadcast
   return true;
 }
 
