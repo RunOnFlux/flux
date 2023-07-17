@@ -6039,6 +6039,10 @@ async function storeAppRunningMessage(message) {
     return new Error('Invalid Flux App Running message for storing');
   }
 
+  if (message.version !== 1 && message.version !== 2) {
+    return new Error(`Invalid Flux App Running message for storing version ${message.version} not supported`);
+  }
+
   if (message.version === 1 && (typeof message.hash !== 'string' || typeof message.name !== 'string')) {
     return new Error('Invalid Flux App Running message for storing');
   }
@@ -6090,7 +6094,7 @@ async function storeAppRunningMessage(message) {
       upsert: true,
     };
     await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
-  } else if (message.version === 2) {
+  } else {
     let messageNotOk = false;
     for (let i = 0; i < message.apps.length; i += 1) {
       const app = message.apps[i];
@@ -6127,8 +6131,6 @@ async function storeAppRunningMessage(message) {
     if (messageNotOk) {
       return false;
     }
-  } else {
-    return new Error(`Flux App Running message version ${message.version} not supported`);
   }
 
   // all stored, rebroadcast
