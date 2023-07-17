@@ -76,6 +76,8 @@ async function startFluxFunctions() {
     log.info('Flux Apps locations prepared');
     fluxNetworkHelper.adjustFirewall();
     log.info('Firewalls checked');
+    fluxNetworkHelper.allowNodeToBindPrivilegedPorts();
+    log.info('Node allowed to bind privileged ports');
     fluxCommunication.keepConnectionsAlive();
     log.info('Connections polling prepared');
     daemonServiceMiscRpcs.daemonBlockchainInfoService();
