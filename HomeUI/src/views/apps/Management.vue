@@ -2067,7 +2067,7 @@
                             :value="undefined"
                             disabled
                           >
-                            -- Select to restrict Continent  --
+                            -- Select to restrict Continent --
                           </b-form-select-option>
                         </template>
                       </b-form-select>
@@ -2167,7 +2167,7 @@
                             :value="undefined"
                             disabled
                           >
-                            -- Select to ban Continent  --
+                            -- Select to ban Continent --
                           </b-form-select-option>
                         </template>
                       </b-form-select>
@@ -3484,9 +3484,7 @@
                     width="100%"
                   >
                 </a>
-                <a
-                  @click="initWalletConnect"
-                >
+                <a @click="initWalletConnect">
                   <img
                     class="walletconnectLogin"
                     src="@/assets/images/walletconnect.svg"
@@ -3495,9 +3493,7 @@
                     width="100%"
                   >
                 </a>
-                <a
-                  @click="initMetamask"
-                >
+                <a @click="initMetamask">
                   <img
                     class="metamaskLogin"
                     src="@/assets/images/metamask.svg"
@@ -4535,12 +4531,12 @@ export default {
             this.expirePosition = this.getExpirePosition(this.appUpdateSpecification.expire);
           }
           if (this.appUpdateSpecification.version >= 7) {
-            if (this.appUpdateSpecification.nodes) {
+            if (this.appUpdateSpecification.nodes.length) {
               this.isPrivateApp = true;
             }
             // fetch information about enterprise nodes, pgp keys
             this.appUpdateSpecification.nodes.forEach(async (node) => {
-            // fetch pgp key
+              // fetch pgp key
               const keyExists = this.enterprisePublicKeys.find((key) => key.nodeip === node);
               if (!keyExists) {
                 const pgpKey = await this.fetchEnterpriseKey(node);
