@@ -9246,7 +9246,8 @@ async function forceAppRemovals() {
     });
 
     // array of unique main app names
-    const dockerAppsTrueNameB = [...new Set(dockerAppsTrueNames)];
+    let dockerAppsTrueNameB = [...new Set(dockerAppsTrueNames)];
+    dockerAppsTrueNameB = dockerAppsTrueNameB.filter((appName) => appName !== 'watchtower');
     // eslint-disable-next-line no-restricted-syntax
     for (const dApp of dockerAppsTrueNameB) {
       // check if app is in installedApps
@@ -9597,6 +9598,7 @@ async function checkMyAppsAvailability() {
     const min = minPort;
     const max = maxPort;
     testingPort = failedPort || Math.floor(Math.random() * (max - min) + min);
+    log.info(`checkMyAppsAvailability testing port ${testingPort}.`);
     const iBP = fluxNetworkHelper.isPortBanned(testingPort);
     if (iBP) {
       failedPort = null;

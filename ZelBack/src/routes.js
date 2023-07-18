@@ -444,9 +444,6 @@ module.exports = (app, expressWs) => {
   app.get('/syncthing/system/error/:message?', cache('30 seconds'), (req, res) => {
     syncthingService.systemError(req, res);
   });
-  app.get('/syncthing/system/error/:message?', cache('30 seconds'), (req, res) => {
-    syncthingService.systemError(req, res);
-  });
   app.get('/syncthing/system/log/:since?', cache('30 seconds'), (req, res) => {
     syncthingService.systemLog(req, res);
   });
