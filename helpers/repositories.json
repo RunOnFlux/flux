@@ -325,6 +325,5 @@
    "adelkarshenas",
    "gridcloud",
    "snghbeer",
-   "algorand/algod:latest",
-   "algorand/indexer:latest"
+   "algorand/algod:latest"
 ]
