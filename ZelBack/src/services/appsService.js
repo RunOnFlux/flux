@@ -6047,7 +6047,7 @@ async function storeAppRunningMessage(message) {
     return new Error('Invalid Flux App Running message for storing');
   }
 
-  if (message.version === 2 && !message.apps) {
+  if (message.version === 2 && (!message.apps || Array.isArray(message.apps))) {
     return new Error('Invalid Flux App Running message for storing');
   }
 
