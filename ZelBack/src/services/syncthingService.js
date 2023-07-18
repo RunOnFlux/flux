@@ -75,7 +75,7 @@ async function getSyncthingApiKey() { // can throw
  * @param {object} data Request data.
  * @returns {object} Message.
  */
-async function performRequest(method = 'get', urlpath = '', data) {
+async function performRequest(method = 'get', urlpath = '', data, timeout = 5000) {
   try {
     if (!syncthingApiKey) {
       const apiKey = await getSyncthingApiKey();
@@ -83,7 +83,7 @@ async function performRequest(method = 'get', urlpath = '', data) {
     }
     const instance = axios.create({
       baseURL: syncthingURL,
-      timeout: 5000,
+      timeout,
       headers: {
         'X-API-Key': syncthingApiKey,
       },
@@ -1723,11 +1723,11 @@ async function debugCpuprof(req, res) {
   const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
   if (authorized === true) {
-    response = await performRequest('get', '/rest/debug/cpuprof');
+    response = await performRequest('get', '/rest/debug/cpuprof', '', 60000);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
-  return res ? res.json(response) : response;
+  return response;
 }
 
 /**
@@ -1740,11 +1740,11 @@ async function debugHeapprof(req, res) {
   const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
   if (authorized === true) {
-    response = await performRequest('get', '/rest/debug/heapprof');
+    response = await performRequest('get', '/rest/debug/heapprof', '', 60000);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
-  return res ? res.json(response) : response;
+  return response;
 }
 
 /**
@@ -1757,11 +1757,11 @@ async function debugSupport(req, res) {
   const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
   if (authorized === true) {
-    response = await performRequest('get', '/rest/debug/support');
+    response = await performRequest('get', '/rest/debug/support', '', 60000);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
-  return res ? res.json(response) : response;
+  return response;
 }
 
 /**
