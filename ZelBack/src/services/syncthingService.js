@@ -1723,7 +1723,7 @@ async function debugCpuprof(req, res) {
   const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
   if (authorized === true) {
-    response = await performRequest('get', '/rest/debug/cpuprof', '', 60000);
+    response = await performRequest('get', '/rest/debug/cpuprof', undefined, 60000);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -1740,7 +1740,7 @@ async function debugHeapprof(req, res) {
   const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
   if (authorized === true) {
-    response = await performRequest('get', '/rest/debug/heapprof', '', 60000);
+    response = await performRequest('get', '/rest/debug/heapprof', undefined, 60000);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -1757,7 +1757,7 @@ async function debugSupport(req, res) {
   const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
   if (authorized === true) {
-    response = await performRequest('get', '/rest/debug/support', '', 60000);
+    response = await performRequest('get', '/rest/debug/support', undefined, 60000);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -2120,12 +2120,19 @@ async function startSyncthing() {
       if (restartRequired.status === 'success' && restartRequired.data.requiresRestart === true) {
         await systemRestart();
       }
-      // enable gui debugging
-      const currentGUIOptions = await getConfigGui();
-      if (currentGUIOptions.status === 'success') {
-        const newGUIOptions = currentGUIOptions.data;
-        newGUIOptions.debugging = true;
-        await performRequest('patch', '/rest/config/gui', newGUIOptions);
+      // enable gui debugging for development nodes only
+      if (config.development) {
+        const currentGUIOptions = await getConfigGui();
+        if (currentGUIOptions.status === 'success') {
+          const newGUIOptions = currentGUIOptions.data;
+          if (newGUIOptions.debugging !== true) {
+            log.info('Applying SyncthingGUI debuggin options...');
+            newGUIOptions.debugging = true;
+            await performRequest('patch', '/rest/config/gui', newGUIOptions);
+          } else {
+            log.info('Syncthing GUI in debugging options.');
+          }
+        }
       }
       await serviceHelper.delay(8 * 60 * 1000);
       startSyncthing();
