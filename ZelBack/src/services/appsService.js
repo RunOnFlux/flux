@@ -9632,7 +9632,9 @@ async function checkMyAppsAvailability() {
       await upnpService.mapUpnpPort(testingPort, 'Flux_Test_App');
     }
     await serviceHelper.delay(5 * 1000);
-    testingAppserver.listen(testingPort);
+    testingAppserver.listen(testingPort).on('error', (err) => {
+      throw err;
+    });
     await serviceHelper.delay(10 * 1000);
     // eslint-disable-next-line no-await-in-loop
     let askingIP = await fluxNetworkHelper.getRandomConnection();
@@ -9755,8 +9757,10 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       const beforeAppInstallTestingServer = http.createServer(beforeAppInstallTestingExpress);
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(5 * 1000);
-      beforeAppInstallTestingServer.listen(portToTest);
       beforeAppInstallTestingServers.push(beforeAppInstallTestingServer);
+      beforeAppInstallTestingServer.listen(portToTest).on('error', (err) => {
+        throw err;
+      });
     }
     await serviceHelper.delay(10 * 1000);
     // eslint-disable-next-line no-await-in-loop
