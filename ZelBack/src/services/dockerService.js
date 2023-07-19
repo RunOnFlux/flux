@@ -266,7 +266,9 @@ function dockerPullStream(config, res, callback) {
       throw new Error('Invalid login credentials for docker provided');
     }
   }
-  log.info(pullOptions);
+  if (pullOptions) {
+    log.info(pullOptions);
+  }
   docker.pull(repoTag, pullOptions, (err, mystream) => {
     function onFinished(error, output) {
       if (error) {
