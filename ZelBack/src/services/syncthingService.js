@@ -1712,7 +1712,16 @@ async function debugHeapprof(req, res) {
   const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
   if (authorized === true) {
-    response = await performRequest('get', '/rest/debug/heapprof', '', 60000);
+    try {
+      response = await axios.get('/rest/debug/heapprof', {
+        responseType: 'stream', // Specify response type as stream
+        timeout: 60000,
+      });
+      res.setHeader('Content-Type', 'application/octet-stream');
+      return response.data.pipe(res);
+    } catch (error) {
+      return res ? res.json(error) : JSON.stringify(error);
+    }
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -1729,11 +1738,20 @@ async function debugSupport(req, res) {
   const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
   if (authorized === true) {
-    response = await performRequest('get', '/rest/debug/support', '', 60000);
+    try {
+      response = await axios.get('/rest/debug/support', {
+        responseType: 'stream', // Specify response type as stream
+        timeout: 60000,
+      });
+      res.setHeader('Content-Type', 'application/octet-stream');
+      return response.data.pipe(res);
+    } catch (error) {
+      return res ? res.json(error) : JSON.stringify(error);
+    }
   } else {
     response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
   }
-  return response;
 }
 
 /**
@@ -1762,7 +1780,16 @@ async function debugFile(req, res) {
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
     let response = null;
     if (authorized === true) {
-      response = await performRequest('get', apiPath);
+      try {
+        response = await axios.get(apiPath, {
+          responseType: 'stream', // Specify response type as stream
+          timeout: 60000,
+        });
+        res.setHeader('Content-Type', 'application/octet-stream');
+        return response.data.pipe(res);
+      } catch (error) {
+        return res ? res.json(error) : JSON.stringify(error);
+      }
     } else {
       response = messageHelper.errUnauthorizedMessage();
     }
