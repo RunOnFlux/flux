@@ -1695,11 +1695,20 @@ async function debugCpuprof(req, res) {
   const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
   if (authorized === true) {
-    response = await performRequest('get', '/rest/debug/cpuprof', '', 60000);
+    try {
+      response = await axios.get('/rest/debug/cpuprof', {
+        responseType: 'stream', // Specify response type as stream
+        timeout: 60000,
+      });
+      res.setHeader('Content-Type', 'application/octet-stream');
+      return response.data.pipe(res);
+    } catch (error) {
+      return res ? res.json(error) : JSON.stringify(error);
+    }
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
-  return response;
+  return res ? res.json(response) : response;
 }
 
 /**
@@ -1725,7 +1734,7 @@ async function debugHeapprof(req, res) {
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
-  return response;
+  return res ? res.json(response) : response;
 }
 
 /**
@@ -1739,19 +1748,14 @@ async function debugSupport(req, res) {
   let response = null;
   if (authorized === true) {
     try {
-      response = await axios.get('/rest/debug/support', {
-        responseType: 'stream', // Specify response type as stream
-        timeout: 60000,
-      });
-      res.setHeader('Content-Type', 'application/octet-stream');
-      return response.data.pipe(res);
+      response = await performRequest('get', '/rest/debug/support', undefined, 60000);
     } catch (error) {
       return res ? res.json(error) : JSON.stringify(error);
     }
   } else {
     response = messageHelper.errUnauthorizedMessage();
-    return res ? res.json(response) : response;
   }
+  return res ? res.json(response) : response;
 }
 
 /**
