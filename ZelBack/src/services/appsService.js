@@ -9633,7 +9633,7 @@ async function checkMyAppsAvailability() {
     }
     await serviceHelper.delay(5 * 1000);
     testingAppserver.listen(testingPort).on('error', (err) => {
-      throw err;
+      throw err.message;
     });
     await serviceHelper.delay(10 * 1000);
     // eslint-disable-next-line no-await-in-loop
@@ -9759,7 +9759,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       await serviceHelper.delay(5 * 1000);
       beforeAppInstallTestingServers.push(beforeAppInstallTestingServer);
       beforeAppInstallTestingServer.listen(portToTest).on('error', (err) => {
-        throw err;
+        throw err.message;
       });
     }
     await serviceHelper.delay(10 * 1000);
