@@ -59,7 +59,7 @@ describe('daemonServiceAddressRpcs tests', () => {
       // await because of the async nature of the request processing
       await serviceHelper.delay(150);
 
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getaddresstxids', [{ addresses: undefined, start: undefined, end: undefined }]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getaddresstxids', [{ addresses: undefined }]);
       sinon.assert.calledOnceWithExactly(res.json, 'NoParamsGiven');
     });
   });
@@ -129,14 +129,11 @@ describe('daemonServiceAddressRpcs tests', () => {
         },
         query: {
           test2: 'test2',
-
         },
       };
       daemonServiceUtilsStub.returns('NoParams');
       const expectedParams = {
         addresses: [req.query.address],
-        start: req.query.start,
-        end: req.query.end,
       };
       const res = generateResponse();
 
@@ -288,7 +285,14 @@ describe('daemonServiceAddressRpcs tests', () => {
         addresses: '12QSasdfggYy4sditOpQzsee',
         start: 1670654443,
         end: 167068000,
-        chainInfo: 'ethereum',
+        chaininfo: true,
+      };
+
+      const expectedParams = {
+        addresses: '12QSasdfggYy4sditOpQzsee',
+        start: 1670654443,
+        end: 167068000,
+        chainInfo: true,
       };
       const mockStream = new PassThrough();
       mockStream.push(JSON.stringify(params));
@@ -300,7 +304,7 @@ describe('daemonServiceAddressRpcs tests', () => {
       // await because of the async nature of the request processing
       await serviceHelper.delay(150);
 
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getaddressdeltas', [params]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getaddressdeltas', [expectedParams]);
       sinon.assert.calledOnceWithExactly(res.json, 'success');
     });
 
@@ -320,9 +324,6 @@ describe('daemonServiceAddressRpcs tests', () => {
 
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getaddressdeltas', [{
         addresses: undefined,
-        start: undefined,
-        end: undefined,
-        chainInfo: undefined,
       }]);
       sinon.assert.calledOnceWithExactly(res.json, 'NoParamsGiven');
     });
@@ -345,7 +346,7 @@ describe('daemonServiceAddressRpcs tests', () => {
           address: '12QSasdfggYy4sditOpQzsee',
           start: 1670654443,
           end: 167068000,
-          chaininfo: 'ethereum',
+          chaininfo: true,
         },
       };
       daemonServiceUtilsStub.returns('success');
@@ -371,7 +372,7 @@ describe('daemonServiceAddressRpcs tests', () => {
           address: '12QSasdfggYy4sditOpQzsee',
           start: 1670654443,
           end: 167068000,
-          chaininfo: 'ethereum',
+          chaininfo: true,
         },
       };
       daemonServiceUtilsStub.returns('success');
@@ -397,7 +398,6 @@ describe('daemonServiceAddressRpcs tests', () => {
         },
         query: {
           test2: 'test2',
-
         },
       };
       daemonServiceUtilsStub.returns('NoParams');
@@ -412,7 +412,7 @@ describe('daemonServiceAddressRpcs tests', () => {
       const result = await daemonServiceAddressRpcs.getSingleAddressDeltas(req, res);
 
       expect(result).to.eql('NoParams');
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getaddressdeltas', [expectedParams]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getaddressdeltas', [{ addresses: expectedParams.addresses }]);
       sinon.assert.calledOnceWithExactly(res.json, 'NoParams');
     });
   });
@@ -432,7 +432,7 @@ describe('daemonServiceAddressRpcs tests', () => {
       daemonServiceUtilsStub.resolves('success');
       const params = {
         addresses: '12QSasdfggYy4sditOpQzsee',
-        chainInfo: 'ethereum',
+        chainInfo: true,
       };
       const mockStream = new PassThrough();
       mockStream.push(JSON.stringify(params));
@@ -482,7 +482,7 @@ describe('daemonServiceAddressRpcs tests', () => {
       const req = {
         params: {
           address: '12QSasdfggYy4sditOpQzsee',
-          chaininfo: 'ethereum',
+          chaininfo: true,
         },
       };
       daemonServiceUtilsStub.returns('success');
@@ -504,7 +504,7 @@ describe('daemonServiceAddressRpcs tests', () => {
         },
         query: {
           address: '12QSasdfggYy4sditOpQzsee',
-          chaininfo: 'ethereum',
+          chaininfo: true,
         },
       };
       daemonServiceUtilsStub.returns('success');
@@ -630,7 +630,7 @@ describe('daemonServiceAddressRpcs tests', () => {
         },
         query: {
           address: '12QSasdfggYy4sditOpQzsee',
-          chaininfo: 'ethereum',
+          chaininfo: true,
         },
       };
       daemonServiceUtilsStub.returns('success');

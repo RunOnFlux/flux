@@ -11,9 +11,11 @@ const fluxService = require('./fluxService');
 const geolocationService = require('./geolocationService');
 const upnpService = require('./upnpService');
 const syncthingService = require('./syncthingService');
+const pgpService = require('./pgpService');
 const userconfig = require('../../../config/userconfig');
 
 const apiPort = userconfig.initial.apiport || config.server.apiport;
+const development = userconfig.initial.development || false;
 
 /**
  * To start FluxOS. A series of checks are performed on port and UPnP (Universal Plug and Play) support and mapping. Database connections are established. The other relevant functions required to start FluxOS services are called.
@@ -74,6 +76,8 @@ async function startFluxFunctions() {
     log.info('Flux Apps locations prepared');
     fluxNetworkHelper.adjustFirewall();
     log.info('Firewalls checked');
+    fluxNetworkHelper.allowNodeToBindPrivilegedPorts();
+    log.info('Node allowed to bind privileged ports');
     fluxCommunication.keepConnectionsAlive();
     log.info('Connections polling prepared');
     daemonServiceMiscRpcs.daemonBlockchainInfoService();
@@ -85,17 +89,21 @@ async function startFluxFunctions() {
     log.info('Flux Discovery started');
     syncthingService.startSyncthing();
     log.info('Syncthing service started');
-    try {
-      appsService.reconstructAppMessagesHashCollection();
-      log.info('Validation of App Messages Hash Collection');
-    } catch (error) {
-      log.error(error);
-    }
+    await pgpService.generateIdentity();
+    log.info('PGP service initiated');
+    setTimeout(() => {
+      log.info('Rechecking firewall app rules');
+      fluxNetworkHelper.purgeUFW();
+      appsService.testAppMount(); // test if our node can mount a volume
+    }, 30 * 1000);
     setTimeout(() => {
       appsService.stopAllNonFluxRunningApps();
       appsService.startMonitoringOfApps();
       appsService.restoreAppsPortsSupport();
     }, 1 * 60 * 1000);
+    setInterval(() => {
+      appsService.restorePortsSupport(); // restore fluxos and apps ports/upnp
+    }, 10 * 60 * 1000); // every 10 minutes
     setTimeout(() => {
       log.info('Starting setting Node Geolocation');
       geolocationService.setNodeGeolocation();
@@ -105,31 +113,45 @@ async function startFluxFunctions() {
       log.info('Flux Block Processing Service started');
     }, 2 * 60 * 1000);
     setTimeout(() => {
+      // appsService.checkForNonAllowedAppsOnLocalNetwork();
+      appsService.checkMyAppsAvailability(); // periodically checks
+    }, 3 * 60 * 1000);
+    setTimeout(() => {
       appsService.checkAndNotifyPeersOfRunningApps(); // first broadcast after 4m of starting fluxos
-      setInterval(() => { // every 20 mins (~10 blocks) messages stay on db for 65m
+      setInterval(() => { // every 60 mins messages stay on db for 65m
         appsService.checkAndNotifyPeersOfRunningApps();
-      }, 20 * 60 * 1000);
+      }, 60 * 60 * 1000);
     }, 4 * 60 * 1000);
     setTimeout(() => {
-      appsService.syncthingApps(); // after 6 mins adjust our syncthing configuration
-      setInterval(() => { // recheck and possibly adjust syncthing configuration every minute
-        appsService.syncthingApps();
-      }, 1 * 60 * 1000);
+      appsService.syncthingApps(); // rechecks and possibly adjust syncthing configuration every minute
     }, 6 * 60 * 1000);
     setInterval(() => { // every 12 mins (6 blocks)
       appsService.continuousFluxAppHashesCheck();
     }, 12 * 60 * 1000);
     setTimeout(() => {
-      // after 20 minutes of running ok.
+      // after 90 minutes of running ok and to make sure we are connected for enough time for receiving all apps running on other nodes
       log.info('Starting to spawn applications');
       appsService.trySpawningGlobalApplication();
-    }, 20 * 60 * 1000);
+    }, 90 * 60 * 1000);
+    setInterval(() => {
+      appsService.checkApplicationsCompliance();
+    }, 60 * 60 * 1000); //  every hour
     setTimeout(() => {
       appsService.forceAppRemovals(); // force cleanup of apps every day
       setInterval(() => {
         appsService.forceAppRemovals();
       }, 24 * 60 * 60 * 1000);
     }, 30 * 60 * 1000);
+    if (development) { // just on development branch
+      setInterval(async () => {
+        await fluxService.enterDevelopment().catch((error) => log.error(error));
+        if (development === true || development === 'true' || development === 1 || development === '1') { // in other cases pause git pull
+          setTimeout(async () => {
+            await fluxService.softUpdateFlux().catch((error) => log.error(error));
+          }, 15 * 1000);
+        }
+      }, 20 * 60 * 1000); // every 20 minutes
+    }
   } catch (e) {
     log.error(e);
     setTimeout(() => {

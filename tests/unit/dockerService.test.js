@@ -538,8 +538,8 @@ describe('dockerService tests', () => {
       Name: 'fluxDockerNetwork',
       IPAM: {
         Config: [{
-          Subnet: '172.15.0.0/16',
-          Gateway: '172.15.0.1',
+          Subnet: '172.23.0.0/24',
+          Gateway: '172.23.0.1',
         }],
       },
     };
@@ -571,6 +571,49 @@ describe('dockerService tests', () => {
       const createNetworkResponse = await dockerService.createFluxDockerNetwork();
 
       expect(createNetworkResponse).to.equal('Flux Network already exists.');
+    });
+  });
+
+  describe('createFluxAppDockerNetwork tests', () => {
+    let network;
+    const docker = new Dockerode();
+    const fluxNetworkOptions = {
+      Name: 'fluxDockerNetwork_MyAppName',
+      IPAM: {
+        Config: [{
+          Subnet: '172.23.52.0/24',
+          Gateway: '172.23.52.1',
+        }],
+      },
+    };
+
+    afterEach(async () => {
+      try {
+        await dockerService.dockerRemoveNetwork(network);
+      } catch {
+        console.log('Network does not exist');
+      }
+    });
+
+    it('should create flux app docker network if it does not exist', async () => {
+      const createNetworkResponse = await dockerService.createFluxAppDockerNetwork('MyAppName', 52);
+      network = docker.getNetwork(fluxNetworkOptions.Name);
+      const inspectResult = await dockerService.dockerNetworkInspect(network);
+
+      expect(createNetworkResponse.id).to.be.a('string');
+      expect(createNetworkResponse.modem).to.be.an('object');
+      expect(inspectResult.Name).to.equal(fluxNetworkOptions.Name);
+      expect(inspectResult.Id).to.be.a('string');
+      expect(inspectResult.IPAM.Config).to.eql(fluxNetworkOptions.IPAM.Config);
+    });
+
+    it('should return a message if the flux app network does exist', async () => {
+      // Call the function twice to make sure it exists
+      await dockerService.createFluxAppDockerNetwork('MyAppName', 52);
+
+      const createNetworkResponse = await dockerService.createFluxAppDockerNetwork('MyAppName', 52);
+
+      expect(createNetworkResponse).to.equal('Flux App Network of MyAppName already exists.');
     });
   });
 
@@ -656,9 +699,10 @@ describe('dockerService tests', () => {
         HostConfig: {
           NanoCPUs: 800000000,
           Memory: 1887436800,
+          StorageOpts: { size: '12G' },
           Ulimits: [{ Name: 'nofile', Soft: 100000, Hard: 100000 }],
           RestartPolicy: { Name: 'unless-stopped' },
-          NetworkMode: 'fluxDockerNetwork',
+          NetworkMode: 'fluxDockerNetwork_fluxwebsite',
           LogConfig: { Type: 'json-file', Config: { 'max-file': '1', 'max-size': '20m' } },
           Binds: [`${appsFolder}fluxwebsite_fluxwebsite/appdata:/chaindata`],
           PortBindings: {
@@ -712,6 +756,7 @@ describe('dockerService tests', () => {
         HostConfig: {
           NanoCPUs: 800000000,
           Memory: 1887436800,
+          StorageOpts: { size: '12G' },
           Binds: [`${appsFolder}fluxwebsite/appdata:/chaindata`],
           Ulimits: [{ Name: 'nofile', Soft: 100000, Hard: 100000 }],
           PortBindings: {
@@ -723,7 +768,7 @@ describe('dockerService tests', () => {
             '9944/udp': [{ HostPort: '31111' }],
           },
           RestartPolicy: { Name: 'unless-stopped' },
-          NetworkMode: 'fluxDockerNetwork',
+          NetworkMode: 'fluxDockerNetwork_fluxwebsite',
           LogConfig: { Type: 'json-file', Config: { 'max-file': '1', 'max-size': '20m' } },
         },
       };
@@ -749,6 +794,7 @@ describe('dockerService tests', () => {
         HostConfig: {
           NanoCPUs: 800000000,
           Memory: 1887436800,
+          StorageOpts: { size: '12G' },
           Binds: [`${appsFolder}fluxwebsite_fluxwebsite/appdata:/chaindata`],
           Ulimits: [{ Name: 'nofile', Soft: 100000, Hard: 100000 }],
           PortBindings: {
@@ -756,7 +802,7 @@ describe('dockerService tests', () => {
             '9933/udp': [{ HostPort: '31112' }],
           },
           RestartPolicy: { Name: 'unless-stopped' },
-          NetworkMode: 'fluxDockerNetwork',
+          NetworkMode: 'fluxDockerNetwork_fluxwebsite',
           LogConfig: { Type: 'json-file', Config: { 'max-file': '1', 'max-size': '20m' } },
         },
       };

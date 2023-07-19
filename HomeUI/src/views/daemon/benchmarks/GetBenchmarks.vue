@@ -29,19 +29,9 @@
       :data="`${callResponse.data.ram} GB`"
     />
     <list-entry
-      v-if="callResponse.data.ssd"
-      title="SSD"
-      :data="`${callResponse.data.ssd} GB`"
-    />
-    <list-entry
-      v-if="callResponse.data.hdd"
-      title="HDD"
-      :data="`${callResponse.data.hdd} GB`"
-    />
-    <list-entry
-      v-if="callResponse.data.ddwrite"
-      title="Write Speed"
-      :data="`${callResponse.data.ddwrite} MB/s`"
+      v-if="callResponse.data.disksinfo && callResponse.data.disksinfo.length > 0"
+      title="Disk(s) Info (Name/Size(GB)/Write Speed(MB/s))"
+      :data="`${JSON.stringify(callResponse.data.disksinfo)}`"
     />
     <list-entry
       v-if="callResponse.data.eps"

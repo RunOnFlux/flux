@@ -454,7 +454,7 @@ export default {
       axios.get('https://vipdrates.zelcore.io/rates', this.retryOptions)
         .then((resultB) => {
           this.rates = resultB.data;
-          this.getZelNodeCount();
+          this.getFluxNodeCount();
         });
     },
     async getPriceData() {
@@ -473,8 +473,8 @@ export default {
           this.loadingPrice = false;
         });
     },
-    async getZelNodeCount() {
-      const response = await DashboardService.zelnodeCount();
+    async getFluxNodeCount() {
+      const response = await DashboardService.fluxnodeCount();
       if (response.data.status === 'error') {
         this.$toast({
           component: ToastificationContent,
@@ -504,12 +504,27 @@ export default {
       }
     },
     async generateEconomics(fluxnodecounts) {
+      let perCumulusNode = 2.8125;
+      let perNimbusNode = 4.6875;
+      let perStratusNode = 11.2500;
+      const response = await DashboardService.blockReward();
+      if (response.data.status === 'error') {
+        this.$toast({
+          component: ToastificationContent,
+          props: {
+            title: response.data.data.message || response.data.data,
+            icon: 'InfoIcon',
+            variant: 'danger',
+          },
+        });
+      } else {
+        perCumulusNode = (response.data.data.miner * 0.075).toFixed(4);
+        perNimbusNode = (response.data.data.miner * 0.125).toFixed(4);
+        perStratusNode = (response.data.data.miner * 0.300).toFixed(4);
+      }
       const stratuses = fluxnodecounts['stratus-enabled'];
       const nimbuses = fluxnodecounts['nimbus-enabled'];
       const cumuluses = fluxnodecounts['cumulus-enabled'];
-      const perCumulusNode = 5.625;
-      const perNimbusNode = 9.375;
-      const perStratusNode = 22.5;
       // eslint-disable-next-line no-mixed-operators
       const cumulusWeek = perCumulusNode * 720 * 7 / cumuluses;
       // eslint-disable-next-line no-mixed-operators

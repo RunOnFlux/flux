@@ -5,6 +5,7 @@ const chai = require('chai');
 const app = require('../../ZelBack/src/lib/server');
 const log = require('../../ZelBack/src/lib/log');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
+const syncthingService = require('../../ZelBack/src/services/syncthingService');
 
 const packageJson = require('../../package.json');
 
@@ -43,6 +44,7 @@ describe('loading express', () => {
       .expect(404, done);
   });
   it('/id/loginphrase', (done) => {
+    syncthingService.setSyncthingRunningState(true);
     request(server)
       .get('/id/loginphrase')
       .expect(200)

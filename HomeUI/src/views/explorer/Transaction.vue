@@ -178,43 +178,43 @@
         classes="skinny-list-entry"
       />
       <list-entry
-        v-if="transaction.type === 'Starting a zelnode'"
+        v-if="transaction.type === 'Starting a fluxnode'"
         title="Collateral Public Key"
         :data="transaction.collateral_pubkey"
         classes="skinny-list-entry"
       />
       <list-entry
-        v-if="transaction.type === 'Starting a zelnode'"
+        v-if="transaction.type === 'Starting a fluxnode'"
         title="Flux Public Key"
-        :data="transaction.zelnode_pubkey"
+        :data="transaction.zelnode_pubkey || transaction.fluxnode_pubkey || transaction.node_pubkey"
         classes="skinny-list-entry"
       />
       <list-entry
-        v-if="transaction.type === 'Confirming a zelnode'"
+        v-if="transaction.type === 'Confirming a fluxnode'"
         title="Flux Network"
         :data="transaction.ip"
         classes="skinny-list-entry"
       />
       <list-entry
-        v-if="transaction.type === 'Confirming a zelnode'"
+        v-if="transaction.type === 'Confirming a fluxnode'"
         title="Update Type"
         :number="transaction.update_type"
         classes="skinny-list-entry"
       />
       <list-entry
-        v-if="transaction.type === 'Confirming a zelnode'"
+        v-if="transaction.type === 'Confirming a fluxnode'"
         title="Benchmark Tier"
         :data="transaction.benchmark_tier"
         classes="skinny-list-entry"
       />
       <list-entry
-        v-if="transaction.type === 'Confirming a zelnode'"
+        v-if="transaction.type === 'Confirming a fluxnode'"
         title="Benchmark Signature"
         :data="transaction.benchmark_sig"
         classes="skinny-list-entry"
       />
       <list-entry
-        v-if="transaction.type === 'Confirming a zelnode'"
+        v-if="transaction.type === 'Confirming a fluxnode'"
         title="Benchmark Signature Time"
         :data="new Date(transaction.benchmark_sigtime * 1000).toLocaleString('en-GB', timeoptions.shortDate)"
         classes="skinny-list-entry"

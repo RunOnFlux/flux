@@ -82,6 +82,18 @@
                           title="Instances"
                           :data="row.item.instances.toString()"
                         />
+                        <list-entry
+                          title="Period"
+                          :data="labelForExpire(row.item.expire)"
+                        />
+                        <list-entry
+                          title="Enterprise Nodes"
+                          :data="row.item.nodes ? row.item.nodes.toString() : 'Not scoped'"
+                        />
+                        <list-entry
+                          title="Static IP"
+                          :data="row.item.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
+                        />
                         <h4>Composition</h4>
                         <div v-if="row.item.version <= 3">
                           <b-card>
@@ -192,6 +204,10 @@
                               :data="component.repotag"
                             />
                             <list-entry
+                              title="Repository Authentication"
+                              :data="component.repoauth ? 'Content Encrypted' : 'Public'"
+                            />
+                            <list-entry
                               title="Custom Domains"
                               :data="component.domains.toString() || 'none'"
                             />
@@ -218,6 +234,10 @@
                             <list-entry
                               title="Commands"
                               :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
+                            />
+                            <list-entry
+                              title="Secret Environment Parameters"
+                              :data="component.secrets ? 'Content Encrypted' : 'none'"
                             />
                             <div v-if="component.tiered">
                               <list-entry
@@ -392,6 +412,18 @@
                           title="Instances"
                           :data="row.item.instances.toString()"
                         />
+                        <list-entry
+                          title="Period"
+                          :data="labelForExpire(row.item.expire)"
+                        />
+                        <list-entry
+                          title="Enterprise Nodes"
+                          :data="row.item.nodes ? row.item.nodes.toString() : 'Not scoped'"
+                        />
+                        <list-entry
+                          title="Static IP"
+                          :data="row.item.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
+                        />
                         <h4>Composition</h4>
                         <div v-if="row.item.version <= 3">
                           <b-card>
@@ -426,6 +458,10 @@
                             <list-entry
                               title="Commands"
                               :data="row.item.commands.length > 0 ? row.item.commands.toString() : 'none'"
+                            />
+                            <list-entry
+                              title="Secret Environment Parameters"
+                              :data="row.item.secrets || 'none'"
                             />
                             <div v-if="row.item.tiered">
                               <list-entry
@@ -502,6 +538,10 @@
                               :data="component.repotag"
                             />
                             <list-entry
+                              title="Repository Authentication"
+                              :data="component.repoauth ? 'Content Encrypted' : 'Public'"
+                            />
+                            <list-entry
                               title="Custom Domains"
                               :data="component.domains.toString() || 'none'"
                             />
@@ -528,6 +568,10 @@
                             <list-entry
                               title="Commands"
                               :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
+                            />
+                            <list-entry
+                              title="Secret Environment Parameters"
+                              :data="component.secrets ? 'Content Encrypted' : 'none'"
                             />
                             <div v-if="component.tiered">
                               <list-entry
@@ -646,7 +690,7 @@
                                   size="sm"
                                   class="mr-0"
                                   variant="danger"
-                                  @click="openApp(row.item.name, locationRow.item.ip, row.item.port || (row.item.ports ? row.item.ports[0] : row.item.compose[0].ports[0]))"
+                                  @click="openApp(row.item.name, locationRow.item.ip, getProperPort(row.item))"
                                 >
                                   Visit
                                 </b-button>
@@ -820,6 +864,18 @@
                           title="Instances"
                           :data="row.item.instances.toString()"
                         />
+                        <list-entry
+                          title="Period"
+                          :data="labelForExpire(row.item.expire)"
+                        />
+                        <list-entry
+                          title="Enterprise Nodes"
+                          :data="row.item.nodes ? row.item.nodes.toString() : 'Not scoped'"
+                        />
+                        <list-entry
+                          title="Static IP"
+                          :data="row.item.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
+                        />
                         <h4>Composition</h4>
                         <div v-if="row.item.version <= 3">
                           <b-card>
@@ -930,6 +986,10 @@
                               :data="component.repotag"
                             />
                             <list-entry
+                              title="Repository Authentication"
+                              :data="component.repoauth ? 'Content Encrypted' : 'Public'"
+                            />
+                            <list-entry
                               title="Custom Domains"
                               :data="component.domains.toString() || 'none'"
                             />
@@ -956,6 +1016,10 @@
                             <list-entry
                               title="Commands"
                               :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
+                            />
+                            <list-entry
+                              title="Secret Environment Parameters"
+                              :data="component.secrets ? 'Content Encrypted' : 'none'"
                             />
                             <div v-if="component.tiered">
                               <list-entry
@@ -1074,7 +1138,7 @@
                                   size="sm"
                                   class="mr-0"
                                   variant="danger"
-                                  @click="openApp(row.item.name, locationRow.item.ip, row.item.port || (row.item.ports ? row.item.ports[0] : row.item.compose[0].ports[0]))"
+                                  @click="openApp(row.item.name, locationRow.item.ip, getProperPort(row.item))"
                                 >
                                   Visit
                                 </b-button>
@@ -1196,6 +1260,18 @@
                           title="Instances"
                           :data="row.item.instances.toString()"
                         />
+                        <list-entry
+                          title="Period"
+                          :data="labelForExpire(row.item.expire)"
+                        />
+                        <list-entry
+                          title="Enterprise Nodes"
+                          :data="row.item.nodes ? row.item.nodes.toString() : 'Not scoped'"
+                        />
+                        <list-entry
+                          title="Static IP"
+                          :data="row.item.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
+                        />
                         <h4>Composition</h4>
                         <div v-if="row.item.version <= 3">
                           <b-card>
@@ -1306,6 +1382,10 @@
                               :data="component.repotag"
                             />
                             <list-entry
+                              title="Repository Authentication"
+                              :data="component.repoauth ? 'Content Encrypted' : 'Public'"
+                            />
+                            <list-entry
                               title="Custom Domains"
                               :data="component.domains.toString() || 'none'"
                             />
@@ -1332,6 +1412,10 @@
                             <list-entry
                               title="Commands"
                               :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
+                            />
+                            <list-entry
+                              title="Secret Environment Parameters"
+                              :data="component.secrets ? 'Content Encrypted' : 'none'"
                             />
                             <div v-if="component.tiered">
                               <list-entry
@@ -1450,7 +1534,7 @@
                                   size="sm"
                                   class="mr-0"
                                   variant="danger"
-                                  @click="openApp(row.item.name, locationRow.item.ip, row.item.port || (row.item.ports ? row.item.ports[0] : row.item.compose[0].ports[0]))"
+                                  @click="openApp(row.item.name, locationRow.item.ip, getProperPort(row.item))"
                                 >
                                   Visit
                                 </b-button>
@@ -1636,6 +1720,18 @@
                           title="Instances"
                           :data="row.item.instances.toString()"
                         />
+                        <list-entry
+                          title="Period"
+                          :data="labelForExpire(row.item.expire)"
+                        />
+                        <list-entry
+                          title="Enterprise Nodes"
+                          :data="row.item.nodes ? row.item.nodes.toString() : 'Not scoped'"
+                        />
+                        <list-entry
+                          title="Static IP"
+                          :data="row.item.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
+                        />
                         <h4>Composition</h4>
                         <div v-if="row.item.version <= 3">
                           <b-card>
@@ -1746,6 +1842,10 @@
                               :data="component.repotag"
                             />
                             <list-entry
+                              title="Repository Authentication"
+                              :data="component.repoauth ? 'Content Encrypted' : 'Public'"
+                            />
+                            <list-entry
                               title="Custom Domains"
                               :data="component.domains.toString() || 'none'"
                             />
@@ -1772,6 +1872,10 @@
                             <list-entry
                               title="Commands"
                               :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
+                            />
+                            <list-entry
+                              title="Secret Environment Parameters"
+                              :data="component.secrets ? 'Content Encrypted' : 'none'"
                             />
                             <div v-if="component.tiered">
                               <list-entry
@@ -1890,7 +1994,7 @@
                                   size="sm"
                                   class="mr-0"
                                   variant="danger"
-                                  @click="openApp(row.item.name, locationRow.item.ip, row.item.port || (row.item.ports ? row.item.ports[0] : row.item.compose[0].ports[0]))"
+                                  @click="openApp(row.item.name, locationRow.item.ip, getProperPort(row.item))"
                                 >
                                   Visit
                                 </b-button>
@@ -2223,6 +2327,38 @@ export default {
         status: '',
         data: '',
       },
+      expireOptions: [
+        {
+          value: 5000,
+          label: '1 week',
+          time: 7 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 11000,
+          label: '2 weeks',
+          time: 14 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 22000,
+          label: '1 month',
+          time: 30 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 66000,
+          label: '3 months',
+          time: 90 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 132000,
+          label: '6 months',
+          time: 180 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 264000,
+          label: '1 year',
+          time: 365 * 24 * 60 * 60 * 1000,
+        },
+      ],
     };
   },
   computed: {
@@ -2243,7 +2379,7 @@ export default {
     },
   },
   mounted() {
-    this.getZelNodeStatus();
+    this.getFluxNodeStatus();
     this.appsGetAvailableApps();
     this.appsGetListRunningApps();
     this.appsGetInstalledApps();
@@ -2261,6 +2397,16 @@ export default {
     }
   },
   methods: {
+    labelForExpire(expire) {
+      const position = this.expireOptions.find((opt) => opt.value === expire);
+      if (position) {
+        return position.label;
+      }
+      if (expire) {
+        return `${expire} blocks`;
+      }
+      return '1 month';
+    },
     async appsGetListGlobalApps() {
       this.tableconfig.globalAvailable.loading = true;
       const response = await AppsService.globalAppSpecifications();
@@ -2272,8 +2418,8 @@ export default {
       this.tableconfig.globalAvailable.loading = false;
       this.tableconfig.globalAvailable.status = response.data.status;
     },
-    async getZelNodeStatus() {
-      const response = await DaemonService.getZelNodeStatus();
+    async getFluxNodeStatus() {
+      const response = await DaemonService.getFluxNodeStatus();
       if (response.data.status === 'success') {
         this.tier = response.data.data.tier;
       }
@@ -2343,8 +2489,22 @@ export default {
         const url = `http://${ip}:${port}`;
         this.openSite(url);
       } else {
-        this.showToast('danger', 'Unable to open App :(');
+        this.showToast('danger', 'Unable to open App :(, App does not have a port.');
       }
+    },
+    getProperPort(appSpecs) {
+      if (appSpecs.port) {
+        return appSpecs.port;
+      }
+      if (appSpecs.ports) {
+        return appSpecs.ports[0];
+      }
+      for (let i = 0; i < appSpecs.compose.length; i += 1) {
+        for (let j = 0; j < appSpecs.compose[i].ports.length; j += 1) {
+          if (appSpecs.compose[i].ports[j]) return appSpecs.compose[i].ports[j];
+        }
+      }
+      return null;
     },
     installedApp(appName) {
       return this.tableconfig.installed.apps.find((app) => app.name === appName);
@@ -2443,6 +2603,8 @@ export default {
         this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
         if (this.output[this.output.length - 1].status === 'error') {
           this.showToast('danger', this.output[this.output.length - 1].status);
+        } else if (this.output[this.output.length - 1].status === 'warning') {
+          this.showToast('warning', this.output[this.output.length - 1].status);
         } else {
           this.showToast('success', this.output[this.output.length - 1].status);
         }
@@ -2469,9 +2631,11 @@ export default {
       } else {
         this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
         if (this.output[this.output.length - 1].status === 'error') {
-          this.showToast('danger', this.output[this.output.length - 1].status);
+          this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+        } else if (this.output[this.output.length - 1].status === 'warning') {
+          this.showToast('warning', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else {
-          this.showToast('success', this.output[this.output.length - 1].status);
+          this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         }
         setTimeout(() => {
           this.appsGetInstalledApps();
@@ -2480,7 +2644,7 @@ export default {
         }, 5000);
       }
     },
-    async installAppLocally(app) { // todo rewrite to installApp later
+    async installAppLocally(app) {
       const appName = this.getAppName(app);
       const self = this;
       this.output = [];
@@ -2515,9 +2679,11 @@ export default {
           }
         }
         if (this.output[this.output.length - 1].status === 'error') {
-          this.showToast('danger', this.output[this.output.length - 1].status);
+          this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+        } else if (this.output[this.output.length - 1].status === 'warning') {
+          this.showToast('warning', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else {
-          this.showToast('success', this.output[this.output.length - 1].status);
+          this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         }
         this.appsGetInstalledApps();
         this.appsGetListRunningApps();
