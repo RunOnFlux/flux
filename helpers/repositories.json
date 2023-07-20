@@ -324,5 +324,9 @@
    "ntish88",
    "adelkarshenas",
    "snghbeer",
-   "abiteddie"
+   "abiteddie",
+   "gridcloud",
+   "snghbeer",
+   "algorand/algod:latest",
+   "algorand/indexer:latest"
 ]
