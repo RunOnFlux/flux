@@ -6034,6 +6034,7 @@ async function storeAppRunningMessage(message) {
   * @param name string
   * @param ip string
   */
+  const appsMessages = [];
   if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
     || typeof message.broadcastedAt !== 'number' || typeof message.ip !== 'string') {
     return new Error('Invalid Flux App Running message for storing');
@@ -6043,8 +6044,15 @@ async function storeAppRunningMessage(message) {
     return new Error(`Invalid Flux App Running message for storing version ${message.version} not supported`);
   }
 
-  if (message.version === 1 && (typeof message.hash !== 'string' || typeof message.name !== 'string')) {
-    return new Error('Invalid Flux App Running message for storing');
+  if (message.version === 1) {
+    if (typeof message.hash !== 'string' || typeof message.name !== 'string') {
+      return new Error('Invalid Flux App Running message for storing');
+    }
+    const app = {
+      name: message.name,
+      hash: message.hash,
+    };
+    appsMessages.push(app);
   }
 
   if (message.version === 2) {
@@ -6053,6 +6061,7 @@ async function storeAppRunningMessage(message) {
     }
     for (let i = 0; i < message.apps.length; i += 1) {
       const app = message.apps[i];
+      appsMessages.push(app);
       if (typeof app.hash !== 'string' || typeof app.name !== 'string') {
         return new Error('Invalid Flux App Running v2 message for storing');
       }
@@ -6078,10 +6087,12 @@ async function storeAppRunningMessage(message) {
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
 
-  if (message.version === 1) {
+  let messageNotOk = false;
+  for (let i = 0; i < appsMessages.length; i += 1) {
+    const app = appsMessages[i];
     const newAppRunningMessage = {
-      name: message.name,
-      hash: message.hash, // hash of application specifics that are running
+      name: app.name,
+      hash: app.hash, // hash of application specifics that are running
       ip: message.ip,
       broadcastedAt: new Date(message.broadcastedAt),
       expireAt: new Date(validTill),
@@ -6091,51 +6102,23 @@ async function storeAppRunningMessage(message) {
     const queryFind = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip, broadcastedAt: { $gte: newAppRunningMessage.broadcastedAt } };
     const projection = { _id: 0 };
     // we already have the exact same data
+    // eslint-disable-next-line no-await-in-loop
     const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
     if (result) {
-      // it is already stored
-      return false;
+      // found a message that was already stored/bad message
+      messageNotOk = true;
+      break;
     }
     const queryUpdate = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
     const update = { $set: newAppRunningMessage };
     const options = {
       upsert: true,
     };
+    // eslint-disable-next-line no-await-in-loop
     await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
-  } else {
-    let messageNotOk = false;
-    for (let i = 0; i < message.apps.length; i += 1) {
-      const app = message.apps[i];
-      const newAppRunningMessage = {
-        name: app.name,
-        hash: app.hash, // hash of application specifics that are running
-        ip: message.ip,
-        broadcastedAt: new Date(message.broadcastedAt),
-        expireAt: new Date(validTill),
-      };
-
-      // indexes over name, hash, ip. Then name + ip and name + ip + broadcastedAt.
-      const queryFind = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip, broadcastedAt: { $gte: newAppRunningMessage.broadcastedAt } };
-      const projection = { _id: 0 };
-      // we already have the exact same data
-      // eslint-disable-next-line no-await-in-loop
-      const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
-      if (result) {
-        // found a message that was already stored/bad message
-        messageNotOk = true;
-        break;
-      }
-      const queryUpdate = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
-      const update = { $set: newAppRunningMessage };
-      const options = {
-        upsert: true,
-      };
-      // eslint-disable-next-line no-await-in-loop
-      await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
-    }
-    if (messageNotOk) {
-      return false;
-    }
+  }
+  if (messageNotOk) {
+    return false;
   }
 
   // all stored, rebroadcast
