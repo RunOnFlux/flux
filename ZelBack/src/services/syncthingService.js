@@ -1700,7 +1700,11 @@ async function debugCpuprof(req, res) {
         responseType: 'stream', // Specify response type as stream
         timeout: 60000,
       });
-      res.setHeader('Content-Type', 'application/octet-stream');
+      if ('content-type' in response.data.headers) {
+        res.setHeader('Content-Type', response.data.headers['content-type']);
+      } else {
+        res.setHeader('Content-Type', 'application/octet-stream');
+      }
       return response.data.pipe(res);
     } catch (error) {
       return res ? res.json(error) : JSON.stringify(error);
@@ -1726,7 +1730,11 @@ async function debugHeapprof(req, res) {
         responseType: 'stream', // Specify response type as stream
         timeout: 60000,
       });
-      res.setHeader('Content-Type', 'application/octet-stream');
+      if ('content-type' in response.data.headers) {
+        res.setHeader('Content-Type', response.data.headers['content-type']);
+      } else {
+        res.setHeader('Content-Type', 'application/octet-stream');
+      }
       return response.data.pipe(res);
     } catch (error) {
       return res ? res.json(error) : JSON.stringify(error);
@@ -1747,11 +1755,7 @@ async function debugSupport(req, res) {
   const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
   if (authorized === true) {
-    try {
-      response = await performRequest('get', '/rest/debug/support', undefined, 60000);
-    } catch (error) {
-      return res ? res.json(error) : JSON.stringify(error);
-    }
+    response = await performRequest('get', '/rest/debug/support', undefined, 60000);
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
@@ -1789,7 +1793,11 @@ async function debugFile(req, res) {
           responseType: 'stream', // Specify response type as stream
           timeout: 60000,
         });
-        res.setHeader('Content-Type', 'application/octet-stream');
+        if ('content-type' in response.data.headers) {
+          res.setHeader('Content-Type', response.data.headers['content-type']);
+        } else {
+          res.setHeader('Content-Type', 'application/octet-stream');
+        }
         return response.data.pipe(res);
       } catch (error) {
         return res ? res.json(error) : JSON.stringify(error);
