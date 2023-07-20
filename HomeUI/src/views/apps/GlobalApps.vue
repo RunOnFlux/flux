@@ -84,6 +84,18 @@
                         title="Instances"
                         :data="row.item.instances.toString()"
                       />
+                      <list-entry
+                        title="Period"
+                        :data="labelForExpire(row.item.expire)"
+                      />
+                      <list-entry
+                        title="Enterprise Nodes"
+                        :data="row.item.nodes ? row.item.nodes.toString() : 'Not scoped'"
+                      />
+                      <list-entry
+                        title="Static IP"
+                        :data="row.item.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
+                      />
                       <h4>Composition</h4>
                       <div v-if="row.item.version <= 3">
                         <b-card>
@@ -194,6 +206,10 @@
                             :data="component.repotag"
                           />
                           <list-entry
+                            title="Repository Authentication"
+                            :data="component.repoauth ? 'Content Encrypted' : 'Public'"
+                          />
+                          <list-entry
                             title="Custom Domains"
                             :data="component.domains.toString() || 'none'"
                           />
@@ -220,6 +236,10 @@
                           <list-entry
                             title="Commands"
                             :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
+                          />
+                          <list-entry
+                            title="Secret Environment Parameters"
+                            :data="component.secrets ? 'Content Encrypted' : 'none'"
                           />
                           <div v-if="component.tiered">
                             <list-entry
@@ -288,7 +308,7 @@
                             size="sm"
                             class="mr-1"
                             variant="danger"
-                            @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], row.item.port || (row.item.ports ? row.item.ports[0] : row.item.compose[0].ports[0]))"
+                            @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
                           >
                             Visit App
                           </b-button>
@@ -401,6 +421,18 @@
                         title="Instances"
                         :data="row.item.instances.toString()"
                       />
+                      <list-entry
+                        title="Period"
+                        :data="labelForExpire(row.item.expire)"
+                      />
+                      <list-entry
+                        title="Enterprise Nodes"
+                        :data="row.item.nodes ? row.item.nodes.toString() : 'Not scoped'"
+                      />
+                      <list-entry
+                        title="Static IP"
+                        :data="row.item.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
+                      />
                       <h4>Composition</h4>
                       <div v-if="row.item.version <= 3">
                         <b-card>
@@ -511,6 +543,10 @@
                             :data="component.repotag"
                           />
                           <list-entry
+                            title="Repository Authentication"
+                            :data="component.repoauth ? 'Content Encrypted' : 'Public'"
+                          />
+                          <list-entry
                             title="Custom Domains"
                             :data="component.domains.toString() || 'none'"
                           />
@@ -537,6 +573,10 @@
                           <list-entry
                             title="Commands"
                             :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
+                          />
+                          <list-entry
+                            title="Secret Environment Parameters"
+                            :data="component.secrets ? 'Content Encrypted' : 'none'"
                           />
                           <div v-if="component.tiered">
                             <list-entry
@@ -605,7 +645,7 @@
                             size="sm"
                             class="mr-1"
                             variant="danger"
-                            @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], row.item.port || (row.item.ports ? row.item.ports[0] : row.item.compose[0].ports[0]))"
+                            @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
                           >
                             Visit App
                           </b-button>
@@ -747,6 +787,38 @@ export default {
         },
       },
       allApps: [],
+      expireOptions: [
+        {
+          value: 5000,
+          label: '1 week',
+          time: 7 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 11000,
+          label: '2 weeks',
+          time: 14 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 22000,
+          label: '1 month',
+          time: 30 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 66000,
+          label: '3 months',
+          time: 90 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 132000,
+          label: '6 months',
+          time: 180 * 24 * 60 * 60 * 1000,
+        },
+        {
+          value: 264000,
+          label: '1 year',
+          time: 365 * 24 * 60 * 60 * 1000,
+        },
+      ],
     };
   },
   computed: {
@@ -763,6 +835,16 @@ export default {
     this.appsGetListGlobalApps();
   },
   methods: {
+    labelForExpire(expire) {
+      const position = this.expireOptions.find((opt) => opt.value === expire);
+      if (position) {
+        return position.label;
+      }
+      if (expire) {
+        return `${expire} blocks`;
+      }
+      return '1 month';
+    },
     openAppManagement(appName) {
       this.managedApplication = appName;
     },
@@ -794,8 +876,22 @@ export default {
         const url = `http://${ip}:${port}`;
         this.openSite(url);
       } else {
-        this.showToast('danger', 'Unable to open App :(');
+        this.showToast('danger', 'Unable to open App :(, App does not have a port.');
       }
+    },
+    getProperPort(appSpecs) {
+      if (appSpecs.port) {
+        return appSpecs.port;
+      }
+      if (appSpecs.ports) {
+        return appSpecs.ports[0];
+      }
+      for (let i = 0; i < appSpecs.compose.length; i += 1) {
+        for (let j = 0; j < appSpecs.compose[i].ports.length; j += 1) {
+          if (appSpecs.compose[i].ports[j]) return appSpecs.compose[i].ports[j];
+        }
+      }
+      return null;
     },
     openNodeFluxOS(_ip, _port) {
       console.log(_ip, _port);

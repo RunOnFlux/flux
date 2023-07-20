@@ -1,7 +1,7 @@
 import Api, { sourceCancelToken } from '@/services/Api';
 
 export default {
-  // actually zelnode service
+  // actually flux service
   start(zelidauthHeader) {
     return Api().get('/benchmark/start', {
       headers: {
@@ -48,7 +48,7 @@ export default {
       },
     });
   },
-  // == Zelnode ==
+  // == Fluxnode ==
   getBenchmarks() {
     return Api().get('/benchmark/getbenchmarks');
   },

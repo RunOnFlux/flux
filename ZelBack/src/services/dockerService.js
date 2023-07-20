@@ -3,6 +3,8 @@ const Docker = require('dockerode');
 const path = require('path');
 const serviceHelper = require('./serviceHelper');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
+const pgpService = require('./pgpService');
+const generalService = require('./generalService');
 const log = require('../lib/log');
 
 const fluxDirPath = path.join(__dirname, '../../../');
@@ -230,12 +232,42 @@ async function dockerContainerChanges(idOrName) {
 
 /**
  * To pull a Docker Hub image and follow progress of the stream.
- * @param {string} repoTag Docker Hub repo/image tag.
+ * @param {object} config Pulling config consisting of repoTag and optional authToken
  * @param {object} res Response.
  * @param {function} callback Callback.
  */
-function dockerPullStream(repoTag, res, callback) {
-  docker.pull(repoTag, (err, mystream) => {
+function dockerPullStream(config, res, callback) {
+  const { repoTag, authToken } = config;
+  let pullOptions;
+  const splittedRepo = generalService.splitRepoTag(repoTag);
+  const {
+    provider,
+    port,
+    providerName,
+  } = splittedRepo;
+  let serveraddress;
+  if (port) {
+    serveraddress = `${provider}:${port}`;
+  } else if (providerName !== 'Docker Hub') {
+    serveraddress = provider;
+  }
+  if (authToken) {
+    if (authToken.includes(':')) { // specified by username:token
+      pullOptions = {
+        authconfig: {
+          username: authToken.split(':')[0],
+          password: authToken.split(':')[1],
+        },
+      };
+      if (serveraddress) {
+        pullOptions.authconfig.serveraddress = serveraddress;
+      }
+    } else {
+      throw new Error('Invalid login credentials for docker provided');
+    }
+  }
+  log.info(pullOptions);
+  docker.pull(repoTag, pullOptions, (err, mystream) => {
     function onFinished(error, output) {
       if (error) {
         callback(err);
@@ -359,13 +391,13 @@ async function dockerContainerLogs(idOrName, lines) {
     follow: false,
     stdout: true,
     stderr: true,
-    tail: lines,
+    tail: lines, // TODO FIXME when using tail, some nodes hang on execution, those nodes need to update, upgrade restart docker daemon.
   };
   const logs = await dockerContainer.logs(options);
   return logs.toString();
 }
 
-async function obtainPayloadFromStorage(url) {
+async function obtainPayloadFromStorage(url, appName) {
   try {
     // do a signed request in headers
     // we want to be able to fetch even from unsecure storages that may not have all the auths
@@ -380,7 +412,9 @@ async function obtainPayloadFromStorage(url) {
       headers: {
         'flux-message': message,
         'flux-signature': signature,
+        'flux-app': appName,
       },
+      timeout: 20000,
     };
     const response = await serviceHelper.axiosGet(url, axiosConfig);
     return response.data;
@@ -398,7 +432,7 @@ async function obtainPayloadFromStorage(url) {
  * @param {bool} isComponent
  * @returns {object}
  */
-async function appDockerCreate(appSpecifications, appName, isComponent) {
+async function appDockerCreate(appSpecifications, appName, isComponent, fullAppSpecs) {
   const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
   let exposedPorts = {};
   let portBindings = {};
@@ -444,7 +478,63 @@ async function appDockerCreate(appSpecifications, appName, isComponent) {
     }
   }
   // containerData can have flags eg. s (s:/data) for synthing enabled container data
-  const containerData = appSpecifications.containerData.split(':')[1] || appSpecifications.containerData;
+  // multiple data volumes can be attached, if containerData is contains more paths of |
+  // next path should be attaching volumes of other app components, eg 0:/mydata where component X is attaching volume of first component to /mydata path
+  // experimental feature
+  // only component of higher number can use volumes of previous components. Eg. 2nd component can't use volume of 3rd component but can use volume of 1st component.
+  // that limitation comes down to how we are creating volumes, assigning them and starting applications
+  // todo v7 adjust this limitations in future revisions, switcher to docker volumes.
+  // tbd v7 potential issues of hard redeploys of components
+  const containerData = appSpecifications.containerData.split('|')[0].split(':')[1] || appSpecifications.containerData.split('|')[0];
+  const dataPaths = appSpecifications.containerData.split('|');
+  const outsideVolumesToAttach = [];
+  for (let i = 1; i < dataPaths.length; i += 1) {
+    const splittedPath = dataPaths[i].split(':');
+    const pathFlags = splittedPath[0];
+    const actualPath = splittedPath[1];
+    if (pathFlags && actualPath && pathFlags.replace(/[^0-9]/g, '')) {
+      const comopnentToUse = pathFlags.replace(/[^0-9]/g, '')[0]; // take first number character representing the component number to attach to
+      outsideVolumesToAttach.push({
+        component: Number(comopnentToUse),
+        path: actualPath,
+      });
+    }
+  }
+  if (outsideVolumesToAttach.length && !fullAppSpecs) {
+    throw new Error(`Complete App Specification was not supplied but additional volumes requested for ${appName}`);
+  }
+  const constructedVolumes = [`${appsFolder + getAppIdentifier(identifier)}/appdata:${containerData}`];
+  outsideVolumesToAttach.forEach((volToAttach) => {
+    if (fullAppSpecs.version >= 4) {
+      const myIndex = fullAppSpecs.compose.findIndex((component) => component.name === appSpecifications.name);
+      if (myIndex >= volToAttach.component) {
+        const atCompIdentifier = `${fullAppSpecs.compose[volToAttach.component].name}_${appName}`;
+        const vol = `${appsFolder + getAppIdentifier(atCompIdentifier)}/appdata:${volToAttach.path}`;
+        constructedVolumes.push(vol);
+      } else {
+        log.error(`Additional volume ${outsideVolumesToAttach.path} can't be mounted to component ${outsideVolumesToAttach.component}`);
+      }
+    } else if (volToAttach.component === 0) { // not a compose specs
+      const vol = `${appsFolder + getAppIdentifier(identifier)}/appdata:${volToAttach.path}`;
+      constructedVolumes.push(vol);
+    }
+  });
+  const envParams = appSpecifications.environmentParameters || appSpecifications.enviromentParameters;
+  if (appSpecifications.secrets) {
+    const decodedEnvParams = await pgpService.decryptMessage(appSpecifications.secrets);
+    const arraySecrets = JSON.parse(decodedEnvParams);
+    if (Array.isArray(arraySecrets)) {
+      arraySecrets.forEach((parameter) => {
+        if (typeof parameter !== 'string' || parameter.length > 5000000) {
+          throw new Error('Environment parameters from Secrets are invalid');
+        } else {
+          envParams.push(parameter);
+        }
+      });
+    } else {
+      throw new Error('Environment parameters from Secrets are invalid');
+    }
+  }
   const options = {
     Image: appSpecifications.repotag,
     name: getAppIdentifier(identifier),
@@ -452,13 +542,14 @@ async function appDockerCreate(appSpecifications, appName, isComponent) {
     AttachStdout: true,
     AttachStderr: true,
     Cmd: appSpecifications.commands,
-    Env: appSpecifications.environmentParameters || appSpecifications.enviromentParameters,
+    Env: envParams,
     Tty: false,
     ExposedPorts: exposedPorts,
     HostConfig: {
       NanoCPUs: appSpecifications.cpu * 1e9,
       Memory: appSpecifications.ram * 1024 * 1024,
-      Binds: [`${appsFolder + getAppIdentifier(identifier)}/appdata:${containerData}`],
+      StorageOpts: { size: '12G' }, // root fs has max 12G
+      Binds: constructedVolumes,
       Ulimits: [
         {
           Name: 'nofile',
@@ -470,7 +561,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent) {
       RestartPolicy: {
         Name: 'unless-stopped',
       },
-      NetworkMode: 'fluxDockerNetwork',
+      NetworkMode: `fluxDockerNetwork_${appName}`,
       LogConfig: {
         Type: 'json-file',
         Config: {
@@ -482,10 +573,10 @@ async function appDockerCreate(appSpecifications, appName, isComponent) {
   };
 
   if (options.Env.length) {
-    const fluxStorageEnv = options.Env.find((env) => env.startsWith(('FLUX_STORAGE_ENV=')));
+    const fluxStorageEnv = options.Env.find((env) => env.startsWith(('F_S_ENV=')));
     if (fluxStorageEnv) {
-      const url = fluxStorageEnv.split('FLUX_STORAGE_ENV=')[1];
-      const envVars = await obtainPayloadFromStorage(url);
+      const url = fluxStorageEnv.split('F_S_ENV=')[1];
+      const envVars = await obtainPayloadFromStorage(url, appName);
       if (Array.isArray(envVars) && envVars.length < 200) {
         envVars.forEach((parameter) => {
           if (typeof parameter !== 'string' || parameter.length > 5000000) {
@@ -496,6 +587,25 @@ async function appDockerCreate(appSpecifications, appName, isComponent) {
         });
       } else {
         throw new Error(`Environment parameters from Flux Storage ${fluxStorageEnv} are invalid`);
+      }
+    }
+  }
+
+  if (options.Cmd.length) {
+    const fluxStorageCmd = options.Cmd.find((cmd) => cmd.startsWith(('F_S_CMD=')));
+    if (fluxStorageCmd) {
+      const url = fluxStorageCmd.split('F_S_CMD=')[1];
+      const envVars = await obtainPayloadFromStorage(url, appName);
+      if (Array.isArray(envVars) && envVars.length < 200) {
+        envVars.forEach((parameter) => {
+          if (typeof parameter !== 'string' || parameter.length > 5000000) {
+            throw new Error(`Commands parameters from Flux Storage ${fluxStorageCmd} are invalid`);
+          } else {
+            options.Env.push(parameter);
+          }
+        });
+      } else {
+        throw new Error(`Commands parameters from Flux Storage ${fluxStorageCmd} are invalid`);
       }
     }
   }
@@ -634,7 +744,7 @@ async function appDockerTop(idOrName) {
 
 /**
  * Creates flux docker network if doesn't exist
- *
+ * OBSOLETE
  * @returns {object} response
  */
 async function createFluxDockerNetwork() {
@@ -643,8 +753,8 @@ async function createFluxDockerNetwork() {
     Name: 'fluxDockerNetwork',
     IPAM: {
       Config: [{
-        Subnet: '172.15.0.0/16',
-        Gateway: '172.15.0.1',
+        Subnet: '172.23.0.0/24',
+        Gateway: '172.23.0.1',
       }],
     },
   };
@@ -659,6 +769,60 @@ async function createFluxDockerNetwork() {
     response = await dockerCreateNetwork(fluxNetworkOptions);
   } else {
     response = 'Flux Network already exists.';
+  }
+  return response;
+}
+
+/**
+ * Creates flux application docker network if doesn't exist
+ *
+ * @returns {object} response
+ */
+async function createFluxAppDockerNetwork(appname, number) {
+  // check if fluxDockerNetwork of an appexists
+  const fluxNetworkOptions = {
+    Name: `fluxDockerNetwork_${appname}`,
+    IPAM: {
+      Config: [{
+        Subnet: `172.23.${number}.0/24`,
+        Gateway: `172.23.${number}.1`,
+      }],
+    },
+  };
+  let fluxNetworkExists = true;
+  const network = docker.getNetwork(fluxNetworkOptions.Name);
+  await dockerNetworkInspect(network).catch(() => {
+    fluxNetworkExists = false;
+  });
+  let response;
+  // create or check docker network
+  if (!fluxNetworkExists) {
+    response = await dockerCreateNetwork(fluxNetworkOptions);
+  } else {
+    response = `Flux App Network of ${appname} already exists.`;
+  }
+  return response;
+}
+
+/**
+ * Removes flux application docker network if exists
+ *
+ * @returns {object} response
+ */
+async function removeFluxAppDockerNetwork(appname) {
+  // check if fluxDockerNetwork of an app exists
+  const fluxAppNetworkName = `fluxDockerNetwork_${appname}`;
+  let fluxNetworkExists = true;
+  const network = docker.getNetwork(fluxAppNetworkName);
+  await dockerNetworkInspect(network).catch(() => {
+    fluxNetworkExists = false;
+  });
+  let response;
+  // remove docker network
+  if (fluxNetworkExists) {
+    response = await dockerRemoveNetwork(network);
+  } else {
+    response = `Flux App Network of ${appname} already does not exist.`;
   }
   return response;
 }
@@ -692,4 +856,6 @@ module.exports = {
   appDockerTop,
   createFluxDockerNetwork,
   getDockerContainerByIdOrName,
+  createFluxAppDockerNetwork,
+  removeFluxAppDockerNetwork,
 };

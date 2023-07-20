@@ -6,12 +6,15 @@ const fs = require('fs').promises;
 const path = require('path');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
+// eslint-disable-next-line import/no-extraneous-dependencies
+const net = require('net');
+const LRU = require('lru-cache');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
-const daemonServiceZelnodeRpcs = require('./daemonService/daemonServiceZelnodeRpcs');
+const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
 const daemonServiceBenchmarkRpcs = require('./daemonService/daemonServiceBenchmarkRpcs');
 const daemonServiceWalletRpcs = require('./daemonService/daemonServiceWalletRpcs');
 const benchmarkService = require('./benchmarkService');
@@ -43,7 +46,7 @@ class TokenBucket {
     this.capacity = capacity;
     this.fillPerSecond = fillPerSecond;
 
-    this.lastFilled = Math.floor(Date.now() / 1000);
+    this.lastFilled = new Date().getTime();
     this.tokens = capacity;
   }
 
@@ -60,8 +63,8 @@ class TokenBucket {
   }
 
   refill() {
-    const now = Math.floor(Date.now() / 1000);
-    const rate = (now - this.lastFilled) / this.fillPerSecond;
+    const now = new Date().getTime();
+    const rate = (now - this.lastFilled) / (this.fillPerSecond * 1000);
 
     this.tokens = Math.min(this.capacity, this.tokens + Math.floor(rate * this.capacity));
     this.lastFilled = now;
@@ -103,6 +106,162 @@ function minVersionSatisfy(version, minimumVersion) {
 }
 
 /**
+ * To get if port belongs to enterprise range
+ * @returns {boolean} Returns true if enterprise
+ */
+function isPortEnterprise(port) {
+  const { enterprisePorts } = config.fluxapps;
+  let portEnterprise = false;
+  enterprisePorts.forEach((portOrInterval) => {
+    if (typeof portOrInterval === 'string') { // '0-10'
+      const minPort = Number(portOrInterval.split('-')[0]);
+      const maxPort = Number(portOrInterval.split('-')[1]);
+      if (+port >= minPort && +port <= maxPort) {
+        portEnterprise = true;
+      }
+    } else if (portOrInterval === +port) {
+      portEnterprise = true;
+    }
+  });
+  console.log(port);
+  return portEnterprise;
+}
+
+/**
+ * To get if port belongs to user blocked range
+ * @returns {boolean} Returns true if port is user blocked
+ */
+function isPortUserBlocked(port) {
+  try {
+    let blockedPorts = userconfig.initial.blockedPorts || [];
+    blockedPorts = serviceHelper.ensureObject(blockedPorts);
+    let portBanned = false;
+    blockedPorts.forEach((portOrInterval) => {
+      if (portOrInterval === +port) {
+        portBanned = true;
+      }
+    });
+    console.log(port);
+    return portBanned;
+  } catch (error) {
+    log.error(error);
+    return false;
+  }
+}
+
+/**
+ * To get if port belongs to banned range
+ * @returns {boolean} Returns true if port is banned
+ */
+function isPortBanned(port) {
+  const { bannedPorts } = config.fluxapps;
+  let portBanned = false;
+  bannedPorts.forEach((portOrInterval) => {
+    if (typeof portOrInterval === 'string') { // '0-10'
+      const minPort = Number(portOrInterval.split('-')[0]);
+      const maxPort = Number(portOrInterval.split('-')[1]);
+      if (+port >= minPort && +port <= maxPort) {
+        portBanned = true;
+      }
+    } else if (portOrInterval === +port) {
+      portBanned = true;
+    }
+  });
+  console.log(port);
+  return portBanned;
+}
+
+/**
+ * To perform a basic check if port on an ip is opened
+ * This requires our port to be also open on out
+ * @param {string} ip IP address.
+ * @param {number} port Port.
+ * @param {string} app Application name. Mostly for comsetic purposes, can be boolean. Defaults to undefined, as for testing main FluxOS not an app.
+ * @param {number} timeout Timeout in ms.
+ * @returns {boolean} Returns true if opened, otherwise false
+ */
+async function isPortOpen(ip, port, app, timeout = 5000) {
+  let resp;
+  try {
+    let portResponse = true;
+    // eslint-disable-next-line no-use-before-define
+    const firewallActive = await isFirewallActive();
+    // open port first
+    if (firewallActive) {
+    // eslint-disable-next-line no-use-before-define
+      resp = await allowOutPort(port).catch((error) => { // requires allow out for apps checking, for our ports both
+        log.error(error);
+      });
+      if (!resp) {
+        resp = {};
+      }
+    } else {
+      resp.message = 'existing';
+    }
+
+    const promise = new Promise(((resolve, reject) => {
+      const socket = new net.Socket();
+
+      const onError = (err) => {
+        socket.destroy();
+        if (err.code && err.code === 'ETIMEDOUT') {
+          log.info(`Connection on ${ip}:${port} ETIMEDOUT. Flux or Flux App is not running correctly`);
+          reject();
+        } else if (app) {
+          resolve();
+        } else if (port === 16129) {
+          log.error(`Syncthing of Flux on ${ip}:${port} did not respond correctly but may be in use. Allowing`);
+          log.error(err);
+          resolve();
+        } else {
+          log.error(`Flux on ${ip}:${port} is not working correctly`);
+          log.error(err);
+          reject();
+        }
+      };
+
+      const onTimeout = () => {
+        log.error(`Connection on ${ip}:${port} timed out. Flux or Flux App is not running correctly`);
+        socket.destroy();
+        reject();
+      };
+
+      socket.setTimeout(timeout);
+      socket.once('error', onError);
+      socket.once('timeout', onTimeout);
+
+      socket.connect(port, ip, () => {
+        socket.destroy();
+        portResponse = 'listening';
+        resolve();
+      });
+    }));
+    await promise;
+    setTimeout(() => { // timeout ensure return first
+      if (app) {
+        // delete the rule
+        if (resp.message !== 'existing') { // new or updated rule or firewall not active from above
+          // eslint-disable-next-line no-use-before-define
+          deleteAllowOutPortRule(port); // no need waiting for response. Delete if was not present before to not create huge firewall list
+        }
+      }
+    }, 10);
+    return portResponse; // true for OK port. listening for port that is being listened to
+  } catch (error) {
+    setTimeout(() => { // timeout ensure return first
+      if (app) {
+        // delete the rule
+        if (resp.message !== 'existing') { // new or updated rule or firewall not active from above
+          // eslint-disable-next-line no-use-before-define
+          deleteAllowOutPortRule(port); // no need waiting for response. Delete if was not present before to not create huge firewall list
+        }
+      }
+    }, 10);
+    return false;
+  }
+}
+
+/**
  * To perform a basic check of current FluxOS version.
  * @param {string} ip IP address.
  * @param {string} port Port. Defaults to config.server.apiport.
@@ -110,12 +269,31 @@ function minVersionSatisfy(version, minimumVersion) {
  */
 async function isFluxAvailable(ip, port = config.server.apiport) {
   try {
+    const ipchars = /^[0-9.]+$/;
+    if (!ipchars.test(ip)) {
+      throw new Error('Invalid IP');
+    }
+    if (!config.server.allowedPorts.includes(+port)) {
+      throw new Error('Invalid Port');
+    }
     const fluxResponse = await serviceHelper.axiosGet(`http://${ip}:${port}/flux/version`, axiosConfig);
     if (fluxResponse.data.status !== 'success') return false;
 
     const fluxVersion = fluxResponse.data.data;
     const versionMinOK = minVersionSatisfy(fluxVersion, config.minimumFluxOSAllowedVersion);
-    return versionMinOK;
+    if (!versionMinOK) return false;
+
+    const homePort = +port - 1;
+    const fluxResponseUI = await serviceHelper.axiosGet(`http://${ip}:${homePort}`, axiosConfig);
+    const UIok = fluxResponseUI.data.includes('<title>');
+    if (!UIok) return false;
+
+    const syncthingPort = +port + 2;
+    // eslint-disable-next-line no-use-before-define
+    const syncthingOpen = await isPortOpen(ip, syncthingPort);
+    if (!syncthingOpen) return false;
+
+    return true;
   } catch (e) {
     return false;
   }
@@ -147,6 +325,82 @@ async function checkFluxAvailability(req, res) {
     response = message;
   }
   return res.json(response);
+}
+
+/**
+ * To check if application is available
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+async function checkAppAvailability(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+
+      const processedBody = serviceHelper.ensureObject(body);
+
+      const {
+        ip, ports, appname, pubKey, signature,
+      } = processedBody;
+
+      const ipPort = processedBody.port;
+
+      // pubkey of the message has to be on the list
+      const zl = await fluxCommunicationUtils.deterministicFluxList(pubKey); // this itself is sufficient.
+      const node = zl.find((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
+      const dataToVerify = processedBody;
+      delete dataToVerify.signature;
+      const messageToVerify = JSON.stringify(dataToVerify);
+      const verified = verificationHelper.verifyMessage(messageToVerify, pubKey, signature);
+      if ((verified !== true || !node) && authorized !== true) {
+        throw new Error('Unable to verify request authenticity');
+      }
+
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+      const daemonHeight = syncStatus.data.height;
+      const minPort = daemonHeight >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMinNew : config.fluxapps.portMin - 1000;
+      const maxPort = daemonHeight >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMaxNew : config.fluxapps.portMax;
+      const portsListening = [];
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of ports) {
+        const iBP = isPortBanned(+port);
+        if (+port >= minPort && +port <= maxPort && !iBP) {
+        // eslint-disable-next-line no-await-in-loop
+          const isOpen = await isPortOpen(ip, port, appname, 30000);
+          if (!isOpen) {
+            throw new Error(`Flux Applications on ${ip}:${ipPort} are not available. Failed port: ${port}`);
+          } else if (isOpen === 'listening') { // this port is in use and listening. Later do check from other node on this port
+            portsListening.push(+port);
+          }
+        } else {
+          log.error(`Flux App port ${port} is outside allowed range.`);
+        }
+      }
+      // if ip is my if, do a data response with ports that are listening
+      const dataResponse = messageHelper.createDataMessage(portsListening);
+      // eslint-disable-next-line no-use-before-define
+      let myIP = await getMyFluxIPandPort();
+      myIP = myIP.split(':')[0];
+      if (ip === myIP) {
+        res.json(dataResponse);
+        return;
+      }
+      const successResponse = messageHelper.createSuccessMessage(`Flux Applications on ${ip}:${ipPort} are available.`);
+      res.json(successResponse);
+    } catch (error) {
+      const errorResponse = messageHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      res.json(errorResponse);
+    }
+  });
 }
 
 /**
@@ -420,7 +674,7 @@ async function checkFluxbenchVersionAllowed() {
       return false;
     }
     dosState += 2;
-    setDosMessage('Fluxbench Version Error. Error obtaining Flux Version.');
+    setDosMessage('Fluxbench Version Error. Error obtaining FluxBench Version.');
     log.error(dosMessage);
     return false;
   } catch (err) {
@@ -459,9 +713,9 @@ function fluxUptime(req, res) {
 function isCommunicationEstablished(req, res) {
   let message;
   if (outgoingPeers.length < config.fluxapps.minOutgoing) { // easier to establish
-    message = messageHelper.createErrorMessage('Not enough connections established to Flux network');
-  // } else if (incomingPeers.length < config.fluxapps.minIncoming) { // depends on other nodes successfully connecting to my node, todo enforcement
-  //   message = messageHelper.createErrorMessage('Not enough incoming connections from Flux network');
+    message = messageHelper.createErrorMessage(`Not enough outgoing connections established to Flux network. Minimum required ${config.fluxapps.minOutgoing} found ${outgoingPeers.length}`);
+  } else if (incomingPeers.length < config.fluxapps.minIncoming) { // depends on other nodes successfully connecting to my node, todo enforcement
+    message = messageHelper.createErrorMessage(`Not enough incoming connections from Flux network. Minimum required ${config.fluxapps.minIncoming} found ${incomingPeers.length}`);
   } else {
     message = messageHelper.createSuccessMessage('Communication to Flux network is properly established');
   }
@@ -474,6 +728,15 @@ function isCommunicationEstablished(req, res) {
  * @returns {boolean} True if all checks passed.
  */
 async function checkMyFluxAvailability(retryNumber = 0) {
+  let userBlockedPorts = userconfig.initial.blockedPorts || [];
+  userBlockedPorts = serviceHelper.ensureObject(userBlockedPorts);
+  if (Array.isArray(userBlockedPorts)) {
+    if (userBlockedPorts.length > 100) {
+      dosState += 11;
+      setDosMessage('User blocked ports above 100 limit');
+      return false;
+    }
+  }
   const fluxBenchVersionAllowed = await checkFluxbenchVersionAllowed();
   if (!fluxBenchVersionAllowed) {
     return false;
@@ -559,15 +822,21 @@ async function checkMyFluxAvailability(retryNumber = 0) {
     return false;
   }
   const measuredUptime = fluxUptime();
-  if (measuredUptime.status === 'success' && measuredUptime.data > config.minUpTime) { // node has been running for 1 hour. Upon starting a node, there can be dos that needs resetting
+  if (measuredUptime.status === 'success' && measuredUptime.data > config.fluxapps.minUpTime) { // node has been running for 30 minutes. Upon starting a node, there can be dos that needs resetting
     const nodeList = await fluxCommunicationUtils.deterministicFluxList();
-    if (nodeList.length > config.fluxapps.minIncoming + config.fluxapps.minOutgoing) {
+    // nodeList must include our fluxnode ip myIP
+    let myCorrectIp = `${myIP}:${apiPort}`;
+    if (apiPort === 16127 || apiPort === '16127') {
+      myCorrectIp = myCorrectIp.split(':')[0];
+    }
+    const myNodeExists = nodeList.find((node) => node.ip === myCorrectIp);
+    if (nodeList.length > config.fluxapps.minIncoming + config.fluxapps.minOutgoing && myNodeExists) { // our node MUST be in confirmed list in order to have some peers
       // check sufficient connections
       const connectionInfo = isCommunicationEstablished();
       if (connectionInfo.status === 'error') {
-        dosState += 0.015; // slow increment, DOS after ~13 hours. 0.015 per minute. This check depends on other nodes being able to connect to my node
+        dosState += 0.13; // slow increment, DOS after ~75 minutes. 0.13 per minute. This check depends on other nodes being able to connect to my node
         if (dosState > 10) {
-          setDosMessage(dosMessage || 'Flux does not have sufficient peers');
+          setDosMessage(connectionInfo.data.message || 'Flux does not have sufficient peers');
           log.error(dosMessage);
           return false;
         }
@@ -607,7 +876,11 @@ async function adjustExternalIP(ip) {
     zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
     kadena: '${userconfig.initial.kadena || ''}',
     testnet: ${userconfig.initial.testnet || false},
-    apiport: ${Number(userconfig.initial.apiport || config.apiport)},
+    development: ${userconfig.initial.development || false},
+    apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
+    pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
+    pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
+    blockedPorts: [${userconfig.initial.blockedPorts || ''}],
   }
 }`;
 
@@ -638,7 +911,7 @@ async function checkDeterministicNodesCollisions() {
       }
       const nodeList = await fluxCommunicationUtils.deterministicFluxList();
       const result = nodeList.filter((node) => node.ip === myIP);
-      const nodeStatus = await daemonServiceZelnodeRpcs.getZelNodeStatus();
+      const nodeStatus = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
       if (nodeStatus.status === 'success') { // different scenario is caught elsewhere
         const myCollateral = nodeStatus.data.collateral;
         const myNode = result.find((node) => node.collateral === myCollateral);
@@ -649,18 +922,24 @@ async function checkDeterministicNodesCollisions() {
             const filterEarlierSame = result.filter((node) => (node.readded_confirmed_height || node.confirmed_height) <= myBlockHeight);
             // keep running only older collaterals
             if (filterEarlierSame.length >= 1) {
-              log.error('Flux earlier collision detection');
+              log.error(`Flux earlier collision detection on ip:${myIP}`);
               dosState = 100;
-              setDosMessage('Flux earlier collision detection');
+              setDosMessage(`Flux earlier collision detection on ip:${myIP}`);
+              setTimeout(() => {
+                checkDeterministicNodesCollisions();
+              }, 60 * 1000);
               return;
             }
           }
           // prevent new activation
         } else if (result.length === 1) {
           if (!myNode) {
-            log.error('Flux collision detection');
+            log.error('Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.');
             dosState = 100;
-            setDosMessage('Flux collision detection');
+            setDosMessage('Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.');
+            setTimeout(() => {
+              checkDeterministicNodesCollisions();
+            }, 60 * 1000);
             return;
           }
         }
@@ -671,9 +950,9 @@ async function checkDeterministicNodesCollisions() {
         if (availabilityOk) {
           adjustExternalIP(myIP.split(':')[0]);
         }
-      } else { // sufficient amount of nodes has to appear on the network within 12 hours
+      } else { // sufficient amount of nodes has to appear on the network within 6 hours
         const measuredUptime = fluxUptime();
-        if (measuredUptime.status === 'success' && measuredUptime.data > (config.minUpTime * 12)) {
+        if (measuredUptime.status === 'success' && measuredUptime.data > (config.fluxapps.minUpTime * 12)) {
           const availabilityOk = await checkMyFluxAvailability();
           if (availabilityOk) {
             adjustExternalIP(myIP.split(':')[0]);
@@ -710,7 +989,7 @@ async function checkDeterministicNodesCollisions() {
  * @param {object} res Response.
  * @returns {object} Message.
  */
-async function getDOSState(req, res) {
+function getDOSState(req, res) {
   const data = {
     dosState,
     dosMessage,
@@ -729,14 +1008,42 @@ async function allowPort(port) {
   const cmdAsync = util.promisify(nodecmd.get);
 
   const cmdres = await cmdAsync(exec);
-  console.log(cmdres);
   const cmdStat = {
     status: false,
     message: null,
   };
   cmdStat.message = cmdres;
-  if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('existing') || serviceHelper.ensureString(cmdres).includes('added')) {
+  if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
     cmdStat.status = true;
+  } else if (serviceHelper.ensureString(cmdres).includes('existing')) {
+    cmdStat.status = true;
+    cmdStat.message = 'existing';
+  } else {
+    cmdStat.status = false;
+  }
+  return cmdStat;
+}
+
+/**
+ * To allow out a port.
+ * @param {string} port Port.
+ * @returns {object} Command status.
+ */
+async function allowOutPort(port) {
+  const exec = `sudo ufw allow out ${port}`;
+  const cmdAsync = util.promisify(nodecmd.get);
+
+  const cmdres = await cmdAsync(exec);
+  const cmdStat = {
+    status: false,
+    message: null,
+  };
+  cmdStat.message = cmdres;
+  if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
+    cmdStat.status = true;
+  } else if (serviceHelper.ensureString(cmdres).includes('existing')) {
+    cmdStat.status = true;
+    cmdStat.message = 'existing';
   } else {
     cmdStat.status = false;
   }
@@ -749,17 +1056,108 @@ async function allowPort(port) {
  * @returns {object} Command status.
  */
 async function denyPort(port) {
-  const exec = `sudo ufw deny ${port} && sudo ufw deny out ${port}`;
-  const cmdAsync = util.promisify(nodecmd.get);
-
-  const cmdres = await cmdAsync(exec);
-  console.log(cmdres);
   const cmdStat = {
     status: false,
     message: null,
   };
+  const portBanned = isPortBanned(+port);
+  if (+port < (config.fluxapps.portMinNew) || +port > config.fluxapps.portMaxNew || portBanned) {
+    cmdStat.message = 'Port out of deletable app ports range';
+    return cmdStat;
+  }
+  const exec = `sudo ufw deny ${port} && sudo ufw deny out ${port}`;
+  const cmdAsync = util.promisify(nodecmd.get);
+
+  const cmdres = await cmdAsync(exec);
   cmdStat.message = cmdres;
-  if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('existing') || serviceHelper.ensureString(cmdres).includes('added')) {
+  if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
+    cmdStat.status = true;
+  } else if (serviceHelper.ensureString(cmdres).includes('existing')) {
+    cmdStat.status = true;
+    cmdStat.message = 'existing';
+  } else {
+    cmdStat.status = false;
+  }
+  return cmdStat;
+}
+
+/**
+ * To delete a ufw allow rule on port.
+ * @param {string} port Port.
+ * @returns {object} Command status.
+ */
+async function deleteAllowPortRule(port) {
+  const cmdStat = {
+    status: false,
+    message: null,
+  };
+  const portBanned = isPortBanned(+port);
+  if (+port < (config.fluxapps.portMinNew) || +port > config.fluxapps.portMaxNew || portBanned) {
+    cmdStat.message = 'Port out of deletable app ports range';
+    return cmdStat;
+  }
+  const exec = `sudo ufw delete allow ${port} && sudo ufw delete allow out ${port}`;
+  const cmdAsync = util.promisify(nodecmd.get);
+
+  const cmdres = await cmdAsync(exec);
+  cmdStat.message = cmdres;
+  if (serviceHelper.ensureString(cmdres).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
+    cmdStat.status = true;
+  } else {
+    cmdStat.status = false;
+  }
+  return cmdStat;
+}
+
+/**
+ * To delete a ufw deny rule on port.
+ * @param {string} port Port.
+ * @returns {object} Command status.
+ */
+async function deleteDenyPortRule(port) {
+  const cmdStat = {
+    status: false,
+    message: null,
+  };
+  const portBanned = isPortBanned(+port);
+  if (+port < (config.fluxapps.portMinNew) || +port > config.fluxapps.portMaxNew || portBanned) {
+    cmdStat.message = 'Port out of deletable app ports range';
+    return cmdStat;
+  }
+  const exec = `sudo ufw delete deny ${port} && sudo ufw delete deny out ${port}`;
+  const cmdAsync = util.promisify(nodecmd.get);
+
+  const cmdres = await cmdAsync(exec);
+  cmdStat.message = cmdres;
+  if (serviceHelper.ensureString(cmdres).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
+    cmdStat.status = true;
+  } else {
+    cmdStat.status = false;
+  }
+  return cmdStat;
+}
+
+/**
+ * To delete a ufw allow rule on port.
+ * @param {string} port Port.
+ * @returns {object} Command status.
+ */
+async function deleteAllowOutPortRule(port) {
+  const cmdStat = {
+    status: false,
+    message: null,
+  };
+  const portBanned = isPortBanned(+port);
+  if (+port < (config.fluxapps.portMinNew) || +port > config.fluxapps.portMaxNew || portBanned) {
+    cmdStat.message = 'Port out of deletable app ports range';
+    return cmdStat;
+  }
+  const exec = `sudo ufw delete allow out ${port}`;
+  const cmdAsync = util.promisify(nodecmd.get);
+
+  const cmdres = await cmdAsync(exec);
+  cmdStat.message = cmdres;
+  if (serviceHelper.ensureString(cmdres).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
     cmdStat.status = true;
   } else {
     cmdStat.status = false;
@@ -847,14 +1245,117 @@ async function adjustFirewall() {
         // eslint-disable-next-line no-await-in-loop
         const cmdresC = await cmdAsync(execC);
         if (serviceHelper.ensureString(cmdresC).includes('updated') || serviceHelper.ensureString(cmdresC).includes('existing') || serviceHelper.ensureString(cmdresC).includes('added')) {
-          log.info(`Firewall adjusted for port ${port}`);
+          log.info(`Firewall out adjusted for port ${port}`);
         } else {
-          log.info(`Failed to adjust Firewall for port ${port}`);
+          log.info(`Failed to adjust Firewall out for port ${port}`);
         }
       }
     } else {
       log.info('Firewall is not active. Adjusting not applied');
     }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+async function purgeUFW() {
+  try {
+    const cmdAsync = util.promisify(nodecmd.get);
+    const firewallActive = await isFirewallActive();
+    if (firewallActive) {
+      const execB = 'sudo ufw status | grep \'DENY\' | grep -E \'(3[0-9]{4})\''; // 30000 - 39999
+      const cmdresB = await cmdAsync(execB).catch(() => {}) || ''; // fail silently,
+      if (serviceHelper.ensureString(cmdresB).includes('DENY')) {
+        const deniedPorts = cmdresB.split('\n'); // split by new line
+        const portsToDelete = [];
+        deniedPorts.forEach((port) => {
+          const adjPort = port.substring(0, port.indexOf(' '));
+          if (adjPort) { // last line is empty
+            if (!portsToDelete.includes(adjPort)) {
+              portsToDelete.push(adjPort);
+            }
+          }
+        });
+        // eslint-disable-next-line no-restricted-syntax
+        for (const port of portsToDelete) {
+          // eslint-disable-next-line no-await-in-loop
+          await deleteDenyPortRule(port);
+        }
+        log.info('UFW app deny rules purged');
+      } else {
+        log.info('No UFW deny rules found');
+      }
+    } else {
+      log.info('Firewall is not active. Purging UFW not necessary');
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+const lruRateOptions = {
+  max: 500,
+  maxAge: 1000 * 15, // 15 seconds
+};
+const lruRateCache = new LRU(lruRateOptions);
+/**
+ * To check rate limit.
+ * @param {string} ip IP address.
+ * @param {number} limitPerSecond Defaults to value of 20
+ * @returns {boolean} True if a ip is allowed to do a request, otherwise false
+ */
+function lruRateLimit(ip, limitPerSecond = 20) {
+  const lruResponse = lruRateCache.get(ip);
+  const newTime = new Date().getTime();
+  if (lruResponse) {
+    const oldTime = lruResponse.time;
+    const oldTokensRemaining = lruResponse.tokens;
+    const timeDifference = newTime - oldTime;
+    const tokensToAdd = (timeDifference / 1000) * limitPerSecond;
+    let newTokensRemaining = oldTokensRemaining + tokensToAdd;
+    if (newTokensRemaining < 0) {
+      const newdata = {
+        time: newTime,
+        tokens: newTokensRemaining,
+      };
+      lruRateCache.set(ip, newdata);
+      log.warn(`${ip} rate limited`);
+      return false;
+    }
+    if (newTokensRemaining > limitPerSecond) {
+      newTokensRemaining = limitPerSecond;
+      newTokensRemaining -= 1;
+      const newdata = {
+        time: newTime,
+        tokens: newTokensRemaining,
+      };
+      lruRateCache.set(ip, newdata);
+      return true;
+    }
+    newTokensRemaining -= 1;
+    const newdata = {
+      time: newTime,
+      tokens: newTokensRemaining,
+    };
+    lruRateCache.set(ip, newdata);
+    return true;
+  }
+  const newdata = {
+    time: newTime,
+    tokens: limitPerSecond,
+  };
+  lruRateCache.set(ip, newdata);
+  return true;
+}
+
+/**
+ * Allow Node to bind to privileged without sudo
+ */
+async function allowNodeToBindPrivilegedPorts() {
+  try {
+    const exec = "sudo setcap 'cap_net_bind_service=+ep' `which node`";
+    const cmdAsync = util.promisify(nodecmd.get);
+    await cmdAsync(exec);
   } catch (error) {
     log.error(error);
   }
@@ -873,8 +1374,11 @@ module.exports = {
   getIncomingConnectionsInfo,
   getDOSState,
   denyPort,
+  deleteAllowPortRule,
+  deleteAllowOutPortRule,
   allowPortApi,
   adjustFirewall,
+  purgeUFW,
   checkRateLimit,
   closeConnection,
   closeIncomingConnection,
@@ -882,6 +1386,7 @@ module.exports = {
   checkMyFluxAvailability,
   adjustExternalIP,
   allowPort,
+  allowOutPort,
   isFirewallActive,
   // Exports for testing purposes
   setStoredFluxBenchAllowed,
@@ -893,4 +1398,11 @@ module.exports = {
   getDosStateValue,
   fluxUptime,
   isCommunicationEstablished,
+  lruRateLimit,
+  isPortOpen,
+  checkAppAvailability,
+  isPortEnterprise,
+  isPortBanned,
+  isPortUserBlocked,
+  allowNodeToBindPrivilegedPorts,
 };

@@ -346,7 +346,7 @@ export default {
       const result = await axios.get('https://explorer.runonflux.io/api/statistics/circulating-supply'); // we want just one chain
       this.circulatingSupply = result.data;
       this.circulatingSupplyPerc = Number(((this.circulatingSupply / 440000000) * 100).toFixed(2));
-      await this.getZelNodeCount();
+      await this.getFluxNodeCount();
       this.supplyLoading = false;
     },
     async getHistoryStats() {
@@ -395,9 +395,9 @@ export default {
         });
       }
     },
-    async getZelNodeCount() {
+    async getFluxNodeCount() {
       try {
-        const resCount = await DashboardService.zelnodeCount();
+        const resCount = await DashboardService.fluxnodeCount();
         const counts = resCount.data.data;
         const stratuses = counts['stratus-enabled'];
         let nimbuses = counts['nimbus-enabled'];

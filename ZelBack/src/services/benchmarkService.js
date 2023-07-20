@@ -5,6 +5,9 @@ const fs = require('fs');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
+const generalService = require('./generalService');
+const upnpService = require('./upnpService');
+const log = require('../lib/log');
 const userconfig = require('../../../config/userconfig');
 
 const isTestnet = userconfig.initial.testnet;
@@ -176,7 +179,7 @@ async function stop(req, res) {
   return res ? res.json(response) : response;
 }
 
-// == Zelnode ==
+// == Fluxnode ==
 /**
  * To show status of benchmarks.
  * @param {object} req Request.
@@ -219,6 +222,37 @@ async function getPublicIp(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * To execute benchmark at the same time on all upnp nodes.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+async function startMultiPortBench(req, res) {
+  const rpccall = 'startmultiportbench';
+
+  response = await executeCall(rpccall);
+
+  return res ? res.json(response) : response;
+}
+
+/**
+ * Execute benchmark on all upnp nodes at the same time
+ */
+async function executeUpnpBench() {
+  // check if we are synced
+  const synced = await generalService.checkSynced();
+  if (synced !== true) {
+    log.info('executeUpnpBench - Flux not yet synced');
+    return;
+  }
+  const isUPNP = upnpService.isUPNP();
+  if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+    log.info('Calling FluxBench startMultiPortBench');
+    log.info(await startMultiPortBench());
+  }
+}
+
 module.exports = {
   // == Export for testing purposes ==
   executeCall,
@@ -227,13 +261,17 @@ module.exports = {
   restartNodeBenchmarks,
   signFluxTransaction,
   signFluxTransactionPost,
+  startMultiPortBench,
 
   // == Control ==
   help,
   stop,
 
-  // == Zelnode ==
+  // == Fluxnode ==
   getBenchmarks,
   getInfo,
   getPublicIp,
+
+  // == UPNP FluxBecnh ==
+  executeUpnpBench,
 };

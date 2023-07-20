@@ -1,5 +1,4 @@
 const config = require('config');
-const bitcoinMessage = require('bitcoinjs-message');
 const qs = require('qs');
 const os = require('os');
 
@@ -13,8 +12,13 @@ const generalService = require('./generalService');
 const dockerService = require('./dockerService');
 const syncthingService = require('./syncthingService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
+const appsService = require('./appsService');
+const signatureVerifier = require('./signatureVerifier');
 
 const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/;
+const ethRegex = /^0x[a-fA-F0-9]{40}$/;
+
+let syncthingWorking = false;
 
 /**
  * To check if the hardware specification requirements of the node tier are being met by the node (RAM and CPU threads).
@@ -91,23 +95,37 @@ async function confirmNodeTierHardware() {
  * @param {object} res Response.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
+let firstLoginPhraseExecution = true;
 async function loginPhrase(req, res) {
   try {
+    // check db
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.local.database);
+    const collection = config.database.local.collections.activeLoginPhrases;
+    const query = { loginPhrase: 'TestLoginPhraseForDBTest' };
+    const projection = {};
+    await dbHelper.findOneInDatabase(database, collection, query, projection); // fast find call for db test
+
+    // check synthing availability
+    if (!syncthingService.isRunning() && !firstLoginPhraseExecution) {
+      if (syncthingWorking) {
+        syncthingWorking = false;
+      } else {
+        throw new Error('Syncthing is not running properly');
+      }
+    } else {
+      syncthingWorking = true;
+    }
+    firstLoginPhraseExecution = false;
     // check docker availablility
     await dockerService.dockerListImages();
-    // check synthing availability
-    const syncthingDeviceID = await syncthingService.getDeviceID();
-    if (syncthingDeviceID.status === 'error') {
-      // throw new Error('Syncthing is not running properly');
-      log.error('Syncthing is not running properly');
-    }
     // check Node Hardware Requirements are ok.
     const hwPassed = await confirmNodeTierHardware();
     if (hwPassed === false) {
       throw new Error('Node hardware requirements not met');
     }
     // check DOS state (contains daemon checks)
-    const dosState = await fluxNetworkHelper.getDOSState();
+    const dosState = fluxNetworkHelper.getDOSState();
     if (dosState.status === 'error') {
       const errorMessage = 'Unable to check DOS state';
       const errMessage = messageHelper.createErrorMessage(errorMessage);
@@ -115,14 +133,27 @@ async function loginPhrase(req, res) {
       return;
     }
     if (dosState.status === 'success') {
+      // nodeHardwareSpecsGood is not part of response yet
       if (dosState.data.dosState > 10 || dosState.data.dosMessage !== null || dosState.data.nodeHardwareSpecsGood === false) {
         let errMessage = messageHelper.createErrorMessage(dosState.data.dosMessage, 'DOS', dosState.data.dosState);
-        if (dosState.data.dosMessage !== 'Flux IP detection failed' && dosState.data.dosMessage !== 'Flux collision detection') {
+        if (dosState.data.dosMessage !== 'Flux IP detection failed' && dosState.data.dosMessage !== 'Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.') {
           errMessage = messageHelper.createErrorMessage(dosState.data.dosMessage, 'CONNERROR', dosState.data.dosState);
         }
         if (dosState.data.nodeHardwareSpecsGood === false) {
           errMessage = messageHelper.createErrorMessage('Minimum hardware required for FluxNode tier not met', 'DOS', 100);
         }
+        res.json(errMessage);
+        return;
+      }
+    }
+
+    // check Apps DOS state
+    const dosAppsState = appsService.getAppsDOSState();
+    if (dosAppsState.status === 'success') {
+      // nodeHardwareSpecsGood is not part of response yet
+      if (dosAppsState.data.dosState > 10) {
+        const errMessage = messageHelper.createErrorMessage(dosAppsState.data.dosMessage, 'DOS', dosAppsState.data.dosState);
+        log.error(errMessage);
         res.json(errMessage);
         return;
       }
@@ -139,9 +170,7 @@ async function loginPhrase(req, res) {
          expireAt: 2019-08-09T13:23:41.335Z
        }
     ] */
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.local.database);
-    const collection = config.database.local.collections.activeLoginPhrases;
+    // insert to db
     const newLoginPhrase = {
       loginPhrase: phrase,
       createdAt: new Date(timestamp),
@@ -149,6 +178,7 @@ async function loginPhrase(req, res) {
     };
     const value = newLoginPhrase;
     await dbHelper.insertOneToDatabase(database, collection, value);
+
     // all is ok
     const phraseResponse = messageHelper.createDataMessage(phrase);
     res.json(phraseResponse);
@@ -214,15 +244,18 @@ async function verifyLogin(req, res) {
         throw new Error('No ZelID is specified');
       }
 
-      if (!goodchars.test(address)) {
+      if (address[0] !== '1' && address[0] !== '0') {
         throw new Error('ZelID is not valid');
       }
 
-      if (address[0] !== '1') {
-        throw new Error('ZelID is not valid');
-      }
-
-      if (address.length > 34 || address.length < 25) {
+      if (address[0] === '1') {
+        if (!goodchars.test(address)) {
+          throw new Error('ZelID is not valid');
+        }
+        if (address.length > 34 || address.length < 25) {
+          throw new Error('ZelID is not valid');
+        }
+      } else if (!ethRegex.test(address)) {
         throw new Error('ZelID is not valid');
       }
 
@@ -256,7 +289,7 @@ async function verifyLogin(req, res) {
           // Second verify that this address signed this message
           let valid = false;
           try {
-            valid = bitcoinMessage.verify(message, address, signature);
+            valid = signatureVerifier.verifySignature(message, address, signature);
           } catch (error) {
             throw new Error('Invalid signature');
           }
@@ -342,15 +375,18 @@ async function provideSign(req, res) {
         throw new Error('No ZelID is specified');
       }
 
-      if (!goodchars.test(address)) {
+      if (address[0] !== '1' && address[0] !== '0') {
         throw new Error('ZelID is not valid');
       }
 
-      if (address[0] !== '1') {
-        throw new Error('ZelID is not valid');
-      }
-
-      if (address.length > 34 || address.length < 25) {
+      if (address[0] === '1') {
+        if (!goodchars.test(address)) {
+          throw new Error('ZelID is not valid');
+        }
+        if (address.length > 34 || address.length < 25) {
+          throw new Error('ZelID is not valid');
+        }
+      } else if (!ethRegex.test(address)) {
         throw new Error('ZelID is not valid');
       }
 

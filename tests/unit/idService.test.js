@@ -13,6 +13,7 @@ const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const generalService = require('../../ZelBack/src/services/generalService');
 const dockerService = require('../../ZelBack/src/services/dockerService');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+const syncthingService = require('../../ZelBack/src/services/syncthingService');
 
 const adminConfig = {
   fluxTeamZelId: '1zasdfg',
@@ -272,6 +273,7 @@ describe('idService tests', () => {
       tierStub = sinon.stub(generalService, 'nodeTier');
       collateralStub = sinon.stub(generalService, 'nodeCollateral');
       getDOSStateStub = sinon.stub(fluxNetworkHelper, 'getDOSState');
+      syncthingService.setSyncthingRunningState(true);
       // only checks for docker availablity
       sinon.stub(dockerService, 'dockerListImages').returns(true);
     });
@@ -367,7 +369,7 @@ describe('idService tests', () => {
         status: 'success',
         data: {
           dosState: 11,
-          dosMessage: 'Flux collision detection',
+          dosMessage: 'Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.',
           nodeHardwareSpecsGood: true,
         },
       });
@@ -377,7 +379,7 @@ describe('idService tests', () => {
         data: {
           code: 11,
           name: 'DOS',
-          message: 'Flux collision detection',
+          message: 'Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.',
         },
       };
 

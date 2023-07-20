@@ -372,9 +372,6 @@ export default {
           filteredApps.value = filteredApps.value.filter((appData) => {
             if (appData.name.toLowerCase().includes(searchQuery.value)) return true;
             if (appData.description.toLowerCase().includes(searchQuery.value)) return true;
-            if (appData.repotag.toLowerCase().includes(searchQuery.value)) return true;
-            if (appData.domains.join(',').toLowerCase().includes(searchQuery.value)) return true;
-            if (appData.environmentParameters.join(',').toLowerCase().includes(searchQuery.value)) return true;
             return false;
           });
         }
@@ -411,14 +408,14 @@ export default {
       fetchApps();
     });
 
-    const getZelNodeStatus = async () => {
-      const response = await DaemonService.getZelNodeStatus();
+    const getFluxNodeStatus = async () => {
+      const response = await DaemonService.getFluxNodeStatus();
       if (response.data.status === 'success') {
         tier.value = response.data.data.tier;
       }
       fetchApps();
     };
-    getZelNodeStatus();
+    getFluxNodeStatus();
 
     const handleAppClick = (appData) => {
       app.value = appData;

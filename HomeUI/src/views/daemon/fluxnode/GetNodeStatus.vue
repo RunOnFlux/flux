@@ -110,7 +110,7 @@ export default {
   },
   methods: {
     async daemonGetNodeStatus() {
-      const response = await DaemonService.getZelNodeStatus();
+      const response = await DaemonService.getFluxNodeStatus();
       if (response.data.status === 'error') {
         this.$toast({
           component: ToastificationContent,
