@@ -6047,8 +6047,16 @@ async function storeAppRunningMessage(message) {
     return new Error('Invalid Flux App Running message for storing');
   }
 
-  if (message.version === 2 && (!message.apps || !Array.isArray(message.apps))) {
-    return new Error('Invalid Flux App Running message for storing');
+  if (message.version === 2) {
+    if (!message.apps || !Array.isArray(message.apps)) {
+      return new Error('Invalid Flux App Running message for storing');
+    }
+    for (let i = 0; i < message.apps.length; i += 1) {
+      const app = message.apps[i];
+      if (typeof app.hash !== 'string' || typeof app.name !== 'string') {
+        return new Error('Invalid Flux App Running v2 message for storing');
+      }
+    }
   }
 
   // check if we have the message in cache. If yes, return false. If not, store it and continue
@@ -6098,9 +6106,6 @@ async function storeAppRunningMessage(message) {
     let messageNotOk = false;
     for (let i = 0; i < message.apps.length; i += 1) {
       const app = message.apps[i];
-      if (typeof app.hash !== 'string' || typeof app.name !== 'string') {
-        return new Error('Invalid Flux App Running v2 message for storing');
-      }
       const newAppRunningMessage = {
         name: app.name,
         hash: app.hash, // hash of application specifics that are running
