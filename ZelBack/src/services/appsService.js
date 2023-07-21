@@ -2798,7 +2798,7 @@ function checkAppGeolocationRequirements(appSpecs) {
     });
     if (geoC.length) {
       const nodeLocationOK = geoC.find((locationAllowed) => locationAllowed.slice(2) === myNodeLocationContinent || locationAllowed.slice(2) === myNodeLocationContCountry || locationAllowed.slice(2) === myNodeLocationFull
-          || locationAllowed.slice(2) === myNodeLocationContinentALL || locationAllowed.slice(2) === myNodeLocationContCountryALL || locationAllowed.slice(2) === myNodeLocationFullALL);
+        || locationAllowed.slice(2) === myNodeLocationContinentALL || locationAllowed.slice(2) === myNodeLocationContCountryALL || locationAllowed.slice(2) === myNodeLocationFullALL);
       if (!nodeLocationOK) {
         throw new Error('App specs of geolocation set is not matching to run on node geolocation. Aborting.');
       }
@@ -5396,7 +5396,7 @@ async function restoreFluxPortsSupport() {
 
     const firewallActive = await fluxNetworkHelper.isFirewallActive();
     if (firewallActive) {
-    // setup UFW if active
+      // setup UFW if active
       await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(apiPort));
       await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(homePort));
       await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(syncthingPort));
@@ -5423,11 +5423,11 @@ async function restoreAppsPortsSupport() {
     const firewallActive = await fluxNetworkHelper.isFirewallActive();
     // setup UFW for apps
     if (firewallActive) {
-    // eslint-disable-next-line no-restricted-syntax
-      for (const application of currentAppsPorts) {
       // eslint-disable-next-line no-restricted-syntax
+      for (const application of currentAppsPorts) {
+        // eslint-disable-next-line no-restricted-syntax
         for (const port of application.ports) {
-        // eslint-disable-next-line no-await-in-loop
+          // eslint-disable-next-line no-await-in-loop
           await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(port));
         }
       }
@@ -6801,7 +6801,7 @@ async function installAppLocally(req, res) {
       // favor temporary to launch test temporary apps
       const tempMessage = await checkAppTemporaryMessageExistence(appname);
       if (tempMessage) {
-      // eslint-disable-next-line prefer-destructuring
+        // eslint-disable-next-line prefer-destructuring
         appSpecifications = tempMessage.appSpecifications;
         blockAllowance = config.fluxapps.temporaryAppAllowance;
       }
@@ -9813,7 +9813,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
     const firewallActive = await fluxNetworkHelper.isFirewallActive();
     // eslint-disable-next-line no-restricted-syntax
     for (const portToTest of portsToTest) {
-    // now open this port properly and launch listening on it
+      // now open this port properly and launch listening on it
       if (firewallActive) {
         // eslint-disable-next-line no-await-in-loop
         await fluxNetworkHelper.allowPort(portToTest);
@@ -9988,14 +9988,14 @@ async function testAppMount() {
     let useThisVolume = null;
     const totalVolumes = okVolumes.length;
     for (let i = 0; i < totalVolumes; i += 1) {
-    // check available volumes one by one. If a sufficient is found. Use this one.
+      // check available volumes one by one. If a sufficient is found. Use this one.
       if (okVolumes[i].available > appSize + overHeadRequired) {
         useThisVolume = okVolumes[i];
         break;
       }
     }
     if (!useThisVolume) {
-    // no useable volume has such a big space for the app
+      // no useable volume has such a big space for the app
       log.warn('Mount Test: Insufficient space on Flux Node. No useable volume found.');
       // node marked OK
       dosMountMessage = ''; // No Space Found actually
