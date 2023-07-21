@@ -1723,11 +1723,24 @@ async function debugCpuprof(req, res) {
   const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
   if (authorized === true) {
-    response = await performRequest('get', '/rest/debug/cpuprof', undefined, 60000);
+    try {
+      response = await axios.get('/rest/debug/cpuprof', {
+        responseType: 'stream', // Specify response type as stream
+        timeout: 60000,
+      });
+      if ('content-type' in response.data.headers) {
+        res.setHeader('Content-Type', response.data.headers['content-type']);
+      } else {
+        res.setHeader('Content-Type', 'application/octet-stream');
+      }
+      return response.data.pipe(res);
+    } catch (error) {
+      return res ? res.json(error) : JSON.stringify(error);
+    }
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
-  return response;
+  return res ? res.json(response) : response;
 }
 
 /**
@@ -1740,11 +1753,24 @@ async function debugHeapprof(req, res) {
   const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
   let response = null;
   if (authorized === true) {
-    response = await performRequest('get', '/rest/debug/heapprof', undefined, 60000);
+    try {
+      response = await axios.get('/rest/debug/heapprof', {
+        responseType: 'stream', // Specify response type as stream
+        timeout: 60000,
+      });
+      if ('content-type' in response.data.headers) {
+        res.setHeader('Content-Type', response.data.headers['content-type']);
+      } else {
+        res.setHeader('Content-Type', 'application/octet-stream');
+      }
+      return response.data.pipe(res);
+    } catch (error) {
+      return res ? res.json(error) : JSON.stringify(error);
+    }
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
-  return response;
+  return res ? res.json(response) : response;
 }
 
 /**
@@ -1761,7 +1787,7 @@ async function debugSupport(req, res) {
   } else {
     response = messageHelper.errUnauthorizedMessage();
   }
-  return response;
+  return res ? res.json(response) : response;
 }
 
 /**
@@ -1790,7 +1816,20 @@ async function debugFile(req, res) {
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
     let response = null;
     if (authorized === true) {
-      response = await performRequest('get', apiPath);
+      try {
+        response = await axios.get(apiPath, {
+          responseType: 'stream', // Specify response type as stream
+          timeout: 60000,
+        });
+        if ('content-type' in response.data.headers) {
+          res.setHeader('Content-Type', response.data.headers['content-type']);
+        } else {
+          res.setHeader('Content-Type', 'application/octet-stream');
+        }
+        return response.data.pipe(res);
+      } catch (error) {
+        return res ? res.json(error) : JSON.stringify(error);
+      }
     } else {
       response = messageHelper.errUnauthorizedMessage();
     }
