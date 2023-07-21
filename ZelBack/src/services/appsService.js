@@ -6034,8 +6034,38 @@ async function storeAppRunningMessage(message) {
   * @param name string
   * @param ip string
   */
-  if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number' || typeof message.broadcastedAt !== 'number' || typeof message.hash !== 'string' || typeof message.name !== 'string' || typeof message.ip !== 'string') {
+  const appsMessages = [];
+  if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
+    || typeof message.broadcastedAt !== 'number' || typeof message.ip !== 'string') {
     return new Error('Invalid Flux App Running message for storing');
+  }
+
+  if (message.version !== 1 && message.version !== 2) {
+    return new Error(`Invalid Flux App Running message for storing version ${message.version} not supported`);
+  }
+
+  if (message.version === 1) {
+    if (typeof message.hash !== 'string' || typeof message.name !== 'string') {
+      return new Error('Invalid Flux App Running message for storing');
+    }
+    const app = {
+      name: message.name,
+      hash: message.hash,
+    };
+    appsMessages.push(app);
+  }
+
+  if (message.version === 2) {
+    if (!message.apps || !Array.isArray(message.apps)) {
+      return new Error('Invalid Flux App Running message for storing');
+    }
+    for (let i = 0; i < message.apps.length; i += 1) {
+      const app = message.apps[i];
+      appsMessages.push(app);
+      if (typeof app.hash !== 'string' || typeof app.name !== 'string') {
+        return new Error('Invalid Flux App Running v2 message for storing');
+      }
+    }
   }
 
   // check if we have the message in cache. If yes, return false. If not, store it and continue
@@ -6056,30 +6086,42 @@ async function storeAppRunningMessage(message) {
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
-  const newAppRunningMessage = {
-    name: message.name,
-    hash: message.hash, // hash of application specifics that are running
-    ip: message.ip,
-    broadcastedAt: new Date(message.broadcastedAt),
-    expireAt: new Date(validTill),
-  };
 
-  // indexes over name, hash, ip. Then name + ip and name + ip + broadcastedAt.
-  const queryFind = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip, broadcastedAt: { $gte: newAppRunningMessage.broadcastedAt } };
-  const projection = { _id: 0 };
-  // we already have the exact same data
-  const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
-  if (result) {
-    // it is already stored
+  let messageNotOk = false;
+  for (let i = 0; i < appsMessages.length; i += 1) {
+    const app = appsMessages[i];
+    const newAppRunningMessage = {
+      name: app.name,
+      hash: app.hash, // hash of application specifics that are running
+      ip: message.ip,
+      broadcastedAt: new Date(message.broadcastedAt),
+      expireAt: new Date(validTill),
+    };
+
+    // indexes over name, hash, ip. Then name + ip and name + ip + broadcastedAt.
+    const queryFind = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip, broadcastedAt: { $gte: newAppRunningMessage.broadcastedAt } };
+    const projection = { _id: 0 };
+    // we already have the exact same data
+    // eslint-disable-next-line no-await-in-loop
+    const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
+    if (result) {
+      // found a message that was already stored/bad message
+      messageNotOk = true;
+      break;
+    }
+    const queryUpdate = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
+    const update = { $set: newAppRunningMessage };
+    const options = {
+      upsert: true,
+    };
+    // eslint-disable-next-line no-await-in-loop
+    await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
+  }
+  if (messageNotOk) {
     return false;
   }
-  const queryUpdate = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
-  const update = { $set: newAppRunningMessage };
-  const options = {
-    upsert: true,
-  };
-  await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
-  // it is now stored, rebroadcast
+
+  // all stored, rebroadcast
   return true;
 }
 
@@ -8347,37 +8389,64 @@ async function checkAndNotifyPeersOfRunningApps() {
         installedAndRunning.push(app);
       }
     });
-    // eslint-disable-next-line no-restricted-syntax
-    for (const application of installedAndRunning) {
-      log.info(`${application.name} is running properly. Broadcasting status.`);
-      try {
+
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    const daemonHeight = syncStatus.data.height || 0;
+    const apps = [];
+    try {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const application of installedAndRunning) {
+        log.info(`${application.name} is running properly. Broadcasting status.`);
         // eslint-disable-next-line no-await-in-loop
         // we can distinguish pure local apps from global with hash and height
-        const broadcastedAt = new Date().getTime();
         const newAppRunningMessage = {
           type: 'fluxapprunning',
           version: 1,
           name: application.name,
           hash: application.hash, // hash of application specifics that are running
           ip: myIP,
-          broadcastedAt,
+          broadcastedAt: new Date().getTime(),
         };
-
+        const app = {
+          name: application.name,
+          hash: application.hash,
+        };
+        apps.push(app);
         // store it in local database first
         // eslint-disable-next-line no-await-in-loop
         await storeAppRunningMessage(newAppRunningMessage);
+        if (daemonHeight < config.fluxapps.apprunningv2 || installedAndRunning.length === 1) {
+          // eslint-disable-next-line no-await-in-loop
+          await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessage);
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.delay(500);
+          // eslint-disable-next-line no-await-in-loop
+          await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessage);
+          // broadcast messages about running apps to all peers
+        }
+      }
+      if (daemonHeight >= config.fluxapps.apprunningv2 && installedAndRunning.length > 1) {
+        // send v2 unique message instead
+        const newAppRunningMessageV2 = {
+          type: 'fluxapprunning',
+          version: 2,
+          apps,
+          ip: myIP,
+          broadcastedAt: new Date().getTime(),
+        };
         // eslint-disable-next-line no-await-in-loop
-        await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessage);
+        await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessageV2);
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(500);
         // eslint-disable-next-line no-await-in-loop
-        await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessage);
+        await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessageV2);
         // broadcast messages about running apps to all peers
-      } catch (err) {
-        log.error(err);
-        // removeAppLocally(stoppedApp);
       }
+    } catch (err) {
+      log.error(err);
+      // removeAppLocally(stoppedApp);
     }
+
     log.info('Running Apps broadcasted');
   } catch (error) {
     log.error(error);
