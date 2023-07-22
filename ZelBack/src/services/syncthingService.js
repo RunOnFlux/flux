@@ -2098,12 +2098,12 @@ async function startSyncthing() {
       const execKillB = 'sudo pkill syncthing';
       const execKillC = 'sudo pkill -9 syncthing';
       const checkSyncthingRunning = 'sudo pgrep syncthing';
-      let cmdres = await cmdAsync(checkSyncthingRunning);
+      let cmdres = await cmdAsync(checkSyncthingRunning).catch((error) => log.error(error));
       if (cmdres && cmdres.length > 0) {
         await cmdAsync(execKill).catch((error) => log.error(error));
         await cmdAsync(execKillB).catch((error) => log.error(error));
         await serviceHelper.delay(10 * 1000);
-        cmdres = await cmdAsync(checkSyncthingRunning);
+        cmdres = await cmdAsync(checkSyncthingRunning).catch((error) => log.error(error));
         if (cmdres && cmdres.length > 0) {
           await cmdAsync(execKillC).catch((error) => log.error(error));
         }
