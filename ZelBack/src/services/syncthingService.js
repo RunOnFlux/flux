@@ -2071,6 +2071,7 @@ async function startSyncthing() {
       await installSyncthing();
       await serviceHelper.delay(10 * 1000);
       startSyncthing();
+      return;
     }
     // check wether syncthing is running or not
     const myDevice = await getDeviceID();
@@ -2082,6 +2083,7 @@ async function startSyncthing() {
         previousSyncthingErrored = true;
         await serviceHelper.delay(60 * 1000);
         startSyncthing();
+        return;
       }
       lastGetDeviceIdCallOk = false;
       previousSyncthingErrored = false;
