@@ -54,7 +54,8 @@ function showQuestions() {
         testnet: false,
         development: false,
         apiport: 16127,
-        decryptionkey: '',
+        pgpPrivateKey: '',
+        pgpPublicKey: '',
       }
     }`;
 

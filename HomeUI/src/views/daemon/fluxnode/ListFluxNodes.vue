@@ -217,11 +217,11 @@ export default {
     },
   },
   mounted() {
-    this.daemonListZelNodes();
+    this.daemonListFluxNodes();
   },
   methods: {
-    async daemonListZelNodes() {
-      const response = await DaemonService.listZelNodes();
+    async daemonListFluxNodes() {
+      const response = await DaemonService.listFluxNodes();
       if (response.data.status === 'error') {
         this.$toast({
           component: ToastificationContent,

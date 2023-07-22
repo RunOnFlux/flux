@@ -23,7 +23,7 @@ function isUPNP() {
  * @param {number} apiport Port number.
  * @returns {boolean} True if port mappings can be set. Otherwise false.
  */
-async function verifyUPNPsupport(apiport = config.apiport) {
+async function verifyUPNPsupport(apiport = config.server.apiport) {
   try {
     // run test on apiport + 1
     await client.getPublicIp();
@@ -82,7 +82,7 @@ async function verifyUPNPsupport(apiport = config.apiport) {
  * @param {number} apiport Port number.
  * @returns {boolean} True if port mappings can be set. Otherwise false.
  */
-async function setupUPNP(apiport = config.apiport) {
+async function setupUPNP(apiport = config.server.apiport) {
   try {
     await client.createMapping({
       public: +apiport,

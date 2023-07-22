@@ -234,11 +234,11 @@ export default {
     },
   },
   mounted() {
-    this.daemonViewDeterministicZelNodeList();
+    this.daemonViewDeterministicFluxNodeList();
   },
   methods: {
-    async daemonViewDeterministicZelNodeList() {
-      const response = await DaemonService.viewDeterministicZelNodeList();
+    async daemonViewDeterministicFluxNodeList() {
+      const response = await DaemonService.viewDeterministicFluxNodeList();
       if (response.data.status === 'error') {
         this.$toast({
           component: ToastificationContent,

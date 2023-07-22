@@ -179,7 +179,7 @@ async function stop(req, res) {
   return res ? res.json(response) : response;
 }
 
-// == Zelnode ==
+// == Fluxnode ==
 /**
  * To show status of benchmarks.
  * @param {object} req Request.
@@ -267,7 +267,7 @@ module.exports = {
   help,
   stop,
 
-  // == Zelnode ==
+  // == Fluxnode ==
   getBenchmarks,
   getInfo,
   getPublicIp,

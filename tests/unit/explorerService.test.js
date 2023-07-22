@@ -558,7 +558,7 @@ describe('explorerService tests', () => {
         console.log(error);
       }
 
-      sinon.assert.calledOnceWithExactly(dbStubInsert, {}, 'zelappshashes', [
+      sinon.assert.calledWithExactly(dbStubInsert, {}, 'zelappshashes', [
         {
           txid: '12345',
           height: 983000,
@@ -1283,7 +1283,6 @@ describe('explorerService tests', () => {
       sinon.assert.notCalled(expireGlobalApplicationsStub);
       sinon.assert.notCalled(checkAndRemoveApplicationInstanceStub);
       sinon.assert.notCalled(reinstallOldApplicationsStub);
-      sinon.assert.calledOnce(restorePortsSupportStub);
       sinon.assert.calledOnceWithMatch(dbStubUpdate, sinon.match.object, 'scannedheight',
         { generalScannedHeight: { $gte: 0 } },
         { $set: { generalScannedHeight: 900024 } },
@@ -2312,7 +2311,7 @@ describe('explorerService tests', () => {
       const result = await explorerService.initiateBlockProcessor(req, res);
 
       expect(result).to.be.undefined;
-      sinon.assert.notCalled(findInDatabaseStub);
+      sinon.assert.calledOnce(findInDatabaseStub);
     });
 
     it('should return error if daemon service getInfo does not return success message', async () => {

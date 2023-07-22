@@ -11,6 +11,7 @@ const fluxService = require('./fluxService');
 const geolocationService = require('./geolocationService');
 const upnpService = require('./upnpService');
 const syncthingService = require('./syncthingService');
+const pgpService = require('./pgpService');
 const userconfig = require('../../../config/userconfig');
 
 const apiPort = userconfig.initial.apiport || config.server.apiport;
@@ -75,6 +76,8 @@ async function startFluxFunctions() {
     log.info('Flux Apps locations prepared');
     fluxNetworkHelper.adjustFirewall();
     log.info('Firewalls checked');
+    fluxNetworkHelper.allowNodeToBindPrivilegedPorts();
+    log.info('Node allowed to bind privileged ports');
     fluxCommunication.keepConnectionsAlive();
     log.info('Connections polling prepared');
     daemonServiceMiscRpcs.daemonBlockchainInfoService();
@@ -86,6 +89,8 @@ async function startFluxFunctions() {
     log.info('Flux Discovery started');
     syncthingService.startSyncthing();
     log.info('Syncthing service started');
+    await pgpService.generateIdentity();
+    log.info('PGP service initiated');
     setTimeout(() => {
       log.info('Rechecking firewall app rules');
       fluxNetworkHelper.purgeUFW();
@@ -108,6 +113,7 @@ async function startFluxFunctions() {
       log.info('Flux Block Processing Service started');
     }, 2 * 60 * 1000);
     setTimeout(() => {
+      // appsService.checkForNonAllowedAppsOnLocalNetwork();
       appsService.checkMyAppsAvailability(); // periodically checks
     }, 3 * 60 * 1000);
     setTimeout(() => {
@@ -117,10 +123,7 @@ async function startFluxFunctions() {
       }, 60 * 60 * 1000);
     }, 4 * 60 * 1000);
     setTimeout(() => {
-      appsService.syncthingApps(); // after 6 mins adjust our syncthing configuration
-      setInterval(() => { // recheck and possibly adjust syncthing configuration every minute
-        appsService.syncthingApps();
-      }, 1 * 60 * 1000);
+      appsService.syncthingApps(); // rechecks and possibly adjust syncthing configuration every minute
     }, 6 * 60 * 1000);
     setInterval(() => { // every 12 mins (6 blocks)
       appsService.continuousFluxAppHashesCheck();
@@ -147,7 +150,7 @@ async function startFluxFunctions() {
             await fluxService.softUpdateFlux().catch((error) => log.error(error));
           }, 15 * 1000);
         }
-      }, 5 * 60 * 1000); // every 5 mins
+      }, 20 * 60 * 1000); // every 20 minutes
     }
   } catch (e) {
     log.error(e);

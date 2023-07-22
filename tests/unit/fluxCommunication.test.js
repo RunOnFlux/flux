@@ -239,7 +239,7 @@ describe('fluxCommunication tests', () => {
       const type = 'fluxappregister';
       const name = 'myApp';
       const version = 1;
-      const timestamp = 1592988806887;
+      const timestamp = new Date().getTime();
       const broadcastedAt = new Date().getTime();
       const messageToHash = type + version + name + timestamp;
       const hash = await generalService.messageHash(messageToHash);
@@ -250,10 +250,10 @@ describe('fluxCommunication tests', () => {
           name,
           broadcastedAt,
           version,
-          timestamp,
           hash,
           ip: fromIp,
         },
+        timestamp,
       };
 
       const wsuri = 'wss://api.runonflux.io/ws/flux/';
@@ -935,6 +935,7 @@ describe('fluxCommunication tests', () => {
       // eslint-disable-next-line no-loop-func
       it(`should handle the ${command} message properly`, async () => {
         const message = JSON.stringify({
+          timestamp: new Date().getTime(),
           pubKey: '1234asd',
           data: {
             type: `${command}`,
@@ -963,7 +964,7 @@ describe('fluxCommunication tests', () => {
         // slight delay to let onopen to be triggered
         await serviceHelper.delay(100);
 
-        sinon.assert.calledOnceWithExactly(verifyOriginalFluxBroadcastStub, message, undefined, sinon.match.number);
+        sinon.assert.calledOnceWithExactly(verifyOriginalFluxBroadcastStub, JSON.parse(message), undefined, sinon.match.number);
         sinon.assert.calledWith(respondWithAppMessageStub, JSON.parse(message));
       });
     }
@@ -974,6 +975,7 @@ describe('fluxCommunication tests', () => {
       // eslint-disable-next-line no-loop-func
       it(`should handle the ${command} message properly`, async () => {
         const message = JSON.stringify({
+          timestamp: new Date().getTime(),
           pubKey: '1234asd',
           data: {
             type: `${command}`,
@@ -1002,7 +1004,7 @@ describe('fluxCommunication tests', () => {
         // slight delay to let onopen to be triggered
         await serviceHelper.delay(100);
 
-        sinon.assert.calledOnceWithExactly(verifyOriginalFluxBroadcastStub, message, undefined, sinon.match.number);
+        sinon.assert.calledOnceWithExactly(verifyOriginalFluxBroadcastStub, JSON.parse(message), undefined, sinon.match.number);
         sinon.assert.calledOnceWithExactly(storeAppTemporaryMessageStub, JSON.parse(message).data, true);
       });
     }
@@ -1013,6 +1015,7 @@ describe('fluxCommunication tests', () => {
       // eslint-disable-next-line no-loop-func
       it(`should handle the ${command} message properly`, async () => {
         const message = JSON.stringify({
+          timestamp: new Date().getTime(),
           pubKey: '1234asd',
           data: {
             type: `${command}`,
@@ -1041,7 +1044,7 @@ describe('fluxCommunication tests', () => {
         // slight delay to let onopen to be triggered
         await serviceHelper.delay(100);
 
-        sinon.assert.calledOnceWithExactly(verifyOriginalFluxBroadcastStub, message, undefined, sinon.match.number);
+        sinon.assert.calledOnceWithExactly(verifyOriginalFluxBroadcastStub, JSON.parse(message), undefined, sinon.match.number);
         sinon.assert.calledOnceWithExactly(storeAppRunningMessageStub, JSON.parse(message).data);
       });
     }

@@ -416,7 +416,8 @@ async function processInsight(blockDataVerbose, database) {
 
       tx.vout.forEach((receiver) => {
         if (receiver.scriptPubKey.addresses) { // count for messages
-          if (receiver.scriptPubKey.addresses[0] === config.fluxapps.address || (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisig && blockDataVerbose.height >= config.fluxapps.appSpecsEnforcementHeights[6])) {
+          if (receiver.scriptPubKey.addresses[0] === config.fluxapps.address || (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisig && blockDataVerbose.height >= config.fluxapps.appSpecsEnforcementHeights[6])
+            || (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressDevelopment && config.development)) { // DEVELOPMENT MODE
             // it is an app message. Get Satoshi amount
             isFluxAppMessageValue += receiver.valueSat;
           }
@@ -440,7 +441,7 @@ async function processInsight(blockDataVerbose, database) {
           };
           // Unique hash - If we already have a hash of this app in our database, do not insert it!
           try {
-          // 5501c7dd6516c3fc2e68dee8d4fdd20d92f57f8cfcdc7b4fcbad46499e43ed6f
+            // 5501c7dd6516c3fc2e68dee8d4fdd20d92f57f8cfcdc7b4fcbad46499e43ed6f
             const querySearch = {
               hash: message,
             };
@@ -573,7 +574,7 @@ async function processStandard(blockDataVerbose, database) {
           };
           // Unique hash - If we already have a hash of this app in our database, do not insert it!
           try {
-          // 5501c7dd6516c3fc2e68dee8d4fdd20d92f57f8cfcdc7b4fcbad46499e43ed6f
+            // 5501c7dd6516c3fc2e68dee8d4fdd20d92f57f8cfcdc7b4fcbad46499e43ed6f
             const querySearch = {
               hash: message,
             };
@@ -1138,11 +1139,16 @@ async function getAllFluxTransactions(req, res) {
         collateralHash: 1,
         collateralIndex: 1,
         zelAddress: 1,
+        fluxAddress: 1,
         lockedAmount: 1,
         height: 1,
       },
     };
     const results = await dbHelper.findInDatabase(database, fluxTransactionCollection, query, projection);
+    results.forEach((rec) => {
+      // eslint-disable-next-line no-param-reassign
+      rec.fluxAddress = rec.fluxAddress || rec.zelAddress;
+    });
     const resMessage = messageHelper.createDataMessage(results);
     res.json(resMessage);
   } catch (error) {
@@ -1355,11 +1361,16 @@ async function getFilteredFluxTxs(req, res) {
         collateralHash: 1,
         collateralIndex: 1,
         zelAddress: 1,
+        fluxAddress: 1,
         lockedAmount: 1,
         height: 1,
       },
     };
     const results = await dbHelper.findInDatabase(database, fluxTransactionCollection, query, projection);
+    results.forEach((rec) => {
+      // eslint-disable-next-line no-param-reassign
+      rec.fluxAddress = rec.fluxAddress || rec.zelAddress;
+    });
     const resMessage = messageHelper.createDataMessage(results);
     res.json(resMessage);
   } catch (error) {
@@ -1390,7 +1401,7 @@ async function getAddressTransactions(req, res) {
         query: {},
       };
       const insightResult = await daemonServiceAddressRpcs.getSingleAddresssTxids(daemonRequest);
-      const txids = insightResult.data.reverse();
+      const txids = insightResult.data.reverse(); // from newest txid to lastest [{txid:'abc'}, {txid: 'efg'}]
       const txidsOK = [];
       txids.forEach((txid) => {
         txidsOK.push({
@@ -1405,8 +1416,17 @@ async function getAddressTransactions(req, res) {
       const query = { address };
       const distinct = 'transactions';
       const results = await dbHelper.distinctDatabase(database, addressTransactionIndexCollection, distinct, query);
-      // TODO FIX documentation. UPDATE for an amount of last txs needed.
-      // now we have array of transactions [{txid, height}, {}...]
+      // sort by height, newest first
+      // only return txids
+      results.sort((a, b) => {
+        if (a.height > b.height) return -1;
+        if (a.height < b.height) return 1;
+        return 0;
+      });
+      // eslint-disable-next-line no-param-reassign
+      results.map((tx) => delete tx.height);
+      // TODO FIX documentation.
+      // now we have array of transactions txids only sorted from newest to latest [{txid}, {}...]
       const resMessage = messageHelper.createDataMessage(results);
       res.json(resMessage);
     }

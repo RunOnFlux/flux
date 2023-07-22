@@ -706,7 +706,7 @@
                   </h4>
                 </div>
                 <div
-                  v-b-tooltip.hover.bottom="totalReward <= (titanConfig ? titanConfig.redeemFee : 0) ? 'Available balance is less than the redeem fee' : ''"
+                  v-b-tooltip.hover.bottom="totalReward <= (titanConfig ? titanConfig.minimumRedeem : 50) ? `Available balance is less than the minimum redeem amount (${(titanConfig ? titanConfig.minimumRedeem : 50)} Flux)` : ''"
                   class="float-right"
                   style="display: inline-block;"
                 >
@@ -727,7 +727,7 @@
                     variant="danger"
                     size="sm"
                     pill
-                    :disabled="totalReward <= (titanConfig ? titanConfig.redeemFee : 0)"
+                    :disabled="totalReward <= (titanConfig ? titanConfig.redeemFee : 0) || totalReward <= (titanConfig ? titanConfig.minimumRedeem : 50)"
                     @click="showRedeemDialog()"
                   >
                     Redeem
@@ -1729,7 +1729,7 @@ export default {
     const userZelid = ref('');
     userZelid.value = props.zelid;
 
-    const apiURL = 'https://titan.runonflux.io';
+    const apiURL = 'https://api.titan.runonflux.io';
 
     const totalReward = ref(0);
     const totalRewardForFee = ref(0);
@@ -1999,7 +1999,7 @@ export default {
     };
 
     const getNodeCount = async () => {
-      const response = await DashboardService.zelnodeCount();
+      const response = await DashboardService.fluxnodeCount();
       if (response.data.status === 'error') {
         showToast({
           component: ToastificationContent,

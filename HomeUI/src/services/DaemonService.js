@@ -10,19 +10,19 @@ export default {
   getInfo() {
     return Api().get('/daemon/getinfo');
   },
-  getZelNodeStatus() {
+  getFluxNodeStatus() {
     return Api().get('/daemon/getzelnodestatus');
   },
   getRawTransaction(txid, verbose) {
     return Api().get(`/daemon/getrawtransaction/${txid}/${verbose}`);
   },
-  listZelNodes() {
+  listFluxNodes() {
     return Api().get('/daemon/listzelnodes');
   },
-  viewDeterministicZelNodeList() {
+  viewDeterministicFluxNodeList() {
     return Api().get('/daemon/viewdeterministiczelnodelist');
   },
-  getZelNodeCount() {
+  getFluxNodeCount() {
     return Api().get('/daemon/getzelnodecount');
   },
   getStartList() {
@@ -77,7 +77,7 @@ export default {
       },
     });
   },
-  listZelNodeConf(zelidauthHeader) {
+  listFluxNodeConf(zelidauthHeader) {
     return Api().get('/daemon/listzelnodeconf', {
       headers: {
         zelidauth: zelidauthHeader,

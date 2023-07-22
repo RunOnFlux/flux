@@ -136,7 +136,7 @@ async function getAddressDeltas(req, res) {
   req.on('end', async () => {
     const processedBody = serviceHelper.ensureObject(body);
     const {
-      addresses, start, end, chainInfo,
+      addresses, start, end, chaininfo,
     } = processedBody;
 
     const options = {
@@ -150,8 +150,8 @@ async function getAddressDeltas(req, res) {
       options.end = serviceHelper.ensureNumber(end);
     }
 
-    if (chainInfo) {
-      options.chainInfo = serviceHelper.ensureBoolean(chainInfo);
+    if (chaininfo) {
+      options.chainInfo = serviceHelper.ensureBoolean(chaininfo);
     }
 
     const rpccall = 'getaddressdeltas';

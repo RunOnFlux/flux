@@ -15,7 +15,7 @@ const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper'
 const appsService = require('../../ZelBack/src/services/appsService');
 const daemonServiceControlRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceControlRpcs');
 const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBenchmarkRpcs');
-const daemonServiceZelnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceZelnodeRpcs');
+const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const packageJson = require('../../package.json');
 
@@ -30,7 +30,9 @@ const adminConfig = {
     apiport: '5550',
     testnet: true,
     development: false,
-    decryptionkey: '',
+    pgpPrivateKey: '',
+    pgpPublicKey: '',
+    blockedPorts: [],
   },
 };
 
@@ -255,7 +257,7 @@ describe('fluxService tests', () => {
         status: 'error',
       };
 
-      const response = await fluxService.softUpdateFluxInstall(undefined, res);
+      const response = await fluxService.softUpdateFluxInstall({}, res);
 
       expect(response).to.eql(`Response: ${expectedResponse}`);
       sinon.assert.calledWithExactly(res.json, expectedResponse);
@@ -1855,7 +1857,7 @@ describe('fluxService tests', () => {
 
   describe('getFluxInfo tests', () => {
     let daemonServiceControlRpcsStub;
-    let daemonServiceZelnodeRpcsStub;
+    let daemonServiceFluxnodeRpcsStub;
     let benchmarkServiceGetInfoStub;
     let benchmarkServiceGetStatusStub;
     let benchmarkServiceGetBenchmarksStub;
@@ -1869,7 +1871,7 @@ describe('fluxService tests', () => {
 
     beforeEach(() => {
       daemonServiceControlRpcsStub = sinon.stub(daemonServiceControlRpcs, 'getInfo');
-      daemonServiceZelnodeRpcsStub = sinon.stub(daemonServiceZelnodeRpcs, 'getZelNodeStatus');
+      daemonServiceFluxnodeRpcsStub = sinon.stub(daemonServiceFluxnodeRpcs, 'getFluxNodeStatus');
       benchmarkServiceGetInfoStub = sinon.stub(benchmarkService, 'getInfo');
       benchmarkServiceGetStatusStub = sinon.stub(benchmarkService, 'getStatus');
       benchmarkServiceGetBenchmarksStub = sinon.stub(benchmarkService, 'getBenchmarks');
@@ -1888,7 +1890,7 @@ describe('fluxService tests', () => {
 
     it('should return flux info no response passed', async () => {
       daemonServiceControlRpcsStub.returns({ status: 'success', data: 'info data' });
-      daemonServiceZelnodeRpcsStub.returns({ status: 'success', data: 'status data' });
+      daemonServiceFluxnodeRpcsStub.returns({ status: 'success', data: 'status data' });
       benchmarkServiceGetInfoStub.returns({ status: 'success', data: 'info2 data' });
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
@@ -1917,7 +1919,7 @@ describe('fluxService tests', () => {
 
     it('should return flux info response passed', async () => {
       daemonServiceControlRpcsStub.returns({ status: 'success', data: 'info data' });
-      daemonServiceZelnodeRpcsStub.returns({ status: 'success', data: 'status data' });
+      daemonServiceFluxnodeRpcsStub.returns({ status: 'success', data: 'status data' });
       benchmarkServiceGetInfoStub.returns({ status: 'success', data: 'info2 data' });
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
@@ -1956,7 +1958,7 @@ describe('fluxService tests', () => {
 
     it('should return error if control rpcs returns error', async () => {
       daemonServiceControlRpcsStub.returns({ status: 'error', data: 'info data' });
-      daemonServiceZelnodeRpcsStub.returns({ status: 'success', data: 'status data' });
+      daemonServiceFluxnodeRpcsStub.returns({ status: 'success', data: 'status data' });
       benchmarkServiceGetInfoStub.returns({ status: 'success', data: 'info2 data' });
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
@@ -1979,7 +1981,7 @@ describe('fluxService tests', () => {
 
     it('should return error if status returns error', async () => {
       daemonServiceControlRpcsStub.returns({ status: 'success', data: 'info data' });
-      daemonServiceZelnodeRpcsStub.returns({ status: 'error', data: 'status data' });
+      daemonServiceFluxnodeRpcsStub.returns({ status: 'error', data: 'status data' });
       benchmarkServiceGetInfoStub.returns({ status: 'success', data: 'info2 data' });
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
@@ -2002,7 +2004,7 @@ describe('fluxService tests', () => {
 
     it('should return error if benchmarkServiceGetInfo returns error', async () => {
       daemonServiceControlRpcsStub.returns({ status: 'success', data: 'info data' });
-      daemonServiceZelnodeRpcsStub.returns({ status: 'success', data: 'status data' });
+      daemonServiceFluxnodeRpcsStub.returns({ status: 'success', data: 'status data' });
       benchmarkServiceGetInfoStub.returns({ status: 'error', data: 'info2 data' });
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
@@ -2025,7 +2027,7 @@ describe('fluxService tests', () => {
 
     it('should return error if benchmarkServiceGetStatus returns error', async () => {
       daemonServiceControlRpcsStub.returns({ status: 'success', data: 'info data' });
-      daemonServiceZelnodeRpcsStub.returns({ status: 'success', data: 'status data' });
+      daemonServiceFluxnodeRpcsStub.returns({ status: 'success', data: 'status data' });
       benchmarkServiceGetInfoStub.returns({ status: 'success', data: 'info2 data' });
       benchmarkServiceGetStatusStub.returns({ status: 'error', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
@@ -2048,7 +2050,7 @@ describe('fluxService tests', () => {
 
     it('should return error if benchmarkServiceGetBenchmarks returns error', async () => {
       daemonServiceControlRpcsStub.returns({ status: 'success', data: 'info data' });
-      daemonServiceZelnodeRpcsStub.returns({ status: 'success', data: 'status data' });
+      daemonServiceFluxnodeRpcsStub.returns({ status: 'success', data: 'status data' });
       benchmarkServiceGetInfoStub.returns({ status: 'success', data: 'info2 data' });
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'error', data: 'benchmarks data' });
@@ -2071,7 +2073,7 @@ describe('fluxService tests', () => {
 
     it('should return error if appsServiceFluxUsage returns error', async () => {
       daemonServiceControlRpcsStub.returns({ status: 'success', data: 'info data' });
-      daemonServiceZelnodeRpcsStub.returns({ status: 'success', data: 'status data' });
+      daemonServiceFluxnodeRpcsStub.returns({ status: 'success', data: 'status data' });
       benchmarkServiceGetInfoStub.returns({ status: 'success', data: 'info2 data' });
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
@@ -2094,7 +2096,7 @@ describe('fluxService tests', () => {
 
     it('should return error if appsServiceListRunningApps returns error', async () => {
       daemonServiceControlRpcsStub.returns({ status: 'success', data: 'info data' });
-      daemonServiceZelnodeRpcsStub.returns({ status: 'success', data: 'status data' });
+      daemonServiceFluxnodeRpcsStub.returns({ status: 'success', data: 'status data' });
       benchmarkServiceGetInfoStub.returns({ status: 'success', data: 'info2 data' });
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
@@ -2117,7 +2119,7 @@ describe('fluxService tests', () => {
 
     it('should return error if appsServiceAppsResources returns error', async () => {
       daemonServiceControlRpcsStub.returns({ status: 'success', data: 'info data' });
-      daemonServiceZelnodeRpcsStub.returns({ status: 'success', data: 'status data' });
+      daemonServiceFluxnodeRpcsStub.returns({ status: 'success', data: 'status data' });
       benchmarkServiceGetInfoStub.returns({ status: 'success', data: 'info2 data' });
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
@@ -2140,7 +2142,7 @@ describe('fluxService tests', () => {
 
     it('should return error if appsServiceGetAppHashesStub returns error', async () => {
       daemonServiceControlRpcsStub.returns({ status: 'success', data: 'info data' });
-      daemonServiceZelnodeRpcsStub.returns({ status: 'success', data: 'status data' });
+      daemonServiceFluxnodeRpcsStub.returns({ status: 'success', data: 'status data' });
       benchmarkServiceGetInfoStub.returns({ status: 'success', data: 'info2 data' });
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
@@ -2163,7 +2165,7 @@ describe('fluxService tests', () => {
 
     it('should return error if explorerService returns error', async () => {
       daemonServiceControlRpcsStub.returns({ status: 'success', data: 'info data' });
-      daemonServiceZelnodeRpcsStub.returns({ status: 'success', data: 'status data' });
+      daemonServiceFluxnodeRpcsStub.returns({ status: 'success', data: 'status data' });
       benchmarkServiceGetInfoStub.returns({ status: 'success', data: 'info2 data' });
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
@@ -2186,7 +2188,7 @@ describe('fluxService tests', () => {
 
     it('should return error if fluxCommunication returns error', async () => {
       daemonServiceControlRpcsStub.returns({ status: 'success', data: 'info data' });
-      daemonServiceZelnodeRpcsStub.returns({ status: 'success', data: 'status data' });
+      daemonServiceFluxnodeRpcsStub.returns({ status: 'success', data: 'status data' });
       benchmarkServiceGetInfoStub.returns({ status: 'success', data: 'info2 data' });
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
@@ -2209,7 +2211,7 @@ describe('fluxService tests', () => {
 
     it('should return error if fluxNetworkHelperStub returns error', async () => {
       daemonServiceControlRpcsStub.returns({ status: 'success', data: 'info data' });
-      daemonServiceZelnodeRpcsStub.returns({ status: 'success', data: 'status data' });
+      daemonServiceFluxnodeRpcsStub.returns({ status: 'success', data: 'status data' });
       benchmarkServiceGetInfoStub.returns({ status: 'success', data: 'info2 data' });
       benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
@@ -2284,7 +2286,9 @@ describe('fluxService tests', () => {
           testnet: ${adminConfig.initial.testnet || false},
           development: ${adminConfig.initial.development || false},
           apiport: ${Number(adminConfig.initial.apiport)},
-          decryptionkey: '${adminConfig.initial.decryptionkey}',
+          pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
+          pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
+          blockedPorts: [${adminConfig.initial.blockedPorts || ''}],
         }
       }`;
       const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
@@ -2440,7 +2444,9 @@ describe('fluxService tests', () => {
     testnet: ${adminConfig.initial.testnet},
     development: ${adminConfig.initial.development},
     apiport: ${Number(adminConfig.initial.apiport)},
-    decryptionkey: '${adminConfig.initial.decryptionkey}',
+    pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
+    pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
+    blockedPorts: [],
   }
 }`;
       const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
