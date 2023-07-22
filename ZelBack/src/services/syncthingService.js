@@ -2096,9 +2096,18 @@ async function startSyncthing() {
       // need sudo to be able to read/write properly
       const execKill = 'sudo killall syncthing';
       const execKillB = 'sudo pkill syncthing';
-      await serviceHelper.delay(10 * 1000);
-      await cmdAsync(execKill).catch((error) => log.error(error));
-      await cmdAsync(execKillB).catch((error) => log.error(error));
+      const execKillC = 'sudo pkill -9 syncthing';
+      const checkSyncthingRunning = 'sudo pgrep syncthing';
+      let cmdres = await cmdAsync(checkSyncthingRunning);
+      if (cmdres && cmdres.length > 0) {
+        await cmdAsync(execKill).catch((error) => log.error(error));
+        await cmdAsync(execKillB).catch((error) => log.error(error));
+        await serviceHelper.delay(10 * 1000);
+        cmdres = await cmdAsync(checkSyncthingRunning);
+        if (cmdres && cmdres.length > 0) {
+          await cmdAsync(execKillC).catch((error) => log.error(error));
+        }
+      }
       const exec = 'sudo nohup syncthing -logfile $HOME/.config/syncthing/syncthing.log --logflags=3 --log-max-old-files=2 --log-max-size=26214400 --allow-newer-config --no-browser --home=$HOME/.config/syncthing &';
       log.info('Spawning Syncthing instance...');
       nodecmd.get(exec, async (err) => {
