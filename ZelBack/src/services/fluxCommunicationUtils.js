@@ -114,7 +114,7 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
     }
   }
   if (!node) {
-    log.error(`No node belonging to ${pubKey} found`);
+    log.warn(`No node belonging to ${pubKey} found`);
     return false;
   }
   const messageToVerify = version + message + timestamp;
