@@ -2061,12 +2061,93 @@ async function installSyncthing() { // can throw
 }
 
 /**
+ * Function that adjusts syncthing folders and restarts the service if needed
+ */
+let adustSyncthingRunning = false;
+async function adustSyncthing() {
+  try {
+    if (adustSyncthingRunning) {
+      return;
+    }
+    adustSyncthingRunning = true;
+    const currentConfigOptions = await getConfigOptions();
+    const currentDefaultsFolderOptions = await getConfigDefaultsFolder();
+    const apiPort = userconfig.initial.apiport || config.server.apiport;
+    const myPort = +apiPort + 2; // end with 9 eg 16139
+    // adjust configuration
+    const newConfig = {
+      globalAnnounceEnabled: false,
+      localAnnounceEnabled: false,
+      natEnabled: false, // let flux handle upnp and nat port mapping
+      listenAddresses: [`tcp://:${myPort}`, `quic://:${myPort}`],
+    };
+    const newConfigDefaultFolders = {
+      syncOwnership: true,
+      sendOwnership: true,
+      syncXattrs: true,
+      sendXattrs: true,
+      maxConflicts: 0,
+    };
+    if (currentConfigOptions.status === 'success') {
+      if (currentConfigOptions.data.globalAnnounceEnabled !== newConfig.globalAnnounceEnabled
+          || currentConfigOptions.data.localAnnounceEnabled !== newConfig.localAnnounceEnabled
+          || currentConfigOptions.data.natEnabled !== newConfig.natEnabled
+          || serviceHelper.ensureString(currentConfigOptions.data.listenAddresses) !== serviceHelper.ensureString(newConfig.listenAddresses)) {
+        // patch our config
+        await adjustConfigOptions('patch', newConfig);
+      }
+    }
+    if (currentDefaultsFolderOptions.status === 'success') {
+      if (currentDefaultsFolderOptions.data.syncOwnership !== newConfigDefaultFolders.syncOwnership
+          || currentDefaultsFolderOptions.data.sendOwnership !== newConfigDefaultFolders.sendOwnership
+          || currentDefaultsFolderOptions.data.syncXattrs !== newConfigDefaultFolders.syncXattrs
+          || currentDefaultsFolderOptions.data.sendXattrs !== newConfigDefaultFolders.sendXattrs) {
+        // patch our defaults folder config
+        await adjustConfigDefaultsFolder('patch', newConfigDefaultFolders);
+      }
+    }
+    // remove default folder
+    const allFolders = await getConfigFolders();
+    if (allFolders.status === 'success') {
+      const defaultFolderExists = allFolders.data.find((syncthingFolder) => syncthingFolder.id === 'default');
+      if (defaultFolderExists) {
+        await adjustConfigFolders('delete', undefined, 'default');
+      }
+    }
+    // enable gui debugging for development nodes only
+    if (config.development) {
+      const currentGUIOptions = await getConfigGui();
+      if (currentGUIOptions.status === 'success') {
+        const newGUIOptions = currentGUIOptions.data;
+        if (newGUIOptions.debugging !== true) {
+          log.info('Applying SyncthingGUI debuggin options...');
+          newGUIOptions.debugging = true;
+          await performRequest('patch', '/rest/config/gui', newGUIOptions);
+        } else {
+          log.info('Syncthing GUI in debugging options.');
+        }
+      }
+    }
+    const restartRequired = await getConfigRestartRequired();
+    if (restartRequired.status === 'success' && restartRequired.data.requiresRestart === true) {
+      await systemRestart();
+    }
+    adustSyncthingRunning = false;
+  } catch (error) {
+    log.error(error);
+    adustSyncthingRunning = false;
+  }
+}
+
+/**
  * To Start Syncthing
  */
 let previousSyncthingErrored = false;
 let lastGetDeviceIdCallOk = false;
+let run = 0;
 async function startSyncthing() {
   try {
+    run += 1;
     if (!syncthingInstalled) {
       await installSyncthing();
       await serviceHelper.delay(10 * 1000);
@@ -2074,7 +2155,7 @@ async function startSyncthing() {
       return;
     }
     // check wether syncthing is running or not
-    const myDevice = await getDeviceID();
+    let myDevice = await getDeviceID();
     if (myDevice.status === 'error') {
       // retry before killing and restarting
       if (!previousSyncthingErrored && lastGetDeviceIdCallOk) {
@@ -2119,72 +2200,19 @@ async function startSyncthing() {
         }
       });
       await serviceHelper.delay(60 * 1000);
+      myDevice = await getDeviceID();
+      if (myDevice.status === 'success') {
+        await adustSyncthing();
+        run = 0;
+      }
       startSyncthing();
     } else {
+      if (run % 4 === 0) {
+        // every 8 minutes call adustSyncthing to check service folders
+        await adustSyncthing();
+      }
       lastGetDeviceIdCallOk = true;
-      const currentConfigOptions = await getConfigOptions();
-      const currentDefaultsFolderOptions = await getConfigDefaultsFolder();
-      const apiPort = userconfig.initial.apiport || config.server.apiport;
-      const myPort = +apiPort + 2; // end with 9 eg 16139
-      // adjust configuration
-      const newConfig = {
-        globalAnnounceEnabled: false,
-        localAnnounceEnabled: false,
-        natEnabled: false, // let flux handle upnp and nat port mapping
-        listenAddresses: [`tcp://:${myPort}`, `quic://:${myPort}`],
-      };
-      const newConfigDefaultFolders = {
-        syncOwnership: true,
-        sendOwnership: true,
-        syncXattrs: true,
-        sendXattrs: true,
-        maxConflicts: 0,
-      };
-      if (currentConfigOptions.status === 'success') {
-        if (currentConfigOptions.data.globalAnnounceEnabled !== newConfig.globalAnnounceEnabled
-          || currentConfigOptions.data.localAnnounceEnabled !== newConfig.localAnnounceEnabled
-          || currentConfigOptions.data.natEnabled !== newConfig.natEnabled
-          || serviceHelper.ensureString(currentConfigOptions.data.listenAddresses) !== serviceHelper.ensureString(newConfig.listenAddresses)) {
-          // patch our config
-          await adjustConfigOptions('patch', newConfig);
-        }
-      }
-      if (currentDefaultsFolderOptions.status === 'success') {
-        if (currentDefaultsFolderOptions.data.syncOwnership !== newConfigDefaultFolders.syncOwnership
-          || currentDefaultsFolderOptions.data.sendOwnership !== newConfigDefaultFolders.sendOwnership
-          || currentDefaultsFolderOptions.data.syncXattrs !== newConfigDefaultFolders.syncXattrs
-          || currentDefaultsFolderOptions.data.sendXattrs !== newConfigDefaultFolders.sendXattrs) {
-          // patch our defaults folder config
-          await adjustConfigDefaultsFolder('patch', newConfigDefaultFolders);
-        }
-      }
-      // remove default folder
-      const allFolders = await getConfigFolders();
-      if (allFolders.status === 'success') {
-        const defaultFolderExists = allFolders.data.find((syncthingFolder) => syncthingFolder.id === 'default');
-        if (defaultFolderExists) {
-          await adjustConfigFolders('delete', undefined, 'default');
-        }
-      }
-      const restartRequired = await getConfigRestartRequired();
-      if (restartRequired.status === 'success' && restartRequired.data.requiresRestart === true) {
-        await systemRestart();
-      }
-      // enable gui debugging for development nodes only
-      if (config.development) {
-        const currentGUIOptions = await getConfigGui();
-        if (currentGUIOptions.status === 'success') {
-          const newGUIOptions = currentGUIOptions.data;
-          if (newGUIOptions.debugging !== true) {
-            log.info('Applying SyncthingGUI debuggin options...');
-            newGUIOptions.debugging = true;
-            await performRequest('patch', '/rest/config/gui', newGUIOptions);
-          } else {
-            log.info('Syncthing GUI in debugging options.');
-          }
-        }
-      }
-      await serviceHelper.delay(8 * 60 * 1000);
+      await serviceHelper.delay(2 * 60 * 1000);
       startSyncthing();
     }
   } catch (error) {
@@ -2290,4 +2318,5 @@ module.exports = {
   isRunning,
   // test
   setSyncthingRunningState,
+  adustSyncthing,
 };
