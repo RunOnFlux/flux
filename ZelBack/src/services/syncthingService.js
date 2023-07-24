@@ -2063,13 +2063,13 @@ async function installSyncthing() { // can throw
 /**
  * Function that adjusts syncthing folders and restarts the service if needed
  */
-let adustSyncthingRunning = false;
-async function adustSyncthing() {
+let adjustSyncthingRunning = false;
+async function adjustSyncthing() {
   try {
-    if (adustSyncthingRunning) {
+    if (adjustSyncthingRunning) {
       return;
     }
-    adustSyncthingRunning = true;
+    adjustSyncthingRunning = true;
     const currentConfigOptions = await getConfigOptions();
     const currentDefaultsFolderOptions = await getConfigDefaultsFolder();
     const apiPort = userconfig.initial.apiport || config.server.apiport;
@@ -2090,18 +2090,18 @@ async function adustSyncthing() {
     };
     if (currentConfigOptions.status === 'success') {
       if (currentConfigOptions.data.globalAnnounceEnabled !== newConfig.globalAnnounceEnabled
-          || currentConfigOptions.data.localAnnounceEnabled !== newConfig.localAnnounceEnabled
-          || currentConfigOptions.data.natEnabled !== newConfig.natEnabled
-          || serviceHelper.ensureString(currentConfigOptions.data.listenAddresses) !== serviceHelper.ensureString(newConfig.listenAddresses)) {
+        || currentConfigOptions.data.localAnnounceEnabled !== newConfig.localAnnounceEnabled
+        || currentConfigOptions.data.natEnabled !== newConfig.natEnabled
+        || serviceHelper.ensureString(currentConfigOptions.data.listenAddresses) !== serviceHelper.ensureString(newConfig.listenAddresses)) {
         // patch our config
         await adjustConfigOptions('patch', newConfig);
       }
     }
     if (currentDefaultsFolderOptions.status === 'success') {
       if (currentDefaultsFolderOptions.data.syncOwnership !== newConfigDefaultFolders.syncOwnership
-          || currentDefaultsFolderOptions.data.sendOwnership !== newConfigDefaultFolders.sendOwnership
-          || currentDefaultsFolderOptions.data.syncXattrs !== newConfigDefaultFolders.syncXattrs
-          || currentDefaultsFolderOptions.data.sendXattrs !== newConfigDefaultFolders.sendXattrs) {
+        || currentDefaultsFolderOptions.data.sendOwnership !== newConfigDefaultFolders.sendOwnership
+        || currentDefaultsFolderOptions.data.syncXattrs !== newConfigDefaultFolders.syncXattrs
+        || currentDefaultsFolderOptions.data.sendXattrs !== newConfigDefaultFolders.sendXattrs) {
         // patch our defaults folder config
         await adjustConfigDefaultsFolder('patch', newConfigDefaultFolders);
       }
@@ -2132,10 +2132,10 @@ async function adustSyncthing() {
     if (restartRequired.status === 'success' && restartRequired.data.requiresRestart === true) {
       await systemRestart();
     }
-    adustSyncthingRunning = false;
+    adjustSyncthingRunning = false;
   } catch (error) {
     log.error(error);
-    adustSyncthingRunning = false;
+    adjustSyncthingRunning = false;
   }
 }
 
@@ -2202,14 +2202,14 @@ async function startSyncthing() {
       await serviceHelper.delay(60 * 1000);
       myDevice = await getDeviceID();
       if (myDevice.status === 'success') {
-        await adustSyncthing();
+        await adjustSyncthing();
         run = 0;
       }
       startSyncthing();
     } else {
       if (run % 4 === 0) {
-        // every 8 minutes call adustSyncthing to check service folders
-        await adustSyncthing();
+        // every 8 minutes call adjustSyncthing to check service folders
+        await adjustSyncthing();
       }
       lastGetDeviceIdCallOk = true;
       await serviceHelper.delay(2 * 60 * 1000);
@@ -2318,5 +2318,5 @@ module.exports = {
   isRunning,
   // test
   setSyncthingRunningState,
-  adustSyncthing,
+  adjustSyncthing,
 };
