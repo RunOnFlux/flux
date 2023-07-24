@@ -7647,6 +7647,7 @@ async function getAppHashes(req, res) {
         height: 1,
         value: 1,
         message: 1,
+        messageNotFound: 1,
       },
     };
     const results = await dbHelper.findInDatabase(database, appsHashesCollection, query, projection);
