@@ -529,7 +529,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
       arraySecrets.forEach((parameter) => {
         if (typeof parameter !== 'string' || parameter.length > 5000000) {
           throw new Error('Environment parameters from Secrets are invalid');
-        } else {
+        } else if (parameter !== 'privileged') {
           envParams.push(parameter);
         }
       });
@@ -537,13 +537,19 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
       throw new Error('Environment parameters from Secrets are invalid');
     }
   }
+  const adjustedCommands = [];
+  appSpecifications.commands.forEach((command) => {
+    if (command !== '--privileged') {
+      adjustedCommands.push(command);
+    }
+  });
   const options = {
     Image: appSpecifications.repotag,
     name: getAppIdentifier(identifier),
     AttachStdin: true,
     AttachStdout: true,
     AttachStderr: true,
-    Cmd: appSpecifications.commands,
+    Cmd: adjustedCommands,
     Env: envParams,
     Tty: false,
     ExposedPorts: exposedPorts,
@@ -583,7 +589,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
         envVars.forEach((parameter) => {
           if (typeof parameter !== 'string' || parameter.length > 5000000) {
             throw new Error(`Environment parameters from Flux Storage ${fluxStorageEnv} are invalid`);
-          } else {
+          } else if (parameter !== '--privileged') {
             options.Env.push(parameter);
           }
         });
@@ -597,12 +603,12 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     const fluxStorageCmd = options.Cmd.find((cmd) => cmd.startsWith(('F_S_CMD=')));
     if (fluxStorageCmd) {
       const url = fluxStorageCmd.split('F_S_CMD=')[1];
-      const envVars = await obtainPayloadFromStorage(url, appName);
-      if (Array.isArray(envVars) && envVars.length < 200) {
-        envVars.forEach((parameter) => {
+      const cmdVars = await obtainPayloadFromStorage(url, appName);
+      if (Array.isArray(cmdVars) && cmdVars.length < 200) {
+        cmdVars.forEach((parameter) => {
           if (typeof parameter !== 'string' || parameter.length > 5000000) {
             throw new Error(`Commands parameters from Flux Storage ${fluxStorageCmd} are invalid`);
-          } else {
+          } else if (parameter !== '--privileged') {
             options.Env.push(parameter);
           }
         });
