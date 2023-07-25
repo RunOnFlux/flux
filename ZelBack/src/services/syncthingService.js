@@ -1277,7 +1277,7 @@ async function getDbBrowse(req, res) {
       prefix,
     };
     const qqStr = qs.stringify(qq);
-    apiPath += `?${qqStr};`;
+    apiPath += `?${qqStr}`;
     const response = await performRequest('get', apiPath);
     return res ? res.json(response) : response;
   } catch (error) {
