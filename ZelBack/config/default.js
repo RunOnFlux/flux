@@ -4,6 +4,7 @@ const isDevelopment = userconfig.initial.development || false;
 
 module.exports = {
   development: isDevelopment,
+  loglevel: 'debug', // severity ordering specified by RFC5424
   server: {
     allowedPorts: [16127, 16137, 16147, 16157, 16167, 16177, 16187, 16197],
     apiport: 16127, // homeport is -1, ssl port is +1
@@ -171,6 +172,7 @@ module.exports = {
     removeFluxAppsPeriod: 11, // every 11 blocks we check for more than maximum number of instances of an application
     reconstructAppMessagesHashPeriod: 3600, // every 5 days we ask for old messages
     benchUpnpPeriod: 6480, // every 9 days execute upnp bench
+    apprunningv2: 1444444, // daemon block height when version 2 of fluxapprunning type messages start propagating on the network (around August 10th)
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core

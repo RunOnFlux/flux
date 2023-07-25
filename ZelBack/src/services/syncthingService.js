@@ -75,7 +75,7 @@ async function getSyncthingApiKey() { // can throw
  * @param {object} data Request data.
  * @returns {object} Message.
  */
-async function performRequest(method = 'get', urlpath = '', data) {
+async function performRequest(method = 'get', urlpath = '', data, timeout = 5000) {
   try {
     if (!syncthingApiKey) {
       const apiKey = await getSyncthingApiKey();
@@ -83,7 +83,7 @@ async function performRequest(method = 'get', urlpath = '', data) {
     }
     const instance = axios.create({
       baseURL: syncthingURL,
-      timeout: 5000,
+      timeout,
       headers: {
         'X-API-Key': syncthingApiKey,
       },
@@ -1277,7 +1277,7 @@ async function getDbBrowse(req, res) {
       prefix,
     };
     const qqStr = qs.stringify(qq);
-    apiPath += `?${qqStr};`;
+    apiPath += `?${qqStr}`;
     const response = await performRequest('get', apiPath);
     return res ? res.json(response) : response;
   } catch (error) {
@@ -1686,7 +1686,13 @@ async function postDbScan(req, res) {
  * @returns {object} Message
  */
 async function debugPeerCompletion(req, res) {
-  const response = await performRequest('get', '/rest/debug/peerCompletion');
+  const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
+  let response = null;
+  if (authorized === true) {
+    response = await performRequest('get', '/rest/debug/peerCompletion');
+  } else {
+    response = messageHelper.errUnauthorizedMessage();
+  }
   return res ? res.json(response) : response;
 }
 
@@ -1697,7 +1703,13 @@ async function debugPeerCompletion(req, res) {
  * @returns {object} Message
  */
 async function debugHttpmetrics(req, res) {
-  const response = await performRequest('get', '/rest/debug/httpmetrics');
+  const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
+  let response = null;
+  if (authorized === true) {
+    response = await performRequest('get', '/rest/debug/httpmetrics');
+  } else {
+    response = messageHelper.errUnauthorizedMessage();
+  }
   return res ? res.json(response) : response;
 }
 
@@ -1708,7 +1720,26 @@ async function debugHttpmetrics(req, res) {
  * @returns {object} Message
  */
 async function debugCpuprof(req, res) {
-  const response = await performRequest('get', '/rest/debug/cpuprof');
+  const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
+  let response = null;
+  if (authorized === true) {
+    try {
+      response = await axios.get('/rest/debug/cpuprof', {
+        responseType: 'stream', // Specify response type as stream
+        timeout: 60000,
+      });
+      if ('content-type' in response.data.headers) {
+        res.setHeader('Content-Type', response.data.headers['content-type']);
+      } else {
+        res.setHeader('Content-Type', 'application/octet-stream');
+      }
+      return response.data.pipe(res);
+    } catch (error) {
+      return res ? res.json(error) : JSON.stringify(error);
+    }
+  } else {
+    response = messageHelper.errUnauthorizedMessage();
+  }
   return res ? res.json(response) : response;
 }
 
@@ -1719,7 +1750,26 @@ async function debugCpuprof(req, res) {
  * @returns {object} Message
  */
 async function debugHeapprof(req, res) {
-  const response = await performRequest('get', '/rest/debug/heapprof');
+  const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
+  let response = null;
+  if (authorized === true) {
+    try {
+      response = await axios.get('/rest/debug/heapprof', {
+        responseType: 'stream', // Specify response type as stream
+        timeout: 60000,
+      });
+      if ('content-type' in response.data.headers) {
+        res.setHeader('Content-Type', response.data.headers['content-type']);
+      } else {
+        res.setHeader('Content-Type', 'application/octet-stream');
+      }
+      return response.data.pipe(res);
+    } catch (error) {
+      return res ? res.json(error) : JSON.stringify(error);
+    }
+  } else {
+    response = messageHelper.errUnauthorizedMessage();
+  }
   return res ? res.json(response) : response;
 }
 
@@ -1730,7 +1780,13 @@ async function debugHeapprof(req, res) {
  * @returns {object} Message
  */
 async function debugSupport(req, res) {
-  const response = await performRequest('get', '/rest/debug/support');
+  const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
+  let response = null;
+  if (authorized === true) {
+    response = await performRequest('get', '/rest/debug/support', undefined, 60000);
+  } else {
+    response = messageHelper.errUnauthorizedMessage();
+  }
   return res ? res.json(response) : response;
 }
 
@@ -1757,7 +1813,26 @@ async function debugFile(req, res) {
     } else {
       throw new Error('file parameter is mandatory');
     }
-    const response = await performRequest('get', apiPath);
+    const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
+    let response = null;
+    if (authorized === true) {
+      try {
+        response = await axios.get(apiPath, {
+          responseType: 'stream', // Specify response type as stream
+          timeout: 60000,
+        });
+        if ('content-type' in response.data.headers) {
+          res.setHeader('Content-Type', response.data.headers['content-type']);
+        } else {
+          res.setHeader('Content-Type', 'application/octet-stream');
+        }
+        return response.data.pipe(res);
+      } catch (error) {
+        return res ? res.json(error) : JSON.stringify(error);
+      }
+    } else {
+      response = messageHelper.errUnauthorizedMessage();
+    }
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
@@ -1986,19 +2061,101 @@ async function installSyncthing() { // can throw
 }
 
 /**
+ * Function that adjusts syncthing folders and restarts the service if needed
+ */
+let adjustSyncthingRunning = false;
+async function adjustSyncthing() {
+  try {
+    if (adjustSyncthingRunning) {
+      return;
+    }
+    adjustSyncthingRunning = true;
+    const currentConfigOptions = await getConfigOptions();
+    const currentDefaultsFolderOptions = await getConfigDefaultsFolder();
+    const apiPort = userconfig.initial.apiport || config.server.apiport;
+    const myPort = +apiPort + 2; // end with 9 eg 16139
+    // adjust configuration
+    const newConfig = {
+      globalAnnounceEnabled: false,
+      localAnnounceEnabled: false,
+      natEnabled: false, // let flux handle upnp and nat port mapping
+      listenAddresses: [`tcp://:${myPort}`, `quic://:${myPort}`],
+    };
+    const newConfigDefaultFolders = {
+      syncOwnership: true,
+      sendOwnership: true,
+      syncXattrs: true,
+      sendXattrs: true,
+      maxConflicts: 0,
+    };
+    if (currentConfigOptions.status === 'success') {
+      if (currentConfigOptions.data.globalAnnounceEnabled !== newConfig.globalAnnounceEnabled
+        || currentConfigOptions.data.localAnnounceEnabled !== newConfig.localAnnounceEnabled
+        || currentConfigOptions.data.natEnabled !== newConfig.natEnabled
+        || serviceHelper.ensureString(currentConfigOptions.data.listenAddresses) !== serviceHelper.ensureString(newConfig.listenAddresses)) {
+        // patch our config
+        await adjustConfigOptions('patch', newConfig);
+      }
+    }
+    if (currentDefaultsFolderOptions.status === 'success') {
+      if (currentDefaultsFolderOptions.data.syncOwnership !== newConfigDefaultFolders.syncOwnership
+        || currentDefaultsFolderOptions.data.sendOwnership !== newConfigDefaultFolders.sendOwnership
+        || currentDefaultsFolderOptions.data.syncXattrs !== newConfigDefaultFolders.syncXattrs
+        || currentDefaultsFolderOptions.data.sendXattrs !== newConfigDefaultFolders.sendXattrs) {
+        // patch our defaults folder config
+        await adjustConfigDefaultsFolder('patch', newConfigDefaultFolders);
+      }
+    }
+    // remove default folder
+    const allFolders = await getConfigFolders();
+    if (allFolders.status === 'success') {
+      const defaultFolderExists = allFolders.data.find((syncthingFolder) => syncthingFolder.id === 'default');
+      if (defaultFolderExists) {
+        await adjustConfigFolders('delete', undefined, 'default');
+      }
+    }
+    // enable gui debugging for development nodes only
+    if (config.development) {
+      const currentGUIOptions = await getConfigGui();
+      if (currentGUIOptions.status === 'success') {
+        const newGUIOptions = currentGUIOptions.data;
+        if (newGUIOptions.debugging !== true) {
+          log.info('Applying SyncthingGUI debuggin options...');
+          newGUIOptions.debugging = true;
+          await performRequest('patch', '/rest/config/gui', newGUIOptions);
+        } else {
+          log.info('Syncthing GUI in debugging options.');
+        }
+      }
+    }
+    const restartRequired = await getConfigRestartRequired();
+    if (restartRequired.status === 'success' && restartRequired.data.requiresRestart === true) {
+      await systemRestart();
+    }
+    adjustSyncthingRunning = false;
+  } catch (error) {
+    log.error(error);
+    adjustSyncthingRunning = false;
+  }
+}
+
+/**
  * To Start Syncthing
  */
 let previousSyncthingErrored = false;
 let lastGetDeviceIdCallOk = false;
+let run = 0;
 async function startSyncthing() {
   try {
+    run += 1;
     if (!syncthingInstalled) {
       await installSyncthing();
       await serviceHelper.delay(10 * 1000);
       startSyncthing();
+      return;
     }
     // check wether syncthing is running or not
-    const myDevice = await getDeviceID();
+    let myDevice = await getDeviceID();
     if (myDevice.status === 'error') {
       // retry before killing and restarting
       if (!previousSyncthingErrored && lastGetDeviceIdCallOk) {
@@ -2007,6 +2164,7 @@ async function startSyncthing() {
         previousSyncthingErrored = true;
         await serviceHelper.delay(60 * 1000);
         startSyncthing();
+        return;
       }
       lastGetDeviceIdCallOk = false;
       previousSyncthingErrored = false;
@@ -2021,9 +2179,18 @@ async function startSyncthing() {
       // need sudo to be able to read/write properly
       const execKill = 'sudo killall syncthing';
       const execKillB = 'sudo pkill syncthing';
-      await serviceHelper.delay(10 * 1000);
-      await cmdAsync(execKill).catch((error) => log.error(error));
-      await cmdAsync(execKillB).catch((error) => log.error(error));
+      const execKillC = 'sudo pkill -9 syncthing';
+      const checkSyncthingRunning = 'sudo pgrep syncthing';
+      let cmdres = await cmdAsync(checkSyncthingRunning).catch((error) => log.error(error));
+      if (cmdres && cmdres.length > 0) {
+        await cmdAsync(execKill).catch((error) => log.error(error));
+        await cmdAsync(execKillB).catch((error) => log.error(error));
+        await serviceHelper.delay(10 * 1000);
+        cmdres = await cmdAsync(checkSyncthingRunning).catch((error) => log.error(error));
+        if (cmdres && cmdres.length > 0) {
+          await cmdAsync(execKillC).catch((error) => log.error(error));
+        }
+      }
       const exec = 'sudo nohup syncthing -logfile $HOME/.config/syncthing/syncthing.log --logflags=3 --log-max-old-files=2 --log-max-size=26214400 --allow-newer-config --no-browser --home=$HOME/.config/syncthing &';
       log.info('Spawning Syncthing instance...');
       nodecmd.get(exec, async (err) => {
@@ -2033,58 +2200,19 @@ async function startSyncthing() {
         }
       });
       await serviceHelper.delay(60 * 1000);
+      myDevice = await getDeviceID();
+      if (myDevice.status === 'success') {
+        await adjustSyncthing();
+        run = 0;
+      }
       startSyncthing();
     } else {
+      if (run % 4 === 0) {
+        // every 8 minutes call adjustSyncthing to check service folders
+        await adjustSyncthing();
+      }
       lastGetDeviceIdCallOk = true;
-      const currentConfigOptions = await getConfigOptions();
-      const currentDefaultsFolderOptions = await getConfigDefaultsFolder();
-      const apiPort = userconfig.initial.apiport || config.server.apiport;
-      const myPort = +apiPort + 2; // end with 9 eg 16139
-      // adjust configuration
-      const newConfig = {
-        globalAnnounceEnabled: false,
-        localAnnounceEnabled: false,
-        natEnabled: false, // let flux handle upnp and nat port mapping
-        listenAddresses: [`tcp://:${myPort}`, `quic://:${myPort}`],
-      };
-      const newConfigDefaultFolders = {
-        syncOwnership: true,
-        sendOwnership: true,
-        syncXattrs: true,
-        sendXattrs: true,
-        maxConflicts: 0,
-      };
-      if (currentConfigOptions.status === 'success') {
-        if (currentConfigOptions.data.globalAnnounceEnabled !== newConfig.globalAnnounceEnabled
-          || currentConfigOptions.data.localAnnounceEnabled !== newConfig.localAnnounceEnabled
-          || currentConfigOptions.data.natEnabled !== newConfig.natEnabled
-          || serviceHelper.ensureString(currentConfigOptions.data.listenAddresses) !== serviceHelper.ensureString(newConfig.listenAddresses)) {
-          // patch our config
-          await adjustConfigOptions('patch', newConfig);
-        }
-      }
-      if (currentDefaultsFolderOptions.status === 'success') {
-        if (currentDefaultsFolderOptions.data.syncOwnership !== newConfigDefaultFolders.syncOwnership
-          || currentDefaultsFolderOptions.data.sendOwnership !== newConfigDefaultFolders.sendOwnership
-          || currentDefaultsFolderOptions.data.syncXattrs !== newConfigDefaultFolders.syncXattrs
-          || currentDefaultsFolderOptions.data.sendXattrs !== newConfigDefaultFolders.sendXattrs) {
-          // patch our defaults folder config
-          await adjustConfigDefaultsFolder('patch', newConfigDefaultFolders);
-        }
-      }
-      // remove default folder
-      const allFolders = await getConfigFolders();
-      if (allFolders.status === 'success') {
-        const defaultFolderExists = allFolders.data.find((syncthingFolder) => syncthingFolder.id === 'default');
-        if (defaultFolderExists) {
-          await adjustConfigFolders('delete', undefined, 'default');
-        }
-      }
-      const restartRequired = await getConfigRestartRequired();
-      if (restartRequired.status === 'success' && restartRequired.data.requiresRestart === true) {
-        await systemRestart();
-      }
-      await serviceHelper.delay(8 * 60 * 1000);
+      await serviceHelper.delay(2 * 60 * 1000);
       startSyncthing();
     }
   } catch (error) {
@@ -2190,4 +2318,5 @@ module.exports = {
   isRunning,
   // test
   setSyncthingRunningState,
+  adjustSyncthing,
 };
