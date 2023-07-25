@@ -329,5 +329,6 @@
    "gridcloud",
    "snghbeer",
    "algorand/algod:latest",
-   "algorand/indexer:latest"
+   "algorand/indexer:latest",
+   "snghbeer/nivon"
 ]
