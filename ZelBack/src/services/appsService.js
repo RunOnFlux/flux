@@ -7651,6 +7651,7 @@ async function continuousFluxAppHashesCheck(force = false) {
           numberOfSearches = hashesNumberOfSearchs.get(result.hash) + 2; // max 8 tries
         }
         hashesNumberOfSearchs.set(result.hash, numberOfSearches);
+        log.debug(`${result.hash}, ${result.txid}, ${result.height}, ${numberOfSearches}`);
         if (numberOfSearches <= 16) { // up to 8 searches
           checkAndRequestApp(result.hash, result.txid, result.height, result.value);
           // eslint-disable-next-line no-await-in-loop
