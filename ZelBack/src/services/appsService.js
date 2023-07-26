@@ -6143,6 +6143,37 @@ async function requestAppMessage(hash) {
 }
 
 /**
+ * To manually request app message over api
+ * @param {req} req api request
+ * @param {res} res api response
+ */
+async function requestAppMessageAPI(req, res) {
+  try {
+    // only flux team and node owner can do this TODO
+    // const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    // if (!authorized) {
+    //   const errMessage = messageHelper.errUnauthorizedMessage();
+    //   res.json(errMessage);
+    //   return;
+    // }
+
+    let { hash } = req.params;
+    hash = hash || req.query.hash;
+
+    if (!hash) {
+      throw new Error('No Flux App Hash specified');
+    }
+    requestAppMessage(hash);
+    const resultsResponse = messageHelper.createSuccessMessage(`Application hash ${hash} requested from the network`);
+    res.json(resultsResponse);
+  } catch (error) {
+    log.error(error);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
+}
+
+/**
  * To format app specification object. Checks that all parameters exist and are correct.
  * @param {object} appSpecification App specification.
  * @returns {object} Returns formatted app specification to be stored in global database. Otherwise throws error.
@@ -10139,6 +10170,7 @@ module.exports = {
   availableApps,
   appsResources,
   checkAppMessageExistence,
+  requestAppMessageAPI,
   checkAndRequestApp,
   checkDockerAccessibility,
   registrationInformation,

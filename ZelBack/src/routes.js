@@ -1014,6 +1014,9 @@ module.exports = (app, expressWs) => {
     explorerService.rescanExplorer(req, res);
   });
 
+  app.get('/apps/requestmessage/:hash', (req, res) => {
+    appsService.requestAppMessageAPI(req, res);
+  });
   app.get('/apps/appstart/:appname?/:global?', (req, res) => {
     appsService.appStart(req, res);
   });
