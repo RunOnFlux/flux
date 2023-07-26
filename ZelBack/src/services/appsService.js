@@ -4039,6 +4039,7 @@ async function verifyAppMessageSignature(type, version, appSpec, timestamp, sign
     isValidSignature = signatureVerifier.verifySignature(messageToVerify, appSpec.owner, signature); // btc, eth
   }
   if (isValidSignature !== true) {
+    log.debug(`${messageToVerify}, ${appSpec.owner}, ${signature}`);
     const errorMessage = isValidSignature === false ? 'Received signature is invalid or Flux App specifications are not properly formatted' : isValidSignature;
     throw new Error(errorMessage);
   }
