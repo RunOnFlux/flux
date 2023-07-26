@@ -7595,7 +7595,7 @@ async function rescanGlobalAppsInformationAPI(req, res) {
 /**
  * To perform continuous checks for Flux app hashes that don't have a message.
  */
-async function continuousFluxAppHashesCheck() {
+async function continuousFluxAppHashesCheck(force = false) {
   try {
     log.info('Requesting missing Flux App messages');
 
@@ -7632,9 +7632,11 @@ async function continuousFluxAppHashesCheck() {
       },
     };
     const results = await dbHelper.findInDatabase(database, appsHashesCollection, query, projection);
+    // sort it by height, so we request oldest messages first
+    results.sort((a, b) => a.height - b.height);
     // eslint-disable-next-line no-restricted-syntax
     for (const result of results) {
-      if (!result.messageNotFound) { // most likely wrong data, if no message found. This attribute is cleaned every reconstructAppMessagesHashPeriod blocks so all nodes search again for missing messages
+      if (!result.messageNotFound || force) { // most likely wrong data, if no message found. This attribute is cleaned every reconstructAppMessagesHashPeriod blocks so all nodes search again for missing messages
         let heightDifference = explorerHeight - result.height;
         if (heightDifference < 0) {
           heightDifference = 0;
@@ -7652,7 +7654,7 @@ async function continuousFluxAppHashesCheck() {
         if (numberOfSearches <= 16) { // up to 8 searches
           checkAndRequestApp(result.hash, result.txid, result.height, result.value);
           // eslint-disable-next-line no-await-in-loop
-          await serviceHelper.delay(1234);
+          await serviceHelper.delay(2345);
         } else {
           // eslint-disable-next-line no-await-in-loop
           await appHashHasMessageNotFound(result.hash); // mark message as not found
@@ -7662,6 +7664,31 @@ async function continuousFluxAppHashesCheck() {
     }
   } catch (error) {
     log.error(error);
+  }
+}
+
+/**
+ * To manually request app message over api
+ * @param {req} req api request
+ * @param {res} res api response
+ */
+function triggerAppHashesCheckAPI(req, res) {
+  try {
+    // only flux team and node owner can do this TODO
+    // const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    // if (!authorized) {
+    //   const errMessage = messageHelper.errUnauthorizedMessage();
+    //   res.json(errMessage);
+    //   return;
+    // }
+
+    continuousFluxAppHashesCheck(true);
+    const resultsResponse = messageHelper.createSuccessMessage('Running check on missing application messages ');
+    res.json(resultsResponse);
+  } catch (error) {
+    log.error(error);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
   }
 }
 
@@ -10260,4 +10287,5 @@ module.exports = {
   installationInProgressReset,
   setInstallationInProgressTrue,
   checkForNonAllowedAppsOnLocalNetwork,
+  triggerAppHashesCheckAPI,
 };

@@ -1014,6 +1014,9 @@ module.exports = (app, expressWs) => {
     explorerService.rescanExplorer(req, res);
   });
 
+  app.get('/apps/checkhashes', (req, res) => {
+    appsService.triggerAppHashesCheckAPI(req, res);
+  });
   app.get('/apps/requestmessage/:hash', (req, res) => {
     appsService.requestAppMessageAPI(req, res);
   });
