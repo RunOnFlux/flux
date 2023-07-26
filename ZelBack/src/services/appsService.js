@@ -4112,6 +4112,7 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
     }
   }
   if (isValidSignature !== true) {
+    log.debug(`${messageToVerify}, ${appOwner}, ${signature}`);
     const errorMessage = isValidSignature === false ? 'Received signature does not correspond with Flux App owner or Flux App specifications are not properly formatted' : isValidSignature;
     throw new Error(errorMessage);
   }
