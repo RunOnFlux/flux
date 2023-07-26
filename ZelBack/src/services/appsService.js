@@ -4464,6 +4464,9 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
     if (typeof port !== 'number') {
       throw new Error('Port for Flux App is invalid');
     }
+    if (!serviceHelper.isDecimalLimit(port, 0)) {
+      throw new Error('Ports for Flux App are invalid decimals');
+    }
 
     if (Array.isArray(enviromentParameters)) {
       enviromentParameters.forEach((parameter) => {
@@ -4485,6 +4488,9 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
     }
     if (typeof containerPort !== 'number') {
       throw new Error('Container Port for Flux App is invalid');
+    }
+    if (!serviceHelper.isDecimalLimit(containerPort, 0)) {
+      throw new Error('Ports for Flux App are invalid decimals');
     }
     if (typeof tiered !== 'boolean') {
       throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
@@ -5757,9 +5763,11 @@ async function ensureApplicationImagesExistsForPlatform(appSpecFormatted) {
 /**
  * To check if app name already registered. App names must be unique.
  * @param {object} appSpecFormatted App specifications.
+ * @param {hash} string hash of App specifications.
+ * @param {number} timestamp Timestamp of App specifications message.
  * @returns {boolean} True if no errors are thrown.
  */
-async function checkApplicationRegistrationNameConflicts(appSpecFormatted) {
+async function checkApplicationRegistrationNameConflicts(appSpecFormatted, hash) {
   // check if name is not yet registered
   const dbopen = dbHelper.databaseConnection();
 
@@ -5769,12 +5777,35 @@ async function checkApplicationRegistrationNameConflicts(appSpecFormatted) {
     projection: {
       _id: 0,
       name: 1,
+      height: 1,
     },
   };
   const appResult = await dbHelper.findOneInDatabase(appsDatabase, globalAppsInformation, appsQuery, appsProjection);
 
   if (appResult) {
-    throw new Error(`Flux App ${appSpecFormatted.name} already registered. Flux App has to be registered under different name.`);
+    // in this case, check if hash of the message is older than our current app
+    if (hash) {
+      // check if we have the hash of the app in our db
+      const query = { hash };
+      const projection = {
+        projection: {
+          _id: 0,
+          txid: 1,
+          hash: 1,
+          height: 1,
+        },
+      };
+      const database = dbopen.db(config.database.daemon.database);
+      const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, query, projection);
+      if (!result) {
+        throw new Error(`Flux App ${appSpecFormatted.name} already registered. Flux App has to be registered under different name. Hash not found in collection.`);
+      }
+      if (appResult.height <= result.height) {
+        throw new Error(`Flux App ${appSpecFormatted.name} already registered. Flux App has to be registered under different name. Hash is not older than our current app.`);
+      }
+    } else {
+      throw new Error(`Flux App ${appSpecFormatted.name} already registered. Flux App has to be registered under different name.`);
+    }
   }
 
   const localApps = await availableApps();
@@ -6043,7 +6074,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       const daemonHeight = syncStatus.data.height;
       await verifyAppSpecifications(appSpecFormatted, daemonHeight);
       await verifyAppHash(message);
-      await checkApplicationRegistrationNameConflicts(appSpecFormatted);
+      await checkApplicationRegistrationNameConflicts(appSpecFormatted, message.hash);
       await verifyAppMessageSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature);
     } else if (message.type === 'zelappupdate' || message.type === 'fluxappupdate') {
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
