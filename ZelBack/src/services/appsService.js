@@ -4035,8 +4035,31 @@ async function verifyAppMessageSignature(type, version, appSpec, timestamp, sign
   }
   const messageToVerify = type + version + JSON.stringify(appSpec) + timestamp;
   let isValidSignature = verificationHelper.verifyMessage(messageToVerify, appSpec.owner, signature); // only btc
-  if (timestamp > 1688947200000) { // remove after this time passed
+  if (timestamp > 1688947200000) {
     isValidSignature = signatureVerifier.verifySignature(messageToVerify, appSpec.owner, signature); // btc, eth
+  }
+  if (isValidSignature !== true && appSpec.version <= 3) {
+    // as of specification changes, adjust our appSpecs order of owner and repotag
+    // in new scheme it is always version, name, description, owner, repotag... Old format was version, name, description, repotag, owner
+    const appSpecsCopy = JSON.parse(JSON.stringify(appSpec));
+    delete appSpecsCopy.version;
+    delete appSpecsCopy.name;
+    delete appSpecsCopy.description;
+    delete appSpecsCopy.repotag;
+    delete appSpecsCopy.owner;
+    const appSpecOld = {
+      version: appSpec.version,
+      name: appSpec.name,
+      description: appSpec.description,
+      repotag: appSpec.repotag,
+      owner: appSpec.owner,
+      ...appSpecsCopy,
+    };
+    const messageToVerifyB = type + version + JSON.stringify(appSpecOld) + timestamp;
+    isValidSignature = verificationHelper.verifyMessage(messageToVerifyB, appSpec.owner, signature); // only btc
+    if (timestamp > 1688947200000) {
+      isValidSignature = signatureVerifier.verifySignature(messageToVerifyB, appSpec.owner, signature); // btc, eth
+    }
   }
   if (isValidSignature !== true) {
     log.debug(`${messageToVerify}, ${appSpec.owner}, ${signature}`);
@@ -6324,10 +6347,6 @@ function specificationFormatter(appSpecification) {
     owner, // zelid string
   };
 
-  if (version <= 3) {
-    delete appSpecFormatted.owner;
-  }
-
   const correctCompose = [];
 
   if (version === 1) {
@@ -6368,7 +6387,6 @@ function specificationFormatter(appSpecification) {
     }
     // finalised parameters
     appSpecFormatted.repotag = repotag; // string
-    appSpecFormatted.owner = owner; // string
     appSpecFormatted.port = port; // integer
     appSpecFormatted.enviromentParameters = envParamsCorrected; // array of strings
     appSpecFormatted.commands = commandsCorrected; // array of strings
@@ -6479,14 +6497,8 @@ function specificationFormatter(appSpecification) {
       throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
     }
 
-    // finalised parameters. Position of owner is different between v2 and v3
-    if (version === 3) {
-      appSpecFormatted.owner = owner; // string
-    }
+    // finalised parameters.
     appSpecFormatted.repotag = repotag; // string
-    if (version === 2) {
-      appSpecFormatted.owner = owner; // string
-    }
     appSpecFormatted.ports = portsCorrect; // array of integers
     appSpecFormatted.domains = domainsCorrect;
     appSpecFormatted.enviromentParameters = envParamsCorrected; // array of strings
