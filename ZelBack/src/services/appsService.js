@@ -5849,6 +5849,8 @@ async function checkApplicationRegistrationNameConflicts(appSpecFormatted, hash)
         throw new Error(`Flux App ${appSpecFormatted.name} already registered. Flux App has to be registered under different name. Hash not found in collection.`);
       }
       if (appResult.height <= result.height) {
+        log.debug(appResult);
+        log.debug(result);
         throw new Error(`Flux App ${appSpecFormatted.name} already registered. Flux App has to be registered under different name. Hash is not older than our current app.`);
       }
     } else {
