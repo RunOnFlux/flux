@@ -7301,12 +7301,12 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
           findPermAppMessage.forEach((foundMessage) => {
             // has to be registration message
             if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
-              if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) { // we have some message and the message is quite new
+              if (!latestPermanentRegistrationMessage && foundMessage.timestamp <= tempMessage.timestamp) { // no message and found message is not newer than our message
+                latestPermanentRegistrationMessage = foundMessage;
+              } else if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) { // we have some message and the message is quite new
                 if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= tempMessage.timestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
                   latestPermanentRegistrationMessage = foundMessage;
                 }
-              } else if (foundMessage.timestamp <= tempMessage.timestamp) { // we don't have any message or our message is newer. foundMessage has to have lower timestamp than our new message
-                latestPermanentRegistrationMessage = foundMessage;
               }
             }
           });
@@ -7318,12 +7318,12 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
           findPermAppMessageB.forEach((foundMessage) => {
             // has to be registration message
             if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
-              if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) { // we have some message and the message is quite new
+              if (!latestPermanentRegistrationMessage && foundMessage.timestamp <= tempMessage.timestamp) { // no message and found message is not newer than our message
+                latestPermanentRegistrationMessage = foundMessage;
+              } else if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) { // we have some message and the message is quite new
                 if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= tempMessage.timestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
                   latestPermanentRegistrationMessage = foundMessage;
                 }
-              } else if (foundMessage.timestamp <= tempMessage.timestamp) { // we don't have any message or our message is newer. foundMessage has to have lower timestamp than our new message
-                latestPermanentRegistrationMessage = foundMessage;
               }
             }
           });
