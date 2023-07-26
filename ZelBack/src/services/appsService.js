@@ -5850,56 +5850,8 @@ async function checkApplicationRegistrationNameConflicts(appSpecFormatted, hash)
  * @returns {boolean} True if no errors are thrown.
  */
 async function checkApplicationUpdateNameRepositoryConflicts(specifications, verificationTimestamp) {
-  // we may not have the application in global apps. This can happen when we receive the message after the app has already expired AND we need to get message right before our message. Thus using messages system that is accurate
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-  const projection = {
-    projection: {
-      _id: 0,
-    },
-  };
-  log.info(`Searching permanent messages for ${specifications.name}`);
-  const appsQuery = {
-    'appSpecifications.name': specifications.name,
-  };
-  const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
-  let latestPermanentRegistrationMessage;
-  permanentAppMessage.forEach((foundMessage) => {
-    // has to be registration/update message
-    if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
-      if (!latestPermanentRegistrationMessage && foundMessage.timestamp <= verificationTimestamp) { // no message and found message is not newer than our message
-        latestPermanentRegistrationMessage = foundMessage;
-      } else if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) { // we have some message and the message is quite new
-        if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= verificationTimestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
-          latestPermanentRegistrationMessage = foundMessage;
-        }
-      }
-    }
-  });
-  // some early app have zelAppSepcifications
-  const appsQueryB = {
-    'zelAppSpecifications.name': specifications.name,
-  };
-  const permanentAppMessageB = await dbHelper.findInDatabase(database, globalAppsMessages, appsQueryB, projection);
-  permanentAppMessageB.forEach((foundMessage) => {
-    // has to be registration/update message
-    if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
-      if (!latestPermanentRegistrationMessage && foundMessage.timestamp <= verificationTimestamp) { // no message and found message is not newer than our message
-        latestPermanentRegistrationMessage = foundMessage;
-      } else if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) { // we have some message and the message is quite new
-        if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= verificationTimestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
-          latestPermanentRegistrationMessage = foundMessage;
-        }
-      }
-    }
-  });
-  if (!latestPermanentRegistrationMessage) {
-    throw new Error(`Flux App ${specifications.name} update message received but permanent message of parameters does not exist!`);
-  }
-  const appSpecs = latestPermanentRegistrationMessage.appSpecifications || latestPermanentRegistrationMessage.zelAppSpecifications;
-  if (!appSpecs) {
-    throw new Error(`Flux App ${specifications.name} update message received but application does not exists!`);
-  }
+  // eslint-disable-next-line no-use-before-define
+  const appSpecs = await getPreviousAppSpecifications(specifications, verificationTimestamp);
   if (specifications.version >= 4) {
     if (appSpecs.version >= 4) {
       // update and current are both v4 compositions
@@ -5932,10 +5884,10 @@ async function checkApplicationUpdateNameRepositoryConflicts(specifications, ver
 /**
  * To get previous app specifications.
  * @param {object} specifications App sepcifications.
- * @param {object} message Message.
+ * @param {object} verificationTimestamp Message timestamp
  * @returns {object} App specifications.
  */
-async function getPreviousAppSpecifications(specifications, message) {
+async function getPreviousAppSpecifications(specifications, verificationTimestamp) {
   // we may not have the application in global apps. This can happen when we receive the message after the app has already expired AND we need to get message right before our message. Thus using messages system that is accurate
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
@@ -5953,10 +5905,10 @@ async function getPreviousAppSpecifications(specifications, message) {
   permanentAppMessage.forEach((foundMessage) => {
     // has to be registration message
     if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
-      if (!latestPermanentRegistrationMessage && foundMessage.timestamp <= message.timestamp) { // no message and found message is not newer than our message
+      if (!latestPermanentRegistrationMessage && foundMessage.timestamp <= verificationTimestamp) { // no message and found message is not newer than our message
         latestPermanentRegistrationMessage = foundMessage;
       } else if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) { // we have some message and the message is quite new
-        if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= message.timestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
+        if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= verificationTimestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
           latestPermanentRegistrationMessage = foundMessage;
         }
       }
@@ -5970,10 +5922,10 @@ async function getPreviousAppSpecifications(specifications, message) {
   permanentAppMessageB.forEach((foundMessage) => {
     // has to be registration message
     if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
-      if (!latestPermanentRegistrationMessage && foundMessage.timestamp <= message.timestamp) { // no message and found message is not newer than our message
+      if (!latestPermanentRegistrationMessage && foundMessage.timestamp <= verificationTimestamp) { // no message and found message is not newer than our message
         latestPermanentRegistrationMessage = foundMessage;
       } else if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) { // we have some message and the message is quite new
-        if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= message.timestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
+        if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= verificationTimestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
           latestPermanentRegistrationMessage = foundMessage;
         }
       }
@@ -6109,7 +6061,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       // verify that app exists, does not change repotag (for v1-v3), does not change name and does not change component names
       await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, messageTimestamp);
       // get previousAppSpecifications as we need previous owner
-      const previousAppSpecs = await getPreviousAppSpecifications(appSpecFormatted, message);
+      const previousAppSpecs = await getPreviousAppSpecifications(appSpecFormatted, messageTimestamp);
       const { owner } = previousAppSpecs;
       // here signature is checked against PREVIOUS app owner
       await verifyAppMessageUpdateSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature, owner);
