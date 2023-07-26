@@ -4088,6 +4088,29 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
   if (timestamp > 1688947200000) { // remove after this time passed
     isValidSignature = signatureVerifier.verifySignature(messageToVerify, appOwner, signature); // btc, eth
   }
+  if (isValidSignature !== true && appSpec.version <= 3) {
+    // as of specification changes, adjust our appSpecs order of owner and repotag
+    // in new scheme it is always version, name, description, owner, repotag... Old format was version, name, description, repotag, owner
+    const appSpecsCopy = JSON.parse(JSON.stringify(appSpec));
+    delete appSpecsCopy.version;
+    delete appSpecsCopy.name;
+    delete appSpecsCopy.description;
+    delete appSpecsCopy.repotag;
+    delete appSpecsCopy.owner;
+    const appSpecOld = {
+      version: appSpec.version,
+      name: appSpec.name,
+      description: appSpec.description,
+      repotag: appSpec.repotag,
+      owner: appSpec.owner,
+      ...appSpecsCopy,
+    };
+    const messageToVerifyB = type + version + JSON.stringify(appSpecOld) + timestamp;
+    isValidSignature = verificationHelper.verifyMessage(messageToVerifyB, appOwner, signature); // only btc
+    if (timestamp > 1688947200000) {
+      isValidSignature = signatureVerifier.verifySignature(messageToVerifyB, appOwner, signature); // btc, eth
+    }
+  }
   if (isValidSignature !== true) {
     const errorMessage = isValidSignature === false ? 'Received signature does not correspond with Flux App owner or Flux App specifications are not properly formatted' : isValidSignature;
     throw new Error(errorMessage);
@@ -5931,9 +5954,12 @@ async function getPreviousAppSpecifications(specifications, verificationTimestam
       }
     }
   });
+  if (!latestPermanentRegistrationMessage) {
+    throw new Error(`Flux App ${specifications.name} update message received but application does not exists!`);
+  }
   const appSpecs = latestPermanentRegistrationMessage.appSpecifications || latestPermanentRegistrationMessage.zelAppSpecifications;
   if (!appSpecs) {
-    throw new Error(`Flux App ${specifications.name} update message received but application does not exists!`);
+    throw new Error(`Previous specifications for ${specifications.name} update message does not exists! This should not happen.`);
   }
   return appSpecs;
 }
@@ -7301,7 +7327,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
     if (height < config.fluxapps.epochstart) { // do not request testing apps
       return;
     }
-    const randomDelay = Math.floor((Math.random() * 1280)) + 420;
+    const randomDelay = Math.floor((Math.random() * 480));
     await serviceHelper.delay(randomDelay);
     const appMessageExists = await checkAppMessageExistence(hash);
     if (appMessageExists === false) { // otherwise do nothing
@@ -7397,6 +7423,10 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
             }
           });
           const messageInfo = latestPermanentRegistrationMessage;
+          if (!messageInfo) {
+            log.error(`Last permanent message for ${specifications.name} not found`);
+            return;
+          }
           const previousSpecs = messageInfo.appSpecifications || messageInfo.zelAppSpecifications;
           // here comparison of height differences and specifications
           // price shall be price for standard registration plus minus already paid price according to old specifics. height remains height valid for 22000 blocks
@@ -7806,7 +7836,7 @@ async function continuousFluxAppHashesCheck(force = false) {
         log.info('Requesting missing Flux App message:');
         log.info(`${result.hash}, ${result.txid}, ${result.height}`);
         if (numberOfSearches <= 16) { // up to 8 searches
-          checkAndRequestApp(result.hash, result.txid, result.height, result.value);
+          checkAndRequestApp(result.hash, result.txid, result.height, result.value); // what if we await this? TODO
           // eslint-disable-next-line no-await-in-loop
           await serviceHelper.delay(500);
         } else {
