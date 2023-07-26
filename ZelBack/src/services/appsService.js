@@ -5826,6 +5826,7 @@ async function checkApplicationRegistrationNameConflicts(appSpecFormatted, hash)
       _id: 0,
       name: 1,
       height: 1,
+      expire: 1,
     },
   };
   const appResult = await dbHelper.findOneInDatabase(appsDatabase, globalAppsInformation, appsQuery, appsProjection);
@@ -5851,7 +5852,12 @@ async function checkApplicationRegistrationNameConflicts(appSpecFormatted, hash)
       if (appResult.height <= result.height) {
         log.debug(appResult);
         log.debug(result);
-        throw new Error(`Flux App ${appSpecFormatted.name} already registered. Flux App has to be registered under different name. Hash is not older than our current app.`);
+        const currentExpiration = appResult.height + (appResult.expire || 22000);
+        if (currentExpiration >= result.height) {
+          throw new Error(`Flux App ${appSpecFormatted.name} already registered. Flux App has to be registered under different name. Hash is not older than our current app.`);
+        } else {
+          log.warn(`Flux App ${appSpecFormatted.name} active specifications are outdated. Will be cleaned on next expiration`);
+        }
       }
     } else {
       throw new Error(`Flux App ${appSpecFormatted.name} already registered. Flux App has to be registered under different name.`);
