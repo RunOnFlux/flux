@@ -6480,11 +6480,11 @@ function specificationFormatter(appSpecification) {
     }
 
     // finalised parameters. Position of owner is different between v2 and v3
-    if (version === 2) {
+    if (version === 3) {
       appSpecFormatted.owner = owner; // string
     }
     appSpecFormatted.repotag = repotag; // string
-    if (version === 3) {
+    if (version === 2) {
       appSpecFormatted.owner = owner; // string
     }
     appSpecFormatted.ports = portsCorrect; // array of integers
