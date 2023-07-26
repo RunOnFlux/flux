@@ -7673,10 +7673,15 @@ async function rescanGlobalAppsInformationAPI(req, res) {
 /**
  * To perform continuous checks for Flux app hashes that don't have a message.
  */
+let continuousFluxAppHashesCheckRunning = false;
+let firstContinuousFluxAppHashesCheckRun = true;
 async function continuousFluxAppHashesCheck(force = false) {
   try {
+    if (continuousFluxAppHashesCheckRunning) {
+      return;
+    }
     log.info('Requesting missing Flux App messages');
-
+    continuousFluxAppHashesCheckRunning = true;
     const numberOfPeers = fluxCommunication.getNumberOfPeers();
     if (numberOfPeers < 10) {
       log.info('Not enough connected peers to request missing Flux App messages');
@@ -7714,7 +7719,7 @@ async function continuousFluxAppHashesCheck(force = false) {
     results.sort((a, b) => a.height - b.height);
     // eslint-disable-next-line no-restricted-syntax
     for (const result of results) {
-      if (!result.messageNotFound || force) { // most likely wrong data, if no message found. This attribute is cleaned every reconstructAppMessagesHashPeriod blocks so all nodes search again for missing messages
+      if (!result.messageNotFound || force || firstContinuousFluxAppHashesCheckRun) { // most likely wrong data, if no message found. This attribute is cleaned every reconstructAppMessagesHashPeriod blocks so all nodes search again for missing messages
         let heightDifference = explorerHeight - result.height;
         if (heightDifference < 0) {
           heightDifference = 0;
@@ -7742,8 +7747,12 @@ async function continuousFluxAppHashesCheck(force = false) {
         }
       }
     }
+    continuousFluxAppHashesCheckRunning = false;
+    firstContinuousFluxAppHashesCheckRun = false;
   } catch (error) {
     log.error(error);
+    continuousFluxAppHashesCheckRunning = false;
+    firstContinuousFluxAppHashesCheckRun = false;
   }
 }
 
