@@ -1266,7 +1266,7 @@ async function stopAppMonitoringAPI(req, res) {
       }
       let successMessage = '';
       if (mainAppName === appname) {
-        // get appSpecs TODO
+        // get appSpecs
         const installedAppsRes = await installedApps(mainAppName);
         if (installedAppsRes.status !== 'success') {
           throw new Error('Failed to get installed Apps');
@@ -5798,8 +5798,6 @@ async function checkApplicationUpdateNameRepositoryConflicts(specifications, ver
         // v4 allows for changes of repotag
       });
     } else { // update is v4+ and current app have v1,2,3
-      log.debug(appSpecs);
-      log.debug(specifications);
       throw new Error(`Flux App ${specifications.name} on update to different specifications is not possible`);
     }
   } else if (appSpecs.version >= 4) {
@@ -6153,13 +6151,13 @@ async function requestAppMessage(hash) {
  */
 async function requestAppMessageAPI(req, res) {
   try {
-    // only flux team and node owner can do this TODO
-    // const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-    // if (!authorized) {
-    //   const errMessage = messageHelper.errUnauthorizedMessage();
-    //   res.json(errMessage);
-    //   return;
-    // }
+    // only flux team and node owner can do this
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (!authorized) {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+      return;
+    }
 
     let { hash } = req.params;
     hash = hash || req.query.hash;
@@ -7731,7 +7729,8 @@ async function continuousFluxAppHashesCheck(force = false) {
           numberOfSearches = hashesNumberOfSearchs.get(result.hash) + 2; // max 8 tries
         }
         hashesNumberOfSearchs.set(result.hash, numberOfSearches);
-        log.debug(`${result.hash}, ${result.txid}, ${result.height}, ${numberOfSearches}`);
+        log.info('Requesting missing Flux App message:');
+        log.info(`${result.hash}, ${result.txid}, ${result.height}`);
         if (numberOfSearches <= 16) { // up to 8 searches
           checkAndRequestApp(result.hash, result.txid, result.height, result.value);
           // eslint-disable-next-line no-await-in-loop
@@ -7753,15 +7752,15 @@ async function continuousFluxAppHashesCheck(force = false) {
  * @param {req} req api request
  * @param {res} res api response
  */
-function triggerAppHashesCheckAPI(req, res) {
+async function triggerAppHashesCheckAPI(req, res) {
   try {
-    // only flux team and node owner can do this TODO
-    // const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-    // if (!authorized) {
-    //   const errMessage = messageHelper.errUnauthorizedMessage();
-    //   res.json(errMessage);
-    //   return;
-    // }
+    // only flux team and node owner can do this
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (!authorized) {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+      return;
+    }
 
     continuousFluxAppHashesCheck(true);
     const resultsResponse = messageHelper.createSuccessMessage('Running check on missing application messages ');
