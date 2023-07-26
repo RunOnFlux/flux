@@ -6324,6 +6324,10 @@ function specificationFormatter(appSpecification) {
     owner, // zelid string
   };
 
+  if (version <= 3) {
+    delete appSpecFormatted.owner;
+  }
+
   const correctCompose = [];
 
   if (version === 1) {
@@ -6362,9 +6366,9 @@ function specificationFormatter(appSpecification) {
     if (typeof tiered !== 'boolean') {
       throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
     }
-
     // finalised parameters
     appSpecFormatted.repotag = repotag; // string
+    appSpecFormatted.owner = owner; // string
     appSpecFormatted.port = port; // integer
     appSpecFormatted.enviromentParameters = envParamsCorrected; // array of strings
     appSpecFormatted.commands = commandsCorrected; // array of strings
@@ -6475,8 +6479,14 @@ function specificationFormatter(appSpecification) {
       throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
     }
 
-    // finalised parameters
+    // finalised parameters. Position of owner is different between v2 and v3
+    if (version === 2) {
+      appSpecFormatted.owner = owner; // string
+    }
     appSpecFormatted.repotag = repotag; // string
+    if (version === 3) {
+      appSpecFormatted.owner = owner; // string
+    }
     appSpecFormatted.ports = portsCorrect; // array of integers
     appSpecFormatted.domains = domainsCorrect;
     appSpecFormatted.enviromentParameters = envParamsCorrected; // array of strings
