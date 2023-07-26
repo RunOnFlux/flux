@@ -4456,7 +4456,70 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
     }
   }
 
-  if (version <= 3) {
+  if (version === 1) {
+    if (!repotag || !enviromentParameters || !commands || !containerData || !cpu || !ram || !hdd) {
+      throw new Error('Missing Flux App specification parameter');
+    }
+
+    if (typeof port !== 'number') {
+      throw new Error('Port for Flux App is invalid');
+    }
+
+    if (Array.isArray(enviromentParameters)) {
+      enviromentParameters.forEach((parameter) => {
+        if (typeof parameter !== 'string') {
+          throw new Error('Environmental parameters for Flux App are invalid');
+        }
+      });
+    } else {
+      throw new Error('Environmental parameters for Flux App are invalid');
+    }
+    if (Array.isArray(commands)) {
+      commands.forEach((command) => {
+        if (typeof command !== 'string') {
+          throw new Error('Flux App commands are invalid');
+        }
+      });
+    } else {
+      throw new Error('Flux App commands are invalid');
+    }
+    if (typeof containerPort !== 'number') {
+      throw new Error('Container Port for Flux App is invalid');
+    }
+    if (typeof tiered !== 'boolean') {
+      throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
+    }
+    if (typeof cpu !== 'number' || typeof hdd !== 'number' || typeof ram !== 'number') {
+      throw new Error('Invalid HW specifications');
+    }
+    if (!serviceHelper.isDecimalLimit(cpu) || !serviceHelper.isDecimalLimit(hdd) || !serviceHelper.isDecimalLimit(ram)) {
+      throw new Error('Invalid HW specifications decimal limits');
+    }
+
+    if (tiered) {
+      const {
+        cpubasic,
+        cpusuper,
+        cpubamf,
+        rambasic,
+        ramsuper,
+        rambamf,
+        hddbasic,
+        hddsuper,
+        hddbamf,
+      } = appSpecification;
+      if (typeof cpubasic !== 'number' || typeof cpusuper !== 'number' || typeof cpubamf !== 'number'
+        || typeof rambasic !== 'number' || typeof ramsuper !== 'number' || typeof rambamf !== 'number'
+        || typeof hddbasic !== 'number' || typeof hddsuper !== 'number' || typeof hddbamf !== 'number') {
+        throw new Error('Invalid tiered HW specifications');
+      }
+      if (!serviceHelper.isDecimalLimit(cpubasic) || !serviceHelper.isDecimalLimit(cpusuper) || !serviceHelper.isDecimalLimit(cpubamf)
+        || !serviceHelper.isDecimalLimit(rambasic) || !serviceHelper.isDecimalLimit(ramsuper) || !serviceHelper.isDecimalLimit(rambamf)
+        || !serviceHelper.isDecimalLimit(hddbasic) || !serviceHelper.isDecimalLimit(hddsuper) || !serviceHelper.isDecimalLimit(hddbamf)) {
+        throw new Error('Invalid tiered HW specifications');
+      }
+    }
+  } else if (version <= 3) {
     if (!repotag || !enviromentParameters || !commands || !containerData || !cpu || !ram || !hdd) {
       throw new Error('Missing Flux App specification parameter');
     }
@@ -4464,7 +4527,7 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
     if (Array.isArray(ports)) {
       ports.forEach((parameter) => {
         if (typeof parameter !== 'string') {
-          throw new Error('Ports for Flux App are invalid');
+          throw new Error('Port of Flux App is invalid');
         }
         if (!serviceHelper.isDecimalLimit(parameter, 0)) {
           throw new Error('Ports for Flux App are invalid decimals');
@@ -4503,7 +4566,7 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
     if (Array.isArray(containerPorts)) {
       containerPorts.forEach((parameter) => {
         if (typeof parameter !== 'string') {
-          throw new Error('Container Ports for Flux App are invalid');
+          throw new Error('Container Port of Flux App is invalid');
         }
         if (!serviceHelper.isDecimalLimit(parameter, 0)) {
           throw new Error('Container Ports for Flux App are invalid decimals');
