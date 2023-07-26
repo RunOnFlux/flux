@@ -3885,7 +3885,7 @@ async function getAppsPermanentMessages(req, res) {
       query.hash = hash;
     }
     if (owner) {
-      query['appSpecifications.query'] = owner;
+      query['appSpecifications.owner'] = owner;
     }
     if (appname) {
       query['appSpecifications.name'] = appname;
