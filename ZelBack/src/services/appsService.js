@@ -6214,9 +6214,6 @@ function specificationFormatter(appSpecification) {
     throw new Error('Missing Flux App specification parameter');
   }
   version = serviceHelper.ensureNumber(version);
-  if (version === 1) {
-    throw new Error('Specifications of version 1 is depreceated');
-  }
 
   // commons
   if (!name || !description || !owner) {
