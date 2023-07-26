@@ -125,9 +125,9 @@ async function startFluxFunctions() {
     setTimeout(() => {
       appsService.syncthingApps(); // rechecks and possibly adjust syncthing configuration every minute
     }, 6 * 60 * 1000);
-    setInterval(() => { // every 12 mins (6 blocks)
+    setInterval(() => { // every 30 mins (15 blocks)
       appsService.continuousFluxAppHashesCheck();
-    }, 12 * 60 * 1000);
+    }, 30 * 60 * 1000);
     setTimeout(() => {
       // after 90 minutes of running ok and to make sure we are connected for enough time for receiving all apps running on other nodes
       log.info('Starting to spawn applications');

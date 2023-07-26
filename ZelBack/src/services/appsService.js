@@ -7734,7 +7734,7 @@ async function continuousFluxAppHashesCheck(force = false) {
         if (numberOfSearches <= 16) { // up to 8 searches
           checkAndRequestApp(result.hash, result.txid, result.height, result.value);
           // eslint-disable-next-line no-await-in-loop
-          await serviceHelper.delay(2345);
+          await serviceHelper.delay(500);
         } else {
           // eslint-disable-next-line no-await-in-loop
           await appHashHasMessageNotFound(result.hash); // mark message as not found
