@@ -302,7 +302,7 @@ module.exports = (app, expressWs) => {
   app.get('/apps/temporarymessages/:hash?', cache('5 seconds'), (req, res) => {
     appsService.getAppsTemporaryMessages(req, res);
   });
-  app.get('/apps/permanentmessages/:hash?/:owner?', cache('30 seconds'), (req, res) => {
+  app.get('/apps/permanentmessages/:hash?/:owner?/:name?', cache('30 seconds'), (req, res) => {
     appsService.getAppsPermanentMessages(req, res);
   });
   app.get('/apps/globalappsspecifications', cache('30 seconds'), (req, res) => {
