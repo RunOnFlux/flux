@@ -4421,9 +4421,6 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
   if (!version) {
     throw new Error('Missing Flux App specification parameter');
   }
-  if (version === 1) {
-    throw new Error('Specifications of version 1 is depreceated');
-  }
 
   // commons
   if (!version || !name || !description || !owner) {
@@ -5750,14 +5747,14 @@ async function checkApplicationUpdateNameRepositoryConflicts(specifications, ver
   const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
   let latestPermanentRegistrationMessage;
   permanentAppMessage.forEach((foundMessage) => {
-    // has to be registration message
+    // has to be registration/update message
     if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
-      if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) { // we have some message and the message is quite new
+      if (!latestPermanentRegistrationMessage && foundMessage.timestamp <= verificationTimestamp) { // no message and found message is not newer than our message
+        latestPermanentRegistrationMessage = foundMessage;
+      } else if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) { // we have some message and the message is quite new
         if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= verificationTimestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
           latestPermanentRegistrationMessage = foundMessage;
         }
-      } else if (foundMessage.timestamp <= verificationTimestamp) { // we don't have any message or our message is newer. foundMessage has to have lower timestamp than our new message
-        latestPermanentRegistrationMessage = foundMessage;
       }
     }
   });
@@ -5767,14 +5764,14 @@ async function checkApplicationUpdateNameRepositoryConflicts(specifications, ver
   };
   const permanentAppMessageB = await dbHelper.findInDatabase(database, globalAppsMessages, appsQueryB, projection);
   permanentAppMessageB.forEach((foundMessage) => {
-    // has to be registration message
+    // has to be registration/update message
     if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
-      if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) { // we have some message and the message is quite new
+      if (!latestPermanentRegistrationMessage && foundMessage.timestamp <= verificationTimestamp) { // no message and found message is not newer than our message
+        latestPermanentRegistrationMessage = foundMessage;
+      } else if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) { // we have some message and the message is quite new
         if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= verificationTimestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
           latestPermanentRegistrationMessage = foundMessage;
         }
-      } else if (foundMessage.timestamp <= verificationTimestamp) { // we don't have any message or our message is newer. foundMessage has to have lower timestamp than our new message
-        latestPermanentRegistrationMessage = foundMessage;
       }
     }
   });
@@ -5801,7 +5798,9 @@ async function checkApplicationUpdateNameRepositoryConflicts(specifications, ver
         // v4 allows for changes of repotag
       });
     } else { // update is v4+ and current app have v1,2,3
-      throw new Error(`Flux App ${specifications.name} update to different specifications is not possible`);
+      log.debug(appSpecs);
+      log.debug(specifications);
+      throw new Error(`Flux App ${specifications.name} on update to different specifications is not possible`);
     }
   } else if (appSpecs.version >= 4) {
     throw new Error(`Flux App ${specifications.name} update to different specifications is not possible`);
@@ -6189,8 +6188,8 @@ function specificationFormatter(appSpecification) {
     name,
     description,
     owner,
-    // port, version 1 deprecated
-    // containerPort, version 1 deprecated
+    port, // version 1 deprecated
+    containerPort, // version 1 deprecated
     compose,
     repotag,
     ports,
@@ -6237,7 +6236,91 @@ function specificationFormatter(appSpecification) {
 
   const correctCompose = [];
 
-  if (version <= 3) {
+  if (version === 1) {
+    if (!repotag || !port || !enviromentParameters || !commands || !containerPort || !containerData || !cpu || !ram || !hdd) {
+      throw new Error('Missing Flux App specification parameter');
+    }
+
+    repotag = serviceHelper.ensureString(repotag);
+    port = serviceHelper.ensureNumber(port);
+    containerPort = serviceHelper.ensureNumber(containerPort);
+    enviromentParameters = serviceHelper.ensureObject(enviromentParameters);
+    const envParamsCorrected = [];
+    if (Array.isArray(enviromentParameters)) {
+      enviromentParameters.forEach((parameter) => {
+        const param = serviceHelper.ensureString(parameter);
+        envParamsCorrected.push(param);
+      });
+    } else {
+      throw new Error('Environmental parameters for Flux App are invalid');
+    }
+    commands = serviceHelper.ensureObject(commands);
+    const commandsCorrected = [];
+    if (Array.isArray(commands)) {
+      commands.forEach((command) => {
+        const cmm = serviceHelper.ensureString(command);
+        commandsCorrected.push(cmm);
+      });
+    } else {
+      throw new Error('Flux App commands are invalid');
+    }
+    containerData = serviceHelper.ensureString(containerData);
+    cpu = serviceHelper.ensureNumber(cpu);
+    ram = serviceHelper.ensureNumber(ram);
+    hdd = serviceHelper.ensureNumber(hdd);
+    tiered = serviceHelper.ensureBoolean(tiered);
+    if (typeof tiered !== 'boolean') {
+      throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
+    }
+
+    // finalised parameters
+    appSpecFormatted.repotag = repotag; // string
+    appSpecFormatted.port = port; // integer
+    appSpecFormatted.enviromentParameters = envParamsCorrected; // array of strings
+    appSpecFormatted.commands = commandsCorrected; // array of strings
+    appSpecFormatted.containerPort = containerPort; // integer
+    appSpecFormatted.containerData = containerData; // string
+    appSpecFormatted.cpu = cpu; // float 0.1 step
+    appSpecFormatted.ram = ram; // integer 100 step (mb)
+    appSpecFormatted.hdd = hdd; // integer 1 step
+    appSpecFormatted.tiered = tiered; // boolean
+
+    if (tiered) {
+      let {
+        cpubasic,
+        cpusuper,
+        cpubamf,
+        rambasic,
+        ramsuper,
+        rambamf,
+        hddbasic,
+        hddsuper,
+        hddbamf,
+      } = appSpecification;
+      if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper || !rambamf || !hddbasic || !hddsuper || !hddbamf) {
+        throw new Error('Flux App was requested as tiered setup but specifications are missing');
+      }
+      cpubasic = serviceHelper.ensureNumber(cpubasic);
+      cpusuper = serviceHelper.ensureNumber(cpusuper);
+      cpubamf = serviceHelper.ensureNumber(cpubamf);
+      rambasic = serviceHelper.ensureNumber(rambasic);
+      ramsuper = serviceHelper.ensureNumber(ramsuper);
+      rambamf = serviceHelper.ensureNumber(rambamf);
+      hddbasic = serviceHelper.ensureNumber(hddbasic);
+      hddsuper = serviceHelper.ensureNumber(hddsuper);
+      hddbamf = serviceHelper.ensureNumber(hddbamf);
+
+      appSpecFormatted.cpubasic = cpubasic;
+      appSpecFormatted.cpusuper = cpusuper;
+      appSpecFormatted.cpubamf = cpubamf;
+      appSpecFormatted.rambasic = rambasic;
+      appSpecFormatted.ramsuper = ramsuper;
+      appSpecFormatted.rambamf = rambamf;
+      appSpecFormatted.hddbasic = hddbasic;
+      appSpecFormatted.hddsuper = hddsuper;
+      appSpecFormatted.hddbamf = hddbamf;
+    }
+  } else if (version <= 3) {
     if (!repotag || !ports || !domains || !enviromentParameters || !commands || !containerPorts || !containerData || !cpu || !ram || !hdd) {
       throw new Error('Missing Flux App specification parameter');
     }
