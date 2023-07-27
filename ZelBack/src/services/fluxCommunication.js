@@ -626,7 +626,7 @@ async function fluxDiscovery() {
 
     await serviceHelper.delay(500);
     let index = 0;
-    while (outgoingConnections.length < 32 && index < 100) { // Max of 32 outgoing connections - 12 possible deterministic + min. 20 random
+    while (outgoingConnections.length < (minDeterministicOutPeers + minDeterministicOutPeers / 2) && index < 100) { // Max of 18 outgoing connections - 12 possible deterministic + min. 6 random
       index += 1;
       // eslint-disable-next-line no-await-in-loop
       const connection = await fluxNetworkHelper.getRandomConnection();
@@ -641,10 +641,10 @@ async function fluxDiscovery() {
           currentIpsConnTried.push(ip);
           initiateAndHandleConnection(connection);
         }
-        // Max of 32 incoming connections - 12 possible deterministic + x random if needed;
+        // Max of 8 incoming connections - 8 possible deterministic + x random if needed;
         // We can have more incoming connections as it will be outgoing connections from other nodes + random
         // we only add randoming incoming peers if currently it's bellow minimum
-        if (incomingConnections.length < minIncomingPeers * 2.6) {
+        if (incomingConnections.length < minIncomingPeers) {
           // eslint-disable-next-line no-await-in-loop
           const connectionInc = await fluxNetworkHelper.getRandomConnection();
           if (connectionInc) {
