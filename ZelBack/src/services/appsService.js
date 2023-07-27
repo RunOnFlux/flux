@@ -33,6 +33,7 @@ const pgpService = require('./pgpService');
 const signatureVerifier = require('./signatureVerifier');
 const log = require('../lib/log');
 const userconfig = require('../../../config/userconfig');
+const { invalidMessages } = require('./utils/establishedConnections');
 
 const fluxDirPath = path.join(__dirname, '../../../');
 const appsFolder = `${fluxDirPath}ZelApps/`;
@@ -7835,6 +7836,11 @@ async function continuousFluxAppHashesCheck(force = false) {
         let maturity = Math.round(heightDifference / config.fluxapps.blocksLasting);
         if (maturity > 12) {
           maturity = 12; // maturity of max 12 representing its older than 1 year. Old messages will only be searched at twice, newer messages more oftenly
+        }
+        if (invalidMessages.find((message) => message.hash === result.hash && message.txid === result.txid)) {
+          if (!force) {
+            maturity = 20; // do not request known invalid messages.
+          }
         }
         // every config.fluxapps.blocksLasting increment maturity by 2;
         let numberOfSearches = maturity;
