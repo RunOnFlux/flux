@@ -7332,7 +7332,7 @@ async function appHashHasMessageNotFound(hash) {
  * @param {number} i Defaults to value of 0.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
-async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
+async function checkAndRequestApp(hash, txid, height, valueSat, daemonHeight = 0, i = 0) {
   try {
     if (height < config.fluxapps.epochstart) { // do not request testing apps
       return;
@@ -7383,8 +7383,11 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
             updateForSpecifications.hash = permanentAppMessage.hash;
             updateForSpecifications.height = permanentAppMessage.height;
             // object of appSpecifications extended for hash and height
-            // do not await this
-            updateAppSpecifications(updateForSpecifications);
+            await updateAppSpecifications(updateForSpecifications);
+            // every time we ask for a missing app message that is a appregister call after expireGlobalApplications to make sure we don't have on
+            // globalappsspecifications expired apps and this prevent them to be selected to be installed on the node
+            // eslint-disable-next-line no-use-before-define
+            await expireGlobalApplications();
           } else {
             log.warn(`Apps message ${permanentAppMessage.hash} is underpaid`);
           }
@@ -7482,7 +7485,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
         // stop this loop after 7 mins, as it might be a scammy message or simply this message is nowhere on the network, we don't have connections etc. We also have continous checkup for it every 8 min
         if (i < 7) {
           await serviceHelper.delay(60 * 1000);
-          checkAndRequestApp(hash, txid, height, valueSat, i + 1);
+          checkAndRequestApp(hash, txid, height, valueSat, daemonHeight, i + 1);
         }
         // additional requesting of missing app messages is done on rescans
       }
