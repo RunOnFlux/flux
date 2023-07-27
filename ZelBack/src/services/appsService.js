@@ -7795,7 +7795,7 @@ async function continuousFluxAppHashesCheck(force = false) {
     log.info('Requesting missing Flux App messages');
     continuousFluxAppHashesCheckRunning = true;
     const numberOfPeers = fluxCommunication.getNumberOfPeers();
-    if (numberOfPeers < 10) {
+    if (numberOfPeers < 20) {
       log.info('Not enough connected peers to request missing Flux App messages');
       return;
     }
@@ -7838,7 +7838,7 @@ async function continuousFluxAppHashesCheck(force = false) {
         }
         let maturity = Math.round(heightDifference / config.fluxapps.blocksLasting);
         if (maturity > 12) {
-          maturity = 12; // maturity of max 12 representing its older than 1 year. Old messages will only be searched at twice, newer messages more oftenly
+          maturity = 12; // maturity of max 12 representing its older than 1 year. Old messages will only be searched 3 times, newer messages more oftenly
         }
         if (invalidMessages.find((message) => message.hash === result.hash && message.txid === result.txid)) {
           if (!force) {
