@@ -238,6 +238,9 @@ module.exports = (app, expressWs) => {
   app.get('/flux/staticip', cache('30 seconds'), (req, res) => {
     fluxService.isStaticIPapi(req, res);
   });
+  app.get('/flux/geolocation', cache('30 seconds'), (req, res) => {
+    fluxService.getFluxGeolocation(req, res);
+  });
   app.get('/flux/zelid', cache('30 seconds'), (req, res) => { // DEPERCATED
     fluxService.getFluxZelID(req, res);
   });
