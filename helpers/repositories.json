@@ -331,5 +331,6 @@
    "algorand/algod:latest",
    "algorand/indexer:latest",
    "mike8643/flux-info:latest",
-   "rainmanov"
+   "rainmanov",
+   "neuraiproject"
 ]
