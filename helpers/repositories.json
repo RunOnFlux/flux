@@ -331,6 +331,8 @@
    "algorand/algod:latest",
    "algorand/indexer:latest",
    "mike8643/flux-info:latest",
+   "emmer12/vetme-kyc:v1.0",
+   "mike8643/flux-info:latest",
    "rainmanov",
    "neuraiproject"
 ]
