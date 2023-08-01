@@ -29,6 +29,7 @@ let initBPfromNoBlockTimeout;
 let initBPfromErrorTimeout;
 
 const MINUTE_IN_MS = 60 * 1000;
+const BENCHMARK_STATUS_CACHE = {validUntil: 0, status: 'none'};
 
 // cache for nodes
 const LRUoptions = {
@@ -649,8 +650,13 @@ async function processBlock(blockHeight, isInsightExplorer) {
       }, 2 * MINUTE_IN_MS);
       return;
     }
-    const benchmarkBenchRes = await benchmarkService.getStatus();
-    if(benchmarkBenchRes.status !== 'success') {
+
+    if(BENCHMARK_STATUS_CACHE.validUntil < Date.now() ){
+      BENCHMARK_STATUS_CACHE.status = await benchmarkService.getStatus();
+      BENCHMARK_STATUS_CACHE.validUntil = Date.now() + MINUTE_IN_MS;
+    }
+    
+    if(BENCHMARK_STATUS_CACHE.status !== 'success') {
       log.info(`Processing Explorer halted at Height: ${blockDataVerbose.height}, reason Benchmark running or failed`);
       setTimeout(() => {
         processBlock(blockHeight, isInsightExplorer);
