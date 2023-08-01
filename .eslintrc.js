@@ -30,6 +30,7 @@ module.exports = {
     }],
     camelcase: ['error', { properties: 'never', ignoreDestructuring: true, ignoreImports: true }],
     'import/extensions': ['error', 'ignorePackages', { vue: 'always', js: 'never' }],
+    'import/order': 'off',
   },
   parserOptions: {
     parser: 'babel-eslint',

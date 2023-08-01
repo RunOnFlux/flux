@@ -463,6 +463,18 @@ function isStaticIPapi(req, res) {
 }
 
 /**
+ * Returns FluxNode IP information/geolocation.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+function getFluxGeolocation(req, res) {
+  const geo = geolocationService.getNodeGeolocation();
+  const message = messageHelper.createDataMessage(geo);
+  return res ? res.json(message) : message;
+}
+
+/**
  * To show the node pgp public key
  * @param {object} req Request.
  * @param {object} res Response.
@@ -1147,6 +1159,7 @@ module.exports = {
   enterDevelopment,
   enterMaster,
   isStaticIPapi,
+  getFluxGeolocation,
 
   // Exports for testing purposes
   fluxLog,

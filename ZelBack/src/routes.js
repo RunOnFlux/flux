@@ -238,6 +238,9 @@ module.exports = (app, expressWs) => {
   app.get('/flux/staticip', cache('30 seconds'), (req, res) => {
     fluxService.isStaticIPapi(req, res);
   });
+  app.get('/flux/geolocation', cache('30 seconds'), (req, res) => {
+    fluxService.getFluxGeolocation(req, res);
+  });
   app.get('/flux/zelid', cache('30 seconds'), (req, res) => { // DEPERCATED
     fluxService.getFluxZelID(req, res);
   });
@@ -302,7 +305,7 @@ module.exports = (app, expressWs) => {
   app.get('/apps/temporarymessages/:hash?', cache('5 seconds'), (req, res) => {
     appsService.getAppsTemporaryMessages(req, res);
   });
-  app.get('/apps/permanentmessages/:hash?/:owner?', cache('30 seconds'), (req, res) => {
+  app.get('/apps/permanentmessages/:hash?/:owner?/:appname?', cache('30 seconds'), (req, res) => {
     appsService.getAppsPermanentMessages(req, res);
   });
   app.get('/apps/globalappsspecifications', cache('30 seconds'), (req, res) => {
@@ -1014,6 +1017,12 @@ module.exports = (app, expressWs) => {
     explorerService.rescanExplorer(req, res);
   });
 
+  app.get('/apps/checkhashes', (req, res) => {
+    appsService.triggerAppHashesCheckAPI(req, res);
+  });
+  app.get('/apps/requestmessage/:hash', (req, res) => {
+    appsService.requestAppMessageAPI(req, res);
+  });
   app.get('/apps/appstart/:appname?/:global?', (req, res) => {
     appsService.appStart(req, res);
   });

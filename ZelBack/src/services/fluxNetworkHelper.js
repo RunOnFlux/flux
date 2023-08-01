@@ -123,7 +123,6 @@ function isPortEnterprise(port) {
       portEnterprise = true;
     }
   });
-  console.log(port);
   return portEnterprise;
 }
 
@@ -141,7 +140,6 @@ function isPortUserBlocked(port) {
         portBanned = true;
       }
     });
-    console.log(port);
     return portBanned;
   } catch (error) {
     log.error(error);
@@ -167,7 +165,6 @@ function isPortBanned(port) {
       portBanned = true;
     }
   });
-  console.log(port);
   return portBanned;
 }
 
@@ -188,7 +185,7 @@ async function isPortOpen(ip, port, app, timeout = 5000) {
     const firewallActive = await isFirewallActive();
     // open port first
     if (firewallActive) {
-    // eslint-disable-next-line no-use-before-define
+      // eslint-disable-next-line no-use-before-define
       resp = await allowOutPort(port).catch((error) => { // requires allow out for apps checking, for our ports both
         log.error(error);
       });
@@ -370,7 +367,7 @@ async function checkAppAvailability(req, res) {
       for (const port of ports) {
         const iBP = isPortBanned(+port);
         if (+port >= minPort && +port <= maxPort && !iBP) {
-        // eslint-disable-next-line no-await-in-loop
+          // eslint-disable-next-line no-await-in-loop
           const isOpen = await isPortOpen(ip, port, appname, 30000);
           if (!isOpen) {
             throw new Error(`Flux Applications on ${ip}:${ipPort} are not available. Failed port: ${port}`);
@@ -1264,7 +1261,7 @@ async function purgeUFW() {
     const firewallActive = await isFirewallActive();
     if (firewallActive) {
       const execB = 'sudo ufw status | grep \'DENY\' | grep -E \'(3[0-9]{4})\''; // 30000 - 39999
-      const cmdresB = await cmdAsync(execB).catch(() => {}) || ''; // fail silently,
+      const cmdresB = await cmdAsync(execB).catch(() => { }) || ''; // fail silently,
       if (serviceHelper.ensureString(cmdresB).includes('DENY')) {
         const deniedPorts = cmdresB.split('\n'); // split by new line
         const portsToDelete = [];

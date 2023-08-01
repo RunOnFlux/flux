@@ -1306,7 +1306,7 @@ async function getDbCompletion(req, res) {
       device,
     };
     const qqStr = qs.stringify(qq);
-    apiPath += `${qqStr};`;
+    apiPath += `${qqStr}`;
     const response = await performRequest('get', apiPath);
     return res ? res.json(response) : response;
   } catch (error) {
@@ -1335,7 +1335,7 @@ async function getDbFile(req, res) {
       file,
     };
     const qqStr = qs.stringify(qq);
-    apiPath += `${qqStr};`;
+    apiPath += `${qqStr}`;
     const response = await performRequest('get', apiPath);
     return res ? res.json(response) : response;
   } catch (error) {
@@ -1660,7 +1660,7 @@ async function postDbScan(req, res) {
         next,
       };
       const qqStr = qs.stringify(qq);
-      apiPath += `${qqStr};`;
+      apiPath += `${qqStr}`;
       const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
       let response = null;
       if (authorized === true) {
@@ -1868,7 +1868,7 @@ async function getEvents(req, res) {
       timeout,
     };
     const qqStr = qs.stringify(qq);
-    apiPath += `${qqStr};`;
+    apiPath += `${qqStr}`;
     const response = await performRequest('get', apiPath);
     return res ? res.json(response) : response;
   } catch (error) {
@@ -1900,7 +1900,7 @@ async function getEventsDisk(req, res) {
       timeout,
     };
     const qqStr = qs.stringify(qq);
-    apiPath += `${qqStr};`;
+    apiPath += `${qqStr}`;
     const response = await performRequest('get', apiPath);
     return res ? res.json(response) : response;
   } catch (error) {
