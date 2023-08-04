@@ -7851,10 +7851,9 @@ async function continuousFluxAppHashesCheck(force = false) {
         log.info('Requesting missing Flux App message:');
         log.info(`${result.hash}, ${result.txid}, ${result.height}`);
         if (numberOfSearches <= 20) { // up to 10 searches
+          checkAndRequestApp(result.hash, result.txid, result.height, result.value);
           // eslint-disable-next-line no-await-in-loop
-          await checkAndRequestApp(result.hash, result.txid, result.height, result.value);
-          // eslint-disable-next-line no-await-in-loop
-          await serviceHelper.delay(100);
+          await serviceHelper.delay(1000);
         } else {
           // eslint-disable-next-line no-await-in-loop
           await appHashHasMessageNotFound(result.hash); // mark message as not found
