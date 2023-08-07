@@ -7476,7 +7476,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
             log.warn(`Apps message ${permanentAppMessage.hash} is underpaid`);
           }
         }
-      } else if (i < 2) {
+      } else if (i < 3) {
         // request the message and broadcast the message further to our connected peers.
         // rerun this after 1 min delay
         // We ask to the connected nodes 3 times in 1 minute interval for the app message, if connected nodes don't
