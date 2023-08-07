@@ -7476,11 +7476,12 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
             log.warn(`Apps message ${permanentAppMessage.hash} is underpaid`);
           }
         }
-      } else if (i < 3) {
+      } else if (i < 2) {
         // request the message and broadcast the message further to our connected peers.
         // rerun this after 1 min delay
-        // We ask to the connected nodes 3 times in 1 minute interval for the app message, if connected nodes don't
+        // We ask to the connected nodes 2 times in 1 minute interval for the app message, if connected nodes don't
         // have the app message we will ask for it again when continuousFluxAppHashesCheck executes again.
+        // in total we ask to the connected nodes 10 (30m interval) x 2 (1m interval) = 20 times before apphash is marked as not found
         await requestAppMessage(hash);
         await serviceHelper.delay(60 * 1000);
         checkAndRequestApp(hash, txid, height, valueSat, i + 1);
