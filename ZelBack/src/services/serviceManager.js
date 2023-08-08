@@ -130,7 +130,7 @@ async function startFluxFunctions() {
         appsService.continuousFluxAppHashesCheck();
       }, 30 * 60 * 1000);
       appsService.continuousFluxAppHashesCheck();
-    }, 5 * 60 * 1000);
+    }, (Math.floor(Math.random() * (30 - 15 + 1)) + 15) * 60 * 1000); // start between 15m and 30m after fluxOs start
     setTimeout(() => {
       // after 90 minutes of running ok and to make sure we are connected for enough time for receiving all apps running on other nodes
       log.info('Starting to spawn applications');

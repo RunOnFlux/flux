@@ -33,7 +33,7 @@ const pgpService = require('./pgpService');
 const signatureVerifier = require('./signatureVerifier');
 const log = require('../lib/log');
 const userconfig = require('../../../config/userconfig');
-const { invalidMessages } = require('./utils/establishedConnections');
+const { invalidMessages } = require('./invalidMessages');
 
 const fluxDirPath = path.join(__dirname, '../../../');
 const appsFolder = `${fluxDirPath}ZelApps/`;
@@ -7337,8 +7337,6 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
     if (height < config.fluxapps.epochstart) { // do not request testing apps
       return;
     }
-    const randomDelay = Math.floor((Math.random() * 480));
-    await serviceHelper.delay(randomDelay);
     const appMessageExists = await checkAppMessageExistence(hash);
     if (appMessageExists === false) { // otherwise do nothing
       // we surely do not have that message in permanent storaage.
@@ -7478,15 +7476,15 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
             log.warn(`Apps message ${permanentAppMessage.hash} is underpaid`);
           }
         }
-      } else {
+      } else if (i < 2) {
         // request the message and broadcast the message further to our connected peers.
-        await requestAppMessage(hash);
         // rerun this after 1 min delay
-        // stop this loop after 7 mins, as it might be a scammy message or simply this message is nowhere on the network, we don't have connections etc. We also have continous checkup for it every 8 min
-        if (i < 7) {
-          await serviceHelper.delay(60 * 1000);
-          checkAndRequestApp(hash, txid, height, valueSat, i + 1);
-        }
+        // We ask to the connected nodes 2 times in 1 minute interval for the app message, if connected nodes don't
+        // have the app message we will ask for it again when continuousFluxAppHashesCheck executes again.
+        // in total we ask to the connected nodes 10 (30m interval) x 2 (1m interval) = 20 times before apphash is marked as not found
+        await requestAppMessage(hash);
+        await serviceHelper.delay(60 * 1000);
+        checkAndRequestApp(hash, txid, height, valueSat, i + 1);
         // additional requesting of missing app messages is done on rescans
       }
     } else {
@@ -7838,25 +7836,25 @@ async function continuousFluxAppHashesCheck(force = false) {
         }
         let maturity = Math.round(heightDifference / config.fluxapps.blocksLasting);
         if (maturity > 12) {
-          maturity = 12; // maturity of max 12 representing its older than 1 year. Old messages will only be searched 3 times, newer messages more oftenly
+          maturity = 16; // maturity of max 16 representing its older than 1 year. Old messages will only be searched 3 times, newer messages more oftenly
         }
         if (invalidMessages.find((message) => message.hash === result.hash && message.txid === result.txid)) {
           if (!force) {
-            maturity = 20; // do not request known invalid messages.
+            maturity = 30; // do not request known invalid messages.
           }
         }
         // every config.fluxapps.blocksLasting increment maturity by 2;
         let numberOfSearches = maturity;
         if (hashesNumberOfSearchs.has(result.hash)) {
-          numberOfSearches = hashesNumberOfSearchs.get(result.hash) + 2; // max 8 tries
+          numberOfSearches = hashesNumberOfSearchs.get(result.hash) + 2; // max 10 tries
         }
         hashesNumberOfSearchs.set(result.hash, numberOfSearches);
         log.info('Requesting missing Flux App message:');
         log.info(`${result.hash}, ${result.txid}, ${result.height}`);
-        if (numberOfSearches <= 16) { // up to 8 searches
-          checkAndRequestApp(result.hash, result.txid, result.height, result.value); // what if we await this? TODO
+        if (numberOfSearches <= 20) { // up to 10 searches
+          checkAndRequestApp(result.hash, result.txid, result.height, result.value);
           // eslint-disable-next-line no-await-in-loop
-          await serviceHelper.delay(500);
+          await serviceHelper.delay((Math.random() + 1) * 1000); // delay between 1 and 2 seconds max
         } else {
           // eslint-disable-next-line no-await-in-loop
           await appHashHasMessageNotFound(result.hash); // mark message as not found

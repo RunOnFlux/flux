@@ -766,7 +766,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   if (!resMyAvailability || availabilityError) {
     dosState += 2;
     if (dosState > 10) {
-      setDosMessage(dosMessage || 'Flux communication is limited');
+      setDosMessage(dosMessage || 'Flux communication is limited, other nodes on the network cannot reach yours through API calls');
       log.error(dosMessage);
       return false;
     }
