@@ -29,6 +29,7 @@
             <hr>
             <b-list-group class="list-group-filters">
               <b-list-group-item
+                target="_blank"
                 v-for="action in nodeActions"
                 :key="action.title + $route.path"
                 :to="action.route"

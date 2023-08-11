@@ -77,7 +77,7 @@ export default [
     },
   },
   {
-    path: '/apps/shared-nodes',
+    path: 'https://titan.runonflux.io',
     name: 'apps-marketplace-sharednodes',
     component: () => import('@/views/apps/marketplace/Marketplace.vue'),
     meta: {
