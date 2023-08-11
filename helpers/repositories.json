@@ -330,7 +330,7 @@
    "snghbeer",
    "algorand/algod:latest",
    "algorand/indexer:latest",
-   "mike8643/node-info:latest",
+   "mike8643",
    "emmer12/vetme-kyc:v1.0",
    "rainmanov",
    "neuraiproject"
