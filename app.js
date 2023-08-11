@@ -51,7 +51,7 @@ async function initiate() {
       const exec = `cd ${nodedpath} && bash createSSLcert.sh`;
       await cmdAsync(exec);
     }
-    const key = fs.readFileSync(path.join(__dirname, './certs/v1privkey.key'), 'utf8');
+    const key = fs.readFileSync(path.join(__dirname, './certs/v1privkey.pem'), 'utf8');
     const cert = fs.readFileSync(path.join(__dirname, './certs/v1cert.pem'), 'utf8');
     const credentials = { key, cert };
     const httpsServer = https.createServer(credentials, app);
