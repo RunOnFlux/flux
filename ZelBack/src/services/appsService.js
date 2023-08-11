@@ -7795,6 +7795,7 @@ async function continuousFluxAppHashesCheck(force = false) {
     const numberOfPeers = fluxCommunication.getNumberOfPeers();
     if (numberOfPeers < 20) {
       log.info('Not enough connected peers to request missing Flux App messages');
+      continuousFluxAppHashesCheckRunning = false;
       return;
     }
     const dbopen = dbHelper.databaseConnection();
