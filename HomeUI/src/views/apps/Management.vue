@@ -5982,29 +5982,8 @@ export default {
       try {
         const node = nodeip.split(':')[0];
         const port = Number(nodeip.split(':')[1] || 16127) + 1;
-        const CA = `-----BEGIN CERTIFICATE-----
-MIIDWzCCAkOgAwIBAgIUXq+gIhKfGEemMHFy0uQ0NvgrBJ0wDQYJKoZIhvcNAQEL
-BQAwRjEeMBwGA1UEAwwVc2VsZi5hcGkucnVub25mbHV4LmlvMSQwIgYDVQQKDBtS
-dW5PbkZsdXggU2lnbmluZyBBdXRob3JpdHkwHhcNMjMwODExMDgwNjE5WhcNMzMw
-ODA4MDgwNjE5WjA0MR4wHAYDVQQDDBVzZWxmLmFwaS5ydW5vbmZsdXguaW8xEjAQ
-BgNVBAoMCVJ1bk9uRmx1eDCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEB
-AK6P7HS3s+j4zBXkFzqURCkZs4JFBlzN6sR1CN53ah+jYPCxkK7fAbG33wrWcKwC
-2R8RnAdJLC1puluKVlyMcwHh/n6hZTJS8gVziEyyg2xOiUWrxJK6x97duNtWzPY5
-CpNJXcRW6mam1r9duof5aWO6OYW5egZEsEUvwzYnFNxTPCkWlgDYfgPO6nDK3azm
-ZFhiZgkb9VyBLiA59hQUPscCktqkLaAqrk7XDwN6MdfQLSWhMDiG80QXUCZH0ZOA
-w3R9QEYdsQA+AwPB4kN6mpDdHrNDXz1p910zPOYDrHGYcPLFD3JqRQIy54i1rUlv
-fS7OiHosrCc3wZK4aTZyoa0CAwEAAaNTMFEwHQYDVR0OBBYEFPh8Uvq1hxd2/SNl
-YQjd5LiPlRN9MB8GA1UdIwQYMBaAFFf9FHWiVHTD2zLHc4z21B3TEjZ6MA8GA1Ud
-EwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggEBAGl3luWpn+a9ZDWIlSCzKVkz
-gZZeu4r5NUE3VNjp+it5EITSHe1g+Lyj3RFBsdZZlC3Iw6zA3bjlQrc9lusi7L8I
-RDPSNAkFQCKMWZZipgZxHwm18PP9ajpuUhHMPK7nWk5sWGUzKgksbXJgzTV+crfL
-81Ls0+MBbgKmcUUQs1di1dNA8gavGjH5cGxETVLuTLeS6X21iFK2+rRk7kXY5sPr
-mzUNGZbrUCHoNfG3oAepyfENwQlJoZK/PpJlsz5vDYgrSd0zNieWJishacR+bery
-YYht+u8PT8D8hdPb7GxWmw1spEIC5dfTyDU4+5JDuVc7aZG34Ol/rmONZPdIpXs=
------END CERTIFICATE-----
-`;
         const agent = new https.Agent({
-          ca: CA,
+          rejectUnauthorized: false,
         });
         const response = await axios.get(`https://${node}:${port}/flux/pgp`, { httpsAgent: agent }); // ip with port
         if (response.data.status === 'error') {

@@ -3188,7 +3188,7 @@ export default {
         const node = nodeip.split(':')[0];
         const port = Number(nodeip.split(':')[1] || 16127) + 1;
         const agent = new https.Agent({
-          rejectUnathorized: false,
+          rejectUnauthorized: false,
         });
         const response = await axios.get(`https://${node}:${port}/flux/pgp`, { httpsAgent: agent }); // ip with port
         if (response.data.status === 'error') {
