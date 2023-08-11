@@ -69,7 +69,7 @@ module.exports = {
     rpcporttestnet: 26124,
   },
   minimumFluxBenchAllowedVersion: '3.9.0',
-  minimumFluxOSAllowedVersion: '3.30.0',
+  minimumFluxOSAllowedVersion: '4.5.0',
   fluxTeamZelId: '1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM',
   deterministicNodesStart: 558000,
   fluxapps: {
