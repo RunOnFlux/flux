@@ -41,14 +41,14 @@ async function initiate() {
   });
 
   try {
-    const certExists = fs.existsSync(path.join(__dirname, './certs/v1.key'));
+    const certExists = fs.existsSync(path.join(__dirname, './certs/v1cert.pem'));
     if (!certExists) {
       const nodedpath = path.join(__dirname, './helpers');
       const exec = `cd ${nodedpath} && bash createSSLcert.sh`;
       await cmdAsync(exec);
     }
-    const key = fs.readFileSync(path.join(__dirname, './certs/v1.key'), 'utf8');
-    const cert = fs.readFileSync(path.join(__dirname, './certs/v1.crt'), 'utf8');
+    const key = fs.readFileSync(path.join(__dirname, './certs/v1privkey.pem'), 'utf8');
+    const cert = fs.readFileSync(path.join(__dirname, './certs/v1cert.pem'), 'utf8');
     const credentials = { key, cert };
     const httpsServer = https.createServer(credentials, app);
     httpsServer.listen(apiPortHttps, () => {
