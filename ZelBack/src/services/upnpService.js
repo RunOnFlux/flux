@@ -36,7 +36,7 @@ async function adjustFirewallForUPNP() {
       if (firewallActive) {
         const execA = 'sudo ufw allow out from any to 239.255.255.250 port 1900 proto udp > /dev/null 2>&1';
         const execB = `sudo ufw allow from ${routerIP} port 1900 to any proto udp > /dev/null 2>&1`;
-        const execC = `sudo ufw allow out from any to $${routerIP} proto tcp > /dev/null 2>&1`;
+        const execC = `sudo ufw allow out from any to ${routerIP} proto tcp > /dev/null 2>&1`;
         const execD = `sudo ufw allow from ${routerIP} to any proto udp > /dev/null 2>&1`;
         await cmdAsync(execA);
         await cmdAsync(execB);
