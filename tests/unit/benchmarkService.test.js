@@ -549,7 +549,7 @@ describe('benchmarkService tests', () => {
     let benchmarkStub;
 
     beforeEach(() => {
-      benchmarkStub = sinon.stub(benchmarkrpc.Client.prototype, 'getInfo').returns(Promise.resolve('called'));
+      benchmarkStub = sinon.stub(benchmarkrpc.Client.prototype, 'getinfo').returns(Promise.resolve('called'));
     });
 
     afterEach(() => {
