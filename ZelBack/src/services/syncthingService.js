@@ -2003,6 +2003,7 @@ async function getDeviceID(req, res) {
   let meta;
   let healthy;
   let pingResponse;
+  let synthingRunning;
   try {
     meta = await getMeta();
     await serviceHelper.delay(500);
@@ -2010,7 +2011,7 @@ async function getDeviceID(req, res) {
     await serviceHelper.delay(500);
     pingResponse = await systemPing(); // check that flux has proper api key
     const execSynct = 'ps aux | grep -i syncthing';
-    const synthingRunning = await cmdAsync(execSynct);
+    synthingRunning = await cmdAsync(execSynct);
     log.info(synthingRunning);
     if (meta.status === 'success' && pingResponse.data.ping === 'pong' && healthy.data.status === 'OK') {
       const adjustedString = meta.data.slice(15).slice(0, -2);
@@ -2024,6 +2025,7 @@ async function getDeviceID(req, res) {
   } catch (error) {
     syncthingStatusOk = false;
     log.error(error);
+    log.error(synthingRunning);
     log.error(meta);
     log.error(healthy);
     log.error(pingResponse);
@@ -2176,13 +2178,13 @@ async function startSyncthing() {
       const checkSyncthingRunning = 'sudo pgrep syncthing';
       let cmdres = await cmdAsync(checkSyncthingRunning).catch((error) => log.error(error));
       if (cmdres && cmdres.length > 0) {
-        log.error('Stopping gracefully syncthing service');
+        log.info('Stopping gracefully syncthing service');
         await cmdAsync(execKill).catch((error) => log.error(error));
         await cmdAsync(execKillB).catch((error) => log.error(error));
         await serviceHelper.delay(10 * 1000);
         cmdres = await cmdAsync(checkSyncthingRunning).catch((error) => log.error(error));
         if (cmdres && cmdres.length > 0) {
-          log.error('Stopping syncthing service');
+          log.info('Stopping syncthing service');
           await cmdAsync(execKillC).catch((error) => log.error(error));
         }
       }
