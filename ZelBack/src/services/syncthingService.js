@@ -1993,7 +1993,13 @@ async function getSvcReport(req, res) {
  * @returns {object} Message
  */
 let syncthingStatusOk = false;
+let getDeviceIDRunning = false;
 async function getDeviceID(req, res) {
+  if (getDeviceIDRunning) {
+    await serviceHelper.delay(2000);
+    return getDeviceID(req, res);
+  }
+  getDeviceIDRunning = true;
   let meta;
   let healthy;
   let pingResponse;
@@ -2023,6 +2029,8 @@ async function getDeviceID(req, res) {
     log.error(pingResponse);
     const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
     return res ? res.json(errorResponse) : errorResponse;
+  } finally {
+    getDeviceIDRunning = false;
   }
 }
 
@@ -2069,7 +2077,6 @@ async function adjustSyncthing() {
     if (adjustSyncthingRunning) {
       return;
     }
-    adjustSyncthingRunning = true;
     const currentConfigOptions = await getConfigOptions();
     const currentDefaultsFolderOptions = await getConfigDefaultsFolder();
     const apiPort = userconfig.initial.apiport || config.server.apiport;
