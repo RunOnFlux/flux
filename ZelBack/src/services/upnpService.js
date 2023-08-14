@@ -3,7 +3,6 @@ const natUpnp = require('@runonflux/nat-upnp');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
-const fluxNetworkHelper = require('./fluxNetworkHelper');
 const nodecmd = require('node-cmd');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
@@ -24,6 +23,26 @@ function isUPNP() {
 }
 
 /**
+ * To check if a firewall is active.
+ * @returns {boolean} True if a firewall is active. Otherwise false.
+ */
+async function isFirewallActive() {
+  try {
+    const cmdAsync = util.promisify(nodecmd.get);
+    const execA = 'sudo ufw status | grep Status';
+    const cmdresA = await cmdAsync(execA);
+    if (serviceHelper.ensureString(cmdresA).includes('Status: active')) {
+      return true;
+    }
+    return false;
+  } catch (error) {
+    // command ufw not found is the most likely reason
+    log.error(error);
+    return false;
+  }
+}
+
+/**
  * To adjust a firewall to allow comms between host and router.
  */
 async function adjustFirewallForUPNP() {
@@ -32,7 +51,7 @@ async function adjustFirewallForUPNP() {
     routerIP = serviceHelper.ensureObject(routerIP);
     if (routerIP) {
       const cmdAsync = util.promisify(nodecmd.get);
-      const firewallActive = await fluxNetworkHelper.isFirewallActive();
+      const firewallActive = await isFirewallActive();
       if (firewallActive) {
         const execA = 'sudo ufw allow out from any to 239.255.255.250 port 1900 proto udp > /dev/null 2>&1';
         const execB = `sudo ufw allow from ${routerIP} port 1900 to any proto udp > /dev/null 2>&1`;
