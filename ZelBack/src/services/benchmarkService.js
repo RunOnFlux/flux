@@ -201,7 +201,7 @@ async function getBenchmarks(req, res) {
  * @returns {object} Message.
  */
 async function getInfo(req, res) {
-  const rpccall = 'getInfo';
+  const rpccall = 'getinfo';
 
   response = await executeCall(rpccall);
 
