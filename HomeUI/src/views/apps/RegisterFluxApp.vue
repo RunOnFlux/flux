@@ -1922,7 +1922,7 @@ const qs = require('qs');
 const axios = require('axios');
 const store = require('store');
 const openpgp = require('openpgp');
-const https = require('https');
+// const https = require('https');
 const timeoptions = require('@/libs/dateFormat');
 
 const geolocations = require('../../libs/geolocation');
@@ -3187,10 +3187,10 @@ export default {
       try {
         const node = nodeip.split(':')[0];
         const port = Number(nodeip.split(':')[1] || 16127) + 1;
-        const agent = new https.Agent({
-          rejectUnauthorized: false,
-        });
-        const response = await axios.get(`https://${node}:${port}/flux/pgp`, { httpsAgent: agent }); // ip with port
+        // const agent = new https.Agent({
+        //   rejectUnauthorized: false,
+        // });
+        const response = await axios.get(`http://${node}:${port}/flux/pgp`); // ip with port
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data);
         } else {
