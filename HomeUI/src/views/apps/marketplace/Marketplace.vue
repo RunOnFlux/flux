@@ -175,7 +175,6 @@
         :zelid="zelid"
         @close-left-sidebar="showDetailSidebar = false"
         @close-app-view="isAppViewActive = false; isSharedNodesViewActive = false;"
-        @open-shared-nodes="isSharedNodesViewActive = true"
       />
     </portal>
   </div>

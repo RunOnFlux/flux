@@ -875,6 +875,7 @@ async function adjustExternalIP(ip) {
     testnet: ${userconfig.initial.testnet || false},
     development: ${userconfig.initial.development || false},
     apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
+    routerIP: '${userconfig.initial.routerIP || ''}',
     pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
     pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
     blockedPorts: [${userconfig.initial.blockedPorts || ''}],

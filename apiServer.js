@@ -4,23 +4,18 @@ const config = require('config');
 // const fs = require('fs');
 // const https = require('https');
 // const path = require('path');
+// const util = require('util');
+// const nodecmd = require('node-cmd');
 const app = require('./ZelBack/src/lib/server');
 const log = require('./ZelBack/src/lib/log');
 const serviceManager = require('./ZelBack/src/services/serviceManager');
 const upnpService = require('./ZelBack/src/services/upnpService');
 const userconfig = require('./config/userconfig');
 
+// const cmdAsync = util.promisify(nodecmd.get);
+
 const apiPort = userconfig.initial.apiport || config.server.apiport;
-
-// const key = fs.readFileSync(path.join(__dirname, '../certs/selfsigned.key'), 'utf8');
-// const cert = fs.readFileSync(path.join(__dirname, '../certs/selfsigned.crt'), 'utf8');
-// const credentials = { key, cert };
-// const httpsServer = https.createServer(credentials, app);
-
-// const apiporthttps = apiPort + 1;
-// httpsServer.listen(config.server.apiporthttps, () => {
-//   log.info(`Flux https listening on port ${config.server.apiporthttps}!`);
-// });
+// const apiPortHttps = apiPort + 1;
 
 async function initiate() {
   if (!config.server.allowedPorts.includes(+apiPort)) {
@@ -44,6 +39,24 @@ async function initiate() {
     log.info(`Flux listening on port ${apiPort}!`);
     serviceManager.startFluxFunctions();
   });
+
+  // try {
+  //   const certExists = fs.existsSync(path.join(__dirname, './certs/v1.key'));
+  //   if (!certExists) {
+  //     const nodedpath = path.join(__dirname, './helpers');
+  //     const exec = `cd ${nodedpath} && bash createSSLcert.sh`;
+  //     await cmdAsync(exec);
+  //   }
+  //   const key = fs.readFileSync(path.join(__dirname, './certs/v1.key'), 'utf8');
+  //   const cert = fs.readFileSync(path.join(__dirname, './certs/v1.crt'), 'utf8');
+  //   const credentials = { key, cert };
+  //   const httpsServer = https.createServer(credentials, app);
+  //   httpsServer.listen(apiPortHttps, () => {
+  //     log.info(`Flux https listening on port ${apiPortHttps}!`);
+  //   });
+  // } catch (error) {
+  //   log.error(error);
+  // }
 }
 
 initiate();

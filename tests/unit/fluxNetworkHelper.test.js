@@ -27,6 +27,7 @@ const userconfig = {
     zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
     kadena: '123456789',
     apiport: '16127',
+    routerIP: '',
     testnet: true,
     development: false,
     pgpPrivateKey: '',
@@ -1312,6 +1313,7 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/testnet: true,/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/development: false,/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/apiport: 16127,/gm));
+      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/routerIP: '',/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/pgpPrivateKey: ``,/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/pgpPublicKey: ``,/gm));
     });

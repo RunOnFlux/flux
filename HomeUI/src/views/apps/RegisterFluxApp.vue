@@ -131,7 +131,7 @@
                           :value="undefined"
                           disabled
                         >
-                          -- Select to restrict Continent  --
+                          -- Select to restrict Continent --
                         </b-form-select-option>
                       </template>
                     </b-form-select>
@@ -231,7 +231,7 @@
                           :value="undefined"
                           disabled
                         >
-                          -- Select to ban Continent  --
+                          -- Select to ban Continent --
                         </b-form-select-option>
                       </template>
                     </b-form-select>
@@ -1548,9 +1548,7 @@
                 width="100%"
               >
             </a>
-            <a
-              @click="initWalletConnect"
-            >
+            <a @click="initWalletConnect">
               <img
                 class="walletconnectLogin"
                 src="@/assets/images/walletconnect.svg"
@@ -1559,9 +1557,7 @@
                 width="100%"
               >
             </a>
-            <a
-              @click="initMetamask"
-            >
+            <a @click="initMetamask">
               <img
                 class="metamaskLogin"
                 src="@/assets/images/metamask.svg"
@@ -1926,6 +1922,7 @@ const qs = require('qs');
 const axios = require('axios');
 const store = require('store');
 const openpgp = require('openpgp');
+// const https = require('https');
 const timeoptions = require('@/libs/dateFormat');
 
 const geolocations = require('../../libs/geolocation');
@@ -3189,7 +3186,10 @@ export default {
     async fetchEnterpriseKey(nodeip) { // we must have at least +5 nodes or up to 10% of spare keys
       try {
         const node = nodeip.split(':')[0];
-        const port = nodeip.split(':')[1] || 16127;
+        const port = Number(nodeip.split(':')[1] || 16127) + 1;
+        // const agent = new https.Agent({
+        //   rejectUnauthorized: false,
+        // });
         const response = await axios.get(`http://${node}:${port}/flux/pgp`); // ip with port
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data);

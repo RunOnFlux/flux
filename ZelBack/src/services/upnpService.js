@@ -3,8 +3,12 @@ const natUpnp = require('@runonflux/nat-upnp');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
+const nodecmd = require('node-cmd');
+// eslint-disable-next-line import/no-extraneous-dependencies
+const util = require('util');
 
 const log = require('../lib/log');
+const userconfig = require('../../../config/userconfig');
 
 const client = new natUpnp.Client();
 
@@ -19,12 +23,62 @@ function isUPNP() {
 }
 
 /**
+ * To check if a firewall is active.
+ * @returns {boolean} True if a firewall is active. Otherwise false.
+ */
+async function isFirewallActive() {
+  try {
+    const cmdAsync = util.promisify(nodecmd.get);
+    const execA = 'sudo ufw status | grep Status';
+    const cmdresA = await cmdAsync(execA);
+    if (serviceHelper.ensureString(cmdresA).includes('Status: active')) {
+      return true;
+    }
+    return false;
+  } catch (error) {
+    // command ufw not found is the most likely reason
+    log.error(error);
+    return false;
+  }
+}
+
+/**
+ * To adjust a firewall to allow comms between host and router.
+ */
+async function adjustFirewallForUPNP() {
+  try {
+    let { routerIP } = userconfig.initial;
+    routerIP = serviceHelper.ensureString(routerIP);
+    if (routerIP) {
+      const cmdAsync = util.promisify(nodecmd.get);
+      const firewallActive = await isFirewallActive();
+      if (firewallActive) {
+        const execA = 'sudo ufw allow out from any to 239.255.255.250 port 1900 proto udp > /dev/null 2>&1';
+        const execB = `sudo ufw allow from ${routerIP} port 1900 to any proto udp > /dev/null 2>&1`;
+        const execC = `sudo ufw allow out from any to ${routerIP} proto tcp > /dev/null 2>&1`;
+        const execD = `sudo ufw allow from ${routerIP} to any proto udp > /dev/null 2>&1`;
+        await cmdAsync(execA);
+        await cmdAsync(execB);
+        await cmdAsync(execC);
+        await cmdAsync(execD);
+        log.info('Firewall adjusted for UPNP');
+      } else {
+        log.info('RouterIP is set but firewall is not active. Adjusting not applied for UPNP');
+      }
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
  * To verify that a port has UPnP (Universal Plug and Play) support.
  * @param {number} apiport Port number.
  * @returns {boolean} True if port mappings can be set. Otherwise false.
  */
 async function verifyUPNPsupport(apiport = config.server.apiport) {
   try {
+    await adjustFirewallForUPNP();
     // run test on apiport + 1
     await client.getPublicIp();
   } catch (error) {
@@ -338,4 +392,5 @@ module.exports = {
   getMapApi,
   getIpApi,
   getGatewayApi,
+  adjustFirewallForUPNP,
 };
