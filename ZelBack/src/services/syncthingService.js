@@ -2012,7 +2012,6 @@ async function getDeviceID(req, res) {
     pingResponse = await systemPing(); // check that flux has proper api key
     const execSynct = 'ps aux | grep -i syncthing';
     synthingRunning = await cmdAsync(execSynct);
-    log.info(synthingRunning);
     if (meta.status === 'success' && pingResponse.data.ping === 'pong' && healthy.data.status === 'OK') {
       const adjustedString = meta.data.slice(15).slice(0, -2);
       const deviceObject = JSON.parse(adjustedString);
