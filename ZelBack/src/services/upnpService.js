@@ -48,7 +48,7 @@ async function isFirewallActive() {
 async function adjustFirewallForUPNP() {
   try {
     let { routerIP } = userconfig.initial;
-    routerIP = serviceHelper.ensureObject(routerIP);
+    routerIP = serviceHelper.ensureString(routerIP);
     if (routerIP) {
       const cmdAsync = util.promisify(nodecmd.get);
       const firewallActive = await isFirewallActive();
