@@ -135,6 +135,7 @@ function handleIncomingConnection(ws, req, expressWS) {
   incomingPeers.push(peer);
   // verify data integrity, if not signed, close connection
   ws.on('message', async (msg) => {
+    // TODO CHECK HASH? OF MESSAGE, NOT ALREADY RECEIVED, CACHE
     // check rate limit
     const rateOK = fluxNetworkHelper.lruRateLimit(ipv4Peer, 90);
     if (!rateOK) {
@@ -387,6 +388,7 @@ async function initiateAndHandleConnection(connection) {
   };
 
   websocket.onmessage = async (evt) => {
+    // TODO CHECK HASH? OF MESSAGE, NOT ALREADY RECEIVED, CACHE
     // incoming messages from outgoing connections
     const currentTimeStamp = Date.now(); // ms
     // check rate limit
