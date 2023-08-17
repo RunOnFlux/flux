@@ -5981,7 +5981,7 @@ export default {
     async fetchEnterpriseKey(nodeip) { // we must have at least +5 nodes or up to 10% of spare keys
       try {
         const node = nodeip.split(':')[0];
-        const port = Number(nodeip.split(':')[1] || 16127) + 1;
+        const port = Number(nodeip.split(':')[1] || 16127);
         // const agent = new https.Agent({
         //   rejectUnauthorized: false,
         // });
