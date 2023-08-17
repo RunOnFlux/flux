@@ -1,6 +1,6 @@
 /* eslint-disable no-underscore-dangle */
 const config = require('config');
-const LRU = require('lru-cache');
+const { LRUCache } = require('lru-cache');
 const WebSocket = require('ws');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
@@ -18,26 +18,26 @@ let response = messageHelper.createErrorMessage();
 // default cache
 const LRUoptions = {
   max: 20000, // currently 20000 nodes
-  maxAge: 1000 * 360, // 360 seconds, 3 blocks
+  ttl: 1000 * 360, // 360 seconds, 3 blocks
 };
 
 const LRUNodeListSortedoptions = {
   max: 1, // NodeListSorted
-  maxAge: 10 * 60 * 1000, // 10m , 5 blocks
+  ttl: 10 * 60 * 1000, // 10m , 5 blocks
 };
 
-const sortedNodeListCache = new LRU(LRUNodeListSortedoptions);
+const sortedNodeListCache = new LRUCache(LRUNodeListSortedoptions);
 
 const LRUTest = {
   max: 25000000, // 25M
-  maxAge: 60 * 60 * 1000, // 1h
+  ttl: 60 * 60 * 1000, // 1h
 };
 
-const testListCache = new LRU(LRUTest);
+const testListCache = new LRUCache(LRUTest);
 
 let numberOfFluxNodes = 0;
 
-const blockedPubKeysCache = new LRU(LRUoptions);
+const blockedPubKeysCache = new LRUCache(LRUoptions);
 
 const privateIpsList = [
   '192.168.', '10.',

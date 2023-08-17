@@ -7,7 +7,7 @@ const os = require('os');
 const path = require('path');
 const nodecmd = require('node-cmd');
 const df = require('node-df');
-const LRU = require('lru-cache');
+const { LRUCache } = require('lru-cache');
 const systemcrontab = require('crontab');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
@@ -58,26 +58,26 @@ const testingAppserver = http.createServer(testingAppExpress);
 // cache for app running messages
 const LRUoptionsRun = { // cache for app running messages
   max: 50000, // store max 50000 values, eventhough we can have more values. this accounts for more than 15000 app instances. Less than 500 Bytes per value -> 25MB cache
-  maxAge: 1000 * 60 * 70, // 70 minutes
+  ttl: 1000 * 60 * 70, // 70 minutes
 };
 
 // cache for temporary messages
 const LRUoptionsTemp = { // cache for temporary messages
   max: 10000, // store max 10000 values
-  maxAge: 1000 * 60 * 70, // 70 minutes
+  ttl: 1000 * 60 * 70, // 70 minutes
 };
 const GlobalAppsSpawnLRUoptions = {
   max: 2000,
-  maxAge: 1000 * 60 * 60 * 2, // 2 hours
+  ttl: 1000 * 60 * 60 * 2, // 2 hours
 };
 const longCache = {
   max: 500,
-  maxAge: 1000 * 60 * 60 * 3, // 3 hours
+  ttl: 1000 * 60 * 60 * 3, // 3 hours
 };
-const myCacheRun = new LRU(LRUoptionsRun);
-const myCacheTemp = new LRU(LRUoptionsTemp);
-const trySpawningGlobalAppCache = new LRU(GlobalAppsSpawnLRUoptions);
-const myLongCache = new LRU(longCache);
+const myCacheRun = new LRUCache(LRUoptionsRun);
+const myCacheTemp = new LRUCache(LRUoptionsTemp);
+const trySpawningGlobalAppCache = new LRUCache(GlobalAppsSpawnLRUoptions);
+const myLongCache = new LRUCache(longCache);
 
 let removalInProgress = false;
 let installationInProgress = false;

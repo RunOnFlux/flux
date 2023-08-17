@@ -2,7 +2,7 @@
 const sinon = require('sinon');
 const WebSocket = require('ws');
 const { expect } = require('chai');
-const LRU = require('lru-cache');
+const { LRUCache } = require('lru-cache');
 const log = require('../../ZelBack/src/lib/log');
 const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
 const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
@@ -913,7 +913,7 @@ describe('fluxCommunication tests', () => {
       const ip = '127.0.0.2';
       wsserver = new WebSocket.Server({ host: '127.0.0.2', port: '16127' });
       lruRateLimitStub.returns(true);
-      sinon.stub(LRU.prototype, 'has').returns(true);
+      sinon.stub(LRUCache.prototype, 'has').returns(true);
       const websocketCloseSpy = sinon.spy(WebSocket.prototype, 'close');
 
       await fluxCommunication.initiateAndHandleConnection(ip);
@@ -954,7 +954,7 @@ describe('fluxCommunication tests', () => {
         const ip = '127.0.0.2';
         wsserver = new WebSocket.Server({ host: '127.0.0.2', port: '16127' });
         lruRateLimitStub.returns(true);
-        sinon.stub(LRU.prototype, 'has').returns(false);
+        sinon.stub(LRUCache.prototype, 'has').returns(false);
         const verifyOriginalFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast').returns(true);
         const respondWithAppMessageStub = sinon.stub(fluxCommunicationMessagesSender, 'respondWithAppMessage').returns(true);
 
@@ -994,7 +994,7 @@ describe('fluxCommunication tests', () => {
         const ip = '127.0.0.2';
         wsserver = new WebSocket.Server({ host: '127.0.0.2', port: '16127' });
         lruRateLimitStub.returns(true);
-        sinon.stub(LRU.prototype, 'has').returns(false);
+        sinon.stub(LRUCache.prototype, 'has').returns(false);
         const verifyOriginalFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast').returns(true);
         const storeAppTemporaryMessageStub = sinon.stub(appsService, 'storeAppTemporaryMessage').returns(false);
 
@@ -1034,7 +1034,7 @@ describe('fluxCommunication tests', () => {
         const ip = '127.0.0.2';
         wsserver = new WebSocket.Server({ host: '127.0.0.2', port: '16127' });
         lruRateLimitStub.returns(true);
-        sinon.stub(LRU.prototype, 'has').returns(false);
+        sinon.stub(LRUCache.prototype, 'has').returns(false);
         const verifyOriginalFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast').returns(true);
         const storeAppRunningMessageStub = sinon.stub(appsService, 'storeAppRunningMessage').returns(false);
 

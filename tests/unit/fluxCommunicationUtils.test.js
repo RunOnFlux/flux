@@ -1,5 +1,5 @@
 const chai = require('chai');
-const LRU = require('lru-cache');
+const { LRUCache } = require('lru-cache');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire');
 

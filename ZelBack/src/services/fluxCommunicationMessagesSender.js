@@ -1,5 +1,5 @@
 /* eslint-disable no-underscore-dangle */
-const LRU = require('lru-cache');
+const { LRUCache } = require('lru-cache');
 const WebSocket = require('ws');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
@@ -10,7 +10,12 @@ const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('./utils/establishedConnections');
 
-const myMessageCache = new LRU(1000);
+// default cache
+const LRUoptions = {
+  max: 1000,
+};
+
+const myMessageCache = new LRUCache(LRUoptions);
 
 let response = messageHelper.createErrorMessage();
 

@@ -8,7 +8,7 @@ const path = require('path');
 const util = require('util');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const net = require('net');
-const LRU = require('lru-cache');
+const { LRUCache } = require('lru-cache');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
@@ -1293,9 +1293,9 @@ async function purgeUFW() {
 
 const lruRateOptions = {
   max: 500,
-  maxAge: 1000 * 15, // 15 seconds
+  ttl: 1000 * 15, // 15 seconds
 };
-const lruRateCache = new LRU(lruRateOptions);
+const lruRateCache = new LRUCache(lruRateOptions);
 /**
  * To check rate limit.
  * @param {string} ip IP address.

@@ -91,7 +91,7 @@
     "formidable": "~2.1.2",
     "fullnode": "file:lib/fullnode",
     "inquirer": "~8.2.5",
-    "lru-cache": "~6.0.0",
+    "lru-cache": "~10.0.1",
     "mongodb": "~4.16.0",
     "morgan": "~1.10.0",
     "nano-ethereum-signer": "~0.1.2",

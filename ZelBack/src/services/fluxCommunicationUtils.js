@@ -1,5 +1,5 @@
 /* eslint-disable no-underscore-dangle */
-const LRU = require('lru-cache');
+const { LRUCache } = require('lru-cache');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
@@ -7,10 +7,10 @@ const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnode
 // default cache
 const LRUoptions = {
   max: 20000, // currently 20000 nodes
-  maxAge: 1000 * 480, // 480 seconds, allow up to 4 blocks
+  ttl: 1000 * 480, // 480 seconds, allow up to 4 blocks
 };
 
-const myCache = new LRU(LRUoptions);
+const myCache = new LRUCache(LRUoptions);
 
 let addingNodesToCache = false;
 
