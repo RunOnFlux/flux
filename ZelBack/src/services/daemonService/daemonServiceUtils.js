@@ -10,6 +10,7 @@ const fnconfig = new fullnode.Config();
 const LRUoptions = {
   max: 500, // store 500 values for up to 20 seconds of other daemon calls
   ttl: 1000 * 20, // 20 seconds
+  maxAge: 1000 * 20, // 20 seconds
 };
 
 const cache = new LRUCache(LRUoptions);
@@ -17,6 +18,7 @@ const cache = new LRUCache(LRUoptions);
 const LRUoptionsTxs = {
   max: 30000, // store 30000 values for up to 1 hour of other daemon calls
   ttl: 1000 * 60 * 60, // 1 hour
+  maxAge: 1000 * 60 * 60, // 1 hour
 };
 
 const rawTxCache = new LRUCache(LRUoptionsTxs); // store 30k txs in cache
@@ -24,6 +26,7 @@ const rawTxCache = new LRUCache(LRUoptionsTxs); // store 30k txs in cache
 const LRUoptionsBlocks = {
   max: 1500, // store 1500 values for up to 1 hour of other daemon calls
   ttl: 1000 * 60 * 60, // 1 hour
+  maxAge: 1000 * 60 * 60, // 1 hour
 };
 
 const blockCache = new LRUCache(LRUoptionsBlocks); // store 1.5k blocks in cache

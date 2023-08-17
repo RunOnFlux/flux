@@ -8,6 +8,7 @@ const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnode
 const LRUoptions = {
   max: 20000, // currently 20000 nodes
   ttl: 1000 * 480, // 480 seconds, allow up to 4 blocks
+  maxAge: 1000 * 480, // 480 seconds, allow up to 4 blocks
 };
 
 const myCache = new LRUCache(LRUoptions);

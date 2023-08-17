@@ -19,11 +19,13 @@ let response = messageHelper.createErrorMessage();
 const LRUoptions = {
   max: 20000, // currently 20000 nodes
   ttl: 1000 * 360, // 360 seconds, 3 blocks
+  maxAge: 1000 * 360, // 360 seconds, 3 blocks
 };
 
 const LRUNodeListSortedoptions = {
   max: 1, // NodeListSorted
   ttl: 10 * 60 * 1000, // 10m , 5 blocks
+  maxAge: 10 * 60 * 1000, // 10m , 5 blocks
 };
 
 const sortedNodeListCache = new LRUCache(LRUNodeListSortedoptions);
@@ -31,6 +33,7 @@ const sortedNodeListCache = new LRUCache(LRUNodeListSortedoptions);
 const LRUTest = {
   max: 25000000, // 25M
   ttl: 60 * 60 * 1000, // 1h
+  maxAge: 60 * 60 * 1000, // 1h
 };
 
 const testListCache = new LRUCache(LRUTest);
