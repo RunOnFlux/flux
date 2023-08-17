@@ -1293,7 +1293,7 @@ async function purgeUFW() {
 
 const lruRateOptions = {
   max: 500,
-  maxAge: 1000 * 15, // 15 seconds
+  ttl: 1000 * 15, // 15 seconds
 };
 const lruRateCache = new LRU(lruRateOptions);
 /**
