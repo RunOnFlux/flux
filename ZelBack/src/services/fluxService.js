@@ -148,6 +148,26 @@ async function softUpdateFlux(req, res) {
 }
 
 /**
+ * To soft update FluxOS version on development mode (executes the command `npm run softupdatedev` on the node machine).
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+// eslint-disable-next-line consistent-return
+async function softUpdateFluxDev(req, res) {
+  const nodedpath = path.join(__dirname, '../../../');
+  const exec = `cd ${nodedpath} && npm run softupdatedev`;
+  nodecmd.get(exec, (err) => {
+    if (err) {
+      const errMessage = messageHelper.createErrorMessage(`Error softly updating Flux: ${err.message}`, err.name, err.code);
+      return res ? res.json(errMessage) : errMessage;
+    }
+    const message = messageHelper.createSuccessMessage('Flux successfully updated using soft method');
+    return res ? res.json(message) : message;
+  });
+}
+
+/**
  * To install the soft update of FluxOS (executes the command `npm run softupdateinstall` on the node machine). Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -1124,6 +1144,7 @@ module.exports = {
   startDaemon,
   updateFlux,
   softUpdateFlux,
+  softUpdateFluxDev,
   softUpdateFluxInstall,
   hardUpdateFlux,
   rebuildHome,
