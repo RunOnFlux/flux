@@ -28,6 +28,13 @@ const LRUNodeListSortedoptions = {
 
 const sortedNodeListCache = new LRU(LRUNodeListSortedoptions);
 
+const LRUTest = {
+  max: 25000000, // 25M
+  maxAge: 60 * 60 * 1000, // 1h
+};
+
+const testListCache = new LRU(LRUTest);
+
 let numberOfFluxNodes = 0;
 
 const blockedPubKeysCache = new LRU(LRUoptions);
@@ -98,6 +105,7 @@ async function handleAppRunningMessage(message, fromIP) {
  * @param {object} expressWS Express web socket.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
+let messageNumber = 0;
 // eslint-disable-next-line no-unused-vars
 function handleIncomingConnection(ws, req, expressWS) {
   // now we are in connections state. push the websocket to our incomingconnections
@@ -136,6 +144,14 @@ function handleIncomingConnection(ws, req, expressWS) {
   // verify data integrity, if not signed, close connection
   ws.on('message', async (msg) => {
     // TODO CHECK HASH? OF MESSAGE, NOT ALREADY RECEIVED, CACHE
+    messageNumber += 1;
+    testListCache.set(messageNumber, messageNumber);
+    if (messageNumber % 100 === 0) {
+      log.info(`Number of messages received in the last hour:${testListCache.itemCount}`);
+    }
+    if (messageNumber === 100000000) {
+      messageNumber = 0;
+    }
     // check rate limit
     const rateOK = fluxNetworkHelper.lruRateLimit(ipv4Peer, 90);
     if (!rateOK) {
