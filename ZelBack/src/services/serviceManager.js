@@ -39,6 +39,9 @@ async function startFluxFunctions() {
       }
     } else {
       upnpService.setupUPNP(apiPort);
+      setInterval(() => {
+        upnpService.adjustFirewallForUPNP();
+      }, 2 * 60 * 60 * 1000); // every 2 hours
     }
     log.info('Initiating MongoDB connection');
     await dbHelper.initiateDB(); // either true or throws error
