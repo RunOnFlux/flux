@@ -18,19 +18,19 @@ let response = messageHelper.createErrorMessage();
 // default cache
 const LRUoptions = {
   max: 20000, // currently 20000 nodes
-  ttl: 1000 * 360, // 360 seconds, 3 blocks
+  maxAge: 1000 * 360, // 360 seconds, 3 blocks
 };
 
 const LRUNodeListSortedoptions = {
   max: 1, // NodeListSorted
-  ttl: 10 * 60 * 1000, // 10m , 5 blocks
+  maxAge: 10 * 60 * 1000, // 10m , 5 blocks
 };
 
 const sortedNodeListCache = new LRU(LRUNodeListSortedoptions);
 
 const LRUTest = {
   max: 25000000, // 25M
-  ttl: 60 * 60 * 1000, // 1h
+  maxAge: 60 * 60 * 1000, // 1h
 };
 
 const testListCache = new LRU(LRUTest);
@@ -147,7 +147,6 @@ function handleIncomingConnection(ws, req, expressWS) {
     messageNumber += 1;
     testListCache.set(messageNumber, messageNumber);
     if (messageNumber % 100 === 0) {
-      testListCache.purgeStale();
       log.info(`Number of messages received in the last hour:${testListCache.itemCount}`);
     }
     if (messageNumber === 100000000) {
