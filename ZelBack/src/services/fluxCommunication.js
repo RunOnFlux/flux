@@ -148,7 +148,7 @@ function handleIncomingConnection(ws, req, expressWS) {
     testListCache.set(messageNumber, messageNumber);
     if (messageNumber % 100 === 0) {
       testListCache.purgeStale();
-      log.info(`Number of messages received in the last hour:${testListCache.itemCount}`);
+      log.info(`Number of messages received in the last hour:${testListCache.size}`);
     }
     if (messageNumber === 100000000) {
       messageNumber = 0;
