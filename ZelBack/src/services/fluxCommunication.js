@@ -156,6 +156,9 @@ function handleIncomingConnection(ws, req, expressWS) {
   incomingPeers.push(peer);
   // verify data integrity, if not signed, close connection
   ws.on('message', async (msg) => {
+    if (!msg) {
+      return;
+    }
     // uncomment block bellow to know how many messages is a fluxNode receiving every hour
     messageNumber += 1;
     testListCache.set(messageNumber, messageNumber);
@@ -425,6 +428,9 @@ async function initiateAndHandleConnection(connection) {
   };
 
   websocket.onmessage = async (evt) => {
+    if (!evt) {
+      return;
+    }
     // uncomment block bellow to know how many messages is a fluxNode receiving every hour
     messageNumber += 1;
     testListCache.set(messageNumber, messageNumber);
@@ -435,7 +441,7 @@ async function initiateAndHandleConnection(connection) {
     if (messageNumber === 100000000) {
       messageNumber = 0;
     }
-    const messageHash = hash(evt);
+    const messageHash = hash(evt.data);
     log.info(messageHash);
     if (myCacheTemp.has(messageHash)) {
       log.info(`Duplicated message hash received:${messageHash}`);
