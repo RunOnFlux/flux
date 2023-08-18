@@ -1,6 +1,6 @@
 {
   "events": {
-    "crash": "npm install --production"
+    "crash": "pm2 stop flux; npm install --production; pm2 start flux"
   },
   "watch": ["package-lock.json", "yarn.lock", "package.json", "ZelBack/", "app.js", "apiServer.js", "config/", "helpers/", "lib/"]
 }
