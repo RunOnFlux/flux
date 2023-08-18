@@ -169,9 +169,7 @@ function handleIncomingConnection(ws, req, expressWS) {
 
     // check if we have the message in cache. If yes, return false. If not, store it and continue
     const messageHash = hash(msg);
-    log.info(messageHash);
     if (myCacheTemp.has(messageHash)) {
-      log.info(`Duplicated message hash received:${messageHash}`);
       return;
     }
     myCacheTemp.set(messageHash, messageHash);
