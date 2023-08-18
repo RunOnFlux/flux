@@ -147,15 +147,16 @@ function handleIncomingConnection(ws, req, expressWS) {
   // verify data integrity, if not signed, close connection
   ws.on('message', async (msg) => {
     // TODO CHECK HASH? OF MESSAGE, NOT ALREADY RECEIVED, CACHE
-    messageNumber += 1;
+    // uncomment block bellow to know how many messages is a fluxNode receiving every hour
+    /* messageNumber += 1;
     testListCache.set(messageNumber, messageNumber);
-    if (messageNumber % 100 === 0) {
+    if (messageNumber % 200 === 0) {
       testListCache.purgeStale();
       log.info(`Number of messages received in the last hour:${testListCache.size}`);
     }
     if (messageNumber === 100000000) {
       messageNumber = 0;
-    }
+    } */
     // check rate limit
     const rateOK = fluxNetworkHelper.lruRateLimit(ipv4Peer, 90);
     if (!rateOK) {
