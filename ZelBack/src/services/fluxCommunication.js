@@ -30,6 +30,7 @@ const LRUNodeListSortedoptions = {
 
 const sortedNodeListCache = new LRUCache(LRUNodeListSortedoptions);
 
+/*
 const LRUTest = {
   max: 25000000, // 25M
   ttl: 60 * 60 * 1000, // 1h
@@ -37,7 +38,7 @@ const LRUTest = {
 };
 
 const testListCache = new LRUCache(LRUTest);
-
+*/
 let numberOfFluxNodes = 0;
 
 const blockedPubKeysCache = new LRUCache(LRUoptions);
@@ -108,7 +109,7 @@ async function handleAppRunningMessage(message, fromIP) {
  * @param {object} expressWS Express web socket.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
-let messageNumber = 0;
+// let messageNumber = 0;
 // eslint-disable-next-line no-unused-vars
 function handleIncomingConnection(ws, req, expressWS) {
   // now we are in connections state. push the websocket to our incomingconnections
