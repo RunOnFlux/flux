@@ -1,6 +1,7 @@
 /* eslint-disable no-underscore-dangle */
 const config = require('config');
 const { LRUCache } = require('lru-cache');
+const hash = require('object-hash');
 const WebSocket = require('ws');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
@@ -29,6 +30,15 @@ const LRUNodeListSortedoptions = {
 };
 
 const sortedNodeListCache = new LRUCache(LRUNodeListSortedoptions);
+
+// cache for temporary messages
+const LRUoptionsTemp = { // cache for temporary messages
+  max: 20000, // store max 20000 values
+  ttl: 1000 * 60 * 70, // 70 minutes
+  maxAge: 1000 * 60 * 70, // 70 minutes
+};
+
+const myCacheTemp = new LRUCache(LRUoptionsTemp);
 
 /*
 const LRUTest = {
@@ -147,7 +157,6 @@ function handleIncomingConnection(ws, req, expressWS) {
   incomingPeers.push(peer);
   // verify data integrity, if not signed, close connection
   ws.on('message', async (msg) => {
-    // TODO CHECK HASH? OF MESSAGE, NOT ALREADY RECEIVED, CACHE
     // uncomment block bellow to know how many messages is a fluxNode receiving every hour
     /* messageNumber += 1;
     testListCache.set(messageNumber, messageNumber);
@@ -158,6 +167,15 @@ function handleIncomingConnection(ws, req, expressWS) {
     if (messageNumber === 100000000) {
       messageNumber = 0;
     } */
+
+    // check if we have the message in cache. If yes, return false. If not, store it and continue
+    const messageHash = hash(msg);
+    log.info(messageHash);
+    if (myCacheTemp.has(messageHash)) {
+      log.info(`Duplicated message hash received:${messageHash}`);
+      return;
+    }
+    myCacheTemp.set(messageHash, messageHash);
     // check rate limit
     const rateOK = fluxNetworkHelper.lruRateLimit(ipv4Peer, 90);
     if (!rateOK) {
@@ -410,7 +428,12 @@ async function initiateAndHandleConnection(connection) {
   };
 
   websocket.onmessage = async (evt) => {
-    // TODO CHECK HASH? OF MESSAGE, NOT ALREADY RECEIVED, CACHE
+    const messageHash = hash(evt);
+    log.info(messageHash);
+    if (myCacheTemp.has(messageHash)) {
+      log.info(`Duplicated message hash received:${messageHash}`);
+      return;
+    }
     // incoming messages from outgoing connections
     const currentTimeStamp = Date.now(); // ms
     // check rate limit
