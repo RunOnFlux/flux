@@ -442,9 +442,7 @@ async function initiateAndHandleConnection(connection) {
       messageNumber = 0;
     }
     const messageHash = hash(evt.data);
-    log.info(messageHash);
     if (myCacheTemp.has(messageHash)) {
-      log.info(`Duplicated message hash received:${messageHash}`);
       return;
     }
     // incoming messages from outgoing connections
