@@ -782,18 +782,14 @@ async function checkMyFluxAvailability(retryNumber = 0) {
     log.info('Getting publicIp from FluxBench');
     const benchIpResponse = await benchmarkService.getPublicIp();
     if (benchIpResponse.status === 'success') {
-      let benchMyIP = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
-      if (benchMyIP && userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
-        // add port
-        benchMyIP += userconfig.initial.apiport;
-      }
-      if (benchMyIP && benchMyIP !== myIP) {
-        log.info('New public Ip detected, updating the FluxNode info in the network');
-        myIP = benchMyIP;
+      const benchMyIP = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
+      if (benchMyIP && benchMyIP.split(':')[0] !== myIP.split(':')[0]) {
+        log.info(`New public Ip detected: ${benchMyIP.split(':')[0]}, old Ip:${myIP.split(':')[0]} , updating the FluxNode info in the network`);
         daemonServiceWalletRpcs.createConfirmationTransaction();
+        getMyFluxIPandPort(); // to update node Ip on FluxOs;
         await serviceHelper.delay(4 * 60 * 1000); // lets wait 2 blocks time for the transaction to be mined
         return true;
-      } if (benchMyIP && benchMyIP === myIP) {
+      } if (benchMyIP && benchMyIP.split(':')[0] === myIP.split(':')[0]) {
         log.info('FluxBench reported the same Ip that was already in use');
       } else {
         setDosMessage('Error getting publicIp from FluxBench');
