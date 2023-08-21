@@ -112,6 +112,33 @@ async function handleAppRunningMessage(message, fromIP) {
 }
 
 /**
+ * To handle running app messages.
+ * @param {object} message Message.
+ * @param {string} fromIP Sender's IP address.
+ */
+async function handleIPChangedMessage(message, fromIP) {
+  try {
+    // check if we have it any app running on that location and if yes, update information
+    // rebroadcast message to the network if it's valid
+    // eslint-disable-next-line global-require
+    const appsService = require('./appsService');
+    const rebroadcastToPeers = await appsService.storeIPChangedMessage(message.data);
+    const currentTimeStamp = new Date().getTime();
+    const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
+    if (rebroadcastToPeers && timestampOK) {
+      const messageString = serviceHelper.ensureString(message);
+      const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
+      fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
+      await serviceHelper.delay(500);
+      const wsList = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIP);
+      fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
  * To handle incoming connection. Several types of verification are performed.
  * @param {object} ws Web socket.
  * @param {object} req Request.
@@ -206,6 +233,8 @@ function handleIncomingConnection(ws, req, expressWS) {
             fluxCommunicationMessagesSender.respondWithAppMessage(msgObj, ws);
           } else if (msgObj.data.type === 'fluxapprunning') {
             handleAppRunningMessage(msgObj, peer.ip.replace('::ffff:', ''));
+          } else if (msgObj.data.type === 'fluxipchanged') {
+            handleIPChangedMessage(msgObj, peer.ip.replace('::ffff:', ''));
           } else {
             log.warn(`Unrecognised message type of ${msgObj.data.type}`);
           }
@@ -472,6 +501,10 @@ async function initiateAndHandleConnection(connection) {
         fluxCommunicationMessagesSender.respondWithAppMessage(msgObj, websocket);
       } else if (msgObj.data.type === 'fluxapprunning') {
         handleAppRunningMessage(msgObj, ip);
+      } else if (msgObj.data.type === 'fluxipchanged') {
+        handleIPChangedMessage(msgObj, ip);
+      } else {
+        log.warn(`Unrecognised message type of ${msgObj.data.type}`);
       }
     } else {
       // we dont like this peer as it sent wrong message (wrong, or message belonging to node no longer on network). Lets close the connection
@@ -752,6 +785,7 @@ module.exports = {
   handleAppMessages,
   addPeer,
   handleAppRunningMessage,
+  handleIPChangedMessage,
   initiateAndHandleConnection,
   getNumberOfPeers,
   addOutgoingPeer,

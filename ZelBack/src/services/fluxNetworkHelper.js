@@ -20,6 +20,8 @@ const daemonServiceWalletRpcs = require('./daemonService/daemonServiceWalletRpcs
 const benchmarkService = require('./benchmarkService');
 const verificationHelper = require('./verificationHelper');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
+const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
+const dockerService = require('./dockerService');
 const userconfig = require('../../../config/userconfig');
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
@@ -750,6 +752,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
     askingIpPort = splittedIP[1];
   }
   let myIP = myFluxIP;
+  const oldIP = myFluxIP;
   if (myIP.includes(':')) { // has port specification
     myIP = myIP.split(':')[0];
   }
@@ -787,7 +790,25 @@ async function checkMyFluxAvailability(retryNumber = 0) {
         if (benchMyIP && benchMyIP.split(':')[0] !== myIP.split(':')[0]) {
           log.info(`New public Ip detected: ${benchMyIP.split(':')[0]}, old Ip:${myIP.split(':')[0]} , updating the FluxNode info in the network`);
           daemonServiceWalletRpcs.createConfirmationTransaction();
-          getMyFluxIPandPort(); // to update node Ip on FluxOs;
+          const newIP = await getMyFluxIPandPort(); // to update node Ip on FluxOs;
+          let apps = await dockerService.dockerListContainers(true);
+          if (apps.length > 0) {
+            apps = apps.filter((app) => ((app.Names[0].slice(1, 4) === 'zel' || app.Names[0].slice(1, 5) === 'flux')) && app.Names[0] !== '/flux_watchtower');
+          }
+          if (apps.length > 0) {
+            const broadcastedAt = new Date().getTime();
+            const newIpChangedMessage = {
+              type: 'fluxipchanged',
+              version: 1,
+              oldIP,
+              newIP,
+              broadcastedAt,
+            };
+            // broadcast messages about ip changed to all peers
+            await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newIpChangedMessage);
+            await serviceHelper.delay(500);
+            await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newIpChangedMessage);
+          }
           await serviceHelper.delay(4 * 60 * 1000); // lets wait 2 blocks time for the transaction to be mined
           return true;
         } if (benchMyIP && benchMyIP.split(':')[0] === myIP.split(':')[0]) {

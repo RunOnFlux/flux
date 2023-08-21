@@ -6116,7 +6116,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
 /**
  * To store a message for a running app.
  * @param {object} message Message.
- * @returns {boolean} True if message is successfully stored and rebroadcasted. Returns false if message is already in cache, is already stored or is old. Throws an error if invalid.
+ * @returns {boolean} True if message is successfully stored and rebroadcasted. Returns false if message is old. Throws an error if invalid.
  */
 async function storeAppRunningMessage(message) {
   /* message object
@@ -6162,7 +6162,6 @@ async function storeAppRunningMessage(message) {
   }
 
   const validTill = message.broadcastedAt + (65 * 60 * 1000); // 3900 seconds
-
   if (validTill < new Date().getTime()) {
     // reject old message
     return false;
@@ -6207,6 +6206,47 @@ async function storeAppRunningMessage(message) {
   if (messageNotOk) {
     return false;
   }
+
+  // all stored, rebroadcast
+  return true;
+}
+
+/**
+ * To update DB with new node IP that is running app.
+ * @param {object} message Message.
+ * @returns {boolean} True if message is valid. Returns false if message is old. Throws an error if invalid/wrong properties.
+ */
+async function storeIPChangedMessage(message) {
+  /* message object
+  * @param type string
+  * @param version number
+  * @param oldIP string
+  * @param newIP string
+  * @param broadcastedAt number
+  */
+  if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
+    || typeof message.broadcastedAt !== 'number' || typeof message.oldIP !== 'string' || typeof message.newIP !== 'string') {
+    return new Error('Invalid Flux IP Changed message for storing');
+  }
+
+  if (message.version !== 1) {
+    return new Error(`Invalid Flux IP Changed message for storing version ${message.version} not supported`);
+  }
+
+  log.info('New Flux IP Changed message received.');
+  log.info(message);
+
+  const validTill = message.broadcastedAt + (65 * 60 * 1000); // 3900 seconds
+  if (validTill < new Date().getTime()) {
+    // reject old message
+    return false;
+  }
+
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const query = { ip: message.oldIP };
+  const update = { $set: { ip: message.newIP } };
+  await dbHelper.updateInDatabase(database, globalAppsLocations, query, update);
 
   // all stored, rebroadcast
   return true;
@@ -10406,6 +10446,7 @@ module.exports = {
   getAppsLocation,
   getAppsLocations,
   storeAppRunningMessage,
+  storeIPChangedMessage,
   reindexGlobalAppsLocation,
   getRunningAppIpList,
   getRunningAppList,
