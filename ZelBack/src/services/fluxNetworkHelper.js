@@ -789,7 +789,6 @@ async function checkMyFluxAvailability(retryNumber = 0) {
         const benchMyIP = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
         if (benchMyIP && benchMyIP.split(':')[0] !== myIP.split(':')[0]) {
           log.info(`New public Ip detected: ${benchMyIP.split(':')[0]}, old Ip:${myIP.split(':')[0]} , updating the FluxNode info in the network`);
-          daemonServiceWalletRpcs.createConfirmationTransaction();
           const newIP = await getMyFluxIPandPort(); // to update node Ip on FluxOs;
           let apps = await dockerService.dockerListContainers(true);
           if (apps.length > 0) {
@@ -808,7 +807,9 @@ async function checkMyFluxAvailability(retryNumber = 0) {
             await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newIpChangedMessage);
             await serviceHelper.delay(500);
             await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newIpChangedMessage);
+            await serviceHelper.delay(2 * 60 * 1000); // lets wait 2 minutes to give time for message being propagated on the network before we try to update the ip on blockchain
           }
+          daemonServiceWalletRpcs.createConfirmationTransaction();
           await serviceHelper.delay(4 * 60 * 1000); // lets wait 2 blocks time for the transaction to be mined
           return true;
         } if (benchMyIP && benchMyIP.split(':')[0] === myIP.split(':')[0]) {
