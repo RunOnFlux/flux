@@ -469,11 +469,13 @@ async function initiateAndHandleConnection(connection) {
     }
     if (messageNumber === 100000000) {
       messageNumber = 0;
-    }
+    } */
+    // check if we have the message in cache. If yes, return false. If not, store it and continue
     const messageHash = hash(evt.data);
     if (myCacheTemp.has(messageHash)) {
       return;
-    } */
+    }
+    myCacheTemp.set(messageHash, messageHash);
     // incoming messages from outgoing connections
     const currentTimeStamp = Date.now(); // ms
     // check rate limit
