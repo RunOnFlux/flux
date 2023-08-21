@@ -109,6 +109,13 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
       node = zl.find((key) => key.pubkey === pubKey && dataObj.data.ip && dataObj.data.ip === key.ip); // check ip is on the network and belongs to broadcasted public key
       if (!node) {
         log.warn(`Invalid fluxapprunning message, ip: ${dataObj.data.ip} pubkey: ${pubKey}`);
+        return false;
+      }
+    } else if (dataObj.data && dataObj.data.type === 'fluxipchanged') {
+      node = zl.find((key) => key.pubkey === pubKey && dataObj.data.oldIP && dataObj.data.oldIP === key.ip); // check ip is on the network and belongs to broadcasted public key
+      if (!node) {
+        log.warn(`Invalid fluxipchanged message, oldIP: ${dataObj.data.oldIP} pubkey: ${pubKey}`);
+        return false;
       }
     } else {
       node = zl.find((key) => key.pubkey === pubKey);
