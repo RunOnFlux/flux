@@ -793,7 +793,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
           const newIP = await getMyFluxIPandPort(); // to update node Ip on FluxOs;
           let apps = await dockerService.dockerListContainers(true);
           if (apps.length > 0) {
-            apps = apps.filter((app) => ((app.Names[0].slice(1, 4) === 'zel' || app.Names[0].slice(1, 5) === 'flux')) && app.Names[0] !== '/flux_watchtower');
+            apps = apps.filter((app) => ((app.Names[0].slice(1, 4) === 'zel' || app.Names[0].slice(1, 5) === 'flux') && app.Names[0] !== '/flux_watchtower'));
           }
           if (apps.length > 0) {
             const broadcastedAt = new Date().getTime();
