@@ -1,6 +1,6 @@
 const sinon = require('sinon');
 const { expect } = require('chai');
-const LRU = require('lru-cache');
+const { LRUCache } = require('lru-cache');
 const explorerService = require('../../ZelBack/src/services/explorerService');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const appsService = require('../../ZelBack/src/services/appsService');
@@ -57,8 +57,8 @@ describe('explorerService tests', () => {
     let daemonServiceTransactionRpcsStub;
 
     beforeEach(async () => {
-      lruStubGet = sinon.stub(LRU.prototype, 'get');
-      lruStubSet = sinon.stub(LRU.prototype, 'set');
+      lruStubGet = sinon.stub(LRUCache.prototype, 'get');
+      lruStubSet = sinon.stub(LRUCache.prototype, 'set');
       dbStub = sinon.stub(dbHelper, 'findOneInDatabase');
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
@@ -149,8 +149,8 @@ describe('explorerService tests', () => {
     const vout = '444';
 
     beforeEach(async () => {
-      lruStubGet = sinon.stub(LRU.prototype, 'get');
-      lruStubSet = sinon.stub(LRU.prototype, 'set');
+      lruStubGet = sinon.stub(LRUCache.prototype, 'get');
+      lruStubSet = sinon.stub(LRUCache.prototype, 'set');
       dbStub = sinon.stub(dbHelper, 'findOneInDatabase');
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();

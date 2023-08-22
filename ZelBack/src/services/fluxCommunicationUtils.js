@@ -1,5 +1,5 @@
 /* eslint-disable no-underscore-dangle */
-const LRU = require('lru-cache');
+const { LRUCache } = require('lru-cache');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
@@ -7,10 +7,11 @@ const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnode
 // default cache
 const LRUoptions = {
   max: 20000, // currently 20000 nodes
+  ttl: 1000 * 480, // 480 seconds, allow up to 4 blocks
   maxAge: 1000 * 480, // 480 seconds, allow up to 4 blocks
 };
 
-const myCache = new LRU(LRUoptions);
+const myCache = new LRUCache(LRUoptions);
 
 let addingNodesToCache = false;
 
@@ -108,6 +109,13 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
       node = zl.find((key) => key.pubkey === pubKey && dataObj.data.ip && dataObj.data.ip === key.ip); // check ip is on the network and belongs to broadcasted public key
       if (!node) {
         log.warn(`Invalid fluxapprunning message, ip: ${dataObj.data.ip} pubkey: ${pubKey}`);
+        return false;
+      }
+    } else if (dataObj.data && dataObj.data.type === 'fluxipchanged') {
+      node = zl.find((key) => key.pubkey === pubKey && dataObj.data.oldIP && dataObj.data.oldIP === key.ip); // check ip is on the network and belongs to broadcasted public key
+      if (!node) {
+        log.warn(`Invalid fluxipchanged message, oldIP: ${dataObj.data.oldIP} pubkey: ${pubKey}`);
+        return false;
       }
     } else {
       node = zl.find((key) => key.pubkey === pubKey);

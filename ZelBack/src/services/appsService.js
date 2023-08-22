@@ -7,7 +7,7 @@ const os = require('os');
 const path = require('path');
 const nodecmd = require('node-cmd');
 const df = require('node-df');
-const LRU = require('lru-cache');
+const { LRUCache } = require('lru-cache');
 const systemcrontab = require('crontab');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
@@ -55,29 +55,18 @@ const globalAppsLocations = config.database.appsglobal.collections.appsLocations
 const testingAppExpress = express();
 const testingAppserver = http.createServer(testingAppExpress);
 
-// cache for app running messages
-const LRUoptionsRun = { // cache for app running messages
-  max: 50000, // store max 50000 values, eventhough we can have more values. this accounts for more than 15000 app instances. Less than 500 Bytes per value -> 25MB cache
-  maxAge: 1000 * 60 * 70, // 70 minutes
-};
-
-// cache for temporary messages
-const LRUoptionsTemp = { // cache for temporary messages
-  max: 10000, // store max 10000 values
-  maxAge: 1000 * 60 * 70, // 70 minutes
-};
 const GlobalAppsSpawnLRUoptions = {
   max: 2000,
+  ttl: 1000 * 60 * 60 * 2, // 2 hours
   maxAge: 1000 * 60 * 60 * 2, // 2 hours
 };
 const longCache = {
   max: 500,
+  ttl: 1000 * 60 * 60 * 3, // 3 hours
   maxAge: 1000 * 60 * 60 * 3, // 3 hours
 };
-const myCacheRun = new LRU(LRUoptionsRun);
-const myCacheTemp = new LRU(LRUoptionsTemp);
-const trySpawningGlobalAppCache = new LRU(GlobalAppsSpawnLRUoptions);
-const myLongCache = new LRU(longCache);
+const trySpawningGlobalAppCache = new LRUCache(GlobalAppsSpawnLRUoptions);
+const myLongCache = new LRUCache(longCache);
 
 let removalInProgress = false;
 let installationInProgress = false;
@@ -5512,6 +5501,7 @@ async function restoreFluxPortsSupport() {
 
     const apiPort = userconfig.initial.apiport || config.server.apiport;
     const homePort = +apiPort - 1;
+    const apiPortSSL = +apiPort + 1;
     const syncthingPort = +apiPort + 2;
 
     const firewallActive = await fluxNetworkHelper.isFirewallActive();
@@ -5519,6 +5509,7 @@ async function restoreFluxPortsSupport() {
       // setup UFW if active
       await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(apiPort));
       await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(homePort));
+      await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(apiPortSSL));
       await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(syncthingPort));
     }
 
@@ -6054,11 +6045,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   if (typeof message.appSpecifications !== 'object' && typeof message.zelAppSpecifications !== 'object') {
     return new Error('Invalid Flux App message for storing');
   }
-  // check if we have the message in cache. If yes, return false. If not, store it and continue
-  if (myCacheTemp.has(message.hash)) {
-    return false;
-  }
-  myCacheTemp.set(message.hash, message);
+
   const specifications = message.appSpecifications || message.zelAppSpecifications;
   // eslint-disable-next-line no-use-before-define
   const appSpecFormatted = specificationFormatter(specifications);
@@ -6131,7 +6118,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
 /**
  * To store a message for a running app.
  * @param {object} message Message.
- * @returns {boolean} True if message is successfully stored and rebroadcasted. Returns false if message is already in cache, is already stored or is old. Throws an error if invalid.
+ * @returns {boolean} True if message is successfully stored and rebroadcasted. Returns false if message is old. Throws an error if invalid.
  */
 async function storeAppRunningMessage(message) {
   /* message object
@@ -6176,14 +6163,7 @@ async function storeAppRunningMessage(message) {
     }
   }
 
-  // check if we have the message in cache. If yes, return false. If not, store it and continue
-  if (myCacheRun.has(serviceHelper.ensureString(message))) {
-    return false;
-  }
-  myCacheRun.set(serviceHelper.ensureString(message), message);
-
   const validTill = message.broadcastedAt + (65 * 60 * 1000); // 3900 seconds
-
   if (validTill < new Date().getTime()) {
     // reject old message
     return false;
@@ -6228,6 +6208,47 @@ async function storeAppRunningMessage(message) {
   if (messageNotOk) {
     return false;
   }
+
+  // all stored, rebroadcast
+  return true;
+}
+
+/**
+ * To update DB with new node IP that is running app.
+ * @param {object} message Message.
+ * @returns {boolean} True if message is valid. Returns false if message is old. Throws an error if invalid/wrong properties.
+ */
+async function storeIPChangedMessage(message) {
+  /* message object
+  * @param type string
+  * @param version number
+  * @param oldIP string
+  * @param newIP string
+  * @param broadcastedAt number
+  */
+  if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
+    || typeof message.broadcastedAt !== 'number' || typeof message.oldIP !== 'string' || typeof message.newIP !== 'string') {
+    return new Error('Invalid Flux IP Changed message for storing');
+  }
+
+  if (message.version !== 1) {
+    return new Error(`Invalid Flux IP Changed message for storing version ${message.version} not supported`);
+  }
+
+  log.info('New Flux IP Changed message received.');
+  log.info(message);
+
+  const validTill = message.broadcastedAt + (65 * 60 * 1000); // 3900 seconds
+  if (validTill < new Date().getTime()) {
+    // reject old message
+    return false;
+  }
+
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const query = { ip: message.oldIP };
+  const update = { $set: { ip: message.newIP } };
+  await dbHelper.updateInDatabase(database, globalAppsLocations, query, update);
 
   // all stored, rebroadcast
   return true;
@@ -10427,6 +10448,7 @@ module.exports = {
   getAppsLocation,
   getAppsLocations,
   storeAppRunningMessage,
+  storeIPChangedMessage,
   reindexGlobalAppsLocation,
   getRunningAppIpList,
   getRunningAppList,

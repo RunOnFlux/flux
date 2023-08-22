@@ -1,6 +1,7 @@
 /* eslint-disable no-underscore-dangle */
 const config = require('config');
-const LRU = require('lru-cache');
+const { LRUCache } = require('lru-cache');
+const hash = require('object-hash');
 const WebSocket = require('ws');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
@@ -18,19 +19,38 @@ let response = messageHelper.createErrorMessage();
 // default cache
 const LRUoptions = {
   max: 20000, // currently 20000 nodes
+  ttl: 1000 * 360, // 360 seconds, 3 blocks
   maxAge: 1000 * 360, // 360 seconds, 3 blocks
 };
 
 const LRUNodeListSortedoptions = {
   max: 1, // NodeListSorted
+  ttl: 10 * 60 * 1000, // 10m , 5 blocks
   maxAge: 10 * 60 * 1000, // 10m , 5 blocks
 };
 
-const sortedNodeListCache = new LRU(LRUNodeListSortedoptions);
+const sortedNodeListCache = new LRUCache(LRUNodeListSortedoptions);
+
+// cache for temporary messages
+const LRUoptionsTemp = { // cache for temporary messages
+  max: 20000, // store max 20000 values
+  ttl: 1000 * 60 * 70, // 70 minutes
+  maxAge: 1000 * 60 * 70, // 70 minutes
+};
+
+const myCacheTemp = new LRUCache(LRUoptionsTemp);
+
+/* const LRUTest = {
+  max: 25000000, // 25M
+  ttl: 60 * 60 * 1000, // 1h
+  maxAge: 60 * 60 * 1000, // 1h
+};
+
+const testListCache = new LRUCache(LRUTest); */
 
 let numberOfFluxNodes = 0;
 
-const blockedPubKeysCache = new LRU(LRUoptions);
+const blockedPubKeysCache = new LRUCache(LRUoptions);
 
 const privateIpsList = [
   '192.168.', '10.',
@@ -92,12 +112,40 @@ async function handleAppRunningMessage(message, fromIP) {
 }
 
 /**
+ * To handle running app messages.
+ * @param {object} message Message.
+ * @param {string} fromIP Sender's IP address.
+ */
+async function handleIPChangedMessage(message, fromIP) {
+  try {
+    // check if we have it any app running on that location and if yes, update information
+    // rebroadcast message to the network if it's valid
+    // eslint-disable-next-line global-require
+    const appsService = require('./appsService');
+    const rebroadcastToPeers = await appsService.storeIPChangedMessage(message.data);
+    const currentTimeStamp = new Date().getTime();
+    const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
+    if (rebroadcastToPeers && timestampOK) {
+      const messageString = serviceHelper.ensureString(message);
+      const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
+      fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
+      await serviceHelper.delay(500);
+      const wsList = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIP);
+      fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
  * To handle incoming connection. Several types of verification are performed.
  * @param {object} ws Web socket.
  * @param {object} req Request.
  * @param {object} expressWS Express web socket.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
+// let messageNumber = 0;
 // eslint-disable-next-line no-unused-vars
 function handleIncomingConnection(ws, req, expressWS) {
   // now we are in connections state. push the websocket to our incomingconnections
@@ -135,6 +183,26 @@ function handleIncomingConnection(ws, req, expressWS) {
   incomingPeers.push(peer);
   // verify data integrity, if not signed, close connection
   ws.on('message', async (msg) => {
+    if (!msg) {
+      return;
+    }
+    // uncomment block bellow to know how many messages is a fluxNode receiving every hour
+    /* messageNumber += 1;
+    testListCache.set(messageNumber, messageNumber);
+    if (messageNumber % 200 === 0) {
+      testListCache.purgeStale();
+      log.info(`Number of messages received in the last hour:${testListCache.size}`);
+    }
+    if (messageNumber === 100000000) {
+      messageNumber = 0;
+    } */
+
+    // check if we have the message in cache. If yes, return false. If not, store it and continue
+    const messageHash = hash(msg);
+    if (myCacheTemp.has(messageHash)) {
+      return;
+    }
+    myCacheTemp.set(messageHash, messageHash);
     // check rate limit
     const rateOK = fluxNetworkHelper.lruRateLimit(ipv4Peer, 90);
     if (!rateOK) {
@@ -165,6 +233,8 @@ function handleIncomingConnection(ws, req, expressWS) {
             fluxCommunicationMessagesSender.respondWithAppMessage(msgObj, ws);
           } else if (msgObj.data.type === 'fluxapprunning') {
             handleAppRunningMessage(msgObj, peer.ip.replace('::ffff:', ''));
+          } else if (msgObj.data.type === 'fluxipchanged') {
+            handleIPChangedMessage(msgObj, peer.ip.replace('::ffff:', ''));
           } else {
             log.warn(`Unrecognised message type of ${msgObj.data.type}`);
           }
@@ -387,6 +457,25 @@ async function initiateAndHandleConnection(connection) {
   };
 
   websocket.onmessage = async (evt) => {
+    if (!evt) {
+      return;
+    }
+    // uncomment block bellow to know how many messages is a fluxNode receiving every hour
+    /* messageNumber += 1;
+    testListCache.set(messageNumber, messageNumber);
+    if (messageNumber % 200 === 0) {
+      testListCache.purgeStale();
+      log.info(`Number of messages received in the last hour:${testListCache.size}`);
+    }
+    if (messageNumber === 100000000) {
+      messageNumber = 0;
+    } */
+    // check if we have the message in cache. If yes, return false. If not, store it and continue
+    const messageHash = hash(evt.data);
+    if (myCacheTemp.has(messageHash)) {
+      return;
+    }
+    myCacheTemp.set(messageHash, messageHash);
     // incoming messages from outgoing connections
     const currentTimeStamp = Date.now(); // ms
     // check rate limit
@@ -414,6 +503,10 @@ async function initiateAndHandleConnection(connection) {
         fluxCommunicationMessagesSender.respondWithAppMessage(msgObj, websocket);
       } else if (msgObj.data.type === 'fluxapprunning') {
         handleAppRunningMessage(msgObj, ip);
+      } else if (msgObj.data.type === 'fluxipchanged') {
+        handleIPChangedMessage(msgObj, ip);
+      } else {
+        log.warn(`Unrecognised message type of ${msgObj.data.type}`);
       }
     } else {
       // we dont like this peer as it sent wrong message (wrong, or message belonging to node no longer on network). Lets close the connection
@@ -694,6 +787,7 @@ module.exports = {
   handleAppMessages,
   addPeer,
   handleAppRunningMessage,
+  handleIPChangedMessage,
   initiateAndHandleConnection,
   getNumberOfPeers,
   addOutgoingPeer,

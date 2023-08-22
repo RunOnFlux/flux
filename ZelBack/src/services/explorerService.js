@@ -1,5 +1,5 @@
 const config = require('config');
-const LRU = require('lru-cache');
+const { LRUCache } = require('lru-cache');
 
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
@@ -33,7 +33,7 @@ const LRUoptions = {
   max: 20000, // store 20k of nodes value forever, no ttl
 };
 
-const nodeCollateralCache = new LRU(LRUoptions);
+const nodeCollateralCache = new LRUCache(LRUoptions);
 
 /**
  * To return the sender's transaction info from the daemon service.

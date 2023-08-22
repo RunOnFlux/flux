@@ -15,7 +15,6 @@ const logLevel = config && config.logLevel ? config.logLevel : levels.debug;
 const homeDirPath = path.join(__dirname, '../../../');
 
 const fileSizeCache = {};
-const fileStreamCache = {};
 
 function getFilesizeInBytes(filename) {
   if (filename && fileSizeCache[filename]) {

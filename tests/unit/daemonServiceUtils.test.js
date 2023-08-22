@@ -1,6 +1,6 @@
 const chai = require('chai');
 const sinon = require('sinon');
-const LRU = require('lru-cache');
+const { LRUCache } = require('lru-cache');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const client = require('../../ZelBack/src/services/utils/daemonrpcClient').default;
 
@@ -10,7 +10,7 @@ describe('daemonServiceUtils tests', () => {
   describe('executeCall tests', () => {
     let getSpy;
     beforeEach(() => {
-      getSpy = sinon.spy(LRU.prototype, 'get');
+      getSpy = sinon.spy(LRUCache.prototype, 'get');
     });
 
     afterEach(() => {
