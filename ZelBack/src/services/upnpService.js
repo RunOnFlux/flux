@@ -145,6 +145,12 @@ async function setupUPNP(apiport = config.server.apiport) {
       description: 'Flux_Backend_API',
     });
     await client.createMapping({
+      public: +apiport + 1,
+      private: +apiport + 1,
+      ttl: 0, // Some routers force low ttl if 0, indefinite/default is used. Flux refreshes this every 6 blocks ~ 12 minutes
+      description: 'Flux_Backend_API_SSL',
+    });
+    await client.createMapping({
       public: +apiport - 1,
       private: +apiport - 1,
       ttl: 0,

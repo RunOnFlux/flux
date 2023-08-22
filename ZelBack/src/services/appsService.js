@@ -5501,6 +5501,7 @@ async function restoreFluxPortsSupport() {
 
     const apiPort = userconfig.initial.apiport || config.server.apiport;
     const homePort = +apiPort - 1;
+    const apiPortSSL = +apiPort + 1;
     const syncthingPort = +apiPort + 2;
 
     const firewallActive = await fluxNetworkHelper.isFirewallActive();
@@ -5508,6 +5509,7 @@ async function restoreFluxPortsSupport() {
       // setup UFW if active
       await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(apiPort));
       await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(homePort));
+      await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(apiPortSSL));
       await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(syncthingPort));
     }
 

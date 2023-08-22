@@ -208,6 +208,7 @@ Allow Inbound Connections on UFW firewall - default ports (if ufw enabled):
 ```bash
 sudo ufw allow 16126
 sudo ufw allow 16127
+sudo ufw allow 16128
 sudo ufw allow 16129
 ```
 

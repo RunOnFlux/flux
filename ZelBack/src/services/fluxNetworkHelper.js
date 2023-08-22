@@ -1243,8 +1243,9 @@ async function adjustFirewall() {
     const cmdAsync = util.promisify(nodecmd.get);
     const apiPort = userconfig.initial.apiport || config.server.apiport;
     const homePort = +apiPort - 1;
+    const apiSSLPort = +apiPort + 1;
     const syncthingPort = +apiPort + 2;
-    let ports = [apiPort, homePort, syncthingPort, 80, 443, 16125];
+    let ports = [apiPort, homePort, apiSSLPort, syncthingPort, 80, 443, 16125];
     const fluxCommunicationPorts = config.server.allowedPorts;
     ports = ports.concat(fluxCommunicationPorts);
     const firewallActive = await isFirewallActive();
