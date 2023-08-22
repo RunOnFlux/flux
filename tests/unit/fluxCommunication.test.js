@@ -91,14 +91,14 @@ describe('fluxCommunication tests', () => {
       const hash = await generalService.messageHash(messageToHash);
       const message = {
         data:
-     {
-       type,
-       version,
-       appSpecifications,
-       timestamp,
-       signature,
-       hash,
-     },
+        {
+          type,
+          version,
+          appSpecifications,
+          timestamp,
+          signature,
+          hash,
+        },
       };
 
       const wsuri = 'wss://api.runonflux.io/ws/flux/';
@@ -170,14 +170,14 @@ describe('fluxCommunication tests', () => {
       const hash = await generalService.messageHash(messageToHash);
       const message = {
         data:
-     {
-       type,
-       version,
-       appSpecifications,
-       timestamp,
-       signature,
-       hash,
-     },
+        {
+          type,
+          version,
+          appSpecifications,
+          timestamp,
+          signature,
+          hash,
+        },
       };
 
       await fluxCommunication.handleAppMessages(message, fromIp);
@@ -201,14 +201,14 @@ describe('fluxCommunication tests', () => {
       const hash = await generalService.messageHash(messageToHash);
       const message = {
         data:
-     {
-       type,
-       version,
-       appSpecifications,
-       timestamp,
-       signature,
-       hash,
-     },
+        {
+          type,
+          version,
+          appSpecifications,
+          timestamp,
+          signature,
+          hash,
+        },
       };
 
       await fluxCommunication.handleAppMessages(message, fromIp);
@@ -898,7 +898,7 @@ describe('fluxCommunication tests', () => {
 
     it('should close the connection if peer is added to blockedList', async () => {
       const message = JSON.stringify({
-        pubKey: '1234asd',
+        pubKey: '1234asde',
       });
       const waitForWsConnected = (wss) => new Promise((resolve, reject) => {
         wss.on('connection', (ws) => {
