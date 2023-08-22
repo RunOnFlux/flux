@@ -898,7 +898,7 @@ describe('fluxCommunication tests', () => {
 
     it('should close the connection if peer is added to blockedList', async () => {
       const message = JSON.stringify({
-        pubKey: '1234asde',
+        pubKey: '1234asd',
       });
       const waitForWsConnected = (wss) => new Promise((resolve, reject) => {
         wss.on('connection', (ws) => {
