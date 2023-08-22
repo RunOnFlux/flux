@@ -20,8 +20,6 @@ const daemonServiceWalletRpcs = require('./daemonService/daemonServiceWalletRpcs
 const benchmarkService = require('./benchmarkService');
 const verificationHelper = require('./verificationHelper');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
-const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
-const dockerService = require('./dockerService');
 const userconfig = require('../../../config/userconfig');
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
@@ -790,6 +788,8 @@ async function checkMyFluxAvailability(retryNumber = 0) {
         if (benchMyIP && benchMyIP.split(':')[0] !== myIP.split(':')[0]) {
           log.info(`New public Ip detected: ${benchMyIP.split(':')[0]}, old Ip:${myIP.split(':')[0]} , updating the FluxNode info in the network`);
           const newIP = await getMyFluxIPandPort(); // to update node Ip on FluxOs;
+          // eslint-disable-next-line global-require
+          const dockerService = require('./dockerService');
           let apps = await dockerService.dockerListContainers(true);
           if (apps.length > 0) {
             apps = apps.filter((app) => ((app.Names[0].slice(1, 4) === 'zel' || app.Names[0].slice(1, 5) === 'flux') && app.Names[0] !== '/flux_watchtower'));
@@ -804,6 +804,8 @@ async function checkMyFluxAvailability(retryNumber = 0) {
               broadcastedAt,
             };
             // broadcast messages about ip changed to all peers
+            // eslint-disable-next-line global-require
+            const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
             await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newIpChangedMessage);
             await serviceHelper.delay(500);
             await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newIpChangedMessage);
