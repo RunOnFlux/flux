@@ -913,7 +913,8 @@ describe('fluxCommunication tests', () => {
       const ip = '127.0.0.2';
       wsserver = new WebSocket.Server({ host: '127.0.0.2', port: '16127' });
       lruRateLimitStub.returns(true);
-      sinon.stub(LRUCache.prototype, 'has').returns(true);
+      const hasCacheStub = sinon.stub(LRUCache.prototype, 'has');
+      hasCacheStub.withArgs(ip).returns(true);
       const websocketCloseSpy = sinon.spy(WebSocket.prototype, 'close');
 
       await fluxCommunication.initiateAndHandleConnection(ip);
