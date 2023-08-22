@@ -148,10 +148,10 @@ describe('upnpService tests', () => {
         public: 123, private: 123, ttl: 0, description: 'Flux_Backend_API',
       });
       sinon.assert.calledWithExactly(createMappingSpy, {
-        public: 122, private: 122, ttl: 0, description: 'Flux_Home_UI',
+        public: 124, private: 124, ttl: 0, description: 'Flux_Backend_API_SSL',
       });
       sinon.assert.calledWithExactly(createMappingSpy, {
-        public: 124, private: 124, ttl: 0, description: 'Flux_Backend_API_SSL',
+        public: 122, private: 122, ttl: 0, description: 'Flux_Home_UI',
       });
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 125, private: 125, ttl: 0, description: 'Flux_Syncthing',
@@ -170,10 +170,10 @@ describe('upnpService tests', () => {
         public: 16127, private: 16127, ttl: 0, description: 'Flux_Backend_API',
       });
       sinon.assert.calledWithExactly(createMappingSpy, {
-        public: 16126, private: 16126, ttl: 0, description: 'Flux_Home_UI',
+        public: 16128, private: 16128, ttl: 0, description: 'Flux_Backend_API_SSL',
       });
       sinon.assert.calledWithExactly(createMappingSpy, {
-        public: 16128, private: 16128, ttl: 0, description: 'Flux_Backend_API_SSL',
+        public: 16126, private: 16126, ttl: 0, description: 'Flux_Home_UI',
       });
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 16129, private: 16129, ttl: 0, description: 'Flux_Syncthing',
