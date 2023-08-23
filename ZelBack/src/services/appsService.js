@@ -2349,6 +2349,23 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
     } else {
       await appUninstallHard(appName, appId, appSpecifications, isComponent, res);
     }
+
+    const ip = await fluxNetworkHelper.getMyFluxIPandPort();
+    if (ip) {
+      const broadcastedAt = new Date().getTime();
+      const appRemovedMessage = {
+        type: 'fluxappremoved',
+        version: 1,
+        appName,
+        ip,
+        broadcastedAt,
+      };
+      // broadcast messages about app removed to all peers
+      await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(appRemovedMessage);
+      await serviceHelper.delay(500);
+      await fluxCommunicationMessagesSender.broadcastMessageToIncoming(appRemovedMessage);
+    }
+
     if (!isComponent) {
       const dockerNetworkStatus = {
         status: 'Cleaning up docker network...',
@@ -2592,6 +2609,22 @@ async function softRemoveAppLocally(app, res) {
     await appUninstallSoft(appName, appId, componentSpecifications, isComponent, res);
   } else {
     await appUninstallSoft(appName, appId, appSpecifications, isComponent, res);
+  }
+
+  const ip = await fluxNetworkHelper.getMyFluxIPandPort();
+  if (ip) {
+    const broadcastedAt = new Date().getTime();
+    const appRemovedMessage = {
+      type: 'fluxappremoved',
+      version: 1,
+      appName,
+      ip,
+      broadcastedAt,
+    };
+    // broadcast messages about app removed to all peers
+    await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(appRemovedMessage);
+    await serviceHelper.delay(500);
+    await fluxCommunicationMessagesSender.broadcastMessageToIncoming(appRemovedMessage);
   }
 
   if (!isComponent) {
@@ -6257,6 +6290,55 @@ async function storeIPChangedMessage(message) {
   const query = { ip: message.oldIP };
   const update = { $set: { ip: message.newIP } };
   await dbHelper.updateInDatabase(database, globalAppsLocations, query, update);
+
+  // all stored, rebroadcast
+  return true;
+}
+
+/**
+ * To remove from DB that the IP is running the app.
+ * @param {object} message Message.
+ * @returns {boolean} True if message is valid. Returns false if message is old. Throws an error if invalid/wrong properties.
+ */
+async function storeAppRemovedMessage(message) {
+  /* message object
+  * @param type string
+  * @param version number
+  * @param ip string
+  * @param appName string
+  * @param broadcastedAt number
+  */
+  if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
+    || typeof message.broadcastedAt !== 'number' || typeof message.ip !== 'string' || typeof message.appName !== 'string') {
+    return new Error('Invalid Flux App Removed message for storing');
+  }
+
+  if (message.version !== 1) {
+    return new Error(`Invalid Flux App Removed message for storing version ${message.version} not supported`);
+  }
+
+  if (!message.ip) {
+    return new Error('Invalid Flux App Removed message ip cannot be empty');
+  }
+
+  if (!message.appName) {
+    return new Error('Invalid Flux App Removed message appName cannot be empty');
+  }
+
+  log.info('New Flux App Removed message received.');
+  log.info(message);
+
+  const validTill = message.broadcastedAt + (65 * 60 * 1000); // 3900 seconds
+  if (validTill < new Date().getTime()) {
+    // reject old message
+    return false;
+  }
+
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const query = { ip: message.ip, name: message.appName };
+  const projection = {};
+  await dbHelper.findOneAndDeleteInDatabase(database, globalAppsLocations, query, projection);
 
   // all stored, rebroadcast
   return true;
@@ -10457,6 +10539,7 @@ module.exports = {
   getAppsLocations,
   storeAppRunningMessage,
   storeIPChangedMessage,
+  storeAppRemovedMessage,
   reindexGlobalAppsLocation,
   getRunningAppIpList,
   getRunningAppList,
