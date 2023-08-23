@@ -786,34 +786,37 @@ async function checkMyFluxAvailability(retryNumber = 0) {
       if (benchIpResponse.status === 'success') {
         const benchMyIP = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
         if (benchMyIP && benchMyIP.split(':')[0] !== myIP.split(':')[0]) {
-          log.info(`New public Ip detected: ${benchMyIP.split(':')[0]}, old Ip:${myIP.split(':')[0]} , updating the FluxNode info in the network`);
+          await serviceHelper.delay(2 * 1000); // await two seconds
           const newIP = await getMyFluxIPandPort(); // to update node Ip on FluxOs;
-          // eslint-disable-next-line global-require
-          const dockerService = require('./dockerService');
-          let apps = await dockerService.dockerListContainers(true);
-          if (apps.length > 0) {
-            apps = apps.filter((app) => ((app.Names[0].slice(1, 4) === 'zel' || app.Names[0].slice(1, 5) === 'flux') && app.Names[0] !== '/flux_watchtower'));
-          }
-          if (apps.length > 0) {
-            const broadcastedAt = new Date().getTime();
-            const newIpChangedMessage = {
-              type: 'fluxipchanged',
-              version: 1,
-              oldIP,
-              newIP,
-              broadcastedAt,
-            };
-            // broadcast messages about ip changed to all peers
+          if (newIP && newIP !== oldIP) { // double check
+            log.info(`New public Ip detected: ${newIP}, old Ip:${oldIP} , updating the FluxNode info in the network`);
             // eslint-disable-next-line global-require
-            const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
-            await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newIpChangedMessage);
-            await serviceHelper.delay(500);
-            await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newIpChangedMessage);
-            await serviceHelper.delay(2 * 60 * 1000); // lets wait 2 minutes to give time for message being propagated on the network before we try to update the ip on blockchain
+            const dockerService = require('./dockerService');
+            let apps = await dockerService.dockerListContainers(true);
+            if (apps.length > 0) {
+              apps = apps.filter((app) => ((app.Names[0].slice(1, 4) === 'zel' || app.Names[0].slice(1, 5) === 'flux') && app.Names[0] !== '/flux_watchtower'));
+            }
+            if (apps.length > 0) {
+              const broadcastedAt = new Date().getTime();
+              const newIpChangedMessage = {
+                type: 'fluxipchanged',
+                version: 1,
+                oldIP,
+                newIP,
+                broadcastedAt,
+              };
+              // broadcast messages about ip changed to all peers
+              // eslint-disable-next-line global-require
+              const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
+              await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newIpChangedMessage);
+              await serviceHelper.delay(500);
+              await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newIpChangedMessage);
+              await serviceHelper.delay(2 * 60 * 1000); // lets wait 2 minutes to give time for message being propagated on the network before we try to update the ip on blockchain
+            }
+            daemonServiceWalletRpcs.createConfirmationTransaction();
+            await serviceHelper.delay(4 * 60 * 1000); // lets wait 2 blocks time for the transaction to be mined
+            return true;
           }
-          daemonServiceWalletRpcs.createConfirmationTransaction();
-          await serviceHelper.delay(4 * 60 * 1000); // lets wait 2 blocks time for the transaction to be mined
-          return true;
         } if (benchMyIP && benchMyIP.split(':')[0] === myIP.split(':')[0]) {
           log.info('FluxBench reported the same Ip that was already in use');
         } else {
