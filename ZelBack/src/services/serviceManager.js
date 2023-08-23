@@ -38,12 +38,12 @@ async function startFluxFunctions() {
         log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to map to api or home port. Shutting down.`);
         process.exit();
       }
+      setInterval(() => {
+        upnpService.adjustFirewallForUPNP();
+      }, 2 * 60 * 60 * 1000); // every 2 hours
     } else {
       upnpService.setupUPNP(apiPort);
     }
-    setInterval(() => {
-      upnpService.adjustFirewallForUPNP();
-    }, 2 * 60 * 60 * 1000); // every 2 hours
     log.info('Initiating MongoDB connection');
     await dbHelper.initiateDB(); // either true or throws error
     log.info('DB connected');
