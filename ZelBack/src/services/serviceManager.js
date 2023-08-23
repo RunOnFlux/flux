@@ -27,7 +27,8 @@ async function startFluxFunctions() {
       process.exit();
     }
     const verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
-    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+    if (userconfig.initial.apiport && (userconfig.initial.apiport !== config.server.apiport || userconfig.initial.routerIP)) {
+      log.info('FluxOS is configured to run under UPNP');
       if (verifyUpnp !== true) {
         log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to verify support. Shutting down.`);
         process.exit();
@@ -37,11 +38,11 @@ async function startFluxFunctions() {
         log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to map to api or home port. Shutting down.`);
         process.exit();
       }
-    } else {
-      upnpService.setupUPNP(apiPort);
       setInterval(() => {
         upnpService.adjustFirewallForUPNP();
       }, 2 * 60 * 60 * 1000); // every 2 hours
+    } else {
+      upnpService.setupUPNP(apiPort);
     }
     log.info('Initiating MongoDB connection');
     await dbHelper.initiateDB(); // either true or throws error
