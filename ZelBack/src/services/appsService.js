@@ -6235,6 +6235,14 @@ async function storeIPChangedMessage(message) {
     return new Error(`Invalid Flux IP Changed message for storing version ${message.version} not supported`);
   }
 
+  if (!message.oldIP || !message.newIP) {
+    return new Error('Invalid Flux IP Changed message oldIP and newIP cannot be empty');
+  }
+
+  if (message.oldIP === message.newIP) {
+    return new Error(`Invalid Flux IP Changed message oldIP and newIP are the same ${message.newIP}`);
+  }
+
   log.info('New Flux IP Changed message received.');
   log.info(message);
 
