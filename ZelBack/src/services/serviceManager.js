@@ -27,7 +27,8 @@ async function startFluxFunctions() {
       process.exit();
     }
     const verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
-    if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
+    if (userconfig.initial.apiport && (userconfig.initial.apiport !== config.server.apiport || userconfig.initial.routerIP)) {
+      log.info('FluxOS is configured to run under UPNP');
       if (verifyUpnp !== true) {
         log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to verify support. Shutting down.`);
         process.exit();
