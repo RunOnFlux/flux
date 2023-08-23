@@ -100,7 +100,7 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
       public: +apiport + 1,
       private: +apiport + 1,
       ttl: 0,
-      description: 'Flux_OS_reserved_port',
+      description: 'Flux_Backend_API_SSL',
     });
   } catch (error) {
     log.error(error);
