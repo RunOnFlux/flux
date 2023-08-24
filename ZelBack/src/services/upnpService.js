@@ -97,10 +97,10 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
   }
   try {
     await client.createMapping({
-      public: +apiport + 1,
-      private: +apiport + 1,
+      public: +apiport + 3,
+      private: +apiport + 3,
       ttl: 0,
-      description: 'Flux_Backend_API_SSL',
+      description: 'Flux_UPNP_Mapping_Test',
     });
   } catch (error) {
     log.error(error);
@@ -118,7 +118,7 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
   }
   try {
     await client.removeMapping({
-      public: +apiport + 1,
+      public: +apiport + 3,
     });
   } catch (error) {
     log.error(error);
