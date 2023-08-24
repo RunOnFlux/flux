@@ -9928,7 +9928,7 @@ async function syncthingApps() {
     // all configuration changes applied
 
     // check for errors in folders and if true reset that index database
-    for (let i = 0; i < foldersConfiguration.size; i += 1) {
+    for (let i = 0; i < foldersConfiguration.length; i += 1) {
       const folder = foldersConfiguration[i];
       // eslint-disable-next-line no-await-in-loop
       const folderError = await syncthingService.getFolderIdErrors(folder.id);
