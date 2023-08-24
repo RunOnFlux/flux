@@ -437,6 +437,22 @@ async function systemReset(req, res) {
 }
 
 /**
+ * To erase the current index folderId database and restart Syncthing.
+ * @param {string} folderId Request.
+ * @param {object} res Response.
+ * @returns {object} returns the output of syncthing reponse of rest/system/reset
+ */
+async function systemResetFolderId(folderId) {
+  let apiPath = '/rest/system/reset';
+  if (folderId) {
+    apiPath += `?folder=${folderId}`;
+  } else {
+    throw new Error('folder parameter is mandatory');
+  }
+  return performRequest('post', apiPath);
+}
+
+/**
  * To immediately restart Syncthing
  * @param {object} req Request.
  * @param {object} res Response.
@@ -1165,6 +1181,21 @@ async function postClusterPendigFolders(req, res) {
 // === FOLDER ENDPOINTS ===
 
 /**
+ * Returns the list of errors encountered during scanning or pulling. Takes one mandatory parameter {folderid}
+ * @param {string} folderid FolderId.
+ * @returns {object} returns the output of syncthing reponse of /rest/folder/errors
+ */
+async function getFolderIdErrors(folderid) {
+  let apiPath = '/rest/folder/errors';
+  if (folderid) {
+    apiPath += `?folder=${folderid}`;
+  } else {
+    throw new Error('folder parameter is mandatory');
+  }
+  return performRequest('get', apiPath);
+}
+
+/**
  * Returns the list of errors encountered during scanning or pulling. Takes one mandatory parameter {folder}
  * @param {object} req Request.
  * @param {object} res Response.
@@ -1174,13 +1205,10 @@ async function getFolderErrors(req, res) {
   try {
     let { folder } = req.params;
     folder = folder || req.query.folder;
-    let apiPath = '/rest/folder/errors';
-    if (folder) {
-      apiPath += `?folder=${folder}`;
-    } else {
+    if (!folder) {
       throw new Error('folder parameter is mandatory');
     }
-    const response = await performRequest('get', apiPath);
+    const response = await getFolderIdErrors(folder);
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
@@ -2237,6 +2265,7 @@ module.exports = {
   systemPaths,
   systemPause,
   systemReset,
+  systemResetFolderId,
   systemRestart,
   systemResume,
   systemShutdown,
@@ -2271,6 +2300,7 @@ module.exports = {
   getClusterPendigFolders,
   postClusterPendigFolders,
   // Folder
+  getFolderIdErrors,
   getFolderErrors,
   getFolderVersions,
   postFolderVersions,

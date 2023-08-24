@@ -9926,6 +9926,20 @@ async function syncthingApps() {
     // add more of current folders
     await syncthingService.adjustConfigFolders('put', foldersConfiguration);
     // all configuration changes applied
+
+    // check for errors in folders and if true reset that index database
+    for (let i = 0; i < foldersConfiguration.size; i += 1) {
+      const folder = foldersConfiguration[i];
+      // eslint-disable-next-line no-await-in-loop
+      const folderError = await syncthingService.getFolderIdErrors(folder.id);
+      log.info(folderError);
+      if (folderError && folderError.errors && folderError.errors.length > 0) {
+        log.info(`Errors detected on syncthing folderId:${folder.id} - folder index database is going to be reseted`);
+        // eslint-disable-next-line no-await-in-loop
+        const folderReset = await syncthingService.systemResetFolderId(folder.id);
+        log.info(folderReset);
+      }
+    }
     // check if restart is needed
     const restartRequired = await syncthingService.getConfigRestartRequired();
     if (restartRequired.status === 'success' && restartRequired.data.requiresRestart === true) {
