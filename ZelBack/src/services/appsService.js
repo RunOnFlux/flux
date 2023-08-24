@@ -2241,9 +2241,10 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
  * @param {object} res Response.
  * @param {boolean} force Defaults to false. Force determines if a check for app not found is skipped.
  * @param {boolean} endResponse Defaults to true.
+ * @param {boolean} sendMessage Defaults to false. When sendMessage is true we broadcast the appremoved message to the network.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
-async function removeAppLocally(app, res, force = false, endResponse = true) {
+async function removeAppLocally(app, res, force = false, endResponse = true, sendMessage = false) {
   try {
     // remove app from local machine.
     // find in database, stop app, remove container, close ports delete data associated on system, remove from database
@@ -2350,20 +2351,22 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
       await appUninstallHard(appName, appId, appSpecifications, isComponent, res);
     }
 
-    const ip = await fluxNetworkHelper.getMyFluxIPandPort();
-    if (ip) {
-      const broadcastedAt = new Date().getTime();
-      const appRemovedMessage = {
-        type: 'fluxappremoved',
-        version: 1,
-        appName,
-        ip,
-        broadcastedAt,
-      };
-      // broadcast messages about app removed to all peers
-      await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(appRemovedMessage);
-      await serviceHelper.delay(500);
-      await fluxCommunicationMessagesSender.broadcastMessageToIncoming(appRemovedMessage);
+    if (sendMessage) {
+      const ip = await fluxNetworkHelper.getMyFluxIPandPort();
+      if (ip) {
+        const broadcastedAt = new Date().getTime();
+        const appRemovedMessage = {
+          type: 'fluxappremoved',
+          version: 1,
+          appName,
+          ip,
+          broadcastedAt,
+        };
+        // broadcast messages about app removed to all peers
+        await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(appRemovedMessage);
+        await serviceHelper.delay(500);
+        await fluxCommunicationMessagesSender.broadcastMessageToIncoming(appRemovedMessage);
+      }
     }
 
     if (!isComponent) {
@@ -2611,22 +2614,6 @@ async function softRemoveAppLocally(app, res) {
     await appUninstallSoft(appName, appId, appSpecifications, isComponent, res);
   }
 
-  const ip = await fluxNetworkHelper.getMyFluxIPandPort();
-  if (ip) {
-    const broadcastedAt = new Date().getTime();
-    const appRemovedMessage = {
-      type: 'fluxappremoved',
-      version: 1,
-      appName,
-      ip,
-      broadcastedAt,
-    };
-    // broadcast messages about app removed to all peers
-    await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(appRemovedMessage);
-    await serviceHelper.delay(500);
-    await fluxCommunicationMessagesSender.broadcastMessageToIncoming(appRemovedMessage);
-  }
-
   if (!isComponent) {
     const databaseStatus = {
       status: 'Cleaning up database...',
@@ -2694,7 +2681,7 @@ async function removeAppLocallyApi(req, res) {
       // find in database, stop app, remove container, close ports delete data associated on system, remove from database
       // if other container uses the same image -> then it shall result in an error so ok anyway
       res.setHeader('Content-Type', 'application/json');
-      removeAppLocally(appname, res, force);
+      removeAppLocally(appname, res, force, true, true);
     }
   } catch (error) {
     log.error(error);
@@ -3245,7 +3232,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     if (res) {
       res.write(serviceHelper.ensureString(removeStatus));
     }
-    removeAppLocally(appSpecs.name, res, true);
+    removeAppLocally(appSpecs.name, res, true, true, false);
     return false;
   }
   return true;
@@ -5588,7 +5575,7 @@ async function restoreAppsPortsSupport() {
           const upnpOk = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`);
           if (!upnpOk) {
             // eslint-disable-next-line no-await-in-loop
-            await removeAppLocally(application.name, null, true).catch((error) => log.error(error)); // remove entire app
+            await removeAppLocally(application.name, null, true, true, true).catch((error) => log.error(error)); // remove entire app
             // eslint-disable-next-line no-await-in-loop
             await serviceHelper.delay(3 * 60 * 1000); // 3 mins
             break;
@@ -8746,7 +8733,7 @@ async function checkAndNotifyPeersOfRunningApps() {
             const mainAppName = stoppedApp.split('_')[1] || stoppedApp;
             // already checked for mongo ok, daemon ok, docker ok.
             // eslint-disable-next-line no-await-in-loop
-            await removeAppLocally(mainAppName);
+            await removeAppLocally(mainAppName, null, true, true, true);
           }
         }
       }
@@ -8914,7 +8901,7 @@ async function expireGlobalApplications() {
     for (const appName of appsToRemoveNames) {
       log.warn(`Application ${appName} is expired, removing`);
       // eslint-disable-next-line no-await-in-loop
-      await removeAppLocally(appName);
+      await removeAppLocally(appName, null, true, true, true);
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(3 * 60 * 1000); // wait for 3 mins so we don't have more removals at the same time
     }
@@ -8950,7 +8937,7 @@ async function checkApplicationsCompliance() {
     for (const appName of appsToRemoveNames) {
       log.warn(`Application ${appName} is blacklisted, removing`);
       // eslint-disable-next-line no-await-in-loop
-      await removeAppLocally(appName);
+      await removeAppLocally(appName, null, true, true, true);
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(3 * 60 * 1000); // wait for 3 mins so we don't have more removals at the same time
     }
@@ -8993,7 +8980,7 @@ async function checkAndRemoveApplicationInstance() {
           if (randomNumber === 0) {
             log.warn(`Removing application ${installedApp.name} locally`);
             // eslint-disable-next-line no-await-in-loop
-            await removeAppLocally(installedApp.name);
+            await removeAppLocally(installedApp.name, null, true, true, true);
             log.warn(`Application ${installedApp.name} locally removed`);
             // eslint-disable-next-line no-await-in-loop
             await serviceHelper.delay(config.fluxapps.removal.delay * 1000); // wait for 6 mins so we don't have more removals at the same time
@@ -9052,7 +9039,7 @@ async function softRedeploy(appSpecs, res) {
     log.info('Application softly redeployed');
   } catch (error) {
     log.error(error);
-    removeAppLocally(appSpecs.name, res, true);
+    removeAppLocally(appSpecs.name, res, true, true, true);
   }
 }
 
@@ -9077,7 +9064,7 @@ async function hardRedeploy(appSpecs, res) {
     log.info('Application redeployed');
   } catch (error) {
     log.error(error);
-    removeAppLocally(appSpecs.name, res, true);
+    removeAppLocally(appSpecs.name, res, true, true, true);
   }
 }
 
@@ -9158,7 +9145,7 @@ async function reinstallOldApplications() {
                 await softRegisterAppLocally(appSpecifications);
               } catch (error) {
                 log.error(error);
-                removeAppLocally(appSpecifications.name, null, true);
+                removeAppLocally(appSpecifications.name, null, true, true, true);
               }
             } else {
               log.warn(`Beginning Hard Redeployment of ${appSpecifications.name}...`);
@@ -9177,7 +9164,7 @@ async function reinstallOldApplications() {
                 await registerAppLocally(appSpecifications); // can throw
               } catch (error) {
                 log.error(error);
-                removeAppLocally(appSpecifications.name, null, true);
+                removeAppLocally(appSpecifications.name, null, true, true, true);
               }
             }
           } else {
@@ -9217,7 +9204,7 @@ async function reinstallOldApplications() {
                   log.warn(`Beginning Hard Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
                   // hard redeployment
                   // eslint-disable-next-line no-await-in-loop
-                  await removeAppLocally(`${appComponent.name}_${appSpecifications.name}`); // component
+                  await removeAppLocally(`${appComponent.name}_${appSpecifications.name}`, null, true, true, true); // component
                   log.warn(`Application component ${appComponent.name}_${appSpecifications.name} removed. Awaiting installation...`);
                   // eslint-disable-next-line no-await-in-loop
                   await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
@@ -9275,7 +9262,7 @@ async function reinstallOldApplications() {
               log.warn(`Composed application ${appSpecifications.name} updated.`);
             } catch (error) {
               log.error(error);
-              removeAppLocally(appSpecifications.name, null, true); // remove entire app
+              removeAppLocally(appSpecifications.name, null, true, true, true); // remove entire app
             }
           }
         } else {
@@ -9709,13 +9696,13 @@ async function forceAppRemovals() {
           // do removal
           log.warn(`${dApp} does not exist in installed app. Forcing removal.`);
           // eslint-disable-next-line no-await-in-loop
-          await removeAppLocally(dApp, null, true).catch((error) => log.error(error)); // remove entire app
+          await removeAppLocally(dApp, null, true, true, true).catch((error) => log.error(error)); // remove entire app
           // eslint-disable-next-line no-await-in-loop
           await serviceHelper.delay(3 * 60 * 1000); // 3 mins
         } else {
           log.warn(`${dApp} does not exist in installed apps and global application specifications are missing. Forcing removal.`);
           // eslint-disable-next-line no-await-in-loop
-          await removeAppLocally(dApp, null, true).catch((error) => log.error(error)); // remove entire app, as of missing specs will be done based on latest app specs message
+          await removeAppLocally(dApp, null, true, true, true).catch((error) => log.error(error)); // remove entire app, as of missing specs will be done based on latest app specs message
           // eslint-disable-next-line no-await-in-loop
           await serviceHelper.delay(3 * 60 * 1000); // 3 mins
         }
