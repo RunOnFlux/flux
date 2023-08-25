@@ -179,10 +179,11 @@ function isPortBanned(port) {
  */
 async function isPortOpen(ip, port, app, timeout = 5000) {
   let resp;
+  let firewallActive;
   try {
     let portResponse = true;
     // eslint-disable-next-line no-use-before-define
-    const firewallActive = await isFirewallActive();
+    firewallActive = await isFirewallActive();
     // open port first
     if (firewallActive) {
       // eslint-disable-next-line no-use-before-define
@@ -235,7 +236,7 @@ async function isPortOpen(ip, port, app, timeout = 5000) {
     }));
     await promise;
     setTimeout(() => { // timeout ensure return first
-      if (app) {
+      if (app && firewallActive) {
         // delete the rule
         if (resp.message !== 'existing') { // new or updated rule or firewall not active from above
           // eslint-disable-next-line no-use-before-define
@@ -246,7 +247,7 @@ async function isPortOpen(ip, port, app, timeout = 5000) {
     return portResponse; // true for OK port. listening for port that is being listened to
   } catch (error) {
     setTimeout(() => { // timeout ensure return first
-      if (app) {
+      if (app && firewallActive) {
         // delete the rule
         if (resp.message !== 'existing') { // new or updated rule or firewall not active from above
           // eslint-disable-next-line no-use-before-define
