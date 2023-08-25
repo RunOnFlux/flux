@@ -9933,7 +9933,7 @@ async function syncthingApps() {
       // eslint-disable-next-line no-await-in-loop
       const folderError = await syncthingService.getFolderIdErrors(folder.id);
       log.info(folderError);
-      if (folderError && folderError.errors && folderError.errors.length > 0) {
+      if (folderError && folderError.status === 'success' && folderError.data.errors && folderError.data.errors.length > 0) {
         log.info(`Errors detected on syncthing folderId:${folder.id} - folder index database is going to be reseted`);
         // eslint-disable-next-line no-await-in-loop
         const folderReset = await syncthingService.systemResetFolderId(folder.id);
