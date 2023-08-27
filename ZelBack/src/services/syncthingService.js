@@ -156,7 +156,7 @@ async function statsFolder(req, res) {
 async function systemBrowse(req, res) {
   let { current } = req.params;
   current = current || req.query.current;
-  let apiPath = 'rest/system/browse';
+  let apiPath = '/rest/system/browse';
   if (current) {
     apiPath += `?current=${current}`;
   }
@@ -193,7 +193,7 @@ async function systemDebug(req, res) {
   disable = disable || req.query.disable;
   let { enable } = req.params;
   enable = enable || req.query.enable;
-  let apiPath = 'rest/system/debug';
+  let apiPath = '/rest/system/debug';
   if (enable || disable) {
     method = 'post';
   }
@@ -226,7 +226,7 @@ async function systemDiscovery(req, res) {
   device = device || req.query.device;
   let { addr } = req.params;
   addr = addr || req.query.addr;
-  let apiPath = 'rest/system/discovery';
+  let apiPath = '/rest/system/discovery';
   if (device || addr) {
     method = 'post';
   }
@@ -271,7 +271,7 @@ async function systemError(req, res) {
   let method = 'get';
   let { message } = req.params;
   message = message || req.query.message;
-  const apiPath = 'rest/system/error';
+  const apiPath = '/rest/system/error';
   if (message) {
     method = 'post';
   }
@@ -324,7 +324,7 @@ async function postSystemError(req, res) {
 async function systemLog(req, res) {
   let { since } = req.params;
   since = since || req.query.since;
-  let apiPath = 'rest/system/log';
+  let apiPath = '/rest/system/log';
   if (since) {
     apiPath += `?since=${since}`;
   }
@@ -347,7 +347,7 @@ async function systemLog(req, res) {
 async function systemLogTxt(req, res) {
   let { since } = req.params;
   since = since || req.query.since;
-  let apiPath = 'rest/system/log.txt';
+  let apiPath = '/rest/system/log.txt';
   if (since) {
     apiPath += `?since=${since}`;
   }
@@ -387,7 +387,7 @@ async function systemPaths(req, res) {
 async function systemPause(req, res) {
   let { device } = req.params;
   device = device || req.query.device;
-  let apiPath = 'rest/system/pause';
+  let apiPath = '/rest/system/pause';
   if (device) {
     apiPath += `?device=${device}`;
   }
@@ -422,7 +422,7 @@ async function systemReset(req, res) {
   // note: scary call
   let { folder } = req.params;
   folder = folder || req.query.folder;
-  let apiPath = 'rest/system/reset';
+  let apiPath = '/rest/system/reset';
   if (folder) {
     apiPath += `?folder=${folder}`;
   }
@@ -480,7 +480,7 @@ async function systemRestart(req, res) {
 async function systemResume(req, res) {
   let { device } = req.params;
   device = device || req.query.device;
-  let apiPath = 'rest/system/pause';
+  let apiPath = '/rest/system/pause';
   if (device) {
     apiPath += `?device=${device}`;
   }
