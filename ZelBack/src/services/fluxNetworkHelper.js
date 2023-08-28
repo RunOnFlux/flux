@@ -1028,14 +1028,18 @@ function getDOSState(req, res) {
  * @returns {object} Command status.
  */
 async function allowPort(port) {
-  const exec = `LANG="en_US.UTF-8" && sudo ufw allow ${port} && sudo ufw allow out ${port}`;
-  const cmdAsync = util.promisify(nodecmd.get);
-
-  const cmdres = await cmdAsync(exec);
   const cmdStat = {
     status: false,
     message: null,
   };
+  if (Number.isNaN(+port)) {
+    cmdStat.message = 'Port needs to be a number';
+    return cmdStat;
+  }
+  const exec = `LANG="en_US.UTF-8" && sudo ufw allow ${port} && sudo ufw allow out ${port}`;
+  const cmdAsync = util.promisify(nodecmd.get);
+
+  const cmdres = await cmdAsync(exec);
   cmdStat.message = cmdres;
   if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
     cmdStat.status = true;
@@ -1054,14 +1058,18 @@ async function allowPort(port) {
  * @returns {object} Command status.
  */
 async function allowOutPort(port) {
-  const exec = `LANG="en_US.UTF-8" && sudo ufw allow out ${port}`;
-  const cmdAsync = util.promisify(nodecmd.get);
-
-  const cmdres = await cmdAsync(exec);
   const cmdStat = {
     status: false,
     message: null,
   };
+  if (Number.isNaN(+port)) {
+    cmdStat.message = 'Port needs to be a number';
+    return cmdStat;
+  }
+  const exec = `LANG="en_US.UTF-8" && sudo ufw allow out ${port}`;
+  const cmdAsync = util.promisify(nodecmd.get);
+
+  const cmdres = await cmdAsync(exec);
   cmdStat.message = cmdres;
   if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
     cmdStat.status = true;
@@ -1084,6 +1092,10 @@ async function denyPort(port) {
     status: false,
     message: null,
   };
+  if (Number.isNaN(+port)) {
+    cmdStat.message = 'Port needs to be a number';
+    return cmdStat;
+  }
   const portBanned = isPortBanned(+port);
   if (+port < (config.fluxapps.portMinNew) || +port > config.fluxapps.portMaxNew || portBanned) {
     cmdStat.message = 'Port out of deletable app ports range';
@@ -1115,6 +1127,10 @@ async function deleteAllowPortRule(port) {
     status: false,
     message: null,
   };
+  if (Number.isNaN(+port)) {
+    cmdStat.message = 'Port needs to be a number';
+    return cmdStat;
+  }
   const portBanned = isPortBanned(+port);
   if (+port < (config.fluxapps.portMinNew) || +port > config.fluxapps.portMaxNew || portBanned) {
     cmdStat.message = 'Port out of deletable app ports range';
@@ -1143,6 +1159,10 @@ async function deleteDenyPortRule(port) {
     status: false,
     message: null,
   };
+  if (Number.isNaN(+port)) {
+    cmdStat.message = 'Port needs to be a number';
+    return cmdStat;
+  }
   const portBanned = isPortBanned(+port);
   if (+port < (config.fluxapps.portMinNew) || +port > config.fluxapps.portMaxNew || portBanned) {
     cmdStat.message = 'Port out of deletable app ports range';
@@ -1171,6 +1191,10 @@ async function deleteAllowOutPortRule(port) {
     status: false,
     message: null,
   };
+  if (Number.isNaN(+port)) {
+    cmdStat.message = 'Port needs to be a number';
+    return cmdStat;
+  }
   const portBanned = isPortBanned(+port);
   if (+port < (config.fluxapps.portMinNew) || +port > config.fluxapps.portMaxNew || portBanned) {
     cmdStat.message = 'Port out of deletable app ports range';
