@@ -815,17 +815,23 @@ export default {
             cpu: component.cpu,
             ram: component.ram,
             hdd: component.hdd,
-            tiered: component.tiered,
-            cpubasic: component.cpubasic,
-            rambasic: component.rambasic,
-            hddbasic: component.hddbasic,
-            cpusuper: component.cpusuper,
-            ramsuper: component.ramsuper,
-            hddsuper: component.hddsuper,
-            cpubamf: component.cpubamf,
-            rambamf: component.rambamf,
-            hddbamf: component.hddbamf,
+            tiered: component.tiered, 
           };
+          if (component.tiered) {
+            appComponent.cpubasic = component.cpubasic;
+            appComponent.rambasic = component.rambasic;
+            appComponent.hddbasic = component.hddbasic;
+            appComponent.cpusuper = component.cpusuper;
+            appComponent.ramsuper = component.ramsuper;
+            appComponent.hddsuper = component.hddsuper;
+            appComponent.cpubamf = component.cpubamf;
+            appComponent.rambamf = component.rambamf;
+            appComponent.hddbamf = component.hddbamf;
+          }
+          if (props.appData.version >= 7) {
+            appComponent.secrets = '';
+            appComponent.repoauth = '';
+          }
           appSpecification.compose.push(appComponent);
         });
 
