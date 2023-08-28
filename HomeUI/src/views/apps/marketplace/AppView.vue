@@ -785,6 +785,17 @@ export default {
           instances: props.appData.instances,
           compose: [],
         };
+        if (props.appData.version >= 5) {
+          appSpecification.contacts = [];
+          appSpecification.geolocation = [];
+        }
+        if (props.appData.version >= 6) {
+          appSpecification.expire = 22000;
+        }
+        if (props.appData.version >= 7) {
+          appSpecification.staticip = props.appData.staticip;
+          appSpecification.nodes = [];
+        }
         // formation, pre verification
         props.appData.compose.forEach((component) => {
           const envParams = JSON.parse(JSON.stringify(component.environmentParameters));
