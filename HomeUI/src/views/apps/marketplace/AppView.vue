@@ -815,7 +815,7 @@ export default {
             cpu: component.cpu,
             ram: component.ram,
             hdd: component.hdd,
-            tiered: component.tiered, 
+            tiered: component.tiered,
           };
           if (component.tiered) {
             appComponent.cpubasic = component.cpubasic;
