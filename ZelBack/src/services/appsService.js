@@ -8733,7 +8733,7 @@ async function checkAndNotifyPeersOfRunningApps() {
             const mainAppName = stoppedApp.split('_')[1] || stoppedApp;
             // already checked for mongo ok, daemon ok, docker ok.
             // eslint-disable-next-line no-await-in-loop
-            await removeAppLocally(mainAppName, null, true, true, true);
+            await removeAppLocally(mainAppName, null, false, true, true);
           }
         }
       }
@@ -8901,7 +8901,7 @@ async function expireGlobalApplications() {
     for (const appName of appsToRemoveNames) {
       log.warn(`Application ${appName} is expired, removing`);
       // eslint-disable-next-line no-await-in-loop
-      await removeAppLocally(appName, null, true, true, true);
+      await removeAppLocally(appName, null, false, true, true);
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(3 * 60 * 1000); // wait for 3 mins so we don't have more removals at the same time
     }
@@ -8937,7 +8937,7 @@ async function checkApplicationsCompliance() {
     for (const appName of appsToRemoveNames) {
       log.warn(`Application ${appName} is blacklisted, removing`);
       // eslint-disable-next-line no-await-in-loop
-      await removeAppLocally(appName, null, true, true, true);
+      await removeAppLocally(appName, null, false, true, true);
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(3 * 60 * 1000); // wait for 3 mins so we don't have more removals at the same time
     }
@@ -8980,7 +8980,7 @@ async function checkAndRemoveApplicationInstance() {
           if (randomNumber === 0) {
             log.warn(`Removing application ${installedApp.name} locally`);
             // eslint-disable-next-line no-await-in-loop
-            await removeAppLocally(installedApp.name, null, true, true, true);
+            await removeAppLocally(installedApp.name, null, false, true, true);
             log.warn(`Application ${installedApp.name} locally removed`);
             // eslint-disable-next-line no-await-in-loop
             await serviceHelper.delay(config.fluxapps.removal.delay * 1000); // wait for 6 mins so we don't have more removals at the same time
@@ -9204,7 +9204,7 @@ async function reinstallOldApplications() {
                   log.warn(`Beginning Hard Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
                   // hard redeployment
                   // eslint-disable-next-line no-await-in-loop
-                  await removeAppLocally(`${appComponent.name}_${appSpecifications.name}`, null, true, true, true); // component
+                  await removeAppLocally(`${appComponent.name}_${appSpecifications.name}`); // component
                   log.warn(`Application component ${appComponent.name}_${appSpecifications.name} removed. Awaiting installation...`);
                   // eslint-disable-next-line no-await-in-loop
                   await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
