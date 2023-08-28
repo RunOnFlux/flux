@@ -340,5 +340,6 @@
    "hatchkins",
    "xecosystem",
    "theraw/s3",
-   "botinflux/mexc-dnx-bot:latest"
+   "botinflux/mexc-dnx-bot:latest",
+   "blocxtech"
 ]
