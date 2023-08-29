@@ -1607,8 +1607,10 @@ describe('fluxNetworkHelper tests', () => {
       expect(result.message).to.eql('existing');
     }).timeout(5000);
 
-    it('should throw error if the parameter is not a proper number', async () => {
-      await expect(fluxNetworkHelper.allowPort('test')).to.eventually.be.rejectedWith('ERROR: Could not find a profile matching \'test\'');
+    it('should return false with specific message error if the parameter is not a proper number', async () => {
+      const result = await fluxNetworkHelper.allowPort('test');
+      expect(result.status).to.eql(false);
+      expect(result.message).to.eql('Port needs to be a number');
     });
 
     it('should return status: false if the command response does not include words "udpdated", "existing" or "added"', async () => {
@@ -1654,8 +1656,10 @@ describe('fluxNetworkHelper tests', () => {
       expect(result.message).to.eql('existing');
     }).timeout(5000);
 
-    it('should throw error if the parameter is not a proper number', async () => {
-      await expect(fluxNetworkHelper.denyPort('test')).to.eventually.be.rejectedWith('ERROR: Could not find a profile matching \'test\'');
+    it('should return false with specific message error if the parameter is not a proper number', async () => {
+      const result = await fluxNetworkHelper.denyPort('test');
+      expect(result.status).to.eql(false);
+      expect(result.message).to.eql('Port needs to be a number');
     });
 
     it('should return status: false if the command response does not include words "udpdated", "existing" or "added"', async () => {
