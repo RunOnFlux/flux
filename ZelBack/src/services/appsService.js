@@ -9935,9 +9935,15 @@ async function syncthingApps() {
       if (folderError && folderError.status === 'success' && folderError.data.errors && folderError.data.errors.length > 0) {
         log.error(`Errors detected on syncthing folderId:${folder.id} - folder index database is going to be reseted`);
         log.error(folderError);
+        folder.paused = true;
+        // eslint-disable-next-line no-await-in-loop
+        await syncthingService.adjustConfigFolders('put', folder, folder.id); // systemResetFolder id requires the folder to be paused before execution
         // eslint-disable-next-line no-await-in-loop
         const folderReset = await syncthingService.systemResetFolderId(folder.id);
         log.error(folderReset);
+        folder.paused = false;
+        // eslint-disable-next-line no-await-in-loop
+        await syncthingService.adjustConfigFolders('put', folder, folder.id);
       }
     }
     // check if restart is needed
