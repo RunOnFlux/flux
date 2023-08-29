@@ -139,6 +139,33 @@ async function handleIPChangedMessage(message, fromIP) {
 }
 
 /**
+ * To handle running app messages.
+ * @param {object} message Message.
+ * @param {string} fromIP Sender's IP address.
+ */
+async function handleAppRemovedMessage(message, fromIP) {
+  try {
+    // check if we have it any app running on that location and if yes, delete that information
+    // rebroadcast message to the network if it's valid
+    // eslint-disable-next-line global-require
+    const appsService = require('./appsService');
+    const rebroadcastToPeers = await appsService.storeAppRemovedMessage(message.data);
+    const currentTimeStamp = new Date().getTime();
+    const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
+    if (rebroadcastToPeers && timestampOK) {
+      const messageString = serviceHelper.ensureString(message);
+      const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
+      fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
+      await serviceHelper.delay(500);
+      const wsList = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIP);
+      fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
  * To handle incoming connection. Several types of verification are performed.
  * @param {object} ws Web socket.
  * @param {object} req Request.
@@ -235,6 +262,8 @@ function handleIncomingConnection(ws, req, expressWS) {
             handleAppRunningMessage(msgObj, peer.ip.replace('::ffff:', ''));
           } else if (msgObj.data.type === 'fluxipchanged') {
             handleIPChangedMessage(msgObj, peer.ip.replace('::ffff:', ''));
+          } else if (msgObj.data.type === 'fluxappremoved') {
+            handleAppRemovedMessage(msgObj, peer.ip.replace('::ffff:', ''));
           } else {
             log.warn(`Unrecognised message type of ${msgObj.data.type}`);
           }
@@ -505,6 +534,8 @@ async function initiateAndHandleConnection(connection) {
         handleAppRunningMessage(msgObj, ip);
       } else if (msgObj.data.type === 'fluxipchanged') {
         handleIPChangedMessage(msgObj, ip);
+      } else if (msgObj.data.type === 'fluxappremoved') {
+        handleAppRemovedMessage(msgObj, ip);
       } else {
         log.warn(`Unrecognised message type of ${msgObj.data.type}`);
       }
@@ -788,6 +819,7 @@ module.exports = {
   addPeer,
   handleAppRunningMessage,
   handleIPChangedMessage,
+  handleAppRemovedMessage,
   initiateAndHandleConnection,
   getNumberOfPeers,
   addOutgoingPeer,

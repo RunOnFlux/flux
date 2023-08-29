@@ -156,7 +156,7 @@ async function statsFolder(req, res) {
 async function systemBrowse(req, res) {
   let { current } = req.params;
   current = current || req.query.current;
-  let apiPath = 'rest/system/browse';
+  let apiPath = '/rest/system/browse';
   if (current) {
     apiPath += `?current=${current}`;
   }
@@ -193,7 +193,7 @@ async function systemDebug(req, res) {
   disable = disable || req.query.disable;
   let { enable } = req.params;
   enable = enable || req.query.enable;
-  let apiPath = 'rest/system/debug';
+  let apiPath = '/rest/system/debug';
   if (enable || disable) {
     method = 'post';
   }
@@ -226,7 +226,7 @@ async function systemDiscovery(req, res) {
   device = device || req.query.device;
   let { addr } = req.params;
   addr = addr || req.query.addr;
-  let apiPath = 'rest/system/discovery';
+  let apiPath = '/rest/system/discovery';
   if (device || addr) {
     method = 'post';
   }
@@ -271,7 +271,7 @@ async function systemError(req, res) {
   let method = 'get';
   let { message } = req.params;
   message = message || req.query.message;
-  const apiPath = 'rest/system/error';
+  const apiPath = '/rest/system/error';
   if (message) {
     method = 'post';
   }
@@ -324,7 +324,7 @@ async function postSystemError(req, res) {
 async function systemLog(req, res) {
   let { since } = req.params;
   since = since || req.query.since;
-  let apiPath = 'rest/system/log';
+  let apiPath = '/rest/system/log';
   if (since) {
     apiPath += `?since=${since}`;
   }
@@ -347,7 +347,7 @@ async function systemLog(req, res) {
 async function systemLogTxt(req, res) {
   let { since } = req.params;
   since = since || req.query.since;
-  let apiPath = 'rest/system/log.txt';
+  let apiPath = '/rest/system/log.txt';
   if (since) {
     apiPath += `?since=${since}`;
   }
@@ -387,7 +387,7 @@ async function systemPaths(req, res) {
 async function systemPause(req, res) {
   let { device } = req.params;
   device = device || req.query.device;
-  let apiPath = 'rest/system/pause';
+  let apiPath = '/rest/system/pause';
   if (device) {
     apiPath += `?device=${device}`;
   }
@@ -422,7 +422,7 @@ async function systemReset(req, res) {
   // note: scary call
   let { folder } = req.params;
   folder = folder || req.query.folder;
-  let apiPath = 'rest/system/reset';
+  let apiPath = '/rest/system/reset';
   if (folder) {
     apiPath += `?folder=${folder}`;
   }
@@ -434,6 +434,22 @@ async function systemReset(req, res) {
     response = messageHelper.errUnauthorizedMessage();
   }
   return res ? res.json(response) : response;
+}
+
+/**
+ * To erase the current index folderId database and restart Syncthing.
+ * @param {string} folderId Request.
+ * @param {object} res Response.
+ * @returns {object} returns the output of syncthing reponse of rest/system/reset
+ */
+async function systemResetFolderId(folderId) {
+  let apiPath = '/rest/system/reset';
+  if (folderId) {
+    apiPath += `?folder=${folderId}`;
+  } else {
+    throw new Error('folder parameter is mandatory');
+  }
+  return performRequest('post', apiPath);
 }
 
 /**
@@ -464,7 +480,7 @@ async function systemRestart(req, res) {
 async function systemResume(req, res) {
   let { device } = req.params;
   device = device || req.query.device;
-  let apiPath = 'rest/system/pause';
+  let apiPath = '/rest/system/pause';
   if (device) {
     apiPath += `?device=${device}`;
   }
@@ -1165,6 +1181,21 @@ async function postClusterPendigFolders(req, res) {
 // === FOLDER ENDPOINTS ===
 
 /**
+ * Returns the list of errors encountered during scanning or pulling. Takes one mandatory parameter {folderid}
+ * @param {string} folderid FolderId.
+ * @returns {object} returns the output of syncthing reponse of /rest/folder/errors
+ */
+async function getFolderIdErrors(folderid) {
+  let apiPath = '/rest/folder/errors';
+  if (folderid) {
+    apiPath += `?folder=${folderid}`;
+  } else {
+    throw new Error('folder parameter is mandatory');
+  }
+  return performRequest('get', apiPath);
+}
+
+/**
  * Returns the list of errors encountered during scanning or pulling. Takes one mandatory parameter {folder}
  * @param {object} req Request.
  * @param {object} res Response.
@@ -1174,13 +1205,10 @@ async function getFolderErrors(req, res) {
   try {
     let { folder } = req.params;
     folder = folder || req.query.folder;
-    let apiPath = '/rest/folder/errors';
-    if (folder) {
-      apiPath += `?folder=${folder}`;
-    } else {
+    if (!folder) {
       throw new Error('folder parameter is mandatory');
     }
-    const response = await performRequest('get', apiPath);
+    const response = await getFolderIdErrors(folder);
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
@@ -2237,6 +2265,7 @@ module.exports = {
   systemPaths,
   systemPause,
   systemReset,
+  systemResetFolderId,
   systemRestart,
   systemResume,
   systemShutdown,
@@ -2271,6 +2300,7 @@ module.exports = {
   getClusterPendigFolders,
   postClusterPendigFolders,
   // Folder
+  getFolderIdErrors,
   getFolderErrors,
   getFolderVersions,
   postFolderVersions,

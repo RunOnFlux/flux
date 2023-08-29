@@ -785,6 +785,17 @@ export default {
           instances: props.appData.instances,
           compose: [],
         };
+        if (props.appData.version >= 5) {
+          appSpecification.contacts = [];
+          appSpecification.geolocation = [];
+        }
+        if (props.appData.version >= 6) {
+          appSpecification.expire = 22000;
+        }
+        if (props.appData.version >= 7) {
+          appSpecification.staticip = props.appData.staticip;
+          appSpecification.nodes = [];
+        }
         // formation, pre verification
         props.appData.compose.forEach((component) => {
           const envParams = JSON.parse(JSON.stringify(component.environmentParameters));
@@ -805,16 +816,22 @@ export default {
             ram: component.ram,
             hdd: component.hdd,
             tiered: component.tiered,
-            cpubasic: component.cpubasic,
-            rambasic: component.rambasic,
-            hddbasic: component.hddbasic,
-            cpusuper: component.cpusuper,
-            ramsuper: component.ramsuper,
-            hddsuper: component.hddsuper,
-            cpubamf: component.cpubamf,
-            rambamf: component.rambamf,
-            hddbamf: component.hddbamf,
           };
+          if (component.tiered) {
+            appComponent.cpubasic = component.cpubasic;
+            appComponent.rambasic = component.rambasic;
+            appComponent.hddbasic = component.hddbasic;
+            appComponent.cpusuper = component.cpusuper;
+            appComponent.ramsuper = component.ramsuper;
+            appComponent.hddsuper = component.hddsuper;
+            appComponent.cpubamf = component.cpubamf;
+            appComponent.rambamf = component.rambamf;
+            appComponent.hddbamf = component.hddbamf;
+          }
+          if (props.appData.version >= 7) {
+            appComponent.secrets = '';
+            appComponent.repoauth = '';
+          }
           appSpecification.compose.push(appComponent);
         });
 

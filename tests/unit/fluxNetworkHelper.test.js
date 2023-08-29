@@ -1607,8 +1607,10 @@ describe('fluxNetworkHelper tests', () => {
       expect(result.message).to.eql('existing');
     }).timeout(5000);
 
-    it('should throw error if the parameter is not a proper number', async () => {
-      await expect(fluxNetworkHelper.allowPort('test')).to.eventually.be.rejectedWith('ERROR: Could not find a profile matching \'test\'');
+    it('should return false with specific message error if the parameter is not a proper number', async () => {
+      const result = await fluxNetworkHelper.allowPort('test');
+      expect(result.status).to.eql(false);
+      expect(result.message).to.eql('Port needs to be a number');
     });
 
     it('should return status: false if the command response does not include words "udpdated", "existing" or "added"', async () => {
@@ -1654,8 +1656,10 @@ describe('fluxNetworkHelper tests', () => {
       expect(result.message).to.eql('existing');
     }).timeout(5000);
 
-    it('should throw error if the parameter is not a proper number', async () => {
-      await expect(fluxNetworkHelper.denyPort('test')).to.eventually.be.rejectedWith('ERROR: Could not find a profile matching \'test\'');
+    it('should return false with specific message error if the parameter is not a proper number', async () => {
+      const result = await fluxNetworkHelper.denyPort('test');
+      expect(result.status).to.eql(false);
+      expect(result.message).to.eql('Port needs to be a number');
     });
 
     it('should return status: false if the command response does not include words "udpdated", "existing" or "added"', async () => {
@@ -1802,7 +1806,7 @@ describe('fluxNetworkHelper tests', () => {
       const isFirewallActive = await fluxNetworkHelper.isFirewallActive();
 
       expect(isFirewallActive).to.be.true;
-      sinon.assert.calledOnceWithExactly(funcStub, 'sudo ufw status | grep Status');
+      sinon.assert.calledOnceWithExactly(funcStub, 'LANG="en_US.UTF-8" && sudo ufw status | grep Status');
     });
 
     it('should return false if firewall is not active', async () => {
@@ -1812,7 +1816,7 @@ describe('fluxNetworkHelper tests', () => {
       const isFirewallActive = await fluxNetworkHelper.isFirewallActive();
 
       expect(isFirewallActive).to.be.false;
-      sinon.assert.calledOnceWithExactly(funcStub, 'sudo ufw status | grep Status');
+      sinon.assert.calledOnceWithExactly(funcStub, 'LANG="en_US.UTF-8" && sudo ufw status | grep Status');
     });
 
     it('should return false command execution throws error', async () => {
@@ -1822,7 +1826,7 @@ describe('fluxNetworkHelper tests', () => {
       const isFirewallActive = await fluxNetworkHelper.isFirewallActive();
 
       expect(isFirewallActive).to.be.false;
-      sinon.assert.calledOnceWithExactly(funcStub, 'sudo ufw status | grep Status');
+      sinon.assert.calledOnceWithExactly(funcStub, 'LANG="en_US.UTF-8" && sudo ufw status | grep Status');
     });
   });
 
@@ -1846,15 +1850,15 @@ describe('fluxNetworkHelper tests', () => {
 
       await fluxNetworkHelper.adjustFirewall();
 
-      sinon.assert.calledWith(funcStub, 'sudo ufw status | grep Status');
+      sinon.assert.calledWith(funcStub, 'LANG="en_US.UTF-8" && sudo ufw status | grep Status');
       // eslint-disable-next-line no-restricted-syntax
       for (const port of ports) {
-        sinon.assert.calledWith(funcStub, `sudo ufw allow ${port}`);
+        sinon.assert.calledWith(funcStub, `LANG="en_US.UTF-8" && sudo ufw allow ${port}`);
         sinon.assert.calledWith(logSpy, `Firewall adjusted for port ${port}`);
       }
       // eslint-disable-next-line no-restricted-syntax
       for (const port of ports) {
-        sinon.assert.calledWith(funcStub, `sudo ufw allow out ${port}`);
+        sinon.assert.calledWith(funcStub, `LANG="en_US.UTF-8" && sudo ufw allow out ${port}`);
         sinon.assert.calledWith(logSpy, `Firewall adjusted for port ${port}`);
       }
     });
@@ -1865,15 +1869,15 @@ describe('fluxNetworkHelper tests', () => {
 
       await fluxNetworkHelper.adjustFirewall();
 
-      sinon.assert.calledWith(funcStub, 'sudo ufw status | grep Status');
+      sinon.assert.calledWith(funcStub, 'LANG="en_US.UTF-8" && sudo ufw status | grep Status');
       // eslint-disable-next-line no-restricted-syntax
       for (const port of ports) {
-        sinon.assert.calledWith(funcStub, `sudo ufw allow ${port}`);
+        sinon.assert.calledWith(funcStub, `LANG="en_US.UTF-8" && sudo ufw allow ${port}`);
         sinon.assert.calledWith(logSpy, `Failed to adjust Firewall for port ${port}`);
       }
       // eslint-disable-next-line no-restricted-syntax
       for (const port of ports) {
-        sinon.assert.calledWith(funcStub, `sudo ufw allow out ${port}`);
+        sinon.assert.calledWith(funcStub, `LANG="en_US.UTF-8" && sudo ufw allow out ${port}`);
         sinon.assert.calledWith(logSpy, `Failed to adjust Firewall for port ${port}`);
       }
     });
@@ -1884,14 +1888,14 @@ describe('fluxNetworkHelper tests', () => {
 
       await fluxNetworkHelper.adjustFirewall();
 
-      sinon.assert.calledWith(funcStub, 'sudo ufw status | grep Status');
+      sinon.assert.calledWith(funcStub, 'LANG="en_US.UTF-8" && sudo ufw status | grep Status');
       // eslint-disable-next-line no-restricted-syntax
       for (const port of ports) {
-        sinon.assert.neverCalledWith(funcStub, `sudo ufw allow ${port}`);
+        sinon.assert.neverCalledWith(funcStub, `LANG="en_US.UTF-8" && sudo ufw allow ${port}`);
       }
       // eslint-disable-next-line no-restricted-syntax
       for (const port of ports) {
-        sinon.assert.neverCalledWith(funcStub, `sudo ufw allow out ${port}`);
+        sinon.assert.neverCalledWith(funcStub, `LANG="en_US.UTF-8" && sudo ufw allow out ${port}`);
       }
       sinon.assert.calledWith(logSpy, 'Firewall is not active. Adjusting not applied');
     });

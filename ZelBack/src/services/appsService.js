@@ -2241,9 +2241,10 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
  * @param {object} res Response.
  * @param {boolean} force Defaults to false. Force determines if a check for app not found is skipped.
  * @param {boolean} endResponse Defaults to true.
+ * @param {boolean} sendMessage Defaults to false. When sendMessage is true we broadcast the appremoved message to the network.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
-async function removeAppLocally(app, res, force = false, endResponse = true) {
+async function removeAppLocally(app, res, force = false, endResponse = true, sendMessage = false) {
   try {
     // remove app from local machine.
     // find in database, stop app, remove container, close ports delete data associated on system, remove from database
@@ -2349,6 +2350,25 @@ async function removeAppLocally(app, res, force = false, endResponse = true) {
     } else {
       await appUninstallHard(appName, appId, appSpecifications, isComponent, res);
     }
+
+    if (sendMessage) {
+      const ip = await fluxNetworkHelper.getMyFluxIPandPort();
+      if (ip) {
+        const broadcastedAt = new Date().getTime();
+        const appRemovedMessage = {
+          type: 'fluxappremoved',
+          version: 1,
+          appName,
+          ip,
+          broadcastedAt,
+        };
+        // broadcast messages about app removed to all peers
+        await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(appRemovedMessage);
+        await serviceHelper.delay(500);
+        await fluxCommunicationMessagesSender.broadcastMessageToIncoming(appRemovedMessage);
+      }
+    }
+
     if (!isComponent) {
       const dockerNetworkStatus = {
         status: 'Cleaning up docker network...',
@@ -2661,7 +2681,7 @@ async function removeAppLocallyApi(req, res) {
       // find in database, stop app, remove container, close ports delete data associated on system, remove from database
       // if other container uses the same image -> then it shall result in an error so ok anyway
       res.setHeader('Content-Type', 'application/json');
-      removeAppLocally(appname, res, force);
+      removeAppLocally(appname, res, force, true, true);
     }
   } catch (error) {
     log.error(error);
@@ -3212,7 +3232,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     if (res) {
       res.write(serviceHelper.ensureString(removeStatus));
     }
-    removeAppLocally(appSpecs.name, res, true);
+    removeAppLocally(appSpecs.name, res, true, true, false);
     return false;
   }
   return true;
@@ -5555,7 +5575,7 @@ async function restoreAppsPortsSupport() {
           const upnpOk = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`);
           if (!upnpOk) {
             // eslint-disable-next-line no-await-in-loop
-            await removeAppLocally(application.name, null, true).catch((error) => log.error(error)); // remove entire app
+            await removeAppLocally(application.name, null, true, true, true).catch((error) => log.error(error)); // remove entire app
             // eslint-disable-next-line no-await-in-loop
             await serviceHelper.delay(3 * 60 * 1000); // 3 mins
             break;
@@ -6235,6 +6255,14 @@ async function storeIPChangedMessage(message) {
     return new Error(`Invalid Flux IP Changed message for storing version ${message.version} not supported`);
   }
 
+  if (!message.oldIP || !message.newIP) {
+    return new Error('Invalid Flux IP Changed message oldIP and newIP cannot be empty');
+  }
+
+  if (message.oldIP === message.newIP) {
+    return new Error(`Invalid Flux IP Changed message oldIP and newIP are the same ${message.newIP}`);
+  }
+
   log.info('New Flux IP Changed message received.');
   log.info(message);
 
@@ -6249,6 +6277,55 @@ async function storeIPChangedMessage(message) {
   const query = { ip: message.oldIP };
   const update = { $set: { ip: message.newIP } };
   await dbHelper.updateInDatabase(database, globalAppsLocations, query, update);
+
+  // all stored, rebroadcast
+  return true;
+}
+
+/**
+ * To remove from DB that the IP is running the app.
+ * @param {object} message Message.
+ * @returns {boolean} True if message is valid. Returns false if message is old. Throws an error if invalid/wrong properties.
+ */
+async function storeAppRemovedMessage(message) {
+  /* message object
+  * @param type string
+  * @param version number
+  * @param ip string
+  * @param appName string
+  * @param broadcastedAt number
+  */
+  if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
+    || typeof message.broadcastedAt !== 'number' || typeof message.ip !== 'string' || typeof message.appName !== 'string') {
+    return new Error('Invalid Flux App Removed message for storing');
+  }
+
+  if (message.version !== 1) {
+    return new Error(`Invalid Flux App Removed message for storing version ${message.version} not supported`);
+  }
+
+  if (!message.ip) {
+    return new Error('Invalid Flux App Removed message ip cannot be empty');
+  }
+
+  if (!message.appName) {
+    return new Error('Invalid Flux App Removed message appName cannot be empty');
+  }
+
+  log.info('New Flux App Removed message received.');
+  log.info(message);
+
+  const validTill = message.broadcastedAt + (65 * 60 * 1000); // 3900 seconds
+  if (validTill < new Date().getTime()) {
+    // reject old message
+    return false;
+  }
+
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const query = { ip: message.ip, name: message.appName };
+  const projection = {};
+  await dbHelper.findOneAndDeleteInDatabase(database, globalAppsLocations, query, projection);
 
   // all stored, rebroadcast
   return true;
@@ -8656,7 +8733,7 @@ async function checkAndNotifyPeersOfRunningApps() {
             const mainAppName = stoppedApp.split('_')[1] || stoppedApp;
             // already checked for mongo ok, daemon ok, docker ok.
             // eslint-disable-next-line no-await-in-loop
-            await removeAppLocally(mainAppName);
+            await removeAppLocally(mainAppName, null, false, true, true);
           }
         }
       }
@@ -8824,7 +8901,7 @@ async function expireGlobalApplications() {
     for (const appName of appsToRemoveNames) {
       log.warn(`Application ${appName} is expired, removing`);
       // eslint-disable-next-line no-await-in-loop
-      await removeAppLocally(appName);
+      await removeAppLocally(appName, null, false, true, true);
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(3 * 60 * 1000); // wait for 3 mins so we don't have more removals at the same time
     }
@@ -8860,7 +8937,7 @@ async function checkApplicationsCompliance() {
     for (const appName of appsToRemoveNames) {
       log.warn(`Application ${appName} is blacklisted, removing`);
       // eslint-disable-next-line no-await-in-loop
-      await removeAppLocally(appName);
+      await removeAppLocally(appName, null, false, true, true);
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(3 * 60 * 1000); // wait for 3 mins so we don't have more removals at the same time
     }
@@ -8903,7 +8980,7 @@ async function checkAndRemoveApplicationInstance() {
           if (randomNumber === 0) {
             log.warn(`Removing application ${installedApp.name} locally`);
             // eslint-disable-next-line no-await-in-loop
-            await removeAppLocally(installedApp.name);
+            await removeAppLocally(installedApp.name, null, false, true, true);
             log.warn(`Application ${installedApp.name} locally removed`);
             // eslint-disable-next-line no-await-in-loop
             await serviceHelper.delay(config.fluxapps.removal.delay * 1000); // wait for 6 mins so we don't have more removals at the same time
@@ -8962,7 +9039,7 @@ async function softRedeploy(appSpecs, res) {
     log.info('Application softly redeployed');
   } catch (error) {
     log.error(error);
-    removeAppLocally(appSpecs.name, res, true);
+    removeAppLocally(appSpecs.name, res, true, true, true);
   }
 }
 
@@ -8987,7 +9064,7 @@ async function hardRedeploy(appSpecs, res) {
     log.info('Application redeployed');
   } catch (error) {
     log.error(error);
-    removeAppLocally(appSpecs.name, res, true);
+    removeAppLocally(appSpecs.name, res, true, true, true);
   }
 }
 
@@ -9068,7 +9145,7 @@ async function reinstallOldApplications() {
                 await softRegisterAppLocally(appSpecifications);
               } catch (error) {
                 log.error(error);
-                removeAppLocally(appSpecifications.name, null, true);
+                removeAppLocally(appSpecifications.name, null, true, true, true);
               }
             } else {
               log.warn(`Beginning Hard Redeployment of ${appSpecifications.name}...`);
@@ -9087,7 +9164,7 @@ async function reinstallOldApplications() {
                 await registerAppLocally(appSpecifications); // can throw
               } catch (error) {
                 log.error(error);
-                removeAppLocally(appSpecifications.name, null, true);
+                removeAppLocally(appSpecifications.name, null, true, true, true);
               }
             }
           } else {
@@ -9185,7 +9262,7 @@ async function reinstallOldApplications() {
               log.warn(`Composed application ${appSpecifications.name} updated.`);
             } catch (error) {
               log.error(error);
-              removeAppLocally(appSpecifications.name, null, true); // remove entire app
+              removeAppLocally(appSpecifications.name, null, true, true, true); // remove entire app
             }
           }
         } else {
@@ -9619,13 +9696,13 @@ async function forceAppRemovals() {
           // do removal
           log.warn(`${dApp} does not exist in installed app. Forcing removal.`);
           // eslint-disable-next-line no-await-in-loop
-          await removeAppLocally(dApp, null, true).catch((error) => log.error(error)); // remove entire app
+          await removeAppLocally(dApp, null, true, true, true).catch((error) => log.error(error)); // remove entire app
           // eslint-disable-next-line no-await-in-loop
           await serviceHelper.delay(3 * 60 * 1000); // 3 mins
         } else {
           log.warn(`${dApp} does not exist in installed apps and global application specifications are missing. Forcing removal.`);
           // eslint-disable-next-line no-await-in-loop
-          await removeAppLocally(dApp, null, true).catch((error) => log.error(error)); // remove entire app, as of missing specs will be done based on latest app specs message
+          await removeAppLocally(dApp, null, true, true, true).catch((error) => log.error(error)); // remove entire app, as of missing specs will be done based on latest app specs message
           // eslint-disable-next-line no-await-in-loop
           await serviceHelper.delay(3 * 60 * 1000); // 3 mins
         }
@@ -9849,6 +9926,26 @@ async function syncthingApps() {
     // add more of current folders
     await syncthingService.adjustConfigFolders('put', foldersConfiguration);
     // all configuration changes applied
+
+    // check for errors in folders and if true reset that index database
+    for (let i = 0; i < foldersConfiguration.length; i += 1) {
+      const folder = foldersConfiguration[i];
+      // eslint-disable-next-line no-await-in-loop
+      const folderError = await syncthingService.getFolderIdErrors(folder.id);
+      if (folderError && folderError.status === 'success' && folderError.data.errors && folderError.data.errors.length > 0) {
+        log.error(`Errors detected on syncthing folderId:${folder.id} - folder index database is going to be reseted`);
+        log.error(folderError);
+        folder.paused = true;
+        // eslint-disable-next-line no-await-in-loop
+        await syncthingService.adjustConfigFolders('put', folder, folder.id); // systemResetFolder id requires the folder to be paused before execution
+        // eslint-disable-next-line no-await-in-loop
+        const folderReset = await syncthingService.systemResetFolderId(folder.id);
+        log.error(folderReset);
+        folder.paused = false;
+        // eslint-disable-next-line no-await-in-loop
+        await syncthingService.adjustConfigFolders('put', folder, folder.id);
+      }
+    }
     // check if restart is needed
     const restartRequired = await syncthingService.getConfigRestartRequired();
     if (restartRequired.status === 'success' && restartRequired.data.requiresRestart === true) {
@@ -10449,6 +10546,7 @@ module.exports = {
   getAppsLocations,
   storeAppRunningMessage,
   storeIPChangedMessage,
+  storeAppRemovedMessage,
   reindexGlobalAppsLocation,
   getRunningAppIpList,
   getRunningAppList,
