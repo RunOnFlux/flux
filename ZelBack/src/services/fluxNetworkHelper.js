@@ -286,6 +286,11 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
     const UIok = fluxResponseUI.data.includes('<title>');
     if (!UIok) return false;
 
+    const syncthingPort = +port + 2;
+    // eslint-disable-next-line no-use-before-define
+    const syncthingOpen = await isPortOpen(ip, syncthingPort);
+    if (!syncthingOpen) return false;
+
     return true;
   } catch (e) {
     return false;
