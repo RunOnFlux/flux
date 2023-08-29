@@ -9932,12 +9932,12 @@ async function syncthingApps() {
       const folder = foldersConfiguration[i];
       // eslint-disable-next-line no-await-in-loop
       const folderError = await syncthingService.getFolderIdErrors(folder.id);
-      log.info(folderError);
       if (folderError && folderError.status === 'success' && folderError.data.errors && folderError.data.errors.length > 0) {
-        log.info(`Errors detected on syncthing folderId:${folder.id} - folder index database is going to be reseted`);
+        log.error(`Errors detected on syncthing folderId:${folder.id} - folder index database is going to be reseted`);
+        log.error(folderError);
         // eslint-disable-next-line no-await-in-loop
         const folderReset = await syncthingService.systemResetFolderId(folder.id);
-        log.info(folderReset);
+        log.error(folderReset);
       }
     }
     // check if restart is needed
