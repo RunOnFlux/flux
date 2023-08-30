@@ -291,7 +291,7 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
     const cmdAsync = util.promisify(nodecmd.get);
     const cmdres = await cmdAsync(exec);
     log.info(cmdres);
-    if (!serviceHelper.ensureString(cmdres).toLocaleLowerCase().includes('connected')) {
+    if (!serviceHelper.ensureString(cmdres).toLowerCase().includes('connected')) {
       return false;
     }
 
