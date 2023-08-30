@@ -291,6 +291,7 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
     const cmdAsync = util.promisify(nodecmd.get);
     const result = await cmdAsync(exec);
     log.info(`SyncthingTestResult: ${result};`);
+    log.info(`SyncthingTestResultFalse: ${!result};`);
     return !result;
   } catch (e) {
     return false;
