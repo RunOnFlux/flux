@@ -287,15 +287,11 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
     if (!UIok) return false;
 
     const syncthingPort = +port + 2;
-    const exec = `LANG="en_US.UTF-8" && telnet ${ip} ${syncthingPort}`;
+    const exec = `nc -w 2 -z -v ${ip} ${syncthingPort} </dev/null; echo $`;
     const cmdAsync = util.promisify(nodecmd.get);
-    let syncthingTestOk = false;
-    await cmdAsync(exec).catch((error) => {
-      if (error.message.toLowerCase().includes('connection closed by foreign host')) {
-        syncthingTestOk = true;
-      }
-    });
-    return syncthingTestOk;
+    const result = await cmdAsync(exec);
+    log.info(`SyncthingTestResult: ${result};`);
+    return !result;
   } catch (e) {
     return false;
   }
