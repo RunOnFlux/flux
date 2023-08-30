@@ -287,9 +287,13 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
     if (!UIok) return false;
 
     const syncthingPort = +port + 2;
-    // eslint-disable-next-line no-use-before-define
-    const syncthingOpen = await isPortOpen(ip, syncthingPort);
-    if (!syncthingOpen) return false;
+    const exec = `LANG="en_US.UTF-8" && telnet ${ip} ${syncthingPort}`;
+    const cmdAsync = util.promisify(nodecmd.get);
+    const cmdres = await cmdAsync(exec);
+    log.info(cmdres);
+    if (!serviceHelper.ensureString(cmdres).toLocaleLowerCase().includes('connected')) {
+      return false;
+    }
 
     return true;
   } catch (e) {
