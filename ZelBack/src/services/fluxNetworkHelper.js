@@ -290,7 +290,7 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
     const exec = `LANG="en_US.UTF-8" && telnet ${ip} ${syncthingPort}`;
     const cmdAsync = util.promisify(nodecmd.get);
     const cmdres = await cmdAsync(exec);
-    log.info(cmdres);
+    log.info(`Syncthing telnet result: ${cmdres}`);
     if (!serviceHelper.ensureString(cmdres).toLowerCase().includes('connected')) {
       return false;
     }
