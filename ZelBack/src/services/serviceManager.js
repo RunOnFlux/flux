@@ -44,6 +44,7 @@ async function startFluxFunctions() {
     } else {
       upnpService.setupUPNP(apiPort);
     }
+    fluxNetworkHelper.installNetcat();
     log.info('Initiating MongoDB connection');
     await dbHelper.initiateDB(); // either true or throws error
     log.info('DB connected');

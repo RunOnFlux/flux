@@ -1333,6 +1333,20 @@ async function allowNodeToBindPrivilegedPorts() {
   }
 }
 
+/**
+ * Install Netcat from apt
+ * Despite nc tool is by default present on both Debian and Ubuntu we install netcat for precaution
+ */
+async function installNetcat() {
+  try {
+    const exec = 'sudo apt install netcat -y';
+    const cmdAsync = util.promisify(nodecmd.get);
+    cmdAsync(exec);
+  } catch (error) {
+    log.error(error);
+  }
+}
+
 module.exports = {
   minVersionSatisfy,
   isFluxAvailable,
@@ -1377,4 +1391,5 @@ module.exports = {
   isPortBanned,
   isPortUserBlocked,
   allowNodeToBindPrivilegedPorts,
+  installNetcat,
 };
