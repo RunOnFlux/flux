@@ -285,7 +285,6 @@ async function checkAppAvailability(req, res) {
       const daemonHeight = syncStatus.data.height;
       const minPort = daemonHeight >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMinNew : config.fluxapps.portMin - 1000;
       const maxPort = daemonHeight >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMaxNew : config.fluxapps.portMax;
-      const portsListening = [];
       // eslint-disable-next-line no-restricted-syntax
       for (const port of ports) {
         const iBP = isPortBanned(+port);
@@ -294,21 +293,10 @@ async function checkAppAvailability(req, res) {
           const isOpen = await isPortOpen(ip, port);
           if (!isOpen) {
             throw new Error(`Flux Applications on ${ip}:${ipPort} are not available. Failed port: ${port}`);
-          } else if (isOpen === 'listening') { // this port is in use and listening. Later do check from other node on this port
-            portsListening.push(+port);
           }
         } else {
           log.error(`Flux App port ${port} is outside allowed range.`);
         }
-      }
-      // if ip is my if, do a data response with ports that are listening
-      const dataResponse = messageHelper.createDataMessage(portsListening);
-      // eslint-disable-next-line no-use-before-define
-      let myIP = await getMyFluxIPandPort();
-      myIP = myIP.split(':')[0];
-      if (ip === myIP) {
-        res.json(dataResponse);
-        return;
       }
       const successResponse = messageHelper.createSuccessMessage(`Flux Applications on ${ip}:${ipPort} are available.`);
       res.json(successResponse);
