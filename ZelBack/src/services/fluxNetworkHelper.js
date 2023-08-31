@@ -207,9 +207,13 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
     if (!versionMinOK) return false;
 
     const homePort = +port - 1;
-    const fluxResponseUI = await serviceHelper.axiosGet(`http://${ip}:${homePort}`, axiosConfig);
-    const UIok = fluxResponseUI.data.includes('<title>');
-    if (!UIok) return false;
+    const exec = `curl -Is http://${ip}:${homePort} | head -1`;
+    const cmdAsync = util.promisify(nodecmd.get);
+    const result = await cmdAsync(exec);
+    log.info(`HomeUICheckResult: ${result}`);
+    if (!result.includes('200')) {
+      return false;
+    }
 
     const syncthingPort = +port + 2;
     return isPortOpen(ip, syncthingPort);
