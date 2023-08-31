@@ -6,8 +6,6 @@ const fs = require('fs').promises;
 const path = require('path');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
-// eslint-disable-next-line import/no-extraneous-dependencies
-const net = require('net');
 const { LRUCache } = require('lru-cache');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
@@ -170,91 +168,18 @@ function isPortBanned(port) {
 
 /**
  * To perform a basic check if port on an ip is opened
- * This requires our port to be also open on out
  * @param {string} ip IP address.
  * @param {number} port Port.
- * @param {string} app Application name. Mostly for comsetic purposes, can be boolean. Defaults to undefined, as for testing main FluxOS not an app.
- * @param {number} timeout Timeout in ms.
  * @returns {boolean} Returns true if opened, otherwise false
  */
-async function isPortOpen(ip, port, app, timeout = 5000) {
-  let resp;
-  let firewallActive;
+async function isPortOpen(ip, port) {
   try {
-    let portResponse = true;
-    // eslint-disable-next-line no-use-before-define
-    firewallActive = await isFirewallActive();
-    // open port first
-    if (firewallActive) {
-      // eslint-disable-next-line no-use-before-define
-      resp = await allowOutPort(port).catch((error) => { // requires allow out for apps checking, for our ports both
-        log.error(error);
-      });
-      if (!resp) {
-        resp = {};
-      }
-    } else {
-      resp.message = 'existing';
-    }
-
-    const promise = new Promise(((resolve, reject) => {
-      const socket = new net.Socket();
-
-      const onError = (err) => {
-        socket.destroy();
-        if (err.code && err.code === 'ETIMEDOUT') {
-          log.info(`Connection on ${ip}:${port} ETIMEDOUT. Flux or Flux App is not running correctly`);
-          reject();
-        } else if (app) {
-          resolve();
-        } else if (port === 16129) {
-          log.error(`Syncthing of Flux on ${ip}:${port} did not respond correctly but may be in use. Allowing`);
-          log.error(err);
-          resolve();
-        } else {
-          log.error(`Flux on ${ip}:${port} is not working correctly`);
-          log.error(err);
-          reject();
-        }
-      };
-
-      const onTimeout = () => {
-        log.error(`Connection on ${ip}:${port} timed out. Flux or Flux App is not running correctly`);
-        socket.destroy();
-        reject();
-      };
-
-      socket.setTimeout(timeout);
-      socket.once('error', onError);
-      socket.once('timeout', onTimeout);
-
-      socket.connect(port, ip, () => {
-        socket.destroy();
-        portResponse = 'listening';
-        resolve();
-      });
-    }));
-    await promise;
-    setTimeout(() => { // timeout ensure return first
-      if (app && firewallActive) {
-        // delete the rule
-        if (resp.message !== 'existing') { // new or updated rule or firewall not active from above
-          // eslint-disable-next-line no-use-before-define
-          deleteAllowOutPortRule(port); // no need waiting for response. Delete if was not present before to not create huge firewall list
-        }
-      }
-    }, 10);
-    return portResponse; // true for OK port. listening for port that is being listened to
+    const exec = `nc -w 5 -z -v ${ip} ${port} </dev/null; echo $?`;
+    const cmdAsync = util.promisify(nodecmd.get);
+    const result = await cmdAsync(exec);
+    return !+result;
   } catch (error) {
-    setTimeout(() => { // timeout ensure return first
-      if (app && firewallActive) {
-        // delete the rule
-        if (resp.message !== 'existing') { // new or updated rule or firewall not active from above
-          // eslint-disable-next-line no-use-before-define
-          deleteAllowOutPortRule(port); // no need waiting for response. Delete if was not present before to not create huge firewall list
-        }
-      }
-    }, 10);
+    log.error(error);
     return false;
   }
 }
@@ -287,11 +212,9 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
     if (!UIok) return false;
 
     const syncthingPort = +port + 2;
-    const exec = `nc -w 2 -z -v ${ip} ${syncthingPort} </dev/null; echo $?`;
-    const cmdAsync = util.promisify(nodecmd.get);
-    const result = await cmdAsync(exec);
-    return !+result;
+    return isPortOpen(ip, syncthingPort);
   } catch (e) {
+    log.error(e);
     return false;
   }
 }
@@ -342,7 +265,7 @@ async function checkAppAvailability(req, res) {
       const processedBody = serviceHelper.ensureObject(body);
 
       const {
-        ip, ports, appname, pubKey, signature,
+        ip, ports, pubKey, signature,
       } = processedBody;
 
       const ipPort = processedBody.port;
@@ -368,7 +291,7 @@ async function checkAppAvailability(req, res) {
         const iBP = isPortBanned(+port);
         if (+port >= minPort && +port <= maxPort && !iBP) {
           // eslint-disable-next-line no-await-in-loop
-          const isOpen = await isPortOpen(ip, port, appname, 30000);
+          const isOpen = await isPortOpen(ip, port);
           if (!isOpen) {
             throw new Error(`Flux Applications on ${ip}:${ipPort} are not available. Failed port: ${port}`);
           } else if (isOpen === 'listening') { // this port is in use and listening. Later do check from other node on this port
