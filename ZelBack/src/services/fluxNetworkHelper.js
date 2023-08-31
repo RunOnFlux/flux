@@ -210,7 +210,6 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
     const exec = `curl -Is http://${ip}:${homePort} | head -1`;
     const cmdAsync = util.promisify(nodecmd.get);
     const result = await cmdAsync(exec);
-    log.info(`HomeUICheckResult: ${result}`);
     if (!result.includes('200')) {
       return false;
     }
