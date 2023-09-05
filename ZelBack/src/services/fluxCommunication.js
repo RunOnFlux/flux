@@ -40,13 +40,13 @@ const LRUoptionsTemp = { // cache for temporary messages
 
 const myCacheTemp = new LRUCache(LRUoptionsTemp);
 
-const LRUTest = {
+/* const LRUTest = {
   max: 25000000, // 25M
   ttl: 60 * 60 * 1000, // 1h
   maxAge: 60 * 60 * 1000, // 1h
 };
 
-const testListCache = new LRUCache(LRUTest);
+const testListCache = new LRUCache(LRUTest); */
 
 let numberOfFluxNodes = 0;
 
@@ -172,7 +172,7 @@ async function handleAppRemovedMessage(message, fromIP) {
  * @param {object} expressWS Express web socket.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
-let messageNumber = 0;
+// let messageNumber = 0;
 // eslint-disable-next-line no-unused-vars
 function handleIncomingConnection(ws, req, expressWS) {
   // now we are in connections state. push the websocket to our incomingconnections
@@ -214,7 +214,7 @@ function handleIncomingConnection(ws, req, expressWS) {
       return;
     }
     // uncomment block bellow to know how many messages is a fluxNode receiving every hour
-    messageNumber += 1;
+    /* messageNumber += 1;
     testListCache.set(messageNumber, messageNumber);
     if (messageNumber % 200 === 0) {
       testListCache.purgeStale();
@@ -222,7 +222,7 @@ function handleIncomingConnection(ws, req, expressWS) {
     }
     if (messageNumber === 100000000) {
       messageNumber = 0;
-    }
+    } */
 
     // check if we have the message in cache. If yes, return false. If not, store it and continue
     const messageHash = hash(msg);
@@ -490,7 +490,7 @@ async function initiateAndHandleConnection(connection) {
       return;
     }
     // uncomment block bellow to know how many messages is a fluxNode receiving every hour
-    messageNumber += 1;
+    /* messageNumber += 1;
     testListCache.set(messageNumber, messageNumber);
     if (messageNumber % 200 === 0) {
       testListCache.purgeStale();
@@ -498,7 +498,7 @@ async function initiateAndHandleConnection(connection) {
     }
     if (messageNumber === 100000000) {
       messageNumber = 0;
-    }
+    } */
     // check if we have the message in cache. If yes, return false. If not, store it and continue
     const messageHash = hash(evt.data);
     if (myCacheTemp.has(messageHash)) {
