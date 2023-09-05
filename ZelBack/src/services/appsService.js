@@ -9892,6 +9892,7 @@ async function syncthingApps() {
               label,
               path: folder,
               devices,
+              paused: false,
             });
           }
         }
@@ -10101,6 +10102,10 @@ async function checkMyAppsAvailability() {
       askingIP = splittedIP[0];
       askingIpPort = splittedIP[1];
     }
+    if (myIP === askingIP) {
+      checkMyAppsAvailability();
+      return;
+    }
     const timeout = 30000;
     const axiosConfig = {
       timeout,
@@ -10221,6 +10226,10 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
     await serviceHelper.delay(10 * 1000);
     // eslint-disable-next-line no-await-in-loop
     let askingIP = await fluxNetworkHelper.getRandomConnection();
+    while (askingIP.split(':')[0] === myIP) {
+      // eslint-disable-next-line no-await-in-loop
+      askingIP = await fluxNetworkHelper.getRandomConnection();
+    }
     let askingIpPort = config.server.apiport;
     if (askingIP.includes(':')) { // has port specification
       // it has port specification

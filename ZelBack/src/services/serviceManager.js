@@ -44,6 +44,7 @@ async function startFluxFunctions() {
     } else {
       upnpService.setupUPNP(apiPort);
     }
+    fluxNetworkHelper.installNetcat();
     log.info('Initiating MongoDB connection');
     await dbHelper.initiateDB(); // either true or throws error
     log.info('DB connected');
@@ -127,7 +128,7 @@ async function startFluxFunctions() {
       }, 60 * 60 * 1000);
     }, 4 * 60 * 1000);
     setTimeout(() => {
-      appsService.syncthingApps(); // rechecks and possibly adjust syncthing configuration every minute
+      appsService.syncthingApps(); // rechecks and possibly adjust syncthing configuration every 2 minutes
     }, 6 * 60 * 1000);
     setTimeout(() => {
       setInterval(() => { // every 30 mins (15 blocks)

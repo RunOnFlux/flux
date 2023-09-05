@@ -187,6 +187,12 @@ sudo apt-get update -y
 sudo apt-get install syncthing -y
 ```
 
+Install Netcat
+
+```bash
+sudo apt install netcat -y
+```
+
 Clone Flux repo (Ubuntu):
 
 ```bash
