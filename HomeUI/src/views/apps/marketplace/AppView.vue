@@ -777,9 +777,10 @@ export default {
       try {
         // construct a valid v4 app spec from the marketplace app spec,
         // filtering out unnecessary fields like 'price' and 'category'
+        const appName = constructUniqueAppName(props.appData.name);
         const appSpecification = {
           version: props.appData.version,
-          name: constructUniqueAppName(props.appData.name),
+          name: appName,
           description: props.appData.description,
           owner: userZelid.value,
           instances: props.appData.instances,
@@ -802,6 +803,9 @@ export default {
           component.userEnvironmentParameters.forEach((param) => {
             envParams.push(`${param.name}=${param.value}`);
           });
+          if(props.appData.name.toLowerCase() === "minecraft") {
+            envParams.push(`APP_NAME=${appName}`);
+          }
           const appComponent = {
             name: component.name,
             description: component.description,
