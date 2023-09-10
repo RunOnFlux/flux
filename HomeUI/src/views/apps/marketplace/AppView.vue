@@ -803,7 +803,7 @@ export default {
           component.userEnvironmentParameters.forEach((param) => {
             envParams.push(`${param.name}=${param.value}`);
           });
-          if(props.appData.name.toLowerCase() === "minecraft") {
+          if (props.appData.name.toLowerCase() === 'minecraft') {
             envParams.push(`APP_NAME=${appName}`);
           }
           const appComponent = {
