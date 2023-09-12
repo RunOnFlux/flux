@@ -3832,6 +3832,7 @@ const openpgp = require('openpgp');
 const timeoptions = require('@/libs/dateFormat');
 
 const geolocations = require('../../libs/geolocation');
+const userconfig = require('../../../../config/userconfig');
 
 export default {
   components: {
@@ -4323,7 +4324,12 @@ export default {
     },
     async getMarketPlace() {
       try {
-        const response = await axios.get('https://stats.runonflux.io/marketplace/listapps');
+        let marketPlaceUrl = 'https://stats.runonflux.io/marketplace/listapps';
+        const developmentNode = userconfig.initial.development || false;
+        if (developmentNode) {
+          marketPlaceUrl = 'https://stats.runonflux.io/marketplace/listdevapps';
+        }
+        const response = await axios.get(marketPlaceUrl);
         if (response.data.status === 'success') {
           this.marketPlaceApps = response.data.data;
         }
