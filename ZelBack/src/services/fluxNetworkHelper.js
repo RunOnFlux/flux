@@ -724,7 +724,8 @@ async function checkMyFluxAvailability(retryNumber = 0) {
               await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newIpChangedMessage);
               await serviceHelper.delay(2 * 60 * 1000); // lets wait 2 minutes to give time for message being propagated on the network before we try to update the ip on blockchain
             }
-            daemonServiceWalletRpcs.createConfirmationTransaction();
+            const result = daemonServiceWalletRpcs.createConfirmationTransaction();
+            log.info(`createConfirmationTransaction: ${result}`);
             await serviceHelper.delay(4 * 60 * 1000); // lets wait 2 blocks time for the transaction to be mined
             return true;
           }
