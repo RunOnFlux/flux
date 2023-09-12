@@ -8,11 +8,11 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [16.x]
+        node-version: [18.x]
 
     services:
       mongodb:
-        image: mongo:4.2
+        image: mongo:5.0
         ports:
           - 27017:27017
 

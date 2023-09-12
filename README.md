@@ -129,7 +129,7 @@ sudo systemctl start mongod.service
 sudo service mongod start
 ```
 
-Install Node Version Manager (NVM) and NodeJS 16 on Ubuntu 18.04/20.04:
+Install Node Version Manager (NVM) and NodeJS 18 on Ubuntu 18.04/20.04:
 
 ```bash
 sudo apt-get install curl
@@ -138,12 +138,12 @@ curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.35.0/install.sh | bash
 
 source ~/.profile
 
-nvm install 16
+nvm install 18
 
-nvm use 16
+nvm use 18
 ```
 
-Install Node Version Manager (NVM) and NodeJS 16 on Redhat/CentOS:
+Install Node Version Manager (NVM) and NodeJS 18 on Redhat/CentOS:
 
 ```bash
 sudo yum install curl
@@ -152,9 +152,9 @@ curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.35.0/install.sh | bash
 
 source ~/.bashrc
 
-nvm install 16
+nvm install 18
 
-nvm use 16
+nvm use 18
 ```
 
 Install Docker using on Ubuntu 20.04
