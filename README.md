@@ -27,6 +27,13 @@ Flux Requires a reasonably new version of Node.js (npm), MongoDB and Docker. It 
 
 This application communicates locally with the Flux Daemon (fluxd), Benchmark Daemon (fluxbenchd) and other Flux instances.
 
+Support for Ubuntu 18.04, 20.04, 22.04
+
+Support NodeJS 16, 18, 20
+
+Support for MongoDB 4.2, 4.4, 5.0, 6.0
+
+
 ## Application Overview
 
 ### Backend Solution - Flux
@@ -129,21 +136,21 @@ sudo systemctl start mongod.service
 sudo service mongod start
 ```
 
-Install Node Version Manager (NVM) and NodeJS 18 on Ubuntu 18.04/20.04:
+Install Node Version Manager (NVM) and NodeJS 16/18/20 on Ubuntu 18.04/20.04/22.04:
 
 ```bash
 sudo apt-get install curl
 
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.35.0/install.sh | bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.5/install.sh | bash
 
 source ~/.profile
 
-nvm install 18
+nvm install 20
 
-nvm use 18
+nvm use 20
 ```
 
-Install Node Version Manager (NVM) and NodeJS 18 on Redhat/CentOS:
+Install Node Version Manager (NVM) and NodeJS 20 on Redhat/CentOS:
 
 ```bash
 sudo yum install curl
@@ -152,9 +159,9 @@ curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.35.0/install.sh | bash
 
 source ~/.bashrc
 
-nvm install 18
+nvm install 20
 
-nvm use 18
+nvm use 20
 ```
 
 Install Docker using on Ubuntu 20.04
