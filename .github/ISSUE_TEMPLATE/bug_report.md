@@ -24,11 +24,11 @@ A clear and concise description of what you expected to happen.
 If applicable, add screenshots to help explain your problem.
 
 **Environment(please complete the following information):**
- - OS: [e.g. Ubuntu 18.04 LTS]
+ - OS: [e.g. Ubuntu 20.04 LTS]
  - Browser [e.g. chrome, safari]
- - Version [e.g. v0.65.0]
- - Daemon [e.g. v4.1.0]
- - Benchmark [ e.g. v1.4.1]
+ - Version [e.g. v4.12.0]
+ - Daemon [e.g. v5.2.0]
+ - Benchmark [ e.g. v3.9.0]
 
 
 **Additional context**
