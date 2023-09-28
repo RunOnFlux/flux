@@ -65,8 +65,15 @@ const longCache = {
   ttl: 1000 * 60 * 60 * 3, // 3 hours
   maxAge: 1000 * 60 * 60 * 3, // 3 hours
 };
+
+const testPortsCache = {
+  max: 60,
+  ttl: 1000 * 60 * 60 * 3, // 3 hours
+  maxAge: 1000 * 60 * 60 * 3, // 3 hours
+};
 const trySpawningGlobalAppCache = new LRUCache(GlobalAppsSpawnLRUoptions);
 const myLongCache = new LRUCache(longCache);
+const failedNodesTestPortsCache = new LRUCache(testPortsCache);
 
 let removalInProgress = false;
 let installationInProgress = false;
@@ -10110,6 +10117,10 @@ async function checkMyAppsAvailability() {
       checkMyAppsAvailability();
       return;
     }
+    if (failedNodesTestPortsCache.has(askingIP)) {
+      checkMyAppsAvailability();
+      return;
+    }
     const timeout = 30000;
     const axiosConfig = {
       timeout,
@@ -10130,6 +10141,7 @@ async function checkMyAppsAvailability() {
     const resMyAppAvailability = await axios.post(`http://${askingIP}:${askingIpPort}/flux/checkappavailability`, JSON.stringify(data), axiosConfig).catch((error) => {
       log.error(`${askingIP} for app availability is not reachable`);
       log.error(error);
+      failedNodesTestPortsCache.set(askingIP, askingIP);
     });
     if (resMyAppAvailability && resMyAppAvailability.data.status === 'error') {
       log.warn(`Applications port range unavailability detected from ${askingIP}:${askingIpPort} on ${testingPort}`);
@@ -10137,6 +10149,7 @@ async function checkMyAppsAvailability() {
       currentDos += 0.4;
       dosState += 0.4;
       failedPort = testingPort;
+      failedNodesTestPortsCache.set(askingIP, askingIP);
     } else if (resMyAppAvailability && resMyAppAvailability.data.status === 'success') {
       log.info(`${resMyAppAvailability.data.data.message} Detected from ${askingIP}:${askingIpPort} on ${testingPort}`);
       failedPort = null;
