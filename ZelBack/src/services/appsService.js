@@ -10143,7 +10143,7 @@ async function checkMyAppsAvailability() {
     }
 
     if (dosState > 10) {
-      dosMessage = 'Applications port range is not reachable from outside!';
+      dosMessage = `Applications port range ${askingIpPort} is not reachable from outside!`;
     }
     // stop listening on the port, close the port
     if (firewallActive) {
