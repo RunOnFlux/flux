@@ -9998,7 +9998,7 @@ async function signCheckAppData(message) {
 /**
  * Periodically check for our applications port range is available
 */
-let testingPort;
+let testingPort = 43;
 let failedPort;
 async function checkMyAppsAvailability() {
   const isUPNP = upnpService.isUPNP();
@@ -10101,11 +10101,11 @@ async function checkMyAppsAvailability() {
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       await upnpService.mapUpnpPort(testingPort, 'Flux_Test_App');
     }
-    await serviceHelper.delay(5 * 1000);
+    await serviceHelper.delay(2 * 1000);
     testingAppserver.listen(testingPort).on('error', (err) => {
       throw err.message;
     });
-    await serviceHelper.delay(15 * 1000);
+    await serviceHelper.delay(5 * 1000);
     // eslint-disable-next-line no-await-in-loop
     let askingIP = await fluxNetworkHelper.getRandomConnection();
     if (!askingIP) {
@@ -10147,6 +10147,7 @@ async function checkMyAppsAvailability() {
     const resMyAppAvailability = await axios.post(`http://${askingIP}:${askingIpPort}/flux/checkappavailability`, JSON.stringify(data), axiosConfig).catch((error) => {
       log.error(`checkMyAppsAvailability - ${askingIP} for app availability is not reachable`);
       log.error(error);
+      failedPort = testingPort;
       failedNodesTestPortsCache.set(askingIP, askingIP);
     });
     if (resMyAppAvailability && resMyAppAvailability.data.status === 'error') {
