@@ -9998,7 +9998,7 @@ async function signCheckAppData(message) {
 /**
  * Periodically check for our applications port range is available
 */
-let testingPort = 81;
+let testingPort = 84;
 let failedPort;
 async function checkMyAppsAvailability() {
   const isUPNP = upnpService.isUPNP();
