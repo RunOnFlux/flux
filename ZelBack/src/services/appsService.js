@@ -10188,6 +10188,7 @@ async function checkMyAppsAvailability() {
     if (portTestFailed && numberOfFailedTests >= 10) {
       portsNotWorking.push(failedPort);
       failedPort = null;
+      numberOfFailedTests = 1;
     }
     checkMyAppsAvailability();
   } catch (error) {
