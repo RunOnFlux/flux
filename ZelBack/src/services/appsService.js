@@ -10104,11 +10104,11 @@ async function checkMyAppsAvailability() {
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       await upnpService.mapUpnpPort(testingPort, 'Flux_Test_App');
     }
-    await serviceHelper.delay(1 * 1000);
+    await serviceHelper.delay(5 * 1000);
     testingAppserver.listen(testingPort).on('error', (err) => {
       throw err.message;
     });
-    await serviceHelper.delay(10 * 1000);
+    await serviceHelper.delay(20 * 1000);
     // eslint-disable-next-line no-await-in-loop
     let askingIP = await fluxNetworkHelper.getRandomConnection();
     if (!askingIP) {
