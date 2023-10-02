@@ -10179,6 +10179,7 @@ async function checkMyAppsAvailability() {
     testingAppserver.close();
     if (!portTestFailed) {
       dosState = 0;
+      numberOfFailedTests = 1;
       dosMessage = dosMountMessage || dosDuplicateAppMessage || null;
       // await serviceHelper.delay(60 * 60 * 1000);
     } else {
@@ -10189,6 +10190,7 @@ async function checkMyAppsAvailability() {
       portsNotWorking.push(failedPort);
       failedPort = null;
       numberOfFailedTests = 1;
+      dosState = 0;
     }
     checkMyAppsAvailability();
   } catch (error) {
