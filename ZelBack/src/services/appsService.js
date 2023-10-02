@@ -9998,7 +9998,7 @@ async function signCheckAppData(message) {
 /**
  * Periodically check for our applications port range is available
 */
-let testingPort = 0;
+let testingPort = 81;
 let failedPort;
 const portsNotWorking = [];
 let numberOfFailedTests = 0;
