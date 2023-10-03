@@ -10002,7 +10002,6 @@ let testingPort = 0;
 let failedPort;
 const portsNotWorking = [];
 let numberOfFailedTests = 0;
-let checkMyAppsAvailabilityCallNumber = 1;
 async function checkMyAppsAvailability() {
   const isUPNP = upnpService.isUPNP();
   try {
@@ -10177,6 +10176,7 @@ async function checkMyAppsAvailability() {
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       await upnpService.removeMapUpnpPort(testingPort, 'Flux_Test_App');
     }
+    testingAppserver.closeAllConnections();
     testingAppserver.close();
     if (!portTestFailed) {
       dosState = 0;
@@ -10193,15 +10193,6 @@ async function checkMyAppsAvailability() {
       numberOfFailedTests = 0;
       dosState = 0;
     }
-    await serviceHelper.delay(10 * 1000);
-    log.info('checkMyAppsAvailability - Awaiting to testingAppserver to be closed');
-    while (testingAppserver.address() && checkMyAppsAvailabilityCallNumber < 120) {
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(2 * 1000);
-      checkMyAppsAvailabilityCallNumber += 1;
-    }
-    log.info('checkMyAppsAvailability - testingAppserver is now closed');
-    checkMyAppsAvailabilityCallNumber = 1;
     checkMyAppsAvailability();
   } catch (error) {
     if (dosMountMessage || dosDuplicateAppMessage) {
@@ -10216,10 +10207,10 @@ async function checkMyAppsAvailability() {
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       await upnpService.removeMapUpnpPort(testingPort, 'Flux_Test_App').catch((e) => log.error(e));
     }
+    testingAppserver.closeAllConnections();
     testingAppserver.close();
     log.error(`checkMyAppsAvailability - Error: ${error}`);
     // await serviceHelper.delay(4 * 60 * 1000);
-    await serviceHelper.delay(60 * 1000);
     checkMyAppsAvailability();
   }
 }
