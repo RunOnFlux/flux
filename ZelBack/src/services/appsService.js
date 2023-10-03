@@ -9998,7 +9998,7 @@ async function signCheckAppData(message) {
 /**
  * Periodically check for our applications port range is available
 */
-let testingPort = 81;
+let testingPort = 0;
 let failedPort;
 const portsNotWorking = [];
 let numberOfFailedTests = 0;
@@ -10104,11 +10104,11 @@ async function checkMyAppsAvailability() {
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       await upnpService.mapUpnpPort(testingPort, 'Flux_Test_App');
     }
-    await serviceHelper.delay(10 * 1000);
+    await serviceHelper.delay(2 * 1000);
     testingAppserver.listen(testingPort).on('error', (err) => {
       throw err.message;
     });
-    await serviceHelper.delay(30 * 1000);
+    await serviceHelper.delay(10 * 1000);
     // eslint-disable-next-line no-await-in-loop
     let askingIP = await fluxNetworkHelper.getRandomConnection();
     if (!askingIP) {
@@ -10179,17 +10179,17 @@ async function checkMyAppsAvailability() {
     testingAppserver.close();
     if (!portTestFailed) {
       dosState = 0;
-      numberOfFailedTests = 1;
+      numberOfFailedTests = 0;
       dosMessage = dosMountMessage || dosDuplicateAppMessage || null;
       // await serviceHelper.delay(60 * 60 * 1000);
     } else {
       // await serviceHelper.delay(4 * 60 * 1000);
     }
 
-    if (portTestFailed && numberOfFailedTests >= 10) {
+    if (portTestFailed && numberOfFailedTests >= 4) {
       portsNotWorking.push(failedPort);
       failedPort = null;
-      numberOfFailedTests = 1;
+      numberOfFailedTests = 0;
       dosState = 0;
     }
     checkMyAppsAvailability();
