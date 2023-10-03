@@ -1,4 +1,3 @@
-// const createHttpTerminator = require('http-terminator');
 const config = require('config');
 const axios = require('axios');
 const express = require('express');
@@ -55,9 +54,6 @@ const globalAppsLocations = config.database.appsglobal.collections.appsLocations
 
 const testingAppExpress = express();
 const testingAppserver = http.createServer(testingAppExpress);
-/* const httpTerminator = createHttpTerminator({
-  testingAppserver,
-}); */
 
 const GlobalAppsSpawnLRUoptions = {
   max: 2000,
@@ -10181,7 +10177,6 @@ async function checkMyAppsAvailability() {
       await upnpService.removeMapUpnpPort(testingPort, 'Flux_Test_App');
     }
 
-    // await httpTerminator.terminate();
     testingAppserver.close();
     if (!portTestFailed) {
       dosState = 0;
@@ -10198,6 +10193,7 @@ async function checkMyAppsAvailability() {
       numberOfFailedTests = 0;
       dosState = 0;
     }
+    await serviceHelper.delay(30 * 1000);
     checkMyAppsAvailability();
   } catch (error) {
     if (dosMountMessage || dosDuplicateAppMessage) {
@@ -10212,10 +10208,9 @@ async function checkMyAppsAvailability() {
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       await upnpService.removeMapUpnpPort(testingPort, 'Flux_Test_App').catch((e) => log.error(e));
     }
-    // await httpTerminator.terminate();
     testingAppserver.close();
     log.error(`checkMyAppsAvailability - Error: ${error}`);
-    // await serviceHelper.delay(4 * 60 * 1000);
+    await serviceHelper.delay(30 * 1000);
     checkMyAppsAvailability();
   }
 }
