@@ -1,7 +1,4 @@
-import {
-  createHttpTerminator,
-} from 'http-terminator';
-
+const createHttpTerminator = require('http-terminator');
 const config = require('config');
 const axios = require('axios');
 const express = require('express');
