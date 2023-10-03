@@ -9995,6 +9995,14 @@ async function signCheckAppData(message) {
   return signature;
 }
 
+const server1Sockets = new Set();
+function destroySockets(sockets) {
+  // eslint-disable-next-line no-restricted-syntax
+  for (const socket of sockets.values()) {
+    socket.destroy();
+  }
+}
+
 /**
  * Periodically check for our applications port range is available
 */
@@ -10107,6 +10115,11 @@ async function checkMyAppsAvailability() {
     await serviceHelper.delay(2 * 1000);
     testingAppserver.listen(testingPort).on('error', (err) => {
       throw err.message;
+    }).on('connection', (socket) => {
+      server1Sockets.add(socket);
+      socket.on('close', () => {
+        server1Sockets.delete(socket);
+      });
     });
     await serviceHelper.delay(8 * 1000);
     // eslint-disable-next-line no-await-in-loop
@@ -10176,8 +10189,10 @@ async function checkMyAppsAvailability() {
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       await upnpService.removeMapUpnpPort(testingPort, 'Flux_Test_App');
     }
-    testingAppserver.closeAllConnections();
+
+    destroySockets(server1Sockets);
     testingAppserver.close();
+
     if (!portTestFailed) {
       dosState = 0;
       numberOfFailedTests = 0;
@@ -10207,7 +10222,6 @@ async function checkMyAppsAvailability() {
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       await upnpService.removeMapUpnpPort(testingPort, 'Flux_Test_App').catch((e) => log.error(e));
     }
-    testingAppserver.closeAllConnections();
     testingAppserver.close();
     log.error(`checkMyAppsAvailability - Error: ${error}`);
     // await serviceHelper.delay(4 * 60 * 1000);
