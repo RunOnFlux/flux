@@ -10115,7 +10115,8 @@ async function checkMyAppsAvailability() {
     await serviceHelper.delay(2 * 1000);
     testingAppserver.listen(testingPort).on('error', (err) => {
       throw err.message;
-    }).on('connection', (socket) => {
+    });
+    testingAppserver.on('connection', (socket) => {
       server1Sockets.add(socket);
       socket.on('close', () => {
         server1Sockets.delete(socket);
