@@ -53,7 +53,8 @@ const globalAppsTempMessages = config.database.appsglobal.collections.appsTempor
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
 const testingAppExpress = express();
-const testingAppserver = http.createServer(testingAppExpress);
+let testingAppserver = http.createServer(testingAppExpress);
+testingAppserver = require('http-shutdown')(testingAppserver);
 
 const GlobalAppsSpawnLRUoptions = {
   max: 2000,
@@ -10177,7 +10178,13 @@ async function checkMyAppsAvailability() {
       await upnpService.removeMapUpnpPort(testingPort, 'Flux_Test_App');
     }
 
-    testingAppserver.close();
+    testingAppserver.shutdown((err) => {
+      if (err) {
+        log.info(`shutdown failed: ${err.message}`);
+      } else {
+        log.info('Everything is cleanly shutdown.');
+      }
+    });
     if (!portTestFailed) {
       dosState = 0;
       numberOfFailedTests = 0;
@@ -10193,7 +10200,7 @@ async function checkMyAppsAvailability() {
       numberOfFailedTests = 0;
       dosState = 0;
     }
-    await serviceHelper.delay(30 * 1000);
+    // await serviceHelper.delay(30 * 1000);
     checkMyAppsAvailability();
   } catch (error) {
     if (dosMountMessage || dosDuplicateAppMessage) {
@@ -10208,9 +10215,15 @@ async function checkMyAppsAvailability() {
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       await upnpService.removeMapUpnpPort(testingPort, 'Flux_Test_App').catch((e) => log.error(e));
     }
-    testingAppserver.close();
+    testingAppserver.shutdown((err) => {
+      if (err) {
+        log.info(`shutdown failed: ${err.message}`);
+      } else {
+        log.info('Everything is cleanly shutdown.');
+      }
+    });
     log.error(`checkMyAppsAvailability - Error: ${error}`);
-    await serviceHelper.delay(30 * 1000);
+    // await serviceHelper.delay(30 * 1000);
     checkMyAppsAvailability();
   }
 }
