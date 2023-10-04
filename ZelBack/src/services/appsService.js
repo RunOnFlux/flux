@@ -10106,8 +10106,10 @@ async function checkMyAppsAvailability() {
       await upnpService.mapUpnpPort(testingPort, 'Flux_Test_App');
     }
     await serviceHelper.delay(2 * 1000);
-    testingAppserver.listen(testingPort).catch((error) => {
-      throw error.message;
+    testingAppserver.listen(testingPort).on('error', (err) => {
+      log.error(`checkMyAppsAvailability - testingAppserver error: ${err}`);
+    }).on('uncaughtException', (err) => {
+      log.error(`checkMyAppsAvailability - testingAppserver uncaughtException: ${err}`);
     });
     await serviceHelper.delay(8 * 1000);
     // eslint-disable-next-line no-await-in-loop
