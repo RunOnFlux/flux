@@ -9999,7 +9999,7 @@ async function signCheckAppData(message) {
 /**
  * Periodically check for our applications port range is available
 */
-let testingPort = 0;
+let testingPort = 80;
 let failedPort;
 const portsNotWorking = [];
 let numberOfFailedTests = 0;
@@ -10111,7 +10111,7 @@ async function checkMyAppsAvailability() {
     }).on('uncaughtException', (err) => {
       log.error(`checkMyAppsAvailability - testingAppserver uncaughtException: ${err}`);
     });
-    await serviceHelper.delay(8 * 1000);
+    await serviceHelper.delay(30 * 1000);
     // eslint-disable-next-line no-await-in-loop
     let askingIP = await fluxNetworkHelper.getRandomConnection();
     if (!askingIP) {
