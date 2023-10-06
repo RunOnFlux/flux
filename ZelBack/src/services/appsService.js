@@ -11,6 +11,7 @@ const { LRUCache } = require('lru-cache');
 const systemcrontab = require('crontab');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
+const httpShutdown = require('http-shutdown');
 const fluxCommunication = require('./fluxCommunication');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
@@ -54,7 +55,7 @@ const globalAppsLocations = config.database.appsglobal.collections.appsLocations
 
 const testingAppExpress = express();
 let testingAppserver = http.createServer(testingAppExpress);
-testingAppserver = require('http-shutdown')(testingAppserver);
+testingAppserver = httpShutdown(testingAppserver);
 
 const GlobalAppsSpawnLRUoptions = {
   max: 2000,
@@ -10112,9 +10113,9 @@ async function checkMyAppsAvailability() {
     }
     await serviceHelper.delay(5 * 1000);
     testingAppserver.listen(testingPort).on('error', (err) => {
-      log.error(`checkMyAppsAvailability - testingAppserver error: ${err}`);
+      throw err.message;
     }).on('uncaughtException', (err) => {
-      log.error(`checkMyAppsAvailability - testingAppserver uncaughtException: ${err}`);
+      throw err.message;
     });
     await serviceHelper.delay(10 * 1000);
     // eslint-disable-next-line no-await-in-loop
@@ -10271,11 +10272,14 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
         await upnpService.mapUpnpPort(portToTest, `Flux_Prelaunch_App_${portToTest}`);
       }
       const beforeAppInstallTestingExpress = express();
-      const beforeAppInstallTestingServer = http.createServer(beforeAppInstallTestingExpress);
+      let beforeAppInstallTestingServer = http.createServer(beforeAppInstallTestingExpress);
+      beforeAppInstallTestingServer = httpShutdown(beforeAppInstallTestingServer);
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(5 * 1000);
       beforeAppInstallTestingServers.push(beforeAppInstallTestingServer);
       beforeAppInstallTestingServer.listen(portToTest).on('error', (err) => {
+        throw err.message;
+      }).on('uncaughtException', (err) => {
         throw err.message;
       });
     }
@@ -10339,7 +10343,11 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       }
     }
     beforeAppInstallTestingServers.forEach((beforeAppInstallTestingServer) => {
-      beforeAppInstallTestingServer.close();
+      beforeAppInstallTestingServer.shutdown((err) => {
+        if (err) {
+          log.error(`beforeAppInstallTestingServer Shutdown failed: ${err.message}`);
+        }
+      });
     });
     return portsStatus;
   } catch (error) {
@@ -10362,7 +10370,11 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
     }
     beforeAppInstallTestingServers.forEach((beforeAppInstallTestingServer) => {
       try {
-        beforeAppInstallTestingServer.close();
+        beforeAppInstallTestingServer.shutdown((err) => {
+          if (err) {
+            log.error(`beforeAppInstallTestingServer Shutdown failed: ${err.message}`);
+          }
+        });
       } catch (e) {
         log.warn(e);
       }
