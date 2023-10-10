@@ -167,6 +167,27 @@ function isPortBanned(port) {
 }
 
 /**
+ * To get if port belongs to banned upnp range
+ * @returns {boolean} Returns true if port is banned
+ */
+function isPortUPNPBanned(port) {
+  let portBanned = false;
+  const { upnpBannedPorts } = config.fluxapps;
+  upnpBannedPorts.forEach((portOrInterval) => {
+    if (typeof portOrInterval === 'string') { // '0-10'
+      const minPort = Number(portOrInterval.split('-')[0]);
+      const maxPort = Number(portOrInterval.split('-')[1]);
+      if (+port >= minPort && +port <= maxPort) {
+        portBanned = true;
+      }
+    } else if (portOrInterval === +port) {
+      portBanned = true;
+    }
+  });
+  return portBanned;
+}
+
+/**
  * To perform a basic check if port on an ip is opened
  * @param {string} ip IP address.
  * @param {number} port Port.
@@ -722,9 +743,9 @@ async function checkMyFluxAvailability(retryNumber = 0) {
               await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newIpChangedMessage);
               await serviceHelper.delay(500);
               await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newIpChangedMessage);
-              await serviceHelper.delay(2 * 60 * 1000); // lets wait 2 minutes to give time for message being propagated on the network before we try to update the ip on blockchain
+              await serviceHelper.delay(1 * 60 * 1000); // lets wait 1 minute to give time for message being propagated on the network before we try to update the ip on blockchain
             }
-            const result = daemonServiceWalletRpcs.createConfirmationTransaction();
+            const result = await daemonServiceWalletRpcs.createConfirmationTransaction();
             log.info(`createConfirmationTransaction: ${result}`);
             await serviceHelper.delay(4 * 60 * 1000); // lets wait 2 blocks time for the transaction to be mined
             return true;
@@ -1378,6 +1399,7 @@ module.exports = {
   checkAppAvailability,
   isPortEnterprise,
   isPortBanned,
+  isPortUPNPBanned,
   isPortUserBlocked,
   allowNodeToBindPrivilegedPorts,
   installNetcat,

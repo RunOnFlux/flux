@@ -216,6 +216,7 @@ import { categories, defaultCategory } from '../../../libs/marketplaceCategories
 const qs = require('qs');
 const axios = require('axios');
 const timeoptions = require('@/libs/dateFormat');
+const userconfig = require('../../../../../config/userconfig');
 
 export default {
   components: {
@@ -355,7 +356,12 @@ export default {
     };
 
     const fetchApps = async () => {
-      const response = await axios.get('https://stats.runonflux.io/marketplace/listapps');
+      let marketPlaceUrl = 'https://stats.runonflux.io/marketplace/listapps';
+      const developmentNode = userconfig.initial.development || false;
+      if (developmentNode) {
+        marketPlaceUrl = 'https://stats.runonflux.io/marketplace/listdevapps';
+      }
+      const response = await axios.get(marketPlaceUrl);
       console.log(response);
       if (response.data.status === 'success') {
         filteredApps.value = response.data.data.filter((val) => val.visible);
