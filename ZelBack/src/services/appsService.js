@@ -8753,8 +8753,13 @@ async function checkAndNotifyPeersOfRunningApps() {
 
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     const daemonHeight = syncStatus.data.height || 0;
-    if (daemonHeight >= config.sentinelActivation && checkAndNotifyPeersOfRunningAppsRun > 0) {
-      return;
+    if (daemonHeight >= config.sentinelActivation) {
+      if (checkAndNotifyPeersOfRunningAppsRun > 0) {
+        return;
+      }
+      const db = dbHelper.databaseConnection();
+      const databaseTemp = db.db(config.database.appsglobal.database);
+      await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ broadcastedAt: 1 });
     }
     checkAndNotifyPeersOfRunningAppsRun += 1;
 
