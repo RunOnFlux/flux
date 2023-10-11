@@ -10002,7 +10002,10 @@ async function signCheckAppData(message) {
 */
 let failedPort;
 let testingPort;
+let startPortTest = 81;
+let testRun = 0;
 async function checkMyAppsAvailability() {
+  testRun += 1;
   const isUPNP = upnpService.isUPNP();
   try {
     const dbopen = dbHelper.databaseConnection();
@@ -10058,12 +10061,12 @@ async function checkMyAppsAvailability() {
         });
       }
     }
-    const minPort = currentHeight.generalScannedHeight >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMinNew : config.fluxapps.portMin - 1000;
+    /* const minPort = currentHeight.generalScannedHeight >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMinNew : config.fluxapps.portMin - 1000;
     const maxPort = currentHeight.generalScannedHeight >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMaxNew : config.fluxapps.portMax;
     // choose random port
     const min = minPort;
-    const max = maxPort;
-    testingPort = failedPort || Math.floor(Math.random() * (max - min) + min);
+    const max = maxPort; */
+    testingPort = failedPort || startPortTest;
 
     log.info(`checkMyAppsAvailability - Testing port ${testingPort}.`);
     let iBP = fluxNetworkHelper.isPortBanned(testingPort);
@@ -10111,7 +10114,7 @@ async function checkMyAppsAvailability() {
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       await upnpService.mapUpnpPort(testingPort, 'Flux_Test_App');
     }
-    await serviceHelper.delay(5 * 1000);
+    await serviceHelper.delay(1 * 1000);
     testingAppserver.listen(testingPort).on('error', (err) => {
       throw err.message;
     }).on('uncaughtException', (err) => {
@@ -10191,11 +10194,17 @@ async function checkMyAppsAvailability() {
       }
     });
     if (!portTestFailed) {
+      startPortTest += 1;
       dosState = 0;
       dosMessage = dosMountMessage || dosDuplicateAppMessage || null;
-      await serviceHelper.delay(60 * 60 * 1000);
-    } else {
-      await serviceHelper.delay(4 * 60 * 1000);
+      // await serviceHelper.delay(60 * 60 * 1000);
+    } else if (testRun === 4) {
+      testRun = 0;
+      startPortTest += 1;
+      failedPort = null;
+      dosState = 0;
+      dosMessage = dosMountMessage || dosDuplicateAppMessage || null;
+      // await serviceHelper.delay(4 * 60 * 1000);
     }
     checkMyAppsAvailability();
   } catch (error) {
