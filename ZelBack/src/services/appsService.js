@@ -8753,7 +8753,7 @@ async function checkAndNotifyPeersOfRunningApps() {
 
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     const daemonHeight = syncStatus.data.height || 0;
-    if (daemonHeight >= config.sentinel && checkAndNotifyPeersOfRunningAppsRun > 0) {
+    if (daemonHeight >= config.sentinelActivation && checkAndNotifyPeersOfRunningAppsRun > 0) {
       return;
     }
     checkAndNotifyPeersOfRunningAppsRun += 1;
@@ -8802,7 +8802,7 @@ async function checkAndNotifyPeersOfRunningApps() {
         // store it in local database first
         // eslint-disable-next-line no-await-in-loop
         await storeAppRunningMessage(newAppRunningMessage);
-        if (daemonHeight < config.sentinel && (daemonHeight < config.fluxapps.apprunningv2 || installedAndRunning.length === 1)) {
+        if (daemonHeight < config.sentinelActivation && (daemonHeight < config.fluxapps.apprunningv2 || installedAndRunning.length === 1)) {
           // eslint-disable-next-line no-await-in-loop
           await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessage);
           // eslint-disable-next-line no-await-in-loop
@@ -8812,7 +8812,7 @@ async function checkAndNotifyPeersOfRunningApps() {
           // broadcast messages about running apps to all peers
         }
       }
-      if (daemonHeight >= config.sentinel || (daemonHeight >= config.fluxapps.apprunningv2 && installedAndRunning.length > 1)) {
+      if (daemonHeight >= config.sentinelActivation || (daemonHeight >= config.fluxapps.apprunningv2 && installedAndRunning.length > 1)) {
         // send v2 unique message instead
         const newAppRunningMessageV2 = {
           type: 'fluxapprunning',

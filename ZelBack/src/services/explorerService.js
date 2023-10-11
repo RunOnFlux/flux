@@ -707,6 +707,14 @@ async function processBlock(blockHeight, isInsightExplorer) {
           log.error(error);
         }
       }
+      if (blockDataVerbose.height === config.sentinelActivation) {
+        try {
+          const databaseTemp = db.db(config.database.appsglobal.database);
+          await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ broadcastedAt: 1 });
+        } catch (error) {
+          log.error(error);
+        }
+      }
     }
     const scannedHeight = blockDataVerbose.height;
     // update scanned Height in scannedBlockHeightCollection
