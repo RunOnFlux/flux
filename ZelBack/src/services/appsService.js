@@ -10004,6 +10004,7 @@ let failedPort;
 let testingPort;
 let startPortTest = 81;
 let testRun = 0;
+const portsNotWorking = [];
 async function checkMyAppsAvailability() {
   testRun += 1;
   const isUPNP = upnpService.isUPNP();
@@ -10068,6 +10069,7 @@ async function checkMyAppsAvailability() {
     const max = maxPort; */
     testingPort = failedPort || startPortTest;
 
+    log.info(`checkMyAppsAvailability - portsNotWorking ${JSON.stringify(portsNotWorking)}.`);
     log.info(`checkMyAppsAvailability - Testing port ${testingPort}.`);
     let iBP = fluxNetworkHelper.isPortBanned(testingPort);
     if (iBP) {
@@ -10199,6 +10201,7 @@ async function checkMyAppsAvailability() {
       dosMessage = dosMountMessage || dosDuplicateAppMessage || null;
       // await serviceHelper.delay(60 * 60 * 1000);
     } else if (testRun === 4) {
+      portsNotWorking.push(failedPort);
       testRun = 0;
       startPortTest += 1;
       failedPort = null;
