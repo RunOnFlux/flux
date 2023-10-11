@@ -77,11 +77,14 @@ async function startFluxFunctions() {
     log.info('Temporary database prepared');
     log.info('Preparing Flux Apps locations');
     // more than 1 hour. Meaning we have not received status message for a long time. So that node is no longer on a network or app is down.
+    // this will be changed with sentinelActivation
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     const daemonHeight = syncStatus.data.height || 0;
     if (daemonHeight < config.sentinelActivation) {
       await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 3900 });
     }
+    // removed from database records that removedBroadcastedAt was sent 30 days ago
+    await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ removedBroadcastedAt: 1 }, { expireAfterSeconds: 2592000 });
     log.info('Flux Apps locations prepared');
     fluxNetworkHelper.adjustFirewall();
     log.info('Firewalls checked');
