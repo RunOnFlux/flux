@@ -10122,7 +10122,7 @@ async function checkMyAppsAvailability() {
     }).on('uncaughtException', (err) => {
       throw err.message;
     });
-    await serviceHelper.delay(10 * 1000);
+    await serviceHelper.delay(60 * 1000);
     // eslint-disable-next-line no-await-in-loop
     let askingIP = await fluxNetworkHelper.getRandomConnection();
     if (!askingIP) {
@@ -10229,7 +10229,15 @@ async function checkMyAppsAvailability() {
       }
     });
     log.error(`checkMyAppsAvailability - Error: ${error}`);
-    await serviceHelper.delay(4 * 60 * 1000);
+    if (testRun === 4) {
+      portsNotWorking.push(failedPort);
+      testRun = 0;
+      startPortTest += 1;
+      failedPort = null;
+      dosState = 0;
+      dosMessage = dosMountMessage || dosDuplicateAppMessage || null;
+      // await serviceHelper.delay(4 * 60 * 1000);
+    }
     checkMyAppsAvailability();
   }
 }
