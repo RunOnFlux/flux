@@ -6213,6 +6213,7 @@ async function storeAppRunningMessage(message) {
       ip: message.ip,
       broadcastedAt: new Date(message.broadcastedAt),
       expireAt: new Date(validTill),
+      removedBroadcastedAt: null,
     };
 
     // indexes over name, hash, ip. Then name + ip and name + ip + broadcastedAt.
