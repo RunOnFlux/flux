@@ -8753,7 +8753,7 @@ async function checkAndNotifyPeersOfRunningApps() {
 
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     const daemonHeight = syncStatus.data.height || 0;
-    if ((daemonHeight >= config.sentinel || daemonHeight === 0) && checkAndNotifyPeersOfRunningAppsRun > 0) {
+    if (daemonHeight >= config.sentinel && checkAndNotifyPeersOfRunningAppsRun > 0) {
       return;
     }
     checkAndNotifyPeersOfRunningAppsRun += 1;
@@ -8774,6 +8774,10 @@ async function checkAndNotifyPeersOfRunningApps() {
         installedAndRunning.push(app);
       }
     });
+
+    if (installedAndRunning.length === 0) {
+      return;
+    }
 
     const apps = [];
     try {
