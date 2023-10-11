@@ -6331,11 +6331,41 @@ async function storeAppRemovedMessage(message) {
     return false;
   }
 
+  const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+  const daemonHeight = syncStatus.data.height || 0;
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
-  const query = { ip: message.ip, name: message.appName };
-  const projection = {};
-  await dbHelper.findOneAndDeleteInDatabase(database, globalAppsLocations, query, projection);
+  if (daemonHeight < config.sentinelActivation) {
+    const query = { ip: message.ip, name: message.appName };
+    const projection = {};
+    await dbHelper.findOneAndDeleteInDatabase(database, globalAppsLocations, query, projection);
+  } else {
+    const appRunningMessage = {
+      name: message.appName,
+      ip: message.ip,
+      expireAt: new Date(validTill),
+      removedBroadcastedAt: new Date(message.broadcastedAt),
+    };
+
+    // indexes over name, hash, ip. Then name + ip and name + ip + broadcastedAt.
+    const queryFind = { name: appRunningMessage.name, ip: appRunningMessage.ip } };
+    const projection = { _id: 0 };
+    // we already have the exact same data
+    // eslint-disable-next-line no-await-in-loop
+    const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
+    if (result) {
+      appRunningMessage.broadcastedAt = result.broadcastedAt;
+      appRunningMessage.hash = result.hash;
+      const queryUpdate = { name: appRunningMessage.name, ip: appRunningMessage.ip };
+      const update = { $set: appRunningMessage };
+      const options = {
+        upsert: true,
+      };
+      // eslint-disable-next-line no-await-in-loop
+      await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
+    }
+    
+  }
 
   // all stored, rebroadcast
   return true;
