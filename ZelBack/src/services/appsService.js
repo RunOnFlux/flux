@@ -6348,7 +6348,7 @@ async function storeAppRemovedMessage(message) {
     };
 
     // indexes over name, hash, ip. Then name + ip and name + ip + broadcastedAt.
-    const queryFind = { name: appRunningMessage.name, ip: appRunningMessage.ip } };
+    const queryFind = { name: appRunningMessage.name, ip: appRunningMessage.ip };
     const projection = { _id: 0 };
     // we already have the exact same data
     // eslint-disable-next-line no-await-in-loop
@@ -6364,7 +6364,6 @@ async function storeAppRemovedMessage(message) {
       // eslint-disable-next-line no-await-in-loop
       await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
     }
-    
   }
 
   // all stored, rebroadcast
