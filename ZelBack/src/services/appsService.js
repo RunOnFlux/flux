@@ -8670,12 +8670,6 @@ async function trySpawningGlobalApplication() {
 let checkAndNotifyPeersOfRunningAppsRun = 0;
 async function checkAndNotifyPeersOfRunningApps() {
   try {
-    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-    const daemonHeight = syncStatus.data.height || 0;
-    if ((daemonHeight >= config.sentinel || daemonHeight === 0) && checkAndNotifyPeersOfRunningAppsRun > 0) {
-      return;
-    }
-    checkAndNotifyPeersOfRunningAppsRun += 1;
     // get my external IP and check that it is longer than 5 in length.
     const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
     let myIP = null;
@@ -8756,6 +8750,14 @@ async function checkAndNotifyPeersOfRunningApps() {
     } else {
       log.warn('Stopped application checks not running, some removal or installation is in progress');
     }
+
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    const daemonHeight = syncStatus.data.height || 0;
+    if ((daemonHeight >= config.sentinel || daemonHeight === 0) && checkAndNotifyPeersOfRunningAppsRun > 0) {
+      return;
+    }
+    checkAndNotifyPeersOfRunningAppsRun += 1;
+
     const installedAndRunning = [];
     appsInstalled.forEach((app) => {
       if (app.version >= 4) {
