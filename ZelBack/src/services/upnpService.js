@@ -178,7 +178,11 @@ async function setupUPNP(apiport = config.server.apiport) {
 async function mapUpnpPort(port, description) {
   try {
     const mappings = await client.getMappings();
-    log.info(`upnpmapping: ${JSON.stringify(mappings)}`);
+    const portInUse = mappings.find((mapping) => (mapping.private && mapping.private.port && +mapping.private.port === +port));
+    if (portInUse) {
+      log.info(`mapUpnpPort found port ${+port} in upnp mappings`);
+      return false;
+    }
     await client.createMapping({
       public: port,
       private: port,
