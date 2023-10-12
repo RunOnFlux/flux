@@ -10095,6 +10095,7 @@ async function checkMyAppsAvailability() {
     if (isPortUserBlocked) {
       log.info(`checkMyAppsAvailability - Testing port ${testingPort} is user blocked.`);
       failedPort = null;
+      startPortTest += 1;
       // skip this check, port is not allowed for this flux node by user
       await serviceHelper.delay(15 * 1000);
       checkMyAppsAvailability();
@@ -10103,6 +10104,7 @@ async function checkMyAppsAvailability() {
     if (appPorts.includes(testingPort)) {
       log.info(`checkMyAppsAvailability - Skipped checking ${testingPort} - in use.`);
       failedPort = null;
+      startPortTest += 1;
       // skip this check
       await serviceHelper.delay(15 * 1000);
       checkMyAppsAvailability();
