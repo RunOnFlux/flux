@@ -10002,11 +10002,8 @@ async function signCheckAppData(message) {
 */
 let failedPort;
 let testingPort;
-let startPortTest = 39000;
-let testRun = 0;
 const portsNotWorking = [];
 async function checkMyAppsAvailability() {
-  testRun += 1;
   const isUPNP = upnpService.isUPNP();
   try {
     const dbopen = dbHelper.databaseConnection();
@@ -10062,15 +10059,23 @@ async function checkMyAppsAvailability() {
         });
       }
     }
-    /* const minPort = currentHeight.generalScannedHeight >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMinNew : config.fluxapps.portMin - 1000;
+    const minPort = currentHeight.generalScannedHeight >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMinNew : config.fluxapps.portMin - 1000;
     const maxPort = currentHeight.generalScannedHeight >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMaxNew : config.fluxapps.portMax;
     // choose random port
     const min = minPort;
-    const max = maxPort; */
-    testingPort = failedPort || startPortTest;
+    const max = maxPort;
+    testingPort = failedPort || Math.floor(Math.random() * (max - min) + min);
 
-    log.info(`checkMyAppsAvailability - portsNotWorking ${JSON.stringify(portsNotWorking)}.`);
     log.info(`checkMyAppsAvailability - Testing port ${testingPort}.`);
+    const portNotWorking = portsNotWorking.includes(testingPort);
+    if (portNotWorking) {
+      log.info(`checkMyAppsAvailability - Testing port ${testingPort} is part of the list of ports not working on this node.`);
+      failedPort = null;
+      // skip this check, port is not possible to run on flux
+      await serviceHelper.delay(15 * 1000);
+      checkMyAppsAvailability();
+      return;
+    }
     let iBP = fluxNetworkHelper.isPortBanned(testingPort);
     if (iBP) {
       log.info(`checkMyAppsAvailability - Testing port ${testingPort} is banned.`);
@@ -10095,7 +10100,6 @@ async function checkMyAppsAvailability() {
     if (isPortUserBlocked) {
       log.info(`checkMyAppsAvailability - Testing port ${testingPort} is user blocked.`);
       failedPort = null;
-      startPortTest += 1;
       // skip this check, port is not allowed for this flux node by user
       await serviceHelper.delay(15 * 1000);
       checkMyAppsAvailability();
@@ -10104,7 +10108,6 @@ async function checkMyAppsAvailability() {
     if (appPorts.includes(testingPort)) {
       log.info(`checkMyAppsAvailability - Skipped checking ${testingPort} - in use.`);
       failedPort = null;
-      startPortTest += 1;
       // skip this check
       await serviceHelper.delay(15 * 1000);
       checkMyAppsAvailability();
@@ -10116,15 +10119,23 @@ async function checkMyAppsAvailability() {
       await fluxNetworkHelper.allowPort(testingPort);
     }
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
-      await upnpService.mapUpnpPort(testingPort, 'Flux_Test_App');
+      const upnpMapResult = await upnpService.mapUpnpPort(testingPort, 'Flux_Test_App');
+      if (!upnpMapResult) {
+        log.info(`checkMyAppsAvailability - Testing port ${testingPort} is already in use on UPNP mappings.`);
+        failedPort = null;
+        // skip this check, port is not allowed for this flux node by user
+        await serviceHelper.delay(15 * 1000);
+        checkMyAppsAvailability();
+        return;
+      }
     }
-    await serviceHelper.delay(1 * 1000);
+    await serviceHelper.delay(5 * 1000);
     testingAppserver.listen(testingPort).on('error', (err) => {
       throw err.message;
     }).on('uncaughtException', (err) => {
       throw err.message;
     });
-    await serviceHelper.delay(60 * 1000);
+    await serviceHelper.delay(10 * 1000);
     // eslint-disable-next-line no-await-in-loop
     let askingIP = await fluxNetworkHelper.getRandomConnection();
     if (!askingIP) {
@@ -10198,18 +10209,18 @@ async function checkMyAppsAvailability() {
       }
     });
     if (!portTestFailed) {
-      startPortTest += 1;
       dosState = 0;
       dosMessage = dosMountMessage || dosDuplicateAppMessage || null;
-      // await serviceHelper.delay(60 * 60 * 1000);
-    } else if (testRun === 4) {
+      await serviceHelper.delay(60 * 60 * 1000);
+    } else {
       portsNotWorking.push(failedPort);
-      testRun = 0;
-      startPortTest += 1;
-      failedPort = null;
-      dosState = 0;
-      dosMessage = dosMountMessage || dosDuplicateAppMessage || null;
-      // await serviceHelper.delay(4 * 60 * 1000);
+      log.error(`checkMyAppsAvailability - portsNotWorking ${JSON.stringify(portsNotWorking)}.`);
+      if (portsNotWorking.length <= 100) {
+        failedPort = null;
+        dosState = 0;
+        dosMessage = dosMountMessage || dosDuplicateAppMessage || null;
+      }
+      await serviceHelper.delay(1 * 60 * 1000);
     }
     checkMyAppsAvailability();
   } catch (error) {
@@ -10231,15 +10242,7 @@ async function checkMyAppsAvailability() {
       }
     });
     log.error(`checkMyAppsAvailability - Error: ${error}`);
-    if (testRun === 4) {
-      portsNotWorking.push(failedPort);
-      testRun = 0;
-      startPortTest += 1;
-      failedPort = null;
-      dosState = 0;
-      dosMessage = dosMountMessage || dosDuplicateAppMessage || null;
-      // await serviceHelper.delay(4 * 60 * 1000);
-    }
+    await serviceHelper.delay(4 * 60 * 1000);
     checkMyAppsAvailability();
   }
 }
@@ -10291,7 +10294,10 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       }
       if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
         // eslint-disable-next-line no-await-in-loop
-        await upnpService.mapUpnpPort(portToTest, `Flux_Prelaunch_App_${portToTest}`);
+        const upnpMapResult = await upnpService.mapUpnpPort(portToTest, `Flux_Prelaunch_App_${portToTest}`);
+        if (!upnpMapResult) {
+          return false;
+        }
       }
       const beforeAppInstallTestingExpress = express();
       let beforeAppInstallTestingServer = http.createServer(beforeAppInstallTestingExpress);
