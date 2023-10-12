@@ -9275,7 +9275,7 @@ async function reinstallOldApplications() {
             }
           }
         } else {
-          log.info('Other Fluxes are redeploying application. Waiting for next round.');
+          log.warn('Other Fluxes are redeploying application. Waiting for next round.');
         }
       }
       // else specifications do not exist anymore, app shall expire itself
