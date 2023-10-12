@@ -10002,7 +10002,7 @@ async function signCheckAppData(message) {
 */
 let failedPort;
 let testingPort;
-let startPortTest = 36666;
+let startPortTest = 39000;
 let testRun = 0;
 const portsNotWorking = [];
 async function checkMyAppsAvailability() {
