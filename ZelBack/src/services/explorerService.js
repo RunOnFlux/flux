@@ -34,6 +34,8 @@ const LRUoptions = {
 };
 
 const nodeCollateralCache = new LRUCache(LRUoptions);
+// updateFluxAppsPeriod can be between every 4 to 9 blocks
+const updateFluxAppsPeriod = Math.floor(Math.random() * 6 + 4);
 
 /**
  * To return the sender's transaction info from the daemon service.
@@ -687,7 +689,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
           appsService.checkAndRemoveApplicationInstance();
         }
       }
-      if (blockHeight % config.fluxapps.updateFluxAppsPeriod === 0) {
+      if (blockHeight % updateFluxAppsPeriod === 0) {
         if (blockDataVerbose.height >= config.fluxapps.epochstart) {
           appsService.reinstallOldApplications();
         }
