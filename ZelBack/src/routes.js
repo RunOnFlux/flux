@@ -344,6 +344,9 @@ module.exports = (app, expressWs) => {
   app.get('/apps/enterprisenodes', cache('30 seconds'), (req, res) => {
     enterpriseNodesService.getEnterpriseNodesAPI(req, res);
   });
+  app.get('/apps/broadcastAppsRunning', cache('10 minutes'), (req, res) => {
+    appsService.broadcastAppsRunning(req, res);
+  });
 
   // app.get('/explorer/allutxos', (req, res) => {
   //   explorerService.getAllUtxos(req, res);

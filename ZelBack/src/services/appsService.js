@@ -73,6 +73,13 @@ const testPortsCache = {
   ttl: 1000 * 60 * 60 * 3, // 3 hours
   maxAge: 1000 * 60 * 60 * 3, // 3 hours
 };
+
+const appsRunningCache = {
+  max: 1,
+  ttl: 1000 * 60 * 60 * 24, // 24 hours
+  maxAge: 1000 * 60 * 60 * 24, // 24 hours
+};
+const broadCastAppsRunningCache = new LRUCache(appsRunningCache);
 const trySpawningGlobalAppCache = new LRUCache(GlobalAppsSpawnLRUoptions);
 const myLongCache = new LRUCache(longCache);
 const failedNodesTestPortsCache = new LRUCache(testPortsCache);
@@ -10603,6 +10610,131 @@ async function checkForNonAllowedAppsOnLocalNetwork() {
   }
 }
 
+/**
+ * Method called by other nodes that had different information of apps running on this node,
+ * this node will brodcast new message to the network with the information of the apps that are running
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function broadcastAppsRunning(req, res) {
+  try {
+    const response = 'Running apps broadcasted to the network';
+    if (broadCastAppsRunningCache.has(1)) {
+      const resultsResponse = messageHelper.createDataMessage(response);
+      res.json(resultsResponse);
+      return;
+    }
+
+    // get my external IP and check that it is longer than 5 in length.
+    const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
+    let myIP = null;
+    if (benchmarkResponse.status === 'success') {
+      const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
+      if (benchmarkResponseData.ipaddress) {
+        log.info(`Gathered IP ${benchmarkResponseData.ipaddress}`);
+        myIP = benchmarkResponseData.ipaddress.length > 5 ? benchmarkResponseData.ipaddress : null;
+      }
+    }
+    if (myIP === null) {
+      throw new Error('Unable to detect Flux IP address');
+    }
+    // get list of locally installed apps. Store them in database as running and send info to our peers.
+    // check if they are running?
+    const installedAppsRes = await installedApps();
+    if (installedAppsRes.status !== 'success') {
+      throw new Error('Failed to get installed Apps');
+    }
+    const runningAppsRes = await listRunningApps();
+    if (runningAppsRes.status !== 'success') {
+      throw new Error('Unable to check running Apps');
+    }
+    const appsInstalled = installedAppsRes.data;
+    const runningApps = runningAppsRes.data;
+    // kadena and folding is old naming scheme having /zel.  all global application start with /flux
+    const runningAppsNames = runningApps.map((app) => {
+      if (app.Names[0].startsWith('/zel')) {
+        return app.Names[0].slice(4);
+      }
+      return app.Names[0].slice(5);
+    });
+
+    const installedAndRunning = [];
+    appsInstalled.forEach((app) => {
+      if (app.version >= 4) {
+        let appRunningWell = true;
+        app.compose.forEach((appComponent) => {
+          if (!runningAppsNames.includes(`${appComponent.name}_${app.name}`)) {
+            appRunningWell = false;
+          }
+        });
+        if (appRunningWell) {
+          installedAndRunning.push(app);
+        }
+      } else if (runningAppsNames.includes(app.name)) {
+        installedAndRunning.push(app);
+      }
+    });
+
+    if (installedAndRunning.length === 0) {
+      return;
+    }
+
+    const apps = [];
+    try {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const application of installedAndRunning) {
+        // eslint-disable-next-line no-await-in-loop
+        // we can distinguish pure local apps from global with hash and height
+        const newAppRunningMessage = {
+          type: 'fluxapprunning',
+          version: 1,
+          name: application.name,
+          hash: application.hash, // hash of application specifics that are running
+          ip: myIP,
+          broadcastedAt: new Date().getTime(),
+        };
+        const app = {
+          name: application.name,
+          hash: application.hash,
+        };
+        apps.push(app);
+        // store it in local database first
+        // eslint-disable-next-line no-await-in-loop
+        await storeAppRunningMessage(newAppRunningMessage);
+      }
+    } catch (err) {
+      log.error(err);
+    }
+
+    // send v2 unique message instead
+    const newAppRunningMessageV2 = {
+      type: 'fluxapprunning',
+      version: 2,
+      apps,
+      ip: myIP,
+      broadcastedAt: new Date().getTime(),
+    };
+      // eslint-disable-next-line no-await-in-loop
+    await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessageV2);
+    // eslint-disable-next-line no-await-in-loop
+    await serviceHelper.delay(500);
+    // eslint-disable-next-line no-await-in-loop
+    await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessageV2);
+    // broadcast messages about running apps to all peers
+    const resultsResponse = messageHelper.createDataMessage(response);
+    log.info('Running Apps broadcasted');
+    res.json(resultsResponse);
+    broadCastAppsRunningCache.set(1, 1);
+  } catch (error) {
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
 function removalInProgressReset() {
   removalInProgress = false;
 }
@@ -10715,6 +10847,7 @@ module.exports = {
   checkMyAppsAvailability,
   checkApplicationsCompliance,
   testAppMount,
+  broadcastAppsRunning,
 
   // exports for testing purposes
   setAppsMonitored,
