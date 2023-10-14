@@ -10616,10 +10616,12 @@ async function checkForNonAllowedAppsOnLocalNetwork() {
  * @param {object} req Request.
  * @param {object} res Response.
  */
+let broadcastAppsRunningInExecution = false;
 async function broadcastAppsRunning(req, res) {
   try {
+    broadcastAppsRunningInExecution = true;
     const response = 'Running apps broadcasted to the network';
-    if (broadCastAppsRunningCache.has(1)) {
+    if (broadCastAppsRunningCache.has(1) || broadcastAppsRunningInExecution) {
       const resultsResponse = messageHelper.createDataMessage(response);
       res.json(resultsResponse);
       return;
@@ -10675,10 +10677,6 @@ async function broadcastAppsRunning(req, res) {
       }
     });
 
-    if (installedAndRunning.length === 0) {
-      return;
-    }
-
     const apps = [];
     try {
       // eslint-disable-next-line no-restricted-syntax
@@ -10725,6 +10723,7 @@ async function broadcastAppsRunning(req, res) {
     log.info('Running Apps broadcasted');
     res.json(resultsResponse);
     broadCastAppsRunningCache.set(1, 1);
+    broadcastAppsRunningInExecution = false;
   } catch (error) {
     const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
@@ -10732,6 +10731,7 @@ async function broadcastAppsRunning(req, res) {
       error.code,
     );
     res.json(errorResponse);
+    broadcastAppsRunningInExecution = false;
   }
 }
 
