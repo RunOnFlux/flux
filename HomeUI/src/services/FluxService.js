@@ -124,7 +124,7 @@ export default {
     });
   },
   adjustBlockedPorts(zelidauthHeader, blockedPorts) {
-    const data = blockedPorts;
+    const data = { blockedPorts };
     const axiosConfig = {
       headers: {
         zelidauth: zelidauthHeader,
