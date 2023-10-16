@@ -1143,21 +1143,20 @@ async function adjustRouterIP(req, res) {
  * @param {object} res Response.
  */
 async function adjustBlockedPorts(req, res) {
-  let body = '';
+  let blockedPorts = '';
   req.on('data', (data) => {
-    body += data;
+    blockedPorts += data;
   });
   req.on('end', async () => {
     try {
-      if (body === undefined || body === '') {
+      if (blockedPorts === undefined || blockedPorts === '') {
         throw new Error('Missing Blocked Ports Information.');
       }
-      if (!Array.isArray(body)) {
+      if (!Array.isArray(JSON.parse(blockedPorts))) {
         throw new Error('Blocked Ports is not a valid array');
       }
       const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       if (authorized === true) {
-        const blockedPorts = JSON.stringify(body);
         const dataToWrite = `module.exports = {
             initial: {
               ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
