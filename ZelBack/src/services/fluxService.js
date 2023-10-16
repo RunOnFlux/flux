@@ -1152,6 +1152,7 @@ async function adjustBlockedPorts(req, res) {
       if (body === undefined || body === '') {
         throw new Error('Missing Blocked Ports Information.');
       }
+      log.info(`blockedPortsBody: ${JSON.stringify(body)}`);
       const blockedPortsBody = serviceHelper.ensureObject(body);
       log.info(`blockedPortsBody: ${JSON.stringify(blockedPortsBody)}`);
       if (!Array.isArray(blockedPortsBody)) {
