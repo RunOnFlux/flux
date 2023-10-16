@@ -1143,53 +1143,54 @@ async function adjustRouterIP(req, res) {
  * @param {object} res Response.
  */
 async function adjustBlockedPorts(req, res) {
-  try {
-    let { data } = req.params;
-    data = data || req.query.data;
-    if (data === undefined || data === null) {
-      throw new Error('Missing Blocked Ports Information.');
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      if (body === undefined || body === '') {
+        throw new Error('Missing Blocked Ports Information.');
+      }
+      const blockedPortsBody = serviceHelper.ensureObject(body);
+      if (!Array.isArray(blockedPortsBody)) {
+        throw new Error('Blocked Ports is not a valid array');
+      }
+      const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      if (authorized === true) {
+        const blockedPorts = JSON.stringify(blockedPortsBody);
+        const dataToWrite = `module.exports = {
+            initial: {
+              ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
+              zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
+              kadena: '${userconfig.initial.kadena || ''}',
+              testnet: ${userconfig.initial.testnet || false},
+              development: ${userconfig.initial.development || false},
+              apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
+              routerIP: '${userconfig.initial.routerIP || ''}',
+              pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
+              pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
+              blockedPorts: '${blockedPorts}',
+            }
+          }`;
+        const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
+        await fsPromises.writeFile(fluxDirPath, dataToWrite);
+        const successMessage = messageHelper.createSuccessMessage('User Blocked Ports adjusted, FluxOs is restarting');
+        res.json(successMessage);
+      } else {
+        const errMessage = messageHelper.errUnauthorizedMessage();
+        res.json(errMessage);
+      }
+    } catch (error) {
+      log.error(error);
+      const errorResponse = messageHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      res.json(errorResponse);
     }
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-    if (!Array.isArray(data)) {
-      throw new Error('Blocked Ports is not a valid array');
-    }
-    const blockedPorts = JSON.stringify(data);
-    if (data === undefined || data === null) {
-      throw new Error('Missing Blocked Ports Information.');
-    }
-    if (authorized === true) {
-      const dataToWrite = `module.exports = {
-        initial: {
-          ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-          zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
-          kadena: '${userconfig.initial.kadena || ''}',
-          testnet: ${userconfig.initial.testnet || false},
-          development: ${userconfig.initial.development || false},
-          apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
-          routerIP: '${userconfig.initial.routerIP || ''}',
-          pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
-          pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-          blockedPorts: '${blockedPorts}',
-        }
-      }`;
-      const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
-      await fsPromises.writeFile(fluxDirPath, dataToWrite);
-
-      const successMessage = messageHelper.createSuccessMessage('User Blocked Ports adjusted, FluxOs is restarting');
-      res.json(successMessage);
-    } else {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-    }
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    res.json(errorResponse);
-  }
+  });
 }
 
 /**

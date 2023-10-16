@@ -844,7 +844,7 @@ module.exports = (app, expressWs) => {
   app.get('/flux/adjustrouterip/:routerip?', (req, res) => { // note this essentially rebuilds flux use with caution!
     fluxService.adjustRouterIP(req, res);
   });
-  app.get('/flux/adjustblockedports/:data?', (req, res) => {
+  app.post('/flux/adjustblockedports', (req, res) => {
     fluxService.adjustBlockedPorts(req, res);
   });
   app.get('/flux/reindexdaemon', (req, res) => {
