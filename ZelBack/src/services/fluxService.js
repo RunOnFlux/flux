@@ -1152,15 +1152,12 @@ async function adjustBlockedPorts(req, res) {
       if (body === undefined || body === '') {
         throw new Error('Missing Blocked Ports Information.');
       }
-      log.info(`blockedPortsBody: ${JSON.stringify(body)}`);
-      const blockedPortsBody = serviceHelper.ensureObject(body);
-      log.info(`blockedPortsBody: ${JSON.stringify(blockedPortsBody)}`);
-      if (!Array.isArray(blockedPortsBody)) {
+      if (!Array.isArray(body)) {
         throw new Error('Blocked Ports is not a valid array');
       }
       const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
       if (authorized === true) {
-        const blockedPorts = JSON.stringify(blockedPortsBody);
+        const blockedPorts = JSON.stringify(body);
         const dataToWrite = `module.exports = {
             initial: {
               ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
