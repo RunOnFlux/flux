@@ -212,7 +212,7 @@
               Update Router IP
             </b-button>
             <confirm-dialog
-              target="update-routerip"
+              target="update-routerIP"
               confirm-button="Update Router IP"
               @confirm="adjustRouterIP()"
             />
