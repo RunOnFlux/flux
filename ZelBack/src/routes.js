@@ -256,6 +256,12 @@ module.exports = (app, expressWs) => {
   app.get('/flux/kadena', cache('30 seconds'), (req, res) => {
     fluxService.getFluxKadena(req, res);
   });
+  app.get('/flux/routerip', cache('30 seconds'), (req, res) => {
+    fluxService.getRouterIP(req, res);
+  });
+  app.get('/flux/blockedports', cache('30 seconds'), (req, res) => {
+    fluxService.getBlockedPorts(req, res);
+  });
   app.get('/flux/dosstate', cache('30 seconds'), (req, res) => {
     fluxNetworkHelper.getDOSState(req, res);
   });
@@ -834,6 +840,12 @@ module.exports = (app, expressWs) => {
   });
   app.get('/flux/adjustkadena/:account?/:chainid?', (req, res) => { // note this essentially rebuilds flux use with caution!
     fluxService.adjustKadenaAccount(req, res);
+  });
+  app.get('/flux/adjustrouterip/:routerip?', (req, res) => { // note this essentially rebuilds flux use with caution!
+    fluxService.adjustRouterIP(req, res);
+  });
+  app.get('/flux/adjustblockedports/:data?', (req, res) => {
+    fluxService.adjustBlockedPorts(req, res);
   });
   app.get('/flux/reindexdaemon', (req, res) => {
     fluxService.reindexDaemon(req, res);

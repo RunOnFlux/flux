@@ -116,11 +116,33 @@ export default {
       },
     });
   },
+  adjustRouterIP(zelidauthHeader, routerip) {
+    return Api().get(`/flux/adjustrouterip/${routerip}`, {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
+  adjustBlockedPorts(zelidauthHeader, blockedPorts) {
+    const data = blockedPorts;
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    };
+    return Api().post('/flux/adjustblockedports', JSON.stringify(data), axiosConfig);
+  },
   getCruxID() {
     return Api().get('/flux/cruxid');
   },
   getKadenaAccount() {
     return Api().get('/flux/kadena');
+  },
+  getRouterIP() {
+    return Api().get('/flux/routerip');
+  },
+  getBlockedPorts() {
+    return Api().get('/flux/blockedports');
   },
   getZelid() {
     return Api().get('/flux/zelid');

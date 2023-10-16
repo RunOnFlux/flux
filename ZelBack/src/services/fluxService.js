@@ -511,6 +511,30 @@ function getFluxKadena(req, res) {
 }
 
 /**
+ * To show the current user's Router IP setup in configuration file that is being used with FluxOS.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+function getRouterIP(req, res) {
+  const routerIP = userconfig.initial.routerIP || '';
+  const message = messageHelper.createDataMessage(routerIP);
+  return res ? res.json(message) : message;
+}
+
+/**
+ * To show the current user's blocked Ports setup in configuration file that is being used with FluxOS.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+function getBlockedPorts(req, res) {
+  const blockedPorts = userconfig.initial.blockedPorts || '[]';
+  const message = messageHelper.createDataMessage(blockedPorts);
+  return res ? res.json(message) : message;
+}
+
+/**
  * To download Flux daemon debug logs. Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -1058,7 +1082,7 @@ async function adjustKadenaAccount(req, res) {
 
       await fsPromises.writeFile(fluxDirPath, dataToWrite);
 
-      const successMessage = messageHelper.createSuccessMessage('Kadena account adjusted');
+      const successMessage = messageHelper.createSuccessMessage('Kadena account adjusted, FluxOs is restarting');
       res.json(successMessage);
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
@@ -1068,6 +1092,103 @@ async function adjustKadenaAccount(req, res) {
     log.error(error);
     const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
+  }
+}
+
+/**
+ * To update the current routerIP that is being used with FluxOS. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function adjustRouterIP(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    if (authorized === true) {
+      let { routerip } = req.params;
+      routerip = routerip || req.query.routerip || '';
+
+      const dataToWrite = `module.exports = {
+        initial: {
+          ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
+          zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
+          kadena: '${userconfig.initial.kadena || ''}',
+          testnet: ${userconfig.initial.testnet || false},
+          development: ${userconfig.initial.development || false},
+          apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
+          routerIP: '${routerip}',
+          pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
+          pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
+          blockedPorts: [${userconfig.initial.blockedPorts || ''}],
+        }
+      }`;
+      const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
+      await fsPromises.writeFile(fluxDirPath, dataToWrite);
+
+      const successMessage = messageHelper.createSuccessMessage('Router IP adjusted, FluxOs is restarting');
+      res.json(successMessage);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
+}
+
+/**
+ * To update the current user blocked ports that is being used with FluxOS. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function adjustBlockedPorts(req, res) {
+  try {
+    let { data } = req.params;
+    data = data || req.query.data;
+    if (data === undefined || data === null) {
+      throw new Error('Missing Blocked Ports Information.');
+    }
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (!Array.isArray(data)) {
+      throw new Error('Blocked Ports is not a valid array');
+    }
+    const blockedPorts = JSON.stringify(data);
+    if (data === undefined || data === null) {
+      throw new Error('Missing Blocked Ports Information.');
+    }
+    if (authorized === true) {
+      const dataToWrite = `module.exports = {
+        initial: {
+          ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
+          zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
+          kadena: '${userconfig.initial.kadena || ''}',
+          testnet: ${userconfig.initial.testnet || false},
+          development: ${userconfig.initial.development || false},
+          apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
+          routerIP: '${userconfig.initial.routerIP || ''}',
+          pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
+          pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
+          blockedPorts: '${blockedPorts}',
+        }
+      }`;
+      const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
+      await fsPromises.writeFile(fluxDirPath, dataToWrite);
+
+      const successMessage = messageHelper.createSuccessMessage('User Blocked Ports adjusted, FluxOs is restarting');
+      res.json(successMessage);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
   }
 }
 
@@ -1155,6 +1276,8 @@ module.exports = {
   fluxDebugLog,
   adjustCruxID,
   adjustKadenaAccount,
+  adjustRouterIP,
+  adjustBlockedPorts,
   fluxBackendFolder,
   getNodeTier,
   installFluxWatchTower,
@@ -1162,6 +1285,8 @@ module.exports = {
   enterMaster,
   isStaticIPapi,
   getFluxGeolocation,
+  getRouterIP,
+  getBlockedPorts,
 
   // Exports for testing purposes
   fluxLog,
