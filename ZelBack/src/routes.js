@@ -256,11 +256,17 @@ module.exports = (app, expressWs) => {
   app.get('/flux/kadena', cache('30 seconds'), (req, res) => {
     fluxService.getFluxKadena(req, res);
   });
-  app.get('/flux/routerip', cache('30 seconds'), (req, res) => {
+  app.get('/flux/routerip', cache('1 day'), (req, res) => {
     fluxService.getRouterIP(req, res);
   });
-  app.get('/flux/blockedports', cache('30 seconds'), (req, res) => {
+  app.get('/flux/blockedports', cache('1 day'), (req, res) => {
     fluxService.getBlockedPorts(req, res);
+  });
+  app.get('/flux/apiport', cache('1 day'), (req, res) => {
+    fluxService.getApiPort(req, res);
+  });
+  app.get('/flux/blockedrepositories', cache('1 day'), (req, res) => {
+    fluxService.getBlockedRepositories(req, res);
   });
   app.get('/flux/dosstate', cache('30 seconds'), (req, res) => {
     fluxNetworkHelper.getDOSState(req, res);
@@ -844,8 +850,14 @@ module.exports = (app, expressWs) => {
   app.get('/flux/adjustrouterip/:routerip?', (req, res) => { // note this essentially rebuilds flux use with caution!
     fluxService.adjustRouterIP(req, res);
   });
-  app.post('/flux/adjustblockedports', (req, res) => {
+  app.post('/flux/adjustblockedports', (req, res) => { // note this essentially rebuilds flux use with caution!
     fluxService.adjustBlockedPorts(req, res);
+  });
+  app.get('/flux/adjustapiport/:apiport?', (req, res) => { // note this essentially rebuilds flux use with caution!
+    fluxService.adjustAPIPort(req, res);
+  });
+  app.post('/flux/adjustblockedrepositories', (req, res) => { // note this essentially rebuilds flux use with caution!
+    fluxService.adjustBlockedRepositories(req, res);
   });
   app.get('/flux/reindexdaemon', (req, res) => {
     fluxService.reindexDaemon(req, res);

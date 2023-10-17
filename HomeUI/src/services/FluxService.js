@@ -132,6 +132,22 @@ export default {
     };
     return Api().post('/flux/adjustblockedports', JSON.stringify(data), axiosConfig);
   },
+  adjustAPIPort(zelidauthHeader, apiport) {
+    return Api().get(`/flux/adjustapiport/${apiport}`, {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
+  adjustBlockedRepositories(zelidauthHeader, blockedRepositories) {
+    const data = { blockedRepositories };
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    };
+    return Api().post('/flux/adjustblockedrepositories', JSON.stringify(data), axiosConfig);
+  },
   getCruxID() {
     return Api().get('/flux/cruxid');
   },
@@ -143,6 +159,12 @@ export default {
   },
   getBlockedPorts() {
     return Api().get('/flux/blockedports');
+  },
+  getAPIPort() {
+    return Api().get('/flux/apiport');
+  },
+  getBlockedRepositories() {
+    return Api().get('/flux/blockedrepositories');
   },
   getZelid() {
     return Api().get('/flux/zelid');

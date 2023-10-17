@@ -257,6 +257,70 @@
         md="6"
         sm="12"
       >
+        <b-card title="API Port">
+          <b-card-text>
+            Update your API Port. Default one is 16127. You can use 16137, 16147, 16157, 16167, 16177, 16187, 16197 if your node is running under UPNP.
+          </b-card-text>
+          <div class="text-center">
+            <b-form-input
+              v-model="apiPortInput"
+              placeholder="API Port"
+              class="mb-2"
+            />
+            <b-button
+              id="update-apiPort"
+              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+              variant="success"
+              aria-label="Update API Port"
+            >
+              Update API Port
+            </b-button>
+            <confirm-dialog
+              target="update-apiPort"
+              confirm-button="Update API Port"
+              @confirm="adjustAPIPort()"
+            />
+          </div>
+        </b-card>
+      </b-col>
+      <b-col
+        lg="8"
+        md="6"
+        sm="12"
+      >
+        <b-card title="User Blocked Repositories">
+          <b-card-text class="mb-2">
+            Update the blocked repositories that you don't want to run on your Fluxnode. Marketplace Apps will not be take in consideration. Repositories should be defined as string array one by one separated by comma.
+          </b-card-text>
+          <div class="text-center">
+            <b-form-input
+              v-model="blockedRepositoriesInput"
+              placeholder="Blocked Repositories array"
+              class="mb-2"
+            />
+            <b-button
+              id="update-blockedRepositories"
+              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+              variant="success"
+              aria-label="Update Blocked Repositories"
+            >
+              Update Blocked Repositories
+            </b-button>
+            <confirm-dialog
+              target="update-blockedRepositories"
+              confirm-button="Update Blocked Repositories"
+              @confirm="adjustBlockedRepositories()"
+            />
+          </div>
+        </b-card>
+      </b-col>
+    </b-row>
+    <b-row class="match-height">
+      <b-col
+        lg="4"
+        md="6"
+        sm="12"
+      >
         <b-card title="Reindexing">
           <b-card-text class="mb-1">
             Options to reindex Flux databases and so rebuild them from scratch. Reindexing may take several hours and should only be used when an unrecoverable error is present in databases.
@@ -623,6 +687,8 @@ export default {
       kadenaChainIDInput: 0,
       routerIPInput: '',
       blockedPortsInput: '[]',
+      apiPortInput: 16127,
+      blockedRepositoriesInput: '[]',
       removeLastInformation: false,
       updateDialogVisible: false,
       updateProgress: 0,
@@ -643,6 +709,8 @@ export default {
     this.getRouterIP();
     this.getBlockedPorts();
     this.getLatestFluxVersion();
+    this.getAPIPort();
+    this.getBlockedRepositories();
   },
   methods: {
     async getKadenaAccount() {
@@ -665,6 +733,18 @@ export default {
       const response = await FluxService.getBlockedPorts();
       if (response.data.status === 'success' && response.data.data) {
         this.blockedPortsInput = response.data.data;
+      }
+    },
+    async getAPIPort() {
+      const response = await FluxService.getAPIPort();
+      if (response.data.status === 'success' && response.data.data) {
+        this.apiPortInput = response.data.data;
+      }
+    },
+    async getBlockedRepositories() {
+      const response = await FluxService.getBlockedRepositories();
+      if (response.data.status === 'success' && response.data.data) {
+        this.blockedRepositoriesInput = response.data.data;
       }
     },
     getLatestFluxVersion() {
@@ -721,6 +801,38 @@ export default {
           this.showToast('danger', blockedPortsResponse.data.data.message || blockedPortsResponse.data.data);
         } else {
           this.showToast('success', blockedPortsResponse.data.data.message || blockedPortsResponse.data.data);
+        }
+      } catch (error) {
+        this.showToast('danger', error.message || error);
+      }
+    },
+    async adjustAPIPort() {
+      const apiPort = this.apiPortInput;
+      const zelidauth = localStorage.getItem('zelidauth');
+      const allowedAPIPorts = [16127, 16137, 16147, 16157, 16167, 16177, 16187, 16197];
+      if (!allowedAPIPorts.includes(apiPort)) {
+        this.showToast('danger', 'API Port not valid');
+      }
+      try {
+        const apiPortResponse = await FluxService.adjustAPIPort(zelidauth, apiPort);
+        if (apiPortResponse.data.status === 'error') {
+          this.showToast('danger', apiPortResponse.data.data.message || apiPortResponse.data.data);
+        } else {
+          this.showToast('success', apiPortResponse.data.data.message || apiPortResponse.data.data);
+        }
+      } catch (error) {
+        this.showToast('danger', error.message || error);
+      }
+    },
+    async adjustBlockedRepositories() {
+      const blockedRepositories = this.blockedRepositoriesInput;
+      const zelidauth = localStorage.getItem('zelidauth');
+      try {
+        const blockedRepositoriesResponse = await FluxService.adjustBlockedRepositories(zelidauth, blockedRepositories);
+        if (blockedRepositoriesResponse.data.status === 'error') {
+          this.showToast('danger', blockedRepositoriesResponse.data.data.message || blockedRepositoriesResponse.data.data);
+        } else {
+          this.showToast('success', blockedRepositoriesResponse.data.data.message || blockedRepositoriesResponse.data.data);
         }
       } catch (error) {
         this.showToast('danger', error.message || error);
