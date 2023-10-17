@@ -845,8 +845,8 @@ async function adjustExternalIP(ip) {
     routerIP: '${userconfig.initial.routerIP || ''}',
     pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
     pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-    blockedPorts: ${userconfig.initial.blockedPorts || '[]'},
-    blockedRepositories: ${userconfig.initial.blockedRepositories || '[]'},
+    blockedPorts: [${userconfig.initial.blockedPorts || ''}],
+    blockedRepositories: [${userconfig.initial.blockedRepositories || ''}],
   }
 }`;
 
