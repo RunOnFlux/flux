@@ -268,7 +268,7 @@ module.exports = (app, expressWs) => {
   app.get('/flux/blockedrepositories', cache('1 day'), (req, res) => {
     fluxService.getBlockedRepositories(req, res);
   });
-  app.get('/flux/development', cache('1 day'), (req, res) => {
+  app.get('/flux/marketplaceurl', cache('1 day'), (req, res) => {
     fluxService.getDevelopmentFlag(req, res);
   });
   app.get('/flux/dosstate', cache('30 seconds'), (req, res) => {

@@ -166,8 +166,8 @@ export default {
   getBlockedRepositories() {
     return Api().get('/flux/blockedrepositories');
   },
-  getDevelopmentFlag() {
-    return Api().get('/flux/development');
+  getMarketplaceURL() {
+    return Api().get('/flux/marketplaceurl');
   },
   getZelid() {
     return Api().get('/flux/zelid');

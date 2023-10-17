@@ -356,55 +356,55 @@ export default {
     };
 
     const fetchApps = async () => {
-      let marketPlaceUrl = 'https://stats.runonflux.io/marketplace/listapps';
-      const responseDevFlag = await FluxService.getDevelopmentFlag();
+      const responseDevFlag = await FluxService.getMarketPlaceURL();
       if (responseDevFlag.data.status === 'success' && responseDevFlag.data.data) {
-        marketPlaceUrl = 'https://stats.runonflux.io/marketplace/listdevapps';
-      }
-      const response = await axios.get(marketPlaceUrl);
-      console.log(response);
-      if (response.data.status === 'success') {
-        filteredApps.value = response.data.data.filter((val) => val.visible);
-        filteredApps.value.forEach((appData) => {
+        const response = await axios.get(responseDevFlag.data.data);
+        console.log(response);
+        if (response.data.status === 'success') {
+          filteredApps.value = response.data.data.filter((val) => val.visible);
+          filteredApps.value.forEach((appData) => {
           // eslint-disable-next-line no-param-reassign
-          appData.extraDetail = getCategory(appData.category);
-        });
-        if (router.currentRoute.params.filter) {
+            appData.extraDetail = getCategory(appData.category);
+          });
+          if (router.currentRoute.params.filter) {
           // Filter
-          filteredApps.value = filteredApps.value.filter((appData) => appData.extraDetail.name.toLowerCase() === router.currentRoute.params.filter.toLowerCase());
-        }
-        if (searchQuery.value) {
-          filteredApps.value = filteredApps.value.filter((appData) => {
-            if (appData.name.toLowerCase().includes(searchQuery.value)) return true;
-            if (appData.description.toLowerCase().includes(searchQuery.value)) return true;
-            return false;
-          });
-        }
-        if (sortBy.value) {
-          filteredApps.value.sort((a, b) => {
-            if (sortBy.value === 'title-asc') {
-              return a.name.localeCompare(b.name);
-            }
-            if (sortBy.value === 'title-desc') {
-              return b.name.localeCompare(a.name);
-            }
-            if (sortBy.value === 'cpu') {
-              return resolveCpu(a) - resolveCpu(b);
-            }
-            if (sortBy.value === 'ram') {
-              return resolveRam(a) - resolveRam(b);
-            }
-            if (sortBy.value === 'hdd') {
-              return resolveHdd(a) - resolveHdd(b);
-            }
-            if (sortBy.value === 'price') {
-              return a.price - b.price;
-            }
-            return 0;
-          });
+            filteredApps.value = filteredApps.value.filter((appData) => appData.extraDetail.name.toLowerCase() === router.currentRoute.params.filter.toLowerCase());
+          }
+          if (searchQuery.value) {
+            filteredApps.value = filteredApps.value.filter((appData) => {
+              if (appData.name.toLowerCase().includes(searchQuery.value)) return true;
+              if (appData.description.toLowerCase().includes(searchQuery.value)) return true;
+              return false;
+            });
+          }
+          if (sortBy.value) {
+            filteredApps.value.sort((a, b) => {
+              if (sortBy.value === 'title-asc') {
+                return a.name.localeCompare(b.name);
+              }
+              if (sortBy.value === 'title-desc') {
+                return b.name.localeCompare(a.name);
+              }
+              if (sortBy.value === 'cpu') {
+                return resolveCpu(a) - resolveCpu(b);
+              }
+              if (sortBy.value === 'ram') {
+                return resolveRam(a) - resolveRam(b);
+              }
+              if (sortBy.value === 'hdd') {
+                return resolveHdd(a) - resolveHdd(b);
+              }
+              if (sortBy.value === 'price') {
+                return a.price - b.price;
+              }
+              return 0;
+            });
+          }
+        } else {
+          showToast('danger', response.data.data.message || response.data.data);
         }
       } else {
-        showToast('danger', response.data.data.message || response.data.data);
+        showToast('danger', responseDevFlag.data.data.message || responseDevFlag.data.data);
       }
     };
 

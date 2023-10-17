@@ -559,14 +559,18 @@ function getBlockedRepositories(req, res) {
 }
 
 /**
- * To show the current development flag setup in configuration file that is being used with FluxOS.
+ * To marketplace URL to show based on current development flag setup in configuration file that is being used with FluxOS.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {object} Message.
  */
-function getDevelopmentFlag(req, res) {
+function getMarketplaceURL(req, res) {
   const development = userconfig.initial.development || false;
-  const message = messageHelper.createDataMessage(development);
+  let marketPlaceUrl = 'https://stats.runonflux.io/marketplace/listapps';
+  if (development) {
+    marketPlaceUrl = 'https://stats.runonflux.io/marketplace/listdevapps';
+  }
+  const message = messageHelper.createDataMessage(marketPlaceUrl);
   return res ? res.json(message) : message;
 }
 
@@ -1434,7 +1438,7 @@ module.exports = {
   getBlockedPorts,
   getAPIPort,
   getBlockedRepositories,
-  getDevelopmentFlag,
+  getMarketplaceURL,
 
   // Exports for testing purposes
   fluxLog,
