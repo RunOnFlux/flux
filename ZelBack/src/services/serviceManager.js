@@ -143,7 +143,7 @@ async function startFluxFunctions() {
     }, 90 * 60 * 1000);
     setInterval(() => {
       appsService.checkApplicationsCompliance();
-    }, 3 * 60 * 1000); //  every hour
+    }, 60 * 60 * 1000); //  every hour
     setTimeout(() => {
       appsService.forceAppRemovals(); // force cleanup of apps every day
       setInterval(() => {
