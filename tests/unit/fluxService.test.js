@@ -2452,7 +2452,7 @@ describe('fluxService tests', () => {
     pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
     pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
     blockedPorts: [],
-    blockedRepositories: '[]',
+    blockedRepositories: [],
   }
 }`;
       const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
