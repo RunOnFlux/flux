@@ -116,11 +116,58 @@ export default {
       },
     });
   },
+  adjustRouterIP(zelidauthHeader, routerip) {
+    return Api().get(`/flux/adjustrouterip/${routerip}`, {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
+  adjustBlockedPorts(zelidauthHeader, blockedPorts) {
+    const data = { blockedPorts };
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    };
+    return Api().post('/flux/adjustblockedports', JSON.stringify(data), axiosConfig);
+  },
+  adjustAPIPort(zelidauthHeader, apiport) {
+    return Api().get(`/flux/adjustapiport/${apiport}`, {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
+  adjustBlockedRepositories(zelidauthHeader, blockedRepositories) {
+    const data = { blockedRepositories };
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    };
+    return Api().post('/flux/adjustblockedrepositories', JSON.stringify(data), axiosConfig);
+  },
   getCruxID() {
     return Api().get('/flux/cruxid');
   },
   getKadenaAccount() {
     return Api().get('/flux/kadena');
+  },
+  getRouterIP() {
+    return Api().get('/flux/routerip');
+  },
+  getBlockedPorts() {
+    return Api().get('/flux/blockedports');
+  },
+  getAPIPort() {
+    return Api().get('/flux/apiport');
+  },
+  getBlockedRepositories() {
+    return Api().get('/flux/blockedrepositories');
+  },
+  getMarketPlaceURL() {
+    return Api().get('/flux/marketplaceurl');
   },
   getZelid() {
     return Api().get('/flux/zelid');

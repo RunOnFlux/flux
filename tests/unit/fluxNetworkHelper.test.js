@@ -33,6 +33,7 @@ const userconfig = {
     pgpPrivateKey: '',
     pgpPublicKey: '',
     blockedPorts: [],
+    blockedRepositories: [],
   },
 };
 const fluxNetworkHelper = proxyquire('../../ZelBack/src/services/fluxNetworkHelper',

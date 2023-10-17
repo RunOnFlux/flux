@@ -34,6 +34,7 @@ const adminConfig = {
     pgpPrivateKey: '',
     pgpPublicKey: '',
     blockedPorts: [],
+    blockedRepositories: [],
   },
 };
 
@@ -2291,6 +2292,7 @@ describe('fluxService tests', () => {
           pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
           pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
           blockedPorts: [${adminConfig.initial.blockedPorts || ''}],
+          blockedRepositories: [${adminConfig.initial.blockedRepositories || ''}],
         }
       }`;
       const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
@@ -2433,7 +2435,7 @@ describe('fluxService tests', () => {
       const expectedResponse = {
         data: {
           code: undefined,
-          message: 'Kadena account adjusted',
+          message: 'Kadena account adjusted, FluxOs is restarting',
           name: undefined,
         },
         status: 'success',
@@ -2450,6 +2452,7 @@ describe('fluxService tests', () => {
     pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
     pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
     blockedPorts: [],
+    blockedRepositories: [],
   }
 }`;
       const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
@@ -2475,7 +2478,7 @@ describe('fluxService tests', () => {
       const expectedResponse = {
         data: {
           code: undefined,
-          message: 'Kadena account adjusted',
+          message: 'Kadena account adjusted, FluxOs is restarting',
           name: undefined,
         },
         status: 'success',

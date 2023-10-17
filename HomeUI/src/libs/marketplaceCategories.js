@@ -6,6 +6,7 @@ const categories = [
   { name: 'Blockbook', variant: 'success', icon: 'book' },
   { name: 'Front-end', variant: 'success', icon: 'desktop' },
   { name: 'RPC Node', variant: 'success', icon: 'satellite-dish' },
+  { name: 'Masternode', variant: 'success', icon: 'wallet' },
 ];
 const defaultCategory = { name: 'App', variant: 'success', icon: 'cog' };
 

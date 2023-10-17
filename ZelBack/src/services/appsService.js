@@ -4341,6 +4341,47 @@ async function getBlockedRepositores() {
 }
 
 /**
+ * Check fluxOs configuration to see if there is any repository blocked and return a list of them that doesn't exist on marketplace
+ * As any change of the config will restart FluxOs we cache the first execution and always return that.
+ * @returns {array} array of string repositories.
+ */
+let cacheUserBlockedRepos = null;
+async function getUserBlockedRepositores() {
+  try {
+    if (cacheUserBlockedRepos) {
+      return cacheUserBlockedRepos;
+    }
+    const userBlockedRepos = userconfig.initial.blockedRepositories || [];
+    if (userBlockedRepos.length === 0) {
+      return userBlockedRepos;
+    }
+    const usableUserBlockedRepos = [];
+    const marketPlaceUrl = 'https://stats.runonflux.io/marketplace/listapps';
+    const response = await axios.get(marketPlaceUrl);
+    console.log(response);
+    if (response.data.status === 'success') {
+      const visibleApps = response.data.data.filter((val) => val.visible);
+      for (let i = 0; i < userBlockedRepos.length; i += 1) {
+        const userRepo = userBlockedRepos[i];
+        userRepo.substring(0, userRepo.lastIndexOf(':') > -1 ? userRepo.lastIndexOf(':') : userRepo.length);
+        const exist = visibleApps.find((app) => app.compose.find((compose) => compose.repotag.substring(0, compose.repotag.lastIndexOf(':') > -1 ? compose.repotag.lastIndexOf(':') : compose.repotag.length).toLowerCase() === userRepo.toLowerCase()));
+        if (!exist) {
+          usableUserBlockedRepos.push(userRepo);
+        } else {
+          log.info(`${userRepo} is part of marketplace offer and despite being on blockedRepositories it will not be take in consideration`);
+        }
+      }
+      cacheUserBlockedRepos = usableUserBlockedRepos;
+      return cacheUserBlockedRepos;
+    }
+    return [];
+  } catch (error) {
+    log.error(error);
+    return null;
+  }
+}
+
+/**
  * To check compliance of app images (including images for each component if a Docker Compose app). Checks Flux OS's GitHub repository for list of blocked Docker Hub/Github/Google repositories.
  * @param {object} appSpecs App specifications.
  * @returns {boolean} True if no errors are thrown.
@@ -4402,52 +4443,61 @@ async function checkApplicationImagesComplience(appSpecs) {
  */
 async function checkApplicationImagesBlocked(appSpecs) {
   const repos = await getBlockedRepositores();
-
+  const userBlockedRepos = await getUserBlockedRepositores();
   let isBlocked = false;
-
-  if (!repos) {
+  if (!repos && !userBlockedRepos) {
     return isBlocked;
   }
-
-  const pureImagesOrOrganisationsRepos = [];
-  repos.forEach((repo) => {
-    pureImagesOrOrganisationsRepos.push(repo.substring(0, repo.lastIndexOf(':') > -1 ? repo.lastIndexOf(':') : repo.length));
-  });
-
-  // blacklist works also for zelid and app hash
-  if (pureImagesOrOrganisationsRepos.includes(appSpecs.hash)) {
-    return `${appSpecs.hash} is not allowed to be spawned`;
-  }
-  if (pureImagesOrOrganisationsRepos.includes(appSpecs.owner)) {
-    return `${appSpecs.owner} is not allowed to run applications`;
-  }
-
   const images = [];
-  const organisations = [];
-  if (appSpecs.version <= 3) {
-    const repository = appSpecs.repotag.substring(0, appSpecs.repotag.lastIndexOf(':') > -1 ? appSpecs.repotag.lastIndexOf(':') : appSpecs.repotag.length);
-    images.push(repository);
-    const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
-    organisations.push(pureNamespace);
-  } else {
-    appSpecs.compose.forEach((component) => {
-      const repository = component.repotag.substring(0, component.repotag.lastIndexOf(':') > -1 ? component.repotag.lastIndexOf(':') : component.repotag.length);
+  if (repos) {
+    const pureImagesOrOrganisationsRepos = [];
+    repos.forEach((repo) => {
+      pureImagesOrOrganisationsRepos.push(repo.substring(0, repo.lastIndexOf(':') > -1 ? repo.lastIndexOf(':') : repo.length));
+    });
+
+    // blacklist works also for zelid and app hash
+    if (pureImagesOrOrganisationsRepos.includes(appSpecs.hash)) {
+      return `${appSpecs.hash} is not allowed to be spawned`;
+    }
+    if (pureImagesOrOrganisationsRepos.includes(appSpecs.owner)) {
+      return `${appSpecs.owner} is not allowed to run applications`;
+    }
+
+    const organisations = [];
+    if (appSpecs.version <= 3) {
+      const repository = appSpecs.repotag.substring(0, appSpecs.repotag.lastIndexOf(':') > -1 ? appSpecs.repotag.lastIndexOf(':') : appSpecs.repotag.length);
       images.push(repository);
       const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
       organisations.push(pureNamespace);
+    } else {
+      appSpecs.compose.forEach((component) => {
+        const repository = component.repotag.substring(0, component.repotag.lastIndexOf(':') > -1 ? component.repotag.lastIndexOf(':') : component.repotag.length);
+        images.push(repository);
+        const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
+        organisations.push(pureNamespace);
+      });
+    }
+
+    images.forEach((image) => {
+      if (pureImagesOrOrganisationsRepos.includes(image)) {
+        isBlocked = `Image ${image} is blocked. Application ${appSpecs.name} connot be spawned.`;
+      }
+    });
+    organisations.forEach((org) => {
+      if (pureImagesOrOrganisationsRepos.includes(org)) {
+        isBlocked = `Organisation ${org} is blocked. Application ${appSpecs.name} connot be spawned.`;
+      }
     });
   }
 
-  images.forEach((image) => {
-    if (pureImagesOrOrganisationsRepos.includes(image)) {
-      isBlocked = `Image ${image} is blocked. Application ${appSpecs.name} connot be spawned.`;
-    }
-  });
-  organisations.forEach((org) => {
-    if (pureImagesOrOrganisationsRepos.includes(org)) {
-      isBlocked = `Organisation ${org} is blocked. Application ${appSpecs.name} connot be spawned.`;
-    }
-  });
+  if (!isBlocked && userBlockedRepos) {
+    log.info(`userBlockedRepos: ${JSON.stringify(userBlockedRepos)}`);
+    images.forEach((image) => {
+      if (userBlockedRepos.includes(image.toLowerCase())) {
+        isBlocked = `Image ${image} is user blocked. Application ${appSpecs.name} connot be spawned.`;
+      }
+    });
+  }
 
   return isBlocked;
 }
@@ -9275,7 +9325,7 @@ async function reinstallOldApplications() {
             }
           }
         } else {
-          log.info('Other Fluxes are redeploying application. Waiting for next round.');
+          log.warn('Other Fluxes are redeploying application. Waiting for next round.');
         }
       }
       // else specifications do not exist anymore, app shall expire itself
@@ -10002,6 +10052,7 @@ async function signCheckAppData(message) {
 */
 let failedPort;
 let testingPort;
+const portsNotWorking = [];
 async function checkMyAppsAvailability() {
   const isUPNP = upnpService.isUPNP();
   try {
@@ -10066,6 +10117,15 @@ async function checkMyAppsAvailability() {
     testingPort = failedPort || Math.floor(Math.random() * (max - min) + min);
 
     log.info(`checkMyAppsAvailability - Testing port ${testingPort}.`);
+    const portNotWorking = portsNotWorking.includes(testingPort);
+    if (portNotWorking) {
+      log.info(`checkMyAppsAvailability - Testing port ${testingPort} is part of the list of ports not working on this node.`);
+      failedPort = null;
+      // skip this check, port is not possible to run on flux
+      await serviceHelper.delay(15 * 1000);
+      checkMyAppsAvailability();
+      return;
+    }
     let iBP = fluxNetworkHelper.isPortBanned(testingPort);
     if (iBP) {
       log.info(`checkMyAppsAvailability - Testing port ${testingPort} is banned.`);
@@ -10109,7 +10169,15 @@ async function checkMyAppsAvailability() {
       await fluxNetworkHelper.allowPort(testingPort);
     }
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
-      await upnpService.mapUpnpPort(testingPort, 'Flux_Test_App');
+      const upnpMapResult = await upnpService.mapUpnpPort(testingPort, 'Flux_Test_App');
+      if (!upnpMapResult) {
+        log.info(`checkMyAppsAvailability - Testing port ${testingPort} is already in use on UPNP mappings.`);
+        failedPort = null;
+        // skip this check, port is not allowed for this flux node by user
+        await serviceHelper.delay(15 * 1000);
+        checkMyAppsAvailability();
+        return;
+      }
     }
     await serviceHelper.delay(5 * 1000);
     testingAppserver.listen(testingPort).on('error', (err) => {
@@ -10175,7 +10243,7 @@ async function checkMyAppsAvailability() {
     }
 
     if (dosState > 10) {
-      dosMessage = `Applications port range is not reachable from outside! Last failure on port ${testingPort}`;
+      dosMessage = `Applications port range is not reachable from outside! All ports that have failed: ${JSON.stringify(portsNotWorking)}`;
     }
     // stop listening on the port, close the port
     if (firewallActive) {
@@ -10195,7 +10263,14 @@ async function checkMyAppsAvailability() {
       dosMessage = dosMountMessage || dosDuplicateAppMessage || null;
       await serviceHelper.delay(60 * 60 * 1000);
     } else {
-      await serviceHelper.delay(4 * 60 * 1000);
+      portsNotWorking.push(failedPort);
+      log.error(`checkMyAppsAvailability - portsNotWorking ${JSON.stringify(portsNotWorking)}.`);
+      if (portsNotWorking.length <= 100) {
+        failedPort = null;
+        dosState = 0;
+        dosMessage = dosMountMessage || dosDuplicateAppMessage || null;
+      }
+      await serviceHelper.delay(1 * 60 * 1000);
     }
     checkMyAppsAvailability();
   } catch (error) {
@@ -10269,7 +10344,10 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       }
       if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
         // eslint-disable-next-line no-await-in-loop
-        await upnpService.mapUpnpPort(portToTest, `Flux_Prelaunch_App_${portToTest}`);
+        const upnpMapResult = await upnpService.mapUpnpPort(portToTest, `Flux_Prelaunch_App_${portToTest}`);
+        if (!upnpMapResult) {
+          return false;
+        }
       }
       const beforeAppInstallTestingExpress = express();
       let beforeAppInstallTestingServer = http.createServer(beforeAppInstallTestingExpress);
