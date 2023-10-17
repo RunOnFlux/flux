@@ -666,6 +666,15 @@ async function checkMyFluxAvailability(retryNumber = 0) {
       return false;
     }
   }
+  let userBlockedRepositories = userconfig.initial.blockedRepositories || [];
+  userBlockedRepositories = serviceHelper.ensureObject(userBlockedRepositories);
+  if (Array.isArray(userBlockedRepositories)) {
+    if (userBlockedRepositories.length > 10) {
+      dosState += 11;
+      setDosMessage('User blocked repositories above 10 limit');
+      return false;
+    }
+  }
   const fluxBenchVersionAllowed = await checkFluxbenchVersionAllowed();
   if (!fluxBenchVersionAllowed) {
     return false;
