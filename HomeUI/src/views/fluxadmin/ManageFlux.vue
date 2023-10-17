@@ -187,6 +187,7 @@
         </b-card>
       </b-col>
     </b-row>
+    <!-- Comment to fix before release
     <b-row class="match-height">
       <b-col
         lg="4"
@@ -315,6 +316,7 @@
         </b-card>
       </b-col>
     </b-row>
+    -->
     <b-row class="match-height">
       <b-col
         lg="4"
