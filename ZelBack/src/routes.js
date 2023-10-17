@@ -263,10 +263,13 @@ module.exports = (app, expressWs) => {
     fluxService.getBlockedPorts(req, res);
   });
   app.get('/flux/apiport', cache('1 day'), (req, res) => {
-    fluxService.getApiPort(req, res);
+    fluxService.getAPIPort(req, res);
   });
   app.get('/flux/blockedrepositories', cache('1 day'), (req, res) => {
     fluxService.getBlockedRepositories(req, res);
+  });
+  app.get('/flux/development', cache('1 day'), (req, res) => {
+    fluxService.getDevelopmentFlag(req, res);
   });
   app.get('/flux/dosstate', cache('30 seconds'), (req, res) => {
     fluxNetworkHelper.getDOSState(req, res);

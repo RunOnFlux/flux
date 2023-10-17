@@ -207,6 +207,7 @@ import { useToast } from 'vue-toastification/composition';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import VuePerfectScrollbar from 'vue-perfect-scrollbar';
 import DaemonService from '@/services/DaemonService';
+import FluxService from '@/services/FluxService';
 
 import AppView from './AppView.vue';
 import SharedNodesView from './SharedNodesView.vue';
@@ -357,8 +358,8 @@ export default {
 
     const fetchApps = async () => {
       let marketPlaceUrl = 'https://stats.runonflux.io/marketplace/listapps';
-      const developmentNode = userconfig.initial.development || false;
-      if (developmentNode) {
+      const responseDevFlag = await FluxService.getDevelopmentFlag();
+      if (responseDevFlag.data.status === 'success' && responseDevFlag.data.data) {
         marketPlaceUrl = 'https://stats.runonflux.io/marketplace/listdevapps';
       }
       const response = await axios.get(marketPlaceUrl);

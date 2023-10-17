@@ -559,6 +559,18 @@ function getBlockedRepositories(req, res) {
 }
 
 /**
+ * To show the current development flag setup in configuration file that is being used with FluxOS.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+function getDevelopmentFlag(req, res) {
+  const development = userconfig.initial.development || false;
+  const message = messageHelper.createDataMessage(development);
+  return res ? res.json(message) : message;
+}
+
+/**
  * To download Flux daemon debug logs. Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -1422,6 +1434,7 @@ module.exports = {
   getBlockedPorts,
   getAPIPort,
   getBlockedRepositories,
+  getDevelopmentFlag,
 
   // Exports for testing purposes
   fluxLog,
