@@ -217,7 +217,6 @@ import { categories, defaultCategory } from '../../../libs/marketplaceCategories
 const qs = require('qs');
 const axios = require('axios');
 const timeoptions = require('@/libs/dateFormat');
-const userconfig = require('../../../../../config/userconfig');
 
 export default {
   components: {
