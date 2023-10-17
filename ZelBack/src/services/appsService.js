@@ -4367,6 +4367,8 @@ async function getUserBlockedRepositores() {
         const exist = visibleApps.find((app) => app.compose.find((compose) => compose.repotag.substring(0, compose.repotag.lastIndexOf(':') > -1 ? compose.repotag.lastIndexOf(':') : compose.repotag.length).toLowerCase() === userRepo.toLowerCase()));
         if (!exist) {
           usableUserBlockedRepos.push(userRepo);
+        } else {
+          log.info(`${userRepo} is part of marketplace offer and despite being on blockedRepositories it will not be take in consideration`);
         }
       }
       cacheUserBlockedRepos = usableUserBlockedRepos;
