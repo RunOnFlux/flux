@@ -10243,7 +10243,7 @@ async function checkMyAppsAvailability() {
     }
 
     if (dosState > 10) {
-      dosMessage = `Applications port range is not reachable from outside! Last failure on port ${testingPort}`;
+      dosMessage = `Applications port range is not reachable from outside! All ports that have failed: ${JSON.stringify(portsNotWorking)}`;
     }
     // stop listening on the port, close the port
     if (firewallActive) {
