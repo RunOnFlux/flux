@@ -2435,7 +2435,7 @@ describe('fluxService tests', () => {
       const expectedResponse = {
         data: {
           code: undefined,
-          message: 'Kadena account adjusted',
+          message: 'Kadena account adjusted, FluxOs is restarting',
           name: undefined,
         },
         status: 'success',
@@ -2478,7 +2478,7 @@ describe('fluxService tests', () => {
       const expectedResponse = {
         data: {
           code: undefined,
-          message: 'Kadena account adjusted',
+          message: 'Kadena account adjusted, FluxOs is restarting',
           name: undefined,
         },
         status: 'success',
