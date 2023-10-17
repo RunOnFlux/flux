@@ -529,7 +529,7 @@ function getRouterIP(req, res) {
  * @returns {object} Message.
  */
 function getBlockedPorts(req, res) {
-  const blockedPorts = userconfig.initial.blockedPorts || '[]';
+  const blockedPorts = userconfig.initial.blockedPorts || [];
   const message = messageHelper.createDataMessage(blockedPorts);
   return res ? res.json(message) : message;
 }
@@ -1021,7 +1021,8 @@ async function adjustCruxID(req, res) {
           routerIP: '${userconfig.initial.routerIP || ''}',
           pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
           pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-          blockedPorts: [${userconfig.initial.blockedPorts || ''}],
+          blockedPorts: ${userconfig.initial.blockedPorts || '[]'},
+          blockedRepositories: ${userconfig.initial.blockedRepositories || '[]'},
         }
       }`;
 
@@ -1076,7 +1077,8 @@ async function adjustKadenaAccount(req, res) {
     routerIP: '${userconfig.initial.routerIP || ''}',
     pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
     pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-    blockedPorts: [${userconfig.initial.blockedPorts || ''}],
+    blockedPorts: ${userconfig.initial.blockedPorts || '[]'},
+    blockedRepositories: ${userconfig.initial.blockedRepositories || '[]'},
   }
 }`;
 
@@ -1118,7 +1120,8 @@ async function adjustRouterIP(req, res) {
           routerIP: '${routerip}',
           pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
           pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-          blockedPorts: [${userconfig.initial.blockedPorts || ''}],
+          blockedPorts: ${userconfig.initial.blockedPorts || '[]'},
+          blockedRepositories: ${userconfig.initial.blockedRepositories || '[]'},
         }
       }`;
       const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');

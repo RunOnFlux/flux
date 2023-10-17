@@ -4341,6 +4341,45 @@ async function getBlockedRepositores() {
 }
 
 /**
+ * Check fluxOs configuration to see if there is any repository blocked and return a list of them that doesn't exist on marketplace
+ * As any change of the config will restart FluxOs we cache the first execution and always return that.
+ * @returns {array} array of string repositories.
+ */
+let cacheUserBlockedRepos = null;
+async function getUserBlockedRepositores() {
+  try {
+    if (cacheUserBlockedRepos) {
+      return cacheUserBlockedRepos;
+    }
+    const userBlockedRepos = userconfig.initial.blockedRepositories || [];
+    if (userBlockedRepos.length === 0) {
+      return userBlockedRepos;
+    }
+    const usableUserBlockedRepos = [];
+    const marketPlaceUrl = 'https://stats.runonflux.io/marketplace/listapps';
+    const response = await axios.get(marketPlaceUrl);
+    console.log(response);
+    if (response.data.status === 'success') {
+      const visibleApps = response.data.data.filter((val) => val.visible);
+      for (let i = 0; i < userBlockedRepos.length; i += 1) {
+        const userRepo = userBlockedRepos[i];
+        userRepo.substring(0, userRepo.lastIndexOf(':') > -1 ? userRepo.lastIndexOf(':') : userRepo.length);
+        const exist = visibleApps.find((app) => app.compose.find((compose) => compose.repotag.substring(0, compose.repotag.lastIndexOf(':') > -1 ? compose.repotag.lastIndexOf(':') : compose.repotag.length).toLowerCase() === userRepo.toLowerCase()));
+        if (!exist) {
+          usableUserBlockedRepos.push(userRepo);
+        }
+      }
+      cacheUserBlockedRepos = usableUserBlockedRepos;
+      return cacheUserBlockedRepos;
+    }
+    return [];
+  } catch (error) {
+    log.error(error);
+    return null;
+  }
+}
+
+/**
  * To check compliance of app images (including images for each component if a Docker Compose app). Checks Flux OS's GitHub repository for list of blocked Docker Hub/Github/Google repositories.
  * @param {object} appSpecs App specifications.
  * @returns {boolean} True if no errors are thrown.
@@ -4402,52 +4441,61 @@ async function checkApplicationImagesComplience(appSpecs) {
  */
 async function checkApplicationImagesBlocked(appSpecs) {
   const repos = await getBlockedRepositores();
-
+  const userBlockedRepos = await getUserBlockedRepositores();
   let isBlocked = false;
-
-  if (!repos) {
+  if (!repos && !userBlockedRepos) {
     return isBlocked;
   }
-
-  const pureImagesOrOrganisationsRepos = [];
-  repos.forEach((repo) => {
-    pureImagesOrOrganisationsRepos.push(repo.substring(0, repo.lastIndexOf(':') > -1 ? repo.lastIndexOf(':') : repo.length));
-  });
-
-  // blacklist works also for zelid and app hash
-  if (pureImagesOrOrganisationsRepos.includes(appSpecs.hash)) {
-    return `${appSpecs.hash} is not allowed to be spawned`;
-  }
-  if (pureImagesOrOrganisationsRepos.includes(appSpecs.owner)) {
-    return `${appSpecs.owner} is not allowed to run applications`;
-  }
-
   const images = [];
-  const organisations = [];
-  if (appSpecs.version <= 3) {
-    const repository = appSpecs.repotag.substring(0, appSpecs.repotag.lastIndexOf(':') > -1 ? appSpecs.repotag.lastIndexOf(':') : appSpecs.repotag.length);
-    images.push(repository);
-    const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
-    organisations.push(pureNamespace);
-  } else {
-    appSpecs.compose.forEach((component) => {
-      const repository = component.repotag.substring(0, component.repotag.lastIndexOf(':') > -1 ? component.repotag.lastIndexOf(':') : component.repotag.length);
+  if (repos) {
+    const pureImagesOrOrganisationsRepos = [];
+    repos.forEach((repo) => {
+      pureImagesOrOrganisationsRepos.push(repo.substring(0, repo.lastIndexOf(':') > -1 ? repo.lastIndexOf(':') : repo.length));
+    });
+
+    // blacklist works also for zelid and app hash
+    if (pureImagesOrOrganisationsRepos.includes(appSpecs.hash)) {
+      return `${appSpecs.hash} is not allowed to be spawned`;
+    }
+    if (pureImagesOrOrganisationsRepos.includes(appSpecs.owner)) {
+      return `${appSpecs.owner} is not allowed to run applications`;
+    }
+
+    const organisations = [];
+    if (appSpecs.version <= 3) {
+      const repository = appSpecs.repotag.substring(0, appSpecs.repotag.lastIndexOf(':') > -1 ? appSpecs.repotag.lastIndexOf(':') : appSpecs.repotag.length);
       images.push(repository);
       const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
       organisations.push(pureNamespace);
+    } else {
+      appSpecs.compose.forEach((component) => {
+        const repository = component.repotag.substring(0, component.repotag.lastIndexOf(':') > -1 ? component.repotag.lastIndexOf(':') : component.repotag.length);
+        images.push(repository);
+        const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
+        organisations.push(pureNamespace);
+      });
+    }
+
+    images.forEach((image) => {
+      if (pureImagesOrOrganisationsRepos.includes(image)) {
+        isBlocked = `Image ${image} is blocked. Application ${appSpecs.name} connot be spawned.`;
+      }
+    });
+    organisations.forEach((org) => {
+      if (pureImagesOrOrganisationsRepos.includes(org)) {
+        isBlocked = `Organisation ${org} is blocked. Application ${appSpecs.name} connot be spawned.`;
+      }
     });
   }
 
-  images.forEach((image) => {
-    if (pureImagesOrOrganisationsRepos.includes(image)) {
-      isBlocked = `Image ${image} is blocked. Application ${appSpecs.name} connot be spawned.`;
-    }
-  });
-  organisations.forEach((org) => {
-    if (pureImagesOrOrganisationsRepos.includes(org)) {
-      isBlocked = `Organisation ${org} is blocked. Application ${appSpecs.name} connot be spawned.`;
-    }
-  });
+  if (!isBlocked && userBlockedRepos) {
+    log.info(`userBlockedRepos: ${JSON.stringify(userBlockedRepos)}`);
+    images.forEach((image) => {
+      if (userBlockedRepos.includes(image.toLowerCase())) {
+        isBlocked = `Image ${image} is user blocked. Application ${appSpecs.name} connot be spawned.`;
+      }
+    });
+  }
 
   return isBlocked;
 }

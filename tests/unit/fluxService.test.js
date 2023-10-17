@@ -34,6 +34,7 @@ const adminConfig = {
     pgpPrivateKey: '',
     pgpPublicKey: '',
     blockedPorts: [],
+    blockedRepositories: [],
   },
 };
 
@@ -2290,7 +2291,8 @@ describe('fluxService tests', () => {
           routerIP: '${adminConfig.initial.routerIP || ''}',
           pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
           pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
-          blockedPorts: [${adminConfig.initial.blockedPorts || ''}],
+          blockedPorts: ${adminConfig.initial.blockedPorts || '[]'},
+          blockedRepositories: ${adminConfig.initial.blockedRepositories || '[]'},
         }
       }`;
       const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
@@ -2450,6 +2452,7 @@ describe('fluxService tests', () => {
     pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
     pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
     blockedPorts: [],
+    blockedRepositories: '[]',
   }
 }`;
       const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
