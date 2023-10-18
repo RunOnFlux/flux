@@ -10173,10 +10173,7 @@ async function checkMyAppsAvailability() {
       if (!upnpMapResult) {
         log.info(`checkMyAppsAvailability - Testing port ${testingPort} is already in use on UPNP mappings.`);
         failedPort = null;
-        // skip this check, port is not allowed for this flux node by user
-        await serviceHelper.delay(15 * 1000);
-        checkMyAppsAvailability();
-        return;
+        throw new Error('Failed to create map UPNP port');
       }
     }
     await serviceHelper.delay(5 * 1000);
@@ -10346,7 +10343,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
         // eslint-disable-next-line no-await-in-loop
         const upnpMapResult = await upnpService.mapUpnpPort(portToTest, `Flux_Prelaunch_App_${portToTest}`);
         if (!upnpMapResult) {
-          return false;
+          throw new Error('Failed to create map UPNP port');
         }
       }
       const beforeAppInstallTestingExpress = express();
