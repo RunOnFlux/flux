@@ -1302,7 +1302,7 @@
                 plaintext
                 no-resize
                 rows="15"
-                :value="decodeAsciiResponse(callResponse.data.find((d) => d.name === `${component.name}_${appSpecification.name}`).data)"
+                :value="callResponse.data.find((d) => d.name === `${component.name}_${appSpecification.name}`).data"
                 class="mt-1"
               />
               <div class="mb-5" />
@@ -3830,7 +3830,7 @@ const store = require('store');
 const openpgp = require('openpgp');
 // const https = require('https');
 const timeoptions = require('@/libs/dateFormat');
-
+const splitargs = require('splitargs');
 const geolocations = require('../../libs/geolocation');
 
 export default {
@@ -3904,7 +3904,7 @@ export default {
       },
       callBResponse: { // general B
         status: '',
-        data: '',
+        data: [],
       },
       appExec: {
         cmd: '',
@@ -4728,7 +4728,7 @@ export default {
         const { cmd } = this.appExec;
         this.commandExecuting = true;
         console.log('here');
-        const response = await AppsService.getAppExec(zelidauth, name, cmd, env);
+        const response = await AppsService.getAppExec(zelidauth, name, splitargs(cmd), env);
         console.log(response);
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data);
