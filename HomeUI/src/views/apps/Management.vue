@@ -1302,7 +1302,7 @@
                 plaintext
                 no-resize
                 rows="15"
-                :value="decodeAsciiResponse(callResponse.data.find((d) => d.name === `${component.name}_${appSpecification.name}`).data)"
+                :value="callResponse.data.find((d) => d.name === `${component.name}_${appSpecification.name}`).data"
                 class="mt-1"
               />
               <div class="mb-5" />
@@ -3900,7 +3900,7 @@ export default {
       appSpecification: {},
       callResponse: { // general
         status: '',
-        data: '',
+        data: [],
       },
       callBResponse: { // general B
         status: '',
