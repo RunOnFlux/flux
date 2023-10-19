@@ -314,17 +314,13 @@ async function dockerContainerExec(container, cmd, env, res, callback) {
       Detach: false,
       Tty: false,
     };
-    let removedFirst8Bytes = false;
     const exec = await container.exec(options);
     exec.start(optionsExecStart, (err, mystream) => {
       if (err) {
         callback(err);
       }
       mystream.on('data', (data) => {
-        if (!removedFirst8Bytes) {
-          data = data.slice(8);
-          removedFirst8Bytes = true;
-        }
+        data = data.slice(8);
         res.write(data);
       });
       mystream.on('end', () => callback(null));
