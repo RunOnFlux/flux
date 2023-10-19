@@ -319,9 +319,21 @@ async function dockerContainerExec(container, cmd, env, res, callback) {
       if (err) {
         callback(err);
       }
+      let dataBuffer = Buffer.from([]);
       mystream.on('data', (data) => {
-        data = data.slice(8);
-        res.write(data);
+        dataBuffer = Buffer.concat([dataBuffer, data]);
+        while (dataBuffer.length >= 8) {
+          const strToUnpack = dataBuffer.slice(0, 8);
+          dataBuffer = dataBuffer.slice(8);
+          const sizeValue = strToUnpack.readUInt32BE(4);
+          if (dataBuffer.length >= sizeValue) {
+            const str = dataBuffer.slice(0, sizeValue).toString('utf8');
+            dataBuffer = dataBuffer.slice(sizeValue);
+            res.write(str);
+          } else {
+            break;
+          }
+        }      
       });
       mystream.on('end', () => callback(null));
     });
