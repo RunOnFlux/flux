@@ -10053,7 +10053,7 @@ async function signCheckAppData(message) {
 let failedPort;
 let testingPort;
 const portsNotWorking = [];
-bool lastUPNPMapFailed = false;
+let lastUPNPMapFailed = false;
 async function checkMyAppsAvailability() {
   const isUPNP = upnpService.isUPNP();
   try {
@@ -10172,7 +10172,7 @@ async function checkMyAppsAvailability() {
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       const upnpMapResult = await upnpService.mapUpnpPort(testingPort, 'Flux_Test_App');
       if (!upnpMapResult) {
-        if(lastUPNPMapFailed) {
+        if (lastUPNPMapFailed) {
           dosState += 0.4;
           if (dosState > 10) {
             dosMessage = 'Not possible to run applications on the node, router retuning exceptions when creating UPNP mappings.';
