@@ -1269,7 +1269,7 @@
                 <b-form-input
                   id="`commandInput-${component.name}_${appSpecification.name}`"
                   v-model="appExec.cmd"
-                  placeholder="Array of strings of Commands"
+                  placeholder="The command you want to execute"
                 />
               </b-form-group>
               <b-form-group
@@ -1319,7 +1319,7 @@
               <b-form-input
                 id="commandInput"
                 v-model="appExec.cmd"
-                placeholder="Array of strings of Commands"
+                placeholder="The command you want to execute"
               />
             </b-form-group>
             <b-form-group
