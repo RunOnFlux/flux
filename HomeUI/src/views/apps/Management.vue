@@ -1352,7 +1352,7 @@
               plaintext
               no-resize
               rows="15"
-              :value="decodeAsciiResponse(callResponse.data)"
+              :value="callResponse.data"
               class="mt-1"
             />
           </div>
@@ -4743,7 +4743,7 @@ export default {
             } else if (!Array.isArray(this.callResponse.data)) {
               this.callResponse.data = [];
             }
-            this.callResponse.data.push({
+            this.callResponse.data.unshift({
               name,
               data: response.data,
             });
