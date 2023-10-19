@@ -10053,6 +10053,7 @@ async function signCheckAppData(message) {
 let failedPort;
 let testingPort;
 const portsNotWorking = [];
+bool lastUPNPMapFailed = false;
 async function checkMyAppsAvailability() {
   const isUPNP = upnpService.isUPNP();
   try {
@@ -10171,10 +10172,18 @@ async function checkMyAppsAvailability() {
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       const upnpMapResult = await upnpService.mapUpnpPort(testingPort, 'Flux_Test_App');
       if (!upnpMapResult) {
-        log.info(`checkMyAppsAvailability - Testing port ${testingPort} is already in use on UPNP mappings.`);
+        if(lastUPNPMapFailed) {
+          dosState += 0.4;
+          if (dosState > 10) {
+            dosMessage = 'Not possible to run applications on the node, router retuning exceptions when creating UPNP mappings.';
+          }
+        }
+        lastUPNPMapFailed = true;
+        log.info(`checkMyAppsAvailability - Testing port ${testingPort} failed to create on UPNP mappings. Possible already assigned?`);
         failedPort = null;
         throw new Error('Failed to create map UPNP port');
       }
+      lastUPNPMapFailed = false;
     }
     await serviceHelper.delay(5 * 1000);
     testingAppserver.listen(testingPort).on('error', (err) => {
