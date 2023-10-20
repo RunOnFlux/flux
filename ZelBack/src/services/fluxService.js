@@ -27,6 +27,7 @@ const geolocationService = require('./geolocationService');
 const dbHelper = require('./dbHelper');
 const { LRUCache } = require('lru-cache');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
+const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
 const userconfig = require('../../../config/userconfig');
 
 const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
@@ -1134,6 +1135,49 @@ async function installFluxWatchTower() {
 }
 
 /**
+ * Function responsable for check if a node is already reachable after first connection failure, if continues down, broadcast to the network a message telling the node is down
+ * @param {urlToConnect} req ip port bomcination of the node.
+ */
+async function sentinelDoubleCheck(urlToConnect) {
+  try {
+    const timeout = 30000;
+    const axiosConfig = {
+      timeout,
+    };
+    log.info(`sentinelDoubleCheck - checking ${urlToConnect} apps running`);
+    const appsRunningOnTheSelectedNode = await appsService.appsRunningOnNodeIp(urlToConnect);
+    const resMyAppAvailability = await axios.get(`http://${urlToConnect}/apps/installedappsnames`, axiosConfig).catch(async (error) => {
+      log.error(`sentinelDoubleCheck - ${urlToConnect} for app installedappsnames is not reachable`);
+      log.error(error);
+      const broadcastedAt = new Date().getTime();
+      const nodeDownMessage = {
+        type: 'fluxnodedown',
+        version: 1,
+        ip: urlToConnect,
+        broadcastedAt,
+      };
+      // broadcast messages about running apps to all peers
+      await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(nodeDownMessage);
+      await serviceHelper.delay(500);
+      await fluxCommunicationMessagesSender.broadcastMessageToIncoming(nodeDownMessage);
+    });
+    if (resMyAppAvailability && resMyAppAvailability.data.status === 'success') {
+      const appsReturned = resMyAppAvailability.data.data;
+      if (appsRunningOnTheSelectedNode.length !== appsReturned.length || !appsRunningOnTheSelectedNode.every((appA) => appsReturned.includes((appB) => appB.name === appA.name))) {
+        log.info(`sentinelDoubleCheck - ${urlToConnect} apps doesnt match local database information`);
+        await appsService.updateAppsRunningOnNodeIP(urlToConnect, appsReturned);
+        await axios.get(`http://${urlToConnect}/apps/broadcastAppsRunning`, axiosConfig).catch((error) => {
+          log.error(`sentinelDoubleCheck - ${urlToConnect} for apps broadcastAppsRunning is not reachable`);
+          log.error(error);
+        });
+      }
+    }
+  } catch (error) {
+    log.error(`sentinelDoubleCheck - Error: ${error}`);
+  }
+}
+
+/**
  * Function responsable for sentinel work, randomly select a node from deterministic list, check if it is running and if the apps running match the information on local database
  */
 async function sentinel() {
@@ -1189,13 +1233,15 @@ async function sentinel() {
     };
     log.info(`sentinel - checking ${urlToConnect} apps running`);
     const appsRunningOnTheSelectedNode = await appsService.appsRunningOnNodeIp(urlToConnect);
-    const resMyAppAvailability = await axios.get(`http://${urlToConnect}/apps/installedappsnames`, axiosConfig).catch((error) => {
+    const resMyAppAvailability = await axios.get(`http://${urlToConnect}/apps/installedappsnames`, axiosConfig).catch(async (error) => {
       log.error(`sentinel - ${urlToConnect} for app installedappsnames is not reachable`);
       log.error(error);
+      await serviceHelper.delay(5 * 60 * 1000);
+      sentinelDoubleCheck(urlToConnect);
     });
     if (resMyAppAvailability && resMyAppAvailability.data.status === 'success') {
       const appsReturned = resMyAppAvailability.data.data;
-      if (resMyAppAvailability.length !== appsReturned.length || !appsRunningOnTheSelectedNode.every((appA) => appsReturned.includes((appB) => appB.name === appA.name))) {
+      if (appsRunningOnTheSelectedNode.length !== appsReturned.length || !appsRunningOnTheSelectedNode.every((appA) => appsReturned.includes((appB) => appB.name === appA.name))) {
         log.info(`sentinel - ${urlToConnect} apps doesnt match local database information`);
         await appsService.updateAppsRunningOnNodeIP(urlToConnect, appsReturned);
         await axios.get(`http://${urlToConnect}/apps/broadcastAppsRunning`, axiosConfig).catch((error) => {
