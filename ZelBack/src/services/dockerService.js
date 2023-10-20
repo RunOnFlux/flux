@@ -314,7 +314,7 @@ async function dockerContainerExec(container, cmd, env, res, callback) {
       Detach: false,
       Tty: false,
     };
-    let resulttString = '';
+    let resultString = '';
     const exec = await container.exec(options);
     exec.start(optionsExecStart, (err, mystream) => {
       if (err) {
@@ -322,7 +322,7 @@ async function dockerContainerExec(container, cmd, env, res, callback) {
       }
       mystream.on('data', (data) => {
         resulttString = serviceHelper.dockerBufferToString(data);
-        res.write(resulttString);
+        res.write(resultString);
       });
       mystream.on('end', () => callback(null));
     });
