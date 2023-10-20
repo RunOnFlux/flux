@@ -1304,7 +1304,7 @@
                 rows="15"
                 :value="callResponse.data.find((d) => d.name === `${component.name}_${appSpecification.name}`).data"
                 class="mt-1"
-                style="background-color: black; color: white; padding: 20px;"
+                style="background-color: black; color: white; padding: 20px; font-family: monospace;"
               />
               <div class="mb-5" />
             </div>
