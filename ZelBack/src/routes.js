@@ -290,6 +290,9 @@ module.exports = (app, expressWs) => {
   app.get('/apps/installedapps/:appname?', cache('30 seconds'), (req, res) => {
     appsService.installedApps(req, res);
   });
+  app.get('/apps/installedappsnames', cache('30 seconds'), (req, res) => {
+    appsService.installedAppsNames(req, res);
+  });
   app.get('/apps/availableapps', cache('30 seconds'), (req, res) => {
     appsService.availableApps(req, res);
   });

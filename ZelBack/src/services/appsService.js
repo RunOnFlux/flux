@@ -211,6 +211,38 @@ async function installedApps(req, res) {
 }
 
 /**
+ * To get a list of installed apps names.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+async function installedAppsNames(req, res) {
+  try {
+    const dbopen = dbHelper.databaseConnection();
+
+    const appsDatabase = dbopen.db(config.database.appslocal.database);
+    const appsQuery = {};
+    const appsProjection = {
+      projection: {
+        _id: 0,
+        name: 1,
+      },
+    };
+    const apps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    const dataResponse = messageHelper.createDataMessage(apps);
+    return res ? res.json(dataResponse) : dataResponse;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+/**
  * To list running apps.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -8105,6 +8137,25 @@ async function appLocation(appname) {
 }
 
 /**
+ * To get known apps running on a node ip
+ * @param {string} nodeIp Node IP.
+ */
+async function appsRunningOnNodeIp(nodeIp) {
+  const dbopen = dbHelper.databaseConnection();
+  const database = dbopen.db(config.database.appsglobal.database);
+  const query = { ip: nodeIp };
+  const projection = {
+    projection: {
+      _id: 0,
+      name: 1,
+      hash: 1,
+    },
+  };
+  const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
+  return results;
+}
+
+/**
  * To get app locations.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -10735,6 +10786,46 @@ async function broadcastAppsRunning(req, res) {
   }
 }
 
+/**
+ * Method called by sentinel to update appsLocation database with new information provided by the node.
+ * @param {ip} req ip port bomcination of the node.
+ * @param {appsRunning} req applications that the node is running.
+ */
+async function updateAppsRunningOnNodeIP(ip, appsRunning) {
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const removedQuery = [];
+  for (let i = 0; i < appsRunning.length; i += 1) {
+    const app = appsRunning[i];
+    const nameSearch = {
+      name: { $ne: app.name },
+    };
+    removedQuery.push(nameSearch);
+    const newAppRunningMessage = {
+      name: app.name,
+      hash: app.hash, // hash of application specifics that are running
+      ip,
+      broadcastedAt: new Date(),
+      removedBroadcastedAt: null,
+    };
+    const queryUpdate = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
+    const update = { $set: newAppRunningMessage };
+    const options = {
+      upsert: true,
+    };
+    // eslint-disable-next-line no-await-in-loop
+    await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
+  }
+  const ipSearch = {
+    ip,
+  };
+  removedQuery.push(ipSearch);
+  const queryUpdate = { $and: removedQuery };
+  const update = { $set: { removedBroadcastedAt: new Date() } };
+  // eslint-disable-next-line no-await-in-loop
+  await dbHelper.updateInDatabase(database, globalAppsLocations, queryUpdate, update);
+}
+
 function removalInProgressReset() {
   removalInProgress = false;
 }
@@ -10848,6 +10939,7 @@ module.exports = {
   checkApplicationsCompliance,
   testAppMount,
   broadcastAppsRunning,
+  updateAppsRunningOnNodeIP,
 
   // exports for testing purposes
   setAppsMonitored,
@@ -10872,4 +10964,6 @@ module.exports = {
   setInstallationInProgressTrue,
   checkForNonAllowedAppsOnLocalNetwork,
   triggerAppHashesCheckAPI,
+  installedAppsNames,
+  appsRunningOnNodeIp,
 };

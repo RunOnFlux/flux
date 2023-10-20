@@ -4,6 +4,7 @@ const config = require('config');
 const fullnode = require('fullnode');
 const util = require('util');
 const fs = require('fs');
+const axios = require('axios');
 
 const fsPromises = fs.promises;
 
@@ -23,7 +24,18 @@ const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const geolocationService = require('./geolocationService');
+const dbHelper = require('./dbHelper');
+const { LRUCache } = require('lru-cache');
 const userconfig = require('../../../config/userconfig');
+
+const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
+
+const sentinelCache = {
+  max: 80,
+  ttl: 1000 * 60 * 60 * 6, // 6 hours
+  maxAge: 1000 * 60 * 60 * 6, // 6 hours
+};
+const nodesSentinelCheckedCache = new LRUCache(sentinelCache);
 
 /**
  * To show the directory on the node machine where FluxOS files are stored.
@@ -1120,6 +1132,76 @@ async function installFluxWatchTower() {
   }
 }
 
+/**
+ * Function responsable for sentinel work, randomly select a node from deterministic list, check if it is running and if the apps running match the information on local database
+ */
+async function sentinel() {
+  try {
+    const dbopen = dbHelper.databaseConnection();
+    const database = dbopen.db(config.database.daemon.database);
+    const query = { generalScannedHeight: { $gte: 0 } };
+    const projection = {
+      projection: {
+        _id: 0,
+        generalScannedHeight: 1,
+      },
+    };
+    const currentHeight = await dbHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
+    if (!currentHeight) {
+      throw new Error('No scanned height found');
+    }
+    const isNodeConfirmed = await generalService.isNodeStatusConfirmed();
+    if (!isNodeConfirmed) {
+      return;
+    }
+    let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+    myIP = myIP.split(':')[0];
+    // eslint-disable-next-line no-await-in-loop
+    let askingIP = await fluxNetworkHelper.getRandomConnection();
+    if (!askingIP) {
+      return;
+    }
+    let askingIpPort = config.server.apiport;
+    if (askingIP.includes(':')) { // has port specification
+      // it has port specification
+      const splittedIP = askingIP.split(':');
+      askingIP = splittedIP[0];
+      askingIpPort = splittedIP[1];
+    }
+    if (myIP === askingIP) {
+      return;
+    }
+    const urlToConnect = `${askingIP}:${askingIpPort}`;
+    if (nodesSentinelCheckedCache.has(urlToConnect)) {
+      sentinel();
+      return;
+    }
+    nodesSentinelCheckedCache.set(urlToConnect, urlToConnect);
+    const timeout = 30000;
+    const axiosConfig = {
+      timeout,
+    };
+
+    const appsRunningOnTheSelectedNode = await appsService.appsRunningOnNodeIp(urlToConnect);
+    const resMyAppAvailability = await axios.get(`http://${urlToConnect}/apps/installedappsnames`, axiosConfig).catch((error) => {
+      log.error(`sentinel - ${urlToConnect} for app installedappsnames is not reachable`);
+      log.error(error);
+    });
+    if (resMyAppAvailability && resMyAppAvailability.data.status === 'success') {
+      const appsReturned = resMyAppAvailability.data.data;
+      if (resMyAppAvailability.length !== appsReturned.length || !appsRunningOnTheSelectedNode.every((appA) => appsReturned.includes((appB) => appB.name === appA.name))) {
+        await appsService.updateAppsRunningOnNodeIP(urlToConnect, appsReturned);
+        await axios.get(`http://${urlToConnect}/apps/broadcastAppsRunning`, axiosConfig).catch((error) => {
+          log.error(`sentinel - ${urlToConnect} for apps broadcastAppsRunning is not reachable`);
+          log.error(error);
+        });
+      }
+    }
+  } catch (error) {
+    log.error(`sentinel - Error: ${error}`);
+  }
+}
+
 module.exports = {
   startDaemon,
   updateFlux,
@@ -1162,6 +1244,7 @@ module.exports = {
   enterMaster,
   isStaticIPapi,
   getFluxGeolocation,
+  sentinel,
 
   // Exports for testing purposes
   fluxLog,
