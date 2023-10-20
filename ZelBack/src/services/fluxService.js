@@ -1181,7 +1181,7 @@ async function sentinel() {
     const axiosConfig = {
       timeout,
     };
-
+    log.info(`sentinel - checking ${urlToConnect} apps running`);
     const appsRunningOnTheSelectedNode = await appsService.appsRunningOnNodeIp(urlToConnect);
     const resMyAppAvailability = await axios.get(`http://${urlToConnect}/apps/installedappsnames`, axiosConfig).catch((error) => {
       log.error(`sentinel - ${urlToConnect} for app installedappsnames is not reachable`);
@@ -1190,6 +1190,7 @@ async function sentinel() {
     if (resMyAppAvailability && resMyAppAvailability.data.status === 'success') {
       const appsReturned = resMyAppAvailability.data.data;
       if (resMyAppAvailability.length !== appsReturned.length || !appsRunningOnTheSelectedNode.every((appA) => appsReturned.includes((appB) => appB.name === appA.name))) {
+        log.info(`sentinel - ${urlToConnect} apps doesnt match local database information`);
         await appsService.updateAppsRunningOnNodeIP(urlToConnect, appsReturned);
         await axios.get(`http://${urlToConnect}/apps/broadcastAppsRunning`, axiosConfig).catch((error) => {
           log.error(`sentinel - ${urlToConnect} for apps broadcastAppsRunning is not reachable`);
