@@ -314,26 +314,15 @@ async function dockerContainerExec(container, cmd, env, res, callback) {
       Detach: false,
       Tty: false,
     };
+    let resulttString = '';
     const exec = await container.exec(options);
     exec.start(optionsExecStart, (err, mystream) => {
       if (err) {
         callback(err);
       }
-      let dataBuffer = Buffer.from([]);
       mystream.on('data', (data) => {
-        dataBuffer = Buffer.concat([dataBuffer, data]);
-        while (dataBuffer.length >= 8) {
-          const strToUnpack = dataBuffer.slice(0, 8);
-          dataBuffer = dataBuffer.slice(8);
-          const sizeValue = strToUnpack.readUInt32BE(4);
-          if (dataBuffer.length >= sizeValue) {
-            const str = dataBuffer.slice(0, sizeValue).toString('utf8');
-            dataBuffer = dataBuffer.slice(sizeValue);
-            res.write(str);
-          } else {
-            break;
-          }
-        }      
+        resulttString = serviceHelper.dockerBufferToString(data);
+        res.write(resulttString);
       });
       mystream.on('end', () => callback(null));
     });
@@ -397,7 +386,7 @@ async function dockerContainerLogsStream(idOrName, res, callback) {
  * @param {string} idOrName
  * @param {number} lines
  *
- * @returns {string}
+ * @returns {buffer}
  */
 async function dockerContainerLogs(idOrName, lines) {
   // container ID or name
@@ -410,7 +399,7 @@ async function dockerContainerLogs(idOrName, lines) {
     tail: lines, // TODO FIXME when using tail, some nodes hang on execution, those nodes need to update, upgrade restart docker daemon.
   };
   const logs = await dockerContainer.logs(options);
-  return logs.toString();
+  return logs;
 }
 
 async function obtainPayloadFromStorage(url, appName) {
