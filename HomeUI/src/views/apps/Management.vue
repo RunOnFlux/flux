@@ -840,6 +840,7 @@
                   rows="15"
                   :value="decodeAsciiResponse(component.callData)"
                   class="mt-1"
+                  style="background-color: black; color: white; padding: 20px; font-family: monospace;"
                 />
               </div>
             </div>
@@ -880,6 +881,7 @@
                 rows="15"
                 :value="decodeAsciiResponse(callResponse.data[0].callData)"
                 class="mt-1"
+                style="background-color: black; color: white; padding: 20px; font-family: monospace;"
               />
             </div>
           </div>
@@ -1355,6 +1357,7 @@
               rows="15"
               :value="callResponse.data"
               class="mt-1"
+              style="background-color: black; color: white; padding: 20px; font-family: monospace;"
             />
           </div>
         </div>
