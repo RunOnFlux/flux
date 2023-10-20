@@ -26,6 +26,7 @@ const fluxNetworkHelper = require('./fluxNetworkHelper');
 const geolocationService = require('./geolocationService');
 const dbHelper = require('./dbHelper');
 const { LRUCache } = require('lru-cache');
+const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const userconfig = require('../../../config/userconfig');
 
 const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
@@ -1137,6 +1138,11 @@ async function installFluxWatchTower() {
  */
 async function sentinel() {
   try {
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    const daemonHeight = syncStatus.data.height || 0;
+    if (daemonHeight < config.sentinelActivation) {
+      return;
+    }
     const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
     const query = { generalScannedHeight: { $gte: 0 } };
