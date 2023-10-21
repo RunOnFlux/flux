@@ -10792,6 +10792,10 @@ async function broadcastAppsRunning(req, res) {
  * @param {appsRunning} req applications that the node is running.
  */
 async function updateAppsRunningOnNodeIP(ip, appsRunning) {
+  let fixedIp = ip;
+  if (fixedIp.endsWith(':16127')) {
+    fixedIp = fixedIp.split(':')[0];
+  }
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   const removedQuery = [];
@@ -10804,7 +10808,7 @@ async function updateAppsRunningOnNodeIP(ip, appsRunning) {
     const newAppRunningMessage = {
       name: app.name,
       hash: app.hash, // hash of application specifics that are running
-      ip,
+      ip: fixedIp,
       broadcastedAt: new Date(),
       removedBroadcastedAt: null,
     };
@@ -10817,10 +10821,27 @@ async function updateAppsRunningOnNodeIP(ip, appsRunning) {
     await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
   }
   const ipSearch = {
-    ip,
+    ip: fixedIp,
   };
   removedQuery.push(ipSearch);
   const queryUpdate = { $and: removedQuery };
+  const update = { $set: { removedBroadcastedAt: new Date() } };
+  // eslint-disable-next-line no-await-in-loop
+  await dbHelper.updateInDatabase(database, globalAppsLocations, queryUpdate, update);
+}
+
+/**
+ * To remove from DB that the IP is running any app.
+ * @param {object} ip Node ip and port of the running app.
+ */
+async function removeAppsRunningOnNodeIP(ip) {
+  let fixedIp = ip;
+  if (fixedIp.endsWith(':16127')) {
+    fixedIp = fixedIp.split(':')[0];
+  }
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const queryUpdate = { ip: fixedIp };
   const update = { $set: { removedBroadcastedAt: new Date() } };
   // eslint-disable-next-line no-await-in-loop
   await dbHelper.updateInDatabase(database, globalAppsLocations, queryUpdate, update);
@@ -10940,6 +10961,7 @@ module.exports = {
   testAppMount,
   broadcastAppsRunning,
   updateAppsRunningOnNodeIP,
+  removeAppsRunningOnNodeIP,
 
   // exports for testing purposes
   setAppsMonitored,
