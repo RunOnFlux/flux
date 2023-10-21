@@ -1236,8 +1236,10 @@ async function sentinel() {
     const resMyAppAvailability = await axios.get(`http://${urlToConnect}/apps/installedappsnames`, axiosConfig).catch(async (error) => {
       log.error(`sentinel - ${urlToConnect} for app installedappsnames is not reachable`);
       log.error(error);
-      await serviceHelper.delay(5 * 60 * 1000);
-      sentinelDoubleCheck(urlToConnect);
+      if (appsRunningOnTheSelectedNode.length > 0) {
+        await serviceHelper.delay(5 * 60 * 1000);
+        sentinelDoubleCheck(urlToConnect);
+      }
     });
     if (resMyAppAvailability && resMyAppAvailability.data.status === 'success') {
       const appsReturned = resMyAppAvailability.data.data;
