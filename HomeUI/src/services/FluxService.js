@@ -130,7 +130,7 @@ export default {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().post('/flux/adjustblockedports', JSON.stringify(data), axiosConfig);
+    return Api().post('/flux/adjustblockedports', data, axiosConfig);
   },
   adjustAPIPort(zelidauthHeader, apiport) {
     return Api().get(`/flux/adjustapiport/${apiport}`, {
@@ -146,7 +146,7 @@ export default {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().post('/flux/adjustblockedrepositories', JSON.stringify(data), axiosConfig);
+    return Api().post('/flux/adjustblockedrepositories', data, axiosConfig);
   },
   getCruxID() {
     return Api().get('/flux/cruxid');

@@ -1214,7 +1214,7 @@ async function adjustBlockedPorts(req, res) {
               routerIP: '${userconfig.initial.routerIP || ''}',
               pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
               pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-              blockedPorts: '${blockedPorts}',
+              blockedPorts: ${JSON.stringify(blockedPorts || [])},
               blockedRepositories: ${JSON.stringify(userconfig.initial.blockedRepositories || [])},
             }
           }`;
@@ -1315,8 +1315,8 @@ async function adjustBlockedRepositories(req, res) {
               routerIP: '${userconfig.initial.routerIP || ''}',
               pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
               pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-              blockedPorts: [${userconfig.initial.blockedPorts || ''}],
-              blockedRepositories: '${blockedRepositories}',
+              blockedPorts: ${JSON.stringify(userconfig.initial.blockedPorts || [])},
+              blockedRepositories: ${JSON.stringify(blockedRepositories || [])},
             }
           }`;
         const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
