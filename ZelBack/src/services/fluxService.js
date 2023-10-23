@@ -1062,7 +1062,7 @@ async function adjustCruxID(req, res) {
           pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
           pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
           blockedPorts: ${JSON.stringify(userconfig.initial.blockedPorts || [])},
-          blockedRepositories: ${JSON.stringify(userconfig.initial.blockedRepositories || [])},
+          blockedRepositories: ${JSON.stringify(userconfig.initial.blockedRepositories || []).replace(/"/g, "'")},
         }
       }`;
 
@@ -1118,7 +1118,7 @@ async function adjustKadenaAccount(req, res) {
     pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
     pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
     blockedPorts: ${JSON.stringify(userconfig.initial.blockedPorts || [])},
-    blockedRepositories: ${JSON.stringify(userconfig.initial.blockedRepositories || [])},
+    blockedRepositories: ${JSON.stringify(userconfig.initial.blockedRepositories || []).replace(/"/g, "'")},
   }
 }`;
 
@@ -1161,7 +1161,7 @@ async function adjustRouterIP(req, res) {
           pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
           pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
           blockedPorts: ${JSON.stringify(userconfig.initial.blockedPorts || [])},
-          blockedRepositories: ${JSON.stringify(userconfig.initial.blockedRepositories || [])},
+          blockedRepositories: ${JSON.stringify(userconfig.initial.blockedRepositories || []).replace(/"/g, "'")},
         }
       }`;
       const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
@@ -1215,7 +1215,7 @@ async function adjustBlockedPorts(req, res) {
               pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
               pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
               blockedPorts: ${JSON.stringify(blockedPorts || [])},
-              blockedRepositories: ${JSON.stringify(userconfig.initial.blockedRepositories || [])},
+              blockedRepositories: ${JSON.stringify(userconfig.initial.blockedRepositories || []).replace(/"/g, "'")},
             }
           }`;
         const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
@@ -1262,7 +1262,7 @@ async function adjustAPIPort(req, res) {
           pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
           pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
           blockedPorts: ${JSON.stringify(userconfig.initial.blockedPorts || [])},
-          blockedRepositories: ${JSON.stringify(userconfig.initial.blockedRepositories || [])},
+          blockedRepositories: ${JSON.stringify(userconfig.initial.blockedRepositories || []).replace(/"/g, "'")},
         }
       }`;
       const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
@@ -1317,7 +1317,7 @@ async function adjustBlockedRepositories(req, res) {
               pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
               pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
               blockedPorts: ${JSON.stringify(userconfig.initial.blockedPorts || [])},
-              blockedRepositories: ${JSON.stringify(blockedRepositories || [])},
+              blockedRepositories: ${JSON.stringify(blockedRepositories || []).replace(/"/g, "'")},
             }
           }`;
         const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');

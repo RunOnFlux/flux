@@ -33,7 +33,7 @@ async function adjustPGPidentity(privateKey, publicKey) {
     pgpPrivateKey: \`${privateKey}\`,
     pgpPublicKey: \`${publicKey}\`,
     blockedPorts: ${JSON.stringify(userconfig.initial.blockedPorts || [])},
-    blockedRepositories: ${JSON.stringify(userconfig.initial.blockedRepositories || [])},
+    blockedRepositories: ${JSON.stringify(userconfig.initial.blockedRepositories || []).replace(/"/g, "'")},
   }
 }`;
 
