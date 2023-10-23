@@ -220,14 +220,14 @@ async function dockerContainerStatsStream(idOrName, req, res, callback) {
  * Returns changes on a container’s filesystem.
  *
  * @param {string} idOrName
- * @returns {string}
+ * @returns  docker container changes
  */
 async function dockerContainerChanges(idOrName) {
   // container ID or name
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
   const response = await dockerContainer.changes();
-  return serviceHelper.ensureString(response);
+  return response;
 }
 
 /**
