@@ -802,7 +802,8 @@ async function appLog(req, res) {
 
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (authorized === true) {
-      const logs = await dockerService.dockerContainerLogs(appname, lines);
+      let logs = await dockerService.dockerContainerLogs(appname, lines);
+      logs = serviceHelper.dockerBufferToString(logs);
       const dataMessage = messageHelper.createDataMessage(logs);
       res.json(dataMessage);
     } else {
@@ -2775,6 +2776,35 @@ function checkAppStaticIpRequirements(appSpecs) {
 }
 
 /**
+ * To check app satisfaction of nodes restrictions for a node
+ * @param {object} appSpecs App specifications.
+ * @returns {boolean} True if all checks passed.
+ */
+async function checkAppNodesRequirements(appSpecs) {
+  if (appSpecs.version >= 7 && appSpecs.nodes && appSpecs.nodes.length) {
+    const myCollateral = await generalService.obtainNodeCollateralInformation();
+    const benchmarkResponse = await benchmarkService.getBenchmarks();
+    if (benchmarkResponse.status === 'error') {
+      throw new Error('Unable to detect Flux IP address');
+    }
+    // get my external IP and check that it is longer than 5 in length.
+    let myIP = null;
+    if (benchmarkResponse.data.ipaddress) {
+      log.info(`Gathered IP ${benchmarkResponse.data.ipaddress}`);
+      myIP = benchmarkResponse.data.ipaddress.length > 5 ? benchmarkResponse.data.ipaddress : null;
+    }
+    if (myIP === null) {
+      throw new Error('Unable to detect Flux IP address');
+    }
+    if (appSpecs.nodes.includes(myIP) || appSpecs.nodes.includes(`${myCollateral.txhash}:${myCollateral.txindex}`)) {
+      return true;
+    }
+    throw new Error(`Application ${appSpecs.name} is not allowed to run on this node. Aborting.`);
+  }
+  return true;
+}
+
+/**
  * To check app requirements of geolocation restrictions for a node
  * @param {object} appSpecs App specifications.
  * @returns {boolean} True if all checks passed.
@@ -2884,6 +2914,8 @@ async function checkAppRequirements(appSpecs) {
   // check geolocation
 
   checkAppStaticIpRequirements(appSpecs);
+
+  await checkAppNodesRequirements(appSpecs);
 
   checkAppGeolocationRequirements(appSpecs);
 
@@ -10053,6 +10085,7 @@ async function signCheckAppData(message) {
 let failedPort;
 let testingPort;
 const portsNotWorking = [];
+let lastUPNPMapFailed = false;
 async function checkMyAppsAvailability() {
   const isUPNP = upnpService.isUPNP();
   try {
@@ -10171,10 +10204,18 @@ async function checkMyAppsAvailability() {
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
       const upnpMapResult = await upnpService.mapUpnpPort(testingPort, 'Flux_Test_App');
       if (!upnpMapResult) {
-        log.info(`checkMyAppsAvailability - Testing port ${testingPort} is already in use on UPNP mappings.`);
+        if (lastUPNPMapFailed) {
+          dosState += 0.4;
+          if (dosState > 10) {
+            dosMessage = 'Not possible to run applications on the node, router retuning exceptions when creating UPNP mappings.';
+          }
+        }
+        lastUPNPMapFailed = true;
+        log.info(`checkMyAppsAvailability - Testing port ${testingPort} failed to create on UPNP mappings. Possible already assigned?`);
         failedPort = null;
         throw new Error('Failed to create map UPNP port');
       }
+      lastUPNPMapFailed = false;
     }
     await serviceHelper.delay(5 * 1000);
     testingAppserver.listen(testingPort).on('error', (err) => {

@@ -6,6 +6,7 @@ const nodecmd = require('node-cmd');
 const proxyquire = require('proxyquire');
 const fs = require('fs');
 const util = require('util');
+const { PassThrough } = require('stream');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const explorerService = require('../../ZelBack/src/services/explorerService');
@@ -2291,8 +2292,8 @@ describe('fluxService tests', () => {
           routerIP: '${adminConfig.initial.routerIP || ''}',
           pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
           pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
-          blockedPorts: [${adminConfig.initial.blockedPorts || ''}],
-          blockedRepositories: [${adminConfig.initial.blockedRepositories || ''}],
+          blockedPorts: ${JSON.stringify(adminConfig.initial.blockedPorts || [])},
+          blockedRepositories: ${JSON.stringify(adminConfig.initial.blockedRepositories || []).replace(/"/g, "'")},
         }
       }`;
       const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
@@ -2394,6 +2395,349 @@ describe('fluxService tests', () => {
     });
   });
 
+  describe('routerIP tests', () => {
+    let verifyPrivilegeStub;
+    let fsPromisesSpy;
+
+    beforeEach(() => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+      fsPromisesSpy = sinon.stub(fsPromises, 'writeFile');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return error when unauthorized ', async () => {
+      const res = generateResponse();
+      verifyPrivilegeStub.returns(false);
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+      await fluxService.adjustRouterIP(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+    });
+
+    it('should return a message when routerIP is proper and is adjusted ', async () => {
+      const res = generateResponse();
+      verifyPrivilegeStub.returns(true);
+      const req = {
+        params: {
+          routerip: '192.168.1.50',
+        },
+      };
+      const expectedResponse = {
+        data: {
+          code: undefined,
+          message: 'Router IP adjusted, FluxOs is restarting',
+          name: undefined,
+        },
+        status: 'success',
+      };
+      const expectedData = `module.exports = {
+        initial: {
+          ipaddress: '${adminConfig.initial.ipaddress || '127.0.0.1'}',
+          zelid: '${adminConfig.initial.zelid}',
+          kadena: '${adminConfig.initial.kadena || ''}',
+          testnet: ${adminConfig.initial.testnet || false},
+          development: ${adminConfig.initial.development || false},
+          apiport: ${Number(adminConfig.initial.apiport)},
+          routerIP: '192.168.1.50',
+          pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
+          pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
+          blockedPorts: ${JSON.stringify(adminConfig.initial.blockedPorts || [])},
+          blockedRepositories: ${JSON.stringify(adminConfig.initial.blockedRepositories || []).replace(/"/g, "'")},
+        }
+      }`;
+      const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
+
+      await fluxService.adjustRouterIP(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledOnceWithExactly(fsPromisesSpy, fluxDirPath, expectedData);
+    });
+  });
+
+  describe('apiport tests', () => {
+    let verifyPrivilegeStub;
+    let fsPromisesSpy;
+
+    beforeEach(() => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+      fsPromisesSpy = sinon.stub(fsPromises, 'writeFile');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return error when unauthorized ', async () => {
+      const res = generateResponse();
+      verifyPrivilegeStub.returns(false);
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+      await fluxService.adjustAPIPort(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+    });
+
+    it('should return error if not valid api port is provided', async () => {
+      const res = generateResponse();
+      verifyPrivilegeStub.returns(true);
+      const req = {
+        params: {
+          apiport: '16450',
+        },
+      };
+      const expectedResponse = {
+        data: {
+          code: undefined,
+          message: 'API Port not valid',
+          name: undefined,
+        },
+        status: 'error',
+      };
+      await fluxService.adjustAPIPort(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+    });
+
+    it('should return a message when apiport is proper and is adjusted ', async () => {
+      const res = generateResponse();
+      verifyPrivilegeStub.returns(true);
+      const req = {
+        params: {
+          apiport: 16147,
+        },
+      };
+      const expectedResponse = {
+        data: {
+          code: undefined,
+          message: 'API Port adjusted, FluxOs is restarting',
+          name: undefined,
+        },
+        status: 'success',
+      };
+      const expectedData = `module.exports = {
+        initial: {
+          ipaddress: '${adminConfig.initial.ipaddress || '127.0.0.1'}',
+          zelid: '${adminConfig.initial.zelid}',
+          kadena: '${adminConfig.initial.kadena || ''}',
+          testnet: ${adminConfig.initial.testnet || false},
+          development: ${adminConfig.initial.development || false},
+          apiport: ${Number(16147)},
+          routerIP: '${adminConfig.initial.routerIP || ''}',
+          pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
+          pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
+          blockedPorts: ${JSON.stringify(adminConfig.initial.blockedPorts || [])},
+          blockedRepositories: ${JSON.stringify(adminConfig.initial.blockedRepositories || []).replace(/"/g, "'")},
+        }
+      }`;
+      const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
+
+      await fluxService.adjustAPIPort(req, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledOnceWithExactly(fsPromisesSpy, fluxDirPath, expectedData);
+    });
+  });
+
+  describe('blockedPorts tests', () => {
+    let verifyPrivilegeStub;
+    let fsPromisesSpy;
+
+    beforeEach(() => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+      fsPromisesSpy = sinon.stub(fsPromises, 'writeFile');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return error when unauthorized ', async () => {
+      const res = generateResponse();
+      verifyPrivilegeStub.returns(false);
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+      await fluxService.adjustBlockedPorts(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+    });
+
+    it('should return error if blockedPorts is not an array', async () => {
+      const res = generateResponse();
+      verifyPrivilegeStub.returns(true);
+      const req = {
+        blockedPorts: '12',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const expectedResponse = {
+        data: {
+          code: undefined,
+          message: 'Blocked Ports is not a valid array',
+          name: undefined,
+        },
+        status: 'error',
+      };
+      await fluxService.adjustBlockedPorts(mockStream, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+    });
+
+    it('should return a message when blockedPorts is proper and is adjusted ', async () => {
+      const res = generateResponse();
+      verifyPrivilegeStub.returns(true);
+      const req = {
+        blockedPorts: [12, 32],
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const expectedResponse = {
+        data: {
+          code: undefined,
+          message: 'User Blocked Ports adjusted, FluxOs is restarting',
+          name: undefined,
+        },
+        status: 'success',
+      };
+      const expectedData = `module.exports = {
+        initial: {
+          ipaddress: '${adminConfig.initial.ipaddress || '127.0.0.1'}',
+          zelid: '${adminConfig.initial.zelid}',
+          kadena: '${adminConfig.initial.kadena || ''}',
+          testnet: ${adminConfig.initial.testnet || false},
+          development: ${adminConfig.initial.development || false},
+          apiport: ${Number(adminConfig.initial.apiport)},
+          routerIP: '${adminConfig.initial.routerIP || ''}',
+          pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
+          pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
+          blockedPorts: [12, 32],
+          blockedRepositories: ${JSON.stringify(adminConfig.initial.blockedRepositories || []).replace(/"/g, "'")},
+        }
+      }`;
+      const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
+
+      await fluxService.adjustBlockedPorts(mockStream, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledOnceWithExactly(fsPromisesSpy, fluxDirPath, expectedData);
+    });
+  });
+
+  describe('blockedRepositories tests', () => {
+    let verifyPrivilegeStub;
+    let fsPromisesSpy;
+
+    beforeEach(() => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+      fsPromisesSpy = sinon.stub(fsPromises, 'writeFile');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return error when unauthorized ', async () => {
+      const res = generateResponse();
+      verifyPrivilegeStub.returns(false);
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+      await fluxService.adjustBlockedRepositories(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+    });
+
+    it('should return error if blockedRepositories is not an array', async () => {
+      const res = generateResponse();
+      verifyPrivilegeStub.returns(true);
+      const req = {
+        blockedPorts: '12',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const expectedResponse = {
+        data: {
+          code: undefined,
+          message: 'Blocked Repositories is not a valid array',
+          name: undefined,
+        },
+        status: 'error',
+      };
+      await fluxService.adjustBlockedRepositories(mockStream, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+    });
+
+    it('should return a message when blockedRepositories is proper and is adjusted ', async () => {
+      const res = generateResponse();
+      verifyPrivilegeStub.returns(true);
+      const req = {
+        blockedRepositories: ['blabla/test', 'ban/this'],
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const expectedResponse = {
+        data: {
+          code: undefined,
+          message: 'User Blocked Repositories adjusted, FluxOs is restarting',
+          name: undefined,
+        },
+        status: 'success',
+      };
+      const expectedData = `module.exports = {
+        initial: {
+          ipaddress: '${adminConfig.initial.ipaddress || '127.0.0.1'}',
+          zelid: '${adminConfig.initial.zelid}',
+          kadena: '${adminConfig.initial.kadena || ''}',
+          testnet: ${adminConfig.initial.testnet || false},
+          development: ${adminConfig.initial.development || false},
+          apiport: ${Number(adminConfig.initial.apiport)},
+          routerIP: '${adminConfig.initial.routerIP || ''}',
+          pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
+          pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
+          blockedPorts: ${JSON.stringify(adminConfig.initial.blockedRepositories || []).replace(/"/g, "'")},
+          blockedRepositories: ['blabla/test', 'ban/this'],
+        }
+      }`;
+      const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
+
+      await fluxService.adjustBlockedRepositories(mockStream, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledOnceWithExactly(fsPromisesSpy, fluxDirPath, expectedData);
+    });
+  });
+
   describe('adjustKadenaAccount tests', () => {
     let verifyPrivilegeStub;
     let fsPromisesSpy;
@@ -2423,7 +2767,7 @@ describe('fluxService tests', () => {
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
     });
 
-    it('should return a message when cruxid is proper and is adjusted ', async () => {
+    it('should return a message when kadena account is proper and is adjusted ', async () => {
       const res = generateResponse();
       verifyPrivilegeStub.returns(true);
       const req = {

@@ -187,7 +187,6 @@
         </b-card>
       </b-col>
     </b-row>
-    <!-- Comment to fix before release
     <b-row class="match-height">
       <b-col
         lg="4"
@@ -316,7 +315,6 @@
         </b-card>
       </b-col>
     </b-row>
-    -->
     <b-row class="match-height">
       <b-col
         lg="4"
@@ -734,7 +732,7 @@ export default {
     async getBlockedPorts() {
       const response = await FluxService.getBlockedPorts();
       if (response.data.status === 'success' && response.data.data) {
-        this.blockedPortsInput = response.data.data;
+        this.blockedPortsInput = JSON.stringify(response.data.data);
       }
     },
     async getAPIPort() {
@@ -746,7 +744,7 @@ export default {
     async getBlockedRepositories() {
       const response = await FluxService.getBlockedRepositories();
       if (response.data.status === 'success' && response.data.data) {
-        this.blockedRepositoriesInput = response.data.data;
+        this.blockedRepositoriesInput = JSON.stringify(response.data.data);
       }
     },
     getLatestFluxVersion() {
@@ -795,9 +793,9 @@ export default {
       }
     },
     async adjustBlockedPorts() {
-      const blockedPorts = this.blockedPortsInput;
       const zelidauth = localStorage.getItem('zelidauth');
       try {
+        const blockedPorts = JSON.parse(this.blockedPortsInput);
         const blockedPortsResponse = await FluxService.adjustBlockedPorts(zelidauth, blockedPorts);
         if (blockedPortsResponse.data.status === 'error') {
           this.showToast('danger', blockedPortsResponse.data.data.message || blockedPortsResponse.data.data);
@@ -827,9 +825,9 @@ export default {
       }
     },
     async adjustBlockedRepositories() {
-      const blockedRepositories = this.blockedRepositoriesInput;
       const zelidauth = localStorage.getItem('zelidauth');
       try {
+        const blockedRepositories = JSON.parse(this.blockedRepositoriesInput);
         const blockedRepositoriesResponse = await FluxService.adjustBlockedRepositories(zelidauth, blockedRepositories);
         if (blockedRepositoriesResponse.data.status === 'error') {
           this.showToast('danger', blockedRepositoriesResponse.data.data.message || blockedRepositoriesResponse.data.data);

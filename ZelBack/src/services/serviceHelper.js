@@ -163,6 +163,31 @@ const axiosGet = (url, options = {}) => {
     });
 };
 
+/**
+ * To convert a docker steam buffer to a string
+ * @param {buffer} docker steam buffer
+ * @returns {string}.
+ */
+function dockerBufferToString(dataBuffer) {
+  let result = '';
+  let auxDataBuffer = dataBuffer;
+  while (auxDataBuffer.length >= 8) {
+    const strToUnpack = auxDataBuffer.slice(0, 8);
+    auxDataBuffer = auxDataBuffer.slice(8);
+    // const sizeValue = strToUnpack.readUInt32BE(4);
+    const bufferAux = Uint8Array.from(strToUnpack).buffer;
+    const sizeValue = new DataView(bufferAux).getUint32(4, false);
+    if (auxDataBuffer.length >= sizeValue) {
+      const str = auxDataBuffer.slice(0, sizeValue).toString('utf8');
+      auxDataBuffer = auxDataBuffer.slice(sizeValue);
+      result += str;
+    } else {
+      break;
+    }
+  }
+  return result;
+}
+
 module.exports = {
   ensureBoolean,
   ensureNumber,
@@ -173,4 +198,5 @@ module.exports = {
   getApplicationOwner,
   deleteLoginPhrase,
   isDecimalLimit,
+  dockerBufferToString,
 };
