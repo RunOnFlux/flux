@@ -1192,7 +1192,7 @@ async function adjustBlockedPorts(req, res) {
   });
   req.on('end', async () => {
     try {
-      if (body === undefined || body === '') {
+      if (!body) {
         throw new Error('Missing Blocked Ports Information.');
       }
       const processedBody = serviceHelper.ensureObject(body);
@@ -1301,7 +1301,7 @@ async function adjustBlockedRepositories(req, res) {
   });
   req.on('end', async () => {
     try {
-      if (body === undefined || body === '') {
+      if (!body) {
         throw new Error('Missing Blocked Repositories Information.');
       }
       log.info(`body: ${JSON.stringify(body)}`);

@@ -793,9 +793,9 @@ export default {
       }
     },
     async adjustBlockedPorts() {
-      const blockedPorts = this.blockedPortsInput;
       const zelidauth = localStorage.getItem('zelidauth');
       try {
+        const blockedPorts = JSON.parse(this.blockedPortsInput);
         const blockedPortsResponse = await FluxService.adjustBlockedPorts(zelidauth, blockedPorts);
         if (blockedPortsResponse.data.status === 'error') {
           this.showToast('danger', blockedPortsResponse.data.data.message || blockedPortsResponse.data.data);
@@ -825,9 +825,9 @@ export default {
       }
     },
     async adjustBlockedRepositories() {
-      const blockedRepositories = this.blockedRepositoriesInput;
       const zelidauth = localStorage.getItem('zelidauth');
       try {
+        const blockedRepositories = JSON.parse(this.blockedRepositoriesInput);
         const blockedRepositoriesResponse = await FluxService.adjustBlockedRepositories(zelidauth, blockedRepositories);
         if (blockedRepositoriesResponse.data.status === 'error') {
           this.showToast('danger', blockedRepositoriesResponse.data.data.message || blockedRepositoriesResponse.data.data);
