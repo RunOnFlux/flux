@@ -11,6 +11,7 @@ const messageHelper = require('./messageHelper');
 const dbHelper = require('./dbHelper');
 
 const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
+const dockerTagPattern = /^(?:(?<provider>(?:(?:[\w-]+(?:\.[\w-]+)+)(?::\d+)?)|[\w]+:\d+)\/)?\/?(?<namespace>(?:(?:[a-z0-9]+(?:(?:[._]|__|[-]*)[a-z0-9]+)*)\/){0,2})(?<repository>[a-z0-9-]+\/{0,1}[a-z0-9-]+)[:]?(?<tag>[\w][\w.-]{0,127})?/;
 
 let storedTier = null;
 let storedCollateral = null;
@@ -214,95 +215,66 @@ async function checkSynced() {
 
 /**
  * Split docker repotag
- * @param {string} repotag Docker repotag
- * @returns {object} Object of splitted repotag, provider, auth, service, port, namespace, repository, tag, port
+ * @param {string} targetDockerTag Docker repotag
+ * @returns {object} Object of parsed dockertag - {provider, namespace, repository, tag}
  */
-function splitRepoTag(repotag) {
-  if (typeof repotag !== 'string') {
-    throw new Error('Invalid repotag');
+function parseDockerTag(targetDockerTag) {
+  if (/\s/.test(targetDockerTag)) {
+    throw new Error(
+      `Repository "${targetDockerTag}" should not contain space characters.`,
+    );
   }
 
-  if (/\s/.test(repotag)) {
-    throw new Error(`Repository "${repotag}" should not contain space characters.`);
+  const match = dockerTagPattern.exec(targetDockerTag);
+
+  if (match === null || !(match.groups.repository && match.groups.tag)) {
+    throw new Error(
+      `Repository ${targetDockerTag} is not in valid format namespace/repository:tag`,
+    );
   }
 
-  const splittedRepoColumn = repotag.split(':');
-  const splittedRepoSlash = repotag.split('/');
-  const splittedRepo = {
-    provider: '',
-    service: '',
-    authentication: '',
-    providerName: '',
-    namespace: '',
-    repository: '',
-    tag: '',
-    port: '',
+  const {
+    groups: {
+      provider, namespace, repository, tag,
+    },
+  } = match;
+
+  const parsedTag = {
+    provider: '', namespace: '', repository: '', tag: '',
   };
-  if (splittedRepoColumn[3]) {
-    throw new Error(`Repository ${repotag} is not in valid format namespace/repository:tag`);
-  } else if (splittedRepoColumn[2]) { // must be this form provider:port/namespace/repository:tag
-    // provider must include port
-    const provider = splittedRepoColumn[0];
-    splittedRepo.provider = provider; // provider domain
-    // must also have provider/namespace/image
-    if (!splittedRepoSlash[2]) {
-      throw new Error(`Repository ${repotag} is not in valid format provider:port/namespace/repository:tag`);
+
+  parsedTag.provider = provider === undefined ? 'hub.docker.com' : provider;
+
+  // Without doing a lookup against the dockerhub library, no way to know if a single string is
+  // an image or a namespace
+  if (tag === undefined) {
+    if (parsedTag.provider === 'hub.docker.com') {
+      // we can't tell, so we set namespace/repository to repository
+      parsedTag.namespace = namespace || repository;
+      parsedTag.repository = repository;
+      parsedTag.tag = tag;
+      parsedTag.ambiguous = parsedTag.namespace === parsedTag.repository;
+    } else { // registry
+      parsedTag.namespace = namespace;
+      parsedTag.repository = repository;
+      parsedTag.tag = tag;
+      // a registry is ambiguous as you can have multiple / in both namespace and repository,
+      // and we don't know how it is split
+      parsedTag.ambiguous = true;
     }
-    const tag = splittedRepoColumn[2];
-    splittedRepo.tag = tag; // tag
-    const namesapceWithImageAndPort = splittedRepoColumn[1]; // port/namespace/repository
-    const splittedNamesapceWithImageAndPort = namesapceWithImageAndPort.split('/');
-    console.log(splittedNamesapceWithImageAndPort);
-    const port = splittedNamesapceWithImageAndPort.shift(); // removes port
-    const repository = splittedNamesapceWithImageAndPort.pop();
-    const namespace = splittedNamesapceWithImageAndPort.join('/');
-    splittedRepo.port = port;
-    splittedRepo.namespace = namespace;
-    splittedRepo.repository = repository;
-  } else if (splittedRepoColumn[1]) { // must be provider/namespace/repository:tag or namespace/repository:tag or repository:tag
-    const tag = splittedRepoColumn[1];
-    splittedRepo.tag = tag; // tag
-    const splashSplitted = splittedRepoColumn[0].split('/');
-    if (splashSplitted[0].includes('.')) { // this is a provider then, provider is defined
-      const provider = splashSplitted.shift(); // removes provider and assigns
-      splittedRepo.provider = provider; // provider domain
-      const repository = splashSplitted.pop(); // removes repository and assigns;
-      const namespace = splashSplitted.join('/');
-      splittedRepo.namespace = namespace;
-      splittedRepo.repository = repository;
-    } else { // provider not defined
-      const repository = splashSplitted.pop(); // removes repository and assigns;
-      const namespace = splashSplitted.join('/');
-      splittedRepo.namespace = namespace;
-      splittedRepo.repository = repository;
-    }
-  } else { // fail
-    throw new Error(`Repository ${repotag} is not in valid format namespace/repository:tag`);
+  } else {
+    // we have certainty that the image parts that we have are correct
+    // this would be better to lookup against dockerhub library (only 150 odd images to pull via api)
+    parsedTag.namespace = namespace === '' ? 'library' : namespace;
+    parsedTag.repository = repository;
+    parsedTag.tag = tag;
+    parsedTag.ambiguous = false;
   }
-  splittedRepo.authentication = splittedRepo.provider;
-  splittedRepo.service = splittedRepo.provider;
-  if (!splittedRepo.provider) { // defaults of docker hub
-    splittedRepo.provider = 'registry-1.docker.io';
-    splittedRepo.authentication = 'auth.docker.io';
-    splittedRepo.service = 'registry.docker.io';
+  // ToDo: update regex so we don't have to strip last namespace /
+  if (parsedTag.namespace.slice(-1) === '/') {
+    parsedTag.namespace = parsedTag.namespace.slice(0, -1);
   }
-  let providerName = 'Unkown provider';
-  if (splittedRepo.provider === 'ghcr.io') {
-    providerName = 'Github Containers';
-  } else if (splittedRepo.provider === 'gcr.io') {
-    providerName = 'Google Containers';
-  } else if (splittedRepo.provider === 'registry.gitlab.com') {
-    providerName = 'GitLab Registrar';
-  } else if (splittedRepo.provider === 'public.ecr.aws') {
-    providerName = 'Amazon ECR';
-  } else if (splittedRepo.provider === 'hub.docker.com' || splittedRepo.provider === 'index.docker.io' || splittedRepo.provider === 'registry.docker.io' || splittedRepo.provider === 'registry-1.docker.io' || splittedRepo.provider === 'auth.docker.io') {
-    providerName = 'Docker Hub';
-  }
-  splittedRepo.providerName = providerName;
-  if (!splittedRepo.namespace) {
-    splittedRepo.namespace = 'library';
-  }
-  return splittedRepo;
+  return parsedTag;
 }
 
 /**
@@ -313,65 +285,30 @@ function splitRepoTag(repotag) {
  * @param {string} repotag GitHub repository tag.
  * @returns {boolean} True or an error is thrown.
  */
-async function checkWhitelistedRepository(repotag) {
-  if (typeof repotag !== 'string') {
+async function checkWhitelistedRepository(targetDockerTag) {
+  if (typeof targetDockerTag !== 'string') {
     throw new Error('Invalid repotag');
   }
-  const splittedRepo = splitRepoTag(repotag);
-  if (!splittedRepo.tag) {
-    throw new Error(`Repository ${repotag} is not in valid format namespace/repository:tag`);
-  }
-  const resWhitelistRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/RunOnFlux/flux/master/helpers/repositories.json');
 
-  if (!resWhitelistRepo) {
-    throw new Error('Unable to communicate with Flux Services! Try again later.');
+  parseDockerTag(targetDockerTag);
+
+  // Cache?
+  const res = await serviceHelper.axiosGet(
+    'https://raw.githubusercontent.com/RunOnFlux/flux/master/helpers/repositories.json',
+  );
+
+  if (!res || !res.data) {
+    throw new Error(
+      'Unable to communicate with Flux Services! Try again later.',
+    );
   }
 
-  const imageTags = resWhitelistRepo.data;
-  const pureOrganisations = [];
-  imageTags.forEach((imageTag) => { // todo revisit for more strict
-    const image = imageTag.substring(0, imageTag.lastIndexOf(':') > -1 ? imageTag.lastIndexOf(':') : imageTag.length);
-    if (image.includes('.')) {
-      if (image.split('/')[2]) { // abc.xyz/namespace/repository
-        const pureOrganisation = image.substring(0, image.lastIndexOf('/') > -1 ? image.lastIndexOf('/') : image.length); // or domain/namespace
-        pureOrganisations.push(pureOrganisation);
-      } else {
-        pureOrganisations.push(image);
-      }
-    } else {
-      const pureOrganisation = image.substring(0, image.lastIndexOf('/') > -1 ? image.lastIndexOf('/') : image.length); // or domain/namespace
-      pureOrganisations.push(pureOrganisation);
-    }
-  });
+  const filteredImageTags = res.data.filter((imageTag) => targetDockerTag.slice(0, imageTag.length) === imageTag);
 
-  const splitRepoWhitelistAllowance = [];
-  if (splittedRepo.providerName === 'Docker Hub') {
-    splitRepoWhitelistAllowance.push(`${splittedRepo.namespace}/${splittedRepo.repository}:${splittedRepo.tag}`);
-    splitRepoWhitelistAllowance.push(`${splittedRepo.namespace}/${splittedRepo.repository}`);
-    splitRepoWhitelistAllowance.push(splittedRepo.namespace);
-    if (splittedRepo.namespace === 'library') {
-      splitRepoWhitelistAllowance.push(splittedRepo.repository);
-    }
-  } else if (splittedRepo.port) {
-    splitRepoWhitelistAllowance.push(`${splittedRepo.provider}:${splittedRepo.port}/${splittedRepo.namespace}`);
-    splitRepoWhitelistAllowance.push(`${splittedRepo.provider}:${splittedRepo.port}/${splittedRepo.namespace}/${splittedRepo.repository}`);
-    splitRepoWhitelistAllowance.push(`${splittedRepo.provider}:${splittedRepo.port}/${splittedRepo.namespace}/${splittedRepo.repository}/${splittedRepo.tag}`);
-  } else {
-    splitRepoWhitelistAllowance.push(`${splittedRepo.provider}/${splittedRepo.namespace}`);
-    splitRepoWhitelistAllowance.push(`${splittedRepo.provider}/${splittedRepo.namespace}/${splittedRepo.repository}`);
-    splitRepoWhitelistAllowance.push(`${splittedRepo.provider}/${splittedRepo.namespace}/${splittedRepo.repository}/${splittedRepo.tag}`);
+  if (filteredImageTags.length) {
+    return true;
   }
-  let isWhitelisted = false;
-  splitRepoWhitelistAllowance.forEach((allowedPart) => {
-    if (pureOrganisations.includes(allowedPart)) {
-      isWhitelisted = true;
-    }
-  });
-
-  if (!isWhitelisted) {
-    throw new Error('Repository is not whitelisted. Please contact Flux Team.');
-  }
-  return true;
+  throw new Error('Repository is not whitelisted. Please contact Flux Team.');
 }
 
 /**
@@ -443,7 +380,7 @@ module.exports = {
   whitelistedRepositories,
   messageHash,
   nodeCollateral,
-  splitRepoTag,
+  parseDockerTag,
   obtainNodeCollateralInformation,
 
   // exported for testing purposes
