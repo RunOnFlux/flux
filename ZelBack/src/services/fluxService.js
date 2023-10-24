@@ -1312,6 +1312,11 @@ async function adjustBlockedRepositories(req, res) {
         if (!Array.isArray(blockedRepositories)) {
           throw new Error('Blocked Repositories is not a valid array');
         }
+        blockedRepositories.forEach((parameter) => {
+          if (typeof parameter !== 'string') {
+            throw new Error('Blocked Repositories are invalid');
+          }
+        });
 
         const dataToWrite = `module.exports = {
           initial: {
