@@ -1385,7 +1385,10 @@
               Execute Commands
             </b-button>
             <div v-if="commandExecuting">
-              <v-icon class="spin-icon" name="spinner" />
+              <v-icon
+                class="spin-icon"
+                name="spinner"
+              />
             </div>
             <b-form-textarea
               v-if="callResponse.data"
