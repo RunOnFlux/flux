@@ -2646,6 +2646,98 @@ describe('fluxService tests', () => {
     });
   });
 
+  describe('blockedRepositories tests', () => {
+    let verifyPrivilegeStub;
+    let fsPromisesSpy;
+
+    beforeEach(() => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+      fsPromisesSpy = sinon.stub(fsPromises, 'writeFile');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return error when unauthorized ', async () => {
+      const res = generateResponse();
+      verifyPrivilegeStub.returns(false);
+      const expectedResponse = {
+        data: {
+          code: 401,
+          message: 'Unauthorized. Access denied.',
+          name: 'Unauthorized',
+        },
+        status: 'error',
+      };
+      await fluxService.adjustBlockedRepositories(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+    });
+
+    it('should return error if blockedRepositories is not an array', async () => {
+      const res = generateResponse();
+      verifyPrivilegeStub.returns(true);
+      const req = {
+        blockedPorts: '12',
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const expectedResponse = {
+        data: {
+          code: undefined,
+          message: 'Blocked Repositories is not a valid array',
+          name: undefined,
+        },
+        status: 'error',
+      };
+      await fluxService.adjustBlockedRepositories(mockStream, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+    });
+
+    it('should return a message when blockedRepositories is proper and is adjusted ', async () => {
+      const res = generateResponse();
+      verifyPrivilegeStub.returns(true);
+      const req = {
+        blockedRepositories: ['blabla/test', 'ban/this'],
+      };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
+      const expectedResponse = {
+        data: {
+          code: undefined,
+          message: 'User Blocked Repositories adjusted, FluxOs is restarting',
+          name: undefined,
+        },
+        status: 'success',
+      };
+      const expectedData = `module.exports = {
+        initial: {
+          ipaddress: '${adminConfig.initial.ipaddress || '127.0.0.1'}',
+          zelid: '${adminConfig.initial.zelid}',
+          kadena: '${adminConfig.initial.kadena || ''}',
+          testnet: ${adminConfig.initial.testnet || false},
+          development: ${adminConfig.initial.development || false},
+          apiport: ${Number(adminConfig.initial.apiport)},
+          routerIP: '${adminConfig.initial.routerIP || ''}',
+          pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
+          pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
+          blockedPorts: ${JSON.stringify(adminConfig.initial.blockedRepositories || []).replace(/"/g, "'")},
+          blockedRepositories: ['blabla/test', 'ban/this'],
+        }
+      }`;
+      const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
+
+      await fluxService.adjustBlockedRepositories(mockStream, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      sinon.assert.calledOnceWithExactly(fsPromisesSpy, fluxDirPath, expectedData);
+    });
+  });
+
   describe('adjustKadenaAccount tests', () => {
     let verifyPrivilegeStub;
     let fsPromisesSpy;
