@@ -625,7 +625,7 @@
             <div v-if="component.callData">
               <json-viewer
                 :value="component.callData"
-                :expand-depth=5
+                :expand-depth="5"
                 copyable
                 boxed
                 theme="jv-dark"
@@ -637,7 +637,7 @@
           <div v-if="callResponse.data && callResponse.data[0]">
             <json-viewer
               :value="callResponse.data[0].callData"
-              :expand-depth=5
+              :expand-depth="5"
               copyable
               boxed
               theme="jv-dark"
@@ -665,7 +665,7 @@
             <div v-if="component.callData">
               <json-viewer
                 :value="component.callData"
-                :expand-depth=5
+                :expand-depth="5"
                 copyable
                 boxed
                 theme="jv-dark"
@@ -677,7 +677,7 @@
           <div v-if="callResponse.data && callResponse.data[0]">
             <json-viewer
               :value="callResponse.data[0].callData"
-              :expand-depth=5
+              :expand-depth="5"
               copyable
               boxed
               theme="jv-dark"
@@ -769,7 +769,7 @@
             <div v-if="component.callData">
               <json-viewer
                 :value="component.callData"
-                :expand-depth=5
+                :expand-depth="5"
                 copyable
                 boxed
                 theme="jv-dark"
@@ -781,7 +781,7 @@
           <div v-if="callResponse.data && callResponse.data[0]">
             <json-viewer
               :value="callResponse.data[0].callData"
-              :expand-depth=5
+              :expand-depth="5"
               copyable
               boxed
               theme="jv-dark"
@@ -809,7 +809,7 @@
             <div v-if="component.callData">
               <json-viewer
                 :value="component.callData"
-                :expand-depth=5
+                :expand-depth="5"
                 copyable
                 boxed
                 theme="jv-dark"
@@ -821,7 +821,7 @@
           <div v-if="callResponse.data && callResponse.data[0]">
             <json-viewer
               :value="callResponse.data[0].callData"
-              :expand-depth=5
+              :expand-depth="5"
               copyable
               boxed
               theme="jv-dark"
