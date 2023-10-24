@@ -5710,23 +5710,19 @@ async function ensureApplicationPortsNotUsed(appSpecFormatted, globalCheckedApps
  * @param {string} repotag Docker Hub repository tag.
  * @returns {string[]} List of Docker image architectures.
  */
-async function repositoryArchitectures(repotag, repoauth, skipVerification = false) {
+async function repositoryArchitectures(repotag, repoauth) {
   const {
     provider, namespace, repository, tag,
   } = generalService.parseDockerTag(repotag);
 
   const image = repository;
   const architectures = [];
-  if (repoauth && skipVerification) {
-    return true;
-  }
   let decryptedRepoAuth;
   if (repoauth) {
-    decryptedRepoAuth = repoauth;
-    // decryptedRepoAuth = await pgpService.decryptMessage(repoauth);
-    // if (!decryptedRepoAuth) {
-    //   throw new Error('Unable to decrypt provided credentials');
-    // }
+    decryptedRepoAuth = await pgpService.decryptMessage(repoauth);
+    if (!decryptedRepoAuth) {
+      throw new Error('Unable to decrypt provided credentials');
+    }
   }
   if (provider === 'hub.docker.com') { // favor docker hub api
     // if we are using private image, we need to authenticate first
