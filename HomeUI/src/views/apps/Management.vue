@@ -615,73 +615,87 @@
         title="Information"
         :disabled="!isApplicationInstalledLocally"
       >
-        <h3>{{ appSpecification.name }}</h3>
+        <h3>Application: {{ appSpecification.name }}</h3>
         <div v-if="appSpecification.version >= 4">
           <div
             v-for="(component, index) in callResponse.data"
             :key="index"
           >
-            <h4>{{ component.name }} Component</h4>
-            <b-form-textarea
-              v-if="component.callData"
-              plaintext
-              no-resize
-              rows="15"
-              :value="JSON.stringify(component.callData, null, 4)"
-            />
+            <h4>Component: {{ component.name }}</h4>
+            <div v-if="component.callData">
+              <json-viewer
+                :value="component.callData"
+                :expand-depth=5
+                copyable
+                boxed
+                theme="jv-dark"
+              />
+            </div>
           </div>
         </div>
         <div v-else>
-          <b-form-textarea
-            v-if="callResponse.data && callResponse.data[0]"
-            plaintext
-            no-resize
-            rows="15"
-            :value="JSON.stringify(callResponse.data[0].callData, null, 4)"
-          />
+          <div v-if="callResponse.data && callResponse.data[0]">
+            <json-viewer
+              :value="callResponse.data[0].callData"
+              :expand-depth=5
+              copyable
+              boxed
+              theme="jv-dark"
+            />
+          </div>
         </div>
       </b-tab>
       <b-tab
         title="Resources"
         :disabled="!isApplicationInstalledLocally"
       >
-        <h3>{{ appSpecification.name }}</h3>
+        <h3>Application: {{ appSpecification.name }}</h3>
+        <div v-if="commandExecuting">
+          <v-icon
+            class="spin-icon"
+            name="spinner"
+          />
+        </div>
         <div v-if="appSpecification.version >= 4">
           <div
             v-for="(component, index) in callResponse.data"
             :key="index"
           >
-            <h4>{{ component.name }} Component</h4>
-            <b-form-textarea
-              v-if="component.callData"
-              plaintext
-              no-resize
-              rows="15"
-              :value="JSON.stringify(component.callData, null, 4)"
-            />
+            <h4>Component: {{ component.name }}</h4>
+            <div v-if="component.callData">
+              <json-viewer
+                :value="component.callData"
+                :expand-depth=5
+                copyable
+                boxed
+                theme="jv-dark"
+              />
+            </div>
           </div>
         </div>
         <div v-else>
-          <b-form-textarea
-            v-if="callResponse.data && callResponse.data[0]"
-            plaintext
-            no-resize
-            rows="15"
-            :value="JSON.stringify(callResponse.data[0].callData, null, 4)"
-          />
+          <div v-if="callResponse.data && callResponse.data[0]">
+            <json-viewer
+              :value="callResponse.data[0].callData"
+              :expand-depth=5
+              copyable
+              boxed
+              theme="jv-dark"
+            />
+          </div>
         </div>
       </b-tab>
       <b-tab
         title="Monitoring"
         :disabled="!isApplicationInstalledLocally"
       >
-        <h3>{{ appSpecification.name }} History Statistics 1 hour</h3>
+        <h3>History Statistics 1 hour</h3>
         <div v-if="appSpecification.version >= 4">
           <div
             v-for="(component, index) in callResponse.data"
             :key="index"
           >
-            <h4>{{ component.name }} Component</h4>
+            <h4>Component: {{ component.name }}</h4>
             <b-table
               v-if="component.callData"
               class="stats-table"
@@ -705,13 +719,13 @@
           </div>
         </div>
         <br><br>
-        <h3>{{ appSpecification.name }} History Statistics 24 hours</h3>
+        <h3>History Statistics 24 hours</h3>
         <div v-if="appSpecification.version >= 4">
           <div
             v-for="(component, index) in callResponse.data"
             :key="index"
           >
-            <h4>{{ component.name }} Component</h4>
+            <h4>Component: {{ component.name }}</h4>
             <b-table
               v-if="component.callData"
               class="stats-table"
@@ -739,73 +753,93 @@
         title="File Changes"
         :disabled="!isApplicationInstalledLocally"
       >
-        <h3>{{ appSpecification.name }}</h3>
+        <h3>Application: {{ appSpecification.name }}</h3>
+        <div v-if="commandExecuting">
+          <v-icon
+            class="spin-icon"
+            name="spinner"
+          />
+        </div>
         <div v-if="appSpecification.version >= 4">
           <div
             v-for="(component, index) in callResponse.data"
             :key="index"
           >
-            <h4>{{ component.name }} Component</h4>
-            <b-form-textarea
-              v-if="component.callData"
-              plaintext
-              no-resize
-              rows="15"
-              :value="JSON.stringify(component.callData, null, 4)"
-            />
+            <h4>Component: {{ component.name }}</h4>
+            <div v-if="component.callData">
+              <json-viewer
+                :value="component.callData"
+                :expand-depth=5
+                copyable
+                boxed
+                theme="jv-dark"
+              />
+            </div>
           </div>
         </div>
         <div v-else>
-          <b-form-textarea
-            v-if="callResponse.data && callResponse.data[0]"
-            plaintext
-            no-resize
-            rows="15"
-            :value="JSON.stringify(callResponse.data[0].callData, null, 4)"
-          />
+          <div v-if="callResponse.data && callResponse.data[0]">
+            <json-viewer
+              :value="callResponse.data[0].callData"
+              :expand-depth=5
+              copyable
+              boxed
+              theme="jv-dark"
+            />
+          </div>
         </div>
       </b-tab>
       <b-tab
         title="Processes"
         :disabled="!isApplicationInstalledLocally"
       >
-        <h3>{{ appSpecification.name }}</h3>
+        <h3>Application: {{ appSpecification.name }}</h3>
+        <div v-if="commandExecuting">
+          <v-icon
+            class="spin-icon"
+            name="spinner"
+          />
+        </div>
         <div v-if="appSpecification.version >= 4">
           <div
             v-for="(component, index) in callResponse.data"
             :key="index"
           >
-            <h4>{{ component.name }} Component</h4>
-            <b-form-textarea
-              v-if="component.callData"
-              plaintext
-              no-resize
-              rows="15"
-              :value="JSON.stringify(component.callData, null, 4)"
-            />
+            <h4>Component: {{ component.name }}</h4>
+            <div v-if="component.callData">
+              <json-viewer
+                :value="component.callData"
+                :expand-depth=5
+                copyable
+                boxed
+                theme="jv-dark"
+              />
+            </div>
           </div>
         </div>
         <div v-else>
-          <b-form-textarea
-            v-if="callResponse.data && callResponse.data[0]"
-            plaintext
-            no-resize
-            rows="15"
-            :value="JSON.stringify(callResponse.data[0].callData, null, 4)"
-          />
+          <div v-if="callResponse.data && callResponse.data[0]">
+            <json-viewer
+              :value="callResponse.data[0].callData"
+              :expand-depth=5
+              copyable
+              boxed
+              theme="jv-dark"
+            />
+          </div>
         </div>
       </b-tab>
       <b-tab
         title="Log File"
         :disabled="!isApplicationInstalledLocally"
       >
-        <h3>{{ appSpecification.name }}</h3>
+        <h3>Application: {{ appSpecification.name }}</h3>
         <div v-if="appSpecification.version >= 4">
           <div
             v-for="(component, index) in callResponse.data"
             :key="index"
           >
-            <h4>{{ component.name }} Component</h4>
+            <h4>Component: {{ component.name }}</h4>
             <div class="text-center">
               <h6>
                 Click the 'Download Log File' button to download the Log file from your Application debug file. This may take a few minutes depending on file size.
@@ -840,6 +874,7 @@
                   rows="15"
                   :value="decodeAsciiResponse(component.callData)"
                   class="mt-1"
+                  style="background-color: black; color: white; padding: 20px; font-family: monospace; margin-bottom: 25px"
                 />
               </div>
             </div>
@@ -880,6 +915,7 @@
                 rows="15"
                 :value="decodeAsciiResponse(callResponse.data[0].callData)"
                 class="mt-1"
+                style="background-color: black; color: white; padding: 20px; font-family: monospace; margin-bottom: 25px"
               />
             </div>
           </div>
@@ -1250,15 +1286,15 @@
         :disabled="!isApplicationInstalledLocally"
       >
         <div class="text-center">
-          <h3>{{ appSpecification.name }}</h3>
-          <h6>Here you can execute some commands with a set of environment variables on this local application instance. Both are array of strings. Useful especially for testing and tweaking purposes.</h6>
+          <h3>Application: {{ appSpecification.name }}</h3>
+          <h6>Here you can execute some commands with a set of environment variables on this local application instance. Useful especially for testing and tweaking purposes.</h6>
           <div class="mb-2" />
           <div v-if="appSpecification.compose">
             <div
               v-for="(component, index) in appSpecification.compose"
               :key="index"
             >
-              <h4>{{ component.name }} Component</h4>
+              <h4>Component: {{ component.name }}</h4>
               <b-form-group
                 label-cols="4"
                 label-cols-lg="2"
@@ -1295,7 +1331,10 @@
                 Execute Commands
               </b-button>
               <div v-if="commandExecuting">
-                <v-icon name="spinner" />
+                <v-icon
+                  class="spin-icon"
+                  name="spinner"
+                />
               </div>
               <b-form-textarea
                 v-if="callResponse.data && callResponse.data[0] && callResponse.data.find((d) => d.name === `${component.name}_${appSpecification.name}`)"
@@ -1304,6 +1343,7 @@
                 rows="15"
                 :value="callResponse.data.find((d) => d.name === `${component.name}_${appSpecification.name}`).data"
                 class="mt-1"
+                style="background-color: black; color: white; padding: 20px; font-family: monospace;"
               />
               <div class="mb-5" />
             </div>
@@ -1345,7 +1385,10 @@
               Execute Commands
             </b-button>
             <div v-if="commandExecuting">
-              <v-icon name="spinner" />
+              <v-icon
+                class="spin-icon"
+                name="spinner"
+              />
             </div>
             <b-form-textarea
               v-if="callResponse.data"
@@ -1354,6 +1397,7 @@
               rows="15"
               :value="callResponse.data"
               class="mt-1"
+              style="background-color: black; color: white; padding: 20px; font-family: monospace;"
             />
           </div>
         </div>
@@ -3798,6 +3842,7 @@ import { mapState } from 'vuex';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
 import ListEntry from '@/views/components/ListEntry.vue';
+import JsonViewer from 'vue-json-viewer';
 
 import AppsService from '@/services/AppsService';
 import DaemonService from '@/services/DaemonService';
@@ -3835,6 +3880,7 @@ const geolocations = require('../../libs/geolocation');
 
 export default {
   components: {
+    JsonViewer,
     BTabs,
     BTab,
     BTable,
@@ -4818,6 +4864,7 @@ export default {
     async getApplicationInspect() {
       const zelidauth = localStorage.getItem('zelidauth');
       const callData = [];
+      this.commandExecuting = true;
       if (this.appSpecification.version >= 4) {
         // compose
         // eslint-disable-next-line no-restricted-syntax
@@ -4847,12 +4894,14 @@ export default {
         }
         console.log(response);
       }
+      this.commandExecuting = false;
       this.callResponse.status = 'success';
       this.callResponse.data = callData;
     },
     async getApplicationStats() {
       const zelidauth = localStorage.getItem('zelidauth');
       const callData = [];
+      this.commandExecuting = true;
       if (this.appSpecification.version >= 4) {
         // compose
         // eslint-disable-next-line no-restricted-syntax
@@ -4882,6 +4931,7 @@ export default {
         }
         console.log(response);
       }
+      this.commandExecuting = false;
       this.callResponse.status = 'success';
       this.callResponse.data = callData;
     },
@@ -4985,6 +5035,7 @@ export default {
     async getApplicationChanges() {
       const zelidauth = localStorage.getItem('zelidauth');
       const callData = [];
+      this.commandExecuting = true;
       if (this.appSpecification.version >= 4) {
         // compose
         // eslint-disable-next-line no-restricted-syntax
@@ -5014,12 +5065,14 @@ export default {
         }
         console.log(response);
       }
+      this.commandExecuting = false;
       this.callResponse.status = 'success';
       this.callResponse.data = callData;
     },
     async getApplicationProcesses() {
       const zelidauth = localStorage.getItem('zelidauth');
       const callData = [];
+      this.commandExecuting = true;
       if (this.appSpecification.version >= 4) {
         // compose
         // eslint-disable-next-line no-restricted-syntax
@@ -5049,6 +5102,7 @@ export default {
         }
         console.log(response);
       }
+      this.commandExecuting = false;
       this.callResponse.status = 'success';
       this.callResponse.data = callData;
     },
@@ -5486,7 +5540,7 @@ export default {
         if (entry.data.networks.eth0) {
           net = `${(entry.data.networks.eth0.rx_bytes / 1e9).toFixed(2)} / ${(entry.data.networks.eth0.tx_bytes / 1e9).toFixed(2)} GB`;
         }
-        const block = `${(entry.data.blkio_stats.io_service_bytes_recursive.find((x) => x.op === 'Read').value / 1e9).toFixed(2)} / ${(entry.data.blkio_stats.io_service_bytes_recursive.find((x) => x.op === 'Write').value / 1e9).toFixed(2)} GB`;
+        const block = `${(entry.data.blkio_stats.io_service_bytes_recursive.find((x) => x.op.toLowerCase() === 'read').value / 1e9).toFixed(2)} / ${(entry.data.blkio_stats.io_service_bytes_recursive.find((x) => x.op.toLowerCase() === 'write').value / 1e9).toFixed(2)} GB`;
         let disk = '0 / 0 GB';
         if (entry.data.disk_stats) {
           disk = `${(entry.data.disk_stats.used / 1e9).toFixed(2)} / ${(specifications.hdd).toFixed(2)} GB, ${((entry.data.disk_stats.used / (specifications.hdd * 1e9)) * 100).toFixed(2)}%`;
@@ -6104,6 +6158,15 @@ export default {
 </script>
 
 <style>
+
+.spin-icon {
+  animation: spin 2s linear infinite;
+}
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
 .app-instances-table td:nth-child(1) {
   padding: 0 0 0 5px;
 }
@@ -6155,4 +6218,38 @@ a:hover img {
 .flex {
   display: flex;
 }
+</style>
+
+<style lang="scss">
+  .anchor{
+      display: block;
+      height: 100px;
+      margin-top: -100px;
+      visibility: hidden;
+  }
+  .v-toast__text {
+      font-family: "Roboto", sans-serif !important;
+  }
+  .jv-dark {
+      background: none;
+      white-space: nowrap;
+      font-size: 14px;
+      font-family: Consolas, Menlo, Courier, monospace;
+      margin-bottom: 25px;
+  }
+  .jv-button { color: #49b3ff !important; }
+  .jv-dark .jv-key { color: #999 !important; }
+  .jv-dark .jv-array { color: #999 !important; }
+  .jv-boolean { color: #fc1e70 !important; }
+  .jv-function { color: #067bca !important; }
+  .jv-number { color: #fc1e70 !important; }
+  .jv-number-float { color: #fc1e70 !important; }
+  .jv-number-integer { color: #fc1e70 !important; }
+  .jv-dark .jv-object { color: #999 !important; }
+  .jv-undefined { color: #e08331 !important; }
+  .jv-string {
+      color: #42b983 !important;
+      word-break: break-word;
+      white-space: normal;
+  }
 </style>

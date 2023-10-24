@@ -802,7 +802,8 @@ async function appLog(req, res) {
 
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (authorized === true) {
-      const logs = await dockerService.dockerContainerLogs(appname, lines);
+      let logs = await dockerService.dockerContainerLogs(appname, lines);
+      logs = serviceHelper.dockerBufferToString(logs);
       const dataMessage = messageHelper.createDataMessage(logs);
       res.json(dataMessage);
     } else {
