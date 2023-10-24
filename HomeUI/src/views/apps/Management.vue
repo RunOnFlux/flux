@@ -6226,7 +6226,7 @@ a:hover img {
       white-space: nowrap;
       font-size: 14px;
       font-family: Consolas, Menlo, Courier, monospace;
-      margin-bottom: 20px;
+      margin-bottom: 25px;
   }
   .jv-button { color: #49b3ff !important; }
   .jv-dark .jv-key { color: #999 !important; }
