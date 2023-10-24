@@ -2423,7 +2423,7 @@ describe('fluxService tests', () => {
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
     });
 
-    it('should return a message when cruxid is proper and is adjusted ', async () => {
+    it('should return a message when kadena account is proper and is adjusted ', async () => {
       const res = generateResponse();
       verifyPrivilegeStub.returns(true);
       const req = {
