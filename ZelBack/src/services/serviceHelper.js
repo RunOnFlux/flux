@@ -174,7 +174,8 @@ function dockerBufferToString(dataBuffer) {
   while (auxDataBuffer.length >= 8) {
     const strToUnpack = auxDataBuffer.slice(0, 8);
     auxDataBuffer = auxDataBuffer.slice(8);
-    const sizeValue = strToUnpack.readUInt32BE(4);
+    // const sizeValue = strToUnpack.readUInt32BE(4);
+    const sizeValue = new DataView(strToUnpack).getUint32(4, false);
     if (auxDataBuffer.length >= sizeValue) {
       const str = auxDataBuffer.slice(0, sizeValue).toString('utf8');
       auxDataBuffer = auxDataBuffer.slice(sizeValue);
