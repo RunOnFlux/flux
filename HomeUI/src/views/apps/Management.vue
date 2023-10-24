@@ -629,7 +629,7 @@
                 copyable
                 boxed
                 theme="jv-dark"
-              ></json-viewer>
+              />
             </div>
           </div>
         </div>
@@ -641,7 +641,7 @@
              copyable
              boxed
              theme="jv-dark"
-            ></json-viewer>
+            />
           </div>
         </div>
       </b-tab>
@@ -666,7 +666,7 @@
                 copyable
                 boxed
                 theme="jv-dark"
-              ></json-viewer>
+              />
             </div>
           </div>
         </div>
@@ -678,7 +678,7 @@
              copyable
              boxed
              theme="jv-dark"
-            ></json-viewer>
+            />
           </div>
         </div>
       </b-tab>
@@ -767,7 +767,7 @@
                 copyable
                 boxed
                 theme="jv-dark"
-              ></json-viewer>
+              />
             </div>
           </div>
         </div>
@@ -804,7 +804,7 @@
                 copyable
                 boxed
                 theme="jv-dark"
-              ></json-viewer>
+              />
             </div>
           </div>
         </div>
@@ -816,7 +816,7 @@
              copyable
              boxed
              theme="jv-dark"
-            ></json-viewer>
+            />
           </div>
         </div>
       </b-tab>
