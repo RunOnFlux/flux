@@ -2282,7 +2282,7 @@ describe('appsService tests', () => {
         },
       };
       verificationHelperStub.returns(true);
-      const dockerStub = sinon.stub(serviceHelper, 'dockerBufferToString').returns('some data');
+      const dockerStub = sinon.stub(dockerService, 'dockerContainerLogs').returns('some data');
       const res = generateResponse();
 
       await appsService.appLog(req, res);
@@ -2306,7 +2306,7 @@ describe('appsService tests', () => {
         },
       };
       verificationHelperStub.returns(true);
-      const dockerStub = sinon.stub(serviceHelper, 'dockerBufferToString').returns('some data');
+      const dockerStub = sinon.stub(dockerService, 'dockerContainerLogs').returns('some data');
       const res = generateResponse();
 
       await appsService.appLog(req, res);
@@ -2329,7 +2329,7 @@ describe('appsService tests', () => {
         },
       };
       verificationHelperStub.returns(true);
-      const dockerStub = sinon.stub(serviceHelper, 'dockerBufferToString').returns('some data');
+      const dockerStub = sinon.stub(dockerService, 'dockerContainerLogs').returns('some data');
       const res = generateResponse();
 
       await appsService.appLog(req, res);
