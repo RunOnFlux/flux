@@ -6,6 +6,7 @@ const nodecmd = require('node-cmd');
 const proxyquire = require('proxyquire');
 const fs = require('fs');
 const util = require('util');
+const { PassThrough } = require('stream');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const explorerService = require('../../ZelBack/src/services/explorerService');
@@ -2518,7 +2519,7 @@ describe('fluxService tests', () => {
       verifyPrivilegeStub.returns(true);
       const req = {
         params: {
-          apiport: '16147',
+          apiport: 16147,
         },
       };
       const expectedResponse = {
@@ -2586,8 +2587,11 @@ describe('fluxService tests', () => {
       const res = generateResponse();
       verifyPrivilegeStub.returns(true);
       const req = {
-        data: { blockedPorts: '12' },
+        blockedPorts: '12',
       };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
       const expectedResponse = {
         data: {
           code: undefined,
@@ -2596,7 +2600,7 @@ describe('fluxService tests', () => {
         },
         status: 'error',
       };
-      await fluxService.adjustBlockedPorts(req, res);
+      await fluxService.adjustBlockedPorts(mockStream, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
     });
@@ -2605,8 +2609,11 @@ describe('fluxService tests', () => {
       const res = generateResponse();
       verifyPrivilegeStub.returns(true);
       const req = {
-        data: { blockedPorts: [12, 32] },
+        blockedPorts: [12, 32],
       };
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify(req));
+      mockStream.end();
       const expectedResponse = {
         data: {
           code: undefined,
@@ -2632,7 +2639,7 @@ describe('fluxService tests', () => {
       }`;
       const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
 
-      await fluxService.adjustBlockedPorts(req, res);
+      await fluxService.adjustBlockedPorts(mockStream, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(fsPromisesSpy, fluxDirPath, expectedData);
