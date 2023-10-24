@@ -4551,8 +4551,8 @@ export default {
           this.appUpdateSpecification.commands = this.ensureString(specs.commands);
           this.appUpdateSpecification.containerPorts = specs.containerPort || this.ensureString(specs.containerPorts); // v1 compatibility
         } else {
-          if (this.appUpdateSpecification.version <= 6) { // TODO v7 after fork
-            this.appUpdateSpecification.version = 6;
+          if (this.appUpdateSpecification.version <= 7) {
+            this.appUpdateSpecification.version = 7;
           }
           this.appUpdateSpecification.contacts = this.ensureString([]);
           this.appUpdateSpecification.geolocation = this.ensureString([]);
@@ -4572,13 +4572,19 @@ export default {
             component.commands = this.ensureString(component.commands);
             // eslint-disable-next-line no-param-reassign
             component.containerPorts = this.ensureString(component.containerPorts);
+            // eslint-disable-next-line no-param-reassign
+            component.secrets = this.ensureString(component.secrets || '');
+            // eslint-disable-next-line no-param-reassign
+            component.repoauth = this.ensureString(component.repoauth || '');
           });
           if (this.appUpdateSpecification.version >= 6) {
             this.appUpdateSpecification.expire = this.ensureNumber(specs.expire || 22000);
             this.expirePosition = this.getExpirePosition(this.appUpdateSpecification.expire);
           }
           if (this.appUpdateSpecification.version >= 7) {
-            if (this.appUpdateSpecification.nodes.length) {
+            this.appUpdateSpecification.staticip = this.appUpdateSpecification.staticip ?? false;
+            this.appUpdateSpecification.nodes = this.appUpdateSpecification.nodes || [];
+            if (this.appUpdateSpecification.nodes && this.appUpdateSpecification.nodes.length) {
               this.isPrivateApp = true;
             }
             // fetch information about enterprise nodes, pgp keys

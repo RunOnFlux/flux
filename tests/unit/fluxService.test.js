@@ -2291,8 +2291,8 @@ describe('fluxService tests', () => {
           routerIP: '${adminConfig.initial.routerIP || ''}',
           pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
           pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
-          blockedPorts: [${adminConfig.initial.blockedPorts || ''}],
-          blockedRepositories: [${adminConfig.initial.blockedRepositories || ''}],
+          blockedPorts: ${JSON.stringify(adminConfig.initial.blockedPorts || [])},
+          blockedRepositories: ${JSON.stringify(adminConfig.initial.blockedRepositories || []).replace(/"/g, "'")},
         }
       }`;
       const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
