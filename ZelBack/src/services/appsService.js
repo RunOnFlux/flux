@@ -2776,6 +2776,35 @@ function checkAppStaticIpRequirements(appSpecs) {
 }
 
 /**
+ * To check app satisfaction of nodes restrictions for a node
+ * @param {object} appSpecs App specifications.
+ * @returns {boolean} True if all checks passed.
+ */
+async function checkAppNodesRequirements(appSpecs) {
+  if (appSpecs.version >= 7 && appSpecs.nodes && appSpecs.nodes.length) {
+    const myCollateral = await generalService.obtainNodeCollateralInformation();
+    const benchmarkResponse = await benchmarkService.getBenchmarks();
+    if (benchmarkResponse.status === 'error') {
+      throw new Error('Unable to detect Flux IP address');
+    }
+    // get my external IP and check that it is longer than 5 in length.
+    let myIP = null;
+    if (benchmarkResponse.data.ipaddress) {
+      log.info(`Gathered IP ${benchmarkResponse.data.ipaddress}`);
+      myIP = benchmarkResponse.data.ipaddress.length > 5 ? benchmarkResponse.data.ipaddress : null;
+    }
+    if (myIP === null) {
+      throw new Error('Unable to detect Flux IP address');
+    }
+    if (appSpecs.nodes.includes(myIP) || appSpecs.nodes.includes(`${myCollateral.txhash}:${myCollateral.txindex}`)) {
+      return true;
+    }
+    throw new Error(`Application ${appSpecs.name} is not allowed to run on this node. Aborting.`);
+  }
+  return true;
+}
+
+/**
  * To check app requirements of geolocation restrictions for a node
  * @param {object} appSpecs App specifications.
  * @returns {boolean} True if all checks passed.
@@ -2885,6 +2914,8 @@ async function checkAppRequirements(appSpecs) {
   // check geolocation
 
   checkAppStaticIpRequirements(appSpecs);
+
+  await checkAppNodesRequirements(appSpecs);
 
   checkAppGeolocationRequirements(appSpecs);
 
