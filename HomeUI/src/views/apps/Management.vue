@@ -3828,7 +3828,7 @@ import ToastificationContent from '@core/components/toastification/Toastificatio
 import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
 import ListEntry from '@/views/components/ListEntry.vue';
 import JsonViewer from 'vue-json-viewer';
-  
+
 import AppsService from '@/services/AppsService';
 import DaemonService from '@/services/DaemonService';
 
@@ -6145,7 +6145,7 @@ export default {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
 }
-  
+
 .app-instances-table td:nth-child(1) {
   padding: 0 0 0 5px;
 }
