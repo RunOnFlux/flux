@@ -321,7 +321,7 @@ async function dockerContainerExec(container, cmd, env, res, callback) {
         callback(err);
       }
       mystream.on('data', (data) => {
-        resulttString = serviceHelper.dockerBufferToString(data);
+        resultString = serviceHelper.dockerBufferToString(data);
         res.write(resultString);
       });
       mystream.on('end', () => callback(null));
