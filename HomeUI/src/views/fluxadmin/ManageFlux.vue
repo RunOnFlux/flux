@@ -732,7 +732,7 @@ export default {
     async getBlockedPorts() {
       const response = await FluxService.getBlockedPorts();
       if (response.data.status === 'success' && response.data.data) {
-        this.blockedPortsInput = response.data.data;
+        this.blockedPortsInput = JSON.stringify(response.data.data);
       }
     },
     async getAPIPort() {
@@ -744,7 +744,7 @@ export default {
     async getBlockedRepositories() {
       const response = await FluxService.getBlockedRepositories();
       if (response.data.status === 'success' && response.data.data) {
-        this.blockedRepositoriesInput = response.data.data;
+        this.blockedRepositoriesInput = JSON.stringify(response.data.data);
       }
     },
     getLatestFluxVersion() {
