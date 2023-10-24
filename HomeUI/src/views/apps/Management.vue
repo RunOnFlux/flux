@@ -651,7 +651,8 @@
       >
         <h3>Application: {{ appSpecification.name }}</h3>
         <div v-if="commandExecuting">
-          <v-icon class="spin-icon"
+          <v-icon
+            class="spin-icon"
             name="spinner"
           />
         </div>
@@ -754,7 +755,8 @@
       >
         <h3>Application: {{ appSpecification.name }}</h3>
         <div v-if="commandExecuting">
-          <v-icon class="spin-icon"
+          <v-icon
+            class="spin-icon"
             name="spinner"
           />
         </div>
@@ -783,7 +785,7 @@
               copyable
               boxed
               theme="jv-dark"
-            ></json-viewer>
+            />
           </div>
         </div>
       </b-tab>
@@ -793,7 +795,8 @@
       >
         <h3>Application: {{ appSpecification.name }}</h3>
         <div v-if="commandExecuting">
-          <v-icon class="spin-icon"
+          <v-icon
+            class="spin-icon"
             name="spinner"
           />
         </div>
@@ -1328,7 +1331,10 @@
                 Execute Commands
               </b-button>
               <div v-if="commandExecuting">
-                <v-icon class="spin-icon" name="spinner" />
+                <v-icon
+                  class="spin-icon"
+                  name="spinner"
+                />
               </div>
               <b-form-textarea
                 v-if="callResponse.data && callResponse.data[0] && callResponse.data.find((d) => d.name === `${component.name}_${appSpecification.name}`)"
