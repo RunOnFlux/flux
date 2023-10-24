@@ -636,11 +636,11 @@
         <div v-else>
           <div v-if="callResponse.data && callResponse.data[0]">
             <json-viewer
-             :value="callResponse.data[0].callData"
-             :expand-depth=5
-             copyable
-             boxed
-             theme="jv-dark"
+              :value="callResponse.data[0].callData"
+              :expand-depth=5
+              copyable
+              boxed
+              theme="jv-dark"
             />
           </div>
         </div>
@@ -651,7 +651,9 @@
       >
         <h3>Application: {{ appSpecification.name }}</h3>
         <div v-if="commandExecuting">
-          <v-icon class="spin-icon" name="spinner" />
+          <v-icon class="spin-icon"
+            name="spinner"
+          />
         </div>
         <div v-if="appSpecification.version >= 4">
           <div
@@ -673,11 +675,11 @@
         <div v-else>
           <div v-if="callResponse.data && callResponse.data[0]">
             <json-viewer
-             :value="callResponse.data[0].callData"
-             :expand-depth=5
-             copyable
-             boxed
-             theme="jv-dark"
+              :value="callResponse.data[0].callData"
+              :expand-depth=5
+              copyable
+              boxed
+              theme="jv-dark"
             />
           </div>
         </div>
@@ -752,7 +754,9 @@
       >
         <h3>Application: {{ appSpecification.name }}</h3>
         <div v-if="commandExecuting">
-          <v-icon class="spin-icon" name="spinner" />
+          <v-icon class="spin-icon"
+            name="spinner"
+          />
         </div>
         <div v-if="appSpecification.version >= 4">
           <div
@@ -774,11 +778,11 @@
         <div v-else>
           <div v-if="callResponse.data && callResponse.data[0]">
             <json-viewer
-             :value="callResponse.data[0].callData"
-             :expand-depth=5
-             copyable
-             boxed
-             theme="jv-dark"
+              :value="callResponse.data[0].callData"
+              :expand-depth=5
+              copyable
+              boxed
+              theme="jv-dark"
             ></json-viewer>
           </div>
         </div>
@@ -789,7 +793,9 @@
       >
         <h3>Application: {{ appSpecification.name }}</h3>
         <div v-if="commandExecuting">
-          <v-icon class="spin-icon" name="spinner" />
+          <v-icon class="spin-icon"
+            name="spinner"
+          />
         </div>
         <div v-if="appSpecification.version >= 4">
           <div
@@ -811,11 +817,11 @@
         <div v-else>
           <div v-if="callResponse.data && callResponse.data[0]">
             <json-viewer
-             :value="callResponse.data[0].callData"
-             :expand-depth=5
-             copyable
-             boxed
-             theme="jv-dark"
+              :value="callResponse.data[0].callData"
+              :expand-depth=5
+              copyable
+              boxed
+              theme="jv-dark"
             />
           </div>
         </div>
