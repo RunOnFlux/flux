@@ -15,7 +15,6 @@ const scannedHeightCollection = config.database.daemon.collections.scannedHeight
 const dockerTagPattern = /^(?:(?<provider>(?:(?:[\w-]+(?:\.[\w-]+)+)(?::\d+)?)|[\w]+:\d+)\/)?\/?(?<namespace>(?:(?:[a-z0-9]+(?:(?:[._]|__|[-]*)[a-z0-9]+)*)\/){0,2})(?<repository>[a-z0-9-]+\/{0,1}[a-z0-9-]+)[:]?(?<tag>[\w][\w.-]{0,127})?/;
 const wwwAuthHeaderPattern = /Bearer realm="(?<realm>(?:[0-9a-z:\-./]*?))"(?:,service="(?<service>(?:[0-9a-z:\-./]*?))")?(?:,scope="(?<scope>[0-9a-z:\-./]*?)")?/;
 
-
 let storedTier = null;
 let storedCollateral = null;
 
@@ -224,7 +223,7 @@ async function checkSynced() {
 function parseAuthHeader(header) {
   const match = wwwAuthHeaderPattern.exec(header);
 
-  return { ...match.groups }
+  return { ...match.groups };
 }
 
 /**

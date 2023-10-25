@@ -89,7 +89,6 @@ const nodeSpecs = {
   ssdStorage: 0,
 };
 
-
 const appsMonitored = {
   // appsMonitored Object Examples:
   // component1_appname2: { // >= 4 or name for <= 3
