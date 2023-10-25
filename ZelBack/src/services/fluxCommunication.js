@@ -592,7 +592,7 @@ async function initiateAndHandleConnection(connection) {
           handleIPChangedMessage(msgObj, ip);
         } else if (msgObj.data.type === 'fluxappremoved') {
           handleAppRemovedMessage(msgObj, ip);
-        } else if (msgObj.data.type === 'fluxapprunning') {
+        } else if (msgObj.data.type === 'fluxnodedown') {
           handleNodeDownMessage(msgObj, ip);
         } else {
           log.warn(`Unrecognised message type of ${msgObj.data.type}`);
