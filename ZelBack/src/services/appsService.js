@@ -8118,12 +8118,10 @@ async function getAppHashes(req, res) {
 async function appLocation(appname) {
   const dbopen = dbHelper.databaseConnection();
   const database = dbopen.db(config.database.appsglobal.database);
-  const query = [];
+  let query = { name: new RegExp(`^${appname}$`, 'i'), removedBroadcastedAt: null };
   if (appname) {
-    query.push({ name: new RegExp(`^${appname}$`, 'i') }); // case insensitive
+    query = { removedBroadcastedAt: null };
   }
-  query.push({ removedBroadcastedAt: null });
-  const querySearch = { $and: [query] };
   const projection = {
     projection: {
       _id: 0,
@@ -8132,25 +8130,6 @@ async function appLocation(appname) {
       ip: 1,
       broadcastedAt: 1,
       expireAt: 1,
-    },
-  };
-  const results = await dbHelper.findInDatabase(database, globalAppsLocations, querySearch, projection);
-  return results;
-}
-
-/**
- * To get known apps running on a node ip
- * @param {string} nodeIp Node IP.
- */
-async function appsRunningOnNodeIp(nodeIp) {
-  const dbopen = dbHelper.databaseConnection();
-  const database = dbopen.db(config.database.appsglobal.database);
-  const query = { ip: nodeIp };
-  const projection = {
-    projection: {
-      _id: 0,
-      name: 1,
-      hash: 1,
     },
   };
   const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
@@ -8235,9 +8214,13 @@ async function getAllGlobalApplications(proj = []) {
  * @returns {object[]} Array of running apps.
  */
 async function getRunningAppIpList(ip) { // returns all apps running on this ip
+  let adjustedIp = ip;
+  if (adjustedIp.endsWith(':16127')) {
+    adjustedIp = adjustedIp.split(':')[0];
+  }
   const dbopen = dbHelper.databaseConnection();
   const database = dbopen.db(config.database.appsglobal.database);
-  const query = { ip: new RegExp(`^${ip}`) };
+  const query = { ip: new RegExp(`^${adjustedIp}`), removedBroadcastedAt: null };
   const projection = {
     projection: {
       _id: 0,
@@ -8260,7 +8243,7 @@ async function getRunningAppIpList(ip) { // returns all apps running on this ip
 async function getRunningAppList(appName) {
   const dbopen = dbHelper.databaseConnection();
   const database = dbopen.db(config.database.appsglobal.database);
-  const query = { name: appName };
+  const query = { name: appName, removedBroadcastedAt: null };
   const projection = {
     projection: {
       _id: 0,
@@ -10837,13 +10820,13 @@ async function updateAppsRunningOnNodeIP(ip, appsRunning) {
  * @param {object} ip Node ip and port of the running app.
  */
 async function removeAppsRunningOnNodeIP(ip) {
-  let fixedIp = ip;
-  if (fixedIp.endsWith(':16127')) {
-    fixedIp = fixedIp.split(':')[0];
+  let adjustedIp = ip;
+  if (adjustedIp.endsWith(':16127')) {
+    adjustedIp = adjustedIp.split(':')[0];
   }
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
-  const queryUpdate = { ip: fixedIp };
+  const queryUpdate = { ip: adjustedIp };
   const update = { $set: { removedBroadcastedAt: new Date() } };
   // eslint-disable-next-line no-await-in-loop
   await dbHelper.updateInDatabase(database, globalAppsLocations, queryUpdate, update);
@@ -10989,5 +10972,4 @@ module.exports = {
   checkForNonAllowedAppsOnLocalNetwork,
   triggerAppHashesCheckAPI,
   installedAppsNames,
-  appsRunningOnNodeIp,
 };

@@ -1145,7 +1145,7 @@ async function sentinelDoubleCheck(urlToConnect) {
       timeout,
     };
     log.info(`sentinelDoubleCheck - checking ${urlToConnect} apps running`);
-    const appsRunningOnTheSelectedNode = await appsService.appsRunningOnNodeIp(urlToConnect);
+    const appsRunningOnTheSelectedNode = await appsService.getRunningAppIpList(urlToConnect);
     const resMyAppAvailability = await axios.get(`http://${urlToConnect}/apps/installedappsnames`, axiosConfig).catch(async (error) => {
       log.error(`sentinelDoubleCheck - ${urlToConnect} for app installedappsnames is not reachable`);
       log.error(error);
@@ -1232,7 +1232,7 @@ async function sentinel() {
       timeout,
     };
     log.info(`sentinel - checking ${urlToConnect} apps running`);
-    const appsRunningOnTheSelectedNode = await appsService.appsRunningOnNodeIp(urlToConnect);
+    const appsRunningOnTheSelectedNode = await appsService.getRunningAppIpList(urlToConnect);
     const resMyAppAvailability = await axios.get(`http://${urlToConnect}/apps/installedappsnames`, axiosConfig).catch(async (error) => {
       log.error(`sentinel - ${urlToConnect} for app installedappsnames is not reachable`);
       log.error(error);
