@@ -9937,6 +9937,7 @@ async function syncthingApps() {
               label,
               path: folder,
               devices,
+              paused: false,
             });
           }
         }
