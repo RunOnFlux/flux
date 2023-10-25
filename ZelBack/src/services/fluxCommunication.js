@@ -40,6 +40,8 @@ const LRUoptionsTemp = { // cache for temporary messages
 
 const myCacheTemp = new LRUCache(LRUoptionsTemp);
 
+const nodeDownIpCache = new LRUCache(LRUoptionsTemp);
+
 /* const LRUTest = {
   max: 25000000, // 25M
   ttl: 60 * 60 * 1000, // 1h
@@ -172,7 +174,10 @@ async function handleAppRemovedMessage(message, fromIP) {
  */
 async function handleNodeDownMessage(message, fromIP) {
   try {
-    // check if we have it any app running on that location and if yes, delete that information
+    if (nodeDownIpCache.has(fromIP)) {
+      throw new Error('It was already received a message for same ip down in the last 70 minutes');
+    }
+    nodeDownIpCache.set(fromIP, fromIP);
     // rebroadcast message to the network if it's valid
     // eslint-disable-next-line global-require
     const appsService = require('./appsService');
