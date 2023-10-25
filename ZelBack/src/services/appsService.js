@@ -89,7 +89,7 @@ const nodeSpecs = {
   ssdStorage: 0,
 };
 
-const wwwAuthHeaderPattern = /Bearer realm="(?<realm>(?:[0-9a-z:\-./]*?))"(?:,service="(?<service>(?:[0-9a-z:./]*?))")?(?:,scope="(?<scope>[0-9a-z:./]*?)")?/;
+const wwwAuthHeaderPattern = /Bearer realm="(?<realm>(?:[0-9a-z:\-./]*?))"(?:,service="(?<service>(?:[0-9a-z:\-./]*?))")?(?:,scope="(?<scope>[0-9a-z:\-./]*?)")?/;
 
 const appsMonitored = {
   // appsMonitored Object Examples:
