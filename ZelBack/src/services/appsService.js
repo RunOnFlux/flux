@@ -89,7 +89,6 @@ const nodeSpecs = {
   ssdStorage: 0,
 };
 
-const wwwAuthHeaderPattern = /Bearer realm="(?<realm>(?:[0-9a-z:\-./]*?))"(?:,service="(?<service>(?:[0-9a-z:\-./]*?))")?(?:,scope="(?<scope>[0-9a-z:\-./]*?)")?/;
 
 const appsMonitored = {
   // appsMonitored Object Examples:
@@ -4146,7 +4145,7 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
  * @param {object} AxiosConfig axios Auth object.
  */
 async function getAuthToken(authDetails, axiosConfig) {
-  const { groups: { realm, service, scope } } = authDetails;
+  const { realm, service, scope } = authDetails;
   const authTokenRes = await serviceHelper.axiosGet(`${realm}?service=${service}&scope=${scope}`, axiosConfig).catch((error) => {
     log.warn(error);
     throw new Error(`Authentication token from ${realm} for ${scope} not available`);
@@ -4187,7 +4186,7 @@ async function verifyRepository(repotag, repoauth, skipVerification = false) {
         throw new Error('Invalid login credentials for docker provided');
       }
       const loginResp = await axios.post('https://hub.docker.com/v2/users/login', loginData).catch((error) => {
-        console.log(error);
+        log.warn(error);
       });
       const { token } = loginResp.data;
       axiosConfig.headers = {
@@ -4250,7 +4249,7 @@ async function verifyRepository(repotag, repoauth, skipVerification = false) {
       let authToken;
       // unauthorized
       if (error.response && error.response.status === 401) {
-        const authDetails = wwwAuthHeaderPattern.exec(error.response.headers['www-authenticate']);
+        const authDetails = generalService.parseAuthHeader(error.response.headers['www-authenticate']);
         if (!authDetails) {
           log.warn(error);
           throw new Error(`Manifests List from ${provider} for ${namespace}/${image}:${tag} not available`);
@@ -5738,7 +5737,7 @@ async function repositoryArchitectures(repotag, repoauth) {
         throw new Error('Invalid login credentials for docker provided');
       }
       const loginResp = await axios.post('https://hub.docker.com/v2/users/login', loginData).catch((error) => {
-        console.log(error);
+        log.warn(error);
       });
       const { token } = loginResp.data;
       axiosConfig.headers = {
@@ -5796,7 +5795,7 @@ async function repositoryArchitectures(repotag, repoauth) {
       let authToken;
       // unauthorized
       if (error.response && error.response.status === 401) {
-        const authDetails = wwwAuthHeaderPattern.exec(error.response.headers['www-authenticate']);
+        const authDetails = generalService.parseAuthHeader(error.response.headers['www-authenticate']);
         if (!authDetails) {
           log.warn(error);
           throw new Error(`Manifests List from ${provider} for ${namespace}/${image}:${tag} not available`);

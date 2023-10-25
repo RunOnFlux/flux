@@ -11,7 +11,10 @@ const messageHelper = require('./messageHelper');
 const dbHelper = require('./dbHelper');
 
 const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
+
 const dockerTagPattern = /^(?:(?<provider>(?:(?:[\w-]+(?:\.[\w-]+)+)(?::\d+)?)|[\w]+:\d+)\/)?\/?(?<namespace>(?:(?:[a-z0-9]+(?:(?:[._]|__|[-]*)[a-z0-9]+)*)\/){0,2})(?<repository>[a-z0-9-]+\/{0,1}[a-z0-9-]+)[:]?(?<tag>[\w][\w.-]{0,127})?/;
+const wwwAuthHeaderPattern = /Bearer realm="(?<realm>(?:[0-9a-z:\-./]*?))"(?:,service="(?<service>(?:[0-9a-z:\-./]*?))")?(?:,scope="(?<scope>[0-9a-z:\-./]*?)")?/;
+
 
 let storedTier = null;
 let storedCollateral = null;
@@ -214,6 +217,17 @@ async function checkSynced() {
 }
 
 /**
+ * Parse www-authenticate header
+ * @param {string} authHeader # www-auth header
+ * @returns {object} Object of parsed header - {realm, service, scope}
+ */
+function parseAuthHeader(header) {
+  const match = wwwAuthHeaderPattern.exec(header);
+
+  return { ...match.groups }
+}
+
+/**
  * Split docker repotag
  * @param {string} targetDockerTag Docker repotag
  * @returns {object} Object of parsed dockertag - {provider, namespace, repository, tag}
@@ -381,6 +395,7 @@ module.exports = {
   messageHash,
   nodeCollateral,
   parseDockerTag,
+  parseAuthHeader,
   obtainNodeCollateralInformation,
 
   // exported for testing purposes
