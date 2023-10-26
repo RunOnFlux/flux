@@ -220,14 +220,14 @@ async function dockerContainerStatsStream(idOrName, req, res, callback) {
  * Returns changes on a container’s filesystem.
  *
  * @param {string} idOrName
- * @returns {string}
+ * @returns  docker container changes
  */
 async function dockerContainerChanges(idOrName) {
   // container ID or name
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
   const response = await dockerContainer.changes();
-  return serviceHelper.ensureString(response);
+  return response;
 }
 
 /**
@@ -314,13 +314,16 @@ async function dockerContainerExec(container, cmd, env, res, callback) {
       Detach: false,
       Tty: false,
     };
-
+    let resultString = '';
     const exec = await container.exec(options);
     exec.start(optionsExecStart, (err, mystream) => {
       if (err) {
         callback(err);
       }
-      mystream.on('data', (data) => res.write(data.toString()));
+      mystream.on('data', (data) => {
+        resulttString = serviceHelper.dockerBufferToString(data);
+        res.write(resultString);
+      });
       mystream.on('end', () => callback(null));
     });
   } catch (error) {
@@ -383,7 +386,7 @@ async function dockerContainerLogsStream(idOrName, res, callback) {
  * @param {string} idOrName
  * @param {number} lines
  *
- * @returns {string}
+ * @returns {buffer}
  */
 async function dockerContainerLogs(idOrName, lines) {
   // container ID or name
@@ -396,7 +399,7 @@ async function dockerContainerLogs(idOrName, lines) {
     tail: lines, // TODO FIXME when using tail, some nodes hang on execution, those nodes need to update, upgrade restart docker daemon.
   };
   const logs = await dockerContainer.logs(options);
-  return logs.toString();
+  return logs;
 }
 
 async function obtainPayloadFromStorage(url, appName) {
