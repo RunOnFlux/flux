@@ -514,6 +514,7 @@ import AppsService from '@/services/AppsService';
 import tierColors from '@/libs/colors';
 
 const qs = require('qs');
+const axios = require('axios');
 const store = require('store');
 const timeoptions = require('@/libs/dateFormat');
 
@@ -798,13 +799,26 @@ export default {
           appSpecification.nodes = [];
         }
         // formation, pre verification
-        props.appData.compose.forEach((component) => {
-          const envParams = JSON.parse(JSON.stringify(component.environmentParameters));
+        props.appData.compose.forEach(async (component) => {
+          let envParams = JSON.parse(JSON.stringify(component.environmentParameters));
           component.userEnvironmentParameters.forEach((param) => {
             envParams.push(`${param.name}=${param.value}`);
           });
           if (props.appData.name.toLowerCase() === 'minecraft') {
             envParams.push(`APP_NAME=${appName}`);
+          }
+          if (component.envFluxStorage) {
+            const envid = Math.floor((Math.random() * 999999999999999)).toString();
+            const data = {
+              envid,
+              env: envParams,
+            };
+            const resp = await axios.post('https://storage.runonflux.io/v1/env', data);
+            if (resp.data.status === 'error') {
+              throw new Error(resp.data.message || resp.data);
+            }
+            this.showToast('success', 'Successful upload of Environment Parameters to Flux Storage');
+            envParams = `["F_S_ENV=https://storage.runonflux.io/v1/env/${envid}"]`;
           }
           const appComponent = {
             name: component.name,
