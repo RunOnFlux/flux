@@ -308,7 +308,7 @@
             </b-button>
             <confirm-dialog
               target="update-blockedRepositories"
-              confirm-button="Update Blocked Repositories"
+              confirm-button="Update Repositories"
               @confirm="adjustBlockedRepositories()"
             />
           </div>
