@@ -1,4 +1,4 @@
-const userconfig = require('../../config/userconfig');
+// const userconfig = require('../../config/userconfig');
 
 const isDevelopment = userconfig.initial.development || false;
 
