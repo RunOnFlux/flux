@@ -1,5 +1,6 @@
+/*global userconfig*/
+/*eslint no-undef: "error"*/
 // const userconfig = require('../../config/userconfig');
-
 const isDevelopment = userconfig.initial.development || false;
 
 module.exports = {
