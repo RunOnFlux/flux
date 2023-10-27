@@ -13,6 +13,7 @@ const serviceManager = require('./ZelBack/src/services/serviceManager');
 const upnpService = require('./ZelBack/src/services/upnpService');
 
 const cmdAsync = util.promisify(nodecmd.get);
+const md5 = require('md5');
 
 const apiPort = userconfig.initial.apiport || config.server.apiport;
 const apiPortHttps = apiPort + 1;
