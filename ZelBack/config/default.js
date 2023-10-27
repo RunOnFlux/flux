@@ -1,6 +1,9 @@
 /* global userconfig */
 /* eslint no-undef: "error" */
-// const userconfig = require('../../config/userconfig');
+/* eslint no-global-assign: "error" */
+// eslint-disable-next-line no-native-reassign
+let userconfig = require('../../config/userconfig');
+
 const isDevelopment = userconfig.initial.development || false;
 
 module.exports = {
