@@ -1,5 +1,6 @@
 // Flux configuration
 process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
+userconfig = require('./config/userconfig');
 const config = require('config');
 const fs = require('fs');
 const https = require('https');
@@ -10,12 +11,45 @@ const app = require('./ZelBack/src/lib/server');
 const log = require('./ZelBack/src/lib/log');
 const serviceManager = require('./ZelBack/src/services/serviceManager');
 const upnpService = require('./ZelBack/src/services/upnpService');
-const userconfig = require('./config/userconfig');
 
 const cmdAsync = util.promisify(nodecmd.get);
 
 const apiPort = userconfig.initial.apiport || config.server.apiport;
 const apiPortHttps = apiPort + 1;
+
+const { watch } = require("fs/promises");
+let md5Previous = null;
+let initialMd5 = null;
+
+async function configReload() {
+  try {
+    const watcher = watch(path.join(__dirname, '/config'));
+    for await (const event of watcher) {
+      if ( event.eventType === 'change' && event.filename === 'userconfig.js') {
+        const md5Current = md5(fs.readFileSync(path.join(__dirname, '/config/userconfig.js')));
+        if (md5Current === md5Previous) {
+          return;
+        }
+        md5Previous = md5Current
+        if( initialMd5 === null) {
+          initialMd5 = md5Current
+        }
+        if ( initialMd5 !== md5Current ) {
+          initialMd5 = null
+          console.log(`Config file changed, reloading ${event.filename}...`);
+        }
+        delete require.cache[require.resolve('./config/userconfig')];
+        userconfig = require('./config/userconfig');
+      }
+    }
+  } catch (error) {
+      console.error(`Error watching files: ${error}`);
+  }
+}
+
+setInterval(async () => {
+  configReload();
+}, 2 * 1000);
 
 async function initiate() {
   if (!config.server.allowedPorts.includes(+apiPort)) {
