@@ -19,7 +19,6 @@ const { watch } = require("fs/promises");
 const cmdAsync = util.promisify(nodecmd.get);
 const apiPort = userconfig.initial.apiport || config.server.apiport;
 const apiPortHttps = apiPort + 1;
-
 let hashPrevious = null;
 let initialHash = null;
 
