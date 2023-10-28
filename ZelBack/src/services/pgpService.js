@@ -1,14 +1,10 @@
 /* global userconfig */
-/* eslint no-undef: "error" */
 const config = require('config');
 const path = require('path');
 const fs = require('fs').promises;
 const openpgp = require('openpgp');
-
 const generalService = require('./generalService');
-
 const log = require('../lib/log');
-// const userconfig = require('../../../config/userconfig');
 
 /**
  * To adjust PGP identity
