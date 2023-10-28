@@ -166,16 +166,17 @@ async function handleAppRemovedMessage(message, fromIP) {
 }
 
 /**
- * To prevent duplicate messages to be processed.
+ * To prevent duplicate messages to be processed at the same time.
  * @param {object} message message received.
+ * @param {bool} force when true message is being checked for second time and should be processed.
  * @returns {bool} Return bool saying if message is duplicated
  */
 let isDuplicatedMessageRunning = false;
-async function isDuplicatedMessage(message) {
+async function isDuplicatedMessage(message, force) {
   try {
-    if (isDuplicatedMessageRunning) {
-      await serviceHelper.delay(5); // await 5 miliseconds
-      return isDuplicatedMessage(message);
+    if (isDuplicatedMessageRunning && !force) {
+      await serviceHelper.delay(100); // await 100 miliseconds
+      return isDuplicatedMessage(message, true);
     }
     isDuplicatedMessageRunning = true;
     // check if we have the message in cache. If yes, return false. If not, store it and continue
