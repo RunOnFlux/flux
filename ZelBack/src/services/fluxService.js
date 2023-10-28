@@ -1,5 +1,4 @@
 /* global userconfig */
-/* eslint no-undef: "error" */
 const nodecmd = require('node-cmd');
 const path = require('path');
 const config = require('config');
@@ -25,7 +24,6 @@ const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const geolocationService = require('./geolocationService');
-// const userconfig = require('../../../config/userconfig');
 
 /**
  * To show the directory on the node machine where FluxOS files are stored.
