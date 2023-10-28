@@ -631,8 +631,8 @@
         lg="4"
       >
         <b-card title="FluxOS">
-          <b-card-text>
-            The restart button in FluxOS allows you to restart the application. Clicking it will close and immediately restart the application, but please note that this action requires refreshing the page and logging out and logging in again.
+          <b-card-text>          
+             The restart button in FluxOS allows you to restart the application. Clicking it will close and immediately restart the application, but please note that this action requires refreshing the page and logging out and logging in again.
           </b-card-text>
           <div class="text-center">
             <b-button
@@ -651,7 +651,7 @@
             />
           </div>
         </b-card>
-      </b-col>
+      </b-col>      
     </b-row>
   </div>
 </template>
