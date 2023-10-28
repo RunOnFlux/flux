@@ -1,3 +1,5 @@
+/* global userconfig */
+/* eslint no-undef: "error" */
 const config = require('config');
 const axios = require('axios');
 const express = require('express');
