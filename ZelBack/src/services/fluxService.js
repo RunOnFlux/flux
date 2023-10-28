@@ -1414,9 +1414,9 @@ async function restartFluxOS(req, res) {
       const nodedpath = path.join(__dirname, '../../../package.json');
       const exec = `touch ${nodedpath}`;
       const cmdAsync = util.promisify(nodecmd.get);
-      const cmdres = await cmdAsync(exec);
-      log.info(`Restarting FluxOS..`);
-      const response = messageHelper.createDataMessage(`Restarting FluxOS..`);
+      await cmdAsync(exec);
+      log.info('Restarting FluxOS..');
+      const response = messageHelper.createDataMessage('Restarting FluxOS..');
       res.json(response);
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
@@ -1481,7 +1481,7 @@ module.exports = {
   getBlockedRepositories,
   getMarketplaceURL,
   restartFluxOS,
-  
+
   // Exports for testing purposes
   fluxLog,
   tailFluxLog,
