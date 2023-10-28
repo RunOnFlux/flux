@@ -11,40 +11,39 @@ const app = require('./ZelBack/src/lib/server');
 const log = require('./ZelBack/src/lib/log');
 const serviceManager = require('./ZelBack/src/services/serviceManager');
 const upnpService = require('./ZelBack/src/services/upnpService');
-
 const cmdAsync = util.promisify(nodecmd.get);
-const md5 = require('md5');
 
 const apiPort = userconfig.initial.apiport || config.server.apiport;
 const apiPortHttps = apiPort + 1;
 
+const hash = require('object-hash');
 const { watch } = require("fs/promises");
-let md5Previous = null;
-let initialMd5 = null;
+let hashPrevious = null;
+let initialHash = null;
 
 async function configReload() {
   try {
     const watcher = watch(path.join(__dirname, '/config'));
     for await (const event of watcher) {
       if ( event.eventType === 'change' && event.filename === 'userconfig.js') {
-        const md5Current = md5(fs.readFileSync(path.join(__dirname, '/config/userconfig.js')));
-        if (md5Current === md5Previous) {
+        const hashCurrent = hash(fs.readFileSync(path.join(__dirname, '/config/userconfig.js')));
+        if (hashCurrent === hashPrevious) {
           return;
         }
-        md5Previous = md5Current
-        if( initialMd5 === null) {
-          initialMd5 = md5Current
+        hashPrevious = hashCurrent
+        if( initialHash === null) {
+          initialHash = hashCurrent
         }
-        if ( initialMd5 !== md5Current ) {
-          initialMd5 = null
-          console.log(`Config file changed, reloading ${event.filename}...`);
+        if ( initialHash !== hashCurrent ) {
+          initialHash = null
+          log.info(`Config file changed, reloading ${event.filename}...`);
         }
         delete require.cache[require.resolve('./config/userconfig')];
         userconfig = require('./config/userconfig');
       }
     }
   } catch (error) {
-      console.error(`Error watching files: ${error}`);
+      log.error(`Error watching files: ${error}`);
   }
 }
 
