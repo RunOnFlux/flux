@@ -1,3 +1,5 @@
+/* global userconfig */
+/* eslint no-undef: "error" */
 /**
  * @module
  * Contains utility functions to be used only by verificationHelper.
