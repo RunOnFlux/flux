@@ -1,3 +1,5 @@
+/* global userconfig */
+/* eslint no-undef: "error" */
 // Flux configuration
 process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
 userconfig = require('./config/userconfig');
