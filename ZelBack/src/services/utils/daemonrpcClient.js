@@ -1,9 +1,7 @@
 /* global userconfig */
-/* eslint no-undef: "error" */
 const daemonrpc = require('daemonrpc');
 const fullnode = require('fullnode');
 const config = require('config');
-// const userconfig = require('../../../../config/userconfig');
 
 const fnconfig = new fullnode.Config();
 const isTestnet = userconfig.initial.testnet;
