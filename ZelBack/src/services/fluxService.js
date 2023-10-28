@@ -1404,16 +1404,28 @@ async function installFluxWatchTower() {
 
 /**
  * Restart FluxOS via nodemon (executes the command `touch ` on package.json).
+ * @param {object} req Request.
+ * @param {object} res Response.
  */
-async function restartFluxOS() {
+async function restartFluxOS(req, res) {
   try {
-    const nodedpath = path.join(__dirname, '/package.json');
-    const exec = `touch ${nodedpath}`;
-    const cmdAsync = util.promisify(nodecmd.get);
-    const cmdres = await cmdAsync(exec);
-    log.info(`Restarting FluxOS...`);
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    if (authorized === true) {
+      const nodedpath = path.join(__dirname, '../../../package.json');
+      const exec = `touch ${nodedpath}`;
+      const cmdAsync = util.promisify(nodecmd.get);
+      const cmdres = await cmdAsync(exec);
+      log.info(`Restarting FluxOS..`);
+      const response = messageHelper.createDataMessage(`Restarting FluxOS..`);
+      res.json(response);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
   } catch (error) {
     log.error(error);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
   }
 }
 
