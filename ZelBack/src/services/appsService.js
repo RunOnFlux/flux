@@ -10218,7 +10218,7 @@ async function checkMyAppsAvailability() {
         if (lastUPNPMapFailed) {
           dosState += 0.4;
           if (dosState > 10) {
-            dosMessage = 'Not possible to run applications on the node, router retuning exceptions when creating UPNP mappings.';
+            dosMessage = 'Not possible to run applications on the node, router returning exceptions when creating UPNP mappings.';
           }
         }
         lastUPNPMapFailed = true;
