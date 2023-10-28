@@ -15,7 +15,6 @@ const app = require('./ZelBack/src/lib/server');
 const log = require('./ZelBack/src/lib/log');
 const serviceManager = require('./ZelBack/src/services/serviceManager');
 const upnpService = require('./ZelBack/src/services/upnpService');
-const md5 = require('md5');
 const cmdAsync = util.promisify(nodecmd.get);
 
 // const userconfig = require('./config/userconfig');
