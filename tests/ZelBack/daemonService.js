@@ -1,6 +1,6 @@
 /* eslint-disable max-len */
 /* global userconfig */
-global.userconfig = require('../../config/userconfig') // eslint-disable-line
+global.userconfig = require('../../config/userconfig');
 process.env.NODE_CONFIG_DIR = `${process.cwd()}/ZelBack/config/`;
 const axios = require('axios');
 const chai = require('chai');
