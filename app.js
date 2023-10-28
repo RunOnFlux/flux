@@ -1,8 +1,8 @@
 /* global userconfig */
-/* eslint no-undef: "error" */
+global.userconfig = require('./config/userconfig');
+
 process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
 // Flux configuration
-userconfig = require('./config/userconfig')
 const config = require('config');
 const compression = require('compression');
 const fs = require('fs');
@@ -16,41 +16,40 @@ const log = require('./ZelBack/src/lib/log');
 const serviceManager = require('./ZelBack/src/services/serviceManager');
 const upnpService = require('./ZelBack/src/services/upnpService');
 const cmdAsync = util.promisify(nodecmd.get);
-
-// const userconfig = require('./config/userconfig');
+const hash = require('object-hash');
+const { watch } = require("fs/promises");
 
 const apiPort = userconfig.initial.apiport || config.server.apiport;
 const homePort = +apiPort - 1;
 const apiPortHttps = +apiPort + 1;
-
-const hash = require('object-hash');
-const { watch } = require("fs/promises");
 let hashPrevious = null;
 let initialHash = null;
 
 async function configReload() {
   try {
     const watcher = watch(path.join(__dirname, '/config'));
+    // eslint-disable-next-line
     for await (const event of watcher) {
-      if ( event.eventType === 'change' && event.filename === 'userconfig.js') {
+      if (event.eventType === 'change' && event.filename === 'userconfig.js') {
         const hashCurrent = hash(fs.readFileSync(path.join(__dirname, '/config/userconfig.js')));
         if (hashCurrent === hashPrevious) {
           return;
         }
-        hashPrevious = hashCurrent
-        if( initialHash === null) {
-          initialHash = hashCurrent
+        hashPrevious = hashCurrent;
+        if (initialHash === null) {
+          initialHash = hashCurrent;
         }
-        if ( initialHash !== hashCurrent ) {
-          initialHash = null
+        if (initialHash !== hashCurrent) {
+          initialHash = null;
           log.info(`Config file changed, reloading ${event.filename}...`);
         }
         delete require.cache[require.resolve('./config/userconfig')];
+        // eslint-disable-next-line
         userconfig = require('./config/userconfig');
       }
     }
   } catch (error) {
-      log.error(`Error watching files: ${error}`);
+    log.error(`Error watching files: ${error}`);
   }
 }
 
