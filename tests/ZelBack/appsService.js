@@ -1,6 +1,4 @@
 /* eslint-disable func-names */
-/* global userconfig */
-global.userconfig = require('../../config/userconfig') // eslint-disable-line
 process.env.NODE_CONFIG_DIR = `${process.cwd()}/ZelBack/config/`;
 const chai = require('chai');
 const appService = require('../../ZelBack/src/services/appsService');
