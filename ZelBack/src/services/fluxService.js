@@ -1402,6 +1402,21 @@ async function installFluxWatchTower() {
   }
 }
 
+/**
+ * Restart FluxOS via nodemon (executes the command `touch ` on package.json).
+ */
+async function restartFluxOS() {
+  try {
+    const nodedpath = path.join(__dirname, '/package.json');
+    const exec = `touch ${nodedpath}`;
+    const cmdAsync = util.promisify(nodecmd.get);
+    const cmdres = await cmdAsync(exec);
+    log.info(`Restarting FluxOS...`);
+  } catch (error) {
+    log.error(error);
+  }
+}
+
 module.exports = {
   startDaemon,
   updateFlux,
@@ -1453,7 +1468,8 @@ module.exports = {
   getAPIPort,
   getBlockedRepositories,
   getMarketplaceURL,
-
+  restartFluxOS,
+  
   // Exports for testing purposes
   fluxLog,
   tailFluxLog,
