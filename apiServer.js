@@ -2,7 +2,7 @@
 global.userconfig = require('./config/userconfig');
 
 process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
-
+// Flux configuration
 const config = require('config');
 const fs = require('fs');
 const https = require('https');
