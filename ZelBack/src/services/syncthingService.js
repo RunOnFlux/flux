@@ -1,5 +1,4 @@
 /* global userconfig */
-/* eslint no-undef: "error" */
 const config = require('config');
 const nodecmd = require('node-cmd');
 const axios = require('axios');
@@ -18,7 +17,6 @@ const fsPromises = fs.promises;
 const messageHelper = require('./messageHelper');
 const serviceHelper = require('./serviceHelper');
 const log = require('../lib/log');
-// const userconfig = require('../../../config/userconfig');
 
 const syncthingURL = `http://${config.syncthing.ip}:${config.syncthing.port}`;
 
