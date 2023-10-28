@@ -1,3 +1,5 @@
+/* global userconfig */
+/* eslint no-undef: "error" */
 const benchmarkrpc = require('daemonrpc');
 const config = require('config');
 const path = require('path');
