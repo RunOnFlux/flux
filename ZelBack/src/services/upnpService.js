@@ -8,7 +8,7 @@ const nodecmd = require('node-cmd');
 const util = require('util');
 
 const log = require('../lib/log');
-// const userconfig = require('../../../config/userconfig');
+const userconfig = require('../../../config/userconfig');
 
 const client = new natUpnp.Client();
 
