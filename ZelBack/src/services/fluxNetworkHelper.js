@@ -1,3 +1,5 @@
+/* global userconfig */
+/* eslint no-undef: "error" */
 /* eslint-disable no-underscore-dangle */
 const config = require('config');
 const zeltrezjs = require('zeltrezjs');
