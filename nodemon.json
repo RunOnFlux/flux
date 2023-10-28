@@ -1,4 +1,6 @@
 {
+  "verbose": true,
+  "delay": 5000,
   "events": {
     "crash": "npm install --production"
   },
