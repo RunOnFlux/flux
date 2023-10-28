@@ -6,7 +6,7 @@ const openpgp = require('openpgp');
 const generalService = require('./generalService');
 
 const log = require('../lib/log');
-const userconfig = require('../../../config/userconfig');
+// const userconfig = require('../../../config/userconfig');
 
 /**
  * To adjust PGP identity

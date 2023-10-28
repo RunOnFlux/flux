@@ -1,6 +1,9 @@
 {
+  "verbose": true,
+  "delay": 5000,
   "events": {
     "crash": "npm install --production"
   },
-  "watch": ["package-lock.json", "yarn.lock", "package.json", "ZelBack/", "app.js", "apiServer.js", "config/", "helpers/", "lib/"]
+  "watch": ["package-lock.json", "yarn.lock", "package.json", "ZelBack/", "app.js", "apiServer.js", "helpers/", "lib/"],
+  "ignore": ["config/"]
 }

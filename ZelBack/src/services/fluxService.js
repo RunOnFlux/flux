@@ -23,7 +23,7 @@ const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const geolocationService = require('./geolocationService');
-const userconfig = require('../../../config/userconfig');
+// const userconfig = require('../../../config/userconfig');
 
 /**
  * To show the directory on the node machine where FluxOS files are stored.
@@ -1402,6 +1402,33 @@ async function installFluxWatchTower() {
   }
 }
 
+/**
+ * Restart FluxOS via nodemon (executes the command `touch ` on package.json).
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function restartFluxOS(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    if (authorized === true) {
+      const nodedpath = path.join(__dirname, '../../../package.json');
+      const exec = `touch ${nodedpath}`;
+      const cmdAsync = util.promisify(nodecmd.get);
+      const cmdres = await cmdAsync(exec);
+      log.info(`Restarting FluxOS..`);
+      const response = messageHelper.createDataMessage(`Restarting FluxOS..`);
+      res.json(response);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
+}
+
 module.exports = {
   startDaemon,
   updateFlux,
@@ -1453,7 +1480,8 @@ module.exports = {
   getAPIPort,
   getBlockedRepositories,
   getMarketplaceURL,
-
+  restartFluxOS,
+  
   // Exports for testing purposes
   fluxLog,
   tailFluxLog,

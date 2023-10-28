@@ -3,7 +3,7 @@ const daemonServiceUtils = require('./daemonServiceUtils');
 const daemonServiceBlockchainRpcs = require('./daemonServiceBlockchainRpcs');
 
 const log = require('../../lib/log');
-const userconfig = require('../../../../config/userconfig');
+// const userconfig = require('../../../../config/userconfig');
 
 const isTestnet = userconfig.initial.testnet;
 

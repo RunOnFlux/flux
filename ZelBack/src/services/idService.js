@@ -2,7 +2,7 @@ const config = require('config');
 const qs = require('qs');
 const os = require('os');
 
-const userconfig = require('../../../config/userconfig');
+// const userconfig = require('../../../config/userconfig');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
