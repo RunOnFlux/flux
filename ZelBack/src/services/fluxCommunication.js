@@ -166,35 +166,6 @@ async function handleAppRemovedMessage(message, fromIP) {
 }
 
 /**
- * To prevent duplicate messages to be processed at the same time.
- * @param {object} message message received.
- * @param {bool} force when true message is being checked for second time and should be processed.
- * @returns {bool} Return bool saying if message is duplicated
- */
-let isDuplicatedMessageRunning = false;
-async function isDuplicatedMessage(message, force) {
-  try {
-    if (isDuplicatedMessageRunning && !force) {
-      await serviceHelper.delay(50); // await 50 miliseconds
-      return isDuplicatedMessage(message, true);
-    }
-    isDuplicatedMessageRunning = true;
-    // check if we have the message in cache. If yes, return false. If not, store it and continue
-    const messageHash = hash(message);
-    if (myCacheTemp.has(messageHash)) {
-      return true;
-    }
-    myCacheTemp.set(messageHash, messageHash);
-    isDuplicatedMessageRunning = false;
-    return false;
-  } catch (error) {
-    log.error(error);
-    isDuplicatedMessageRunning = false;
-    return false;
-  }
-}
-
-/**
  * To handle incoming connection. Several types of verification are performed.
  * @param {object} ws Web socket.
  * @param {object} req Request.
@@ -254,9 +225,12 @@ function handleIncomingConnection(ws, req, expressWS) {
     } */
 
     // check if we have the message in cache. If yes, return false. If not, store it and continue
-    if (isDuplicatedMessage(msg)) {
+    await serviceHelper.delay(Math.floor(Math.random() * (25 - 1 + 1) + 25)); // await max 25 miliseconds random, should fix duplicated messages received at same timestamp
+    const messageHash = hash(msg);
+    if (myCacheTemp.has(messageHash)) {
       return;
     }
+    myCacheTemp.set(messageHash, messageHash);
     // check rate limit
     const rateOK = fluxNetworkHelper.lruRateLimit(ipv4Peer, 90);
     if (!rateOK) {
@@ -528,9 +502,12 @@ async function initiateAndHandleConnection(connection) {
         messageNumber = 0;
       } */
       // check if we have the message in cache. If yes, return false. If not, store it and continue
-      if (isDuplicatedMessage(evt.data)) {
+      await serviceHelper.delay(Math.floor(Math.random() * (25 - 1 + 1) + 25)); // await max 25 miliseconds random, should fix duplicated messages received at same timestamp
+      const messageHash = hash(evt.data);
+      if (myCacheTemp.has(messageHash)) {
         return;
       }
+      myCacheTemp.set(messageHash, messageHash);
       // incoming messages from outgoing connections
       const currentTimeStamp = Date.now(); // ms
       // check rate limit
