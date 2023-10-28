@@ -1,3 +1,5 @@
+/* global userconfig */
+/* eslint no-undef: "error" */
 const daemonrpc = require('daemonrpc');
 const fullnode = require('fullnode');
 const config = require('config');
