@@ -166,6 +166,34 @@ async function handleAppRemovedMessage(message, fromIP) {
 }
 
 /**
+ * To prevent duplicate messages to be processed.
+ * @param {object} message message received.
+ * @returns {bool} Return bool saying if message is duplicated
+ */
+let isDuplicatedMessageRunning = false;
+async function isDuplicatedMessage(message) {
+  try {
+    if (isDuplicatedMessageRunning) {
+      await serviceHelper.delay(5); // await 5 miliseconds
+      return isDuplicatedMessage(message);
+    }
+    isDuplicatedMessageRunning = true;
+    // check if we have the message in cache. If yes, return false. If not, store it and continue
+    const messageHash = hash(message);
+    if (myCacheTemp.has(messageHash)) {
+      return true;
+    }
+    myCacheTemp.set(messageHash, messageHash);
+    isDuplicatedMessageRunning = false;
+    return false;
+  } catch (error) {
+    log.error(error);
+    isDuplicatedMessageRunning = false;
+    return false;
+  }
+}
+
+/**
  * To handle incoming connection. Several types of verification are performed.
  * @param {object} ws Web socket.
  * @param {object} req Request.
@@ -225,11 +253,9 @@ function handleIncomingConnection(ws, req, expressWS) {
     } */
 
     // check if we have the message in cache. If yes, return false. If not, store it and continue
-    const messageHash = hash(msg);
-    if (myCacheTemp.has(messageHash)) {
+    if (isDuplicatedMessage(msg)) {
       return;
     }
-    myCacheTemp.set(messageHash, messageHash);
     // check rate limit
     const rateOK = fluxNetworkHelper.lruRateLimit(ipv4Peer, 90);
     if (!rateOK) {
@@ -501,11 +527,9 @@ async function initiateAndHandleConnection(connection) {
         messageNumber = 0;
       } */
       // check if we have the message in cache. If yes, return false. If not, store it and continue
-      const messageHash = hash(evt.data);
-      if (myCacheTemp.has(messageHash)) {
+      if (isDuplicatedMessage(evt.data)) {
         return;
       }
-      myCacheTemp.set(messageHash, messageHash);
       // incoming messages from outgoing connections
       const currentTimeStamp = Date.now(); // ms
       // check rate limit
