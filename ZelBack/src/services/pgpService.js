@@ -1,3 +1,5 @@
+/* global userconfig */
+/* eslint no-undef: "error" */
 const config = require('config');
 const path = require('path');
 const fs = require('fs').promises;
