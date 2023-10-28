@@ -175,7 +175,7 @@ let isDuplicatedMessageRunning = false;
 async function isDuplicatedMessage(message, force) {
   try {
     if (isDuplicatedMessageRunning && !force) {
-      await serviceHelper.delay(100); // await 100 miliseconds
+      await serviceHelper.delay(50); // await 50 miliseconds
       return isDuplicatedMessage(message, true);
     }
     isDuplicatedMessageRunning = true;
