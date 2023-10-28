@@ -1,3 +1,5 @@
+/* global userconfig */
+/* eslint no-undef: "error" */
 const config = require('config');
 const qs = require('qs');
 const os = require('os');
