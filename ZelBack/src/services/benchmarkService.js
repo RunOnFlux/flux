@@ -1,5 +1,4 @@
 /* global userconfig */
-/* eslint no-undef: "error" */
 const benchmarkrpc = require('daemonrpc');
 const config = require('config');
 const path = require('path');
@@ -10,7 +9,6 @@ const verificationHelper = require('./verificationHelper');
 const generalService = require('./generalService');
 const upnpService = require('./upnpService');
 const log = require('../lib/log');
-// const userconfig = require('../../../config/userconfig');
 
 const isTestnet = userconfig.initial.testnet;
 
