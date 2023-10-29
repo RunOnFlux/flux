@@ -807,8 +807,8 @@ async function adjustExternalIP(ip) {
       return;
     }
     if (userconfig.initial.ipaddress && v4exact.test(userconfig.initial.ipaddress)) {
-      const newIP = `${ip}:${userconfig.initial.apiport}`;
-      const oldIP = `${userconfig.initial.ipaddress}:${userconfig.initial.apiport}`;
+      const newIP = userconfig.initial.apiport !== 16127 ? `${ip}:${userconfig.initial.apiport}` : ip;
+      const oldIP = userconfig.initial.apiport !== 16127 ? `${userconfig.initial.ipaddress}:${userconfig.initial.apiport}` : userconfig.initial.ipaddress;
       log.info(`New public Ip detected: ${newIP}, old Ip:${oldIP} , updating the FluxNode info in the network`);
       // eslint-disable-next-line global-require
       const dockerService = require('./dockerService');
