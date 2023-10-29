@@ -1124,7 +1124,7 @@ async function adjustKadenaAccount(req, res) {
 
       await fsPromises.writeFile(fluxDirPath, dataToWrite);
 
-      const successMessage = messageHelper.createSuccessMessage('Kadena account adjusted, FluxOs is restarting');
+      const successMessage = messageHelper.createSuccessMessage('Kadena account adjusted');
       res.json(successMessage);
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
@@ -1167,7 +1167,7 @@ async function adjustRouterIP(req, res) {
       const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
       await fsPromises.writeFile(fluxDirPath, dataToWrite);
 
-      const successMessage = messageHelper.createSuccessMessage('Router IP adjusted, FluxOs is restarting');
+      const successMessage = messageHelper.createSuccessMessage('Router IP adjusted');
       res.json(successMessage);
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
@@ -1220,7 +1220,7 @@ async function adjustBlockedPorts(req, res) {
           }`;
         const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
         await fsPromises.writeFile(fluxDirPath, dataToWrite);
-        const successMessage = messageHelper.createSuccessMessage('User Blocked Ports adjusted, FluxOs is restarting');
+        const successMessage = messageHelper.createSuccessMessage('User Blocked Ports adjusted');
         res.json(successMessage);
       });
     } else {
@@ -1275,7 +1275,7 @@ async function adjustAPIPort(req, res) {
       const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
       await fsPromises.writeFile(fluxDirPath, dataToWrite);
 
-      const successMessage = messageHelper.createSuccessMessage('API Port adjusted, FluxOs is restarting');
+      const successMessage = messageHelper.createSuccessMessage('API Port adjusted. A restart of FluxOS is necessary');
       res.json(successMessage);
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
@@ -1335,7 +1335,7 @@ async function adjustBlockedRepositories(req, res) {
         }`;
         const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
         await fsPromises.writeFile(fluxDirPath, dataToWrite);
-        const successMessage = messageHelper.createSuccessMessage('User Blocked Repositories adjusted, FluxOs is restarting');
+        const successMessage = messageHelper.createSuccessMessage('User Blocked Repositories adjusted');
         res.json(successMessage);
       });
     } else {
@@ -1416,7 +1416,7 @@ async function restartFluxOS(req, res) {
       const cmdAsync = util.promisify(nodecmd.get);
       await cmdAsync(exec);
       log.info('Restarting FluxOS..');
-      const response = messageHelper.createDataMessage('Restarting FluxOS..');
+      const response = messageHelper.createDataMessage('Restarting FluxOS');
       res.json(response);
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
