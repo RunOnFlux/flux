@@ -1,5 +1,4 @@
 /* eslint-disable max-len */
-/* global userconfig */
 global.userconfig = require('../../config/userconfig');
 
 process.env.NODE_CONFIG_DIR = `${process.cwd()}/ZelBack/config/`;
