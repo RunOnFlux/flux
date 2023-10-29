@@ -1,6 +1,6 @@
-const userconfig = require('../../config/userconfig');
+let userconfig = require('../../config/userconfig'); // eslint-disable-line
 
-const isDevelopment = userconfig.initial.development || false;
+const isDevelopment = userconfig.initial.development || false; // eslint-disable-line
 
 module.exports = {
   development: isDevelopment,

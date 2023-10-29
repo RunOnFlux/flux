@@ -1,3 +1,4 @@
+/* global userconfig */
 const config = require('config');
 const axios = require('axios');
 const express = require('express');
@@ -33,7 +34,7 @@ const syncthingService = require('./syncthingService');
 const pgpService = require('./pgpService');
 const signatureVerifier = require('./signatureVerifier');
 const log = require('../lib/log');
-const userconfig = require('../../../config/userconfig');
+
 const { invalidMessages } = require('./invalidMessages');
 
 const fluxDirPath = path.join(__dirname, '../../../');
