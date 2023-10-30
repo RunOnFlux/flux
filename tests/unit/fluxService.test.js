@@ -2436,7 +2436,7 @@ describe('fluxService tests', () => {
       const expectedResponse = {
         data: {
           code: undefined,
-          message: 'Router IP adjusted, FluxOs is restarting',
+          message: 'Router IP adjusted',
           name: undefined,
         },
         status: 'success',
@@ -2526,7 +2526,7 @@ describe('fluxService tests', () => {
       const expectedResponse = {
         data: {
           code: undefined,
-          message: 'API Port adjusted, FluxOs is restarting',
+          message: 'API Port adjusted. A restart of FluxOS is necessary',
           name: undefined,
         },
         status: 'success',
@@ -2780,7 +2780,7 @@ describe('fluxService tests', () => {
       const expectedResponse = {
         data: {
           code: undefined,
-          message: 'Kadena account adjusted, FluxOs is restarting',
+          message: 'Kadena account adjusted',
           name: undefined,
         },
         status: 'success',
@@ -2823,7 +2823,7 @@ describe('fluxService tests', () => {
       const expectedResponse = {
         data: {
           code: undefined,
-          message: 'Kadena account adjusted, FluxOs is restarting',
+          message: 'Kadena account adjusted',
           name: undefined,
         },
         status: 'success',
