@@ -9891,10 +9891,11 @@ async function syncthingApps() {
       if (installedApp.version <= 3) {
         const containersData = installedApp.containerData.split('|');
         // eslint-disable-next-line no-restricted-syntax
-        for (const container of containersData) {
+        for (let i = 0; i < containersData.length; i += 1) {
+          const container = containersData[i];
           const containerDataFlags = container.split(':')[1] ? container.split(':')[0] : '';
           if (containerDataFlags.includes('s')) {
-            const containerFolder = container.split(':')[1];
+            const containerFolder = i === 0 ? '' : container.split(':')[1];
             const identifier = installedApp.name;
             const appId = dockerService.getAppIdentifier(identifier);
             const folder = `${appsFolder + appId + containerFolder}`;
@@ -9947,10 +9948,11 @@ async function syncthingApps() {
         for (const installedComponent of installedApp.compose) {
           const containersData = installedComponent.containerData.split('|');
           // eslint-disable-next-line no-restricted-syntax
-          for (const container of containersData) {
+          for (let i = 0; i < containersData.length; i += 1) {
+            const container = containersData[i];
             const containerDataFlags = container.split(':')[1] ? container.split(':')[0] : '';
             if (containerDataFlags.includes('s')) {
-              const containerFolder = container.split(':')[1];
+              const containerFolder = i === 0 ? '' : container.split(':')[1];
               const identifier = `${installedComponent.name}_${installedApp.name}`;
               const appId = dockerService.getAppIdentifier(identifier);
               const folder = `${appsFolder + appId + containerFolder}`;
