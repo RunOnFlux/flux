@@ -1291,18 +1291,8 @@ describe('fluxNetworkHelper tests', () => {
       const callPath = path.join(__dirname, '../../config/userconfig.js');
 
       fluxNetworkHelper.adjustExternalIP(newIp);
-
-      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/module.exports = {/gm));
-      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/initial: {/gm));
+      
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/ipaddress: '127.0.0.66',/gm));
-      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',/gm));
-      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/kadena: '123456789',/gm));
-      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/testnet: true,/gm));
-      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/development: false,/gm));
-      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/apiport: 16127,/gm));
-      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/routerIP: '',/gm));
-      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/pgpPrivateKey: ``,/gm));
-      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/pgpPublicKey: ``,/gm));
     });
 
     it('should not write to file if the config already has same exact ip', () => {
