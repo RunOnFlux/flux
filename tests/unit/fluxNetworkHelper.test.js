@@ -1,19 +1,5 @@
 /* eslint-disable no-underscore-dangle */
-global.userconfig = {
-  initial: {
-    ipaddress: '83.52.214.240',
-    zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-    kadena: '123456789',
-    apiport: '16127',
-    routerIP: '',
-    testnet: true,
-    development: false,
-    pgpPrivateKey: '',
-    pgpPublicKey: '',
-    blockedPorts: [],
-    blockedRepositories: [],
-  },
-};
+global.userconfig = require('../../config/userconfig');
 const chai = require('chai');
 const sinon = require('sinon');
 const WebSocket = require('ws');
