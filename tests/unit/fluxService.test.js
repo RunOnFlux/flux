@@ -23,22 +23,7 @@ const packageJson = require('../../package.json');
 
 const fsPromises = fs.promises;
 
-const adminConfig = {
-  initial: {
-    ipaddress: '83.51.212.243',
-    zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-    kadena: '1234kadena',
-    cruxid: '12345678',
-    apiport: '5550',
-    routerIP: '',
-    testnet: true,
-    development: false,
-    pgpPrivateKey: '',
-    pgpPublicKey: '',
-    blockedPorts: [],
-    blockedRepositories: [],
-  },
-};
+const adminConfig = require('../../config/userconfig');
 
 const fluxService = proxyquire('../../ZelBack/src/services/fluxService',
   { '../../../config/userconfig': adminConfig });
