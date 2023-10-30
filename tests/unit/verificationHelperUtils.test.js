@@ -1,3 +1,4 @@
+global.userconfig = require('../../config/userconfig');
 const chai = require('chai');
 const config = require('config');
 const { ObjectId } = require('mongodb');

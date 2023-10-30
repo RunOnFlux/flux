@@ -1,3 +1,4 @@
+/* global userconfig */
 const config = require('config');
 const log = require('../lib/log');
 
@@ -12,7 +13,6 @@ const geolocationService = require('./geolocationService');
 const upnpService = require('./upnpService');
 const syncthingService = require('./syncthingService');
 const pgpService = require('./pgpService');
-const userconfig = require('../../../config/userconfig');
 
 const apiPort = userconfig.initial.apiport || config.server.apiport;
 const development = userconfig.initial.development || false;

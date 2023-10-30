@@ -1,4 +1,5 @@
 /* eslint-disable no-underscore-dangle */
+global.userconfig = require('../../config/userconfig');
 const sinon = require('sinon');
 const WebSocket = require('ws');
 const { expect } = require('chai');
