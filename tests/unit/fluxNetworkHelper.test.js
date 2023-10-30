@@ -1,5 +1,19 @@
 /* eslint-disable no-underscore-dangle */
-global.userconfig = require('../../config/userconfig');
+global.userconfig = {
+  initial: {
+    ipaddress: '83.52.214.240',
+    zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+    kadena: '123456789',
+    apiport: '16127',
+    routerIP: '',
+    testnet: true,
+    development: false,
+    pgpPrivateKey: '',
+    pgpPublicKey: '',
+    blockedPorts: [],
+    blockedRepositories: [],
+  },
+};
 const chai = require('chai');
 const sinon = require('sinon');
 const WebSocket = require('ws');
@@ -1292,7 +1306,17 @@ describe('fluxNetworkHelper tests', () => {
 
       fluxNetworkHelper.adjustExternalIP(newIp);
       
+      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/module.exports = {/gm));
+      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/initial: {/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/ipaddress: '127.0.0.66',/gm));
+      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',/gm));
+      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/kadena: '123456789',/gm));
+      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/testnet: true,/gm));
+      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/development: false,/gm));
+      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/apiport: 16127,/gm));
+      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/routerIP: '',/gm));
+      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/pgpPrivateKey: ``,/gm));
+      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/pgpPublicKey: ``,/gm));
     });
 
     it('should not write to file if the config already has same exact ip', () => {
