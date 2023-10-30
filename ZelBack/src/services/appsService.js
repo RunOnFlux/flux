@@ -2373,6 +2373,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
           ip,
           broadcastedAt,
         };
+        log.info('Broadcasting appremoved message to the network');
         // broadcast messages about app removed to all peers
         await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(appRemovedMessage);
         await serviceHelper.delay(500);
