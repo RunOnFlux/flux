@@ -22,8 +22,10 @@ const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('../../ZelBack/src/services/utils/establishedConnections');
 
+const adminConfig = require('../../config/userconfig');
+
 const fluxNetworkHelper = proxyquire('../../ZelBack/src/services/fluxNetworkHelper',
-  { '../../../config/userconfig': userconfig });
+  { '../../../config/userconfig': adminConfig });
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
@@ -1291,7 +1293,7 @@ describe('fluxNetworkHelper tests', () => {
       const callPath = path.join(__dirname, '../../config/userconfig.js');
 
       fluxNetworkHelper.adjustExternalIP(newIp);
-      
+
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/module.exports = {/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/initial: {/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/ipaddress: '127.0.0.66',/gm));
@@ -1306,7 +1308,7 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('should not write to file if the config already has same exact ip', () => {
-      const newIp = userconfig.initial.ipaddress;
+      const newIp = adminConfig.initial.ipaddress;
 
       fluxNetworkHelper.adjustExternalIP(newIp);
 
