@@ -844,7 +844,7 @@ async function adjustExternalIP(ip) {
         await serviceHelper.delay(1 * 60 * 1000); // lets wait 1 minute to give time for message being propagated on the network before we try to update the ip on blockchain
       }
       const result = await daemonServiceWalletRpcs.createConfirmationTransaction();
-      log.info(`createConfirmationTransaction: ${result}`);
+      log.info(`createConfirmationTransaction: ${JSON.stringify(result)}`);
       await serviceHelper.delay(4 * 60 * 1000); // lets wait 2 blocks time for the transaction to be mined
     }
 
