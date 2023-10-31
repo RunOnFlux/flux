@@ -225,8 +225,9 @@ function handleIncomingConnection(ws, req, expressWS) {
     } */
 
     // check if we have the message in cache. If yes, return false. If not, store it and continue
-    await serviceHelper.delay(Math.floor(Math.random() * 100 + 1)); // await max 100 miliseconds random, should jelp on processing duplicated messages received at same timestamp
-    const messageHash = hash(msg);
+    await serviceHelper.delay(Math.floor(Math.random() * 100 + 1)); // await max 100 miliseconds random, should jelp on processing duplicated messages received at same timestamp    
+    const msgObj = serviceHelper.ensureObject(msg);
+    const messageHash = hash(msgObj.data);
     if (myCacheTemp.has(messageHash)) {
       return;
     }
@@ -254,7 +255,6 @@ function handleIncomingConnection(ws, req, expressWS) {
       const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(msg, currentTimeStamp);
       if (timestampOK === true) {
         try {
-          const msgObj = serviceHelper.ensureObject(msg);
           if (msgObj.data.type === 'zelappregister' || msgObj.data.type === 'zelappupdate' || msgObj.data.type === 'fluxappregister' || msgObj.data.type === 'fluxappupdate') {
             handleAppMessages(msgObj, peer.ip.replace('::ffff:', ''));
           } else if (msgObj.data.type === 'fluxapprequest') {
@@ -503,7 +503,8 @@ async function initiateAndHandleConnection(connection) {
       } */
       // check if we have the message in cache. If yes, return false. If not, store it and continue
       await serviceHelper.delay(Math.floor(Math.random() * 100 + 1)); // await max 100 miliseconds random, should help processing duplicated messages received at same timestamp
-      const messageHash = hash(evt.data);
+      const msgObj = serviceHelper.ensureObject(evt.data);
+      const messageHash = hash(msgObj.data);
       if (myCacheTemp.has(messageHash)) {
         return;
       }
@@ -516,7 +517,6 @@ async function initiateAndHandleConnection(connection) {
         return; // do not react to the message
       }
       // check blocked list
-      const msgObj = serviceHelper.ensureObject(evt.data);
       const { pubKey } = msgObj;
       if (blockedPubKeysCache.has(pubKey)) {
         try {
