@@ -817,7 +817,7 @@ export default {
             if (resp.data.status === 'error') {
               throw new Error(resp.data.message || resp.data);
             }
-            this.showToast('success', 'Successful upload of Environment Parameters to Flux Storage');
+            showToast('success', 'Successful upload of Environment Parameters to Flux Storage');
             envParams = `["F_S_ENV=https://storage.runonflux.io/v1/env/${envid}"]`;
           }
           const appComponent = {
