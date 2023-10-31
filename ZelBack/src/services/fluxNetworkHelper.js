@@ -28,6 +28,15 @@ let dosMessage = null;
 
 let storedFluxBenchAllowed = null;
 
+// default cache
+const LRUoptions = {
+  max: 1,
+  ttl: 24 * 60 * 60 * 1000, // 1 day
+  maxAge: 24 * 60 * 60 * 1000, // 1 day
+};
+
+const myCache = new LRUCache(LRUoptions);
+
 // my external Flux IP from benchmark
 let myFluxIP = null;
 
@@ -806,7 +815,8 @@ async function adjustExternalIP(ip) {
     if (ip === userconfig.initial.ipaddress) {
       return;
     }
-    if (userconfig.initial.ipaddress && v4exact.test(userconfig.initial.ipaddress)) {
+    if (userconfig.initial.ipaddress && v4exact.test(userconfig.initial.ipaddress) && !myCache.has(ip)) {
+      myCache.set(ip, ip);
       const newIP = userconfig.initial.apiport !== 16127 ? `${ip}:${userconfig.initial.apiport}` : ip;
       const oldIP = userconfig.initial.apiport !== 16127 ? `${userconfig.initial.ipaddress}:${userconfig.initial.apiport}` : userconfig.initial.ipaddress;
       log.info(`New public Ip detected: ${newIP}, old Ip:${oldIP} , updating the FluxNode info in the network`);
