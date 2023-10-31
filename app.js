@@ -22,8 +22,7 @@ const cmdAsync = util.promisify(nodecmd.get);
 const apiPort = userconfig.initial.apiport || config.server.apiport;
 const homePort = +apiPort - 1;
 const apiPortHttps = +apiPort + 1;
-let hashPrevious = null;
-let initialHash = null;
+let initialHash = hash(fs.readFileSync(path.join(__dirname, '/config/userconfig.js')));
 
 async function configReload() {
   try {
@@ -32,17 +31,11 @@ async function configReload() {
     for await (const event of watcher) {
       if (event.eventType === 'change' && event.filename === 'userconfig.js') {
         const hashCurrent = hash(fs.readFileSync(path.join(__dirname, '/config/userconfig.js')));
-        if (hashCurrent === hashPrevious) {
+        if (hashCurrent === initialHash) {
           return;
         }
-        hashPrevious = hashCurrent;
-        if (initialHash === null) {
-          initialHash = hashCurrent;
-        }
-        if (initialHash !== hashCurrent) {
-          initialHash = null;
-          log.info(`Config file changed, reloading ${event.filename}...`);
-        }
+        initialHash = hashCurrent;
+        log.info(`Config file changed, reloading ${event.filename}...`);
         delete require.cache[require.resolve('./config/userconfig')];
         // eslint-disable-next-line
         userconfig = require('./config/userconfig');
