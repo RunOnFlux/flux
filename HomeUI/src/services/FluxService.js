@@ -149,28 +149,63 @@ export default {
     return Api().post('/flux/adjustblockedrepositories', JSON.stringify(data), axiosConfig);
   },
   getCruxID() {
-    return Api().get('/flux/cruxid');
+    const axiosConfig = {
+      headers: {
+        'x-apicache-bypass': true,
+      },
+    };
+    return Api().get('/flux/cruxid', axiosConfig);
   },
   getKadenaAccount() {
-    return Api().get('/flux/kadena');
+    const axiosConfig = {
+      headers: {
+        'x-apicache-bypass': true,
+      },
+    };
+    return Api().get('/flux/kadena', axiosConfig);
   },
   getRouterIP() {
-    return Api().get('/flux/routerip');
+    const axiosConfig = {
+      headers: {
+        'x-apicache-bypass': true,
+      },
+    };
+    return Api().get('/flux/routerip', axiosConfig);
   },
   getBlockedPorts() {
-    return Api().get('/flux/blockedports');
+    const axiosConfig = {
+      headers: {
+        'x-apicache-bypass': true,
+      },
+    };
+    return Api().get('/flux/blockedports', axiosConfig);
   },
   getAPIPort() {
-    return Api().get('/flux/apiport');
+    const axiosConfig = {
+      headers: {
+        'x-apicache-bypass': true,
+      },
+    };
+    return Api().get('/flux/apiport', axiosConfig);
   },
   getBlockedRepositories() {
-    return Api().get('/flux/blockedrepositories');
+    const axiosConfig = {
+      headers: {
+        'x-apicache-bypass': true,
+      },
+    };
+    return Api().get('/flux/blockedrepositories', axiosConfig);
   },
   getMarketPlaceURL() {
     return Api().get('/flux/marketplaceurl');
   },
   getZelid() {
-    return Api().get('/flux/zelid');
+    const axiosConfig = {
+      headers: {
+        'x-apicache-bypass': true,
+      },
+    };
+    return Api().get('/flux/zelid', axiosConfig);
   },
   getStaticIpInfo() {
     return Api().get('/flux/staticip');
