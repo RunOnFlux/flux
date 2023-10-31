@@ -1,4 +1,5 @@
 /* eslint-disable no-underscore-dangle */
+global.userconfig = require('../../config/userconfig');
 const chai = require('chai');
 const sinon = require('sinon');
 const WebSocket = require('ws');
@@ -21,21 +22,6 @@ const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('../../ZelBack/src/services/utils/establishedConnections');
 
-const userconfig = {
-  initial: {
-    ipaddress: '83.52.214.240',
-    zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-    kadena: '123456789',
-    apiport: '16127',
-    routerIP: '',
-    testnet: true,
-    development: false,
-    pgpPrivateKey: '',
-    pgpPublicKey: '',
-    blockedPorts: [],
-    blockedRepositories: [],
-  },
-};
 const fluxNetworkHelper = proxyquire('../../ZelBack/src/services/fluxNetworkHelper',
   { '../../../config/userconfig': userconfig });
 
@@ -1305,7 +1291,7 @@ describe('fluxNetworkHelper tests', () => {
       const callPath = path.join(__dirname, '../../config/userconfig.js');
 
       fluxNetworkHelper.adjustExternalIP(newIp);
-
+      
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/module.exports = {/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/initial: {/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/ipaddress: '127.0.0.66',/gm));
