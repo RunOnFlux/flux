@@ -1411,8 +1411,7 @@ async function restartFluxOS(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (authorized === true) {
-      const nodedpath = path.join(__dirname, '../../../package.json');
-      const exec = `touch ${nodedpath}`;
+      const exec = 'pm2 restart flux';
       const cmdAsync = util.promisify(nodecmd.get);
       await cmdAsync(exec);
       log.info('Restarting FluxOS..');
