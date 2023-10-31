@@ -175,6 +175,15 @@ export default {
   getStaticIpInfo() {
     return Api().get('/flux/staticip');
   },
+  restartFluxOS(zelidauthHeader) {
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+        'x-apicache-bypass': true,
+      },
+    };
+    return Api().get('/flux/restart', axiosConfig);
+  },
   // DEBUG
   tailFluxLog(name, zelidauthHeader) {
     return Api().get(`/flux/tail${name}log`, {
