@@ -225,7 +225,7 @@ function handleIncomingConnection(ws, req, expressWS) {
     } */
 
     // check if we have the message in cache. If yes, return false. If not, store it and continue
-    await serviceHelper.delay(Math.floor(Math.random() * 100 + 1)); // await max 100 miliseconds random, should jelp on processing duplicated messages received at same timestamp    
+    await serviceHelper.delay(Math.floor(Math.random() * 100 + 1)); // await max 100 miliseconds random, should jelp on processing duplicated messages received at same timestamp
     const msgObj = serviceHelper.ensureObject(msg);
     const messageHash = hash(msgObj.data);
     if (myCacheTemp.has(messageHash)) {
