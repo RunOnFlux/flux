@@ -1,5 +1,8 @@
-// Flux configuration
+/* global userconfig */
+global.userconfig = require('./config/userconfig');
+
 process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
+// Flux configuration
 const config = require('config');
 const fs = require('fs');
 const https = require('https');
@@ -10,12 +13,39 @@ const app = require('./ZelBack/src/lib/server');
 const log = require('./ZelBack/src/lib/log');
 const serviceManager = require('./ZelBack/src/services/serviceManager');
 const upnpService = require('./ZelBack/src/services/upnpService');
-const userconfig = require('./config/userconfig');
+const hash = require('object-hash');
+const { watch } = require('fs/promises');
 
 const cmdAsync = util.promisify(nodecmd.get);
-
 const apiPort = userconfig.initial.apiport || config.server.apiport;
 const apiPortHttps = apiPort + 1;
+let initialHash = hash(fs.readFileSync(path.join(__dirname, '/config/userconfig.js')));
+
+async function configReload() {
+  try {
+    const watcher = watch(path.join(__dirname, '/config'));
+    // eslint-disable-next-line
+    for await (const event of watcher) {
+      if (event.eventType === 'change' && event.filename === 'userconfig.js') {
+        const hashCurrent = hash(fs.readFileSync(path.join(__dirname, '/config/userconfig.js')));
+        if (hashCurrent === initialHash) {
+          return;
+        }
+        initialHash = hashCurrent;
+        log.info(`Config file changed, reloading ${event.filename}...`);
+        delete require.cache[require.resolve('./config/userconfig')];
+        // eslint-disable-next-line
+        userconfig = require('./config/userconfig');
+      }
+    }
+  } catch (error) {
+    log.error(`Error watching files: ${error}`);
+  }
+}
+
+setInterval(async () => {
+  configReload();
+}, 2 * 1000);
 
 async function initiate() {
   if (!config.server.allowedPorts.includes(+apiPort)) {

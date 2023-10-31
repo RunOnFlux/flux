@@ -1,6 +1,6 @@
 {
   "name": "flux",
-  "version": "4.15.0",
+  "version": "4.16.0",
   "description": "Flux, Your Gateway to a Decentralized World",
   "repository": {
     "type": "git",
@@ -54,9 +54,10 @@
     "test:zelback": "mocha tests/ZelBack",
     "test:zelback:unit": "docker run -d --name fluxwebsite runonflux/website; env NODE_CONFIG_DIR=$PWD/tests/unit/globalconfig nyc --reporter=lcov mocha tests/unit/*.test.js --exit; docker stop fluxwebsite; docker rm fluxwebsite",
     "test:ethereumHelper": "env NODE_CONFIG_DIR=$PWD/tests/unit/globalconfig mocha tests/unit/ethereumHelper.test.js --exit",
-    "homedev": "bash checkNodeV.sh | grep -q 'ENV' && export NODE_OPTIONS=--openssl-legacy-provider; vue-cli-service serve --port 16126",
-    "homeprod": "bash checkNodeV.sh | grep -q 'ENV' && export NODE_OPTIONS=--openssl-legacy-provider; nodemon homeServer.js",
-    "homebuild": "bash checkNodeV.sh | grep -q 'ENV' && export NODE_OPTIONS=--openssl-legacy-provider; vue-cli-service build",
+    "prebuild": "bash checkNodeV.sh",
+    "homedev": "vue-cli-service serve --port 16126",
+    "homeprod": "nodemon homeServer.js",
+    "homebuild": "vue-cli-service build",
     "fluxdev": "nodemon apiServer.js",
     "flux": "nodemon app.js",
     "start": "npm install --production && node init.js && npm run flux",

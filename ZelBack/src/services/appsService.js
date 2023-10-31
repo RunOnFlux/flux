@@ -1,3 +1,4 @@
+/* global userconfig */
 const config = require('config');
 const axios = require('axios');
 const express = require('express');
@@ -33,7 +34,7 @@ const syncthingService = require('./syncthingService');
 const pgpService = require('./pgpService');
 const signatureVerifier = require('./signatureVerifier');
 const log = require('../lib/log');
-const userconfig = require('../../../config/userconfig');
+
 const { invalidMessages } = require('./invalidMessages');
 
 const fluxDirPath = path.join(__dirname, '../../../');
@@ -2372,6 +2373,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
           ip,
           broadcastedAt,
         };
+        log.info('Broadcasting appremoved message to the network');
         // broadcast messages about app removed to all peers
         await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(appRemovedMessage);
         await serviceHelper.delay(500);
@@ -9888,61 +9890,16 @@ async function syncthingApps() {
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled.data) {
       if (installedApp.version <= 3) {
-        const containerDataFlags = installedApp.containerData.split('|')[0].split(':')[1] ? installedApp.containerData.split('|')[0].split(':')[0] : '';
-        if (containerDataFlags.includes('s')) {
-          const identifier = installedApp.name;
-          const appId = dockerService.getAppIdentifier(identifier);
-          const folder = `${appsFolder + appId}`;
-          const id = appId;
-          const label = appId;
-          const devices = [{ deviceID: myDeviceID.data }];
-          // eslint-disable-next-line no-await-in-loop
-          const locations = await appLocation(installedApp.name);
-          // eslint-disable-next-line no-restricted-syntax
-          for (const appInstance of locations) {
-            const ip = appInstance.ip.split(':')[0];
-            const port = appInstance.ip.split(':')[1] || 16127;
-            const addresses = [`tcp://${ip}:${+port + 2}`, `quic://${ip}:${+port + 2}`];
-            const name = `${ip}:${port}`;
-            // eslint-disable-next-line no-await-in-loop
-            const deviceID = await getDeviceID(name);
-            if (deviceID) {
-              if (deviceID !== myDeviceID.data) { // skip my id, already present
-                const folderDeviceExists = devices.find((device) => device.deviceID === deviceID);
-                if (!folderDeviceExists) { // double check if not multiple the same ids
-                  devices.push({ deviceID });
-                }
-              }
-              const deviceExists = devicesConfiguration.find((device) => device.name === name);
-              if (!deviceExists) {
-                const newDevice = {
-                  deviceID,
-                  name,
-                  addresses,
-                };
-                devicesIds.push(deviceID);
-                if (deviceID !== myDeviceID.data) {
-                  devicesConfiguration.push(newDevice);
-                }
-              }
-            }
-          }
-          folderIds.push(id);
-          foldersConfiguration.push({
-            id,
-            label,
-            path: folder,
-            devices,
-          });
-        }
-      } else {
+        const containersData = installedApp.containerData.split('|');
         // eslint-disable-next-line no-restricted-syntax
-        for (const installedComponent of installedApp.compose) {
-          const containerDataFlags = installedComponent.containerData.split('|')[0].split(':')[1] ? installedComponent.containerData.split('|')[0].split(':')[0] : '';
+        for (let i = 0; i < containersData.length; i += 1) {
+          const container = containersData[i];
+          const containerDataFlags = container.split(':')[1] ? container.split(':')[0] : '';
           if (containerDataFlags.includes('s')) {
-            const identifier = `${installedComponent.name}_${installedApp.name}`;
+            const containerFolder = i === 0 ? '' : container.split(':')[1];
+            const identifier = installedApp.name;
             const appId = dockerService.getAppIdentifier(identifier);
-            const folder = `${appsFolder + appId}`;
+            const folder = `${appsFolder + appId + containerFolder}`;
             const id = appId;
             const label = appId;
             const devices = [{ deviceID: myDeviceID.data }];
@@ -9985,6 +9942,64 @@ async function syncthingApps() {
               devices,
               paused: false,
             });
+          }
+        }
+      } else {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const installedComponent of installedApp.compose) {
+          const containersData = installedComponent.containerData.split('|');
+          // eslint-disable-next-line no-restricted-syntax
+          for (let i = 0; i < containersData.length; i += 1) {
+            const container = containersData[i];
+            const containerDataFlags = container.split(':')[1] ? container.split(':')[0] : '';
+            if (containerDataFlags.includes('s')) {
+              const containerFolder = i === 0 ? '' : container.split(':')[1];
+              const identifier = `${installedComponent.name}_${installedApp.name}`;
+              const appId = dockerService.getAppIdentifier(identifier);
+              const folder = `${appsFolder + appId + containerFolder}`;
+              const id = appId;
+              const label = appId;
+              const devices = [{ deviceID: myDeviceID.data }];
+              // eslint-disable-next-line no-await-in-loop
+              const locations = await appLocation(installedApp.name);
+              // eslint-disable-next-line no-restricted-syntax
+              for (const appInstance of locations) {
+                const ip = appInstance.ip.split(':')[0];
+                const port = appInstance.ip.split(':')[1] || 16127;
+                const addresses = [`tcp://${ip}:${+port + 2}`, `quic://${ip}:${+port + 2}`];
+                const name = `${ip}:${port}`;
+                // eslint-disable-next-line no-await-in-loop
+                const deviceID = await getDeviceID(name);
+                if (deviceID) {
+                  if (deviceID !== myDeviceID.data) { // skip my id, already present
+                    const folderDeviceExists = devices.find((device) => device.deviceID === deviceID);
+                    if (!folderDeviceExists) { // double check if not multiple the same ids
+                      devices.push({ deviceID });
+                    }
+                  }
+                  const deviceExists = devicesConfiguration.find((device) => device.name === name);
+                  if (!deviceExists) {
+                    const newDevice = {
+                      deviceID,
+                      name,
+                      addresses,
+                    };
+                    devicesIds.push(deviceID);
+                    if (deviceID !== myDeviceID.data) {
+                      devicesConfiguration.push(newDevice);
+                    }
+                  }
+                }
+              }
+              folderIds.push(id);
+              foldersConfiguration.push({
+                id,
+                label,
+                path: folder,
+                devices,
+                paused: false,
+              });
+            }
           }
         }
       }
@@ -10207,7 +10222,7 @@ async function checkMyAppsAvailability() {
         if (lastUPNPMapFailed) {
           dosState += 0.4;
           if (dosState > 10) {
-            dosMessage = 'Not possible to run applications on the node, router retuning exceptions when creating UPNP mappings.';
+            dosMessage = 'Not possible to run applications on the node, router returning exceptions when creating UPNP ports mappings.';
           }
         }
         lastUPNPMapFailed = true;

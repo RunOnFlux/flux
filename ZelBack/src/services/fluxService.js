@@ -1,3 +1,4 @@
+/* global userconfig */
 const nodecmd = require('node-cmd');
 const path = require('path');
 const config = require('config');
@@ -23,7 +24,6 @@ const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const geolocationService = require('./geolocationService');
-const userconfig = require('../../../config/userconfig');
 
 /**
  * To show the directory on the node machine where FluxOS files are stored.
@@ -1124,7 +1124,7 @@ async function adjustKadenaAccount(req, res) {
 
       await fsPromises.writeFile(fluxDirPath, dataToWrite);
 
-      const successMessage = messageHelper.createSuccessMessage('Kadena account adjusted, FluxOs is restarting');
+      const successMessage = messageHelper.createSuccessMessage('Kadena account adjusted');
       res.json(successMessage);
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
@@ -1167,7 +1167,7 @@ async function adjustRouterIP(req, res) {
       const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
       await fsPromises.writeFile(fluxDirPath, dataToWrite);
 
-      const successMessage = messageHelper.createSuccessMessage('Router IP adjusted, FluxOs is restarting');
+      const successMessage = messageHelper.createSuccessMessage('Router IP adjusted');
       res.json(successMessage);
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
@@ -1220,7 +1220,7 @@ async function adjustBlockedPorts(req, res) {
           }`;
         const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
         await fsPromises.writeFile(fluxDirPath, dataToWrite);
-        const successMessage = messageHelper.createSuccessMessage('User Blocked Ports adjusted, FluxOs is restarting');
+        const successMessage = messageHelper.createSuccessMessage('User Blocked Ports adjusted');
         res.json(successMessage);
       });
     } else {
@@ -1275,7 +1275,7 @@ async function adjustAPIPort(req, res) {
       const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
       await fsPromises.writeFile(fluxDirPath, dataToWrite);
 
-      const successMessage = messageHelper.createSuccessMessage('API Port adjusted, FluxOs is restarting');
+      const successMessage = messageHelper.createSuccessMessage('API Port adjusted. A restart of FluxOS is necessary');
       res.json(successMessage);
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
@@ -1335,7 +1335,7 @@ async function adjustBlockedRepositories(req, res) {
         }`;
         const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
         await fsPromises.writeFile(fluxDirPath, dataToWrite);
-        const successMessage = messageHelper.createSuccessMessage('User Blocked Repositories adjusted, FluxOs is restarting');
+        const successMessage = messageHelper.createSuccessMessage('User Blocked Repositories adjusted');
         res.json(successMessage);
       });
     } else {
@@ -1402,6 +1402,32 @@ async function installFluxWatchTower() {
   }
 }
 
+/**
+ * Restart FluxOS via nodemon (executes the command `touch ` on package.json).
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function restartFluxOS(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    if (authorized === true) {
+      const exec = 'pm2 restart flux';
+      const cmdAsync = util.promisify(nodecmd.get);
+      await cmdAsync(exec);
+      log.info('Restarting FluxOS..');
+      const response = messageHelper.createDataMessage('Restarting FluxOS');
+      res.json(response);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
+}
+
 module.exports = {
   startDaemon,
   updateFlux,
@@ -1453,6 +1479,7 @@ module.exports = {
   getAPIPort,
   getBlockedRepositories,
   getMarketplaceURL,
+  restartFluxOS,
 
   // Exports for testing purposes
   fluxLog,

@@ -1,4 +1,5 @@
 /* eslint-disable no-underscore-dangle */
+global.userconfig = require('../../config/userconfig');
 const chai = require('chai');
 const sinon = require('sinon');
 const WebSocket = require('ws');
@@ -21,23 +22,10 @@ const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('../../ZelBack/src/services/utils/establishedConnections');
 
-const userconfig = {
-  initial: {
-    ipaddress: '83.52.214.240',
-    zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-    kadena: '123456789',
-    apiport: '16127',
-    routerIP: '',
-    testnet: true,
-    development: false,
-    pgpPrivateKey: '',
-    pgpPublicKey: '',
-    blockedPorts: [],
-    blockedRepositories: [],
-  },
-};
+const adminConfig = require('../../config/userconfig');
+
 const fluxNetworkHelper = proxyquire('../../ZelBack/src/services/fluxNetworkHelper',
-  { '../../../config/userconfig': userconfig });
+  { '../../../config/userconfig': adminConfig });
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
@@ -1320,7 +1308,7 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('should not write to file if the config already has same exact ip', () => {
-      const newIp = userconfig.initial.ipaddress;
+      const newIp = adminConfig.initial.ipaddress;
 
       fluxNetworkHelper.adjustExternalIP(newIp);
 

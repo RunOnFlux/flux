@@ -1,3 +1,4 @@
+global.userconfig = require('../../config/userconfig');
 const chai = require('chai');
 const sinon = require('sinon');
 const chaiAsPromised = require('chai-as-promised');
@@ -22,22 +23,7 @@ const packageJson = require('../../package.json');
 
 const fsPromises = fs.promises;
 
-const adminConfig = {
-  initial: {
-    ipaddress: '83.51.212.243',
-    zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-    kadena: '1234kadena',
-    cruxid: '12345678',
-    apiport: '5550',
-    routerIP: '',
-    testnet: true,
-    development: false,
-    pgpPrivateKey: '',
-    pgpPublicKey: '',
-    blockedPorts: [],
-    blockedRepositories: [],
-  },
-};
+const adminConfig = require('../../config/userconfig');
 
 const fluxService = proxyquire('../../ZelBack/src/services/fluxService',
   { '../../../config/userconfig': adminConfig });
@@ -2435,7 +2421,7 @@ describe('fluxService tests', () => {
       const expectedResponse = {
         data: {
           code: undefined,
-          message: 'Router IP adjusted, FluxOs is restarting',
+          message: 'Router IP adjusted',
           name: undefined,
         },
         status: 'success',
@@ -2525,7 +2511,7 @@ describe('fluxService tests', () => {
       const expectedResponse = {
         data: {
           code: undefined,
-          message: 'API Port adjusted, FluxOs is restarting',
+          message: 'API Port adjusted. A restart of FluxOS is necessary',
           name: undefined,
         },
         status: 'success',
@@ -2779,7 +2765,7 @@ describe('fluxService tests', () => {
       const expectedResponse = {
         data: {
           code: undefined,
-          message: 'Kadena account adjusted, FluxOs is restarting',
+          message: 'Kadena account adjusted',
           name: undefined,
         },
         status: 'success',
@@ -2822,7 +2808,7 @@ describe('fluxService tests', () => {
       const expectedResponse = {
         data: {
           code: undefined,
-          message: 'Kadena account adjusted, FluxOs is restarting',
+          message: 'Kadena account adjusted',
           name: undefined,
         },
         status: 'success',
