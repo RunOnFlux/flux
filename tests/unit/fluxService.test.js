@@ -2614,20 +2614,20 @@ describe('fluxService tests', () => {
         },
       };
       const expectedData = `module.exports = {
-        initial: {
-          ipaddress: '${adminConfig.initial.ipaddress || '127.0.0.1'}',
-          zelid: '${adminConfig.initial.zelid}',
-          kadena: '${adminConfig.initial.kadena || ''}',
-          testnet: ${adminConfig.initial.testnet || false},
-          development: ${adminConfig.initial.development || false},
-          apiport: ${Number(adminConfig.initial.apiport)},
-          routerIP: '${adminConfig.initial.routerIP || ''}',
-          pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
-          pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
-          blockedPorts: [12, 32],
-          blockedRepositories: ${JSON.stringify(adminConfig.initial.blockedRepositories || []).replace(/"/g, "'")},
-        }
-      }`;
+            initial: {
+              ipaddress: '${adminConfig.initial.ipaddress || '127.0.0.1'}',
+              zelid: '${adminConfig.initial.zelid}',
+              kadena: '${adminConfig.initial.kadena || ''}',
+              testnet: ${adminConfig.initial.testnet || false},
+              development: ${adminConfig.initial.development || false},
+              apiport: ${Number(adminConfig.initial.apiport)},
+              routerIP: '${adminConfig.initial.routerIP || ''}',
+              pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
+              pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
+              blockedPorts: [12,32],
+              blockedRepositories: ${JSON.stringify(adminConfig.initial.blockedRepositories || []).replace(/"/g, "'")},
+            }
+          }`;
       const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
 
       verifyPrivilegeStub.returns(true);
@@ -2703,7 +2703,7 @@ describe('fluxService tests', () => {
         on: sinon.stub(),
         method: 'POST',
       };
-      const postData = JSON.stringify({ blockedRepositories: ['blabla/test', 'ban/this'], });
+      const postData = JSON.stringify({ blockedRepositories: ['blabla/test','ban/this'], });
       const expectedResponse = {
         status: 'success',
         data: {
@@ -2713,20 +2713,20 @@ describe('fluxService tests', () => {
         },
       };
       const expectedData = `module.exports = {
-        initial: {
-          ipaddress: '${adminConfig.initial.ipaddress || '127.0.0.1'}',
-          zelid: '${adminConfig.initial.zelid}',
-          kadena: '${adminConfig.initial.kadena || ''}',
-          testnet: ${adminConfig.initial.testnet || false},
-          development: ${adminConfig.initial.development || false},
-          apiport: ${Number(adminConfig.initial.apiport)},
-          routerIP: '${adminConfig.initial.routerIP || ''}',
-          pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
-          pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
-          blockedPorts: ${JSON.stringify(adminConfig.initial.blockedRepositories || []).replace(/"/g, "'")},
-          blockedRepositories: ['blabla/test', 'ban/this'],
-        }
-      }`;
+            initial: {
+              ipaddress: '${adminConfig.initial.ipaddress || '127.0.0.1'}',
+              zelid: '${adminConfig.initial.zelid}',
+              kadena: '${adminConfig.initial.kadena || ''}',
+              testnet: ${adminConfig.initial.testnet || false},
+              development: ${adminConfig.initial.development || false},
+              apiport: ${Number(adminConfig.initial.apiport)},
+              routerIP: '${adminConfig.initial.routerIP || ''}',
+              pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
+              pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
+              blockedPorts: ${JSON.stringify(adminConfig.initial.blockedRepositories || []).replace(/"/g, "'")},
+              blockedRepositories: ['blabla/test','ban/this'],
+            }
+          }`;
       const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
 
       verifyPrivilegeStub.returns(true);
