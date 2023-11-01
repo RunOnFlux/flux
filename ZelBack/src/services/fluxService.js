@@ -1205,20 +1205,20 @@ async function adjustBlockedPorts(req, res) {
             throw new Error('Blocked Ports is not a valid array');
           }
           const dataToWrite = `module.exports = {
-              initial: {
-                ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-                zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
-                kadena: '${userconfig.initial.kadena || ''}',
-                testnet: ${userconfig.initial.testnet || false},
-                development: ${userconfig.initial.development || false},
-                apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
-                routerIP: '${userconfig.initial.routerIP || ''}',
-                pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
-                pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-                blockedPorts: ${JSON.stringify(blockedPorts || [])},
-                blockedRepositories: ${JSON.stringify(userconfig.initial.blockedRepositories || []).replace(/"/g, "'")},
-              }
-            }`;
+            initial: {
+              ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
+              zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
+              kadena: '${userconfig.initial.kadena || ''}',
+              testnet: ${userconfig.initial.testnet || false},
+              development: ${userconfig.initial.development || false},
+              apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
+              routerIP: '${userconfig.initial.routerIP || ''}',
+              pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
+              pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
+              blockedPorts: ${JSON.stringify(blockedPorts || [])},
+              blockedRepositories: ${JSON.stringify(userconfig.initial.blockedRepositories || []).replace(/"/g, "'")},
+            }
+          }`;
           const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
           await fsPromises.writeFile(fluxDirPath, dataToWrite);
           const successMessage = messageHelper.createSuccessMessage('User Blocked Ports adjusted');
