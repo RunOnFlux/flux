@@ -2570,64 +2570,71 @@ describe('fluxService tests', () => {
     });
 
     it('should return error if blockedPorts is not an array', async () => {
-      const res = generateResponse();
-      verifyPrivilegeStub.returns(true);
-      const req = {
-        blockedPorts: '12',
+      const mockRes = {
+        json: sinon.fake(),
+        status: sinon.stub().returnsThis(),
       };
-      const mockStream = new PassThrough();
-      mockStream.push(JSON.stringify(req));
-      mockStream.end();
+      const mockReq = {
+        on: sinon.stub(),
+        method: 'POST',
+      };
+      const postData = JSON.stringify({ blockedPorts: '12' });
       const expectedResponse = {
+        status: 'error',
         data: {
           code: undefined,
           message: 'Blocked Ports is not a valid array',
-          name: undefined,
+          name: 'Error',
         },
-        status: 'error',
       };
-      await fluxService.adjustBlockedPorts(mockStream, res);
 
-      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      verifyPrivilegeStub.returns(true);
+      mockReq.on.withArgs('data').yields(postData);
+      mockReq.on.withArgs('end').yields();
+      await fluxService.adjustBlockedPorts(mockReq, mockRes);
+      sinon.assert.calledOnceWithExactly(mockRes.json, expectedResponse);
     });
 
     it('should return a message when blockedPorts is proper and is adjusted ', async () => {
-      const res = generateResponse();
-      verifyPrivilegeStub.returns(true);
-      const req = {
-        blockedPorts: [12, 32],
+      const mockRes = {
+        json: sinon.fake(),
+        status: sinon.stub().returnsThis(),
       };
-      const mockStream = new PassThrough();
-      mockStream.push(JSON.stringify(req));
-      mockStream.end();
+      const mockReq = {
+        on: sinon.stub(),
+        method: 'POST',
+      };
+      const postData = JSON.stringify({ blockedPorts: [12,32] });
       const expectedResponse = {
+        status: 'success',
         data: {
           code: undefined,
-          message: 'User Blocked Ports adjusted, FluxOs is restarting',
+          message: 'User Blocked Ports adjusted',
           name: undefined,
         },
-        status: 'success',
       };
       const expectedData = `module.exports = {
-        initial: {
-          ipaddress: '${adminConfig.initial.ipaddress || '127.0.0.1'}',
-          zelid: '${adminConfig.initial.zelid}',
-          kadena: '${adminConfig.initial.kadena || ''}',
-          testnet: ${adminConfig.initial.testnet || false},
-          development: ${adminConfig.initial.development || false},
-          apiport: ${Number(adminConfig.initial.apiport)},
-          routerIP: '${adminConfig.initial.routerIP || ''}',
-          pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
-          pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
-          blockedPorts: [12, 32],
-          blockedRepositories: ${JSON.stringify(adminConfig.initial.blockedRepositories || []).replace(/"/g, "'")},
-        }
-      }`;
+            initial: {
+              ipaddress: '${adminConfig.initial.ipaddress || '127.0.0.1'}',
+              zelid: '${adminConfig.initial.zelid}',
+              kadena: '${adminConfig.initial.kadena || ''}',
+              testnet: ${adminConfig.initial.testnet || false},
+              development: ${adminConfig.initial.development || false},
+              apiport: ${Number(adminConfig.initial.apiport)},
+              routerIP: '${adminConfig.initial.routerIP || ''}',
+              pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
+              pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
+              blockedPorts: [12,32],
+              blockedRepositories: ${JSON.stringify(adminConfig.initial.blockedRepositories || []).replace(/"/g, "'")},
+            }
+          }`;
       const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
 
-      await fluxService.adjustBlockedPorts(mockStream, res);
-
-      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      verifyPrivilegeStub.returns(true);
+      mockReq.on.withArgs('data').yields(postData);
+      mockReq.on.withArgs('end').yields();
+      await fluxService.adjustBlockedPorts(mockReq, mockRes);
+      sinon.assert.calledOnceWithExactly(mockRes.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(fsPromisesSpy, fluxDirPath, expectedData);
     });
   });
@@ -2662,64 +2669,71 @@ describe('fluxService tests', () => {
     });
 
     it('should return error if blockedRepositories is not an array', async () => {
-      const res = generateResponse();
-      verifyPrivilegeStub.returns(true);
-      const req = {
-        blockedPorts: '12',
+      const mockRes = {
+        json: sinon.fake(),
+        status: sinon.stub().returnsThis(),
       };
-      const mockStream = new PassThrough();
-      mockStream.push(JSON.stringify(req));
-      mockStream.end();
+      const mockReq = {
+        on: sinon.stub(),
+        method: 'POST',
+      };
+      const postData = JSON.stringify({ blockedRepositories: 'lol/test' });
       const expectedResponse = {
+        status: 'error',
         data: {
           code: undefined,
           message: 'Blocked Repositories is not a valid array',
-          name: undefined,
+          name: 'Error',
         },
-        status: 'error',
       };
-      await fluxService.adjustBlockedRepositories(mockStream, res);
 
-      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      verifyPrivilegeStub.returns(true);
+      mockReq.on.withArgs('data').yields(postData);
+      mockReq.on.withArgs('end').yields();
+      await fluxService.adjustBlockedRepositories(mockReq, mockRes);
+      sinon.assert.calledOnceWithExactly(mockRes.json, expectedResponse);
     });
 
     it('should return a message when blockedRepositories is proper and is adjusted ', async () => {
-      const res = generateResponse();
-      verifyPrivilegeStub.returns(true);
-      const req = {
-        blockedRepositories: ['blabla/test', 'ban/this'],
+      const mockRes = {
+        json: sinon.fake(),
+        status: sinon.stub().returnsThis(),
       };
-      const mockStream = new PassThrough();
-      mockStream.push(JSON.stringify(req));
-      mockStream.end();
+      const mockReq = {
+        on: sinon.stub(),
+        method: 'POST',
+      };
+      const postData = JSON.stringify({ blockedRepositories: ['blabla/test','ban/this'], });
       const expectedResponse = {
+        status: 'success',
         data: {
           code: undefined,
-          message: 'User Blocked Repositories adjusted, FluxOs is restarting',
+          message: 'User Blocked Repositories adjusted',
           name: undefined,
         },
-        status: 'success',
       };
       const expectedData = `module.exports = {
-        initial: {
-          ipaddress: '${adminConfig.initial.ipaddress || '127.0.0.1'}',
-          zelid: '${adminConfig.initial.zelid}',
-          kadena: '${adminConfig.initial.kadena || ''}',
-          testnet: ${adminConfig.initial.testnet || false},
-          development: ${adminConfig.initial.development || false},
-          apiport: ${Number(adminConfig.initial.apiport)},
-          routerIP: '${adminConfig.initial.routerIP || ''}',
-          pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
-          pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
-          blockedPorts: ${JSON.stringify(adminConfig.initial.blockedRepositories || []).replace(/"/g, "'")},
-          blockedRepositories: ['blabla/test', 'ban/this'],
-        }
-      }`;
+            initial: {
+              ipaddress: '${adminConfig.initial.ipaddress || '127.0.0.1'}',
+              zelid: '${adminConfig.initial.zelid}',
+              kadena: '${adminConfig.initial.kadena || ''}',
+              testnet: ${adminConfig.initial.testnet || false},
+              development: ${adminConfig.initial.development || false},
+              apiport: ${Number(adminConfig.initial.apiport)},
+              routerIP: '${adminConfig.initial.routerIP || ''}',
+              pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
+              pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
+              blockedPorts: ${JSON.stringify(adminConfig.initial.blockedRepositories || []).replace(/"/g, "'")},
+              blockedRepositories: ['blabla/test','ban/this'],
+            }
+          }`;
       const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
 
-      await fluxService.adjustBlockedRepositories(mockStream, res);
-
-      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+      verifyPrivilegeStub.returns(true);
+      mockReq.on.withArgs('data').yields(postData);
+      mockReq.on.withArgs('end').yields();
+      await fluxService.adjustBlockedRepositories(mockReq, mockRes);
+      sinon.assert.calledOnceWithExactly(mockRes.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(fsPromisesSpy, fluxDirPath, expectedData);
     });
   });
