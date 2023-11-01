@@ -1194,34 +1194,44 @@ async function adjustBlockedPorts(req, res) {
         body += data;
       });
       req.on('end', async () => {
-        if (!body) {
-          throw new Error('Missing Blocked Ports Information.');
+        try {
+          if (!body) {
+            throw new Error('Missing Blocked Ports Information.');
+          }
+          const processedBody = serviceHelper.ensureObject(body);
+          const { blockedPorts } = processedBody;
+          log.info(`blockedPorts: ${JSON.stringify(blockedPorts)}`);
+          if (!Array.isArray(blockedPorts)) {
+            throw new Error('Blocked Ports is not a valid array');
+          }
+          const dataToWrite = `module.exports = {
+              initial: {
+                ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
+                zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
+                kadena: '${userconfig.initial.kadena || ''}',
+                testnet: ${userconfig.initial.testnet || false},
+                development: ${userconfig.initial.development || false},
+                apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
+                routerIP: '${userconfig.initial.routerIP || ''}',
+                pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
+                pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
+                blockedPorts: ${JSON.stringify(blockedPorts || [])},
+                blockedRepositories: ${JSON.stringify(userconfig.initial.blockedRepositories || []).replace(/"/g, "'")},
+              }
+            }`;
+          const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
+          await fsPromises.writeFile(fluxDirPath, dataToWrite);
+          const successMessage = messageHelper.createSuccessMessage('User Blocked Ports adjusted');
+          res.json(successMessage);
+        } catch (error) {
+          log.error(error);
+          const errorResponse = messageHelper.createErrorMessage(
+            error.message || error,
+            error.name,
+            error.code,
+          );
+          res.json(errorResponse);
         }
-        const processedBody = serviceHelper.ensureObject(body);
-        const { blockedPorts } = processedBody;
-        log.info(`blockedPorts: ${JSON.stringify(blockedPorts)}`);
-        if (!Array.isArray(blockedPorts)) {
-          throw new Error('Blocked Ports is not a valid array');
-        }
-        const dataToWrite = `module.exports = {
-            initial: {
-              ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-              zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
-              kadena: '${userconfig.initial.kadena || ''}',
-              testnet: ${userconfig.initial.testnet || false},
-              development: ${userconfig.initial.development || false},
-              apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
-              routerIP: '${userconfig.initial.routerIP || ''}',
-              pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
-              pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-              blockedPorts: ${JSON.stringify(blockedPorts || [])},
-              blockedRepositories: ${JSON.stringify(userconfig.initial.blockedRepositories || []).replace(/"/g, "'")},
-            }
-          }`;
-        const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
-        await fsPromises.writeFile(fluxDirPath, dataToWrite);
-        const successMessage = messageHelper.createSuccessMessage('User Blocked Ports adjusted');
-        res.json(successMessage);
       });
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
@@ -1302,41 +1312,51 @@ async function adjustBlockedRepositories(req, res) {
         body += data;
       });
       req.on('end', async () => {
-        if (!body) {
-          throw new Error('Missing Blocked Repositories Information.');
-        }
-        log.info(`body: ${JSON.stringify(body)}`);
-        const processedBody = serviceHelper.ensureObject(body);
-        const { blockedRepositories } = processedBody;
-        log.info(`blockedRepositories: ${JSON.stringify(blockedRepositories)}`);
-        if (!Array.isArray(blockedRepositories)) {
-          throw new Error('Blocked Repositories is not a valid array');
-        }
-        blockedRepositories.forEach((parameter) => {
-          if (typeof parameter !== 'string') {
-            throw new Error('Blocked Repositories are invalid');
+        try {
+          if (!body) {
+            throw new Error('Missing Blocked Repositories Information.');
           }
-        });
+          log.info(`body: ${JSON.stringify(body)}`);
+          const processedBody = serviceHelper.ensureObject(body);
+          const { blockedRepositories } = processedBody;
+          log.info(`blockedRepositories: ${JSON.stringify(blockedRepositories)}`);
+          if (!Array.isArray(blockedRepositories)) {
+            throw new Error('Blocked Repositories is not a valid array');
+          }
+          blockedRepositories.forEach((parameter) => {
+            if (typeof parameter !== 'string') {
+              throw new Error('Blocked Repositories are invalid');
+            }
+          });
 
-        const dataToWrite = `module.exports = {
-          initial: {
-            ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-            zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
-            kadena: '${userconfig.initial.kadena || ''}',
-            testnet: ${userconfig.initial.testnet || false},
-            development: ${userconfig.initial.development || false},
-            apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
-            routerIP: '${userconfig.initial.routerIP || ''}',
-            pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
-            pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-            blockedPorts: ${JSON.stringify(userconfig.initial.blockedPorts || [])},
-            blockedRepositories: ${JSON.stringify(blockedRepositories || []).replace(/"/g, "'")},
-          }
-        }`;
-        const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
-        await fsPromises.writeFile(fluxDirPath, dataToWrite);
-        const successMessage = messageHelper.createSuccessMessage('User Blocked Repositories adjusted');
-        res.json(successMessage);
+          const dataToWrite = `module.exports = {
+            initial: {
+              ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
+              zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
+              kadena: '${userconfig.initial.kadena || ''}',
+              testnet: ${userconfig.initial.testnet || false},
+              development: ${userconfig.initial.development || false},
+              apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
+              routerIP: '${userconfig.initial.routerIP || ''}',
+              pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
+              pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
+              blockedPorts: ${JSON.stringify(userconfig.initial.blockedPorts || [])},
+              blockedRepositories: ${JSON.stringify(blockedRepositories || []).replace(/"/g, "'")},
+            }
+          }`;
+          const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
+          await fsPromises.writeFile(fluxDirPath, dataToWrite);
+          const successMessage = messageHelper.createSuccessMessage('User Blocked Repositories adjusted');
+          res.json(successMessage);
+        } catch (error) {
+          log.error(error);
+          const errorResponse = messageHelper.createErrorMessage(
+            error.message || error,
+            error.name,
+            error.code,
+          );
+          res.json(errorResponse); 
+        }
       });
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
