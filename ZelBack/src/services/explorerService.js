@@ -710,7 +710,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
       if (blockDataVerbose.height === config.sentinelActivation) {
         try {
           const databaseTemp = db.db(config.database.appsglobal.database);
-          await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ broadcastedAt: 1 });
+          await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ removedBroadcastedAt: 1 }, { expireAfterSeconds: 2592000 });
         } catch (error) {
           log.error(error);
         }
