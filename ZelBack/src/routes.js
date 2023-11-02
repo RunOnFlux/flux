@@ -326,7 +326,7 @@ module.exports = (app, expressWs) => {
   app.get('/apps/location/:appname?', cache('30 seconds'), (req, res) => {
     appsService.getAppsLocation(req, res);
   });
-  app.get('/apps/locationssince/:broadcastedsince?', cache('30 seconds'), (req, res) => {
+  app.get('/apps/locationssince/:broadcastedsince?', cache('60 seconds'), (req, res) => {
     appsService.getAppsLocationsBroadcastedSince(req, res);
   });
   app.get('/apps/locations', cache('30 seconds'), (req, res) => {
