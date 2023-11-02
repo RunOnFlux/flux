@@ -967,6 +967,9 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       await database.collection(config.database.appsglobal.collections.appsLocations).createIndex({
         name: 1, ip: 1, broadcastedAt: 1, removedBroadcastedAt: 1,
       }, { name: 'query for getting all apps, including the ones that were removed from nodes in the last 30 days' });
+      await database.collection(config.database.appsglobal.collections.appsLocations).createIndex({ broadcastedAt: 1 }, { name: 'query for getting max broadcastedAt for apps locations' });
+      await database.collection(config.database.appsglobal.collections.appsLocations).createIndex({ removedBroadcastedAt: 1 }, { name: 'query for getting max removedBroadcastedAt for apps locations' });
+      await database.collection(config.database.appsglobal.collections.appsLocations).createIndex({ broadcastedAt: 1, removedBroadcastedAt: 1 }, { name: 'query for getting since broadcasted for apps locations' });
       // what if 2 app adjustment come in the same block?
       // log.info(resultE, resultF);
       log.info('Preparation done');
