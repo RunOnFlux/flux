@@ -6251,7 +6251,7 @@ async function storeAppRunningMessage(message) {
       hash: app.hash, // hash of application specifics that are running
       ip: message.ip,
       broadcastedAt: new Date(message.broadcastedAt),
-      expireAt: new Date(validTill),
+      expireAt: null,
       removedBroadcastedAt: null,
     };
 
@@ -6370,6 +6370,8 @@ async function storeAppRemovedMessage(message) {
     return false;
   }
 
+  const expireAt = message.broadcastedAt + (30 * 24 * 60 * 1000); // 30 days
+
   const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
   const daemonHeight = syncStatus.data.height || 0;
   const db = dbHelper.databaseConnection();
@@ -6382,7 +6384,7 @@ async function storeAppRemovedMessage(message) {
     const appRunningMessage = {
       name: message.appName,
       ip: message.ip,
-      expireAt: new Date(validTill),
+      expireAt: new Date(expireAt),
       removedBroadcastedAt: new Date(message.broadcastedAt),
     };
 
@@ -8184,6 +8186,45 @@ async function getAppsLocation(req, res) {
 }
 
 /**
+ * To get apps locations received since
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function getAppsLocationsBroadcastedSince(req, res) {
+  try {
+    let { broadcastedsince } = req.broadcastedsince;
+    broadcastedsince = broadcastedsince || req.query.broadcastedsince;
+    let query = {};
+    if (broadcastedsince) {
+      query = { broadcatedAt: { $gte: broadcastedsince }, removedBroadcastedAt: { $gte: broadcastedsince } };
+    }
+    const dbopen = dbHelper.databaseConnection();
+    const database = dbopen.db(config.database.appsglobal.database);
+    const projection = {
+      projection: {
+        _id: 0,
+        name: 1,
+        hash: 1,
+        ip: 1,
+        broadcastedAt: 1,
+        removedBroadcastedAt: 1,
+        expireAt: 1,
+      },
+    };
+    const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
+    const resultsResponse = messageHelper.createDataMessage(results);
+    res.json(resultsResponse);
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+/**
  * To get all global app names.
  * @param {array} proj Array of wanted projection to get, If not submitted, all fields.
  * @returns {string[]} Array of app specifications or an empty array if an error is caught.
@@ -8256,6 +8297,44 @@ async function getRunningAppList(appName) {
   };
   const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
   return results;
+}
+
+/**
+ * To get the max value of broadcastedAt from app list.
+ * @returns {broadcastedAt} broadcastedAt with max value.
+ */
+async function getMaxBroadcastedAtAppList() {
+  const dbopen = dbHelper.databaseConnection();
+  const database = dbopen.db(config.database.appsglobal.database);
+  const query = {};
+  const projection = {
+    projection: {
+      _id: 0,
+      broadcastedAt: 1,
+    },
+  };
+  const sort = { broadcastedAt: -1 };
+  const result = await dbHelper.findMaxInDatabase(database, globalAppsLocations, query, projection, sort);
+  return result.broadcastedAt;
+}
+
+/**
+ * To get the max value of removedBroadcastedAt from app list.
+ * @returns {removedBroadcastedAt} removedBroadcastedAt with max value.
+ */
+async function getMaxRemovedBroadcastedAtAppList() {
+  const dbopen = dbHelper.databaseConnection();
+  const database = dbopen.db(config.database.appsglobal.database);
+  const query = {};
+  const projection = {
+    projection: {
+      _id: 0,
+      removedBroadcastedAt: 1,
+    },
+  };
+  const sort = { removedBroadcastedAt: -1 };
+  const result = await dbHelper.findMaxInDatabase(database, globalAppsLocations, query, projection, sort);
+  return result.removedBroadcastedAt;
 }
 
 /**
@@ -10796,6 +10875,7 @@ async function updateAppsRunningOnNodeIP(ip, appsRunning) {
       ip: fixedIp,
       broadcastedAt: new Date(),
       removedBroadcastedAt: null,
+      expireAt: null,
     };
     const queryUpdate = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
     const update = { $set: newAppRunningMessage };
@@ -10830,6 +10910,37 @@ async function removeAppsRunningOnNodeIP(ip) {
   const update = { $set: { removedBroadcastedAt: new Date() } };
   // eslint-disable-next-line no-await-in-loop
   await dbHelper.updateInDatabase(database, globalAppsLocations, queryUpdate, update);
+}
+
+/**
+ * To remove from DB that the IP is running any app.
+ * @param {array} data with appsLocation information to be inserted on database;
+ */
+async function importAppsLocations(data) {
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  for (let i = 0; i < data.length; i += 1) {
+    try {
+      const app = data[i];
+      const newAppRunningMessage = {
+        name: app.name,
+        hash: app.hash, // hash of application specifics that are running
+        ip: app.ip,
+        broadcastedAt: app.broadcastedAt,
+        removedBroadcastedAt: app.removedBroadcastedAt,
+        expireAt: app.expireAt,
+      };
+      const queryUpdate = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
+      const update = { $set: newAppRunningMessage };
+      const options = {
+        upsert: true,
+      };
+      // eslint-disable-next-line no-await-in-loop
+      await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
+    } catch (error) {
+      log.error(error);
+    }
+  }
 }
 
 function removalInProgressReset() {
@@ -10947,6 +11058,10 @@ module.exports = {
   broadcastAppsRunning,
   updateAppsRunningOnNodeIP,
   removeAppsRunningOnNodeIP,
+  getMaxBroadcastedAtAppList,
+  getMaxRemovedBroadcastedAtAppList,
+  getAppsLocationsBroadcastedSince,
+  importAppsLocations,
 
   // exports for testing purposes
   setAppsMonitored,

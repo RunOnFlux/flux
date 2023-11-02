@@ -739,9 +739,11 @@ async function addOutgoingPeer(req, res) {
 /**
  * To discover and connect to other randomly selected FluxNodes. Maintains connections with 1-2% of nodes on the Flux network. Ensures that FluxNode connections are not duplicated.
  */
+let fluxDiscoveryFirstRun = true;
 async function fluxDiscovery() {
   try {
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    const daemonHeight = syncStatus.data.height || 0;
     if (!syncStatus.data.synced) {
       throw new Error('Daemon not yet synced. Flux discovery is awaiting.');
     }
@@ -773,6 +775,24 @@ async function fluxDiscovery() {
       sortedNodeListCache.set('sortedNodeList', sortedNodeList);
       log.info('sortedNodeList stored in cache');
     }
+    if (fluxDiscoveryFirstRun && daemonHeight >= config.sentinelActivation) {
+      // eslint-disable-next-line global-require
+      const appsService = require('./appsService');
+      let broadcastedSince = await appsService.getMaxBroadcastedAtAppList();
+      const maxRemovedBroadcastedAt = await appsService.getMaxRemovedBroadcastedAtAppList();
+      if (maxRemovedBroadcastedAt > broadcastedSince) {
+        broadcastedSince = maxRemovedBroadcastedAt;
+      }
+      if (broadcastedSince && broadcastedSince < new Date() - (20 * 24 * 60 * 60 * 1000)) {
+        broadcastedSince = null;
+      }
+      setTimeout(() => {
+        // eslint-disable-next-line global-require
+        const fluxService = require('./fluxService');
+        fluxService.updateAppsLocationsAtStartup(myIP.split(':')[0], nodeList, broadcastedSince);
+      }, 2 * 60 * 1000);
+    }
+    fluxDiscoveryFirstRun = false;
     log.info('Searching for my node on sortedNodeList');
     const fluxNodeIndex = sortedNodeList.findIndex((node) => node.ip === myIP);
     log.info(`My node was found on index: ${fluxNodeIndex} of ${sortedNodeList.length} nodes`);

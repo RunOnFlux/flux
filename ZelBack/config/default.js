@@ -78,7 +78,7 @@ module.exports = {
   minimumFluxOSAllowedVersion: '4.5.0',
   fluxTeamZelId: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
   deterministicNodesStart: 558000,
-  sentinelActivation: 1504000, // daemon block height when sentinel work will start on nodes
+  sentinelActivation: 1522000, // daemon block height when sentinel work will start on nodes (November 23 2023)
   fluxapps: {
     // in flux main chain per month (blocksLasting)
     price: [{ // any price fork can be done by adjusting object similarily.

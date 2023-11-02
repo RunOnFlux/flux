@@ -86,6 +86,22 @@ async function findInDatabase(database, collection, query, projection) {
 }
 
 /**
+ * Returns row with one element sorted by max value.
+ *
+ * @param {string} database
+ * @param {string} collection
+ * @param {object} query
+ * @param {object} sort
+ * @param {object} [projection]
+ *
+ * @returns row object
+ */
+async function findMaxInDatabase(database, collection, query, projection, sort) {
+  const results = await database.collection(collection).find(query, projection).sort(sort).limit(1);
+  return results;
+}
+
+/**
  * Returns document from the DB based on the query and the projection.
  *
  * @param {string} database
@@ -266,4 +282,5 @@ module.exports = {
   collectionStats,
   closeDbConnection,
   insertManyToDatabase,
+  findMaxInDatabase,
 };

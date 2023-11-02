@@ -1135,8 +1135,76 @@ async function installFluxWatchTower() {
 }
 
 /**
+ * Function responsable to update appsLocations database on fluxNodeStartup
+ * @param {string} myIP my node ip without port information.
+ * @param {array[]} nodeList.
+ * @param {number} timestamp with the time from that the node needs information or null if all data is needed.
+ */
+async function updateAppsLocationsAtStartup(myIP, nodeList, broadcasteSince) {
+  try {
+    let maxUptime = 0;
+    let auxAskingIP = null;
+    let auxAskingIPPort = null;
+    const timeout = 10000;
+    const axiosConfig = {
+      timeout,
+    };
+    for (let i = 0; i < 20; i += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      let askingIP = await fluxNetworkHelper.getRandomConnection();
+      if (!askingIP) {
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      let askingIpPort = config.server.apiport;
+      if (askingIP.includes(':')) { // has port specification
+        // it has port specification
+        const splittedIP = askingIP.split(':');
+        askingIP = splittedIP[0];
+        askingIpPort = splittedIP[1];
+      }
+      if (myIP === askingIP) {
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      const urlToConnect = `${askingIP}:${askingIpPort}`;
+      // eslint-disable-next-line no-await-in-loop
+      const resUptime = await axios.get(`http://${urlToConnect}/flux/uptime`, axiosConfig).catch(async (error) => {
+        log.error(`updateAppsLocationsAtStartup - ${urlToConnect} for flux uptime is not reachable`);
+        log.error(error);
+      });
+      if (resUptime && resUptime.data.status === 'success') {
+        const uptimeReturned = resUptime.data.data;
+        if (uptimeReturned > maxUptime) {
+          maxUptime = uptimeReturned;
+          auxAskingIP = askingIP;
+          auxAskingIPPort = askingIpPort;
+        }
+      }
+    }
+    if (maxUptime < 1800) {
+      return updateAppsLocationsAtStartup(myIP, nodeList, broadcasteSince);
+    }
+    const urlToConnect = `${auxAskingIP}:${auxAskingIPPort}`;
+    const resApps = await axios.get(`http://${urlToConnect}/apps/locationssince/${broadcasteSince}`, axiosConfig).catch(async (error) => {
+      log.error(`updateAppsLocationsAtStartup - ${urlToConnect} for apps locations is not reachable`);
+      log.error(error);
+    });
+    if (resApps && resApps.data.status === 'success') {
+      await appsService.importAppsLocations(resApps.data.data);
+      return true;
+    }
+    return updateAppsLocationsAtStartup(myIP, nodeList, broadcasteSince);
+  } catch (error) {
+    log.error(`updateAppsLocationsAtStartup - Error: ${error}`);
+    await serviceHelper.delay(2 * 60 * 100);
+    return updateAppsLocationsAtStartup(myIP, nodeList, broadcasteSince);
+  }
+}
+
+/**
  * Function responsable for check if a node is already reachable after first connection failure, if continues down, broadcast to the network a message telling the node is down
- * @param {urlToConnect} req ip port bomcination of the node.
+ * @param {string} urlToConnect ip port combination of the node.
  */
 async function sentinelDoubleCheck(urlToConnect) {
   try {
@@ -1300,6 +1368,7 @@ module.exports = {
   isStaticIPapi,
   getFluxGeolocation,
   sentinel,
+  updateAppsLocationsAtStartup,
 
   // Exports for testing purposes
   fluxLog,
