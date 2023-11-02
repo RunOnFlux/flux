@@ -195,7 +195,7 @@ function isPortUPNPBanned(port) {
  */
 async function isPortOpen(ip, port) {
   try {
-    // requirest netcat tool
+    // require netcat tool
     const exec = `nc -w 5 -z -v ${ip} ${port} </dev/null; echo $?`;
     const cmdAsync = util.promisify(nodecmd.get);
     const result = await cmdAsync(exec);
