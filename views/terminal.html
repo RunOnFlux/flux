@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Terminal</title>
+    <link href="https://cdn.jsdelivr.net/npm/xterm-js@4.9.0/css/xterm.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/xterm-js@4.9.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-attach@0.6.0/lib/xterm-addon-attach.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.5.0/lib/xterm-addon-fit.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-serialize@0.11.0/lib/xterm-addon-serialize.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-unicode11@0.6.0/lib/xterm-addon-unicode11.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.5.1/lib/xterm-addon-web-links.min.js"></script>
+    <script src="https://code.jquery.com/jquery-1.12.4.js" integrity="sha256-Qw82+bXyGq6MydymqBxNPYTaUXXq7c8v3CwiYwLLNXU=" crossorigin="anonymous"></script>
+    <script src="https://cdn.socket.io/4.3.1/socket.io.js"></script>
+    <style>
+        html::-webkit-scrollbar,
+        body::-webkit-scrollbar,
+        div::-webkit-scrollbar {
+            display: none;
+            width: 0;
+        }
+
+        html,
+        body {
+            margin: 0;
+            overflow: hidden;
+            padding: 0;
+        }
+
+        div#terminal {
+            height: 100%;
+            left: 0;
+            position: absolute;
+            top: 0;
+            width: 100%;
+        }
+
+        div#terminal div {
+            height: 100%;
+        }
+
+        .xterm-viewport,
+        .xterm-screen {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+
+        .terminal.xterm {
+            padding: 8px;
+        }
+    </style>
+</head>
+
+<body>
+<div id="terminal-container">
+    <div>
+        <label for="containerId">Container ID:</label>
+        <input type="text" id="containerId" placeholder="Enter Container ID">
+        <button id="connectButton" onclick="connectTerminal()">Connect</button>
+        <button id="disconnectButton" onclick="disconnectTerminal()" style="display: none;">Disconnect</button>
+    </div>
+</div>
+
+<script>
+
+//    document.getElementById("connectButton").addEventListener("click", function () {
+//        var containerId = document.getElementById("containerId").value;
+//        if (containerId.trim() !== "") {
+//            createTerminal(containerId);
+//        }
+//    });
+
+
+
+    var connectButton = document.getElementById("connectButton");
+    var disconnectButton = document.getElementById("disconnectButton");
+    var terminal;
+    var socket;
+
+
+    function connectTerminal(containerId) {
+
+
+        var containerId = document.getElementById("containerId").value;
+
+        if (containerId.trim() === "") {
+            return;
+        }
+
+
+         terminal = new Terminal({
+            screenKeys: true,
+            useStyle: true,
+            cursorBlink: true,
+            cursorStyle: 'bar',
+            fullscreenWin: true,
+            maximizeWin: true,
+            screenReaderMode: true,
+            cols: 128,
+            theme: {
+                foreground: 'white',
+                background: 'black',
+                cursor: 'help',
+                lineHeight: 16,
+            },
+        });
+
+        var id = window.location.pathname.split('/')[3];
+        var host = window.location.origin;
+        socket = io.connect(host);
+
+        socket.emit('exec', id, $('#terminal-container').width(), $('#terminal-container').height());
+
+        terminal.open(document.getElementById("terminal-container"));
+        var attachAddon = new AttachAddon.AttachAddon(socket);
+        var fitAddon = new FitAddon.FitAddon();
+        terminal.loadAddon(fitAddon);
+        var webLinksAddon = new WebLinksAddon.WebLinksAddon();
+        terminal.loadAddon(webLinksAddon);
+        var unicode11Addon = new Unicode11Addon.Unicode11Addon();
+        terminal.loadAddon(unicode11Addon);
+        var serializeAddon = new SerializeAddon.SerializeAddon();
+        terminal.loadAddon(serializeAddon);
+        terminal.loadAddon(attachAddon);
+        terminal._initialized = true;
+        terminal.focus();
+
+        setTimeout(function () {
+            fitAddon.fit();
+            socket.emit('cmd', "export TERM=xterm\n");
+            socket.emit('cmd', "PS1=\"\\[\\033[01;31m\\]\\u\\[\\033[01;33m\\]@\\[\\033[01;36m\\]\\h \\[\\033[01;33m\\]\\w \\[\\033[01;35m\\]\\$ \\[\\033[00m\\]\"\n");
+            socket.emit('cmd', "alias ls='ls --color'\n");
+            socket.emit('cmd', "alias ll='ls -alF'\n");
+            socket.emit('cmd', "clear\n");
+
+        },0);
+
+
+        terminal.onResize(function (event) {
+            var rows = event.rows;
+            var cols = event.cols;
+            console.log('resizing to', { cols: cols, rows: rows + 1 });
+            socket.emit('resize', { cols: cols, rows: rows + 1 });
+        });
+
+        terminal.onTitleChange(function (event) {
+            console.log(event);
+        });
+
+        window.onresize = function () {
+            fitAddon.fit();
+        };
+
+        terminal.onData((data) => {
+            socket.emit('cmd', data);
+        });
+        socket.on('show', (data) => {
+            terminal.write(data);
+        });
+
+        socket.on('end', (status) => {
+            disconnectTerminal();
+            terminal.write('\r\n\nConnection has been terminated from the server-side...\n');
+        });
+
+            connectButton.style.display = "none";
+            disconnectButton.style.display = "inline";
+    }
+
+    function disconnectTerminal() {
+        socket.disconnect();
+        if (terminal) {
+            terminal.dispose();
+            terminal = null;
+        }
+        connectButton.style.display = "inline";
+        disconnectButton.style.display = "none";
+    }
+</script>
+</body>
+</html>

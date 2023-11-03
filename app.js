@@ -13,6 +13,7 @@ const nodecmd = require('node-cmd');
 const express = require('express');
 const app = require('./ZelBack/src/lib/server');
 const log = require('./ZelBack/src/lib/log');
+const socket = require('./src/lib/socket');
 const serviceManager = require('./ZelBack/src/services/serviceManager');
 const upnpService = require('./ZelBack/src/services/upnpService');
 const hash = require('object-hash');
@@ -23,6 +24,8 @@ const apiPort = userconfig.initial.apiport || config.server.apiport;
 const homePort = +apiPort - 1;
 const apiPortHttps = +apiPort + 1;
 let initialHash = hash(fs.readFileSync(path.join(__dirname, '/config/userconfig.js')));
+
+socket.initIO(app);
 
 async function configReload() {
   try {

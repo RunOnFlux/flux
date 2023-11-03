@@ -1330,11 +1330,17 @@
               >
                 Execute Commands
               </b-button>
+              <b-button
+                :id="`execute-terminal-${component.name}_${appSpecification.name}`"
+                v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                variant="success"
+                aria-label="Execute Commands"
+                class="mx-1 my-1"
+                @click="getConsole(`${component.name}_${appSpecification.name}`)"
+              >
+                Connect
+              </b-button>
               <div v-if="commandExecuting">
-                <v-icon
-                  class="spin-icon"
-                  name="spinner"
-                />
               </div>
               <b-form-textarea
                 v-if="callResponse.data && callResponse.data[0] && callResponse.data.find((d) => d.name === `${component.name}_${appSpecification.name}`)"
@@ -1383,6 +1389,16 @@
               @click="appExecute(appSpecification.name)"
             >
               Execute Commands
+            </b-button>
+            <b-button
+                :id="`execute-terminal-${component.name}_${appSpecification.name}`"
+                v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                variant="success"
+                aria-label="Execute Commands"
+                class="mx-1 my-1"
+                @click="getConsole(`${appSpecification.name}`)"
+              >
+                Connect
             </b-button>
             <div v-if="commandExecuting">
               <v-icon
@@ -4803,6 +4819,26 @@ export default {
         }
       } catch (error) {
         this.commandExecuting = false;
+        console.log(error);
+        this.showToast('danger', error.message || error);
+      }
+    },
+
+    async getConsole(name = this.appSpecification.name) {
+      try {
+        const zelidauth = localStorage.getItem('zelidauth');
+        const axiosConfig = {
+          headers: {
+            zelidauth,
+        },
+        // eslint-disable-next-line no-await-in-loop
+        const response = await AppsService.justAPI().get(`/console/${component.name}_${this.appSpecification.name}`, axiosConfig);
+        if (response.data.status === 'error') {
+          this.showToast('danger', response.data.data.message || response.data.data);
+        }
+        this.showToast('success', 'Created Interactive Terminal');
+
+      } catch (error) {
         console.log(error);
         this.showToast('danger', error.message || error);
       }

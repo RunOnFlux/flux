@@ -34,6 +34,11 @@ function isLocal(req, res, next) {
 const cache = apicache.middleware;
 
 module.exports = (app, expressWs) => {
+
+  app.get('/console/:id', (req, res) => {
+    res.sendFile(path.join(__dirname, '/views/index.html'))
+  }); 
+
   // GET PUBLIC methods
   app.get('/daemon/help/:command?', cache('1 hour'), (req, res) => { // accept both help/command and ?command=getinfo. If ommited, default help will be displayed. Other calls works in similar way
     daemonServiceControlRpcs.help(req, res);
