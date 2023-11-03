@@ -36,7 +36,7 @@ const cache = apicache.middleware;
 module.exports = (app, expressWs) => {
 
   app.get('/console/:id', (req, res) => {
-    res.sendFile(path.join(__dirname, '/views/index.html'))
+    res.sendFile(path.join(__dirname, '/views/terminal.html'))
   }); 
 
   // GET PUBLIC methods
