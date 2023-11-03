@@ -4830,7 +4830,8 @@ export default {
         const axiosConfig = {
           headers: {
             zelidauth,
-        },
+          },
+        };
         // eslint-disable-next-line no-await-in-loop
         const response = await AppsService.justAPI().get(`/console/${component.name}_${this.appSpecification.name}`, axiosConfig);
         if (response.data.status === 'error') {
