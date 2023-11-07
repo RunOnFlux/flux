@@ -4558,7 +4558,7 @@ export default {
           this.appUpdateSpecification.geolocation = this.ensureString([]);
           if (this.appUpdateSpecification.version >= 5) {
             this.appUpdateSpecification.contacts = this.ensureString(specs.contacts || []);
-            this.decodeGeolocation(specs.geolocation);
+            this.decodeGeolocation(specs.geolocation || []);
             this.appUpdateSpecification.geolocation = this.ensureString(specs.geolocation || []);
           }
           this.appUpdateSpecification.compose.forEach((component) => {
