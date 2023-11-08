@@ -183,6 +183,7 @@ function handleIncomingConnection(ws, req, expressWS) {
   if (incomingConnections.length > maxCon) {
     setTimeout(() => {
       ws.close(1000, `Max number of incomming connections ${maxCon} reached`);
+      log.info(`Max number of incomming connections ${maxCon} reached`);
     }, 1000);
     return;
   }
@@ -190,6 +191,7 @@ function handleIncomingConnection(ws, req, expressWS) {
   if (findPeer) {
     setTimeout(() => {
       ws.close(1000, 'Peer received is already in incomingPeers list');
+      log.info(`Peer received is already in incomingPeers list ${ws._socket.remoteAddress}:${port}`);
     }, 1000);
     return;
   }
@@ -208,9 +210,9 @@ function handleIncomingConnection(ws, req, expressWS) {
       return;
     }
   }
-  const websocket = ws;
-  websocket.port = port;
-  incomingConnections.push(websocket);
+  // eslint-disable-next-line no-param-reassign
+  ws.port = port;
+  incomingConnections.push(ws);
   incomingPeers.push(peer);
   // verify data integrity, if not signed, close connection
   ws.on('message', async (msg) => {
@@ -467,7 +469,6 @@ async function initiateAndHandleConnection(connection) {
         lastPingTime: null,
         latency: null,
       };
-      log.info(JSON.stringify(peer));
       outgoingPeers.push(peer);
     };
 
