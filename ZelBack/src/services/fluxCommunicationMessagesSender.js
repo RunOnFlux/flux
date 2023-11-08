@@ -39,7 +39,7 @@ async function sendToAllPeers(data, wsList) {
           if (!data) {
             const pingTime = new Date().getTime();
             client.ping('flux'); // do ping with flux str instead
-            const foundPeer = outgoingPeers.find((peer) => peer.ip === client._socket.remoteAddress && peer.port === client._socket.port);
+            const foundPeer = outgoingPeers.find((peer) => peer.ip === client._socket.remoteAddress && peer.port === client.port);
             if (foundPeer) {
               foundPeer.lastPingTime = pingTime;
             }

@@ -175,6 +175,7 @@ async function handleAppRemovedMessage(message, fromIP) {
 // let messageNumber = 0;
 // eslint-disable-next-line no-unused-vars
 function handleIncomingConnection(ws, req, expressWS) {
+  const { port } = req.params || 16127;
   // now we are in connections state. push the websocket to our incomingconnections
   const maxPeers = 4 * config.fluxapps.minIncoming;
   const maxNumberOfConnections = numberOfFluxNodes / 160 < 9 * config.fluxapps.minIncoming ? numberOfFluxNodes / 160 : 9 * config.fluxapps.minIncoming;
@@ -185,7 +186,7 @@ function handleIncomingConnection(ws, req, expressWS) {
     }, 1000);
     return;
   }
-  const findPeer = incomingPeers.find((p) => p.ip === ws._socket.remoteAddress && p.port === ws._socket.remotePort);
+  const findPeer = incomingPeers.find((p) => p.ip === ws._socket.remoteAddress && p.port === ws.port);
   if (findPeer) {
     setTimeout(() => {
       ws.close(1000, 'Peer received is already in incomingPeers list');
@@ -194,7 +195,7 @@ function handleIncomingConnection(ws, req, expressWS) {
   }
   const peer = {
     ip: ws._socket.remoteAddress,
-    port: ws._socket.remotePort,
+    port,
   };
   const ipv4Peer = peer.ip.replace('::ffff:', '');
   // eslint-disable-next-line no-restricted-syntax
@@ -207,7 +208,9 @@ function handleIncomingConnection(ws, req, expressWS) {
       return;
     }
   }
-  incomingConnections.push(ws);
+  const websocket = ws;
+  websocket.port = port;
+  incomingConnections.push(websocket);
   incomingPeers.push(peer);
   // verify data integrity, if not signed, close connection
   ws.on('message', async (msg) => {
@@ -296,9 +299,8 @@ function handleIncomingConnection(ws, req, expressWS) {
   });
   ws.on('error', async (msg) => {
     const ip = ws._socket.remoteAddress;
-    const { port } = ws._socket;
     log.warn(`Incoming connection error ${ip}:${port}`);
-    const ocIndex = incomingConnections.findIndex((incomingCon) => ws._socket.remoteAddress === incomingCon._socket.remoteAddress && ws._socket.port === incomingCon._socket.port);
+    const ocIndex = incomingConnections.findIndex((incomingCon) => ws._socket.remoteAddress === incomingCon._socket.remoteAddress && ws.port === incomingCon.port);
     const foundPeer = incomingPeers.find((mypeer) => mypeer.ip === ip && mypeer.port === port);
     if (ocIndex > -1) {
       incomingConnections.splice(ocIndex, 1);
@@ -313,9 +315,8 @@ function handleIncomingConnection(ws, req, expressWS) {
   });
   ws.on('close', async (msg) => {
     const ip = ws._socket.remoteAddress;
-    const { port } = ws._socket;
     log.warn(`Incoming connection close ${ip}:${port}`);
-    const ocIndex = incomingConnections.findIndex((incomingCon) => ws._socket.remoteAddress === incomingCon._socket.remoteAddress && ws._socket.port === incomingCon._socket.port);
+    const ocIndex = incomingConnections.findIndex((incomingCon) => ws._socket.remoteAddress === incomingCon._socket.remoteAddress && ws.port === incomingCon.port);
     const foundPeer = incomingPeers.find((mypeer) => mypeer.ip === ip && mypeer.port === port);
     if (ocIndex > -1) {
       incomingConnections.splice(ocIndex, 1);
@@ -448,9 +449,11 @@ async function initiateAndHandleConnection(connection) {
       ip = connection.split(':')[0];
       port = connection.split(':')[1];
     }
-    const wsuri = `ws://${ip}:${port}/ws/flux/`;
+    const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+    const myPort = myIP.split(':')[1] || 16127;
+    const wsuri = `ws://${ip}:${port}/ws/flux/${myPort}`;
     const websocket = new WebSocket(wsuri);
-
+    websocket.port = port;
     websocket.onopen = () => {
       outgoingConnections.push(websocket);
       const peer = {
@@ -605,7 +608,7 @@ async function addPeer(req, res) {
     }
     const justIP = ip.split(':')[0];
     const port = ip.split(':')[1] || 16127;
-    const wsObj = outgoingConnections.find((client) => client._socket.remoteAddress === justIP && client._socket.port === port);
+    const wsObj = outgoingConnections.find((client) => client._socket.remoteAddress === justIP && client.port === port);
     if (wsObj) {
       const errMessage = messageHelper.createErrorMessage(`Already connected to ${justIP}:${port}`);
       return res.json(errMessage);
@@ -656,7 +659,7 @@ async function addOutgoingPeer(req, res) {
     }
     const port = ip.split(':')[1] || 16127;
 
-    const wsObj = outgoingConnections.find((client) => client._socket.remoteAddress === justIP && client._socket.port === port);
+    const wsObj = outgoingConnections.find((client) => client._socket.remoteAddress === justIP && client.port === port);
     if (wsObj) {
       const errMessage = messageHelper.createErrorMessage(`Already connected to ${justIP}:${port}`);
       return res.json(errMessage);
@@ -736,8 +739,8 @@ async function fluxDiscovery() {
       const ipInc = ip.split(':')[0];
       const portInc = ip.split(':')[1] || 16127;
       // additional precaution
-      const clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ipInc && client._socket.port === portInc);
-      const clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress.replace('::ffff:', '') === ipInc && client._socket.port === portInc);
+      const clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ipInc && client.port === portInc);
+      const clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress.replace('::ffff:', '') === ipInc && client.port === portInc);
       if (!clientExists && !clientIncomingExists) {
         deterministicPeerConnections = true;
         initiateAndHandleConnection(ip);
@@ -752,8 +755,8 @@ async function fluxDiscovery() {
       const ipInc = ip.split(':')[0];
       const portInc = ip.split(':')[1] || 16127;
       // additional precaution
-      const clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ipInc && client._socket.port === portInc);
-      const clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress.replace('::ffff:', '') === ipInc && client._socket.port === portInc);
+      const clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ipInc && client.port === portInc);
+      const clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress.replace('::ffff:', '') === ipInc && client.port === portInc);
       if (!clientExists && !clientIncomingExists) {
         deterministicPeerConnections = true;
         // eslint-disable-next-line no-await-in-loop
@@ -775,8 +778,8 @@ async function fluxDiscovery() {
         let portInc = connection.split(':')[1] || 16127;
         // additional precaution
         let sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ipInc);
-        let clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ipInc && client._socket.port === portInc);
-        let clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress.replace('::ffff:', '') === ipInc && client._socket.port === portInc);
+        let clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ipInc && client.port === portInc);
+        let clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress.replace('::ffff:', '') === ipInc && client.port === portInc);
         if (!sameConnectedIp && !clientExists && !clientIncomingExists) {
           log.info(`Adding random Flux peer: ${connection}`);
           currentIpsConnTried.push(connection);
@@ -793,8 +796,8 @@ async function fluxDiscovery() {
             portInc = connectionInc.split(':')[1] || 16127;
             // additional precaution
             sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ipInc);
-            clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ipInc && client._socket.port === portInc);
-            clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress.replace('::ffff:', '') === ipInc && client._socket.port === portInc);
+            clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ipInc && client.port === portInc);
+            clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress.replace('::ffff:', '') === ipInc && client.port === portInc);
             if (!sameConnectedIp && !clientExists && !clientIncomingExists) {
               log.info(`Asking random Flux ${connectionInc} to add us as a peer`);
               currentIpsConnTried.push(connectionInc);
