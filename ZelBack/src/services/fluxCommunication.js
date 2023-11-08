@@ -176,11 +176,7 @@ async function handleAppRemovedMessage(message, fromIP) {
 // eslint-disable-next-line no-unused-vars
 function handleIncomingConnection(websocket, req, expressWS) {
   const ws = websocket;
-  let port = 16127;
-  if (req && req.params && req.params.port) {
-    const portAssigned = req.params.port;
-    port = portAssigned;
-  }
+  const port = req.params.port || 16127;
   log.info(`Handling incoming connection from ${ws._socket.remoteAddress}:${port}`);
   // now we are in connections state. push the websocket to our incomingconnections
   const maxPeers = 4 * config.fluxapps.minIncoming;
@@ -201,11 +197,12 @@ function handleIncomingConnection(websocket, req, expressWS) {
     }, 1000);
     return;
   }
+  const ipv4Peer = ws._socket.remoteAddress.replace('::ffff:', '');
   const peer = {
-    ip: ws._socket.remoteAddress,
+    ip: ipv4Peer,
     port,
   };
-  const ipv4Peer = peer.ip.replace('::ffff:', '');
+
   // eslint-disable-next-line no-restricted-syntax
   for (const privateIp of privateIpsList) {
     if (ipv4Peer.startsWith(privateIp)) {
