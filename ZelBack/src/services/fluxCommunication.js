@@ -604,9 +604,10 @@ async function addPeer(req, res) {
       return res.json(errMessage);
     }
     const justIP = ip.split(':')[0];
-    const wsObj = outgoingConnections.find((client) => client._socket.remoteAddress === justIP);
+    const port = ip.split(':')[1] || 16127;
+    const wsObj = outgoingConnections.find((client) => client._socket.remoteAddress === justIP && client._socket.port === port);
     if (wsObj) {
-      const errMessage = messageHelper.createErrorMessage(`Already connected to ${justIP}`);
+      const errMessage = messageHelper.createErrorMessage(`Already connected to ${justIP}:${port}`);
       return res.json(errMessage);
     }
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -616,7 +617,7 @@ async function addPeer(req, res) {
       return res.json(message);
     }
     initiateAndHandleConnection(ip);
-    const message = messageHelper.createSuccessMessage(`Outgoing connection to ${ip} initiated`);
+    const message = messageHelper.createSuccessMessage(`Outgoing connection to ${ip}:${port} initiated`);
     return res.json(message);
   } catch (error) {
     log.error(error);
@@ -653,22 +654,23 @@ async function addOutgoingPeer(req, res) {
       const errMessage = messageHelper.createErrorMessage(`Request ip ${remoteIP4} of ${remoteIP} doesn't match the ip: ${justIP} to connect.`);
       return res.json(errMessage);
     }
+    const port = ip.split(':')[1] || 16127;
 
-    const wsObj = outgoingConnections.find((client) => client._socket.remoteAddress === justIP);
+    const wsObj = outgoingConnections.find((client) => client._socket.remoteAddress === justIP && client._socket.port === port);
     if (wsObj) {
-      const errMessage = messageHelper.createErrorMessage(`Already connected to ${justIP}`);
+      const errMessage = messageHelper.createErrorMessage(`Already connected to ${justIP}:${port}`);
       return res.json(errMessage);
     }
 
     const nodeList = await fluxCommunicationUtils.deterministicFluxList();
-    const fluxNode = nodeList.find((node) => node.ip === ip);
+    const fluxNode = nodeList.find((node) => node.ip.split(':')[0] === ip && (node.ip.split(':')[1] || 16127) === port);
     if (!fluxNode) {
-      const errMessage = messageHelper.createErrorMessage(`FluxNode ${ip} is not confirmed on the network.`);
+      const errMessage = messageHelper.createErrorMessage(`FluxNode ${ip}:${port} is not confirmed on the network.`);
       return res.json(errMessage);
     }
 
     initiateAndHandleConnection(ip);
-    const message = messageHelper.createSuccessMessage(`Outgoing connection to ${ip} initiated`);
+    const message = messageHelper.createSuccessMessage(`Outgoing connection to ${ip}:${port} initiated`);
     return res.json(message);
   } catch (error) {
     log.error(error);
