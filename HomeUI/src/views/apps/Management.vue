@@ -1339,7 +1339,7 @@
                           :value="null"
                           disabled
                         >
-                          -- Please select connection option --
+                          -- Please select command --
                         </b-form-select-option>
                       </template>
                     </b-form-select>
