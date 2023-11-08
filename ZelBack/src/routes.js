@@ -1325,8 +1325,8 @@ module.exports = (app, expressWs) => {
   });
 
   // communication between multiple flux solution is on this:
-  app.ws('/ws/flux/:port', (ws, req) => {
-    fluxCommunication.handleIncomingConnection(ws, req, expressWs.getWss('/ws/flux'));
+  app.ws('/ws/flux/:port?', (ws, req) => {
+    fluxCommunication.handleIncomingConnection(ws, req, expressWs.getWss('/ws/flux/'));
   });
 
   // FluxShare
