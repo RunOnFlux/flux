@@ -1405,7 +1405,7 @@
                     >
                       <span style="font-weight: bold;">Exec into container</span>
                       <span :style="selectedOptionTextStyle">{{ selectedApp }}</span>
-                      <span style="font-weight: bold;">using option</span>
+                      <span style="font-weight: bold;">using command</span>
                       <span :style="selectedOptionTextStyle">{{ selectedOptionText }}</span>
                     </template>
                     <template v-else>
