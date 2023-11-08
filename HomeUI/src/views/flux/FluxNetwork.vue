@@ -309,6 +309,7 @@ export default {
           filterOn: [],
           fields: [
             { key: 'ip', label: 'IP Address', sortable: true },
+            { key: 'port', label: 'Port', sortable: true },
             { key: 'latency', label: 'Latency', sortable: true },
             { key: 'lastPingTime', label: 'Last Ping', sortable: true },
             { key: 'disconnect', label: '' },
@@ -328,6 +329,7 @@ export default {
           filterOn: [],
           fields: [
             { key: 'ip', label: 'IP Address', sortable: true },
+            { key: 'port', label: 'Port', sortable: true },
             { key: 'disconnect', label: '' },
           ],
           totalRows: 1,
