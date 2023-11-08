@@ -7,7 +7,6 @@ const nodecmd = require('node-cmd');
 const proxyquire = require('proxyquire');
 const fs = require('fs');
 const util = require('util');
-const { PassThrough } = require('stream');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const explorerService = require('../../ZelBack/src/services/explorerService');
@@ -1354,10 +1353,8 @@ describe('fluxService tests', () => {
         status: 'error',
       };
       const res = generateResponse();
-
       await fluxService.tailDaemonDebug(undefined, res);
       await serviceHelper.delay(200);
-
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledWithMatch(nodeCmdStub, `tail -n 100 ${nodedpath}`);
     });
@@ -2604,7 +2601,7 @@ describe('fluxService tests', () => {
         on: sinon.stub(),
         method: 'POST',
       };
-      const postData = JSON.stringify({ blockedPorts: [12,32] });
+      const postData = JSON.stringify({ blockedPorts: [12, 32] });
       const expectedResponse = {
         status: 'success',
         data: {
@@ -2624,7 +2621,7 @@ describe('fluxService tests', () => {
               routerIP: '${adminConfig.initial.routerIP || ''}',
               pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
               pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
-              blockedPorts: [12,32],
+              blockedPorts: [12, 32],
               blockedRepositories: ${JSON.stringify(adminConfig.initial.blockedRepositories || []).replace(/"/g, "'")},
             }
           }`;
@@ -2703,7 +2700,7 @@ describe('fluxService tests', () => {
         on: sinon.stub(),
         method: 'POST',
       };
-      const postData = JSON.stringify({ blockedRepositories: ['blabla/test','ban/this'], });
+      const postData = JSON.stringify({ blockedRepositories: ['blabla/test', 'ban/this'] });
       const expectedResponse = {
         status: 'success',
         data: {
@@ -2724,7 +2721,7 @@ describe('fluxService tests', () => {
               pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
               pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
               blockedPorts: ${JSON.stringify(adminConfig.initial.blockedRepositories || []).replace(/"/g, "'")},
-              blockedRepositories: ['blabla/test','ban/this'],
+              blockedRepositories: ['blabla/test', 'ban/this'],
             }
           }`;
       const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
