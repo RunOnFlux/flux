@@ -2621,7 +2621,7 @@ describe('fluxService tests', () => {
               routerIP: '${adminConfig.initial.routerIP || ''}',
               pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
               pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
-              blockedPorts: [12, 32],
+              blockedPorts: [12,32],
               blockedRepositories: ${JSON.stringify(adminConfig.initial.blockedRepositories || []).replace(/"/g, "'")},
             }
           }`;
