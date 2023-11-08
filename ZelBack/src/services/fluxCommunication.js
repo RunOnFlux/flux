@@ -176,6 +176,7 @@ async function handleAppRemovedMessage(message, fromIP) {
 // eslint-disable-next-line no-unused-vars
 function handleIncomingConnection(ws, req, expressWS) {
   const port = req.params.port || 16127;
+  log.info(`Handling incoming connection from ${ws._socket.remoteAddress}:${port}`);
   // now we are in connections state. push the websocket to our incomingconnections
   const maxPeers = 4 * config.fluxapps.minIncoming;
   const maxNumberOfConnections = numberOfFluxNodes / 160 < 9 * config.fluxapps.minIncoming ? numberOfFluxNodes / 160 : 9 * config.fluxapps.minIncoming;
@@ -212,7 +213,9 @@ function handleIncomingConnection(ws, req, expressWS) {
   }
   // eslint-disable-next-line no-param-reassign
   ws.port = port;
+  log.info(`Incoming ws: ${JSON.stringify(ws)}`);
   incomingConnections.push(ws);
+  log.info(`Incoming peer: ${JSON.stringify(peer)}`);
   incomingPeers.push(peer);
   // verify data integrity, if not signed, close connection
   ws.on('message', async (msg) => {
