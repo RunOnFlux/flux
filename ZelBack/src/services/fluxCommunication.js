@@ -167,14 +167,15 @@ async function handleAppRemovedMessage(message, fromIP) {
 
 /**
  * To handle incoming connection. Several types of verification are performed.
- * @param {object} ws Web socket.
+ * @param {object} websocket Web socket.
  * @param {object} req Request.
  * @param {object} expressWS Express web socket.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
 // let messageNumber = 0;
 // eslint-disable-next-line no-unused-vars
-function handleIncomingConnection(ws, req, expressWS) {
+function handleIncomingConnection(websocket, req, expressWS) {
+  const ws = websocket;
   let port = 16127;
   if (req && req.params && req.params.port) {
     const portAssigned = req.params.port;
@@ -215,9 +216,7 @@ function handleIncomingConnection(ws, req, expressWS) {
       return;
     }
   }
-  // eslint-disable-next-line no-param-reassign
   ws.port = port;
-  log.info(`Incoming ws: ${JSON.stringify(ws)}`);
   incomingConnections.push(ws);
   log.info(`Incoming peer: ${JSON.stringify(peer)}`);
   incomingPeers.push(peer);
