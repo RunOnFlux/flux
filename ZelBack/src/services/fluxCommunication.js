@@ -449,9 +449,14 @@ async function initiateAndHandleConnection(connection) {
       ip = connection.split(':')[0];
       port = connection.split(':')[1];
     }
-    const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
-    const myPort = myIP.split(':')[1] || 16127;
-    const wsuri = `ws://${ip}:${port}/ws/flux/${myPort}`;
+    let wsuri = `ws://${ip}:${port}/ws/flux/`;
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    const daemonHeight = syncStatus.data.height || 0;
+    if (daemonHeight >= config.socketPortsInformation) {
+      const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+      const myPort = myIP.split(':')[1] || 16127;
+      wsuri = `ws://${ip}:${port}/ws/flux/${myPort}`;
+    }
     const websocket = new WebSocket(wsuri);
     websocket.port = port;
     websocket.onopen = () => {
