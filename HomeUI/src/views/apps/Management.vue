@@ -1307,7 +1307,7 @@
                     <b-form-select
                       v-model="selectedApp"
                       :options="null"
-                      :disabled="terminal"
+                      :disabled="terminal || isComposeSingle"
                     >
                       <b-form-select-option
                         value="null"
@@ -1324,7 +1324,6 @@
                       </b-form-select-option>
                     </b-form-select>
                   </div>
-
                   <div
                     class="mr-4"
                   >
@@ -4175,6 +4174,9 @@ export default {
     };
   },
   computed: {
+    isComposeSingle() {
+      return this.appSpecification.compose?.length === 1;
+    },
     selectedOptionText() {
       const selectedOption = this.options
         .flatMap((group) => group.options)
@@ -4366,6 +4368,11 @@ export default {
     },
   },
   watch: {
+    isComposeSingle(value) {
+      if (value) {
+        this.selectedApp = this.appSpecification.compose[0].name;
+      }
+    },
     appUpdateSpecification: {
       handler() {
         this.dataToSign = '';
