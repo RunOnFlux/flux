@@ -1480,7 +1480,7 @@
                   title="Continent"
                   data="All"
                 />
-                <listt-entry
+                <list-entry
                   title="Country"
                   data="All"
                 />
@@ -4122,7 +4122,7 @@ export default {
           time: 365 * 24 * 60 * 60 * 1000,
         },
       ],
-      tosAgreeded: false,
+      tosAgreed: false,
       marketPlaceApps: [],
       generalMultiplier: 1,
       enterpriseNodes: [],
