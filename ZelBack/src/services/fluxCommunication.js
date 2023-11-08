@@ -459,6 +459,7 @@ async function initiateAndHandleConnection(connection) {
         lastPingTime: null,
         latency: null,
       };
+      log.info(JSON.stringify(peer));
       outgoingPeers.push(peer);
     };
 
