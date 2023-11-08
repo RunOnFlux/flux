@@ -359,5 +359,6 @@
    "hydr0gen5",
    "anonym100",
    "notrustverify",
-   "jupyter"
+   "jupyter",
+   "omniadevs/ic-websocket-gateway"
 ]
