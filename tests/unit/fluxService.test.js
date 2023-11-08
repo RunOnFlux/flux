@@ -2721,7 +2721,7 @@ describe('fluxService tests', () => {
               pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
               pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
               blockedPorts: ${JSON.stringify(adminConfig.initial.blockedRepositories || []).replace(/"/g, "'")},
-              blockedRepositories: ['blabla/test', 'ban/this'],
+              blockedRepositories: ['blabla/test','ban/this'],
             }
           }`;
       const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
