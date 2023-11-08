@@ -177,7 +177,6 @@ async function handleAppRemovedMessage(message, fromIP) {
 function handleIncomingConnection(websocket, req, expressWS) {
   const ws = websocket;
   const port = req.params.port || 16127;
-  log.info(`Handling incoming connection from ${ws._socket.remoteAddress}:${port}`);
   // now we are in connections state. push the websocket to our incomingconnections
   const maxPeers = 4 * config.fluxapps.minIncoming;
   const maxNumberOfConnections = numberOfFluxNodes / 160 < 9 * config.fluxapps.minIncoming ? numberOfFluxNodes / 160 : 9 * config.fluxapps.minIncoming;
@@ -185,15 +184,13 @@ function handleIncomingConnection(websocket, req, expressWS) {
   if (incomingConnections.length > maxCon) {
     setTimeout(() => {
       ws.close(1000, `Max number of incomming connections ${maxCon} reached`);
-      log.info(`Max number of incomming connections ${maxCon} reached`);
     }, 1000);
     return;
   }
-  const findPeer = incomingPeers.find((p) => p.ip === ws._socket.remoteAddress && p.port === port);
+  const findPeer = incomingPeers.find((p) => p.ip === ws._socket.remoteAddress.replace('::ffff:', '') && p.port === port);
   if (findPeer) {
     setTimeout(() => {
       ws.close(1000, 'Peer received is already in incomingPeers list');
-      log.info(`Peer received is already in incomingPeers list ${ws._socket.remoteAddress}:${port}`);
     }, 1000);
     return;
   }
@@ -215,7 +212,6 @@ function handleIncomingConnection(websocket, req, expressWS) {
   }
   ws.port = port;
   incomingConnections.push(ws);
-  log.info(`Incoming peer: ${JSON.stringify(peer)}`);
   incomingPeers.push(peer);
   // verify data integrity, if not signed, close connection
   ws.on('message', async (msg) => {
@@ -242,7 +238,7 @@ function handleIncomingConnection(websocket, req, expressWS) {
     }
     myCacheTemp.set(messageHash, messageHash);
     // check rate limit
-    const rateOK = fluxNetworkHelper.lruRateLimit(ipv4Peer, 90);
+    const rateOK = fluxNetworkHelper.lruRateLimit(`${ipv4Peer}:${port}`, 90);
     if (!rateOK) {
       return; // do not react to the message
     }
