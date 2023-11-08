@@ -175,7 +175,11 @@ async function handleAppRemovedMessage(message, fromIP) {
 // let messageNumber = 0;
 // eslint-disable-next-line no-unused-vars
 function handleIncomingConnection(ws, req, expressWS) {
-  const port = req.params.port || 16127;
+  let port = 16127;
+  if (req && req.params && req.params.port) {
+    const portAssigned = req.params.port;
+    port = portAssigned;
+  }
   log.info(`Handling incoming connection from ${ws._socket.remoteAddress}:${port}`);
   // now we are in connections state. push the websocket to our incomingconnections
   const maxPeers = 4 * config.fluxapps.minIncoming;
