@@ -4442,6 +4442,8 @@ export default {
   },
   methods: {
     connectTerminal(name) {
+      const composeValues = Object.values(this.appSpecification.compose);
+      const foundInName = composeValues.some((obj) => obj.name === this.selectedApp);
       const { protocol, hostname, port } = window.location;
       let mybackend = '';
       let consoleInit = 0;
@@ -4458,7 +4460,7 @@ export default {
         mybackend += (+port + 1);
       }
 
-      if (!Object.prototype.hasOwnProperty.call(this.appSpecification.compose, this.selectedApp)) {
+      if (!foundInName) {
         return;
       }
 
