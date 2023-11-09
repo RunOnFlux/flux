@@ -3974,13 +3974,6 @@ export default {
           ],
         },
         {
-          label: 'Windows',
-          options: [
-            'powershell',
-            'cmd.exe',
-          ],
-        },
-        {
           label: 'Other',
           options: [
             'Custom',
