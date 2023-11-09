@@ -1356,7 +1356,7 @@
                   <b-button
                     v-if="terminal"
                     class="col-2"
-                    variant="primary"
+                    variant="danger"
                     @click="disconnectTerminal"
                   >
                     Disconnect
