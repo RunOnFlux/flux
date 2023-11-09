@@ -4459,23 +4459,18 @@ export default {
         mybackend += ':';
         mybackend += (+port + 1);
       }
-
-      if (!foundInName) {
-        return;
-      }
-
-      if (this.selectedCmd === null) {
-        this.showToast('danger', 'No command selected.');
-        return;
-      }
-
-      if (this.selectedApp) {
+      
+      if (this.selectedApp) {     
+        if (this.selectedCmd === null) {
+          this.showToast('danger', 'No command selected.');
+          return;
+        }      
         if (this.selectedCmd === 'Custom') {
           if (this.customValue) {
             console.log(`Custom command: ${this.customValue}`);
             console.log(`App name: ${name}`);
           } else {
-            this.showToast('danger', 'Please enter a custom value.');
+            this.showToast('danger', 'Please enter a custom command.');
             return;
           }
         } else {
@@ -4486,7 +4481,11 @@ export default {
         this.showToast('danger', 'Please select an continer app before connecting.');
         return;
       }
-
+      
+      if (!foundInName) {
+        return;
+      }
+      
       this.terminal = new Terminal({
         allowProposedApi: true,
         cursorBlink: true,
@@ -4495,7 +4494,7 @@ export default {
           background: 'black',
         },
       });
-
+      
       this.socket = io.connect(mybackend);
       if (this.customValue) {
         this.socket.emit('exec', name, this.$refs.terminalElement.clientWidth, this.$refs.terminalElement.clientHeight, this.customValue, this.envInputValue);
