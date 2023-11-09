@@ -4460,11 +4460,11 @@ export default {
         mybackend += (+port + 1);
       }
 
-      if (this.selectedApp) {     
+      if (this.selectedApp) {
         if (this.selectedCmd === null) {
           this.showToast('danger', 'No command selected.');
           return;
-        }      
+        }
         if (this.selectedCmd === 'Custom') {
           if (this.customValue) {
             console.log(`Custom command: ${this.customValue}`);
