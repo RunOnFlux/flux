@@ -4459,7 +4459,7 @@ export default {
         mybackend += ':';
         mybackend += (+port + 1);
       }
-      
+
       if (this.selectedApp) {     
         if (this.selectedCmd === null) {
           this.showToast('danger', 'No command selected.');
@@ -4481,11 +4481,11 @@ export default {
         this.showToast('danger', 'Please select an continer app before connecting.');
         return;
       }
-      
+
       if (!foundInName) {
         return;
       }
-      
+
       this.terminal = new Terminal({
         allowProposedApi: true,
         cursorBlink: true,
@@ -4494,7 +4494,7 @@ export default {
           background: 'black',
         },
       });
-      
+
       this.socket = io.connect(mybackend);
       if (this.customValue) {
         this.socket.emit('exec', name, this.$refs.terminalElement.clientWidth, this.$refs.terminalElement.clientHeight, this.customValue, this.envInputValue);
