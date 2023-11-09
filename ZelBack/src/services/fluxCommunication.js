@@ -740,7 +740,7 @@ async function fluxDiscovery() {
     const fluxNodeIndex = sortedNodeList.findIndex((node) => node.ip === myIP);
     log.info(`My node was found on index: ${fluxNodeIndex} of ${sortedNodeList.length} nodes`);
     const minDeterministicOutPeers = Math.min(sortedNodeList.length, 1.5 * config.fluxapps.minOutgoing);
-    const minIncomingPeers = Math.min(sortedNodeList.length, 1.5 * config.fluxapps.minIncoming);
+    // const minIncomingPeers = Math.min(sortedNodeList.length, 1.5 * config.fluxapps.minIncoming);
     log.info(`Current number of outgoing connections:${outgoingConnections.length}`);
     log.info(`Current number of incoming connections:${incomingConnections.length}`);
     // always try to connect to deterministic nodes
@@ -782,42 +782,43 @@ async function fluxDiscovery() {
 
     await serviceHelper.delay(500);
     let index = 0;
-    while (outgoingConnections.length < (minDeterministicOutPeers + minDeterministicOutPeers / 2) && index < 100) { // Max of 18 outgoing connections - 12 possible deterministic + min. 6 random
+    while (outgoingConnections.length < 16 && index < 100) { // Max of 16 outgoing connections - 12 possible deterministic + min. 4 random
       index += 1;
       // eslint-disable-next-line no-await-in-loop
       const connection = await fluxNetworkHelper.getRandomConnection();
       if (connection) {
-        let ipInc = connection.split(':')[0];
-        let portInc = connection.split(':')[1] || 16127;
+        const ipInc = connection.split(':')[0];
+        const portInc = connection.split(':')[1] || 16127;
         // additional precaution
-        let sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ipInc);
-        let clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ipInc && client.port === portInc);
-        let clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress.replace('::ffff:', '') === ipInc && client.port === portInc);
+        const sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ipInc);
+        const clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ipInc && client.port === portInc);
+        const clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress.replace('::ffff:', '') === ipInc && client.port === portInc);
         if (!sameConnectedIp && !clientExists && !clientIncomingExists) {
           log.info(`Adding random Flux peer: ${connection}`);
           currentIpsConnTried.push(connection);
           initiateAndHandleConnection(connection);
         }
-        // Max of 8 incoming connections - 8 possible deterministic + x random if needed;
-        // We can have more incoming connections as it will be outgoing connections from other nodes + random
-        // we only add randoming incoming peers if currently it's bellow minimum
-        if (incomingConnections.length < minIncomingPeers) {
+      }
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(500);
+    }
+    index = 0;
+    while (incomingConnections.length < 14 && index < 100) { // Max of 14 outgoing connections - 12 possible deterministic + min. 2 random (we will get more random as others nodes have more random outgoing connections)
+      index += 1;
+      // eslint-disable-next-line no-await-in-loop
+      const connection = await fluxNetworkHelper.getRandomConnection();
+      if (connection) {
+        const ipInc = connection.split(':')[0];
+        const portInc = connection.split(':')[1] || 16127;
+        // additional precaution
+        const sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ipInc);
+        const clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ipInc && client.port === portInc);
+        const clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress.replace('::ffff:', '') === ipInc && client.port === portInc);
+        if (!sameConnectedIp && !clientExists && !clientIncomingExists) {
+          log.info(`Asking random Flux ${connection} to add us as a peer`);
+          currentIpsConnTried.push(connection);
           // eslint-disable-next-line no-await-in-loop
-          const connectionInc = await fluxNetworkHelper.getRandomConnection();
-          if (connectionInc) {
-            ipInc = connectionInc.split(':')[0];
-            portInc = connectionInc.split(':')[1] || 16127;
-            // additional precaution
-            sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ipInc);
-            clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ipInc && client.port === portInc);
-            clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress.replace('::ffff:', '') === ipInc && client.port === portInc);
-            if (!sameConnectedIp && !clientExists && !clientIncomingExists) {
-              log.info(`Asking random Flux ${connectionInc} to add us as a peer`);
-              currentIpsConnTried.push(connectionInc);
-              // eslint-disable-next-line no-await-in-loop
-              await serviceHelper.axiosGet(`http://${ipInc}:${portInc}/flux/addoutgoingpeer/${myIP}`).catch((error) => log.error(error));
-            }
-          }
+          await serviceHelper.axiosGet(`http://${ipInc}:${portInc}/flux/addoutgoingpeer/${myIP}`).catch((error) => log.error(error));
         }
       }
       // eslint-disable-next-line no-await-in-loop
