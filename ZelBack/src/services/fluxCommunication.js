@@ -61,8 +61,9 @@ const privateIpsList = [
  * To handle temporary app messages.
  * @param {object} message Message.
  * @param {string} fromIP Sender's IP address.
+ * @param {string} port Sender's node Api port.
  */
-async function handleAppMessages(message, fromIP) {
+async function handleAppMessages(message, fromIP, port) {
   try {
     // check if we have it in database and if not add
     // if not in database, rebroadcast to all connections
@@ -72,10 +73,10 @@ async function handleAppMessages(message, fromIP) {
     const rebroadcastToPeers = await appsService.storeAppTemporaryMessage(message.data, true);
     if (rebroadcastToPeers === true) {
       const messageString = serviceHelper.ensureString(message);
-      const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
+      const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP && client.port !== port);
       fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
       await serviceHelper.delay(100);
-      const wsList = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIP);
+      const wsList = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIP && client.port !== port);
       fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
     }
   } catch (error) {
@@ -87,8 +88,9 @@ async function handleAppMessages(message, fromIP) {
  * To handle running app messages.
  * @param {object} message Message.
  * @param {string} fromIP Sender's IP address.
+ * @param {string} port Sender's node Api port.
  */
-async function handleAppRunningMessage(message, fromIP) {
+async function handleAppRunningMessage(message, fromIP, port) {
   try {
     // check if we have it exactly like that in database and if not, update
     // if not in database, rebroadcast to all connections
@@ -100,10 +102,10 @@ async function handleAppRunningMessage(message, fromIP) {
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
     if (rebroadcastToPeers === true && timestampOK) {
       const messageString = serviceHelper.ensureString(message);
-      const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
+      const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP && client.port !== port);
       fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
       await serviceHelper.delay(500);
-      const wsList = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIP);
+      const wsList = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIP && client.port !== port);
       fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
     }
   } catch (error) {
@@ -115,8 +117,9 @@ async function handleAppRunningMessage(message, fromIP) {
  * To handle running app messages.
  * @param {object} message Message.
  * @param {string} fromIP Sender's IP address.
+ * @param {string} port Sender's node Api port.
  */
-async function handleIPChangedMessage(message, fromIP) {
+async function handleIPChangedMessage(message, fromIP, port) {
   try {
     // check if we have it any app running on that location and if yes, update information
     // rebroadcast message to the network if it's valid
@@ -127,10 +130,10 @@ async function handleIPChangedMessage(message, fromIP) {
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
     if (rebroadcastToPeers && timestampOK) {
       const messageString = serviceHelper.ensureString(message);
-      const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
+      const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP && client.port !== port);
       fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
       await serviceHelper.delay(500);
-      const wsList = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIP);
+      const wsList = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIP && client.port !== port);
       fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
     }
   } catch (error) {
@@ -142,8 +145,9 @@ async function handleIPChangedMessage(message, fromIP) {
  * To handle running app messages.
  * @param {object} message Message.
  * @param {string} fromIP Sender's IP address.
+ * @param {string} port Sender's node Api port.
  */
-async function handleAppRemovedMessage(message, fromIP) {
+async function handleAppRemovedMessage(message, fromIP, port) {
   try {
     // check if we have it any app running on that location and if yes, delete that information
     // rebroadcast message to the network if it's valid
@@ -154,10 +158,10 @@ async function handleAppRemovedMessage(message, fromIP) {
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
     if (rebroadcastToPeers && timestampOK) {
       const messageString = serviceHelper.ensureString(message);
-      const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
+      const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP && client.port !== port);
       fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
       await serviceHelper.delay(500);
-      const wsList = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIP);
+      const wsList = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIP && client.port !== port);
       fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
     }
   } catch (error) {
@@ -261,15 +265,15 @@ function handleIncomingConnection(websocket, req, expressWS) {
       if (timestampOK === true) {
         try {
           if (msgObj.data.type === 'zelappregister' || msgObj.data.type === 'zelappupdate' || msgObj.data.type === 'fluxappregister' || msgObj.data.type === 'fluxappupdate') {
-            handleAppMessages(msgObj, peer.ip.replace('::ffff:', ''));
+            handleAppMessages(msgObj, peer.ip, peer.port);
           } else if (msgObj.data.type === 'fluxapprequest') {
             fluxCommunicationMessagesSender.respondWithAppMessage(msgObj, ws);
           } else if (msgObj.data.type === 'fluxapprunning') {
-            handleAppRunningMessage(msgObj, peer.ip.replace('::ffff:', ''));
+            handleAppRunningMessage(msgObj, peer.ip, peer.port);
           } else if (msgObj.data.type === 'fluxipchanged') {
-            handleIPChangedMessage(msgObj, peer.ip.replace('::ffff:', ''));
+            handleIPChangedMessage(msgObj, peer.ip, peer.port);
           } else if (msgObj.data.type === 'fluxappremoved') {
-            handleAppRemovedMessage(msgObj, peer.ip.replace('::ffff:', ''));
+            handleAppRemovedMessage(msgObj, peer.ip, peer.port);
           } else {
             log.warn(`Unrecognised message type of ${msgObj.data.type}`);
           }
@@ -543,15 +547,15 @@ async function initiateAndHandleConnection(connection) {
       const messageOK = await fluxCommunicationUtils.verifyOriginalFluxBroadcast(msgObj, undefined, currentTimeStamp);
       if (messageOK === true) {
         if (msgObj.data.type === 'zelappregister' || msgObj.data.type === 'zelappupdate' || msgObj.data.type === 'fluxappregister' || msgObj.data.type === 'fluxappupdate') {
-          handleAppMessages(msgObj, ip);
+          handleAppMessages(msgObj, ip, port);
         } else if (msgObj.data.type === 'fluxapprequest') {
           fluxCommunicationMessagesSender.respondWithAppMessage(msgObj, websocket);
         } else if (msgObj.data.type === 'fluxapprunning') {
-          handleAppRunningMessage(msgObj, ip);
+          handleAppRunningMessage(msgObj, ip, port);
         } else if (msgObj.data.type === 'fluxipchanged') {
-          handleIPChangedMessage(msgObj, ip);
+          handleIPChangedMessage(msgObj, ip, port);
         } else if (msgObj.data.type === 'fluxappremoved') {
-          handleAppRemovedMessage(msgObj, ip);
+          handleAppRemovedMessage(msgObj, ip, port);
         } else {
           log.warn(`Unrecognised message type of ${msgObj.data.type}`);
         }
