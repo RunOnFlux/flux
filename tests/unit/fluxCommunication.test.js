@@ -1186,7 +1186,7 @@ describe('fluxCommunication tests', () => {
         status: 'success',
         data: {
           code: undefined,
-          message: 'Outgoing connection to 123.4.1.1 initiated',
+          message: 'Outgoing connection to 123.4.1.1:16127 initiated',
           name: undefined,
         },
       };

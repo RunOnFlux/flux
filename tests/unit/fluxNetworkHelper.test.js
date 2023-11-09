@@ -608,18 +608,19 @@ describe('fluxNetworkHelper tests', () => {
 
     it('should close outgoing connection properly if it exists', async () => {
       const ip = '127.9.9.1';
+      const port = 16127;
       const successMessage = {
         status: 'success',
         data: {
           code: undefined,
           name: undefined,
-          message: `Outgoing connection to ${ip} closed`,
+          message: `Outgoing connection to ${ip}:${port} closed`,
         },
       };
       const websocket = generateWebsocket(ip, WebSocket.OPEN);
       addPeerToListOfPeers(ip);
 
-      const closeConnectionResult = await fluxNetworkHelper.closeConnection(ip);
+      const closeConnectionResult = await fluxNetworkHelper.closeConnection(ip, port);
 
       sinon.assert.calledOnceWithExactly(websocket.close, 1000, 'purpusfully closed');
       expect(closeConnectionResult).to.eql(successMessage);
@@ -629,17 +630,18 @@ describe('fluxNetworkHelper tests', () => {
 
     it('should close outgoing connection properly if it exists and peer is not added to the list', async () => {
       const ip = '127.9.9.1';
+      const port = 16127;
       const successMessage = {
         status: 'success',
         data: {
           code: undefined,
           name: undefined,
-          message: `Outgoing connection to ${ip} closed`,
+          message: `Outgoing connection to ${ip}:${port} closed`,
         },
       };
       const websocket = generateWebsocket(ip, WebSocket.OPEN);
 
-      const closeConnectionResult = await fluxNetworkHelper.closeConnection(ip);
+      const closeConnectionResult = await fluxNetworkHelper.closeConnection(ip, port);
 
       sinon.assert.calledOnceWithExactly(websocket.close, 1000, 'purpusfully closed');
       expect(closeConnectionResult).to.eql(successMessage);
@@ -650,18 +652,19 @@ describe('fluxNetworkHelper tests', () => {
     it('should return warning message if the websocket does not exist', async () => {
       const ip = '127.9.9.1';
       const ip2 = '127.5.5.2';
+      const port = 16127;
       const errorMessage = {
         status: 'warning',
         data: {
           code: undefined,
           name: undefined,
-          message: `Connection to ${ip} does not exists.`,
+          message: `Connection to ${ip}:${port} does not exists.`,
         },
       };
       const websocket = generateWebsocket(ip2, WebSocket.OPEN);
       addPeerToListOfPeers(ip2);
 
-      const closeConnectionResult = await fluxNetworkHelper.closeConnection(ip);
+      const closeConnectionResult = await fluxNetworkHelper.closeConnection(ip, port);
 
       sinon.assert.notCalled(websocket.close);
       expect(closeConnectionResult).to.eql(errorMessage);
@@ -723,19 +726,20 @@ describe('fluxNetworkHelper tests', () => {
 
     it('should close outgoing connection properly given expressWsList', async () => {
       const ip = '127.9.9.1';
+      const port = 16127;
       const successMessage = {
         status: 'success',
         data: {
           code: undefined,
           name: undefined,
-          message: `Incoming connection to ${ip} closed`,
+          message: `Incoming connection to ${ip}:${port} closed`,
         },
       };
       const websocket = generateWebsocket(ip, WebSocket.OPEN);
       addPeerToListOfPeers(ip);
       const expressWsList = { clients: [websocket] };
 
-      const closeConnectionResult = await fluxNetworkHelper.closeIncomingConnection(ip, expressWsList);
+      const closeConnectionResult = await fluxNetworkHelper.closeIncomingConnection(ip, port, expressWsList);
 
       sinon.assert.calledOnceWithExactly(websocket.close, 1000, 'purpusfully closed');
       expect(closeConnectionResult).to.eql(successMessage);
@@ -745,18 +749,19 @@ describe('fluxNetworkHelper tests', () => {
 
     it('should close outgoing connection properly given client to close', async () => {
       const ip = '127.9.9.1';
+      const port = 16127;
       const successMessage = {
         status: 'success',
         data: {
           code: undefined,
           name: undefined,
-          message: `Incoming connection to ${ip} closed`,
+          message: `Incoming connection to ${ip}:${port} closed`,
         },
       };
       const websocket = generateWebsocket(ip, WebSocket.OPEN);
       addPeerToListOfPeers(ip);
 
-      const closeConnectionResult = await fluxNetworkHelper.closeIncomingConnection(ip, [], websocket);
+      const closeConnectionResult = await fluxNetworkHelper.closeIncomingConnection(ip, port, [], websocket);
 
       sinon.assert.calledOnceWithExactly(websocket.close, 1000, 'purpusfully closed');
       expect(closeConnectionResult).to.eql(successMessage);
@@ -766,18 +771,19 @@ describe('fluxNetworkHelper tests', () => {
 
     it('should close outgoing connection properly if it exists and peer is not added to the list', async () => {
       const ip = '127.9.9.1';
+      const port = 16127;
       const successMessage = {
         status: 'success',
         data: {
           code: undefined,
           name: undefined,
-          message: `Incoming connection to ${ip} closed`,
+          message: `Incoming connection to ${ip}:${port} closed`,
         },
       };
       const websocket = generateWebsocket(ip, WebSocket.OPEN);
       const expressWsList = { clients: [websocket] };
 
-      const closeConnectionResult = await fluxNetworkHelper.closeIncomingConnection(ip, expressWsList);
+      const closeConnectionResult = await fluxNetworkHelper.closeIncomingConnection(ip, port, expressWsList);
 
       sinon.assert.calledOnceWithExactly(websocket.close, 1000, 'purpusfully closed');
       expect(closeConnectionResult).to.eql(successMessage);
@@ -788,19 +794,20 @@ describe('fluxNetworkHelper tests', () => {
     it('should return warning message if the websocket does not exist', async () => {
       const ip = '127.9.9.1';
       const ip2 = '127.5.5.2';
+      const port = 16127;
       const errorMessage = {
         status: 'warning',
         data: {
           code: undefined,
           name: undefined,
-          message: `Connection from ${ip} does not exists.`,
+          message: `Connection from ${ip}:${port} does not exists.`,
         },
       };
       const websocket = generateWebsocket(ip2, WebSocket.OPEN);
       const expressWsList = { clients: [websocket] };
       addPeerToListOfPeers(ip2);
 
-      const closeConnectionResult = await fluxNetworkHelper.closeIncomingConnection(ip, expressWsList);
+      const closeConnectionResult = await fluxNetworkHelper.closeIncomingConnection(ip, port, expressWsList);
 
       sinon.assert.notCalled(websocket.close);
       expect(closeConnectionResult).to.eql(errorMessage);
