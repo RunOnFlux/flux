@@ -431,11 +431,13 @@ describe('fluxCommunication tests', () => {
 
       const peer1 = {
         ip: '127.0.3.1',
+        port: 16127,
         lastPingTime: null,
         latency: null,
       };
       const peer2 = {
         ip: '192.168.0.0',
+        port: 16137,
         lastPingTime: new Date().getTime(),
         latency: 50,
       };
@@ -451,6 +453,7 @@ describe('fluxCommunication tests', () => {
       const wsuri = 'wss://api.runonflux.io/ws/flux/';
       const wsOutgoing1 = await connectWs(wsuri);
       wsOutgoing1._socket = { remoteAddress: '127.0.3.1' };
+      wsOutgoing1.port = 16127;
       wsOutgoing1.close = () => true;
       outgoingConnections.push(wsOutgoing1);
       verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
@@ -459,7 +462,7 @@ describe('fluxCommunication tests', () => {
         data: {
           code: undefined,
           name: undefined,
-          message: 'Outgoing connection to 127.0.3.1 closed',
+          message: 'Outgoing connection to 127.0.3.1:16127 closed',
         },
       };
       const req = {
@@ -485,6 +488,7 @@ describe('fluxCommunication tests', () => {
       const wsuri = 'wss://api.runonflux.io/ws/flux/';
       const wsOutgoing1 = await connectWs(wsuri);
       wsOutgoing1._socket = { remoteAddress: '127.0.3.1' };
+      wsOutgoing1.port = 16127;
       wsOutgoing1.close = () => true;
       outgoingConnections.push(wsOutgoing1);
       verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
@@ -493,7 +497,7 @@ describe('fluxCommunication tests', () => {
         data: {
           code: undefined,
           name: undefined,
-          message: 'Outgoing connection to 127.0.3.1 closed',
+          message: 'Outgoing connection to 127.0.3.1:16127 closed',
         },
       };
       const req = {
@@ -525,7 +529,7 @@ describe('fluxCommunication tests', () => {
         data: {
           code: undefined,
           name: undefined,
-          message: 'Connection to 127.0.3.1 does not exists.',
+          message: 'Connection to 127.0.3.1:16127 does not exists.',
         },
       };
       const req = {
@@ -618,11 +622,13 @@ describe('fluxCommunication tests', () => {
 
       const peer1 = {
         ip: '127.0.3.1',
+        port: 16127,
         lastPingTime: null,
         latency: null,
       };
       const peer2 = {
         ip: '192.168.0.0',
+        port: 16127,
         lastPingTime: new Date().getTime(),
         latency: 50,
       };
