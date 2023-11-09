@@ -387,10 +387,12 @@ async function removePeer(req, res) {
       const errMessage = messageHelper.createErrorMessage('No IP address specified.');
       return res.json(errMessage);
     }
+    const justIP = ip.split(':')[0];
+    const port = ip.split(':')[1] || 16127;
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
 
     if (authorized === true) {
-      const closeResponse = await fluxNetworkHelper.closeConnection(ip);
+      const closeResponse = await fluxNetworkHelper.closeConnection(justIP, port);
       response = closeResponse;
     } else {
       response = messageHelper.errUnauthorizedMessage();
@@ -422,10 +424,12 @@ async function removeIncomingPeer(req, res, expressWS) {
       const errMessage = messageHelper.createErrorMessage('No IP address specified.');
       return res.json(errMessage);
     }
+    const justIP = ip.split(':')[0];
+    const port = ip.split(':')[1] || 16127;
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
 
     if (authorized === true) {
-      const closeResponse = await fluxNetworkHelper.closeIncomingConnection(ip, expressWS);
+      const closeResponse = await fluxNetworkHelper.closeIncomingConnection(justIP, port, expressWS);
       response = closeResponse;
     } else {
       response = messageHelper.errUnauthorizedMessage();

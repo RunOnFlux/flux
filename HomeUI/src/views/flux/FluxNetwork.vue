@@ -117,13 +117,13 @@
       <b-card>
         <h4>Add Peer</h4>
         <div class="mt-1">
-          IP address:
+          IP address (with api port):
         </div>
         <b-form-input
           id="ip"
           v-model="addPeerIP"
           class="mb-2"
-          placeholder="Enter IP address"
+          placeholder="Enter IP address:API Port"
           type="text"
         />
         <div>
@@ -378,7 +378,7 @@ export default {
     async disconnectPeer(row) {
       const self = this;
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await FluxService.removePeer(zelidauth, row.item.ip).catch((error) => {
+      const response = await FluxService.removePeer(zelidauth, `${row.item.ip}:${row.item.port}`).catch((error) => {
         this.showToast('danger', error.message || error);
       });
       console.log(response);
@@ -395,7 +395,7 @@ export default {
     async disconnectIncoming(row) {
       const self = this;
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await FluxService.removeIncomingPeer(zelidauth, row.item.ip).catch((error) => {
+      const response = await FluxService.removeIncomingPeer(zelidauth, `${row.item.ip}:${row.item.port}`).catch((error) => {
         this.showToast('danger', error.message || error);
       });
       console.log(response);

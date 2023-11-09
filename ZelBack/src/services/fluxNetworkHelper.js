@@ -457,21 +457,22 @@ async function getRandomConnection() {
 /**
  * To close an outgoing connection.
  * @param {string} ip IP address.
+ * @param {string} port node API port.
  * @returns {object} Message.
  */
-async function closeConnection(ip) {
+async function closeConnection(ip, port) {
   if (!ip) return messageHelper.createWarningMessage('To close a connection please provide a proper IP number.');
-  const wsObj = outgoingConnections.find((client) => client._socket.remoteAddress === ip);
+  const wsObj = outgoingConnections.find((client) => client._socket.remoteAddress === ip && client.port === port);
   if (!wsObj) {
-    return messageHelper.createWarningMessage(`Connection to ${ip} does not exists.`);
+    return messageHelper.createWarningMessage(`Connection to ${ip}:${port} does not exists.`);
   }
   const ocIndex = outgoingConnections.indexOf(wsObj);
-  const foundPeer = outgoingPeers.find((peer) => peer.ip === ip);
+  const foundPeer = outgoingPeers.find((peer) => peer.ip === ip && peer.port === port);
   if (ocIndex === -1) {
-    return messageHelper.createErrorMessage(`Unable to close connection ${ip}. Try again later.`);
+    return messageHelper.createErrorMessage(`Unable to close connection ${ip}:${port}. Try again later.`);
   }
   wsObj.close(1000, 'purpusfully closed');
-  log.info(`Connection to ${ip} closed`);
+  log.info(`Connection to ${ip}:${port} closed`);
   outgoingConnections.splice(ocIndex, 1);
   if (foundPeer) {
     const peerIndex = outgoingPeers.indexOf(foundPeer);
@@ -479,35 +480,36 @@ async function closeConnection(ip) {
       outgoingPeers.splice(peerIndex, 1);
     }
   }
-  return messageHelper.createSuccessMessage(`Outgoing connection to ${ip} closed`);
+  return messageHelper.createSuccessMessage(`Outgoing connection to ${ip}:${port} closed`);
 }
 
 /**
  * To close an incoming connection.
  * @param {string} ip IP address.
+ * @param {string} port node API port.
  * @param {object} expressWS Express web socket.
  * @param {object} clientToClose Web socket for client to close.
  * @returns {object} Message.
  */
-async function closeIncomingConnection(ip, expressWS, clientToClose) {
+async function closeIncomingConnection(ip, port, expressWS, clientToClose) {
   if (!ip) return messageHelper.createWarningMessage('To close a connection please provide a proper IP number.');
   const clientsSet = expressWS.clients || [];
   let wsObj = null || clientToClose;
   clientsSet.forEach((client) => {
-    if (client._socket.remoteAddress === ip) {
+    if (client._socket.remoteAddress === ip && client.port === port) {
       wsObj = client;
     }
   });
   if (!wsObj) {
-    return messageHelper.createWarningMessage(`Connection from ${ip} does not exists.`);
+    return messageHelper.createWarningMessage(`Connection from ${ip}:${port} does not exists.`);
   }
   const ocIndex = incomingConnections.indexOf(wsObj);
-  const foundPeer = incomingPeers.find((peer) => peer.ip === ip);
+  const foundPeer = incomingPeers.find((peer) => peer.ip === ip && peer.port === port);
   if (ocIndex === -1) {
-    return messageHelper.createErrorMessage(`Unable to close incoming connection ${ip}. Try again later.`);
+    return messageHelper.createErrorMessage(`Unable to close incoming connection ${ip}:${port}. Try again later.`);
   }
   wsObj.close(1000, 'purpusfully closed');
-  log.info(`Connection from ${ip} closed`);
+  log.info(`Connection from ${ip}:${port} closed`);
   incomingConnections.splice(ocIndex, 1);
   if (foundPeer) {
     const peerIndex = incomingPeers.indexOf(foundPeer);
@@ -515,7 +517,7 @@ async function closeIncomingConnection(ip, expressWS, clientToClose) {
       incomingPeers.splice(peerIndex, 1);
     }
   }
-  return messageHelper.createSuccessMessage(`Incoming connection to ${ip} closed`);
+  return messageHelper.createSuccessMessage(`Incoming connection to ${ip}:${port} closed`);
 }
 
 /**
