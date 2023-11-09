@@ -644,6 +644,7 @@ describe('fluxCommunication tests', () => {
       const wsuri1 = 'wss://api.runonflux.io/ws/flux/';
       const wsIncoming1 = await connectWs(wsuri1);
       wsIncoming1._socket = { remoteAddress: '127.0.3.1' };
+      wsIncoming1.port = 16127;
       wsIncoming1.close = () => true;
       incomingConnections.push(wsIncoming1);
       verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
@@ -652,7 +653,7 @@ describe('fluxCommunication tests', () => {
         data: {
           code: undefined,
           name: undefined,
-          message: 'Incoming connection to 127.0.3.1 closed',
+          message: 'Incoming connection to 127.0.3.1:16127 closed',
         },
       };
       const req = {
@@ -679,6 +680,7 @@ describe('fluxCommunication tests', () => {
       const wsuri1 = 'wss://api.runonflux.io/ws/flux/';
       const wsIncoming1 = await connectWs(wsuri1);
       wsIncoming1._socket = { remoteAddress: '127.0.3.1' };
+      wsIncoming1.port = 16127;
       wsIncoming1.close = () => true;
       incomingConnections.push(wsIncoming1);
       verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
@@ -687,7 +689,7 @@ describe('fluxCommunication tests', () => {
         data: {
           code: undefined,
           name: undefined,
-          message: 'Incoming connection to 127.0.3.1 closed',
+          message: 'Incoming connection to 127.0.3.1:16127 closed',
         },
       };
       const req = {
@@ -717,6 +719,7 @@ describe('fluxCommunication tests', () => {
       const wsuri1 = 'wss://api.runonflux.io/ws/flux/';
       const wsIncoming1 = await connectWs(wsuri1);
       wsIncoming1._socket = { remoteAddress: '128.1.3.4' };
+      wsIncoming1.port = 16127;
       wsIncoming1.close = () => true;
       incomingConnections.push(wsIncoming1);
       verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
@@ -725,7 +728,7 @@ describe('fluxCommunication tests', () => {
         data: {
           code: undefined,
           name: undefined,
-          message: 'Connection from 127.0.3.1 does not exists.',
+          message: 'Connection from 127.0.3.1:16127 does not exists.',
         },
       };
       const req = {
