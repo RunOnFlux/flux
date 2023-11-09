@@ -845,8 +845,8 @@ describe('fluxCommunication tests', () => {
         };
       });
       const ip = '127.0.0.2';
-      wsserver = new WebSocket.Server({ host: '127.0.0.2', port: '16127' });
-
+      wsserver = new WebSocket.Server({ host: '127.0.0.2' });
+      lruDaemonSyncStub.returns({ data: { height: 0 } });
       await fluxCommunication.initiateAndHandleConnection(ip);
 
       await waitForWsConnected(wsserver);
@@ -870,7 +870,7 @@ describe('fluxCommunication tests', () => {
         };
       });
       const ip = '127.0.0.2';
-      wsserver = new WebSocket.Server({ host: '127.0.0.2', port: '16127' });
+      wsserver = new WebSocket.Server({ host: '127.0.0.2' });
 
       await fluxCommunication.initiateAndHandleConnection(ip);
 
@@ -880,8 +880,8 @@ describe('fluxCommunication tests', () => {
 
       expect(outgoingConnections).to.have.length(0);
       expect(outgoingPeers).to.have.length(0);
-      sinon.assert.calledWith(logSpy, 'Connection to 127.0.0.2 closed with code 1006');
-      sinon.assert.calledWith(logSpy, 'Connection 127.0.0.2 removed from outgoingPeers');
+      sinon.assert.calledWith(logSpy, 'Connection to 127.0.0.2:16127 closed with code 1006');
+      sinon.assert.calledWith(logSpy, 'Connection 127.0.0.2:16127 removed from outgoingPeers');
     });
 
     it('should not react to the message if rate limit is exceeded', async () => {
@@ -896,7 +896,7 @@ describe('fluxCommunication tests', () => {
         };
       });
       const ip = '127.0.0.2';
-      wsserver = new WebSocket.Server({ host: '127.0.0.2', port: '16127' });
+      wsserver = new WebSocket.Server({ host: '127.0.0.2' });
       lruDaemonSyncStub.returns({ data: { height: 0 } });
       lruRateLimitStub.returns(false);
       await fluxCommunication.initiateAndHandleConnection(ip);
@@ -923,7 +923,7 @@ describe('fluxCommunication tests', () => {
         };
       });
       const ip = '127.0.0.2';
-      wsserver = new WebSocket.Server({ host: '127.0.0.2', port: '16127' });
+      wsserver = new WebSocket.Server({ host: '127.0.0.2' });
       lruRateLimitStub.returns(true);
       const hasCacheStub = sinon.stub(LRUCache.prototype, 'has');
       hasCacheStub.withArgs(ip).returns(true);
@@ -938,8 +938,8 @@ describe('fluxCommunication tests', () => {
       sinon.assert.calledOnceWithExactly(ensureObjectSpy, message);
       sinon.assert.calledWithExactly(websocketCloseSpy, 1000, 'blocked list');
       sinon.assert.calledWith(logSpy, 'Closing outgoing connection, peer is on blockedList');
-      sinon.assert.calledWith(logSpy, 'Connection to 127.0.0.2 closed with code 1000');
-      sinon.assert.calledWith(logSpy, 'Connection 127.0.0.2 removed from outgoingPeers');
+      sinon.assert.calledWith(logSpy, 'Connection to 127.0.0.2:16127 closed with code 1000');
+      sinon.assert.calledWith(logSpy, 'Connection 127.0.0.2:16127 removed from outgoingPeers');
     });
 
     const appRequestCommands = ['fluxapprequest'];
@@ -965,7 +965,7 @@ describe('fluxCommunication tests', () => {
           };
         });
         const ip = '127.0.0.2';
-        wsserver = new WebSocket.Server({ host: '127.0.0.2', port: '16127' });
+        wsserver = new WebSocket.Server({ host: '127.0.0.2' });
         lruRateLimitStub.returns(true);
         sinon.stub(LRUCache.prototype, 'has').returns(false);
         const verifyOriginalFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast').returns(true);
@@ -1005,7 +1005,7 @@ describe('fluxCommunication tests', () => {
           };
         });
         const ip = '127.0.0.2';
-        wsserver = new WebSocket.Server({ host: '127.0.0.2', port: '16127' });
+        wsserver = new WebSocket.Server({ host: '127.0.0.2' });
         lruRateLimitStub.returns(true);
         sinon.stub(LRUCache.prototype, 'has').returns(false);
         const verifyOriginalFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast').returns(true);
@@ -1045,7 +1045,7 @@ describe('fluxCommunication tests', () => {
           };
         });
         const ip = '127.0.0.2';
-        wsserver = new WebSocket.Server({ host: '127.0.0.2', port: '16127' });
+        wsserver = new WebSocket.Server({ host: '127.0.0.2' });
         lruRateLimitStub.returns(true);
         sinon.stub(LRUCache.prototype, 'has').returns(false);
         const verifyOriginalFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast').returns(true);
