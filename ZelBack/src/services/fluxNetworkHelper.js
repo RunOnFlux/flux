@@ -739,6 +739,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
           await serviceHelper.delay(2 * 1000); // await two seconds
           const newIP = await getMyFluxIPandPort(); // to update node Ip on FluxOs;
           if (newIP && newIP !== oldIP) { // double check
+            log.info('FluxBench reported a new IP');
             return true;
           }
         } if (benchMyIP && benchMyIP.split(':')[0] === myIP.split(':')[0]) {
