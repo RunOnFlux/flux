@@ -450,6 +450,7 @@ async function removeIncomingPeer(req, res, expressWS) {
  * To initiate and handle a connection. Opens a web socket and handles various events during connection.
  * @param {string} connection IP address (and port if applicable).
  */
+let socketPortsInformationActive = false;
 async function initiateAndHandleConnection(connection) {
   let ip = connection;
   let port = config.server.apiport;
@@ -459,13 +460,19 @@ async function initiateAndHandleConnection(connection) {
       port = connection.split(':')[1];
     }
     let wsuri = `ws://${ip}:${port}/ws/flux/`;
-    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-    const daemonHeight = syncStatus.data.height || 0;
-    if (daemonHeight >= config.socketPortsInformation) {
+    if (!socketPortsInformationActive) {
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+      const daemonHeight = syncStatus.data.height || 0;
+      if (daemonHeight >= config.socketPortsInformation) {
+        socketPortsInformationActive = true;
+      }
+    }
+    if (socketPortsInformationActive) {
       const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
       const myPort = myIP.split(':')[1] || 16127;
       wsuri = `ws://${ip}:${port}/ws/flux/${myPort}`;
     }
+
     const websocket = new WebSocket(wsuri);
     websocket.port = port;
     websocket.onopen = () => {
@@ -533,7 +540,7 @@ async function initiateAndHandleConnection(connection) {
       // incoming messages from outgoing connections
       const currentTimeStamp = Date.now(); // ms
       // check rate limit
-      const rateOK = fluxNetworkHelper.lruRateLimit(ip, 90);
+      const rateOK = fluxNetworkHelper.lruRateLimit(`${ip}:${port}`, 90);
       if (!rateOK) {
         return; // do not react to the message
       }

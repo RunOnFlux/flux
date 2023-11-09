@@ -808,6 +808,7 @@ describe('fluxCommunication tests', () => {
     let wsserver;
     let logSpy;
     let lruRateLimitStub;
+    let lruDaemonSyncStub;
     let ensureObjectSpy;
 
     beforeEach(() => {
@@ -816,6 +817,7 @@ describe('fluxCommunication tests', () => {
       ensureObjectSpy = sinon.spy(serviceHelper, 'ensureObject');
       outgoingConnections.length = 0;
       outgoingPeers.length = 0;
+      lruDaemonSyncStub = sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced');
     });
 
     afterEach(() => {
@@ -886,8 +888,8 @@ describe('fluxCommunication tests', () => {
       });
       const ip = '127.0.0.2';
       wsserver = new WebSocket.Server({ host: '127.0.0.2', port: '16127' });
+      lruDaemonSyncStub.returns({ data: { height: 0 } });
       lruRateLimitStub.returns(false);
-
       await fluxCommunication.initiateAndHandleConnection(ip);
 
       await waitForWsConnected(wsserver);
