@@ -453,7 +453,6 @@ describe('fluxCommunication tests', () => {
       const wsuri = 'wss://api.runonflux.io/ws/flux/';
       const wsOutgoing1 = await connectWs(wsuri);
       wsOutgoing1._socket = { remoteAddress: '127.0.3.1' };
-      wsOutgoing1.port = 16127;
       wsOutgoing1.close = () => true;
       outgoingConnections.push(wsOutgoing1);
       verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
@@ -488,7 +487,6 @@ describe('fluxCommunication tests', () => {
       const wsuri = 'wss://api.runonflux.io/ws/flux/';
       const wsOutgoing1 = await connectWs(wsuri);
       wsOutgoing1._socket = { remoteAddress: '127.0.3.1' };
-      wsOutgoing1.port = 16127;
       wsOutgoing1.close = () => true;
       outgoingConnections.push(wsOutgoing1);
       verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
@@ -644,7 +642,6 @@ describe('fluxCommunication tests', () => {
       const wsuri1 = 'wss://api.runonflux.io/ws/flux/';
       const wsIncoming1 = await connectWs(wsuri1);
       wsIncoming1._socket = { remoteAddress: '127.0.3.1' };
-      wsIncoming1.port = 16127;
       wsIncoming1.close = () => true;
       incomingConnections.push(wsIncoming1);
       verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
@@ -680,7 +677,6 @@ describe('fluxCommunication tests', () => {
       const wsuri1 = 'wss://api.runonflux.io/ws/flux/';
       const wsIncoming1 = await connectWs(wsuri1);
       wsIncoming1._socket = { remoteAddress: '127.0.3.1' };
-      wsIncoming1.port = 16127;
       wsIncoming1.close = () => true;
       incomingConnections.push(wsIncoming1);
       verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
@@ -719,7 +715,6 @@ describe('fluxCommunication tests', () => {
       const wsuri1 = 'wss://api.runonflux.io/ws/flux/';
       const wsIncoming1 = await connectWs(wsuri1);
       wsIncoming1._socket = { remoteAddress: '128.1.3.4' };
-      wsIncoming1.port = 16127;
       wsIncoming1.close = () => true;
       incomingConnections.push(wsIncoming1);
       verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
