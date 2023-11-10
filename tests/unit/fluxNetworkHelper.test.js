@@ -1901,7 +1901,7 @@ describe('fluxNetworkHelper tests', () => {
     const minNumberOfIncoming = 4;
     const minNumberOfOutgoing = 8;
     const dummyPeer = {
-      ip: '192.168.0.0',
+      ip: '192.168.0.1',
       lastPingTime: new Date().getTime(),
       latency: 50,
     };
@@ -1915,9 +1915,11 @@ describe('fluxNetworkHelper tests', () => {
       outgoingPeers.length = 0;
       incomingPeers.length = 0;
       for (let i = 0; i < numberOfincomingPeers; i += 1) {
+        dummyPeer.ip += '1';
         incomingPeers.push(dummyPeer);
       }
       for (let i = 0; i < numberOfOutgoingPeers; i += 1) {
+        dummyPeer.ip += '1';
         outgoingPeers.push(dummyPeer);
       }
     };
