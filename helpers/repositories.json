@@ -363,5 +363,6 @@
    "omniadevs/ic-websocket-gateway",
    "ubuntu",
    "notrustverify",
-   "onlyoffice"
+   "onlyoffice",
+   "ghcr.io/celestiaorg/celestia-node"
 ]
