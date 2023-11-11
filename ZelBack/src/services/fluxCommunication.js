@@ -789,7 +789,7 @@ async function fluxDiscovery() {
 
     await serviceHelper.delay(500);
     let index = 0;
-    while ((outgoingConnections.length < 16 || [...new Set(outgoingConnections.map((client) => client._socket.remoteAddress))].length < 6) && index < 100) { // Max of 16 outgoing connections - 12 possible deterministic + min. 4 random
+    while ((outgoingConnections.length < 16 || [...new Set(outgoingConnections.map((client) => client._socket.remoteAddress))].length < 9) && index < 100) { // Max of 16 outgoing connections - 12 possible deterministic + min. 4 random
       index += 1;
       // eslint-disable-next-line no-await-in-loop
       const connection = await fluxNetworkHelper.getRandomConnection();
@@ -810,7 +810,7 @@ async function fluxDiscovery() {
       await serviceHelper.delay(500);
     }
     index = 0;
-    while ((incomingConnections.length < 14 || [...new Set(incomingConnections.map((client) => client._socket.remoteAddress))].length < 6) && index < 100) { // Max of 14 outgoing connections - 12 possible deterministic + min. 2 random (we will get more random as others nodes have more random outgoing connections)
+    while ((incomingConnections.length < 10 || [...new Set(incomingConnections.map((client) => client._socket.remoteAddress))].length < 5) && index < 100) { // Max of 14 outgoing connections - 12 possible deterministic + min. 2 random (we will get more random as others nodes have more random outgoing connections)
       index += 1;
       // eslint-disable-next-line no-await-in-loop
       const connection = await fluxNetworkHelper.getRandomConnection();
