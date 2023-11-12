@@ -53,7 +53,7 @@ async function sendToAllPeers(data, wsList) {
         removals.push(client);
         try {
           const ip = client._socket.remoteAddress;
-          const { port } = client._socket;
+          const { port } = client;
           const foundPeer = outgoingPeers.find((peer) => peer.ip === ip && peer.port === port);
           ipremovals.push(foundPeer);
           // eslint-disable-next-line no-use-before-define

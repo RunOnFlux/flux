@@ -577,8 +577,9 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('closeConnection tests', () => {
-    const generateWebsocket = (ip, readyState) => {
+    const generateWebsocket = (ip, port, readyState) => {
       const ws = {};
+      ws.port = port;
       ws.readyState = readyState;
       ws.ping = sinon.stub().returns('pong');
       ws.close = sinon.stub().returns('okay');
@@ -588,9 +589,10 @@ describe('fluxNetworkHelper tests', () => {
       outgoingConnections.push(ws);
       return ws;
     };
-    const addPeerToListOfPeers = (ip) => {
+    const addPeerToListOfPeers = (ip, port) => {
       const peer = {
         ip,
+        port,
         latency: 50,
       };
       outgoingPeers.push(peer);
@@ -617,8 +619,8 @@ describe('fluxNetworkHelper tests', () => {
           message: `Outgoing connection to ${ip}:${port} closed`,
         },
       };
-      const websocket = generateWebsocket(ip, WebSocket.OPEN);
-      addPeerToListOfPeers(ip);
+      const websocket = generateWebsocket(ip, port, WebSocket.OPEN);
+      addPeerToListOfPeers(ip, port);
 
       const closeConnectionResult = await fluxNetworkHelper.closeConnection(ip, port);
 
@@ -639,7 +641,7 @@ describe('fluxNetworkHelper tests', () => {
           message: `Outgoing connection to ${ip}:${port} closed`,
         },
       };
-      const websocket = generateWebsocket(ip, WebSocket.OPEN);
+      const websocket = generateWebsocket(ip, port, WebSocket.OPEN);
 
       const closeConnectionResult = await fluxNetworkHelper.closeConnection(ip, port);
 
@@ -661,8 +663,8 @@ describe('fluxNetworkHelper tests', () => {
           message: `Connection to ${ip}:${port} does not exists.`,
         },
       };
-      const websocket = generateWebsocket(ip2, WebSocket.OPEN);
-      addPeerToListOfPeers(ip2);
+      const websocket = generateWebsocket(ip2, port, WebSocket.OPEN);
+      addPeerToListOfPeers(ip2, port);
 
       const closeConnectionResult = await fluxNetworkHelper.closeConnection(ip, port);
 
@@ -682,8 +684,8 @@ describe('fluxNetworkHelper tests', () => {
           message: 'To close a connection please provide a proper IP number.',
         },
       };
-      const websocket = generateWebsocket(ip2, WebSocket.OPEN);
-      addPeerToListOfPeers(ip2);
+      const websocket = generateWebsocket(ip2, port, WebSocket.OPEN);
+      addPeerToListOfPeers(ip2, port);
 
       const closeConnectionResult = await fluxNetworkHelper.closeConnection();
 
@@ -695,8 +697,9 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('closeIncomingConnection tests', () => {
-    const generateWebsocket = (ip, readyState) => {
+    const generateWebsocket = (ip, port, readyState) => {
       const ws = {};
+      ws.port = port;
       ws.readyState = readyState;
       ws.ping = sinon.stub().returns('pong');
       ws.close = sinon.stub().returns('okay');
@@ -706,9 +709,10 @@ describe('fluxNetworkHelper tests', () => {
       incomingConnections.push(ws);
       return ws;
     };
-    const addPeerToListOfPeers = (ip) => {
+    const addPeerToListOfPeers = (ip, port) => {
       const peer = {
         ip,
+        port,
         latency: 50,
       };
       incomingPeers.push(peer);
@@ -735,8 +739,8 @@ describe('fluxNetworkHelper tests', () => {
           message: `Incoming connection to ${ip}:${port} closed`,
         },
       };
-      const websocket = generateWebsocket(ip, WebSocket.OPEN);
-      addPeerToListOfPeers(ip);
+      const websocket = generateWebsocket(ip, port, WebSocket.OPEN);
+      addPeerToListOfPeers(ip, port);
       const expressWsList = { clients: [websocket] };
 
       const closeConnectionResult = await fluxNetworkHelper.closeIncomingConnection(ip, port, expressWsList);
@@ -758,8 +762,8 @@ describe('fluxNetworkHelper tests', () => {
           message: `Incoming connection to ${ip}:${port} closed`,
         },
       };
-      const websocket = generateWebsocket(ip, WebSocket.OPEN);
-      addPeerToListOfPeers(ip);
+      const websocket = generateWebsocket(ip, port, WebSocket.OPEN);
+      addPeerToListOfPeers(ip, port);
 
       const closeConnectionResult = await fluxNetworkHelper.closeIncomingConnection(ip, port, [], websocket);
 
@@ -780,7 +784,7 @@ describe('fluxNetworkHelper tests', () => {
           message: `Incoming connection to ${ip}:${port} closed`,
         },
       };
-      const websocket = generateWebsocket(ip, WebSocket.OPEN);
+      const websocket = generateWebsocket(ip, port, WebSocket.OPEN);
       const expressWsList = { clients: [websocket] };
 
       const closeConnectionResult = await fluxNetworkHelper.closeIncomingConnection(ip, port, expressWsList);
@@ -803,9 +807,9 @@ describe('fluxNetworkHelper tests', () => {
           message: `Connection from ${ip}:${port} does not exists.`,
         },
       };
-      const websocket = generateWebsocket(ip2, WebSocket.OPEN);
+      const websocket = generateWebsocket(ip2, port, WebSocket.OPEN);
       const expressWsList = { clients: [websocket] };
-      addPeerToListOfPeers(ip2);
+      addPeerToListOfPeers(ip2, port);
 
       const closeConnectionResult = await fluxNetworkHelper.closeIncomingConnection(ip, port, expressWsList);
 
@@ -817,6 +821,7 @@ describe('fluxNetworkHelper tests', () => {
 
     it('should return warning message if the websocket does not exist', async () => {
       const ip2 = '127.5.5.2';
+      port = 16127;
       const errorMessage = {
         status: 'warning',
         data: {
@@ -825,8 +830,8 @@ describe('fluxNetworkHelper tests', () => {
           message: 'To close a connection please provide a proper IP number.',
         },
       };
-      const websocket = generateWebsocket(ip2, WebSocket.OPEN);
-      addPeerToListOfPeers(ip2);
+      const websocket = generateWebsocket(ip2, port, WebSocket.OPEN);
+      addPeerToListOfPeers(ip2, port);
 
       const closeConnectionResult = await fluxNetworkHelper.closeIncomingConnection();
 
@@ -902,8 +907,9 @@ describe('fluxNetworkHelper tests', () => {
       res.json = sinon.fake((param) => param);
       return res;
     };
-    const generateWebsocket = (ip) => {
+    const generateWebsocket = (ip, port) => {
       const ws = {};
+      ws.port = port;
       ws._socket = {
         remoteAddress: ip,
       };
@@ -916,8 +922,9 @@ describe('fluxNetworkHelper tests', () => {
 
     it('should return success message with incoming connections\' ips', async () => {
       const ips = ['127.0.0.1', '127.0.0.2'];
-      const websocket1 = generateWebsocket(ips[0]);
-      const websocket2 = generateWebsocket(ips[1]);
+      port = 16127;
+      const websocket1 = generateWebsocket(ips[0], port);
+      const websocket2 = generateWebsocket(ips[1], port);
       const expressWsList = { clients: [websocket1, websocket2] };
       const res = generateResponse();
       const expectedCallArgumeent = { status: 'success', data: ['127.0.0.1', '127.0.0.2'] };
@@ -945,9 +952,10 @@ describe('fluxNetworkHelper tests', () => {
       res.json = sinon.fake((param) => param);
       return res;
     };
-    const addPeerToListOfPeers = (ip) => {
+    const addPeerToListOfPeers = (ip, port) => {
       const peer = {
         ip,
+        port,
         latency: 50,
       };
       incomingPeers.push(peer);
@@ -964,14 +972,15 @@ describe('fluxNetworkHelper tests', () => {
 
     it('should return success message with incoming connections\' info', async () => {
       const ips = ['127.0.0.1', '127.0.0.2'];
-      addPeerToListOfPeers(ips[0]);
-      addPeerToListOfPeers(ips[1]);
+      const port = 16127;
+      addPeerToListOfPeers(ips[0], port);
+      addPeerToListOfPeers(ips[1], port);
       const res = generateResponse();
       const expectedCallArgumeent = {
         status: 'success',
         data: [
-          { ip: '127.0.0.1', latency: 50 },
-          { ip: '127.0.0.2', latency: 50 },
+          { ip: '127.0.0.1', port: 16127, latency: 50 },
+          { ip: '127.0.0.2', port: 16127, latency: 50 },
         ],
       };
 
@@ -1900,11 +1909,7 @@ describe('fluxNetworkHelper tests', () => {
   describe('isCommunicationEstablished tests', () => {
     const minNumberOfIncoming = 4;
     const minNumberOfOutgoing = 8;
-    const dummyPeer = {
-      ip: '192.168.0.1',
-      lastPingTime: new Date().getTime(),
-      latency: 50,
-    };
+
     const generateResponse = () => {
       const res = { test: 'testing' };
       res.status = sinon.stub().returns(res);
@@ -1914,15 +1919,29 @@ describe('fluxNetworkHelper tests', () => {
     const populatePeers = (numberOfincomingPeers, numberOfOutgoingPeers) => {
       outgoingPeers.length = 0;
       incomingPeers.length = 0;
-      for (let i = 0; i < numberOfincomingPeers; i += 1) {
-        dummyPeer.ip += '1';
+      const baseIp = '192.168.0.';
+      for (let i = 1; i <= numberOfincomingPeers; i += 1) {
+        const dummyPeer = {
+          ip: `${baseIp}${i}`,
+          port: 16127,
+          lastPingTime: new Date().getTime(),
+          latency: 50,
+        };
         incomingPeers.push(dummyPeer);
       }
-      for (let i = 0; i < numberOfOutgoingPeers; i += 1) {
-        dummyPeer.ip += '1';
+
+      for (let i = 1; i <= numberOfOutgoingPeers; i += 1) {
+        const dummyPeer = {
+          ip: `${baseIp}${i}`,
+          port: 16127,
+          lastPingTime: new Date().getTime(),
+          latency: 50,
+        };
         outgoingPeers.push(dummyPeer);
       }
+      return { incomingPeers, outgoingPeers };
     };
+
     const expectedSuccesssResponse = {
       status: 'success',
       data: {
