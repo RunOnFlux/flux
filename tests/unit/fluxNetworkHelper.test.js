@@ -676,6 +676,7 @@ describe('fluxNetworkHelper tests', () => {
 
     it('should return warning message if ip is not provided', async () => {
       const ip2 = '127.5.5.2';
+      const port = 16127;
       const errorMessage = {
         status: 'warning',
         data: {
