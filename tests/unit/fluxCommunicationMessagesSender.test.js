@@ -138,7 +138,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
       sinon.assert.threw(webSocket1.send);
       sinon.assert.calledOnceWithExactly(webSocket2.send, data);
-      sinon.assert.calledOnceWithExactly(closeConnectionStub, '127.0.0.1');
+      sinon.assert.calledOnceWithExactly(closeConnectionStub, '127.0.0.1', 16127);
       expect(outgoingPeers).to.contain(peer2);
       expect(outgoingPeers).to.not.contain(peer1);
       expect(outgoingConnections).to.contain(webSocket2);
@@ -1409,7 +1409,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       const mockStream = new PassThrough();
       mockStream.end();
       const res = generateResponse();
-      const websocket = generateWebsocket('127.0.0.1', port, WebSocket.OPEN);
+      const websocket = generateWebsocket('127.0.0.1', 16127, WebSocket.OPEN);
       const expectedErrorMessage = {
         status: 'error',
         data: {
