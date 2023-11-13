@@ -1005,6 +1005,8 @@ describe('fluxCommunication tests', () => {
       await serviceHelper.delay(100);
 
       sinon.assert.calledWithExactly(ensureObjectSpy, message);
+      console.log(logSpy.arg);
+      console.log(websocketCloseSpy.arg);
       sinon.assert.calledWithExactly(websocketCloseSpy, 1000, 'blocked list');
       sinon.assert.calledWith(logSpy, 'Closing outgoing connection, peer is on blockedList');
       sinon.assert.calledWith(logSpy, 'Connection to 127.0.0.2:16127 closed with code 1000');
