@@ -876,7 +876,7 @@ describe('fluxCommunication tests', () => {
         };
       });
       const ip = '127.0.0.2';
-      wsserver = new WebSocket.Server({ server: '127.0.0.2', port: 16127 });
+      wsserver = new WebSocket.Server({ host: '127.0.0.2', port: 16127 });
       daemonServiceMiscRpcsStub.returns({
         data:
       {
@@ -907,7 +907,7 @@ describe('fluxCommunication tests', () => {
         };
       });
       const ip = '127.0.0.2';
-      wsserver = new WebSocket.Server({ server: '127.0.0.2', port: 16127 });
+      wsserver = new WebSocket.Server({ host: '127.0.0.2', port: 16127 });
       daemonServiceMiscRpcsStub.returns({
         data:
       {
@@ -940,7 +940,7 @@ describe('fluxCommunication tests', () => {
         };
       });
       const ip = '127.0.0.2';
-      wsserver = new WebSocket.Server({ server: '127.0.0.2', port: 16127 });
+      wsserver = new WebSocket.Server({ host: '127.0.0.2', port: 16127 });
       daemonServiceMiscRpcsStub.returns({
         data:
       {
@@ -973,7 +973,7 @@ describe('fluxCommunication tests', () => {
         };
       });
       const ip = '127.0.0.2';
-      wsserver = new WebSocket.Server({ server: '127.0.0.2', port: 16127 });
+      wsserver = new WebSocket.Server({ host: '127.0.0.2', port: 16127 });
       daemonServiceMiscRpcsStub.returns({
         data:
       {
@@ -1022,7 +1022,7 @@ describe('fluxCommunication tests', () => {
           };
         });
         const ip = '127.0.0.2';
-        wsserver = new WebSocket.Server({ server: '127.0.0.2', port: 16127 });
+        wsserver = new WebSocket.Server({ host: '127.0.0.2', port: 16127 });
         lruRateLimitStub.returns(true);
         sinon.stub(LRUCache.prototype, 'has').returns(false);
         const verifyOriginalFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast').returns(true);
@@ -1068,7 +1068,7 @@ describe('fluxCommunication tests', () => {
           };
         });
         const ip = '127.0.0.2';
-        wsserver = new WebSocket.Server({ server: '127.0.0.2', port: 16127 });
+        wsserver = new WebSocket.Server({ host: '127.0.0.2', port: 16127 });
         lruRateLimitStub.returns(true);
         sinon.stub(LRUCache.prototype, 'has').returns(false);
         const verifyOriginalFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast').returns(true);
@@ -1114,7 +1114,7 @@ describe('fluxCommunication tests', () => {
           };
         });
         const ip = '127.0.0.2';
-        wsserver = new WebSocket.Server({ server: '127.0.0.2', port: 16127 });
+        wsserver = new WebSocket.Server({ host: '127.0.0.2', port: 16127 });
         lruRateLimitStub.returns(true);
         sinon.stub(LRUCache.prototype, 'has').returns(false);
         const verifyOriginalFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast').returns(true);
