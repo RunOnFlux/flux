@@ -995,8 +995,7 @@ describe('fluxCommunication tests', () => {
       });
       lruRateLimitStub.returns(true);
       const hasCacheStub = sinon.stub(LRUCache.prototype, 'has');
-      const { pubKey } = message;
-      hasCacheStub.withArgs(pubKey).returns(true);
+      hasCacheStub.withArgs('1234asd').returns(true);
       const websocketCloseSpy = sinon.spy(WebSocket.prototype, 'close');
 
       await fluxCommunication.initiateAndHandleConnection(ip);
@@ -1006,8 +1005,6 @@ describe('fluxCommunication tests', () => {
       await serviceHelper.delay(100);
 
       sinon.assert.calledWithExactly(ensureObjectSpy, message);
-      console.log(logSpy.args);
-      console.log(websocketCloseSpy.args);
       sinon.assert.calledWithExactly(websocketCloseSpy, 1000, 'blocked list');
       sinon.assert.calledWith(logSpy, 'Closing outgoing connection, peer is on blockedList');
       sinon.assert.calledWith(logSpy, 'Connection to 127.0.0.2:16127 closed with code 1000');
