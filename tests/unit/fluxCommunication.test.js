@@ -848,11 +848,13 @@ describe('fluxCommunication tests', () => {
     let lruRateLimitStub;
     let daemonServiceMiscRpcsStub;
     let ensureObjectSpy;
+    let checkObjectSpy;
 
     beforeEach(() => {
       logSpy = sinon.spy(log, 'info');
       lruRateLimitStub = sinon.stub(fluxNetworkHelper, 'lruRateLimit');
       ensureObjectSpy = sinon.spy(serviceHelper, 'ensureObject');
+      checkObjectSpy = sinon.spy(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast');
       outgoingConnections.length = 0;
       outgoingPeers.length = 0;
       daemonServiceMiscRpcsStub = sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced');
@@ -962,7 +964,7 @@ describe('fluxCommunication tests', () => {
       // slight delay to let onopen to be triggered
       await serviceHelper.delay(100);
 
-      sinon.assert.notCalled(ensureObjectSpy);
+      sinon.assert.notCalled(checkObjectSpy);
     });
 
     it('should close the connection if peer is added to blockedList', async () => {
