@@ -848,13 +848,11 @@ describe('fluxCommunication tests', () => {
     let lruRateLimitStub;
     let daemonServiceMiscRpcsStub;
     let ensureObjectSpy;
-    let checkObjectSpy;
 
     beforeEach(() => {
       logSpy = sinon.spy(log, 'info');
       lruRateLimitStub = sinon.stub(fluxNetworkHelper, 'lruRateLimit');
       ensureObjectSpy = sinon.spy(serviceHelper, 'ensureObject');
-      checkObjectSpy = sinon.spy(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast');
       outgoingConnections.length = 0;
       outgoingPeers.length = 0;
       daemonServiceMiscRpcsStub = sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced');
@@ -958,6 +956,7 @@ describe('fluxCommunication tests', () => {
       },
       });
       lruRateLimitStub.returns(false);
+      const checkObjectSpy = sinon.spy(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast');
       await fluxCommunication.initiateAndHandleConnection(ip);
 
       await waitForWsConnected(wsserver);
