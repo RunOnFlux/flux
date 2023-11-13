@@ -995,7 +995,8 @@ describe('fluxCommunication tests', () => {
       });
       lruRateLimitStub.returns(true);
       const hasCacheStub = sinon.stub(LRUCache.prototype, 'has');
-      hasCacheStub.withArgs(ip).returns(true);
+      const { pubKey } = message;
+      hasCacheStub.withArgs(pubKey).returns(true);
       const websocketCloseSpy = sinon.spy(WebSocket.prototype, 'close');
 
       await fluxCommunication.initiateAndHandleConnection(ip);
