@@ -247,8 +247,7 @@ function handleIncomingConnection(websocket, req, expressWS) {
       return; // do not react to the message
     }
     // check blocked list
-    const dataObj = serviceHelper.ensureObject(msg);
-    const { pubKey } = dataObj;
+    const { pubKey } = msgObj;
     if (blockedPubKeysCache.has(pubKey)) {
       try {
         log.info('Closing incoming connection, peer is on blockedList');
