@@ -929,9 +929,16 @@ describe('fluxCommunication tests', () => {
     });
 
     it('should not react to the message if rate limit is exceeded', async () => {
+      const message = JSON.stringify({
+        timestamp: new Date().getTime(),
+        pubKey: '1234asd',
+        data: {
+          type: 'fluxapprunning',
+        },
+      });
       const waitForWsConnected = (wss) => new Promise((resolve, reject) => {
         wss.on('connection', (ws) => {
-          ws.send('message');
+          ws.send(message);
           resolve();
         });
         // eslint-disable-next-line no-param-reassign
@@ -960,7 +967,11 @@ describe('fluxCommunication tests', () => {
 
     it('should close the connection if peer is added to blockedList', async () => {
       const message = JSON.stringify({
+        timestamp: new Date().getTime(),
         pubKey: '1234asd',
+        data: {
+          type: 'fluxapprunning',
+        },
       });
       const waitForWsConnected = (wss) => new Promise((resolve, reject) => {
         wss.on('connection', (ws) => {
