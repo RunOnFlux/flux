@@ -822,7 +822,7 @@ describe('fluxNetworkHelper tests', () => {
 
     it('should return warning message if the websocket does not exist', async () => {
       const ip2 = '127.5.5.2';
-      port = 16127;
+      const port = 16127;
       const errorMessage = {
         status: 'warning',
         data: {
@@ -923,7 +923,7 @@ describe('fluxNetworkHelper tests', () => {
 
     it('should return success message with incoming connections\' ips', async () => {
       const ips = ['127.0.0.1', '127.0.0.2'];
-      port = 16127;
+      const port = 16127;
       const websocket1 = generateWebsocket(ips[0], port);
       const websocket2 = generateWebsocket(ips[1], port);
       const expressWsList = { clients: [websocket1, websocket2] };
