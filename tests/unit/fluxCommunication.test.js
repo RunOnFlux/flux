@@ -948,7 +948,7 @@ describe('fluxCommunication tests', () => {
         height: 0,
       },
       });
-      lruRateLimitStub.returns(true);
+      lruRateLimitStub.returns(false);
       await fluxCommunication.initiateAndHandleConnection(ip);
 
       await waitForWsConnected(wsserver);
@@ -981,7 +981,7 @@ describe('fluxCommunication tests', () => {
         height: 0,
       },
       });
-      lruRateLimitStub.returns(false);
+      lruRateLimitStub.returns(true);
       const hasCacheStub = sinon.stub(LRUCache.prototype, 'has');
       hasCacheStub.withArgs(ip).returns(true);
       const websocketCloseSpy = sinon.spy(WebSocket.prototype, 'close');
@@ -1023,7 +1023,7 @@ describe('fluxCommunication tests', () => {
         });
         const ip = '127.0.0.2';
         wsserver = new WebSocket.Server({ host: '127.0.0.2', port: 16127 });
-        lruRateLimitStub.returns(false);
+        lruRateLimitStub.returns(true);
         sinon.stub(LRUCache.prototype, 'has').returns(false);
         const verifyOriginalFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast').returns(true);
         const respondWithAppMessageStub = sinon.stub(fluxCommunicationMessagesSender, 'respondWithAppMessage').returns(true);
@@ -1069,7 +1069,7 @@ describe('fluxCommunication tests', () => {
         });
         const ip = '127.0.0.2';
         wsserver = new WebSocket.Server({ host: '127.0.0.2', port: 16127 });
-        lruRateLimitStub.returns(false);
+        lruRateLimitStub.returns(true);
         sinon.stub(LRUCache.prototype, 'has').returns(false);
         const verifyOriginalFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast').returns(true);
         const storeAppTemporaryMessageStub = sinon.stub(appsService, 'storeAppTemporaryMessage').returns(false);
@@ -1115,7 +1115,7 @@ describe('fluxCommunication tests', () => {
         });
         const ip = '127.0.0.2';
         wsserver = new WebSocket.Server({ host: '127.0.0.2', port: 16127 });
-        lruRateLimitStub.returns(false);
+        lruRateLimitStub.returns(true);
         sinon.stub(LRUCache.prototype, 'has').returns(false);
         const verifyOriginalFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast').returns(true);
         const storeAppRunningMessageStub = sinon.stub(appsService, 'storeAppRunningMessage').returns(false);
