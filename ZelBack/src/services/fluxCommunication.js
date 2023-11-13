@@ -502,7 +502,7 @@ async function initiateAndHandleConnection(connection) {
     websocket.onclose = (evt) => {
       const ocIndex = outgoingConnections.indexOf(websocket);
       if (ocIndex > -1) {
-        log.info(`Connection to ${connection} closed with code ${evt.code}`);
+        log.info(`Connection to ${ip}:${port} closed with code ${evt.code}`);
         outgoingConnections.splice(ocIndex, 1);
       }
       const foundPeer = outgoingPeers.find((peer) => peer.ip === ip && peer.port === port);
@@ -510,7 +510,7 @@ async function initiateAndHandleConnection(connection) {
         const peerIndex = outgoingPeers.indexOf(foundPeer);
         if (peerIndex > -1) {
           outgoingPeers.splice(peerIndex, 1);
-          log.info(`Connection ${connection} removed from outgoingPeers`);
+          log.info(`Connection ${ip}:${port} removed from outgoingPeers`);
         }
       }
     };
@@ -595,7 +595,7 @@ async function initiateAndHandleConnection(connection) {
     websocket.onerror = (evt) => {
       const ocIndex = outgoingConnections.indexOf(websocket);
       if (ocIndex > -1) {
-        log.info(`Connection to ${connection} errord with code ${evt.code}`);
+        log.info(`Connection to ${ip}:${port} errord with code ${evt.code}`);
         outgoingConnections.splice(ocIndex, 1);
       }
       const foundPeer = outgoingPeers.find((peer) => peer.ip === ip && peer.port === port);
@@ -603,7 +603,7 @@ async function initiateAndHandleConnection(connection) {
         const peerIndex = outgoingPeers.indexOf(foundPeer);
         if (peerIndex > -1) {
           outgoingPeers.splice(peerIndex, 1);
-          log.info(`Connection ${connection} removed from outgoingPeers`);
+          log.info(`Connection ${ip}:${port} removed from outgoingPeers`);
         }
       }
     };
