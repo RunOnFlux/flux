@@ -876,7 +876,7 @@ describe('fluxCommunication tests', () => {
         };
       });
       const ip = '127.0.0.2';
-      wsserver = new WebSocket.Server({ host: '127.0.0.2' });
+      wsserver = new WebSocket.Server({ server: '127.0.0.2' });
       daemonServiceMiscRpcsStub.returns({
         data:
       {
@@ -907,7 +907,7 @@ describe('fluxCommunication tests', () => {
         };
       });
       const ip = '127.0.0.2';
-      wsserver = new WebSocket.Server({ host: '127.0.0.2' });
+      wsserver = new WebSocket.Server({ server: '127.0.0.2' });
       daemonServiceMiscRpcsStub.returns({
         data:
       {
@@ -940,7 +940,7 @@ describe('fluxCommunication tests', () => {
         };
       });
       const ip = '127.0.0.2';
-      wsserver = new WebSocket.Server({ host: '127.0.0.2' });
+      wsserver = new WebSocket.Server({ server: '127.0.0.2' });
       daemonServiceMiscRpcsStub.returns({
         data:
       {
@@ -973,7 +973,7 @@ describe('fluxCommunication tests', () => {
         };
       });
       const ip = '127.0.0.2';
-      wsserver = new WebSocket.Server({ host: '127.0.0.2' });
+      wsserver = new WebSocket.Server({ server: '127.0.0.2' });
       daemonServiceMiscRpcsStub.returns({
         data:
       {
@@ -1022,7 +1022,7 @@ describe('fluxCommunication tests', () => {
           };
         });
         const ip = '127.0.0.2';
-        wsserver = new WebSocket.Server({ host: '127.0.0.2' });
+        wsserver = new WebSocket.Server({ server: '127.0.0.2' });
         lruRateLimitStub.returns(true);
         sinon.stub(LRUCache.prototype, 'has').returns(false);
         const verifyOriginalFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast').returns(true);
@@ -1068,7 +1068,7 @@ describe('fluxCommunication tests', () => {
           };
         });
         const ip = '127.0.0.2';
-        wsserver = new WebSocket.Server({ host: '127.0.0.2' });
+        wsserver = new WebSocket.Server({ server: '127.0.0.2' });
         lruRateLimitStub.returns(true);
         sinon.stub(LRUCache.prototype, 'has').returns(false);
         const verifyOriginalFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast').returns(true);
@@ -1114,7 +1114,7 @@ describe('fluxCommunication tests', () => {
           };
         });
         const ip = '127.0.0.2';
-        wsserver = new WebSocket.Server({ host: '127.0.0.2' });
+        wsserver = new WebSocket.Server({ server: '127.0.0.2' });
         lruRateLimitStub.returns(true);
         sinon.stub(LRUCache.prototype, 'has').returns(false);
         const verifyOriginalFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast').returns(true);
@@ -1203,7 +1203,6 @@ describe('fluxCommunication tests', () => {
     });
 
     it('should return error message if peer is already added', async () => {
-      const verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
       const ip = '123.4.1.1';
       const port = 16127;
       const req = {
@@ -1222,11 +1221,11 @@ describe('fluxCommunication tests', () => {
         },
       };
       outgoingConnections.push({ _socket: { remoteAddress: ip }, port: 16127 });
-
+      const verificationStub = sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
       const result = await fluxCommunication.addPeer(req, res);
 
       expect(result).to.eql(expectedMessage);
-      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'adminandfluxteam', req);
+      sinon.assert.calledOnceWithExactly(verificationStub, 'adminandfluxteam', req);
     });
 
     it('should return error message if user is unauthorized', async () => {
