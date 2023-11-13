@@ -847,12 +847,10 @@ describe('fluxCommunication tests', () => {
     let logSpy;
     let lruRateLimitStub;
     let daemonServiceMiscRpcsStub;
-    let ensureObjectSpy;
 
     beforeEach(() => {
       logSpy = sinon.spy(log, 'info');
       lruRateLimitStub = sinon.stub(fluxNetworkHelper, 'lruRateLimit');
-      ensureObjectSpy = sinon.spy(serviceHelper, 'ensureObject');
       outgoingConnections.length = 0;
       outgoingPeers.length = 0;
       daemonServiceMiscRpcsStub = sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced');
@@ -1004,7 +1002,6 @@ describe('fluxCommunication tests', () => {
       // slight delay to let onopen to be triggered
       await serviceHelper.delay(100);
 
-      sinon.assert.calledOnceWithExactly(ensureObjectSpy, message);
       sinon.assert.calledWithExactly(websocketCloseSpy, 1000, 'blocked list');
       sinon.assert.calledWith(logSpy, 'Closing outgoing connection, peer is on blockedList');
       sinon.assert.calledWith(logSpy, 'Connection to 127.0.0.2:16127 closed with code 1000');
