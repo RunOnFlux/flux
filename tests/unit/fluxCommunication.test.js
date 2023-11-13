@@ -1221,11 +1221,9 @@ describe('fluxCommunication tests', () => {
         },
       };
       outgoingConnections.push({ _socket: { remoteAddress: ip }, port: 16127 });
-      const verificationStub = sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
       const result = await fluxCommunication.addPeer(req, res);
 
       expect(result).to.eql(expectedMessage);
-      sinon.assert.calledOnceWithExactly(verificationStub, 'adminandfluxteam', req);
     });
 
     it('should return error message if user is unauthorized', async () => {
