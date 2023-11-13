@@ -846,7 +846,7 @@ describe('fluxCommunication tests', () => {
     let wsserver;
     let logSpy;
     let lruRateLimitStub;
-    let lruDaemonSyncStub;
+    let daemonServiceMiscRpcsStub;
     let ensureObjectSpy;
 
     beforeEach(() => {
@@ -855,7 +855,7 @@ describe('fluxCommunication tests', () => {
       ensureObjectSpy = sinon.spy(serviceHelper, 'ensureObject');
       outgoingConnections.length = 0;
       outgoingPeers.length = 0;
-      lruDaemonSyncStub = sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced');
+      daemonServiceMiscRpcsStub = sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced');
     });
 
     afterEach(() => {
@@ -877,7 +877,13 @@ describe('fluxCommunication tests', () => {
       });
       const ip = '127.0.0.2';
       wsserver = new WebSocket.Server({ host: '127.0.0.2' });
-      lruDaemonSyncStub.returns({ data: { height: 0 } });
+      daemonServiceMiscRpcsStub.returns({
+        data:
+      {
+        synced: false,
+        height: 0,
+      },
+      });
       await fluxCommunication.initiateAndHandleConnection(ip);
 
       await waitForWsConnected(wsserver);
@@ -902,6 +908,13 @@ describe('fluxCommunication tests', () => {
       });
       const ip = '127.0.0.2';
       wsserver = new WebSocket.Server({ host: '127.0.0.2' });
+      daemonServiceMiscRpcsStub.returns({
+        data:
+      {
+        synced: false,
+        height: 0,
+      },
+      });
 
       await fluxCommunication.initiateAndHandleConnection(ip);
 
@@ -928,7 +941,13 @@ describe('fluxCommunication tests', () => {
       });
       const ip = '127.0.0.2';
       wsserver = new WebSocket.Server({ host: '127.0.0.2' });
-      lruDaemonSyncStub.returns({ data: { height: 0 } });
+      daemonServiceMiscRpcsStub.returns({
+        data:
+      {
+        synced: false,
+        height: 0,
+      },
+      });
       lruRateLimitStub.returns(false);
       await fluxCommunication.initiateAndHandleConnection(ip);
 
@@ -955,6 +974,13 @@ describe('fluxCommunication tests', () => {
       });
       const ip = '127.0.0.2';
       wsserver = new WebSocket.Server({ host: '127.0.0.2' });
+      daemonServiceMiscRpcsStub.returns({
+        data:
+      {
+        synced: false,
+        height: 0,
+      },
+      });
       lruRateLimitStub.returns(true);
       const hasCacheStub = sinon.stub(LRUCache.prototype, 'has');
       hasCacheStub.withArgs(ip).returns(true);
@@ -1001,7 +1027,13 @@ describe('fluxCommunication tests', () => {
         sinon.stub(LRUCache.prototype, 'has').returns(false);
         const verifyOriginalFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast').returns(true);
         const respondWithAppMessageStub = sinon.stub(fluxCommunicationMessagesSender, 'respondWithAppMessage').returns(true);
-
+        daemonServiceMiscRpcsStub.returns({
+          data:
+        {
+          synced: false,
+          height: 0,
+        },
+        });
         await fluxCommunication.initiateAndHandleConnection(ip);
 
         await waitForWsConnected(wsserver);
@@ -1041,7 +1073,13 @@ describe('fluxCommunication tests', () => {
         sinon.stub(LRUCache.prototype, 'has').returns(false);
         const verifyOriginalFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast').returns(true);
         const storeAppTemporaryMessageStub = sinon.stub(appsService, 'storeAppTemporaryMessage').returns(false);
-
+        daemonServiceMiscRpcsStub.returns({
+          data:
+        {
+          synced: false,
+          height: 0,
+        },
+        });
         await fluxCommunication.initiateAndHandleConnection(ip);
 
         await waitForWsConnected(wsserver);
@@ -1081,7 +1119,13 @@ describe('fluxCommunication tests', () => {
         sinon.stub(LRUCache.prototype, 'has').returns(false);
         const verifyOriginalFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast').returns(true);
         const storeAppRunningMessageStub = sinon.stub(appsService, 'storeAppRunningMessage').returns(false);
-
+        daemonServiceMiscRpcsStub.returns({
+          data:
+        {
+          synced: false,
+          height: 0,
+        },
+        });
         await fluxCommunication.initiateAndHandleConnection(ip);
 
         await waitForWsConnected(wsserver);
@@ -1159,7 +1203,7 @@ describe('fluxCommunication tests', () => {
     });
 
     it('should return error message if peer is already added', async () => {
-      verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
+      const verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
       const ip = '123.4.1.1';
       const port = 16127;
       const req = {
@@ -1182,6 +1226,7 @@ describe('fluxCommunication tests', () => {
       const result = await fluxCommunication.addPeer(req, res);
 
       expect(result).to.eql(expectedMessage);
+      sinon.assert.calledOnceWithExactly(verificationHelperStub, 'adminandfluxteam', req);
     });
 
     it('should return error message if user is unauthorized', async () => {
