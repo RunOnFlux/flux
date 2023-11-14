@@ -148,7 +148,9 @@ module.exports = {
     maximumInstances: 100,
     maximumAdditionalInstances: 1, // max instances above subscribed amount. In case of min instances, this is minimumInstances + maximumAdditionalInstances
     minOutgoing: 8,
+    minUniqueIpsOutgoing: 7,
     minIncoming: 4,
+    minUniqueIpsIncoming: 3,
     minUpTime: 1800, // 30 mins
     installation: {
       probability: 100, // 1%
@@ -175,6 +177,7 @@ module.exports = {
     reconstructAppMessagesHashPeriod: 3600, // every 5 days we ask for old messages
     benchUpnpPeriod: 6480, // every 9 days execute upnp bench
     apprunningv2: 1444444, // daemon block height when version 2 of fluxapprunning type messages start propagating on the network (around August 10th)
+    socketPortsInformation: 1527040, // daemon block height when we will start webservice socket request with origin port information (November 30 2023)
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core

@@ -792,7 +792,7 @@ export default {
           appSpecification.geolocation = [];
         }
         if (props.appData.version >= 6) {
-          appSpecification.expire = 22000;
+          appSpecification.expire = props.appData.expire || 22000;
         }
         if (props.appData.version >= 7) {
           appSpecification.staticip = props.appData.staticip;

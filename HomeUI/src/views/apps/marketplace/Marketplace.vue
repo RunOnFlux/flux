@@ -135,7 +135,7 @@
               <div class="app-title-area">
                 <div class="title-wrapper">
                   <h5 class="text-nowrap mr-1 app-description">
-                    Price: {{ singleApp.price }} Flux / month
+                    Price: {{ singleApp.price }} Flux / {{ adjustPeriod(singleApp) }}
                   </h5>
                 </div>
               </div>
@@ -265,6 +265,17 @@ export default {
     const resolveRam = (app) => app.compose.reduce((total, component) => total + component.ram, 0);
 
     const resolveHdd = (app) => app.compose.reduce((total, component) => total + component.hdd, 0);
+
+    const adjustPeriod = (app) => {
+      if (app.expire === 264000) {
+        return '1 year';
+      } if (app.expire === 66000) {
+        return '3 months';
+      } if (app.expire === 132000) {
+        return '6 months';
+      }
+      return '1 month';
+    };
 
     const { showDetailSidebar } = useResponsiveAppLeftSidebarVisibility();
     const routeSortBy = computed(() => route.value.query.sort);
@@ -454,6 +465,7 @@ export default {
       resolveHdd,
       resolveCpu,
       resolveRam,
+      adjustPeriod,
     };
   },
 };

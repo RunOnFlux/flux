@@ -63,7 +63,7 @@ describe('benchmarkService tests', () => {
         data: {
           code: undefined,
           name: 'TypeError',
-          message: 'Found non-callable @@iterator',
+          message: 'Spread syntax requires ...iterable[Symbol.iterator] to be a function',
         },
       };
       const executeCallRes = await benchmarkService.executeCall('getstatus', params);
