@@ -359,5 +359,10 @@
    "hydr0gen5",
    "anonym100",
    "notrustverify",
-   "jupyter"
+   "jupyter",
+   "omniadevs/ic-websocket-gateway",
+   "ubuntu",
+   "notrustverify",
+   "onlyoffice",
+   "ghcr.io/celestiaorg/celestia-node"
 ]
