@@ -1,4 +1,3 @@
-/* global userconfig */
 /* eslint-disable no-underscore-dangle */
 const config = require('config');
 const { LRUCache } = require('lru-cache');
@@ -467,15 +466,7 @@ async function initiateAndHandleConnection(connection) {
         socketPortsInformationActive = true;
       }
     }
-    const development = userconfig.initial.development || false;
-    let devNode = false;
-    if (development) {
-      const developmentNodes = ['94.16.104.218', '46.38.251.26', '45.129.182.59', '89.58.37.73', '37.221.197.179', '89.58.42.201', '185.16.61.122', '37.120.175.86', '46.38.236.130', '5.45.111.210'];
-      if (developmentNodes.indexOf(connection) > -1) {
-        devNode = true;
-      }
-    }
-    if (socketPortsInformationActive || devNode) {
+    if (socketPortsInformationActive) {
       const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
       const myPort = myIP.split(':')[1] || 16127;
       wsuri = `ws://${ip}:${port}/ws/flux/${myPort}`;
@@ -816,24 +807,6 @@ async function fluxDiscovery() {
       }
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(500);
-    }
-    index = 0;
-    const development = userconfig.initial.development || false;
-    while (development && incomingConnections.length < 4 && index < 20) {
-      index += 1;
-      const developmentNodes = ['94.16.104.218', '46.38.251.26', '45.129.182.59', '89.58.37.73', '37.221.197.179', '89.58.42.201', '185.16.61.122', '37.120.175.86', '46.38.236.130', '5.45.111.210'];
-      const devConnection = developmentNodes[Math.floor(Math.random() * developmentNodes.length)];
-      const ipInc = devConnection.split(':')[0];
-      const portInc = devConnection.split(':')[1] || 16127;
-      const sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ipInc);
-      const clientExists = outgoingConnections.find((client) => client._socket.remoteAddress === ipInc && client.port === portInc);
-      const clientIncomingExists = incomingConnections.find((client) => client._socket.remoteAddress.replace('::ffff:', '') === ipInc && client.port === portInc);
-      if (!sameConnectedIp && !clientExists && !clientIncomingExists) {
-        log.info(`Asking development Flux ${devConnection} to add us as a peer`);
-        currentIpsConnTried.push(devConnection);
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.axiosGet(`http://${ipInc}:${portInc}/flux/addoutgoingpeer/${myIP}`).catch((error) => log.error(error));
-      }
     }
     index = 0;
     while ((incomingConnections.length < 10 || [...new Set(incomingConnections.map((client) => client._socket.remoteAddress))].length < 5) && index < 100) { // Max of 14 outgoing connections - 12 possible deterministic + min. 2 random (we will get more random as others nodes have more random outgoing connections)
