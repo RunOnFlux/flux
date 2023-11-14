@@ -852,7 +852,6 @@ async function adjustExternalIP(ip) {
       }
       const result = await daemonServiceWalletRpcs.createConfirmationTransaction();
       log.info(`createConfirmationTransaction: ${JSON.stringify(result)}`);
-      await serviceHelper.delay(4 * 60 * 1000); // lets wait 2 blocks time for the transaction to be mined
     }
 
     log.info(`Adjusting External IP from ${userconfig.initial.ipaddress} to ${ip}`);
