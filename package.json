@@ -34,7 +34,7 @@
     },
     {
       "name": "Kamil Piekarski",
-      "email": "k4mil.piekarski@gmail.com"
+      "email": "kamil@runonflux.io"
     },
     {
       "name": "Jacek Adamczyk"
@@ -90,7 +90,7 @@
     "fast-xml-parser": "~4.2.4",
     "formidable": "~2.1.2",
     "fullnode": "file:lib/fullnode",
-    "http-shutdown":"~1.2.2",
+    "http-shutdown": "~1.2.2",
     "inquirer": "~8.2.5",
     "lru-cache": "~10.0.1",
     "mongodb": "~4.16.0",
@@ -103,8 +103,11 @@
     "openpgp": "~5.9.0",
     "path": "~0.12.7",
     "qs": "~6.11.2",
+    "socket.io": "~4.7.2",
+    "splitargs": "~0.0.7",
     "store": "~2.0.12",
     "ws": "~7.5.9",
+    "xterm": "~5.3.0",
     "zeltrezjs": "~2.12.0"
   },
   "devDependencies": {
@@ -144,9 +147,13 @@
     "sass-loader": "~10.4.1",
     "sha.js": "~2.4.11",
     "sinon": "~15.1.0",
-    "splitargs": "~0.0.7",
+    "socket.io-client": "~4.7.2",
     "supertest": "~6.3.3",
     "uuid": "~9.0.0",
+    "xterm-addon-fit": "~0.8.0",
+    "xterm-addon-serialize": "~0.11.0",
+    "xterm-addon-unicode11": "~0.6.0",
+    "xterm-addon-web-links": "~0.9.0",
     "vee-validate": "~3.4.14",
     "vue": "~2.6.14",
     "vue-apexcharts": "~1.6.2",
