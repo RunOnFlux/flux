@@ -70,12 +70,8 @@ module.exports = {
   },
   chainWebpack: (config) => {
     config.module
-      .rule('mjs-js')
-      .test(/\.[m]?js$/)
-      .include
-      .add(/node_modules[\\/](@walletconnect|@wagmi|@web3modal|viem|abitype)/)
-      .end()
-      .type('javascript/auto')
+      .rule('walletConnect')
+      .test(/node_modules[\\/](@walletconnect|@wagmi|@web3modal|viem|abitype)/)
       .use('babel-loader')
       .loader('babel-loader');
     config.module
