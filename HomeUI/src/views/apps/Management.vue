@@ -1361,19 +1361,19 @@
                   >
                     Disconnect
                   </b-button>
-                  <b-form-checkbox
-                    v-model="enableEnvironment"
-                    class="ml-5"
-                    switch
-                    :disabled="terminal"
-                    @input="onSelectChangeEnv"
-                  >
-                    <span
-                      style="font-size: 14px; display: flex; align-items: center;"
-                    >
-                      Enable Environment
-                    </span>
-                  </b-form-checkbox>
+                  <div class="ml-auto mt-1">
+                    <div class="ml-auto">
+                      <b-form-checkbox
+                        v-model="enableEnvironment"
+                        class="ml-4 d-flex align-items-center justify-content-center"
+                        switch
+                        :disabled="terminal"
+                        @input="onSelectChangeEnv"
+                      >
+                        <div class="d-flex" style="font-size: 14px;">Enable Environment</div>
+                      </b-form-checkbox>
+                    </div>
+                  </div>
                 </div>
                 <div
                   v-if="selectedCmd === 'Custom' && !terminal"
