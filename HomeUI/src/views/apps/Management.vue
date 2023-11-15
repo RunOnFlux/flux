@@ -1370,14 +1370,17 @@
                         :disabled="terminal"
                         @input="onSelectChangeEnv"
                       >
-                        <div 
-                          class="d-flex" 
-                          style="font-size: 14px;">Enable Environment</div>
+                        <div
+                          class="d-flex"
+                          style="font-size: 14px;"
+                        >
+                          Enable Environment
+                        </div>
                       </b-form-checkbox>
                     </div>
                   </div>
                 </div>
-                <div>
+                <div
                   v-if="selectedCmd === 'Custom' && !terminal"
                   class="d-flex mt-1"
                 >
