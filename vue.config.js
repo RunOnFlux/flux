@@ -72,12 +72,10 @@ module.exports = {
     config.module
       .rule('mjs-js')
       .test(/\.[m]?js$/)
-      .include.add(/node_modules/) // Include node_modules for .mjs and .js files
+      .include
+      .add(/node_modules[\\/](@walletconnect|@wagmi|@web3modal|viem|abitype)/)
       .end()
-      .type('javascript/auto');
-    config.module
-      .rule('walletConnect')
-      .test(/node_modules[\\/](@walletconnect|@wagmi|@web3modal|viem|abitype)/)
+      .type('javascript/auto')
       .use('babel-loader')
       .loader('babel-loader');
     config.module
