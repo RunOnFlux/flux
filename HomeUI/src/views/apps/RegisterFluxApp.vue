@@ -1536,36 +1536,49 @@
           lg="4"
         >
           <b-card title="Sign with">
-            <a
-              :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=' + callbackValue"
-              @click="initiateSignWS"
-            >
-              <img
-                class="zelidLogin"
-                src="@/assets/images/zelID.svg"
-                alt="Zel ID"
-                height="100%"
-                width="100%"
+            <div class="loginRow">
+              <a
+                :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=' + callbackValue"
+                @click="initiateSignWS"
               >
-            </a>
-            <a @click="initWalletConnect">
-              <img
-                class="walletconnectLogin"
-                src="@/assets/images/walletconnect.svg"
-                alt="WalletConnect"
-                height="100%"
-                width="100%"
-              >
-            </a>
-            <a @click="initMetamask">
-              <img
-                class="metamaskLogin"
-                src="@/assets/images/metamask.svg"
-                alt="Metamask"
-                height="100%"
-                width="100%"
-              >
-            </a>
+                <img
+                  class="zelidLogin"
+                  src="@/assets/images/zelID.svg"
+                  alt="Zel ID"
+                  height="100%"
+                  width="100%"
+                >
+              </a>
+              <a @click="initSSP">
+                <img
+                  class="sspLogin"
+                  src="@/assets/images/ssp-logo-white.svg"
+                  alt="SSP"
+                  height="100%"
+                  width="100%"
+                >
+              </a>
+            </div>
+            <div class="loginRow">
+              <a @click="initWalletConnect">
+                <img
+                  class="walletconnectLogin"
+                  src="@/assets/images/walletconnect.svg"
+                  alt="WalletConnect"
+                  height="100%"
+                  width="100%"
+                >
+              </a>
+              <a @click="initMetamask">
+                <img
+                  class="metamaskLogin"
+                  src="@/assets/images/metamask.svg"
+                  alt="Metamask"
+                  height="100%"
+                  width="100%"
+                >
+              </a>
+            </div>
           </b-card>
         </b-col>
       </b-row>
@@ -3298,6 +3311,21 @@ export default {
         this.showToast('danger', error.message);
       }
     },
+    async initSSP() {
+      try {
+        if (!window.ssp) {
+          this.showToast('danger', 'SSP Wallet not installed');
+          return;
+        }
+        const responseData = await window.ssp.request('sspwid_sign_message', { message: this.dataToSign });
+        if (responseData.status === 'ERROR') {
+          throw new Error(responseData.data);
+        }
+        this.signature = responseData.signature;
+      } catch (error) {
+        this.showToast('danger', error.message);
+      }
+    },
   },
 };
 </script>
@@ -3307,7 +3335,15 @@ export default {
   display: inline;
   padding-left: 5px;
 }
+.loginRow {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-around;
+  align-items: center;
+  margin-bottom: 10px;
+}
 .zelidLogin {
+  margin-left: 5px;
   height: 90px;
   padding: 10px;
 }
@@ -3333,12 +3369,12 @@ export default {
   -webkit-app-region: no-drag;
   transition: 0.1s;
 }
-
-.metamaskLogin {
-  height: 80px;
+.sspLogin {
+  height: 90px;
   padding: 10px;
+  margin-left: 5px;
 }
-.metamaskLogin img {
+.sspLogin img {
   -webkit-app-region: no-drag;
   transition: 0.1s;
 }

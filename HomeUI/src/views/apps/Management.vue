@@ -1288,22 +1288,14 @@
         <div class="text-center">
           <div>
             <b-card-group deck>
-              <b-card
-                header-tag="header"
-              >
+              <b-card header-tag="header">
                 <template #header>
-                  <h6
-                    class="mb-0"
-                  >
+                  <h6 class="mb-0">
                     Browser-based Interactive Terminal
                   </h6>
                 </template>
-                <div
-                  class="d-flex align-items-center"
-                >
-                  <div
-                    class="mr-4"
-                  >
+                <div class="d-flex align-items-center">
+                  <div class="mr-4">
                     <b-form-select
                       v-model="selectedApp"
                       :options="null"
@@ -1324,9 +1316,7 @@
                       </b-form-select-option>
                     </b-form-select>
                   </div>
-                  <div
-                    class="mr-4"
-                  >
+                  <div class="mr-4">
                     <b-form-select
                       v-model="selectedCmd"
                       :options="options"
@@ -1405,9 +1395,7 @@
                     v-if="terminal"
                     class="mt-2"
                   >
-                    <template
-                      v-if="selectedCmd !== 'Custom'"
-                    >
+                    <template v-if="selectedCmd !== 'Custom'">
                       <span style="font-weight: bold;">Exec into container</span>
                       <span :style="selectedOptionTextStyle">{{ selectedApp }}</span>
                       <span style="font-weight: bold;">using command</span>
@@ -3545,36 +3533,49 @@
               lg="4"
             >
               <b-card title="Sign with">
-                <a
-                  :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=' + callbackValue"
-                  @click="initiateSignWSUpdate"
-                >
-                  <img
-                    class="zelidLogin"
-                    src="@/assets/images/zelID.svg"
-                    alt="Zel ID"
-                    height="100%"
-                    width="100%"
+                <div class="loginRow">
+                  <a
+                    :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=' + callbackValue"
+                    @click="initiateSignWSUpdate"
                   >
-                </a>
-                <a @click="initWalletConnect">
-                  <img
-                    class="walletconnectLogin"
-                    src="@/assets/images/walletconnect.svg"
-                    alt="WalletConnect"
-                    height="100%"
-                    width="100%"
-                  >
-                </a>
-                <a @click="initMetamask">
-                  <img
-                    class="metamaskLogin"
-                    src="@/assets/images/metamask.svg"
-                    alt="Metamask"
-                    height="100%"
-                    width="100%"
-                  >
-                </a>
+                    <img
+                      class="zelidLogin"
+                      src="@/assets/images/zelID.svg"
+                      alt="Zel ID"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                  <a @click="initSSP">
+                    <img
+                      class="sspLogin"
+                      src="@/assets/images/ssp-logo-white.svg"
+                      alt="SSP"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                </div>
+                <div class="loginRow">
+                  <a @click="initWalletConnect">
+                    <img
+                      class="walletconnectLogin"
+                      src="@/assets/images/walletconnect.svg"
+                      alt="WalletConnect"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                  <a @click="initMetamask">
+                    <img
+                      class="metamaskLogin"
+                      src="@/assets/images/metamask.svg"
+                      alt="Metamask"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                </div>
               </b-card>
             </b-col>
           </b-row>
@@ -6385,6 +6386,21 @@ export default {
         this.showToast('danger', error.message);
       }
     },
+    async initSSP() {
+      try {
+        if (!window.ssp) {
+          this.showToast('danger', 'SSP Wallet not installed');
+          return;
+        }
+        const responseData = await window.ssp.request('sspwid_sign_message', { message: this.dataToSign });
+        if (responseData.status === 'ERROR') {
+          throw new Error(responseData.data);
+        }
+        this.signature = responseData.signature;
+      } catch (error) {
+        this.showToast('danger', error.message);
+      }
+    },
   },
 };
 </script>
@@ -6397,8 +6413,12 @@ export default {
   animation: spin 2s linear infinite;
 }
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 .app-instances-table td:nth-child(1) {
@@ -6413,7 +6433,15 @@ export default {
 .app-instances-table th:nth-child(5) {
   width: 105px;
 }
+.loginRow {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-around;
+  align-items: center;
+  margin-bottom: 10px;
+}
 .zelidLogin {
+  margin-left: 5px;
   height: 90px;
   padding: 10px;
 }
@@ -6440,6 +6468,16 @@ export default {
   transition: 0.1s;
 }
 
+.sspLogin {
+  height: 90px;
+  padding: 10px;
+  margin-left: 5px;
+}
+.sspLogin img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
+
 a img {
   transition: all 0.05s ease-in-out;
 }
@@ -6455,35 +6493,55 @@ a:hover img {
 </style>
 
 <style lang="scss">
-  .anchor{
-      display: block;
-      height: 100px;
-      margin-top: -100px;
-      visibility: hidden;
-  }
-  .v-toast__text {
-      font-family: "Roboto", sans-serif !important;
-  }
-  .jv-dark {
-      background: none;
-      white-space: nowrap;
-      font-size: 14px;
-      font-family: Consolas, Menlo, Courier, monospace;
-      margin-bottom: 25px;
-  }
-  .jv-button { color: #49b3ff !important; }
-  .jv-dark .jv-key { color: #999 !important; }
-  .jv-dark .jv-array { color: #999 !important; }
-  .jv-boolean { color: #fc1e70 !important; }
-  .jv-function { color: #067bca !important; }
-  .jv-number { color: #fc1e70 !important; }
-  .jv-number-float { color: #fc1e70 !important; }
-  .jv-number-integer { color: #fc1e70 !important; }
-  .jv-dark .jv-object { color: #999 !important; }
-  .jv-undefined { color: #e08331 !important; }
-  .jv-string {
-      color: #42b983 !important;
-      word-break: break-word;
-      white-space: normal;
-  }
+.anchor {
+  display: block;
+  height: 100px;
+  margin-top: -100px;
+  visibility: hidden;
+}
+.v-toast__text {
+  font-family: "Roboto", sans-serif !important;
+}
+.jv-dark {
+  background: none;
+  white-space: nowrap;
+  font-size: 14px;
+  font-family: Consolas, Menlo, Courier, monospace;
+  margin-bottom: 25px;
+}
+.jv-button {
+  color: #49b3ff !important;
+}
+.jv-dark .jv-key {
+  color: #999 !important;
+}
+.jv-dark .jv-array {
+  color: #999 !important;
+}
+.jv-boolean {
+  color: #fc1e70 !important;
+}
+.jv-function {
+  color: #067bca !important;
+}
+.jv-number {
+  color: #fc1e70 !important;
+}
+.jv-number-float {
+  color: #fc1e70 !important;
+}
+.jv-number-integer {
+  color: #fc1e70 !important;
+}
+.jv-dark .jv-object {
+  color: #999 !important;
+}
+.jv-undefined {
+  color: #e08331 !important;
+}
+.jv-string {
+  color: #42b983 !important;
+  word-break: break-word;
+  white-space: normal;
+}
 </style>
