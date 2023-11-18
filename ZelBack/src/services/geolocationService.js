@@ -23,21 +23,39 @@ async function setNodeGeolocation() {
       // consider another service failover or stats db
       const ipApiUrl = `http://ip-api.com/json/${myIP.split(':')[0]}?fields=status,continent,continentCode,country,countryCode,region,regionName,lat,lon,query,org,isp`;
       const ipRes = await serviceHelper.axiosGet(ipApiUrl);
-      if (ipRes.data.status !== 'success') {
-        throw new Error(`Geolocation of IP ${myIP} is unavailable`);
+      if (ipRes.data.status === 'success' && ipRes.data.query !== '') {
+        storedGeolocation = {
+          ip: ipRes.data.query,
+          continent: ipRes.data.continent,
+          continentCode: ipRes.data.continentCode,
+          country: ipRes.data.country,
+          countryCode: ipRes.data.countryCode,
+          region: ipRes.data.region,
+          regionName: ipRes.data.regionName,
+          lat: ipRes.data.lat,
+          lon: ipRes.data.lon,
+          org: ipRes.data.org || ipRes.data.isp,
+        };
+      } else {
+        const statsApiUrl = `https://stats.runonflux.io/fluxlocation/${myIP.split(':')[0]}`;
+        const statsRes = await serviceHelper.axiosGet(statsApiUrl);
+        if (statsRes.data.status === 'success' && statsRes.data.data.length > 0) {
+          storedGeolocation = {
+            ip: statsRes.data.data[0].ip,
+            continent: statsRes.data.data[0].continent,
+            continentCode: statsRes.data.data[0].continentCode,
+            country: statsRes.data.data[0].country,
+            countryCode: statsRes.data.data[0].countryCode,
+            region: statsRes.data.data[0].region,
+            regionName: statsRes.data.data[0].regionName,
+            lat: statsRes.data.data[0].lat,
+            lon: statsRes.data.data[0].lon,
+            org: statsRes.data.data[0].org,
+          };
+        } else {
+          throw new Error(`Geolocation of IP ${myIP} is unavailable`);
+        }
       }
-      storedGeolocation = {
-        ip: ipRes.data.query,
-        continent: ipRes.data.continent,
-        continentCode: ipRes.data.continentCode,
-        country: ipRes.data.country,
-        countryCode: ipRes.data.countryCode,
-        region: ipRes.data.region,
-        regionName: ipRes.data.regionName,
-        lat: ipRes.data.lat,
-        lon: ipRes.data.lon,
-        org: ipRes.data.org || ipRes.data.isp,
-      };
     }
     log.info(`Geolocation of ${myIP} is ${JSON.stringify(storedGeolocation)}`);
     for (let i = 0; i < staticIpOrgs.length; i += 1) {
