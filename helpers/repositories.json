@@ -364,5 +364,6 @@
    "ubuntu",
    "notrustverify",
    "onlyoffice",
-   "ghcr.io/celestiaorg/celestia-node"
+   "ghcr.io/celestiaorg/celestia-node",
+   "aismartlab"
 ]
