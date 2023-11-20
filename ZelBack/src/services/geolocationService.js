@@ -39,18 +39,18 @@ async function setNodeGeolocation() {
       } else {
         const statsApiUrl = `https://stats.runonflux.io/fluxlocation/${myIP.split(':')[0]}`;
         const statsRes = await serviceHelper.axiosGet(statsApiUrl);
-        if (statsRes.data.status === 'success' && statsRes.data.data.length > 0) {
+        if (statsRes.data.status === 'success' && statsRes.data.data) {
           storedGeolocation = {
-            ip: statsRes.data.data[0].ip,
-            continent: statsRes.data.data[0].continent,
-            continentCode: statsRes.data.data[0].continentCode,
-            country: statsRes.data.data[0].country,
-            countryCode: statsRes.data.data[0].countryCode,
-            region: statsRes.data.data[0].region,
-            regionName: statsRes.data.data[0].regionName,
-            lat: statsRes.data.data[0].lat,
-            lon: statsRes.data.data[0].lon,
-            org: statsRes.data.data[0].org,
+            ip: statsRes.data.data.ip,
+            continent: statsRes.data.data.continent,
+            continentCode: statsRes.data.data.continentCode,
+            country: statsRes.data.data.country,
+            countryCode: statsRes.data.data.countryCode,
+            region: statsRes.data.data.region,
+            regionName: statsRes.data.data.regionName,
+            lat: statsRes.data.data.lat,
+            lon: statsRes.data.data.lon,
+            org: statsRes.data.data.org,
           };
         } else {
           throw new Error(`Geolocation of IP ${myIP} is unavailable`);
