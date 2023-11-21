@@ -1662,6 +1662,20 @@ async function postDbRevert(req, res) {
 }
 
 /**
+ * To request revert of a receive only folder. Reverting a folder means to undo all local changes. This API call does nothing if the folder is not a receive only folder. Takes the mandatory parameter {folder}.
+ * @param {string} folder Request.
+ */
+async function dbRevert(folder) {
+  let apiPath = '/rest/db/revert';
+  if (folder) {
+    apiPath += `?folder=${folder}`;
+  } else {
+    throw new Error('folder parameter is mandatory');
+  }
+  return performRequest('post', apiPath);
+}
+
+/**
  * To request immediate scan. Takes the optional parameters {folder} (folder ID), {sub} (path relative to the folder root) and {next} (time in seconds)
  * @param {object} req Request.
  * @param {object} res Response.
@@ -2317,6 +2331,7 @@ module.exports = {
   postDbOverride,
   postDbPrio,
   postDbRevert,
+  dbRevert,
   postDbScan,
   // EVENTS
   getEvents,

@@ -74,9 +74,15 @@ const testPortsCache = {
   ttl: 1000 * 60 * 60 * 3, // 3 hours
   maxAge: 1000 * 60 * 60 * 3, // 3 hours
 };
+
+const syncthingAppsCache = {
+  max: 500,
+};
+
 const trySpawningGlobalAppCache = new LRUCache(GlobalAppsSpawnLRUoptions);
 const myLongCache = new LRUCache(longCache);
 const failedNodesTestPortsCache = new LRUCache(testPortsCache);
+const receiveOnlySyncthingAppsCache = new LRUCache(syncthingAppsCache);
 
 let removalInProgress = false;
 let installationInProgress = false;
@@ -1864,7 +1870,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     for (let i = 0; i < containersData.length; i += 1) {
       const container = containersData[i];
       const containerDataFlags = container.split(':')[1] ? container.split(':')[0] : '';
-      if (containerDataFlags.includes('s')) {
+      if (containerDataFlags.includes('s') || containerDataFlags.includes('r')) {
         const containerFolder = i === 0 ? '' : `/appdata${container.split(':')[1].replace(containersData[0], '')}`;
         const stFolderCreation = {
           status: 'Creating .stfolder for syncthing...',
@@ -9876,6 +9882,7 @@ async function getDeviceID(fluxIP) {
 }
 
 let updateSyncthingRunning = false;
+let syncthingAppsFirstRun = true;
 // update syncthing configuration for locally installed apps
 async function syncthingApps() {
   try {
@@ -9906,7 +9913,7 @@ async function syncthingApps() {
         for (let i = 0; i < containersData.length; i += 1) {
           const container = containersData[i];
           const containerDataFlags = container.split(':')[1] ? container.split(':')[0] : '';
-          if (containerDataFlags.includes('s')) {
+          if (containerDataFlags.includes('s') || containerDataFlags.includes('r')) {
             const containerFolder = i === 0 ? '' : `/appdata${container.split(':')[1].replace(containersData[0], '')}`;
             const identifier = installedApp.name;
             const appId = dockerService.getAppIdentifier(identifier);
@@ -9945,6 +9952,26 @@ async function syncthingApps() {
                 }
               }
             }
+            let folderSyncType = 'sendreceive';
+            if (containerDataFlags.includes('r')) {
+              if (syncthingAppsFirstRun) {
+                receiveOnlySyncthingAppsCache.set(identifier, 6);
+              } else if (receiveOnlySyncthingAppsCache.has(identifier)) {
+                const numberOfRuns = receiveOnlySyncthingAppsCache.get(identifier);
+                if (numberOfRuns === 4) {
+                  // eslint-disable-next-line no-await-in-loop
+                  const folderReset = await syncthingService.dbRevert(folder.id);
+                  log.info(`Reset syncthing app ${identifier} result: ${folderReset}`);
+                }
+                if (numberOfRuns === 5) {
+                  folderSyncType = 'sendreceive';
+                }
+                receiveOnlySyncthingAppsCache.set(identifier, numberOfRuns + 1);
+              } else {
+                folderSyncType = 'receiveonly';
+                receiveOnlySyncthingAppsCache.set(identifier, 1);
+              }
+            }
             folderIds.push(id);
             foldersConfiguration.push({
               id,
@@ -9952,6 +9979,7 @@ async function syncthingApps() {
               path: folder,
               devices,
               paused: false,
+              type: folderSyncType,
             });
           }
         }
@@ -9963,7 +9991,7 @@ async function syncthingApps() {
           for (let i = 0; i < containersData.length; i += 1) {
             const container = containersData[i];
             const containerDataFlags = container.split(':')[1] ? container.split(':')[0] : '';
-            if (containerDataFlags.includes('s')) {
+            if (containerDataFlags.includes('s') || containerDataFlags.includes('r')) {
               const containerFolder = i === 0 ? '' : `/appdata${container.split(':')[1].replace(containersData[0], '')}`;
               const identifier = `${installedComponent.name}_${installedApp.name}`;
               const appId = dockerService.getAppIdentifier(identifier);
@@ -10002,6 +10030,26 @@ async function syncthingApps() {
                   }
                 }
               }
+              let folderSyncType = 'sendreceive';
+              if (containerDataFlags.includes('r')) {
+                if (syncthingAppsFirstRun) {
+                  receiveOnlySyncthingAppsCache.set(identifier, 6);
+                } else if (receiveOnlySyncthingAppsCache.has(identifier)) {
+                  const numberOfRuns = receiveOnlySyncthingAppsCache.get(identifier);
+                  if (numberOfRuns === 4) {
+                    // eslint-disable-next-line no-await-in-loop
+                    const folderReset = await syncthingService.dbRevert(folder.id);
+                    log.info(`Reset syncthing app ${identifier} result: ${folderReset}`);
+                  }
+                  if (numberOfRuns === 5) {
+                    folderSyncType = 'sendreceive';
+                  }
+                  receiveOnlySyncthingAppsCache.set(identifier, numberOfRuns + 1);
+                } else {
+                  folderSyncType = 'receiveonly';
+                  receiveOnlySyncthingAppsCache.set(identifier, 1);
+                }
+              }
               folderIds.push(id);
               foldersConfiguration.push({
                 id,
@@ -10009,6 +10057,7 @@ async function syncthingApps() {
                 path: folder,
                 devices,
                 paused: false,
+                type: folderSyncType,
               });
             }
           }
@@ -10074,6 +10123,7 @@ async function syncthingApps() {
     log.error(error);
   } finally {
     updateSyncthingRunning = false;
+    syncthingAppsFirstRun = false;
     await serviceHelper.delay(2 * 60 * 1000);
     syncthingApps();
   }
