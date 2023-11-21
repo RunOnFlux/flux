@@ -20,26 +20,8 @@ async function setNodeGeolocation() {
     if (!storedGeolocation || myIP !== storedIp || execution % 4 === 0) {
       log.info(`Checking geolocation of ${myIP}`);
       storedIp = myIP;
-      const statsApiUrl = `https://stats.runonflux.io/fluxlocation/${myIP.split(':')[0]}`;
-      const statsRes = await serviceHelper.axiosGet(statsApiUrl);
-      if (statsRes.data.status === 'success' && statsRes.data.data) {
-        storedGeolocation = {
-          ip: statsRes.data.data.ip,
-          continent: statsRes.data.data.continent,
-          continentCode: statsRes.data.data.continentCode,
-          country: statsRes.data.data.country,
-          countryCode: statsRes.data.data.countryCode,
-          region: statsRes.data.data.region,
-          regionName: statsRes.data.data.regionName,
-          lat: statsRes.data.data.lat,
-          lon: statsRes.data.data.lon,
-          org: statsRes.data.data.org,
-        };
-      } else {
-        throw new Error(`Geolocation of IP ${myIP} is unavailable`);
-      }
       // consider another service failover or stats db
-      /* const ipApiUrl = `http://ip-api.com/json/${myIP.split(':')[0]}?fields=status,continent,continentCode,country,countryCode,region,regionName,lat,lon,query,org,isp`;
+      const ipApiUrl = `http://ip-api.com/json/${myIP.split(':')[0]}?fields=status,continent,continentCode,country,countryCode,region,regionName,lat,lon,query,org,isp`;
       const ipRes = await serviceHelper.axiosGet(ipApiUrl);
       if (ipRes.data.status === 'success' && ipRes.data.query !== '') {
         storedGeolocation = {
@@ -73,7 +55,7 @@ async function setNodeGeolocation() {
         } else {
           throw new Error(`Geolocation of IP ${myIP} is unavailable`);
         }
-      } */
+      }
     }
     log.info(`Geolocation of ${myIP} is ${JSON.stringify(storedGeolocation)}`);
     for (let i = 0; i < staticIpOrgs.length; i += 1) {
