@@ -365,5 +365,6 @@
    "notrustverify",
    "onlyoffice",
    "ghcr.io/celestiaorg/celestia-node",
-   "aismartlab"
+   "aismartlab",
+   "matomo"
 ]
