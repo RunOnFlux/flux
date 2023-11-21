@@ -1355,7 +1355,7 @@ async function adjustBlockedRepositories(req, res) {
             error.name,
             error.code,
           );
-          res.json(errorResponse); 
+          res.json(errorResponse);
         }
       });
     } else {

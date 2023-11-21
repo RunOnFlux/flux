@@ -71,7 +71,7 @@ module.exports = {
   chainWebpack: (config) => {
     config.module
       .rule('walletConnect')
-      .test(/node_modules[\\/](@walletconnect|@wagmi|@web3modal|viem|abitype)/)
+      .test(/node_modules[\\/](@walletconnect|@wagmi|@web3modal|viem|abitype|unstorage)/)
       .use('babel-loader')
       .loader('babel-loader');
     config.module

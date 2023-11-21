@@ -282,7 +282,6 @@ describe('dockerService tests', () => {
       const appName = 'website';
 
       const res = await dockerService.dockerContainerLogs(appName, 2);
-      
       expect(res).to.be.an.instanceOf(Buffer);
       expect(res).to.exist;
     });

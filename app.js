@@ -13,6 +13,7 @@ const nodecmd = require('node-cmd');
 const express = require('express');
 const app = require('./ZelBack/src/lib/server');
 const log = require('./ZelBack/src/lib/log');
+const socket = require('./ZelBack/src/lib/socket');
 const serviceManager = require('./ZelBack/src/services/serviceManager');
 const upnpService = require('./ZelBack/src/services/upnpService');
 const hash = require('object-hash');
@@ -68,10 +69,12 @@ async function initiate() {
     }
   }
 
-  app.listen(apiPort, () => {
+  const server = app.listen(apiPort, () => {
     log.info(`Flux running on port ${apiPort}!`);
     serviceManager.startFluxFunctions();
   });
+
+  socket.initIO(server);
 
   try {
     const certExists = fs.existsSync(path.join(__dirname, './certs/v1.key'));

@@ -1286,118 +1286,135 @@
         :disabled="!isApplicationInstalledLocally"
       >
         <div class="text-center">
-          <h3>Application: {{ appSpecification.name }}</h3>
-          <h6>Here you can execute some commands with a set of environment variables on this local application instance. Useful especially for testing and tweaking purposes.</h6>
-          <div class="mb-2" />
-          <div v-if="appSpecification.compose">
+          <div>
+            <b-card-group deck>
+              <b-card header-tag="header">
+                <template #header>
+                  <h6 class="mb-0">
+                    Browser-based Interactive Terminal
+                  </h6>
+                </template>
+                <div class="d-flex align-items-center">
+                  <div class="mr-4">
+                    <b-form-select
+                      v-model="selectedApp"
+                      :options="null"
+                      :disabled="terminal || isComposeSingle"
+                    >
+                      <b-form-select-option
+                        value="null"
+                        disabled
+                      >
+                        -- Please select component --
+                      </b-form-select-option>
+                      <b-form-select-option
+                        v-for="component in appSpecification.compose"
+                        :key="component.name"
+                        :value="component.name"
+                      >
+                        {{ component.name }}
+                      </b-form-select-option>
+                    </b-form-select>
+                  </div>
+                  <div class="mr-4">
+                    <b-form-select
+                      v-model="selectedCmd"
+                      :options="options"
+                      :disabled="terminal"
+                      @input="onSelectChangeCmd"
+                    >
+                      <template #first>
+                        <b-form-select-option
+                          :option="null"
+                          :value="null"
+                          disabled
+                        >
+                          -- Please select command --
+                        </b-form-select-option>
+                      </template>
+                    </b-form-select>
+                  </div>
+                  <b-button
+                    v-if="!terminal"
+                    class="col-2"
+                    href="#"
+                    variant="success"
+                    @click="connectTerminal(`flux${selectedApp}_${appSpecification.name}`)"
+                  >
+                    Connect
+                  </b-button>
+                  <b-button
+                    v-if="terminal"
+                    class="col-2"
+                    variant="danger"
+                    @click="disconnectTerminal"
+                  >
+                    Disconnect
+                  </b-button>
+                  <div class="ml-auto mt-1">
+                    <div class="ml-auto">
+                      <b-form-checkbox
+                        v-model="enableEnvironment"
+                        class="ml-4 d-flex align-items-center justify-content-center"
+                        switch
+                        :disabled="terminal"
+                        @input="onSelectChangeEnv"
+                      >
+                        <div
+                          class="d-flex"
+                          style="font-size: 14px;"
+                        >
+                          Enable Environment
+                        </div>
+                      </b-form-checkbox>
+                    </div>
+                  </div>
+                </div>
+                <div
+                  v-if="selectedCmd === 'Custom' && !terminal"
+                  class="d-flex mt-1"
+                >
+                  <b-form-input
+                    v-model="customValue"
+                    placeholder="Enter custom command (string)"
+                    :style="{ width: '100%' }"
+                  />
+                </div>
+                <div
+                  v-if="enableEnvironment && !terminal"
+                  class="d-flex mt-1"
+                >
+                  <b-form-input
+                    v-model="envInputValue"
+                    placeholder="Enter environment parameters (string)"
+                    :style="{ width: '100%' }"
+                  />
+                </div>
+                <div class="d-flex align-items-center mb-1">
+                  <div
+                    v-if="terminal"
+                    class="mt-2"
+                  >
+                    <template v-if="selectedCmd !== 'Custom'">
+                      <span style="font-weight: bold;">Exec into container</span>
+                      <span :style="selectedOptionTextStyle">{{ selectedApp }}</span>
+                      <span style="font-weight: bold;">using command</span>
+                      <span :style="selectedOptionTextStyle">{{ selectedOptionText }}</span>
+                    </template>
+                    <template v-else>
+                      <span style="font-weight: bold;">Exec into container</span>
+                      <span :style="selectedOptionTextStyle">{{ selectedApp }}</span>
+                      <span style="font-weight: bold;">using custom command</span>
+                      <span :style="selectedOptionTextStyle">{{ customValue }}</span>
+                    </template>
+                  </div>
+                </div>
+              </b-card>
+            </b-card-group>
             <div
-              v-for="(component, index) in appSpecification.compose"
-              :key="index"
-            >
-              <h4>Component: {{ component.name }}</h4>
-              <b-form-group
-                label-cols="4"
-                label-cols-lg="2"
-                label="Commands"
-                label-for="commandInput"
-                class="mt-2"
-              >
-                <b-form-input
-                  id="`commandInput-${component.name}_${appSpecification.name}`"
-                  v-model="appExec.cmd"
-                  placeholder="The command you want to execute"
-                />
-              </b-form-group>
-              <b-form-group
-                label-cols="4"
-                label-cols-lg="2"
-                label="Environment"
-                label-for="environmentInput"
-              >
-                <b-form-input
-                  :id="`environmentInput-${component.name}_${appSpecification.name}`"
-                  v-model="appExec.env"
-                  placeholder="Array of strings of Environment Parameters"
-                />
-              </b-form-group>
-              <b-button
-                :id="`execute-commands-${component.name}_${appSpecification.name}`"
-                v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                variant="success"
-                aria-label="Execute Commands"
-                class="mx-1 my-1"
-                @click="appExecute(`${component.name}_${appSpecification.name}`)"
-              >
-                Execute Commands
-              </b-button>
-              <div v-if="commandExecuting">
-                <v-icon
-                  class="spin-icon"
-                  name="spinner"
-                />
-              </div>
-              <b-form-textarea
-                v-if="callResponse.data && callResponse.data[0] && callResponse.data.find((d) => d.name === `${component.name}_${appSpecification.name}`)"
-                plaintext
-                no-resize
-                rows="15"
-                :value="callResponse.data.find((d) => d.name === `${component.name}_${appSpecification.name}`).data"
-                class="mt-1"
-                style="background-color: black; color: white; padding: 20px; font-family: monospace;"
-              />
-              <div class="mb-5" />
-            </div>
-          </div>
-          <div v-else>
-            <b-form-group
-              label-cols="4"
-              label-cols-lg="2"
-              label="Commands"
-              label-for="commandInput"
-              class="mt-2"
-            >
-              <b-form-input
-                id="commandInput"
-                v-model="appExec.cmd"
-                placeholder="The command you want to execute"
-              />
-            </b-form-group>
-            <b-form-group
-              label-cols="4"
-              label-cols-lg="2"
-              label="Environment"
-              label-for="environmentInput"
-            >
-              <b-form-input
-                id="environmentInput"
-                v-model="appExec.env"
-                placeholder="Array of strings of Environment Parameters"
-              />
-            </b-form-group>
-            <b-button
-              id="execute-commands"
-              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-              variant="success"
-              aria-label="Execute Commands"
-              class="mx-1 my-1"
-              @click="appExecute(appSpecification.name)"
-            >
-              Execute Commands
-            </b-button>
-            <div v-if="commandExecuting">
-              <v-icon
-                class="spin-icon"
-                name="spinner"
-              />
-            </div>
-            <b-form-textarea
-              v-if="callResponse.data"
-              plaintext
-              no-resize
-              rows="15"
-              :value="callResponse.data"
-              class="mt-1"
-              style="background-color: black; color: white; padding: 20px; font-family: monospace;"
+              v-show="isVisible"
+              ref="terminalElement"
+              style="text-align: left;"
             />
           </div>
         </div>
@@ -3516,36 +3533,49 @@
               lg="4"
             >
               <b-card title="Sign with">
-                <a
-                  :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=' + callbackValue"
-                  @click="initiateSignWSUpdate"
-                >
-                  <img
-                    class="zelidLogin"
-                    src="@/assets/images/zelID.svg"
-                    alt="Zel ID"
-                    height="100%"
-                    width="100%"
+                <div class="loginRow">
+                  <a
+                    :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=' + callbackValue"
+                    @click="initiateSignWSUpdate"
                   >
-                </a>
-                <a @click="initWalletConnect">
-                  <img
-                    class="walletconnectLogin"
-                    src="@/assets/images/walletconnect.svg"
-                    alt="WalletConnect"
-                    height="100%"
-                    width="100%"
-                  >
-                </a>
-                <a @click="initMetamask">
-                  <img
-                    class="metamaskLogin"
-                    src="@/assets/images/metamask.svg"
-                    alt="Metamask"
-                    height="100%"
-                    width="100%"
-                  >
-                </a>
+                    <img
+                      class="zelidLogin"
+                      src="@/assets/images/zelID.svg"
+                      alt="Zel ID"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                  <a @click="initSSP">
+                    <img
+                      class="sspLogin"
+                      src="@/assets/images/ssp-logo-white.svg"
+                      alt="SSP"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                </div>
+                <div class="loginRow">
+                  <a @click="initWalletConnect">
+                    <img
+                      class="walletconnectLogin"
+                      src="@/assets/images/walletconnect.svg"
+                      alt="WalletConnect"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                  <a @click="initMetamask">
+                    <img
+                      class="metamaskLogin"
+                      src="@/assets/images/metamask.svg"
+                      alt="Metamask"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                </div>
               </b-card>
             </b-col>
           </b-row>
@@ -3849,6 +3879,13 @@ import DaemonService from '@/services/DaemonService';
 
 import SignClient from '@walletconnect/sign-client';
 import { MetaMaskSDK } from '@metamask/sdk';
+import 'xterm/css/xterm.css';
+import { Terminal } from 'xterm';
+import { FitAddon } from 'xterm-addon-fit';
+import { WebLinksAddon } from 'xterm-addon-web-links';
+import { Unicode11Addon } from 'xterm-addon-unicode11';
+import { SerializeAddon } from 'xterm-addon-serialize';
+import io from 'socket.io-client';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
 
@@ -3873,7 +3910,6 @@ const axios = require('axios');
 const qs = require('qs');
 const store = require('store');
 const openpgp = require('openpgp');
-// const https = require('https');
 const timeoptions = require('@/libs/dateFormat');
 const splitargs = require('splitargs');
 const geolocations = require('../../libs/geolocation');
@@ -3926,6 +3962,30 @@ export default {
   },
   data() {
     return {
+      socket: null,
+      terminal: null,
+      selectedCmd: null,
+      selectedApp: null,
+      customValue: '',
+      envInputValue: '',
+      enableEnvironment: false,
+      isVisible: false,
+      options: [
+        {
+          label: 'Linux',
+          options: [
+            '/bin/bash',
+            '/bin/ash',
+            '/bin/sh',
+          ],
+        },
+        {
+          label: 'Other',
+          options: [
+            'Custom',
+          ],
+        },
+      ],
       timeoptions,
       output: '',
       fluxCommunication: false,
@@ -4113,6 +4173,26 @@ export default {
     };
   },
   computed: {
+    isComposeSingle() {
+      return this.appSpecification.compose?.length === 1;
+    },
+    selectedOptionText() {
+      const selectedOption = this.options
+        .flatMap((group) => group.options)
+        .find((option) => option === this.selectedCmd);
+      return selectedOption || '';
+    },
+    selectedOptionTextStyle() {
+      return {
+        color: 'red',
+        backgroundColor: 'rgba(128, 128, 128, 0.1)',
+        fontWeight: 'bold',
+        padding: '4px 8px',
+        borderRadius: '4px',
+        marginRight: '10px',
+        marginLeft: '10px',
+      };
+    },
     ...mapState('flux', [
       'config',
       'privilege',
@@ -4287,6 +4367,11 @@ export default {
     },
   },
   watch: {
+    isComposeSingle(value) {
+      if (value) {
+        this.selectedApp = this.appSpecification.compose[0].name;
+      }
+    },
     appUpdateSpecification: {
       handler() {
         this.dataToSign = '';
@@ -4362,6 +4447,147 @@ export default {
     this.getEnterpriseNodes();
   },
   methods: {
+    connectTerminal(name) {
+      const composeValues = Object.values(this.appSpecification.compose);
+      const foundInName = composeValues.some((obj) => obj.name === this.selectedApp);
+      const { protocol, hostname, port } = window.location;
+      let mybackend = '';
+      let consoleInit = 0;
+      mybackend += protocol;
+      mybackend += '//';
+      const regex = /[A-Za-z]/g;
+      if (hostname.match(regex)) {
+        const names = hostname.split('.');
+        names[0] = 'api';
+        mybackend += names.join('.');
+      } else {
+        mybackend += hostname;
+        mybackend += ':';
+        mybackend += (+port + 1);
+      }
+
+      if (this.selectedApp) {
+        if (this.selectedCmd === null) {
+          this.showToast('danger', 'No command selected.');
+          return;
+        }
+        if (this.selectedCmd === 'Custom') {
+          if (this.customValue) {
+            console.log(`Custom command: ${this.customValue}`);
+            console.log(`App name: ${name}`);
+          } else {
+            this.showToast('danger', 'Please enter a custom command.');
+            return;
+          }
+        } else {
+          console.log(`Selected command: ${this.selectedCmd}`);
+          console.log(`App name: ${name}`);
+        }
+      } else {
+        this.showToast('danger', 'Please select an continer app before connecting.');
+        return;
+      }
+
+      if (!foundInName) {
+        return;
+      }
+
+      this.terminal = new Terminal({
+        allowProposedApi: true,
+        cursorBlink: true,
+        theme: {
+          foreground: 'white',
+          background: 'black',
+        },
+      });
+
+      this.socket = io.connect(mybackend);
+      if (this.customValue) {
+        this.socket.emit('exec', name, this.$refs.terminalElement.clientWidth, this.$refs.terminalElement.clientHeight, this.customValue, this.envInputValue);
+      } else {
+        this.socket.emit('exec', name, this.$refs.terminalElement.clientWidth, this.$refs.terminalElement.clientHeight, this.selectedCmd, this.envInputValue);
+      }
+
+      this.terminal.open(this.$refs.terminalElement);
+      const fitAddon = new FitAddon();
+      this.terminal.loadAddon(fitAddon);
+      const webLinksAddon = new WebLinksAddon();
+      this.terminal.loadAddon(webLinksAddon);
+      const unicode11Addon = new Unicode11Addon();
+      this.terminal.loadAddon(unicode11Addon);
+      const serializeAddon = new SerializeAddon();
+      this.terminal.loadAddon(serializeAddon);
+      // eslint-disable-next-line no-underscore-dangle
+      this.terminal._initialized = true;
+
+      this.terminal.onResize((event) => {
+        const { cols, rows } = event;
+        console.log('resizing to', { cols, rows: rows + 1 });
+        this.socket.emit('resize', { cols, rows: rows + 1 });
+      });
+
+      this.terminal.onTitleChange((event) => {
+        console.log(event);
+      });
+
+      window.onresize = () => {
+        fitAddon.fit();
+      };
+
+      this.terminal.onData((data) => {
+        this.socket.emit('cmd', data);
+      });
+
+      this.socket.on('show', (data) => {
+        if (consoleInit === 0) {
+          /* eslint-disable quotes */
+          consoleInit = 1;
+          if (!this.customValue) {
+            this.socket.emit('cmd', "export TERM=xterm\n");
+            if (this.selectedCmd === '/bin/bash') {
+              this.socket.emit('cmd', "PS1=\"\\[\\033[01;31m\\]\\u\\[\\033[01;33m\\]@\\[\\033[01;36m\\]\\h \\[\\033[01;33m\\]\\w \\[\\033[01;35m\\]\\$ \\[\\033[00m\\]\"\n");
+            }
+            this.socket.emit('cmd', "alias ls='ls --color'\n");
+            this.socket.emit('cmd', "alias ll='ls -alF'\n");
+            this.socket.emit('cmd', "clear\n");
+          }
+          /* eslint-disable quotes */
+          setTimeout(() => {
+            this.isVisible = true;
+            this.$nextTick(() => {
+              setTimeout(() => {
+                this.terminal.focus();
+              }, 500);
+            });
+          }, 500);
+        }
+        this.terminal.write(data);
+      });
+
+      this.socket.on('end', () => {
+        this.disconnectTerminal();
+      });
+    },
+    disconnectTerminal() {
+      if (this.socket) {
+        this.socket.disconnect();
+      }
+      if (this.terminal) {
+        this.terminal.dispose();
+        this.terminal = false;
+        this.isVisible = false;
+      }
+    },
+    onSelectChangeCmd() {
+      if (this.selectedCmd !== 'Custom') {
+        this.customValue = '';
+      }
+    },
+    onSelectChangeEnv() {
+      if (!this.enableEnvironment) {
+        this.envInputValue = '';
+      }
+    },
     onFilteredSelection(filteredItems) {
       // Trigger pagination to update the number of buttons/pages due to filtering
       this.entNodesSelectTable.totalRows = filteredItems.length;
@@ -4405,6 +4631,9 @@ export default {
       this.appExec.cmd = '';
       this.appExec.env = '';
       this.output = '';
+      if (index !== 10) {
+        this.disconnectTerminal();
+      }
       switch (index) {
         case 1:
           this.getInstalledApplicationSpecifics();
@@ -4518,6 +4747,10 @@ export default {
         this.callResponse.status = response.data.status;
         this.callResponse.data = response.data.data[0];
         this.appSpecification = response.data.data[0];
+        // /* eslint-disable no-restricted-syntax */
+        // if (this.apps.length === 1) {
+        // this.apps = this.appSpecification.compose.map((component) => component.name); // Update apps array
+        // }
       }
     },
     getExpirePosition(value) {
@@ -6153,18 +6386,39 @@ export default {
         this.showToast('danger', error.message);
       }
     },
+    async initSSP() {
+      try {
+        if (!window.ssp) {
+          this.showToast('danger', 'SSP Wallet not installed');
+          return;
+        }
+        const responseData = await window.ssp.request('sspwid_sign_message', { message: this.dataToSign });
+        if (responseData.status === 'ERROR') {
+          throw new Error(responseData.data);
+        }
+        this.signature = responseData.signature;
+      } catch (error) {
+        this.showToast('danger', error.message);
+      }
+    },
   },
 };
 </script>
 
 <style>
-
+.xterm {
+  padding: 10px;
+}
 .spin-icon {
   animation: spin 2s linear infinite;
 }
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 .app-instances-table td:nth-child(1) {
@@ -6179,7 +6433,15 @@ export default {
 .app-instances-table th:nth-child(5) {
   width: 105px;
 }
+.loginRow {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-around;
+  align-items: center;
+  margin-bottom: 10px;
+}
 .zelidLogin {
+  margin-left: 5px;
   height: 90px;
   padding: 10px;
 }
@@ -6206,6 +6468,16 @@ export default {
   transition: 0.1s;
 }
 
+.sspLogin {
+  height: 90px;
+  padding: 10px;
+  margin-left: 5px;
+}
+.sspLogin img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
+
 a img {
   transition: all 0.05s ease-in-out;
 }
@@ -6221,35 +6493,55 @@ a:hover img {
 </style>
 
 <style lang="scss">
-  .anchor{
-      display: block;
-      height: 100px;
-      margin-top: -100px;
-      visibility: hidden;
-  }
-  .v-toast__text {
-      font-family: "Roboto", sans-serif !important;
-  }
-  .jv-dark {
-      background: none;
-      white-space: nowrap;
-      font-size: 14px;
-      font-family: Consolas, Menlo, Courier, monospace;
-      margin-bottom: 25px;
-  }
-  .jv-button { color: #49b3ff !important; }
-  .jv-dark .jv-key { color: #999 !important; }
-  .jv-dark .jv-array { color: #999 !important; }
-  .jv-boolean { color: #fc1e70 !important; }
-  .jv-function { color: #067bca !important; }
-  .jv-number { color: #fc1e70 !important; }
-  .jv-number-float { color: #fc1e70 !important; }
-  .jv-number-integer { color: #fc1e70 !important; }
-  .jv-dark .jv-object { color: #999 !important; }
-  .jv-undefined { color: #e08331 !important; }
-  .jv-string {
-      color: #42b983 !important;
-      word-break: break-word;
-      white-space: normal;
-  }
+.anchor {
+  display: block;
+  height: 100px;
+  margin-top: -100px;
+  visibility: hidden;
+}
+.v-toast__text {
+  font-family: "Roboto", sans-serif !important;
+}
+.jv-dark {
+  background: none;
+  white-space: nowrap;
+  font-size: 14px;
+  font-family: Consolas, Menlo, Courier, monospace;
+  margin-bottom: 25px;
+}
+.jv-button {
+  color: #49b3ff !important;
+}
+.jv-dark .jv-key {
+  color: #999 !important;
+}
+.jv-dark .jv-array {
+  color: #999 !important;
+}
+.jv-boolean {
+  color: #fc1e70 !important;
+}
+.jv-function {
+  color: #067bca !important;
+}
+.jv-number {
+  color: #fc1e70 !important;
+}
+.jv-number-float {
+  color: #fc1e70 !important;
+}
+.jv-number-integer {
+  color: #fc1e70 !important;
+}
+.jv-dark .jv-object {
+  color: #999 !important;
+}
+.jv-undefined {
+  color: #e08331 !important;
+}
+.jv-string {
+  color: #42b983 !important;
+  word-break: break-word;
+  white-space: normal;
+}
 </style>

@@ -685,14 +685,14 @@ async function addOutgoingPeer(req, res) {
     }
 
     const nodeList = await fluxCommunicationUtils.deterministicFluxList();
-    const fluxNode = nodeList.find((node) => node.ip.split(':')[0] === ip && (node.ip.split(':')[1] || 16127) === port);
+    const fluxNode = nodeList.find((node) => node.ip.split(':')[0] === ip.split(':')[0] && (node.ip.split(':')[1] || 16127) === port);
     if (!fluxNode) {
-      const errMessage = messageHelper.createErrorMessage(`FluxNode ${ip}:${port} is not confirmed on the network.`);
+      const errMessage = messageHelper.createErrorMessage(`FluxNode ${ip.split(':')[0]}:${port} is not confirmed on the network.`);
       return res.json(errMessage);
     }
 
     initiateAndHandleConnection(ip);
-    const message = messageHelper.createSuccessMessage(`Outgoing connection to ${ip}:${port} initiated`);
+    const message = messageHelper.createSuccessMessage(`Outgoing connection to ${ip.split(':')[0]}:${port} initiated`);
     return res.json(message);
   } catch (error) {
     log.error(error);
