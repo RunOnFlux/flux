@@ -9991,7 +9991,7 @@ async function syncthingApps() {
                   const folderReset = await syncthingService.dbRevert(id);
                   log.info(`Reset SyncthingApps ${appId} result: ${JSON.stringify(folderReset)}`);
                 }
-                if (numberOfRuns === 5) {
+                if (numberOfRuns >= 5) {
                   folderSyncType = 'sendreceive';
                 }
                 receiveOnlySyncthingAppsCache.set(appId, numberOfRuns);
@@ -10077,7 +10077,7 @@ async function syncthingApps() {
                     const folderReset = await syncthingService.dbRevert(id);
                     log.info(`Reset SyncthingApps app ${appId} result: ${JSON.stringify(folderReset)}`);
                   }
-                  if (numberOfRuns === 5) {
+                  if (numberOfRuns >= 5) {
                     folderSyncType = 'sendreceive';
                   }
                   receiveOnlySyncthingAppsCache.set(appId, numberOfRuns);
