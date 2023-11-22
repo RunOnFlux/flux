@@ -10038,7 +10038,7 @@ async function syncthingApps() {
                   const numberOfRuns = receiveOnlySyncthingAppsCache.get(identifier);
                   if (numberOfRuns === 4) {
                     // eslint-disable-next-line no-await-in-loop
-                    const folderReset = await syncthingService.dbRevert(folder.id);
+                    const folderReset = await syncthingService.dbRevert(id);
                     log.info(`Reset syncthing app ${identifier} result: ${folderReset}`);
                   }
                   if (numberOfRuns === 5) {
