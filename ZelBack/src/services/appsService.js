@@ -3144,6 +3144,24 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
       }
       return false;
     }
+
+    const benchmarkResponse = await benchmarkService.getBenchmarks();
+    if (benchmarkResponse.status === 'error') {
+      throw new Error('FluxBench status Error. Application cannot be installed at the moment');
+    }
+    if (benchmarkResponse.data.thunder) {
+      throw new Error('Flux Node is a Fractus Storage Node. Applications cannot be installed at this node type');
+    }
+    // get my external IP and check that it is longer than 5 in length.
+    let myIP = null;
+    if (benchmarkResponse.data.ipaddress) {
+      log.info(`Gathered IP ${benchmarkResponse.data.ipaddress}`);
+      myIP = benchmarkResponse.data.ipaddress.length > 5 ? benchmarkResponse.data.ipaddress : null;
+    }
+    if (myIP === null) {
+      throw new Error('Unable to detect Flux IP address');
+    }
+
     const appSpecifications = appSpecs;
     const appComponent = componentSpecs;
     const appName = appSpecifications.name;
@@ -3263,6 +3281,25 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     } else {
       await installApplicationHard(specificationsToInstall, appName, isComponent, res, appSpecifications);
     }
+
+    const broadcastedAt = new Date().getTime();
+    const newAppRunningMessage = {
+      type: 'fluxapprunning',
+      version: 1,
+      name: appSpecifications.name,
+      hash: appSpecifications.hash, // hash of application specifics that are running
+      ip: myIP,
+      broadcastedAt,
+    };
+
+    // store it in local database first
+    // eslint-disable-next-line no-await-in-loop, no-use-before-define
+    await storeAppRunningMessage(newAppRunningMessage);
+    // broadcast messages about running apps to all peers
+    await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessage);
+    await serviceHelper.delay(500);
+    await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessage);
+    // broadcast messages about running apps to all peers
 
     // all done message
     const successStatus = messageHelper.createSuccessMessage(`Flux App ${appName} successfully installed and launched`);
@@ -8731,25 +8768,6 @@ async function trySpawningGlobalApplication() {
       trySpawningGlobalApplication();
       return;
     }
-
-    const broadcastedAt = new Date().getTime();
-    const newAppRunningMessage = {
-      type: 'fluxapprunning',
-      version: 1,
-      name: appSpecifications.name,
-      hash: appSpecifications.hash, // hash of application specifics that are running
-      ip: myIP,
-      broadcastedAt,
-    };
-
-    // store it in local database first
-    // eslint-disable-next-line no-await-in-loop
-    await storeAppRunningMessage(newAppRunningMessage);
-    // broadcast messages about running apps to all peers
-    await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessage);
-    await serviceHelper.delay(500);
-    await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessage);
-    // broadcast messages about running apps to all peers
 
     await serviceHelper.delay(10 * config.fluxapps.installation.delay * 1000);
     log.info('Reinitiating possible app installation');
