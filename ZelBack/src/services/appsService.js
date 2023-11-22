@@ -9922,10 +9922,13 @@ async function syncthingApps() {
     const devicesConfiguration = [];
     const folderIds = [];
     const foldersConfiguration = [];
+    const newFoldersConfiguration = [];
     const myDeviceID = await syncthingService.getDeviceID();
     if (myDeviceID.status !== 'success') {
       return;
     }
+    const allFoldersResp = await syncthingService.getConfigFolders();
+    log.info(`SyncthingApps getConfigFolders: ${JSON.stringify(allFoldersResp)}`);
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled.data) {
       if (installedApp.version <= 3) {
@@ -10010,6 +10013,26 @@ async function syncthingApps() {
               paused: false,
               type: folderSyncType,
             });
+            const syncFolder = allFoldersResp.data.find((syncthingFolder) => syncthingFolder.id === id);
+            if (!syncFolder) {
+              newFoldersConfiguration.push({
+                id,
+                label,
+                path: folder,
+                devices,
+                paused: false,
+                type: folderSyncType,
+              });
+            } else if (syncFolder.paused || syncFolder.type !== folderSyncType) {
+              newFoldersConfiguration.push({
+                id,
+                label,
+                path: folder,
+                devices,
+                paused: false,
+                type: folderSyncType,
+              });
+            }
           }
         }
       } else {
@@ -10096,13 +10119,32 @@ async function syncthingApps() {
                 paused: false,
                 type: folderSyncType,
               });
+              const syncFolder = allFoldersResp.data.find((syncthingFolder) => syncthingFolder.id === id);
+              if (!syncFolder) {
+                newFoldersConfiguration.push({
+                  id,
+                  label,
+                  path: folder,
+                  devices,
+                  paused: false,
+                  type: folderSyncType,
+                });
+              } else if (syncFolder.paused || syncFolder.type !== folderSyncType) {
+                newFoldersConfiguration.push({
+                  id,
+                  label,
+                  path: folder,
+                  devices,
+                  paused: false,
+                  type: folderSyncType,
+                });
+              }
             }
           }
         }
       }
     }
     // remove folders that should not be synced anymore (this shall actually not trigger)
-    const allFoldersResp = await syncthingService.getConfigFolders();
     const nonUsedFolders = allFoldersResp.data.filter((syncthingFolder) => !folderIds.includes(syncthingFolder.id));
     // eslint-disable-next-line no-restricted-syntax
     for (const nonUsedFolder of nonUsedFolders) {
@@ -10126,9 +10168,11 @@ async function syncthingApps() {
     // now we have new accurate devicesConfiguration and foldersConfiguration
     // add more of current devices
     // excludes our current deviceID adjustment
+
     await syncthingService.adjustConfigDevices('put', devicesConfiguration);
-    // add more of current folders
-    await syncthingService.adjustConfigFolders('put', foldersConfiguration);
+
+    await syncthingService.adjustConfigFolders('put', newFoldersConfiguration);
+
     // all configuration changes applied
 
     // check for errors in folders and if true reset that index database
