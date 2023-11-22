@@ -10045,7 +10045,7 @@ async function syncthingApps() {
                     const folderReset = await syncthingService.dbRevert(id);
                     log.info(`Reset syncthing app ${identifier} result: ${folderReset}`);
                   }
-                  if (numberOfRuns === 5) {
+                  if (numberOfRuns >= 5) {
                     folderSyncType = 'sendreceive';
                   }
                   receiveOnlySyncthingAppsCache.set(identifier, numberOfRuns + 1);
