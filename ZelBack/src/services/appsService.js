@@ -9984,12 +9984,12 @@ async function syncthingApps() {
                 folderSyncType = 'sendreceive';
               } else if (receiveOnlySyncthingAppsCache.has(appId)) {
                 const numberOfRuns = receiveOnlySyncthingAppsCache.get(appId) + 1;
-                log.info(`SyncthingApps appIdentifier ${appId} execution number: ${JSON.stringify(folderReset)}`);
+                log.info(`SyncthingApps appIdentifier ${appId} execution number: ${numberOfRuns}`);
                 folderSyncType = 'receiveonly';
                 if (numberOfRuns === 4) {
                   // eslint-disable-next-line no-await-in-loop
                   const folderReset = await syncthingService.dbRevert(id);
-                  log.info(`Reset SyncthingApps ${appId} result: ${folderReset}`);
+                  log.info(`Reset SyncthingApps ${appId} result: ${JSON.stringify(folderReset)}`);
                 }
                 if (numberOfRuns === 5) {
                   folderSyncType = 'sendreceive';
