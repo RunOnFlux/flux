@@ -9979,12 +9979,12 @@ async function syncthingApps() {
                 log.info('SyncthingApps first run');
                 // eslint-disable-next-line no-await-in-loop
                 const folderReset = await syncthingService.dbRevert(id);
-                log.info(`Reset SyncthingApps ${appId} result: ${folderReset}`);
+                log.info(`Reset SyncthingApps ${appId} result: ${JSON.stringify(folderReset)}`);
                 receiveOnlySyncthingAppsCache.set(appId, 6);
                 folderSyncType = 'sendreceive';
               } else if (receiveOnlySyncthingAppsCache.has(appId)) {
                 const numberOfRuns = receiveOnlySyncthingAppsCache.get(appId) + 1;
-                log.info(`SyncthingApps appIdentifier ${appId} execution number: ${numberOfRuns}`);
+                log.info(`SyncthingApps appIdentifier ${appId} execution number: ${JSON.stringify(folderReset)}`);
                 folderSyncType = 'receiveonly';
                 if (numberOfRuns === 4) {
                   // eslint-disable-next-line no-await-in-loop
@@ -10065,7 +10065,7 @@ async function syncthingApps() {
                   log.info('SyncthingApps first run');
                   // eslint-disable-next-line no-await-in-loop
                   const folderReset = await syncthingService.dbRevert(id);
-                  log.info(`Reset SyncthingApps app ${appId} result: ${folderReset}`);
+                  log.info(`Reset SyncthingApps app ${appId} result: ${JSON.stringify(folderReset)}`);
                   receiveOnlySyncthingAppsCache.set(appId, 6);
                   folderSyncType = 'sendreceive';
                 } else if (receiveOnlySyncthingAppsCache.has(appId)) {
@@ -10075,7 +10075,7 @@ async function syncthingApps() {
                   if (numberOfRuns === 4) {
                     // eslint-disable-next-line no-await-in-loop
                     const folderReset = await syncthingService.dbRevert(id);
-                    log.info(`Reset SyncthingApps app ${appId} result: ${folderReset}`);
+                    log.info(`Reset SyncthingApps app ${appId} result: ${JSON.stringify(folderReset)}`);
                   }
                   if (numberOfRuns === 5) {
                     folderSyncType = 'sendreceive';
