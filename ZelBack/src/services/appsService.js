@@ -9516,7 +9516,7 @@ async function redeployAPI(req, res) {
       return;
     }
     if (global) {
-      executeAppGlobalCommand(appname, 'redeploy', req.headers.zelidauth); // do not wait
+      executeAppGlobalCommand(appname, 'redeploy', req.headers.zelidauth, force); // do not wait
       const hardOrSoft = force ? 'hard' : 'soft';
       const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global ${hardOrSoft} redeploy`);
       res.json(appResponse);
