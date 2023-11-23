@@ -9988,9 +9988,6 @@ async function syncthingApps() {
             if (containerDataFlags.includes('r')) {
               if (syncthingAppsFirstRun) {
                 log.info('SyncthingApps first run');
-                // eslint-disable-next-line no-await-in-loop
-                const folderReset = await syncthingService.dbRevert(id);
-                log.info(`Reset SyncthingApps app ${appId} result: ${JSON.stringify(folderReset)}`);
                 receiveOnlySyncthingAppsCache.set(appId, 6);
                 syncthingFolder.folderSyncType = 'sendreceive';
               } else if (receiveOnlySyncthingAppsCache.has(appId)) {
@@ -10085,9 +10082,6 @@ async function syncthingApps() {
               if (containerDataFlags.includes('r')) {
                 if (syncthingAppsFirstRun) {
                   log.info('SyncthingApps first run');
-                  // eslint-disable-next-line no-await-in-loop
-                  const folderReset = await syncthingService.dbRevert(id);
-                  log.info(`Reset SyncthingApps app ${appId} result: ${JSON.stringify(folderReset)}`);
                   receiveOnlySyncthingAppsCache.set(appId, 6);
                   syncthingFolder.folderSyncType = 'sendreceive';
                 } else if (receiveOnlySyncthingAppsCache.has(appId)) {
