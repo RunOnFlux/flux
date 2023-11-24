@@ -9928,7 +9928,6 @@ async function syncthingApps() {
       return;
     }
     const allFoldersResp = await syncthingService.getConfigFolders();
-    log.info(`SyncthingApps getConfigFolders: ${JSON.stringify(allFoldersResp)}`);
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled.data) {
       if (installedApp.version <= 3) {
