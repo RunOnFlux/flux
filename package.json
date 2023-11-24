@@ -58,7 +58,7 @@
     "homedev": "vue-cli-service serve --port 16126",
     "homeprod": "nodemon homeServer.js",
     "homebuild": "vue-cli-service build",
-    "fluxdev": "nodemon apiServer.js",
+    "fluxdev": "nodemon app.js --apiServer",
     "flux": "nodemon app.js",
     "start": "npm install --production && node init.js && npm run flux",
     "dev": "node init.js && concurrently \"npm run fluxdev\" \"npm run homedev\"",
