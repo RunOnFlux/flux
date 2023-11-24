@@ -10010,7 +10010,6 @@ async function syncthingApps() {
                 }
               } else if (receiveOnlySyncthingAppsCache.has(appId)) {
                 const numberOfRuns = receiveOnlySyncthingAppsCache.get(appId) + 1;
-                syncthingFolder.type = 'sendreceive';
                 log.info(`receiveOnlySyncthingAppsCache has appIdentifier ${appId} execution number: ${numberOfRuns}`);
                 if (numberOfRuns === 3) {
                   // eslint-disable-next-line no-await-in-loop
@@ -10125,7 +10124,6 @@ async function syncthingApps() {
                   }
                 } else if (receiveOnlySyncthingAppsCache.has(appId)) {
                   const numberOfRuns = receiveOnlySyncthingAppsCache.get(appId) + 1;
-                  syncthingFolder.type = 'sendreceive';
                   log.info(`receiveOnlySyncthingAppsCache has appIdentifier ${appId} execution number: ${numberOfRuns}`);
                   if (numberOfRuns === 3) {
                     // eslint-disable-next-line no-await-in-loop
