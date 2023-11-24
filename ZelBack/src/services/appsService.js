@@ -9928,6 +9928,7 @@ async function syncthingApps() {
       return;
     }
     const allFoldersResp = await syncthingService.getConfigFolders();
+    log.info(`allFoldersResp: ${JSON.stringify(allFoldersResp.data)}`);
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled.data) {
       if (installedApp.version <= 3) {
@@ -10005,6 +10006,8 @@ async function syncthingApps() {
                     log.info(`Reset SyncthingApps app ${appId} result: ${JSON.stringify(folderReset)}`);
                     syncthingFolder.paused = false;
                     syncthingFolder.type = 'sendreceive';
+                    // eslint-disable-next-line no-await-in-loop
+                    await serviceHelper.delay(60 * 1000);
                   }
                 }
               } else if (receiveOnlySyncthingAppsCache.has(appId)) {
@@ -10024,6 +10027,8 @@ async function syncthingApps() {
                   log.info(`Reset SyncthingApps app ${appId} result: ${JSON.stringify(folderReset)}`);
                   syncthingFolder.paused = false;
                   syncthingFolder.type = 'sendreceive';
+                  // eslint-disable-next-line no-await-in-loop
+                  await serviceHelper.delay(60 * 1000);
                 }
                 if (numberOfRuns > 3) {
                   syncthingFolder.type = 'sendreceive';
@@ -10120,6 +10125,8 @@ async function syncthingApps() {
                       log.info(`Reset SyncthingApps app ${appId} result: ${JSON.stringify(folderReset)}`);
                       syncthingFolder.paused = false;
                       syncthingFolder.type = 'sendreceive';
+                      // eslint-disable-next-line no-await-in-loop
+                      await serviceHelper.delay(60 * 1000);
                     }
                   }
                 } else if (receiveOnlySyncthingAppsCache.has(appId)) {
@@ -10139,6 +10146,8 @@ async function syncthingApps() {
                     log.info(`Reset SyncthingApps app ${appId} result: ${JSON.stringify(folderReset)}`);
                     syncthingFolder.paused = false;
                     syncthingFolder.type = 'sendreceive';
+                    // eslint-disable-next-line no-await-in-loop
+                    await serviceHelper.delay(60 * 1000);
                   }
                   if (numberOfRuns > 3) {
                     syncthingFolder.type = 'sendreceive';
