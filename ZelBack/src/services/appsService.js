@@ -9902,6 +9902,39 @@ async function getDeviceID(fluxIP) {
   }
 }
 
+/**
+ * To restart an app. Restarts each component if the app is using Docker Compose.
+ * Function to ba called after synthing database revert that can cause no data to show up inside container despite it exists on mountpoint.
+ * @param {string} appname Request.
+ */
+async function appDockerRestart(appname) {
+  try {
+    const mainAppName = appname.split('_')[1] || appname;
+    const isComponent = appname.includes('_'); // it is a component restart. Proceed with restarting just component
+    if (isComponent) {
+      await dockerService.appDockerRestart(appname);
+    } else {
+      // ask for restarting entire composed application
+      // eslint-disable-next-line no-use-before-define
+      const appSpecs = await getApplicationSpecifications(mainAppName);
+      if (!appSpecs) {
+        throw new Error('Application not found');
+      }
+      if (appSpecs.version <= 3) {
+        await dockerService.appDockerRestart(appname);
+      } else {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of appSpecs.compose) {
+          // eslint-disable-next-line no-await-in-loop
+          await dockerService.appDockerRestart(`${appComponent.name}_${appSpecs.name}`);
+        }
+      }
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
 let updateSyncthingRunning = false;
 let syncthingAppsFirstRun = true;
 // update syncthing configuration for locally installed apps
@@ -10007,7 +10040,9 @@ async function syncthingApps() {
                     syncthingFolder.paused = false;
                     syncthingFolder.type = 'sendreceive';
                     // eslint-disable-next-line no-await-in-loop
-                    await serviceHelper.delay(60 * 1000);
+                    await serviceHelper.delay(30 * 1000);
+                    // eslint-disable-next-line no-await-in-loop
+                    await appDockerRestart(id);
                   }
                 }
               } else if (receiveOnlySyncthingAppsCache.has(appId)) {
@@ -10028,7 +10063,9 @@ async function syncthingApps() {
                   syncthingFolder.paused = false;
                   syncthingFolder.type = 'sendreceive';
                   // eslint-disable-next-line no-await-in-loop
-                  await serviceHelper.delay(60 * 1000);
+                  await serviceHelper.delay(30 * 1000);
+                  // eslint-disable-next-line no-await-in-loop
+                  await appDockerRestart(id);
                 }
                 if (numberOfRuns > 3) {
                   syncthingFolder.type = 'sendreceive';
@@ -10126,7 +10163,9 @@ async function syncthingApps() {
                       syncthingFolder.paused = false;
                       syncthingFolder.type = 'sendreceive';
                       // eslint-disable-next-line no-await-in-loop
-                      await serviceHelper.delay(60 * 1000);
+                      await serviceHelper.delay(30 * 1000);
+                      // eslint-disable-next-line no-await-in-loop
+                      await appDockerRestart(id);
                     }
                   }
                 } else if (receiveOnlySyncthingAppsCache.has(appId)) {
@@ -10147,7 +10186,9 @@ async function syncthingApps() {
                     syncthingFolder.paused = false;
                     syncthingFolder.type = 'sendreceive';
                     // eslint-disable-next-line no-await-in-loop
-                    await serviceHelper.delay(60 * 1000);
+                    await serviceHelper.delay(30 * 1000);
+                    // eslint-disable-next-line no-await-in-loop
+                    await appDockerRestart(id);
                   }
                   if (numberOfRuns > 3) {
                     syncthingFolder.type = 'sendreceive';
