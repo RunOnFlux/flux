@@ -37,10 +37,31 @@ async function configReload() {
         delete require.cache[require.resolve('./config/userconfig')];
         // eslint-disable-next-line
         userconfig = require('./config/userconfig');
+        await loadUpnpIfRequired();
       }
     }
   } catch (error) {
     log.error(`Error watching files: ${error}`);
+  }
+}
+
+async function loadUpnpIfRequired() {
+  // User configured UPnP node
+  if (userconfig.initial.apiport || userconfig.initial.routerIP) {
+    if (!userconfig.initial.apiport || !userconfig.initial.routerIP) {
+      log.error(`Flux UPnP port and RouterIP must both be set if running UPnP. Apiport: ${userconfig.initial.apiport}, RouterIP: ${userconfig.initial.routerIP}. Shutting down.`);
+      process.exit();
+    }
+    const verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
+    if (verifyUpnp !== true) {
+      log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to verify support. Shutting down.`);
+      process.exit();
+    }
+    const setupUpnp = await upnpService.setupUPNP(apiPort);
+    if (setupUpnp !== true) {
+      log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to map to api or home port. Shutting down.`);
+      process.exit();
+    }
   }
 }
 
@@ -53,18 +74,8 @@ async function initiate() {
     log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
     process.exit();
   }
-  if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
-    const verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
-    if (verifyUpnp !== true) {
-      log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to verify support. Shutting down.`);
-      process.exit();
-    }
-    const setupUpnp = await upnpService.setupUPNP(apiPort);
-    if (setupUpnp !== true) {
-      log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to map to api or home port. Shutting down.`);
-      process.exit();
-    }
-  }
+
+  await loadUpnpIfRequired();
 
   setInterval(async () => {
     configReload();
