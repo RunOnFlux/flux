@@ -9976,21 +9976,20 @@ async function syncthingApps() {
                 }
               }
             }
-            let folderSyncType = 'sendreceive';
             const syncthingFolder = {
               id,
               label,
               path: folder,
               devices,
               paused: false,
-              type: folderSyncType,
+              type: 'sendreceive',
             };
             const syncFolder = allFoldersResp.data.find((x) => x.id === id);
             if (containerDataFlags.includes('r')) {
               if (syncthingAppsFirstRun) {
                 log.info('SyncthingApps first run');
                 receiveOnlySyncthingAppsCache.set(appId, 6);
-                if (syncFolder.folderSyncType === 'receiveonly') {
+                if (syncFolder.type === 'receiveonly') {
                   // eslint-disable-next-line no-await-in-loop
                   const folderRevert = await syncthingService.dbRevert(id);
                   log.info(`Revert SyncthingApps app ${appId} result: ${JSON.stringify(folderRevert)}`);
@@ -10000,12 +9999,13 @@ async function syncthingApps() {
                   // eslint-disable-next-line no-await-in-loop
                   const folderReset = await syncthingService.systemResetFolderId(syncthingFolder.id);
                   log.info(`Reset SyncthingApps app ${appId} result: ${JSON.stringify(folderReset)}`);
-                  syncthingFolder.folderSyncType = 'sendreceive';
+                  syncthingFolder.paused = false;
+                  syncthingFolder.type = 'sendreceive';
                 }
               } else if (receiveOnlySyncthingAppsCache.has(appId)) {
                 const numberOfRuns = receiveOnlySyncthingAppsCache.get(appId) + 1;
-                folderSyncType = 'receiveonly';
-                log.info(`SyncthingApps appIdentifier ${appId} execution number: ${numberOfRuns}`);
+                syncthingFolder.type = 'sendreceive';
+                log.info(`receiveOnlySyncthingAppsCache has appIdentifier ${appId} execution number: ${numberOfRuns}`);
                 if (numberOfRuns === 3) {
                   // eslint-disable-next-line no-await-in-loop
                   const folderRevert = await syncthingService.dbRevert(id);
@@ -10017,21 +10017,23 @@ async function syncthingApps() {
                   const folderReset = await syncthingService.systemResetFolderId(syncthingFolder.id);
                   log.info(`Reset SyncthingApps app ${appId} result: ${JSON.stringify(folderReset)}`);
                   syncthingFolder.paused = false;
-                  syncthingFolder.folderSyncType = 'sendreceive';
+                  syncthingFolder.type = 'sendreceive';
                 }
                 if (numberOfRuns > 3) {
-                  syncthingFolder.folderSyncType = 'sendreceive';
+                  syncthingFolder.type = 'sendreceive';
                 }
                 receiveOnlySyncthingAppsCache.set(appId, numberOfRuns);
               } else {
                 log.info(`SyncthingApps appIdentifier ${appId} execution number: 1`);
-                syncthingFolder.folderSyncType = 'receiveonly';
+                syncthingFolder.type = 'receiveonly';
                 receiveOnlySyncthingAppsCache.set(appId, 1);
               }
             }
             folderIds.push(id);
             foldersConfiguration.push(syncthingFolder);
-            if (!syncFolder || syncFolder.paused || syncFolder.type !== folderSyncType) {
+            if (!syncFolder) {
+              newFoldersConfiguration.push(syncthingFolder);
+            } else if (syncFolder && (syncFolder.paused || syncFolder.type !== syncthingFolder.type)) {
               newFoldersConfiguration.push(syncthingFolder);
             }
           }
@@ -10083,21 +10085,20 @@ async function syncthingApps() {
                   }
                 }
               }
-              let folderSyncType = 'sendreceive';
               const syncthingFolder = {
                 id,
                 label,
                 path: folder,
                 devices,
                 paused: false,
-                type: folderSyncType,
+                type: 'sendreceive',
               };
               const syncFolder = allFoldersResp.data.find((x) => x.id === id);
               if (containerDataFlags.includes('r')) {
                 if (syncthingAppsFirstRun) {
                   log.info('SyncthingApps first run');
                   receiveOnlySyncthingAppsCache.set(appId, 6);
-                  if (syncFolder.folderSyncType === 'receiveonly') {
+                  if (syncFolder.type === 'receiveonly') {
                     // eslint-disable-next-line no-await-in-loop
                     const folderRevert = await syncthingService.dbRevert(id);
                     log.info(`Revert SyncthingApps app ${appId} result: ${JSON.stringify(folderRevert)}`);
@@ -10108,12 +10109,12 @@ async function syncthingApps() {
                     const folderReset = await syncthingService.systemResetFolderId(syncthingFolder.id);
                     log.info(`Reset SyncthingApps app ${appId} result: ${JSON.stringify(folderReset)}`);
                     syncthingFolder.paused = false;
-                    syncthingFolder.folderSyncType = 'sendreceive';
+                    syncthingFolder.type = 'sendreceive';
                   }
                 } else if (receiveOnlySyncthingAppsCache.has(appId)) {
                   const numberOfRuns = receiveOnlySyncthingAppsCache.get(appId) + 1;
-                  folderSyncType = 'receiveonly';
-                  log.info(`SyncthingApps appIdentifier ${appId} execution number: ${numberOfRuns}`);
+                  syncthingFolder.type = 'sendreceive';
+                  log.info(`receiveOnlySyncthingAppsCache has appIdentifier ${appId} execution number: ${numberOfRuns}`);
                   if (numberOfRuns === 3) {
                     // eslint-disable-next-line no-await-in-loop
                     const folderRevert = await syncthingService.dbRevert(id);
@@ -10125,21 +10126,23 @@ async function syncthingApps() {
                     const folderReset = await syncthingService.systemResetFolderId(syncthingFolder.id);
                     log.info(`Reset SyncthingApps app ${appId} result: ${JSON.stringify(folderReset)}`);
                     syncthingFolder.paused = false;
-                    syncthingFolder.folderSyncType = 'sendreceive';
+                    syncthingFolder.type = 'sendreceive';
                   }
                   if (numberOfRuns > 3) {
-                    syncthingFolder.folderSyncType = 'sendreceive';
+                    syncthingFolder.type = 'sendreceive';
                   }
                   receiveOnlySyncthingAppsCache.set(appId, numberOfRuns);
                 } else {
                   log.info(`SyncthingApps appIdentifier ${appId} execution number: 1`);
-                  syncthingFolder.folderSyncType = 'receiveonly';
+                  syncthingFolder.type = 'receiveonly';
                   receiveOnlySyncthingAppsCache.set(appId, 1);
                 }
               }
               folderIds.push(id);
               foldersConfiguration.push(syncthingFolder);
-              if (!syncFolder || syncFolder.paused || syncFolder.type !== folderSyncType) {
+              if (!syncFolder) {
+                newFoldersConfiguration.push(syncthingFolder);
+              } else if (syncFolder && (syncFolder.paused || syncFolder.type !== syncthingFolder.type)) {
                 newFoldersConfiguration.push(syncthingFolder);
               }
             }
