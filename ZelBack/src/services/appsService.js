@@ -9985,16 +9985,31 @@ async function syncthingApps() {
               paused: false,
               type: folderSyncType,
             };
+            const syncFolder = allFoldersResp.data.find((x) => x.id === id);
             if (containerDataFlags.includes('r')) {
               if (syncthingAppsFirstRun) {
                 log.info('SyncthingApps first run');
                 receiveOnlySyncthingAppsCache.set(appId, 6);
-                syncthingFolder.folderSyncType = 'sendreceive';
+                if (syncFolder.folderSyncType === 'receiveonly') {
+                  // eslint-disable-next-line no-await-in-loop
+                  const folderRevert = await syncthingService.dbRevert(id);
+                  log.info(`Revert SyncthingApps app ${appId} result: ${JSON.stringify(folderRevert)}`);
+                  syncthingFolder.paused = true;
+                  // eslint-disable-next-line no-await-in-loop
+                  await syncthingService.adjustConfigFolders('put', syncthingFolder, syncthingFolder.id); // systemResetFolder id requires the folder to be paused before execution
+                  // eslint-disable-next-line no-await-in-loop
+                  const folderReset = await syncthingService.systemResetFolderId(syncthingFolder.id);
+                  log.info(`Reset SyncthingApps app ${appId} result: ${JSON.stringify(folderReset)}`);
+                  syncthingFolder.folderSyncType = 'sendreceive';
+                }
               } else if (receiveOnlySyncthingAppsCache.has(appId)) {
                 const numberOfRuns = receiveOnlySyncthingAppsCache.get(appId) + 1;
                 folderSyncType = 'receiveonly';
                 log.info(`SyncthingApps appIdentifier ${appId} execution number: ${numberOfRuns}`);
-                if (numberOfRuns === 4) {
+                if (numberOfRuns === 3) {
+                  // eslint-disable-next-line no-await-in-loop
+                  const folderRevert = await syncthingService.dbRevert(id);
+                  log.info(`Revert SyncthingApps app ${appId} result: ${JSON.stringify(folderRevert)}`);
                   syncthingFolder.paused = true;
                   // eslint-disable-next-line no-await-in-loop
                   await syncthingService.adjustConfigFolders('put', syncthingFolder, syncthingFolder.id); // systemResetFolder id requires the folder to be paused before execution
@@ -10002,22 +10017,20 @@ async function syncthingApps() {
                   const folderReset = await syncthingService.systemResetFolderId(syncthingFolder.id);
                   log.info(`Reset SyncthingApps app ${appId} result: ${JSON.stringify(folderReset)}`);
                   syncthingFolder.paused = false;
-                  // eslint-disable-next-line no-await-in-loop
-                  await syncthingService.adjustConfigFolders('put', syncthingFolder, syncthingFolder.id);
+                  syncthingFolder.folderSyncType = 'sendreceive';
                 }
-                if (numberOfRuns >= 5) {
+                if (numberOfRuns > 3) {
                   syncthingFolder.folderSyncType = 'sendreceive';
                 }
                 receiveOnlySyncthingAppsCache.set(appId, numberOfRuns);
               } else {
-                log.info(`SyncthingApps appIdentifier ${identifier} execution number: 1`);
+                log.info(`SyncthingApps appIdentifier ${appId} execution number: 1`);
                 syncthingFolder.folderSyncType = 'receiveonly';
                 receiveOnlySyncthingAppsCache.set(appId, 1);
               }
             }
             folderIds.push(id);
             foldersConfiguration.push(syncthingFolder);
-            const syncFolder = allFoldersResp.data.find((x) => x.id === id);
             if (!syncFolder || syncFolder.paused || syncFolder.type !== folderSyncType) {
               newFoldersConfiguration.push(syncthingFolder);
             }
@@ -10079,16 +10092,15 @@ async function syncthingApps() {
                 paused: false,
                 type: folderSyncType,
               };
+              const syncFolder = allFoldersResp.data.find((x) => x.id === id);
               if (containerDataFlags.includes('r')) {
                 if (syncthingAppsFirstRun) {
                   log.info('SyncthingApps first run');
                   receiveOnlySyncthingAppsCache.set(appId, 6);
-                  syncthingFolder.folderSyncType = 'sendreceive';
-                } else if (receiveOnlySyncthingAppsCache.has(appId)) {
-                  const numberOfRuns = receiveOnlySyncthingAppsCache.get(appId) + 1;
-                  folderSyncType = 'receiveonly';
-                  log.info(`SyncthingApps appIdentifier ${appId} execution number: ${numberOfRuns}`);
-                  if (numberOfRuns === 4) {
+                  if (syncFolder.folderSyncType === 'receiveonly') {
+                    // eslint-disable-next-line no-await-in-loop
+                    const folderRevert = await syncthingService.dbRevert(id);
+                    log.info(`Revert SyncthingApps app ${appId} result: ${JSON.stringify(folderRevert)}`);
                     syncthingFolder.paused = true;
                     // eslint-disable-next-line no-await-in-loop
                     await syncthingService.adjustConfigFolders('put', syncthingFolder, syncthingFolder.id); // systemResetFolder id requires the folder to be paused before execution
@@ -10096,22 +10108,37 @@ async function syncthingApps() {
                     const folderReset = await syncthingService.systemResetFolderId(syncthingFolder.id);
                     log.info(`Reset SyncthingApps app ${appId} result: ${JSON.stringify(folderReset)}`);
                     syncthingFolder.paused = false;
-                    // eslint-disable-next-line no-await-in-loop
-                    await syncthingService.adjustConfigFolders('put', syncthingFolder, syncthingFolder.id);
+                    syncthingFolder.folderSyncType = 'sendreceive';
                   }
-                  if (numberOfRuns >= 5) {
+                } else if (receiveOnlySyncthingAppsCache.has(appId)) {
+                  const numberOfRuns = receiveOnlySyncthingAppsCache.get(appId) + 1;
+                  folderSyncType = 'receiveonly';
+                  log.info(`SyncthingApps appIdentifier ${appId} execution number: ${numberOfRuns}`);
+                  if (numberOfRuns === 3) {
+                    // eslint-disable-next-line no-await-in-loop
+                    const folderRevert = await syncthingService.dbRevert(id);
+                    log.info(`Revert SyncthingApps app ${appId} result: ${JSON.stringify(folderRevert)}`);
+                    syncthingFolder.paused = true;
+                    // eslint-disable-next-line no-await-in-loop
+                    await syncthingService.adjustConfigFolders('put', syncthingFolder, syncthingFolder.id); // systemResetFolder id requires the folder to be paused before execution
+                    // eslint-disable-next-line no-await-in-loop
+                    const folderReset = await syncthingService.systemResetFolderId(syncthingFolder.id);
+                    log.info(`Reset SyncthingApps app ${appId} result: ${JSON.stringify(folderReset)}`);
+                    syncthingFolder.paused = false;
+                    syncthingFolder.folderSyncType = 'sendreceive';
+                  }
+                  if (numberOfRuns > 3) {
                     syncthingFolder.folderSyncType = 'sendreceive';
                   }
                   receiveOnlySyncthingAppsCache.set(appId, numberOfRuns);
                 } else {
-                  log.info(`SyncthingApps appIdentifier ${identifier} execution number: 1`);
+                  log.info(`SyncthingApps appIdentifier ${appId} execution number: 1`);
                   syncthingFolder.folderSyncType = 'receiveonly';
                   receiveOnlySyncthingAppsCache.set(appId, 1);
                 }
               }
               folderIds.push(id);
               foldersConfiguration.push(syncthingFolder);
-              const syncFolder = allFoldersResp.data.find((x) => x.id === id);
               if (!syncFolder || syncFolder.paused || syncFolder.type !== folderSyncType) {
                 newFoldersConfiguration.push(syncthingFolder);
               }
