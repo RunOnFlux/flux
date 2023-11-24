@@ -10009,7 +10009,9 @@ async function syncthingApps() {
                   }
                 }
               } else if (receiveOnlySyncthingAppsCache.has(appId)) {
+                syncthingFolder.type = 'receiveonly';
                 const numberOfRuns = receiveOnlySyncthingAppsCache.get(appId) + 1;
+                receiveOnlySyncthingAppsCache.set(appId, numberOfRuns);
                 log.info(`receiveOnlySyncthingAppsCache has appIdentifier ${appId} execution number: ${numberOfRuns}`);
                 if (numberOfRuns === 3) {
                   // eslint-disable-next-line no-await-in-loop
@@ -10027,7 +10029,6 @@ async function syncthingApps() {
                 if (numberOfRuns > 3) {
                   syncthingFolder.type = 'sendreceive';
                 }
-                receiveOnlySyncthingAppsCache.set(appId, numberOfRuns);
               } else {
                 log.info(`SyncthingApps appIdentifier ${appId} execution number: 1`);
                 syncthingFolder.type = 'receiveonly';
@@ -10123,7 +10124,9 @@ async function syncthingApps() {
                     }
                   }
                 } else if (receiveOnlySyncthingAppsCache.has(appId)) {
+                  syncthingFolder.type = 'receiveonly';
                   const numberOfRuns = receiveOnlySyncthingAppsCache.get(appId) + 1;
+                  receiveOnlySyncthingAppsCache.set(appId, numberOfRuns);
                   log.info(`receiveOnlySyncthingAppsCache has appIdentifier ${appId} execution number: ${numberOfRuns}`);
                   if (numberOfRuns === 3) {
                     // eslint-disable-next-line no-await-in-loop
@@ -10141,7 +10144,6 @@ async function syncthingApps() {
                   if (numberOfRuns > 3) {
                     syncthingFolder.type = 'sendreceive';
                   }
-                  receiveOnlySyncthingAppsCache.set(appId, numberOfRuns);
                 } else {
                   log.info(`SyncthingApps appIdentifier ${appId} execution number: 1`);
                   syncthingFolder.type = 'receiveonly';
