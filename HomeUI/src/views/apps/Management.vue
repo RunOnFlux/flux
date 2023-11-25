@@ -1335,7 +1335,7 @@
                     </b-form-select>
                   </div>
                   <b-button
-                    v-if="!isVisible"
+                    v-if="!isVisible && !isConnecting"
                     class="col-2"
                     href="#"
                     variant="success"
@@ -1350,6 +1350,18 @@
                     @click="disconnectTerminal"
                   >
                     Disconnect
+                  </b-button>
+                  <b-button
+                    v-if="isConnecting"
+                    class="col-2"
+                    variant="primary"
+                    disabled
+                  >
+                    <b-spinner
+                      small
+                      type="grow"
+                    />
+                    Connecting...
                   </b-button>
                   <div class="ml-auto mt-1">
                     <div class="ml-auto">
@@ -3855,6 +3867,7 @@ import {
   BCardGroup,
   BRow,
   BButton,
+  BSpinner,
   BFormTextarea,
   BFormGroup,
   BFormInput,
@@ -3928,6 +3941,7 @@ export default {
     BCardGroup,
     BRow,
     BButton,
+    BSpinner,
     BFormTextarea,
     BFormGroup,
     BFormInput,
@@ -3972,6 +3986,7 @@ export default {
       envInputValue: '',
       enableEnvironment: false,
       isVisible: false,
+      isConnecting: false,
       options: [
         {
           label: 'Linux',
@@ -4558,6 +4573,7 @@ export default {
         if (consoleInit === 0) {
           /* eslint-disable quotes */
           consoleInit = 1;
+          this.isConnecting = true;
           if (!this.customValue) {
             this.socket.emit('cmd', "export TERM=xterm\n");
             if (this.selectedCmd === '/bin/bash') {
@@ -4569,13 +4585,14 @@ export default {
           }
           /* eslint-disable quotes */
           setTimeout(() => {
+            this.isConnecting = false;
             this.isVisible = true;
             this.$nextTick(() => {
               setTimeout(() => {
                 this.terminal.focus();
               }, 500);
             });
-          }, 500);
+          }, 1400);
         }
         this.terminal.write(data);
       });
@@ -4592,6 +4609,7 @@ export default {
         this.terminal.dispose();
       }
       this.isVisible = false;
+      this.isConnecting = false;
     },
     onSelectChangeCmd() {
       if (this.selectedCmd !== 'Custom') {
