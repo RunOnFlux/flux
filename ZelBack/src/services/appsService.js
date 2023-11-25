@@ -79,10 +79,17 @@ const syncthingAppsCache = {
   max: 500,
 };
 
+const stopedAppsCache = {
+  max: 40,
+  ttl: 1000 * 60 * 60 * 1.5, // 1.5 hours
+  maxAge: 1000 * 60 * 60 * 1.5, // 1.5 hours
+};
+
 const trySpawningGlobalAppCache = new LRUCache(GlobalAppsSpawnLRUoptions);
 const myLongCache = new LRUCache(longCache);
 const failedNodesTestPortsCache = new LRUCache(testPortsCache);
 const receiveOnlySyncthingAppsCache = new LRUCache(syncthingAppsCache);
+const appsStopedCache = new LRUCache(stopedAppsCache);
 
 let removalInProgress = false;
 let installationInProgress = false;
@@ -8844,9 +8851,13 @@ async function checkAndNotifyPeersOfRunningApps() {
             // check if some removal is in progress and if it is don't start it!
             if (!removalInProgress && !installationInProgress && !reinstallationOfOldAppsInProgress) {
               log.warn(`${stoppedApp} is stopped, starting`);
-              // eslint-disable-next-line no-await-in-loop
-              await dockerService.appDockerStart(stoppedApp);
-              startAppMonitoring(stoppedApp);
+              if (!appsStopedCache.has(stoppedApp)) {
+                appsStopedCache.set(stoppedApp, stoppedApp);
+              } else {
+                // eslint-disable-next-line no-await-in-loop
+                await dockerService.appDockerStart(stoppedApp);
+                startAppMonitoring(stoppedApp);
+              }
             } else {
               log.warn(`Not starting ${stoppedApp} as application removal or installation is in progress`);
             }
@@ -10106,12 +10117,21 @@ async function syncthingApps() {
                     if (a.broadcastedAt > b.broadcastedAt) {
                       return 1;
                     }
+                    if (a.ip < b.ip) {
+                      return -1;
+                    }
+                    if (a.ip > b.ip) {
+                      return 1;
+                    }
                     return 0;
                   });
                   // eslint-disable-next-line no-await-in-loop
                   const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
                   const index = runningAppList.findIndex((x) => x.ip === myIP);
-                  const numberOfExecutionsRequired = (index + 1) * 10;
+                  let numberOfExecutionsRequired = 4;
+                  if (index > 0) {
+                    numberOfExecutionsRequired = 14;
+                  }
                   cache.numberOfExecutionsRequired = numberOfExecutionsRequired;
                 }
                 syncthingFolder.type = 'receiveonly';
@@ -10244,12 +10264,21 @@ async function syncthingApps() {
                       if (a.broadcastedAt > b.broadcastedAt) {
                         return 1;
                       }
+                      if (a.ip < b.ip) {
+                        return -1;
+                      }
+                      if (a.ip > b.ip) {
+                        return 1;
+                      }
                       return 0;
                     });
                     // eslint-disable-next-line no-await-in-loop
                     const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
                     const index = runningAppList.findIndex((x) => x.ip === myIP);
-                    const numberOfExecutionsRequired = (index + 1) * 10;
+                    let numberOfExecutionsRequired = 4;
+                    if (index > 0) {
+                      numberOfExecutionsRequired = 14;
+                    }
                     cache.numberOfExecutionsRequired = numberOfExecutionsRequired;
                   }
                   syncthingFolder.type = 'receiveonly';
