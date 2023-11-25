@@ -10075,35 +10075,64 @@ async function syncthingApps() {
                 if (!syncFolder) {
                   log.info(`SyncthingApps appIdentifier ${appId} execution number: 1`);
                   syncthingFolder.type = 'receiveonly';
-                  receiveOnlySyncthingAppsCache.set(appId, 1);
+                  const cache = {
+                    numberOfExecutions: 1,
+                  };
+                  receiveOnlySyncthingAppsCache.set(appId, cache);
                   // eslint-disable-next-line no-await-in-loop
                   await appDockerStop(id);
                   // eslint-disable-next-line no-await-in-loop
                   await appDeleteDataInMountPoint(id);
                 } else {
-                  receiveOnlySyncthingAppsCache.set(appId, 21);
+                  const cache = {
+                    restarted: true,
+                  };
+                  receiveOnlySyncthingAppsCache.set(appId, cache);
                   if (syncFolder.type === 'receiveonly') {
-                    receiveOnlySyncthingAppsCache.set(appId, 18);
+                    cache.restarted = false;
+                    cache.numberOfExecutions = 1;
+                    receiveOnlySyncthingAppsCache.set(appId, cache);
                   }
                 }
-              } else if (receiveOnlySyncthingAppsCache.has(appId)) {
+              } else if (receiveOnlySyncthingAppsCache.has(appId) && !receiveOnlySyncthingAppsCache.get(appId).restarted) {
+                const cache = receiveOnlySyncthingAppsCache.get(appId);
+                if (!cache.numberOfExecutionsRequired) {
+                  // eslint-disable-next-line no-await-in-loop
+                  const runningAppList = await getRunningAppList(installedApp.name);
+                  runningAppList.sort((a, b) => {
+                    if (a.broadcastedAt < b.broadcastedAt) {
+                      return -1;
+                    }
+                    if (a.broadcastedAt > b.broadcastedAt) {
+                      return 1;
+                    }
+                    return 0;
+                  });
+                  // eslint-disable-next-line no-await-in-loop
+                  const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+                  const index = runningAppList.findIndex((x) => x.ip === myIP);
+                  const numberOfExecutionsRequired = 4 + index * 4;
+                  cache.numberOfExecutionsRequired = numberOfExecutionsRequired;
+                }
                 syncthingFolder.type = 'receiveonly';
-                const numberOfRuns = receiveOnlySyncthingAppsCache.get(appId) + 1;
-                receiveOnlySyncthingAppsCache.set(appId, numberOfRuns);
-                log.info(`receiveOnlySyncthingAppsCache has appIdentifier ${appId} execution number: ${numberOfRuns}`);
-                if (numberOfRuns === 19) {
+                cache.numberOfExecutions += 1;
+                log.info(`receiveOnlySyncthingAppsCache has appIdentifier ${appId} execution number: ${cache.numberOfExecutions} of ${cache.numberOfExecutionsRequired} total required`);
+                if (cache.numberOfExecutions === cache.numberOfExecutionsRequired) {
                   syncthingFolder.type = 'sendreceive';
-                } else if (numberOfRuns === 20) {
+                } else if (cache.numberOfExecutions === cache.numberOfExecutionsRequired + 1) {
                   syncthingFolder.type = 'sendreceive';
                   // eslint-disable-next-line no-await-in-loop
                   await appDockerRestart(id);
-                } else if (numberOfRuns > 20) {
-                  syncthingFolder.type = 'sendreceive';
+                  cache.restarted = true;
                 }
-              } else {
+                receiveOnlySyncthingAppsCache.set(appId, cache);
+              } else if (!receiveOnlySyncthingAppsCache.has(appId)) {
                 log.info(`SyncthingApps appIdentifier ${appId} execution number: 1`);
                 syncthingFolder.type = 'receiveonly';
-                receiveOnlySyncthingAppsCache.set(appId, 1);
+                const cache = {
+                  numberOfExecutions: 1,
+                };
+                receiveOnlySyncthingAppsCache.set(appId, cache);
                 // eslint-disable-next-line no-await-in-loop
                 await appDockerStop(id);
                 // eslint-disable-next-line no-await-in-loop
@@ -10184,35 +10213,64 @@ async function syncthingApps() {
                   if (!syncFolder) {
                     log.info(`SyncthingApps appIdentifier ${appId} execution number: 1`);
                     syncthingFolder.type = 'receiveonly';
-                    receiveOnlySyncthingAppsCache.set(appId, 1);
+                    const cache = {
+                      numberOfExecutions: 1,
+                    };
+                    receiveOnlySyncthingAppsCache.set(appId, cache);
                     // eslint-disable-next-line no-await-in-loop
                     await appDockerStop(id);
                     // eslint-disable-next-line no-await-in-loop
                     await appDeleteDataInMountPoint(id);
                   } else {
-                    receiveOnlySyncthingAppsCache.set(appId, 21);
+                    const cache = {
+                      restarted: true,
+                    };
+                    receiveOnlySyncthingAppsCache.set(appId, cache);
                     if (syncFolder.type === 'receiveonly') {
-                      receiveOnlySyncthingAppsCache.set(appId, 18);
+                      cache.restarted = false;
+                      cache.numberOfExecutions = 1;
+                      receiveOnlySyncthingAppsCache.set(appId, cache);
                     }
                   }
-                } else if (receiveOnlySyncthingAppsCache.has(appId)) {
+                } else if (receiveOnlySyncthingAppsCache.has(appId) && !receiveOnlySyncthingAppsCache.get(appId).restarted) {
+                  const cache = receiveOnlySyncthingAppsCache.get(appId);
+                  if (!cache.numberOfExecutionsRequired) {
+                    // eslint-disable-next-line no-await-in-loop
+                    const runningAppList = await getRunningAppList(installedApp.name);
+                    runningAppList.sort((a, b) => {
+                      if (a.broadcastedAt < b.broadcastedAt) {
+                        return -1;
+                      }
+                      if (a.broadcastedAt > b.broadcastedAt) {
+                        return 1;
+                      }
+                      return 0;
+                    });
+                    // eslint-disable-next-line no-await-in-loop
+                    const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+                    const index = runningAppList.findIndex((x) => x.ip === myIP);
+                    const numberOfExecutionsRequired = 4 + index * 4;
+                    cache.numberOfExecutionsRequired = numberOfExecutionsRequired;
+                  }
                   syncthingFolder.type = 'receiveonly';
-                  const numberOfRuns = receiveOnlySyncthingAppsCache.get(appId) + 1;
-                  receiveOnlySyncthingAppsCache.set(appId, numberOfRuns);
-                  log.info(`receiveOnlySyncthingAppsCache has appIdentifier ${appId} execution number: ${numberOfRuns}`);
-                  if (numberOfRuns === 19) {
+                  cache.numberOfExecutions += 1;
+                  log.info(`receiveOnlySyncthingAppsCache has appIdentifier ${appId} execution number: ${cache.numberOfExecutions} of ${cache.numberOfExecutionsRequired} total required`);
+                  if (cache.numberOfExecutions === cache.numberOfExecutionsRequired) {
                     syncthingFolder.type = 'sendreceive';
-                  } else if (numberOfRuns === 20) {
+                  } else if (cache.numberOfExecutions === cache.numberOfExecutionsRequired + 1) {
                     syncthingFolder.type = 'sendreceive';
                     // eslint-disable-next-line no-await-in-loop
                     await appDockerRestart(id);
-                  } else if (numberOfRuns > 20) {
-                    syncthingFolder.type = 'sendreceive';
+                    cache.restarted = true;
                   }
-                } else {
+                  receiveOnlySyncthingAppsCache.set(appId, cache);
+                } else if (!receiveOnlySyncthingAppsCache.has(appId)) {
                   log.info(`SyncthingApps appIdentifier ${appId} execution number: 1`);
                   syncthingFolder.type = 'receiveonly';
-                  receiveOnlySyncthingAppsCache.set(appId, 1);
+                  const cache = {
+                    numberOfExecutions: 1,
+                  };
+                  receiveOnlySyncthingAppsCache.set(appId, cache);
                   // eslint-disable-next-line no-await-in-loop
                   await appDockerStop(id);
                   // eslint-disable-next-line no-await-in-loop
