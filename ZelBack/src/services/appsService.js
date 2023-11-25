@@ -10060,6 +10060,7 @@ async function syncthingApps() {
                     deviceID,
                     name,
                     addresses,
+                    autoAcceptFolders: true,
                   };
                   devicesIds.push(deviceID);
                   if (deviceID !== myDeviceID.data) {
@@ -10204,6 +10205,7 @@ async function syncthingApps() {
                       deviceID,
                       name,
                       addresses,
+                      autoAcceptFolders: true,
                     };
                     devicesIds.push(deviceID);
                     if (deviceID !== myDeviceID.data) {
