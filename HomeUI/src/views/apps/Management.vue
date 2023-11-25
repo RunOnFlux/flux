@@ -1299,7 +1299,7 @@
                     <b-form-select
                       v-model="selectedApp"
                       :options="null"
-                      :disabled="!!terminal || isComposeSingle"
+                      :disabled="!!isVisible || isComposeSingle"
                     >
                       <b-form-select-option
                         value="null"
@@ -1320,7 +1320,7 @@
                     <b-form-select
                       v-model="selectedCmd"
                       :options="options"
-                      :disabled="!!terminal"
+                      :disabled="!!isVisible"
                       @input="onSelectChangeCmd"
                     >
                       <template #first>
@@ -1335,7 +1335,7 @@
                     </b-form-select>
                   </div>
                   <b-button
-                    v-if="!terminal"
+                    v-if="!isVisible"
                     class="col-2"
                     href="#"
                     variant="success"
@@ -1344,7 +1344,7 @@
                     Connect
                   </b-button>
                   <b-button
-                    v-if="!!terminal"
+                    v-if="!!isVisible"
                     class="col-2"
                     variant="danger"
                     @click="disconnectTerminal"
@@ -1357,7 +1357,7 @@
                         v-model="enableEnvironment"
                         class="ml-4 d-flex align-items-center justify-content-center"
                         switch
-                        :disabled="!!terminal"
+                        :disabled="!!isVisible"
                         @input="onSelectChangeEnv"
                       >
                         <div
@@ -1371,7 +1371,7 @@
                   </div>
                 </div>
                 <div
-                  v-if="selectedCmd === 'Custom' && !terminal"
+                  v-if="selectedCmd === 'Custom' && !isVisible"
                   class="d-flex mt-1"
                 >
                   <b-form-input
@@ -1381,7 +1381,7 @@
                   />
                 </div>
                 <div
-                  v-if="enableEnvironment && !terminal"
+                  v-if="enableEnvironment && !isVisible"
                   class="d-flex mt-1"
                 >
                   <b-form-input
@@ -1392,7 +1392,7 @@
                 </div>
                 <div class="d-flex align-items-center mb-1">
                   <div
-                    v-if="!!terminal"
+                    v-if="!!isVisible"
                     class="mt-2"
                   >
                     <template v-if="selectedCmd !== 'Custom'">
@@ -4549,6 +4549,11 @@ export default {
         this.socket.emit('cmd', data);
       });
 
+      this.socket.on('error', (error) => {
+        this.showToast('danger', error);
+        this.disconnectTerminal();
+      });
+
       this.socket.on('show', (data) => {
         if (consoleInit === 0) {
           /* eslint-disable quotes */
@@ -4585,9 +4590,8 @@ export default {
       }
       if (this.terminal) {
         this.terminal.dispose();
-        this.terminal = false;
-        this.isVisible = false;
       }
+      this.isVisible = false;
     },
     onSelectChangeCmd() {
       if (this.selectedCmd !== 'Custom') {
