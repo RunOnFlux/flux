@@ -10045,14 +10045,14 @@ async function syncthingApps() {
                 }
                 const deviceExists = devicesConfiguration.find((device) => device.name === name);
                 if (!deviceExists) {
+                  const newDevice = {
+                    deviceID,
+                    name,
+                    addresses,
+                  };
+                  devicesIds.push(deviceID);
                   const syncthingDeviceExists = allDevicesResp.data.find((device) => device.name === name);
                   if (!syncthingDeviceExists) {
-                    const newDevice = {
-                      deviceID,
-                      name,
-                      addresses,
-                    };
-                    devicesIds.push(deviceID);
                     if (deviceID !== myDeviceID.data) {
                       devicesConfiguration.push(newDevice);
                     }
@@ -10154,14 +10154,14 @@ async function syncthingApps() {
                   }
                   const deviceExists = devicesConfiguration.find((device) => device.name === name);
                   if (!deviceExists) {
+                    const newDevice = {
+                      deviceID,
+                      name,
+                      addresses,
+                    };
+                    devicesIds.push(deviceID);
                     const syncthingDeviceExists = allDevicesResp.data.find((device) => device.name === name);
                     if (!syncthingDeviceExists) {
-                      const newDevice = {
-                        deviceID,
-                        name,
-                        addresses,
-                      };
-                      devicesIds.push(deviceID);
                       if (deviceID !== myDeviceID.data) {
                         devicesConfiguration.push(newDevice);
                       }
