@@ -9935,6 +9935,53 @@ async function appDockerRestart(appname) {
   }
 }
 
+/**
+ * To stop an app. Stop each component if the app is using Docker Compose.
+ * Function to ba called before starting synthing in r: mode.
+ * @param {string} appname Request.
+ */
+async function appDockerStop(appname) {
+  try {
+    const mainAppName = appname.split('_')[1] || appname;
+    const isComponent = appname.includes('_'); // it is a component restart. Proceed with restarting just component
+    if (isComponent) {
+      await dockerService.appDockerStop(appname);
+    } else {
+      // ask for restarting entire composed application
+      // eslint-disable-next-line no-use-before-define
+      const appSpecs = await getApplicationSpecifications(mainAppName);
+      if (!appSpecs) {
+        throw new Error('Application not found');
+      }
+      if (appSpecs.version <= 3) {
+        await dockerService.appDockerStop(appname);
+      } else {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of appSpecs.compose) {
+          // eslint-disable-next-line no-await-in-loop
+          await dockerService.appDockerStop(`${appComponent.name}_${appSpecs.name}`);
+        }
+      }
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
+ * To delete all data inside app mount point
+ * Function to ba called before starting synthing in r: mode.
+ * @param {string} appname Request.
+ */
+async function appDeleteDataInMountPoint(appname) {
+  try {
+    const execDIR = `sudo rm -fr ${appsFolder + appname}/appdata/*`;
+    await cmdAsync(execDIR);
+  } catch (error) {
+    log.error(error);
+  }
+}
+
 let updateSyncthingRunning = false;
 let syncthingAppsFirstRun = true;
 // update syncthing configuration for locally installed apps
@@ -10029,22 +10076,13 @@ async function syncthingApps() {
                   log.info(`SyncthingApps appIdentifier ${appId} execution number: 1`);
                   syncthingFolder.type = 'receiveonly';
                   receiveOnlySyncthingAppsCache.set(appId, 1);
+                  // eslint-disable-next-line no-await-in-loop
+                  await appDockerStop(id);
+                  // eslint-disable-next-line no-await-in-loop
+                  await appDeleteDataInMountPoint(id);
                 } else {
-                  receiveOnlySyncthingAppsCache.set(appId, 6);
+                  receiveOnlySyncthingAppsCache.set(appId, 21);
                   if (syncFolder.type === 'receiveonly') {
-                    // eslint-disable-next-line no-await-in-loop
-                    const folderRevert = await syncthingService.dbRevert(id);
-                    log.info(`Revert SyncthingApps app ${appId} result: ${JSON.stringify(folderRevert)}`);
-                    syncthingFolder.paused = true;
-                    // eslint-disable-next-line no-await-in-loop
-                    await syncthingService.adjustConfigFolders('put', syncthingFolder, syncthingFolder.id); // systemResetFolder id requires the folder to be paused before execution
-                    // eslint-disable-next-line no-await-in-loop
-                    const folderReset = await syncthingService.systemResetFolderId(syncthingFolder.id);
-                    log.info(`Reset SyncthingApps app ${appId} result: ${JSON.stringify(folderReset)}`);
-                    syncthingFolder.paused = false;
-                    syncthingFolder.type = 'sendreceive';
-                    // eslint-disable-next-line no-await-in-loop
-                    await serviceHelper.delay(30 * 1000);
                     // eslint-disable-next-line no-await-in-loop
                     await appDockerRestart(id);
                   }
@@ -10054,30 +10092,22 @@ async function syncthingApps() {
                 const numberOfRuns = receiveOnlySyncthingAppsCache.get(appId) + 1;
                 receiveOnlySyncthingAppsCache.set(appId, numberOfRuns);
                 log.info(`receiveOnlySyncthingAppsCache has appIdentifier ${appId} execution number: ${numberOfRuns}`);
-                if (numberOfRuns === 2) {
-                  // eslint-disable-next-line no-await-in-loop
-                  const folderRevert = await syncthingService.dbRevert(id);
-                  log.info(`Revert SyncthingApps app ${appId} result: ${JSON.stringify(folderRevert)}`);
-                  syncthingFolder.paused = true;
-                  // eslint-disable-next-line no-await-in-loop
-                  await syncthingService.adjustConfigFolders('put', syncthingFolder, syncthingFolder.id); // systemResetFolder id requires the folder to be paused before execution
-                  // eslint-disable-next-line no-await-in-loop
-                  const folderReset = await syncthingService.systemResetFolderId(syncthingFolder.id);
-                  log.info(`Reset SyncthingApps app ${appId} result: ${JSON.stringify(folderReset)}`);
-                  syncthingFolder.paused = false;
+                if (numberOfRuns === 20) {
                   syncthingFolder.type = 'sendreceive';
-                  // eslint-disable-next-line no-await-in-loop
-                  await serviceHelper.delay(30 * 1000);
                   // eslint-disable-next-line no-await-in-loop
                   await appDockerRestart(id);
                 }
-                if (numberOfRuns > 2) {
+                if (numberOfRuns > 20) {
                   syncthingFolder.type = 'sendreceive';
                 }
               } else {
                 log.info(`SyncthingApps appIdentifier ${appId} execution number: 1`);
                 syncthingFolder.type = 'receiveonly';
                 receiveOnlySyncthingAppsCache.set(appId, 1);
+                // eslint-disable-next-line no-await-in-loop
+                await appDockerStop(id);
+                // eslint-disable-next-line no-await-in-loop
+                await appDeleteDataInMountPoint(id);
               }
             }
             folderIds.push(id);
@@ -10155,22 +10185,13 @@ async function syncthingApps() {
                     log.info(`SyncthingApps appIdentifier ${appId} execution number: 1`);
                     syncthingFolder.type = 'receiveonly';
                     receiveOnlySyncthingAppsCache.set(appId, 1);
+                    // eslint-disable-next-line no-await-in-loop
+                    await appDockerStop(id);
+                    // eslint-disable-next-line no-await-in-loop
+                    await appDeleteDataInMountPoint(id);
                   } else {
-                    receiveOnlySyncthingAppsCache.set(appId, 6);
+                    receiveOnlySyncthingAppsCache.set(appId, 21);
                     if (syncFolder.type === 'receiveonly') {
-                      // eslint-disable-next-line no-await-in-loop
-                      const folderRevert = await syncthingService.dbRevert(id);
-                      log.info(`Revert SyncthingApps app ${appId} result: ${JSON.stringify(folderRevert)}`);
-                      syncthingFolder.paused = true;
-                      // eslint-disable-next-line no-await-in-loop
-                      await syncthingService.adjustConfigFolders('put', syncthingFolder, syncthingFolder.id); // systemResetFolder id requires the folder to be paused before execution
-                      // eslint-disable-next-line no-await-in-loop
-                      const folderReset = await syncthingService.systemResetFolderId(syncthingFolder.id);
-                      log.info(`Reset SyncthingApps app ${appId} result: ${JSON.stringify(folderReset)}`);
-                      syncthingFolder.paused = false;
-                      syncthingFolder.type = 'sendreceive';
-                      // eslint-disable-next-line no-await-in-loop
-                      await serviceHelper.delay(30 * 1000);
                       // eslint-disable-next-line no-await-in-loop
                       await appDockerRestart(id);
                     }
@@ -10180,30 +10201,22 @@ async function syncthingApps() {
                   const numberOfRuns = receiveOnlySyncthingAppsCache.get(appId) + 1;
                   receiveOnlySyncthingAppsCache.set(appId, numberOfRuns);
                   log.info(`receiveOnlySyncthingAppsCache has appIdentifier ${appId} execution number: ${numberOfRuns}`);
-                  if (numberOfRuns === 2) {
-                    // eslint-disable-next-line no-await-in-loop
-                    const folderRevert = await syncthingService.dbRevert(id);
-                    log.info(`Revert SyncthingApps app ${appId} result: ${JSON.stringify(folderRevert)}`);
-                    syncthingFolder.paused = true;
-                    // eslint-disable-next-line no-await-in-loop
-                    await syncthingService.adjustConfigFolders('put', syncthingFolder, syncthingFolder.id); // systemResetFolder id requires the folder to be paused before execution
-                    // eslint-disable-next-line no-await-in-loop
-                    const folderReset = await syncthingService.systemResetFolderId(syncthingFolder.id);
-                    log.info(`Reset SyncthingApps app ${appId} result: ${JSON.stringify(folderReset)}`);
-                    syncthingFolder.paused = false;
+                  if (numberOfRuns === 20) {
                     syncthingFolder.type = 'sendreceive';
-                    // eslint-disable-next-line no-await-in-loop
-                    await serviceHelper.delay(30 * 1000);
                     // eslint-disable-next-line no-await-in-loop
                     await appDockerRestart(id);
                   }
-                  if (numberOfRuns > 2) {
+                  if (numberOfRuns > 20) {
                     syncthingFolder.type = 'sendreceive';
                   }
                 } else {
                   log.info(`SyncthingApps appIdentifier ${appId} execution number: 1`);
                   syncthingFolder.type = 'receiveonly';
                   receiveOnlySyncthingAppsCache.set(appId, 1);
+                  // eslint-disable-next-line no-await-in-loop
+                  await appDockerStop(id);
+                  // eslint-disable-next-line no-await-in-loop
+                  await appDeleteDataInMountPoint(id);
                 }
               }
               folderIds.push(id);
