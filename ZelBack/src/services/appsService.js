@@ -9962,6 +9962,7 @@ async function syncthingApps() {
     }
     const allFoldersResp = await syncthingService.getConfigFolders();
     log.info(`allFoldersResp: ${JSON.stringify(allFoldersResp.data)}`);
+    const allDevicesResp = await syncthingService.getConfigDevices();
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled.data) {
       if (installedApp.version <= 3) {
@@ -9997,14 +9998,17 @@ async function syncthingApps() {
                 }
                 const deviceExists = devicesConfiguration.find((device) => device.name === name);
                 if (!deviceExists) {
-                  const newDevice = {
-                    deviceID,
-                    name,
-                    addresses,
-                  };
-                  devicesIds.push(deviceID);
-                  if (deviceID !== myDeviceID.data) {
-                    devicesConfiguration.push(newDevice);
+                  const syncthingDeviceExists = allDevicesResp.data.find((device) => device.name === name);
+                  if (!syncthingDeviceExists) {
+                    const newDevice = {
+                      deviceID,
+                      name,
+                      addresses,
+                    };
+                    devicesIds.push(deviceID);
+                    if (deviceID !== myDeviceID.data) {
+                      devicesConfiguration.push(newDevice);
+                    }
                   }
                 }
               }
@@ -10050,7 +10054,7 @@ async function syncthingApps() {
                 const numberOfRuns = receiveOnlySyncthingAppsCache.get(appId) + 1;
                 receiveOnlySyncthingAppsCache.set(appId, numberOfRuns);
                 log.info(`receiveOnlySyncthingAppsCache has appIdentifier ${appId} execution number: ${numberOfRuns}`);
-                if (numberOfRuns === 3) {
+                if (numberOfRuns === 2) {
                   // eslint-disable-next-line no-await-in-loop
                   const folderRevert = await syncthingService.dbRevert(id);
                   log.info(`Revert SyncthingApps app ${appId} result: ${JSON.stringify(folderRevert)}`);
@@ -10067,7 +10071,7 @@ async function syncthingApps() {
                   // eslint-disable-next-line no-await-in-loop
                   await appDockerRestart(id);
                 }
-                if (numberOfRuns > 3) {
+                if (numberOfRuns > 2) {
                   syncthingFolder.type = 'sendreceive';
                 }
               } else {
@@ -10120,14 +10124,17 @@ async function syncthingApps() {
                   }
                   const deviceExists = devicesConfiguration.find((device) => device.name === name);
                   if (!deviceExists) {
-                    const newDevice = {
-                      deviceID,
-                      name,
-                      addresses,
-                    };
-                    devicesIds.push(deviceID);
-                    if (deviceID !== myDeviceID.data) {
-                      devicesConfiguration.push(newDevice);
+                    const syncthingDeviceExists = allDevicesResp.data.find((device) => device.name === name);
+                    if (!syncthingDeviceExists) {
+                      const newDevice = {
+                        deviceID,
+                        name,
+                        addresses,
+                      };
+                      devicesIds.push(deviceID);
+                      if (deviceID !== myDeviceID.data) {
+                        devicesConfiguration.push(newDevice);
+                      }
                     }
                   }
                 }
@@ -10173,7 +10180,7 @@ async function syncthingApps() {
                   const numberOfRuns = receiveOnlySyncthingAppsCache.get(appId) + 1;
                   receiveOnlySyncthingAppsCache.set(appId, numberOfRuns);
                   log.info(`receiveOnlySyncthingAppsCache has appIdentifier ${appId} execution number: ${numberOfRuns}`);
-                  if (numberOfRuns === 3) {
+                  if (numberOfRuns === 2) {
                     // eslint-disable-next-line no-await-in-loop
                     const folderRevert = await syncthingService.dbRevert(id);
                     log.info(`Revert SyncthingApps app ${appId} result: ${JSON.stringify(folderRevert)}`);
@@ -10190,7 +10197,7 @@ async function syncthingApps() {
                     // eslint-disable-next-line no-await-in-loop
                     await appDockerRestart(id);
                   }
-                  if (numberOfRuns > 3) {
+                  if (numberOfRuns > 2) {
                     syncthingFolder.type = 'sendreceive';
                   }
                 } else {
@@ -10220,7 +10227,6 @@ async function syncthingApps() {
       await syncthingService.adjustConfigFolders('delete', undefined, nonUsedFolder.id);
     }
     // remove obsolete devices
-    const allDevicesResp = await syncthingService.getConfigDevices();
     const nonUsedDevices = allDevicesResp.data.filter((syncthingDevice) => !devicesIds.includes(syncthingDevice.deviceID));
     // eslint-disable-next-line no-restricted-syntax
     for (const nonUsedDevice of nonUsedDevices) {
@@ -10235,11 +10241,12 @@ async function syncthingApps() {
     // now we have new accurate devicesConfiguration and foldersConfiguration
     // add more of current devices
     // excludes our current deviceID adjustment
-
-    await syncthingService.adjustConfigDevices('put', devicesConfiguration);
-
-    await syncthingService.adjustConfigFolders('put', newFoldersConfiguration);
-
+    if (devicesConfiguration.length >= 0) {
+      await syncthingService.adjustConfigDevices('put', devicesConfiguration);
+    }
+    if (newFoldersConfiguration.length >= 0) {
+      await syncthingService.adjustConfigFolders('put', newFoldersConfiguration);
+    }
     // all configuration changes applied
 
     // check for errors in folders and if true reset that index database
@@ -10272,7 +10279,7 @@ async function syncthingApps() {
   } finally {
     updateSyncthingRunning = false;
     syncthingAppsFirstRun = false;
-    await serviceHelper.delay(2 * 60 * 1000);
+    await serviceHelper.delay(30 * 1000);
     syncthingApps();
   }
 }
