@@ -1299,7 +1299,7 @@
                     <b-form-select
                       v-model="selectedApp"
                       :options="null"
-                      :disabled="terminal || isComposeSingle"
+                      :disabled="!!terminal || isComposeSingle"
                     >
                       <b-form-select-option
                         value="null"
@@ -1320,7 +1320,7 @@
                     <b-form-select
                       v-model="selectedCmd"
                       :options="options"
-                      :disabled="terminal"
+                      :disabled="!!terminal"
                       @input="onSelectChangeCmd"
                     >
                       <template #first>
@@ -1339,12 +1339,12 @@
                     class="col-2"
                     href="#"
                     variant="success"
-                    @click="connectTerminal(`flux${selectedApp}_${appSpecification.name}`)"
+                    @click="connectTerminal(selectedApp ? `${selectedApp}_${appSpecification.name}` : appSpecification.name)"
                   >
                     Connect
                   </b-button>
                   <b-button
-                    v-if="terminal"
+                    v-if="!!terminal"
                     class="col-2"
                     variant="danger"
                     @click="disconnectTerminal"
@@ -1357,7 +1357,7 @@
                         v-model="enableEnvironment"
                         class="ml-4 d-flex align-items-center justify-content-center"
                         switch
-                        :disabled="terminal"
+                        :disabled="!!terminal"
                         @input="onSelectChangeEnv"
                       >
                         <div
@@ -1392,18 +1392,18 @@
                 </div>
                 <div class="d-flex align-items-center mb-1">
                   <div
-                    v-if="terminal"
+                    v-if="!!terminal"
                     class="mt-2"
                   >
                     <template v-if="selectedCmd !== 'Custom'">
                       <span style="font-weight: bold;">Exec into container</span>
-                      <span :style="selectedOptionTextStyle">{{ selectedApp }}</span>
+                      <span :style="selectedOptionTextStyle">{{ selectedApp || appSpecification.name }}</span>
                       <span style="font-weight: bold;">using command</span>
                       <span :style="selectedOptionTextStyle">{{ selectedOptionText }}</span>
                     </template>
                     <template v-else>
                       <span style="font-weight: bold;">Exec into container</span>
-                      <span :style="selectedOptionTextStyle">{{ selectedApp }}</span>
+                      <span :style="selectedOptionTextStyle">{{ selectedApp || appSpecification.name }}</span>
                       <span style="font-weight: bold;">using custom command</span>
                       <span :style="selectedOptionTextStyle">{{ customValue }}</span>
                     </template>
@@ -3852,6 +3852,7 @@ import {
   BCard,
   BCardText,
   BCardTitle,
+  BCardGroup,
   BRow,
   BButton,
   BFormTextarea,
@@ -3924,6 +3925,7 @@ export default {
     BCard,
     BCardText,
     BCardTitle,
+    BCardGroup,
     BRow,
     BButton,
     BFormTextarea,
@@ -4174,6 +4176,9 @@ export default {
   },
   computed: {
     isComposeSingle() {
+      if (this.appSpecification.version <= 3) {
+        return true;
+      }
       return this.appSpecification.compose?.length === 1;
     },
     selectedOptionText() {
@@ -4369,7 +4374,9 @@ export default {
   watch: {
     isComposeSingle(value) {
       if (value) {
-        this.selectedApp = this.appSpecification.compose[0].name;
+        if (this.appSpecification.version >= 4) {
+          this.selectedApp = this.appSpecification.compose[0].name;
+        }
       }
     },
     appUpdateSpecification: {
@@ -4448,8 +4455,13 @@ export default {
   },
   methods: {
     connectTerminal(name) {
-      const composeValues = Object.values(this.appSpecification.compose);
-      const foundInName = composeValues.some((obj) => obj.name === this.selectedApp);
+      if (this.appSpecification.version >= 4) {
+        const composeValues = Object.values(this.appSpecification.compose);
+        const foundInName = composeValues.some((obj) => obj.name === this.selectedApp);
+        if (!foundInName) {
+          return;
+        }
+      }
       const { protocol, hostname, port } = window.location;
       let mybackend = '';
       let consoleInit = 0;
@@ -4463,10 +4475,12 @@ export default {
       } else {
         mybackend += hostname;
         mybackend += ':';
-        mybackend += (+port + 1);
+        mybackend += (+port + 1) || this.config.apiPort;
       }
 
-      if (this.selectedApp) {
+      const backendURL = store.get('backendURL') || mybackend;
+
+      if (this.selectedApp || this.appSpecification.version <= 3) {
         if (this.selectedCmd === null) {
           this.showToast('danger', 'No command selected.');
           return;
@@ -4488,10 +4502,6 @@ export default {
         return;
       }
 
-      if (!foundInName) {
-        return;
-      }
-
       this.terminal = new Terminal({
         allowProposedApi: true,
         cursorBlink: true,
@@ -4501,11 +4511,12 @@ export default {
         },
       });
 
-      this.socket = io.connect(mybackend);
+      const zelidauth = localStorage.getItem('zelidauth');
+      this.socket = io.connect(backendURL);
       if (this.customValue) {
-        this.socket.emit('exec', name, this.$refs.terminalElement.clientWidth, this.$refs.terminalElement.clientHeight, this.customValue, this.envInputValue);
+        this.socket.emit('exec', zelidauth, name, this.$refs.terminalElement.clientWidth, this.$refs.terminalElement.clientHeight, this.customValue, this.envInputValue);
       } else {
-        this.socket.emit('exec', name, this.$refs.terminalElement.clientWidth, this.$refs.terminalElement.clientHeight, this.selectedCmd, this.envInputValue);
+        this.socket.emit('exec', zelidauth, name, this.$refs.terminalElement.clientWidth, this.$refs.terminalElement.clientHeight, this.selectedCmd, this.envInputValue);
       }
 
       this.terminal.open(this.$refs.terminalElement);
