@@ -10128,7 +10128,7 @@ async function syncthingApps() {
                   const index = runningAppList.findIndex((x) => x.ip === myIP);
                   let numberOfExecutionsRequired = 4;
                   if (index > 0) {
-                    numberOfExecutionsRequired = 4 + index * 10;
+                    numberOfExecutionsRequired = 14;
                   }
                   cache.numberOfExecutionsRequired = numberOfExecutionsRequired;
                 }
@@ -10273,7 +10273,7 @@ async function syncthingApps() {
                     const index = runningAppList.findIndex((x) => x.ip === myIP);
                     let numberOfExecutionsRequired = 4;
                     if (index > 0) {
-                      numberOfExecutionsRequired = 4 + index * 10;
+                      numberOfExecutionsRequired = 14;
                     }
                     cache.numberOfExecutionsRequired = numberOfExecutionsRequired;
                   }
