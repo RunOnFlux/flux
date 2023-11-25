@@ -10009,7 +10009,6 @@ async function syncthingApps() {
     }
     const allFoldersResp = await syncthingService.getConfigFolders();
     log.info(`allFoldersResp: ${JSON.stringify(allFoldersResp.data)}`);
-    const allDevicesResp = await syncthingService.getConfigDevices();
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled.data) {
       if (installedApp.version <= 3) {
@@ -10051,11 +10050,8 @@ async function syncthingApps() {
                     addresses,
                   };
                   devicesIds.push(deviceID);
-                  const syncthingDeviceExists = allDevicesResp.data.find((device) => device.name === name);
-                  if (!syncthingDeviceExists) {
-                    if (deviceID !== myDeviceID.data) {
-                      devicesConfiguration.push(newDevice);
-                    }
+                  if (deviceID !== myDeviceID.data) {
+                    devicesConfiguration.push(newDevice);
                   }
                 }
               }
@@ -10160,11 +10156,8 @@ async function syncthingApps() {
                       addresses,
                     };
                     devicesIds.push(deviceID);
-                    const syncthingDeviceExists = allDevicesResp.data.find((device) => device.name === name);
-                    if (!syncthingDeviceExists) {
-                      if (deviceID !== myDeviceID.data) {
-                        devicesConfiguration.push(newDevice);
-                      }
+                    if (deviceID !== myDeviceID.data) {
+                      devicesConfiguration.push(newDevice);
                     }
                   }
                 }
@@ -10240,6 +10233,7 @@ async function syncthingApps() {
       await syncthingService.adjustConfigFolders('delete', undefined, nonUsedFolder.id);
     }
     // remove obsolete devices
+    const allDevicesResp = await syncthingService.getConfigDevices();
     const nonUsedDevices = allDevicesResp.data.filter((syncthingDevice) => !devicesIds.includes(syncthingDevice.deviceID));
     // eslint-disable-next-line no-restricted-syntax
     for (const nonUsedDevice of nonUsedDevices) {
