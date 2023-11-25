@@ -10083,8 +10083,7 @@ async function syncthingApps() {
                 } else {
                   receiveOnlySyncthingAppsCache.set(appId, 21);
                   if (syncFolder.type === 'receiveonly') {
-                    // eslint-disable-next-line no-await-in-loop
-                    await appDockerRestart(id);
+                    receiveOnlySyncthingAppsCache.set(appId, 18);
                   }
                 }
               } else if (receiveOnlySyncthingAppsCache.has(appId)) {
@@ -10193,8 +10192,7 @@ async function syncthingApps() {
                   } else {
                     receiveOnlySyncthingAppsCache.set(appId, 21);
                     if (syncFolder.type === 'receiveonly') {
-                      // eslint-disable-next-line no-await-in-loop
-                      await appDockerRestart(id);
+                      receiveOnlySyncthingAppsCache.set(appId, 18);
                     }
                   }
                 } else if (receiveOnlySyncthingAppsCache.has(appId)) {
