@@ -10111,7 +10111,7 @@ async function syncthingApps() {
                   // eslint-disable-next-line no-await-in-loop
                   const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
                   const index = runningAppList.findIndex((x) => x.ip === myIP);
-                  const numberOfExecutionsRequired = 4 + index * 4;
+                  const numberOfExecutionsRequired = (index + 1) * 10;
                   cache.numberOfExecutionsRequired = numberOfExecutionsRequired;
                 }
                 syncthingFolder.type = 'receiveonly';
@@ -10249,7 +10249,7 @@ async function syncthingApps() {
                     // eslint-disable-next-line no-await-in-loop
                     const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
                     const index = runningAppList.findIndex((x) => x.ip === myIP);
-                    const numberOfExecutionsRequired = 4 + index * 4;
+                    const numberOfExecutionsRequired = (index + 1) * 10;
                     cache.numberOfExecutionsRequired = numberOfExecutionsRequired;
                   }
                   syncthingFolder.type = 'receiveonly';
