@@ -10062,11 +10062,8 @@ async function syncthingApps() {
                     addresses,
                   };
                   devicesIds.push(deviceID);
-                  const syncthingDeviceExists = allDevicesResp.data.find((device) => device.name === name);
-                  if (!syncthingDeviceExists) {
-                    if (deviceID !== myDeviceID.data) {
-                      devicesConfiguration.push(newDevice);
-                    }
+                  if (deviceID !== myDeviceID.data) {
+                    devicesConfiguration.push(newDevice);
                   }
                 }
               }
@@ -10130,7 +10127,7 @@ async function syncthingApps() {
                   const index = runningAppList.findIndex((x) => x.ip === myIP);
                   let numberOfExecutionsRequired = 4;
                   if (index > 0) {
-                    numberOfExecutionsRequired = 14;
+                    numberOfExecutionsRequired = 4 + index * 10;
                   }
                   cache.numberOfExecutionsRequired = numberOfExecutionsRequired;
                 }
@@ -10209,11 +10206,8 @@ async function syncthingApps() {
                       addresses,
                     };
                     devicesIds.push(deviceID);
-                    const syncthingDeviceExists = allDevicesResp.data.find((device) => device.name === name);
-                    if (!syncthingDeviceExists) {
-                      if (deviceID !== myDeviceID.data) {
-                        devicesConfiguration.push(newDevice);
-                      }
+                    if (deviceID !== myDeviceID.data) {
+                      devicesConfiguration.push(newDevice);
                     }
                   }
                 }
@@ -10277,7 +10271,7 @@ async function syncthingApps() {
                     const index = runningAppList.findIndex((x) => x.ip === myIP);
                     let numberOfExecutionsRequired = 4;
                     if (index > 0) {
-                      numberOfExecutionsRequired = 14;
+                      numberOfExecutionsRequired = 4 + index * 10;
                     }
                     cache.numberOfExecutionsRequired = numberOfExecutionsRequired;
                   }
