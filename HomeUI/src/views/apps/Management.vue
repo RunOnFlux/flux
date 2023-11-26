@@ -1359,7 +1359,6 @@
                   >
                     <b-spinner
                       small
-                      type="grow"
                     />
                     Connecting...
                   </b-button>
@@ -1981,22 +1980,24 @@
                 </b-card>
               </template>
               <template #cell(visit)="locationRow">
-                <b-button
-                  size="sm"
-                  class="mr-1"
-                  variant="danger"
-                  @click="openApp(locationRow.item.name, locationRow.item.ip.split(':')[0], getProperPort())"
-                >
-                  Visit App
-                </b-button>
-                <b-button
-                  size="sm"
-                  class="mr-0"
-                  variant="danger"
-                  @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
-                >
-                  Visit FluxNode
-                </b-button>
+                <div class="button-cell">
+                  <b-button
+                    size="sm"
+                    class="mr-1"
+                    variant="danger"
+                    @click="openApp(locationRow.item.name, locationRow.item.ip.split(':')[0], getProperPort())"
+                  >
+                    Visit App
+                  </b-button>
+                  <b-button
+                    size="sm"
+                    class="mr-0"
+                    variant="danger"
+                    @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
+                  >
+                    Visit FluxNode
+                  </b-button>
+                </div>
               </template>
             </b-table>
           </b-col>
@@ -6439,6 +6440,12 @@ export default {
 </script>
 
 <style>
+.button-cell {
+  display: flex;
+  align-items: center;
+  min-width: 150px;
+}
+
 .xterm {
   padding: 10px;
 }
