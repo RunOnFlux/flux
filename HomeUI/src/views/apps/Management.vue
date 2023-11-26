@@ -4518,6 +4518,8 @@ export default {
         return;
       }
 
+      this.isConnecting = true;
+
       this.terminal = new Terminal({
         allowProposedApi: true,
         cursorBlink: true,
@@ -4574,7 +4576,6 @@ export default {
         if (consoleInit === 0) {
           /* eslint-disable quotes */
           consoleInit = 1;
-          this.isConnecting = true;
           if (!this.customValue) {
             this.socket.emit('cmd', "export TERM=xterm\n");
             if (this.selectedCmd === '/bin/bash') {
