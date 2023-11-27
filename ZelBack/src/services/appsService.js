@@ -10064,7 +10064,10 @@ async function syncthingApps() {
                   };
                   devicesIds.push(deviceID);
                   if (deviceID !== myDeviceID.data) {
-                    devicesConfiguration.push(newDevice);
+                    const syncthingDeviceExists = allDevicesResp.data.find((device) => device.name === name);
+                    if (!syncthingDeviceExists) {
+                      devicesConfiguration.push(newDevice);
+                    }
                   }
                 }
               }
@@ -10217,7 +10220,10 @@ async function syncthingApps() {
                     };
                     devicesIds.push(deviceID);
                     if (deviceID !== myDeviceID.data) {
-                      devicesConfiguration.push(newDevice);
+                      const syncthingDeviceExists = allDevicesResp.data.find((device) => device.name === name);
+                      if (!syncthingDeviceExists) {
+                        devicesConfiguration.push(newDevice);
+                      }
                     }
                   }
                 }
