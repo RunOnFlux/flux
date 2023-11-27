@@ -10034,7 +10034,6 @@ async function syncthingApps() {
       return;
     }
     const allFoldersResp = await syncthingService.getConfigFolders();
-    log.info(`allFoldersResp: ${JSON.stringify(allFoldersResp.data)}`);
     const allDevicesResp = await syncthingService.getConfigDevices();
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled.data) {
@@ -10098,9 +10097,8 @@ async function syncthingApps() {
             const syncFolder = allFoldersResp.data.find((x) => x.id === id);
             if (containerDataFlags.includes('r')) {
               if (syncthingAppsFirstRun) {
-                log.info('SyncthingApps first run');
                 if (!syncFolder) {
-                  log.info(`SyncthingApps appIdentifier ${appId} execution number: 1`);
+                  log.info(`SyncthingApps stopping and cleaning appIdentifier ${appId}`);
                   syncthingFolder.type = 'receiveonly';
                   const cache = {
                     numberOfExecutions: 1,
@@ -10156,10 +10154,10 @@ async function syncthingApps() {
                 }
                 syncthingFolder.type = 'receiveonly';
                 cache.numberOfExecutions += 1;
-                log.info(`receiveOnlySyncthingAppsCache has appIdentifier ${appId} execution number: ${cache.numberOfExecutions} of ${cache.numberOfExecutionsRequired} total required`);
                 if (cache.numberOfExecutions === cache.numberOfExecutionsRequired) {
                   syncthingFolder.type = 'sendreceive';
                 } else if (cache.numberOfExecutions === cache.numberOfExecutionsRequired + 1) {
+                  log.info(`SyncthingApps starting appIdentifier ${appId}`);
                   syncthingFolder.type = 'sendreceive';
                   // eslint-disable-next-line no-await-in-loop
                   await appDockerRestart(id);
@@ -10167,7 +10165,7 @@ async function syncthingApps() {
                 }
                 receiveOnlySyncthingAppsCache.set(appId, cache);
               } else if (!receiveOnlySyncthingAppsCache.has(appId)) {
-                log.info(`SyncthingApps appIdentifier ${appId} execution number: 1`);
+                log.info(`SyncthingApps stopping and cleaning appIdentifier ${appId}`);
                 syncthingFolder.type = 'receiveonly';
                 const cache = {
                   numberOfExecutions: 1,
@@ -10254,9 +10252,8 @@ async function syncthingApps() {
               const syncFolder = allFoldersResp.data.find((x) => x.id === id);
               if (containerDataFlags.includes('r')) {
                 if (syncthingAppsFirstRun) {
-                  log.info('SyncthingApps first run');
                   if (!syncFolder) {
-                    log.info(`SyncthingApps appIdentifier ${appId} execution number: 1`);
+                    log.info(`SyncthingApps stopping and cleaning appIdentifier ${appId}`);
                     syncthingFolder.type = 'receiveonly';
                     const cache = {
                       numberOfExecutions: 1,
@@ -10312,10 +10309,10 @@ async function syncthingApps() {
                   }
                   syncthingFolder.type = 'receiveonly';
                   cache.numberOfExecutions += 1;
-                  log.info(`receiveOnlySyncthingAppsCache has appIdentifier ${appId} execution number: ${cache.numberOfExecutions} of ${cache.numberOfExecutionsRequired} total required`);
                   if (cache.numberOfExecutions === cache.numberOfExecutionsRequired) {
                     syncthingFolder.type = 'sendreceive';
                   } else if (cache.numberOfExecutions === cache.numberOfExecutionsRequired + 1) {
+                    log.info(`SyncthingApps starting appIdentifier ${appId}`);
                     syncthingFolder.type = 'sendreceive';
                     // eslint-disable-next-line no-await-in-loop
                     await appDockerRestart(id);
@@ -10323,7 +10320,7 @@ async function syncthingApps() {
                   }
                   receiveOnlySyncthingAppsCache.set(appId, cache);
                 } else if (!receiveOnlySyncthingAppsCache.has(appId)) {
-                  log.info(`SyncthingApps appIdentifier ${appId} execution number: 1`);
+                  log.info(`SyncthingApps stopping and cleaning appIdentifier ${appId}`);
                   syncthingFolder.type = 'receiveonly';
                   const cache = {
                     numberOfExecutions: 1,
