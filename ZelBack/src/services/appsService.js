@@ -3226,8 +3226,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     if (res) {
       res.write(serviceHelper.ensureString(dockerNetworks));
     }
-    const execDIR = 'sudo docker network prune -f';
-    await cmdAsync(execDIR);
+    await dockerService.pruneNetworks();
     const dockerNetworks2 = {
       status: 'Docker networks cleaned.',
     };
