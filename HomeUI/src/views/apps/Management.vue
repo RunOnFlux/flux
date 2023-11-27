@@ -4475,7 +4475,7 @@ export default {
         const composeValues = Object.values(this.appSpecification.compose);
         const foundInName = composeValues.some((obj) => obj.name === this.selectedApp);
         if (!foundInName) {
-          this.showToast('danger', 'Please select an continer app before connecting.');
+          this.showToast('danger', 'Please select an container app before connecting.');
           return;
         }
       }
@@ -4515,7 +4515,7 @@ export default {
           console.log(`App name: ${name}`);
         }
       } else {
-        this.showToast('danger', 'Please select an continer app before connecting.');
+        this.showToast('danger', 'Please select an container app before connecting.');
         return;
       }
 
