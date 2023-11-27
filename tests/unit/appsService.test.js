@@ -1,3 +1,4 @@
+global.userconfig = require('../../config/userconfig');
 const chai = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire');
@@ -2283,6 +2284,7 @@ describe('appsService tests', () => {
       };
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'dockerContainerLogs').returns('some data');
+      sinon.stub(serviceHelper, 'dockerBufferToString').returns('some data');
       const res = generateResponse();
 
       await appsService.appLog(req, res);
@@ -2307,6 +2309,7 @@ describe('appsService tests', () => {
       };
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'dockerContainerLogs').returns('some data');
+      sinon.stub(serviceHelper, 'dockerBufferToString').returns('some data');
       const res = generateResponse();
 
       await appsService.appLog(req, res);
@@ -2330,6 +2333,7 @@ describe('appsService tests', () => {
       };
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'dockerContainerLogs').returns('some data');
+      sinon.stub(serviceHelper, 'dockerBufferToString').returns('some data');
       const res = generateResponse();
 
       await appsService.appLog(req, res);

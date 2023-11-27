@@ -44,44 +44,53 @@
           <b-card-text class="text-center">
             Please log in using
           </b-card-text>
-          <a
-            :href="'zel:?action=sign&message=' + loginPhrase + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=' + callbackValue"
-            @click="initiateLoginWS"
-          >
-            <img
-              class="zelidLogin"
-              src="@/assets/images/zelID.svg"
-              alt="Zel ID"
-              height="100%"
-              width="100%"
+          <div class="loginRow">
+            <a
+              :href="'zel:?action=sign&message=' + loginPhrase + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=' + callbackValue"
+              @click="initiateLoginWS"
             >
-          </a>
-          <a
-            @click="initWalletConnect"
-          >
-            <img
-              class="walletconnectLogin"
-              src="@/assets/images/walletconnect.svg"
-              alt="WalletConnect"
-              height="100%"
-              width="100%"
-            >
-          </a>
-          <a
-            @click="initMetamask"
-          >
-            <img
-              class="metamaskLogin"
-              src="@/assets/images/metamask.svg"
-              alt="Metamask"
-              height="100%"
-              width="100%"
-            >
-          </a>
+              <img
+                class="zelidLogin"
+                src="@/assets/images/zelID.svg"
+                alt="Zel ID"
+                height="100%"
+                width="100%"
+              >
+            </a>
+            <a @click="initSSP">
+              <img
+                class="sspLogin"
+                src="@/assets/images/ssp-logo-white.svg"
+                alt="SSP"
+                height="100%"
+                width="100%"
+              >
+            </a>
+          </div>
+          <div class="loginRow">
+            <a @click="initWalletConnect">
+              <img
+                class="walletconnectLogin"
+                src="@/assets/images/walletconnect.svg"
+                alt="WalletConnect"
+                height="100%"
+                width="100%"
+              >
+            </a>
+            <a @click="initMetamask">
+              <img
+                class="metamaskLogin"
+                src="@/assets/images/metamask.svg"
+                alt="Metamask"
+                height="100%"
+                width="100%"
+              >
+            </a>
+          </div>
         </dd>
         <dd class="col-sm-8">
           <b-card-text class="text-center">
-            or sign the following message with any ZelID/Bitcoin/Ethereum address
+            or sign the following message with any ZelID / SSP Wallet ID / Bitcoin / Ethereum address
           </b-card-text>
           <br><br>
           <b-form
@@ -570,12 +579,51 @@ export default {
         this.showToast('danger', error.message);
       }
     },
+    async initSSP() {
+      try {
+        if (!window.ssp) {
+          this.showToast('danger', 'SSP Wallet not installed');
+          return;
+        }
+        const responseData = await window.ssp.request('sspwid_sign_message', { message: this.loginPhrase });
+        if (responseData.status === 'ERROR') {
+          throw new Error(responseData.data);
+        }
+        const sspLogin = {
+          zelid: responseData.address,
+          signature: responseData.signature,
+          loginPhrase: this.loginPhrase,
+        };
+        const response = await IDService.verifyLogin(sspLogin);
+        console.log(response);
+        if (response.data.status === 'success') {
+          // user is  now signed. Store their values
+          const zelidauth = sspLogin;
+          this.$store.commit('flux/setPrivilege', response.data.data.privilage);
+          this.$store.commit('flux/setZelid', zelidauth.zelid);
+          localStorage.setItem('zelidauth', qs.stringify(zelidauth));
+          this.showToast('success', response.data.data.message);
+        } else {
+          this.showToast(this.getVariant(response.data.status), response.data.data.message || response.data.data);
+        }
+      } catch (error) {
+        this.showToast('danger', error.message);
+      }
+    },
   },
 };
 </script>
 
 <style>
+.loginRow {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-around;
+  align-items: center;
+  margin-bottom: 10px;
+}
 .zelidLogin {
+  margin-left: 5px;
   height: 90px;
   padding: 10px;
 }
@@ -598,6 +646,16 @@ export default {
   padding: 10px;
 }
 .metamaskLogin img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
+
+.sspLogin {
+  height: 90px;
+  padding: 10px;
+  margin-left: 5px;
+}
+.sspLogin img {
   -webkit-app-region: no-drag;
   transition: 0.1s;
 }

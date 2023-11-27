@@ -514,6 +514,7 @@ import AppsService from '@/services/AppsService';
 import tierColors from '@/libs/colors';
 
 const qs = require('qs');
+const axios = require('axios');
 const store = require('store');
 const timeoptions = require('@/libs/dateFormat');
 
@@ -791,20 +792,35 @@ export default {
           appSpecification.geolocation = [];
         }
         if (props.appData.version >= 6) {
-          appSpecification.expire = 22000;
+          appSpecification.expire = props.appData.expire || 22000;
         }
         if (props.appData.version >= 7) {
           appSpecification.staticip = props.appData.staticip;
           appSpecification.nodes = [];
         }
         // formation, pre verification
-        props.appData.compose.forEach((component) => {
-          const envParams = JSON.parse(JSON.stringify(component.environmentParameters));
+        for (let i = 0; i < props.appData.compose.length; i += 1) {
+          const component = props.appData.compose[i];
+          let envParams = JSON.parse(JSON.stringify(component.environmentParameters));
           component.userEnvironmentParameters.forEach((param) => {
             envParams.push(`${param.name}=${param.value}`);
           });
           if (props.appData.name.toLowerCase() === 'minecraft') {
             envParams.push(`APP_NAME=${appName}`);
+          }
+          if (component.envFluxStorage) {
+            const envid = Math.floor((Math.random() * 999999999999999)).toString();
+            const data = {
+              envid,
+              env: envParams,
+            };
+            // eslint-disable-next-line no-await-in-loop
+            const resp = await axios.post('https://storage.runonflux.io/v1/env', data);
+            if (resp.data.status === 'error') {
+              throw new Error(resp.data.message || resp.data);
+            }
+            showToast('success', 'Successful upload of Environment Parameters to Flux Storage');
+            envParams = [`F_S_ENV=https://storage.runonflux.io/v1/env/${envid}`];
           }
           const appComponent = {
             name: component.name,
@@ -837,7 +853,7 @@ export default {
             appComponent.repoauth = '';
           }
           appSpecification.compose.push(appComponent);
-        });
+        }
 
         // call api for verification of app registration specifications that returns formatted specs
         const responseAppSpecs = await AppsService.appRegistrationVerificaiton(appSpecification);

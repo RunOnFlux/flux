@@ -271,6 +271,9 @@ module.exports = (app, expressWs) => {
   app.get('/flux/marketplaceurl', cache('1 day'), (req, res) => {
     fluxService.getMarketplaceURL(req, res);
   });
+  app.get('/flux/restart', cache('30 seconds'), (req, res) => {
+    fluxService.restartFluxOS(req, res);
+  });
   app.get('/flux/dosstate', cache('30 seconds'), (req, res) => {
     fluxNetworkHelper.getDOSState(req, res);
   });
@@ -1322,8 +1325,11 @@ module.exports = (app, expressWs) => {
   });
 
   // communication between multiple flux solution is on this:
+  app.ws('/ws/flux/:port', (ws, req) => {
+    fluxCommunication.handleIncomingConnection(ws, req, expressWs.getWss('/ws/flux/:port'));
+  });
   app.ws('/ws/flux', (ws, req) => {
-    fluxCommunication.handleIncomingConnection(ws, req, expressWs.getWss('/ws/flux'));
+    fluxCommunication.handleIncomingConnection(ws, req, expressWs.getWss('/ws/flux/'));
   });
 
   // FluxShare

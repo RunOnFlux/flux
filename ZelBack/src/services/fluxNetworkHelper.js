@@ -1,3 +1,4 @@
+/* global userconfig */
 /* eslint-disable no-underscore-dangle */
 const config = require('config');
 const zeltrezjs = require('zeltrezjs');
@@ -18,7 +19,6 @@ const daemonServiceWalletRpcs = require('./daemonService/daemonServiceWalletRpcs
 const benchmarkService = require('./benchmarkService');
 const verificationHelper = require('./verificationHelper');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
-const userconfig = require('../../../config/userconfig');
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('./utils/establishedConnections');
@@ -27,6 +27,15 @@ let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
 
 let storedFluxBenchAllowed = null;
+
+// default cache
+const LRUoptions = {
+  max: 1,
+  ttl: 24 * 60 * 60 * 1000, // 1 day
+  maxAge: 24 * 60 * 60 * 1000, // 1 day
+};
+
+const myCache = new LRUCache(LRUoptions);
 
 // my external Flux IP from benchmark
 let myFluxIP = null;
@@ -448,21 +457,22 @@ async function getRandomConnection() {
 /**
  * To close an outgoing connection.
  * @param {string} ip IP address.
+ * @param {string} port node API port.
  * @returns {object} Message.
  */
-async function closeConnection(ip) {
+async function closeConnection(ip, port) {
   if (!ip) return messageHelper.createWarningMessage('To close a connection please provide a proper IP number.');
-  const wsObj = outgoingConnections.find((client) => client._socket.remoteAddress === ip);
+  const wsObj = outgoingConnections.find((client) => client._socket.remoteAddress === ip && client.port === port);
   if (!wsObj) {
-    return messageHelper.createWarningMessage(`Connection to ${ip} does not exists.`);
+    return messageHelper.createWarningMessage(`Connection to ${ip}:${port} does not exists.`);
   }
   const ocIndex = outgoingConnections.indexOf(wsObj);
-  const foundPeer = outgoingPeers.find((peer) => peer.ip === ip);
+  const foundPeer = outgoingPeers.find((peer) => peer.ip === ip && peer.port === port);
   if (ocIndex === -1) {
-    return messageHelper.createErrorMessage(`Unable to close connection ${ip}. Try again later.`);
+    return messageHelper.createErrorMessage(`Unable to close connection ${ip}:${port}. Try again later.`);
   }
   wsObj.close(1000, 'purpusfully closed');
-  log.info(`Connection to ${ip} closed`);
+  log.info(`Connection to ${ip}:${port} closed`);
   outgoingConnections.splice(ocIndex, 1);
   if (foundPeer) {
     const peerIndex = outgoingPeers.indexOf(foundPeer);
@@ -470,35 +480,36 @@ async function closeConnection(ip) {
       outgoingPeers.splice(peerIndex, 1);
     }
   }
-  return messageHelper.createSuccessMessage(`Outgoing connection to ${ip} closed`);
+  return messageHelper.createSuccessMessage(`Outgoing connection to ${ip}:${port} closed`);
 }
 
 /**
  * To close an incoming connection.
  * @param {string} ip IP address.
+ * @param {string} port node API port.
  * @param {object} expressWS Express web socket.
  * @param {object} clientToClose Web socket for client to close.
  * @returns {object} Message.
  */
-async function closeIncomingConnection(ip, expressWS, clientToClose) {
+async function closeIncomingConnection(ip, port, expressWS, clientToClose) {
   if (!ip) return messageHelper.createWarningMessage('To close a connection please provide a proper IP number.');
   const clientsSet = expressWS.clients || [];
   let wsObj = null || clientToClose;
   clientsSet.forEach((client) => {
-    if (client._socket.remoteAddress === ip) {
+    if (client._socket.remoteAddress === ip && client.port === port) {
       wsObj = client;
     }
   });
   if (!wsObj) {
-    return messageHelper.createWarningMessage(`Connection from ${ip} does not exists.`);
+    return messageHelper.createWarningMessage(`Connection from ${ip}:${port} does not exists.`);
   }
   const ocIndex = incomingConnections.indexOf(wsObj);
-  const foundPeer = incomingPeers.find((peer) => peer.ip === ip);
+  const foundPeer = incomingPeers.find((peer) => peer.ip === ip && peer.port === port);
   if (ocIndex === -1) {
-    return messageHelper.createErrorMessage(`Unable to close incoming connection ${ip}. Try again later.`);
+    return messageHelper.createErrorMessage(`Unable to close incoming connection ${ip}:${port}. Try again later.`);
   }
   wsObj.close(1000, 'purpusfully closed');
-  log.info(`Connection from ${ip} closed`);
+  log.info(`Connection from ${ip}:${port} closed`);
   incomingConnections.splice(ocIndex, 1);
   if (foundPeer) {
     const peerIndex = incomingPeers.indexOf(foundPeer);
@@ -506,7 +517,7 @@ async function closeIncomingConnection(ip, expressWS, clientToClose) {
       incomingPeers.splice(peerIndex, 1);
     }
   }
-  return messageHelper.createSuccessMessage(`Incoming connection to ${ip} closed`);
+  return messageHelper.createSuccessMessage(`Incoming connection to ${ip}:${port} closed`);
 }
 
 /**
@@ -645,6 +656,10 @@ function isCommunicationEstablished(req, res) {
     message = messageHelper.createErrorMessage(`Not enough outgoing connections established to Flux network. Minimum required ${config.fluxapps.minOutgoing} found ${outgoingPeers.length}`);
   } else if (incomingPeers.length < config.fluxapps.minIncoming) { // depends on other nodes successfully connecting to my node, todo enforcement
     message = messageHelper.createErrorMessage(`Not enough incoming connections from Flux network. Minimum required ${config.fluxapps.minIncoming} found ${incomingPeers.length}`);
+  } else if ([...new Set(outgoingPeers.map((peer) => peer.ip))].length < config.fluxapps.minUniqueIpsOutgoing) { // depends on other nodes successfully connecting to my node, todo enforcement
+    message = messageHelper.createErrorMessage(`Not enough outgoing unique ip's connections established to Flux network. Minimum required ${config.fluxapps.minUniqueIpsOutgoing} found ${[...new Set(outgoingPeers.map((peer) => peer.ip))].length}`);
+  } else if ([...new Set(incomingPeers.map((peer) => peer.ip))].length < config.fluxapps.minUniqueIpsIncoming) { // depends on other nodes successfully connecting to my node, todo enforcement
+    message = messageHelper.createErrorMessage(`Not enough incoming unique ip's connections from Flux network. Minimum required ${config.fluxapps.minUniqueIpsIncoming} found ${[...new Set(incomingPeers.map((peer) => peer.ip))].length}`);
   } else {
     message = messageHelper.createSuccessMessage('Communication to Flux network is properly established');
   }
@@ -730,33 +745,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
           await serviceHelper.delay(2 * 1000); // await two seconds
           const newIP = await getMyFluxIPandPort(); // to update node Ip on FluxOs;
           if (newIP && newIP !== oldIP) { // double check
-            log.info(`New public Ip detected: ${newIP}, old Ip:${oldIP} , updating the FluxNode info in the network`);
-            // eslint-disable-next-line global-require
-            const dockerService = require('./dockerService');
-            let apps = await dockerService.dockerListContainers(true);
-            if (apps.length > 0) {
-              apps = apps.filter((app) => ((app.Names[0].slice(1, 4) === 'zel' || app.Names[0].slice(1, 5) === 'flux') && app.Names[0] !== '/flux_watchtower'));
-            }
-            if (apps.length > 0) {
-              const broadcastedAt = new Date().getTime();
-              const newIpChangedMessage = {
-                type: 'fluxipchanged',
-                version: 1,
-                oldIP,
-                newIP,
-                broadcastedAt,
-              };
-              // broadcast messages about ip changed to all peers
-              // eslint-disable-next-line global-require
-              const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
-              await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newIpChangedMessage);
-              await serviceHelper.delay(500);
-              await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newIpChangedMessage);
-              await serviceHelper.delay(1 * 60 * 1000); // lets wait 1 minute to give time for message being propagated on the network before we try to update the ip on blockchain
-            }
-            const result = await daemonServiceWalletRpcs.createConfirmationTransaction();
-            log.info(`createConfirmationTransaction: ${result}`);
-            await serviceHelper.delay(4 * 60 * 1000); // lets wait 2 blocks time for the transaction to be mined
+            log.info('FluxBench reported a new IP');
             return true;
           }
         } if (benchMyIP && benchMyIP.split(':')[0] === myIP.split(':')[0]) {
@@ -833,6 +822,38 @@ async function adjustExternalIP(ip) {
     if (ip === userconfig.initial.ipaddress) {
       return;
     }
+    if (userconfig.initial.ipaddress && v4exact.test(userconfig.initial.ipaddress) && !myCache.has(ip)) {
+      myCache.set(ip, ip);
+      const newIP = userconfig.initial.apiport !== 16127 ? `${ip}:${userconfig.initial.apiport}` : ip;
+      const oldIP = userconfig.initial.apiport !== 16127 ? `${userconfig.initial.ipaddress}:${userconfig.initial.apiport}` : userconfig.initial.ipaddress;
+      log.info(`New public Ip detected: ${newIP}, old Ip:${oldIP} , updating the FluxNode info in the network`);
+      // eslint-disable-next-line global-require
+      const dockerService = require('./dockerService');
+      let apps = await dockerService.dockerListContainers(true);
+      if (apps.length > 0) {
+        apps = apps.filter((app) => ((app.Names[0].slice(1, 4) === 'zel' || app.Names[0].slice(1, 5) === 'flux') && app.Names[0] !== '/flux_watchtower'));
+      }
+      if (apps.length > 0) {
+        const broadcastedAt = new Date().getTime();
+        const newIpChangedMessage = {
+          type: 'fluxipchanged',
+          version: 1,
+          oldIP,
+          newIP,
+          broadcastedAt,
+        };
+        // broadcast messages about ip changed to all peers
+        // eslint-disable-next-line global-require
+        const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
+        await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newIpChangedMessage);
+        await serviceHelper.delay(500);
+        await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newIpChangedMessage);
+        await serviceHelper.delay(1 * 60 * 1000); // lets wait 1 minute to give time for message being propagated on the network before we try to update the ip on blockchain
+      }
+      const result = await daemonServiceWalletRpcs.createConfirmationTransaction();
+      log.info(`createConfirmationTransaction: ${JSON.stringify(result)}`);
+    }
+
     log.info(`Adjusting External IP from ${userconfig.initial.ipaddress} to ${ip}`);
     const dataToWrite = `module.exports = {
   initial: {
@@ -846,7 +867,7 @@ async function adjustExternalIP(ip) {
     pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
     pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
     blockedPorts: [${userconfig.initial.blockedPorts || ''}],
-    blockedRepositories: [${userconfig.initial.blockedRepositories || ''}],
+    blockedRepositories: ${JSON.stringify(userconfig.initial.blockedRepositories || []).replace(/"/g, "'")},
   }
 }`;
 
@@ -914,20 +935,20 @@ async function checkDeterministicNodesCollisions() {
       if (nodeList.length > config.fluxapps.minIncoming + config.fluxapps.minOutgoing) {
         const availabilityOk = await checkMyFluxAvailability();
         if (availabilityOk) {
-          adjustExternalIP(myIP.split(':')[0]);
+          await adjustExternalIP(myIP.split(':')[0]);
         }
       } else { // sufficient amount of nodes has to appear on the network within 6 hours
         const measuredUptime = fluxUptime();
         if (measuredUptime.status === 'success' && measuredUptime.data > (config.fluxapps.minUpTime * 12)) {
           const availabilityOk = await checkMyFluxAvailability();
           if (availabilityOk) {
-            adjustExternalIP(myIP.split(':')[0]);
+            await adjustExternalIP(myIP.split(':')[0]);
           }
         } else if (measuredUptime.status === 'error') {
           log.error('Flux uptime unavailable');
           const availabilityOk = await checkMyFluxAvailability();
           if (availabilityOk) {
-            adjustExternalIP(myIP.split(':')[0]);
+            await adjustExternalIP(myIP.split(':')[0]);
           }
         }
       }

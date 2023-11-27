@@ -163,7 +163,7 @@ export default {
     };
     const data = {
       appname: app,
-      cmd: JSON.parse(cmd),
+      cmd,
       env: JSON.parse(env),
     };
     return Api().post('/apps/appexec', JSON.stringify(data), axiosConfig);

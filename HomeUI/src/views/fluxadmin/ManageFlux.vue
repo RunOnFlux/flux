@@ -187,7 +187,6 @@
         </b-card>
       </b-col>
     </b-row>
-    <!-- Comment to fix before release
     <b-row class="match-height">
       <b-col
         lg="4"
@@ -309,14 +308,13 @@
             </b-button>
             <confirm-dialog
               target="update-blockedRepositories"
-              confirm-button="Update Blocked Repositories"
+              confirm-button="Update Repositories"
               @confirm="adjustBlockedRepositories()"
             />
           </div>
         </b-card>
       </b-col>
     </b-row>
-    -->
     <b-row class="match-height">
       <b-col
         lg="4"
@@ -628,6 +626,32 @@
           </div>
         </b-card>
       </b-col>
+      <b-col
+        xs="12"
+        lg="4"
+      >
+        <b-card title="FluxOS">
+          <b-card-text>
+            The restart button in FluxOS allows you to restart the application. Clicking it will close and immediately restart the application, but please note that this action requires refreshing the page and logging out and logging in again.
+          </b-card-text>
+          <div class="text-center">
+            <b-button
+              id="restart-fluxos"
+              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+              variant="success"
+              aria-label="Restart FluxOS"
+              class="mt-2"
+            >
+              Restart FluxOS
+            </b-button>
+            <confirm-dialog
+              target="restart-fluxos"
+              confirm-button="Restart"
+              @confirm="restartFluxOS()"
+            />
+          </div>
+        </b-card>
+      </b-col>
     </b-row>
   </div>
 </template>
@@ -715,6 +739,19 @@ export default {
     this.getBlockedRepositories();
   },
   methods: {
+    async restartFluxOS() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      try {
+        const response = await FluxService.restartFluxOS(zelidauth);
+        if (response.data.status === 'error') {
+          this.showToast('danger', response.data.data.message || response.data.data);
+        } else {
+          this.showToast('success', response.data.data.message || response.data.data);
+        }
+      } catch (error) {
+        this.showToast('danger', error.message || error);
+      }
+    },
     async getKadenaAccount() {
       const response = await FluxService.getKadenaAccount();
       if (response.data.status === 'success' && response.data.data) {
@@ -734,7 +771,7 @@ export default {
     async getBlockedPorts() {
       const response = await FluxService.getBlockedPorts();
       if (response.data.status === 'success' && response.data.data) {
-        this.blockedPortsInput = response.data.data;
+        this.blockedPortsInput = JSON.stringify(response.data.data);
       }
     },
     async getAPIPort() {
@@ -746,7 +783,7 @@ export default {
     async getBlockedRepositories() {
       const response = await FluxService.getBlockedRepositories();
       if (response.data.status === 'success' && response.data.data) {
-        this.blockedRepositoriesInput = response.data.data;
+        this.blockedRepositoriesInput = JSON.stringify(response.data.data);
       }
     },
     getLatestFluxVersion() {
@@ -795,9 +832,9 @@ export default {
       }
     },
     async adjustBlockedPorts() {
-      const blockedPorts = this.blockedPortsInput;
       const zelidauth = localStorage.getItem('zelidauth');
       try {
+        const blockedPorts = JSON.parse(this.blockedPortsInput);
         const blockedPortsResponse = await FluxService.adjustBlockedPorts(zelidauth, blockedPorts);
         if (blockedPortsResponse.data.status === 'error') {
           this.showToast('danger', blockedPortsResponse.data.data.message || blockedPortsResponse.data.data);
@@ -827,9 +864,9 @@ export default {
       }
     },
     async adjustBlockedRepositories() {
-      const blockedRepositories = this.blockedRepositoriesInput;
       const zelidauth = localStorage.getItem('zelidauth');
       try {
+        const blockedRepositories = JSON.parse(this.blockedRepositoriesInput);
         const blockedRepositoriesResponse = await FluxService.adjustBlockedRepositories(zelidauth, blockedRepositories);
         if (blockedRepositoriesResponse.data.status === 'error') {
           this.showToast('danger', blockedRepositoriesResponse.data.data.message || blockedRepositoriesResponse.data.data);

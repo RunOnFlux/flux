@@ -1,12 +1,10 @@
+/* global userconfig */
 const config = require('config');
 const path = require('path');
 const fs = require('fs').promises;
 const openpgp = require('openpgp');
-
 const generalService = require('./generalService');
-
 const log = require('../lib/log');
-const userconfig = require('../../../config/userconfig');
 
 /**
  * To adjust PGP identity
@@ -32,8 +30,8 @@ async function adjustPGPidentity(privateKey, publicKey) {
     routerIP: '${userconfig.initial.routerIP || ''}',
     pgpPrivateKey: \`${privateKey}\`,
     pgpPublicKey: \`${publicKey}\`,
-    blockedPorts: [${userconfig.initial.blockedPorts || ''}],
-    blockedRepositories: [${userconfig.initial.blockedRepositories || ''}],
+    blockedPorts: ${JSON.stringify(userconfig.initial.blockedPorts || [])},
+    blockedRepositories: ${JSON.stringify(userconfig.initial.blockedRepositories || []).replace(/"/g, "'")},
   }
 }`;
 

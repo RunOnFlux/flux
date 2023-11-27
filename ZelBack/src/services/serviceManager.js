@@ -1,3 +1,4 @@
+/* global userconfig */
 const config = require('config');
 const log = require('../lib/log');
 
@@ -12,7 +13,6 @@ const geolocationService = require('./geolocationService');
 const upnpService = require('./upnpService');
 const syncthingService = require('./syncthingService');
 const pgpService = require('./pgpService');
-const userconfig = require('../../../config/userconfig');
 
 const apiPort = userconfig.initial.apiport || config.server.apiport;
 const development = userconfig.initial.development || false;
@@ -129,7 +129,7 @@ async function startFluxFunctions() {
     }, 4 * 60 * 1000);
     setTimeout(() => {
       appsService.syncthingApps(); // rechecks and possibly adjust syncthing configuration every 2 minutes
-    }, 6 * 60 * 1000);
+    }, 2 * 60 * 1000);
     setTimeout(() => {
       setInterval(() => { // every 30 mins (15 blocks)
         appsService.continuousFluxAppHashesCheck();

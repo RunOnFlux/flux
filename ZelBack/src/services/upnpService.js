@@ -1,3 +1,4 @@
+/* global userconfig */
 const config = require('config');
 const natUpnp = require('@runonflux/nat-upnp');
 const serviceHelper = require('./serviceHelper');
@@ -8,7 +9,6 @@ const nodecmd = require('node-cmd');
 const util = require('util');
 
 const log = require('../lib/log');
-const userconfig = require('../../../config/userconfig');
 
 const client = new natUpnp.Client();
 

@@ -1,3 +1,4 @@
+/* global userconfig */
 /**
  * @module
  * Contains utility functions to be used only by verificationHelper.
@@ -8,7 +9,6 @@ const config = require('config');
 const signatureVerifier = require('./signatureVerifier');
 const serviceHelper = require('./serviceHelper');
 const dbHelper = require('./dbHelper');
-const userconfig = require('../../../config/userconfig');
 
 /**
  * Verifies admin session

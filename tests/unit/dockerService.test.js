@@ -252,9 +252,8 @@ describe('dockerService tests', () => {
 
       const changesResult = await dockerService.dockerContainerChanges(containerName);
 
-      expect(changesResult).to.be.a('string');
-      expect(JSON.parse(changesResult)).to.be.an('array');
-      expect(JSON.parse(changesResult)[0].Path).to.exist;
+      expect(changesResult).to.be.an('array');
+      expect(changesResult[0].Path).to.exist;
     });
 
     it('should throw error if the container does not exist', async () => {
@@ -283,7 +282,7 @@ describe('dockerService tests', () => {
       const appName = 'website';
 
       const res = await dockerService.dockerContainerLogs(appName, 2);
-      expect(res).to.be.a('string');
+      expect(res).to.be.an.instanceOf(Buffer);
       expect(res).to.exist;
     });
 
