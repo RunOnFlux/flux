@@ -10091,7 +10091,11 @@ async function syncthingApps() {
                   // eslint-disable-next-line no-await-in-loop
                   await appDockerStop(id);
                   // eslint-disable-next-line no-await-in-loop
+                  await serviceHelper.delay(500);
+                  // eslint-disable-next-line no-await-in-loop
                   await appDeleteDataInMountPoint(id);
+                  // eslint-disable-next-line no-await-in-loop
+                  await serviceHelper.delay(500);
                 } else {
                   const cache = {
                     restarted: true,
@@ -10154,7 +10158,11 @@ async function syncthingApps() {
                 // eslint-disable-next-line no-await-in-loop
                 await appDockerStop(id);
                 // eslint-disable-next-line no-await-in-loop
+                await serviceHelper.delay(500);
+                // eslint-disable-next-line no-await-in-loop
                 await appDeleteDataInMountPoint(id);
+                // eslint-disable-next-line no-await-in-loop
+                await serviceHelper.delay(500);
               }
             }
             folderIds.push(id);
@@ -10236,7 +10244,11 @@ async function syncthingApps() {
                     // eslint-disable-next-line no-await-in-loop
                     await appDockerStop(id);
                     // eslint-disable-next-line no-await-in-loop
+                    await serviceHelper.delay(500);
+                    // eslint-disable-next-line no-await-in-loop
                     await appDeleteDataInMountPoint(id);
+                    // eslint-disable-next-line no-await-in-loop
+                    await serviceHelper.delay(500);
                   } else {
                     const cache = {
                       restarted: true,
@@ -10299,7 +10311,11 @@ async function syncthingApps() {
                   // eslint-disable-next-line no-await-in-loop
                   await appDockerStop(id);
                   // eslint-disable-next-line no-await-in-loop
+                  await serviceHelper.delay(500);
+                  // eslint-disable-next-line no-await-in-loop
                   await appDeleteDataInMountPoint(id);
+                  // eslint-disable-next-line no-await-in-loop
+                  await serviceHelper.delay(500);
                 }
               }
               folderIds.push(id);
