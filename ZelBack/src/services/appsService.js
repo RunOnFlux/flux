@@ -3219,6 +3219,22 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
       return false;
     }
 
+    const dockerNetworks = {
+      status: 'Clearing up unused docker networks...',
+    };
+    log.info(dockerNetworks);
+    if (res) {
+      res.write(serviceHelper.ensureString(dockerNetworks));
+    }
+    const execDIR = 'sudo docker network prune -f';
+    await cmdAsync(execDIR);
+    const dockerNetworks2 = {
+      status: 'Docker networks cleaned.',
+    };
+    if (res) {
+      res.write(serviceHelper.ensureString(dockerNetworks2));
+    }
+
     if (!isComponent) {
       // last character of appName determines gateway
       const lastCharCode = appName.charCodeAt(appName.length - 1);
