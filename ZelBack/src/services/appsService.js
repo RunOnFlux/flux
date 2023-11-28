@@ -10022,6 +10022,7 @@ let syncthingAppsFirstRun = true;
 // update syncthing configuration for locally installed apps
 async function syncthingApps() {
   try {
+    log.info('SyncthingApps starting');
     // do not run if installationInProgress or removalInProgress
     if (installationInProgress || removalInProgress || updateSyncthingRunning) {
       return;
@@ -10311,6 +10312,7 @@ async function syncthingApps() {
                     // eslint-disable-next-line no-await-in-loop
                     const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
                     const index = runningAppList.findIndex((x) => x.ip === myIP);
+                    log.info(`SyncthingApps appIdentifier ${appId} is node index ${index}`);
                     let numberOfExecutionsRequired = 2;
                     if (index > 0) {
                       numberOfExecutionsRequired = 24;
@@ -10319,7 +10321,7 @@ async function syncthingApps() {
                   }
                   syncthingFolder.type = 'receiveonly';
                   cache.numberOfExecutions += 1;
-                  log.info(`SyncthingApps appIdentifier ${appId} execution ${cache.numberOfExecutions} of ${cache.numberOfExecutionsRequired + 1} to start the app}`);
+                  log.info(`SyncthingApps appIdentifier ${appId} execution ${cache.numberOfExecutions} of ${cache.numberOfExecutionsRequired + 1} to start the app`);
                   if (cache.numberOfExecutions === cache.numberOfExecutionsRequired) {
                     syncthingFolder.type = 'sendreceive';
                   } else if (cache.numberOfExecutions === cache.numberOfExecutionsRequired + 1) {
@@ -10418,6 +10420,7 @@ async function syncthingApps() {
   } catch (error) {
     log.error(error);
   } finally {
+    log.info('SyncthingApps finished');
     updateSyncthingRunning = false;
     syncthingAppsFirstRun = false;
     await serviceHelper.delay(30 * 1000);
