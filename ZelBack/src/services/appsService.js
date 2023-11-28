@@ -10319,6 +10319,7 @@ async function syncthingApps() {
                   }
                   syncthingFolder.type = 'receiveonly';
                   cache.numberOfExecutions += 1;
+                  log.info(`SyncthingApps appIdentifier ${appId} execution ${cache.numberOfExecutions} of ${cache.numberOfExecutionsRequired + 1} to start the app}`);
                   if (cache.numberOfExecutions === cache.numberOfExecutionsRequired) {
                     syncthingFolder.type = 'sendreceive';
                   } else if (cache.numberOfExecutions === cache.numberOfExecutionsRequired + 1) {
