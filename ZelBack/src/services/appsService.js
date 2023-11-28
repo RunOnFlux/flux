@@ -4494,7 +4494,7 @@ async function getUserBlockedRepositores() {
  */
 async function checkApplicationImagesComplience(appSpecs) {
   const repos = await getBlockedRepositores();
-
+  const userBlockedRepos = await getUserBlockedRepositores();
   if (!repos) {
     throw new Error('Unable to communicate with Flux Services! Try again later.');
   }
@@ -4538,6 +4538,15 @@ async function checkApplicationImagesComplience(appSpecs) {
       throw new Error(`Organisation ${org} is blocked. Application ${appSpecs.name} connot be spawned.`);
     }
   });
+
+  if (userBlockedRepos) {
+    log.info(`userBlockedRepos: ${JSON.stringify(userBlockedRepos)}`);
+    images.forEach((image) => {
+      if (userBlockedRepos.includes(image.toLowerCase())) {
+        throw new Error(`Image ${image} is user blocked. Application ${appSpecs.name} connot be spawned.`);
+      }
+    });
+  }
 
   return true;
 }
