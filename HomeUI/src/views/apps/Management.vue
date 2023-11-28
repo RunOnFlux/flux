@@ -1299,7 +1299,7 @@
                     <b-form-select
                       v-model="selectedApp"
                       :options="null"
-                      :disabled="terminal || isComposeSingle"
+                      :disabled="!!isVisible || isComposeSingle"
                     >
                       <b-form-select-option
                         value="null"
@@ -1320,7 +1320,7 @@
                     <b-form-select
                       v-model="selectedCmd"
                       :options="options"
-                      :disabled="terminal"
+                      :disabled="!!isVisible"
                       @input="onSelectChangeCmd"
                     >
                       <template #first>
@@ -1335,21 +1335,32 @@
                     </b-form-select>
                   </div>
                   <b-button
-                    v-if="!terminal"
+                    v-if="!isVisible && !isConnecting"
                     class="col-2"
                     href="#"
                     variant="success"
-                    @click="connectTerminal(`flux${selectedApp}_${appSpecification.name}`)"
+                    @click="connectTerminal(selectedApp ? `${selectedApp}_${appSpecification.name}` : appSpecification.name)"
                   >
                     Connect
                   </b-button>
                   <b-button
-                    v-if="terminal"
+                    v-if="!!isVisible"
                     class="col-2"
                     variant="danger"
                     @click="disconnectTerminal"
                   >
                     Disconnect
+                  </b-button>
+                  <b-button
+                    v-if="isConnecting"
+                    class="col-2"
+                    variant="primary"
+                    disabled
+                  >
+                    <b-spinner
+                      small
+                    />
+                    Connecting...
                   </b-button>
                   <div class="ml-auto mt-1">
                     <div class="ml-auto">
@@ -1357,7 +1368,7 @@
                         v-model="enableEnvironment"
                         class="ml-4 d-flex align-items-center justify-content-center"
                         switch
-                        :disabled="terminal"
+                        :disabled="!!isVisible"
                         @input="onSelectChangeEnv"
                       >
                         <div
@@ -1371,7 +1382,7 @@
                   </div>
                 </div>
                 <div
-                  v-if="selectedCmd === 'Custom' && !terminal"
+                  v-if="selectedCmd === 'Custom' && !isVisible"
                   class="d-flex mt-1"
                 >
                   <b-form-input
@@ -1381,7 +1392,7 @@
                   />
                 </div>
                 <div
-                  v-if="enableEnvironment && !terminal"
+                  v-if="enableEnvironment && !isVisible"
                   class="d-flex mt-1"
                 >
                   <b-form-input
@@ -1392,18 +1403,18 @@
                 </div>
                 <div class="d-flex align-items-center mb-1">
                   <div
-                    v-if="terminal"
+                    v-if="!!isVisible"
                     class="mt-2"
                   >
                     <template v-if="selectedCmd !== 'Custom'">
                       <span style="font-weight: bold;">Exec into container</span>
-                      <span :style="selectedOptionTextStyle">{{ selectedApp }}</span>
+                      <span :style="selectedOptionTextStyle">{{ selectedApp || appSpecification.name }}</span>
                       <span style="font-weight: bold;">using command</span>
                       <span :style="selectedOptionTextStyle">{{ selectedOptionText }}</span>
                     </template>
                     <template v-else>
                       <span style="font-weight: bold;">Exec into container</span>
-                      <span :style="selectedOptionTextStyle">{{ selectedApp }}</span>
+                      <span :style="selectedOptionTextStyle">{{ selectedApp || appSpecification.name }}</span>
                       <span style="font-weight: bold;">using custom command</span>
                       <span :style="selectedOptionTextStyle">{{ customValue }}</span>
                     </template>
@@ -1969,22 +1980,24 @@
                 </b-card>
               </template>
               <template #cell(visit)="locationRow">
-                <b-button
-                  size="sm"
-                  class="mr-1"
-                  variant="danger"
-                  @click="openApp(locationRow.item.name, locationRow.item.ip.split(':')[0], getProperPort())"
-                >
-                  Visit App
-                </b-button>
-                <b-button
-                  size="sm"
-                  class="mr-0"
-                  variant="danger"
-                  @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
-                >
-                  Visit FluxNode
-                </b-button>
+                <div class="button-cell">
+                  <b-button
+                    size="sm"
+                    class="mr-1"
+                    variant="danger"
+                    @click="openApp(locationRow.item.name, locationRow.item.ip.split(':')[0], getProperPort())"
+                  >
+                    Visit App
+                  </b-button>
+                  <b-button
+                    size="sm"
+                    class="mr-0"
+                    variant="danger"
+                    @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
+                  >
+                    Visit FluxNode
+                  </b-button>
+                </div>
               </template>
             </b-table>
           </b-col>
@@ -2610,7 +2623,7 @@
                     <label class="col-3 col-form-label">
                       Cont. Data
                       <v-icon
-                        v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with s: for synced data between instances. Eg. s:/data'"
+                        v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with r: for synced data between instances. Eg. r:/data'"
                         name="info-circle"
                         class="mr-1"
                       />
@@ -3246,7 +3259,7 @@
                   <label class="col-3 col-form-label">
                     Cont. Data
                     <v-icon
-                      v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with s: for synced data between instances. Eg. s:/data'"
+                      v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with r: for synced data between instances. Eg. r:/data'"
                       name="info-circle"
                       class="mr-1"
                     />
@@ -3852,8 +3865,10 @@ import {
   BCard,
   BCardText,
   BCardTitle,
+  BCardGroup,
   BRow,
   BButton,
+  BSpinner,
   BFormTextarea,
   BFormGroup,
   BFormInput,
@@ -3924,8 +3939,10 @@ export default {
     BCard,
     BCardText,
     BCardTitle,
+    BCardGroup,
     BRow,
     BButton,
+    BSpinner,
     BFormTextarea,
     BFormGroup,
     BFormInput,
@@ -3970,6 +3987,7 @@ export default {
       envInputValue: '',
       enableEnvironment: false,
       isVisible: false,
+      isConnecting: false,
       options: [
         {
           label: 'Linux',
@@ -4174,6 +4192,9 @@ export default {
   },
   computed: {
     isComposeSingle() {
+      if (this.appSpecification.version <= 3) {
+        return true;
+      }
       return this.appSpecification.compose?.length === 1;
     },
     selectedOptionText() {
@@ -4369,7 +4390,9 @@ export default {
   watch: {
     isComposeSingle(value) {
       if (value) {
-        this.selectedApp = this.appSpecification.compose[0].name;
+        if (this.appSpecification.version >= 4) {
+          this.selectedApp = this.appSpecification.compose[0].name;
+        }
       }
     },
     appUpdateSpecification: {
@@ -4448,8 +4471,14 @@ export default {
   },
   methods: {
     connectTerminal(name) {
-      const composeValues = Object.values(this.appSpecification.compose);
-      const foundInName = composeValues.some((obj) => obj.name === this.selectedApp);
+      if (this.appSpecification.version >= 4) {
+        const composeValues = Object.values(this.appSpecification.compose);
+        const foundInName = composeValues.some((obj) => obj.name === this.selectedApp);
+        if (!foundInName) {
+          this.showToast('danger', 'Please select an container app before connecting.');
+          return;
+        }
+      }
       const { protocol, hostname, port } = window.location;
       let mybackend = '';
       let consoleInit = 0;
@@ -4463,10 +4492,12 @@ export default {
       } else {
         mybackend += hostname;
         mybackend += ':';
-        mybackend += (+port + 1);
+        mybackend += (+port + 1) || this.config.apiPort;
       }
 
-      if (this.selectedApp) {
+      const backendURL = store.get('backendURL') || mybackend;
+
+      if (this.selectedApp || this.appSpecification.version <= 3) {
         if (this.selectedCmd === null) {
           this.showToast('danger', 'No command selected.');
           return;
@@ -4484,13 +4515,11 @@ export default {
           console.log(`App name: ${name}`);
         }
       } else {
-        this.showToast('danger', 'Please select an continer app before connecting.');
+        this.showToast('danger', 'Please select an container app before connecting.');
         return;
       }
 
-      if (!foundInName) {
-        return;
-      }
+      this.isConnecting = true;
 
       this.terminal = new Terminal({
         allowProposedApi: true,
@@ -4501,11 +4530,12 @@ export default {
         },
       });
 
-      this.socket = io.connect(mybackend);
+      const zelidauth = localStorage.getItem('zelidauth');
+      this.socket = io.connect(backendURL);
       if (this.customValue) {
-        this.socket.emit('exec', name, this.$refs.terminalElement.clientWidth, this.$refs.terminalElement.clientHeight, this.customValue, this.envInputValue);
+        this.socket.emit('exec', zelidauth, name, this.$refs.terminalElement.clientWidth, this.$refs.terminalElement.clientHeight, this.customValue, this.envInputValue);
       } else {
-        this.socket.emit('exec', name, this.$refs.terminalElement.clientWidth, this.$refs.terminalElement.clientHeight, this.selectedCmd, this.envInputValue);
+        this.socket.emit('exec', zelidauth, name, this.$refs.terminalElement.clientWidth, this.$refs.terminalElement.clientHeight, this.selectedCmd, this.envInputValue);
       }
 
       this.terminal.open(this.$refs.terminalElement);
@@ -4538,6 +4568,11 @@ export default {
         this.socket.emit('cmd', data);
       });
 
+      this.socket.on('error', (error) => {
+        this.showToast('danger', error);
+        this.disconnectTerminal();
+      });
+
       this.socket.on('show', (data) => {
         if (consoleInit === 0) {
           /* eslint-disable quotes */
@@ -4553,13 +4588,14 @@ export default {
           }
           /* eslint-disable quotes */
           setTimeout(() => {
+            this.isConnecting = false;
             this.isVisible = true;
             this.$nextTick(() => {
               setTimeout(() => {
                 this.terminal.focus();
               }, 500);
             });
-          }, 500);
+          }, 1400);
         }
         this.terminal.write(data);
       });
@@ -4574,9 +4610,9 @@ export default {
       }
       if (this.terminal) {
         this.terminal.dispose();
-        this.terminal = false;
-        this.isVisible = false;
       }
+      this.isVisible = false;
+      this.isConnecting = false;
     },
     onSelectChangeCmd() {
       if (this.selectedCmd !== 'Custom') {
@@ -6406,6 +6442,12 @@ export default {
 </script>
 
 <style>
+.button-cell {
+  display: flex;
+  align-items: center;
+  min-width: 150px;
+}
+
 .xterm {
   padding: 10px;
 }

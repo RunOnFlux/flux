@@ -1,9 +1,10 @@
 const socketio = require('socket.io');
-const Docker = require('dockerode');
 const splitargs = require('splitargs');
+const verificationHelperUtils = require('../services/verificationHelperUtils');
+const dockerService = require('../services/dockerService');
+
 const log = require('./log');
 
-const docker = new Docker();
 let io;
 
 function initIO(httpServer) {
@@ -17,8 +18,21 @@ function initIO(httpServer) {
   });
 
   io.on('connection', (socket) => {
-    socket.on('exec', (id, w, h, dockerCmd, dockerEnv) => {
-      const container = docker.getContainer(id);
+    socket.on('exec', async (zelidauth, nameOrId, w, h, dockerCmd, dockerEnv) => {
+      const auth = {
+        zelidauth,
+      };
+      const container = await dockerService.getDockerContainerByIdOrName(nameOrId);
+      const mainAppName = nameOrId.split('_')[1] || nameOrId;
+      const authorized = await verificationHelperUtils.verifyAppOwnerSession(auth, mainAppName);
+      if (authorized !== true) {
+        socket.emit('error', 'Not authorized.');
+        return;
+      }
+      if (!container) {
+        socket.emit('error', 'Container not found.');
+        return;
+      }
       const cmd = {
         AttachStdout: true,
         AttachStderr: true,

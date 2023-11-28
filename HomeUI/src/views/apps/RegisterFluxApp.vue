@@ -623,7 +623,7 @@
                 <label class="col-3 col-form-label">
                   Cont. Data
                   <v-icon
-                    v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with s: for synced data between instances. Eg. s:/data'"
+                    v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with r: for synced data between instances. Eg. r:/data'"
                     name="info-circle"
                     class="mr-1"
                   />
@@ -1214,7 +1214,7 @@
               <label class="col-3 col-form-label">
                 Cont. Data
                 <v-icon
-                  v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with s: for synced data between instances. Eg. s:/data'"
+                  v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with r: for synced data between instances. Eg. r:/data'"
                   name="info-circle"
                   class="mr-1"
                 />

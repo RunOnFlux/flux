@@ -805,9 +805,6 @@ export default {
           component.userEnvironmentParameters.forEach((param) => {
             envParams.push(`${param.name}=${param.value}`);
           });
-          if (props.appData.name.toLowerCase() === 'minecraft') {
-            envParams.push(`APP_NAME=${appName}`);
-          }
           if (component.envFluxStorage) {
             const envid = Math.floor((Math.random() * 999999999999999)).toString();
             const data = {

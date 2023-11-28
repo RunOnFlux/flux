@@ -74,9 +74,22 @@ const testPortsCache = {
   ttl: 1000 * 60 * 60 * 3, // 3 hours
   maxAge: 1000 * 60 * 60 * 3, // 3 hours
 };
+
+const syncthingAppsCache = {
+  max: 500,
+};
+
+const stopedAppsCache = {
+  max: 40,
+  ttl: 1000 * 60 * 60 * 1.5, // 1.5 hours
+  maxAge: 1000 * 60 * 60 * 1.5, // 1.5 hours
+};
+
 const trySpawningGlobalAppCache = new LRUCache(GlobalAppsSpawnLRUoptions);
 const myLongCache = new LRUCache(longCache);
 const failedNodesTestPortsCache = new LRUCache(testPortsCache);
+const receiveOnlySyncthingAppsCache = new LRUCache(syncthingAppsCache);
+const appsStopedCache = new LRUCache(stopedAppsCache);
 
 let removalInProgress = false;
 let installationInProgress = false;
@@ -1864,7 +1877,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     for (let i = 0; i < containersData.length; i += 1) {
       const container = containersData[i];
       const containerDataFlags = container.split(':')[1] ? container.split(':')[0] : '';
-      if (containerDataFlags.includes('s')) {
+      if (containerDataFlags.includes('s') || containerDataFlags.includes('r')) {
         const containerFolder = i === 0 ? '' : `/appdata${container.split(':')[1].replace(containersData[0], '')}`;
         const stFolderCreation = {
           status: 'Creating .stfolder for syncthing...',
@@ -3138,6 +3151,24 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
       }
       return false;
     }
+
+    const benchmarkResponse = await benchmarkService.getBenchmarks();
+    if (benchmarkResponse.status === 'error') {
+      throw new Error('FluxBench status Error. Application cannot be installed at the moment');
+    }
+    if (benchmarkResponse.data.thunder) {
+      throw new Error('Flux Node is a Fractus Storage Node. Applications cannot be installed at this node type');
+    }
+    // get my external IP and check that it is longer than 5 in length.
+    let myIP = null;
+    if (benchmarkResponse.data.ipaddress) {
+      log.info(`Gathered IP ${benchmarkResponse.data.ipaddress}`);
+      myIP = benchmarkResponse.data.ipaddress.length > 5 ? benchmarkResponse.data.ipaddress : null;
+    }
+    if (myIP === null) {
+      throw new Error('Unable to detect Flux IP address');
+    }
+
     const appSpecifications = appSpecs;
     const appComponent = componentSpecs;
     const appName = appSpecifications.name;
@@ -3186,6 +3217,21 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
         res.end();
       }
       return false;
+    }
+
+    const dockerNetworks = {
+      status: 'Clearing up unused docker networks...',
+    };
+    log.info(dockerNetworks);
+    if (res) {
+      res.write(serviceHelper.ensureString(dockerNetworks));
+    }
+    await dockerService.pruneNetworks();
+    const dockerNetworks2 = {
+      status: 'Docker networks cleaned.',
+    };
+    if (res) {
+      res.write(serviceHelper.ensureString(dockerNetworks2));
     }
 
     if (!isComponent) {
@@ -3257,6 +3303,25 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     } else {
       await installApplicationHard(specificationsToInstall, appName, isComponent, res, appSpecifications);
     }
+
+    const broadcastedAt = new Date().getTime();
+    const newAppRunningMessage = {
+      type: 'fluxapprunning',
+      version: 1,
+      name: appSpecifications.name,
+      hash: appSpecifications.hash, // hash of application specifics that are running
+      ip: myIP,
+      broadcastedAt,
+    };
+
+    // store it in local database first
+    // eslint-disable-next-line no-await-in-loop, no-use-before-define
+    await storeAppRunningMessage(newAppRunningMessage);
+    // broadcast messages about running apps to all peers
+    await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessage);
+    await serviceHelper.delay(500);
+    await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessage);
+    // broadcast messages about running apps to all peers
 
     // all done message
     const successStatus = messageHelper.createSuccessMessage(`Flux App ${appName} successfully installed and launched`);
@@ -4429,7 +4494,7 @@ async function getUserBlockedRepositores() {
  */
 async function checkApplicationImagesComplience(appSpecs) {
   const repos = await getBlockedRepositores();
-
+  const userBlockedRepos = await getUserBlockedRepositores();
   if (!repos) {
     throw new Error('Unable to communicate with Flux Services! Try again later.');
   }
@@ -4473,6 +4538,15 @@ async function checkApplicationImagesComplience(appSpecs) {
       throw new Error(`Organisation ${org} is blocked. Application ${appSpecs.name} connot be spawned.`);
     }
   });
+
+  if (userBlockedRepos) {
+    log.info(`userBlockedRepos: ${JSON.stringify(userBlockedRepos)}`);
+    images.forEach((image) => {
+      if (userBlockedRepos.includes(image.toLowerCase())) {
+        throw new Error(`Image ${image} is user blocked. Application ${appSpecs.name} connot be spawned.`);
+      }
+    });
+  }
 
   return true;
 }
@@ -8726,25 +8800,6 @@ async function trySpawningGlobalApplication() {
       return;
     }
 
-    const broadcastedAt = new Date().getTime();
-    const newAppRunningMessage = {
-      type: 'fluxapprunning',
-      version: 1,
-      name: appSpecifications.name,
-      hash: appSpecifications.hash, // hash of application specifics that are running
-      ip: myIP,
-      broadcastedAt,
-    };
-
-    // store it in local database first
-    // eslint-disable-next-line no-await-in-loop
-    await storeAppRunningMessage(newAppRunningMessage);
-    // broadcast messages about running apps to all peers
-    await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessage);
-    await serviceHelper.delay(500);
-    await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessage);
-    // broadcast messages about running apps to all peers
-
     await serviceHelper.delay(10 * config.fluxapps.installation.delay * 1000);
     log.info('Reinitiating possible app installation');
     trySpawningGlobalApplication();
@@ -8820,9 +8875,13 @@ async function checkAndNotifyPeersOfRunningApps() {
             // check if some removal is in progress and if it is don't start it!
             if (!removalInProgress && !installationInProgress && !reinstallationOfOldAppsInProgress) {
               log.warn(`${stoppedApp} is stopped, starting`);
-              // eslint-disable-next-line no-await-in-loop
-              await dockerService.appDockerStart(stoppedApp);
-              startAppMonitoring(stoppedApp);
+              if (!appsStopedCache.has(stoppedApp)) {
+                appsStopedCache.set(stoppedApp, stoppedApp);
+              } else {
+                // eslint-disable-next-line no-await-in-loop
+                await dockerService.appDockerStart(stoppedApp);
+                startAppMonitoring(stoppedApp);
+              }
             } else {
               log.warn(`Not starting ${stoppedApp} as application removal or installation is in progress`);
             }
@@ -9492,7 +9551,7 @@ async function redeployAPI(req, res) {
       return;
     }
     if (global) {
-      executeAppGlobalCommand(appname, 'redeploy', req.headers.zelidauth); // do not wait
+      executeAppGlobalCommand(appname, 'redeploy', req.headers.zelidauth, force); // do not wait
       const hardOrSoft = force ? 'hard' : 'soft';
       const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global ${hardOrSoft} redeploy`);
       res.json(appResponse);
@@ -9817,6 +9876,9 @@ async function stopSyncthingApp(appComponentName, res) {
   try {
     const identifier = appComponentName;
     const appId = dockerService.getAppIdentifier(identifier);
+    if (receiveOnlySyncthingAppsCache.has(appId)) {
+      receiveOnlySyncthingAppsCache.delete(appId);
+    }
     const folder = `${appsFolder + appId}`;
     const allSyncthingFolders = await syncthingService.getConfigFolders();
     if (allSyncthingFolders.status === 'error') {
@@ -9875,7 +9937,88 @@ async function getDeviceID(fluxIP) {
   }
 }
 
+/**
+ * To restart an app. Restarts each component if the app is using Docker Compose.
+ * Function to ba called after synthing database revert that can cause no data to show up inside container despite it exists on mountpoint.
+ * @param {string} appname Request.
+ */
+async function appDockerRestart(appname) {
+  try {
+    const mainAppName = appname.split('_')[1] || appname;
+    const isComponent = appname.includes('_'); // it is a component restart. Proceed with restarting just component
+    if (isComponent) {
+      await dockerService.appDockerRestart(appname);
+    } else {
+      // ask for restarting entire composed application
+      // eslint-disable-next-line no-use-before-define
+      const appSpecs = await getApplicationSpecifications(mainAppName);
+      if (!appSpecs) {
+        throw new Error('Application not found');
+      }
+      if (appSpecs.version <= 3) {
+        await dockerService.appDockerRestart(appname);
+      } else {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of appSpecs.compose) {
+          // eslint-disable-next-line no-await-in-loop
+          await dockerService.appDockerRestart(`${appComponent.name}_${appSpecs.name}`);
+        }
+      }
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
+ * To stop an app. Stop each component if the app is using Docker Compose.
+ * Function to ba called before starting synthing in r: mode.
+ * @param {string} appname Request.
+ */
+async function appDockerStop(appname) {
+  try {
+    const mainAppName = appname.split('_')[1] || appname;
+    const isComponent = appname.includes('_'); // it is a component restart. Proceed with restarting just component
+    if (isComponent) {
+      await dockerService.appDockerStop(appname);
+    } else {
+      // ask for restarting entire composed application
+      // eslint-disable-next-line no-use-before-define
+      const appSpecs = await getApplicationSpecifications(mainAppName);
+      if (!appSpecs) {
+        throw new Error('Application not found');
+      }
+      if (appSpecs.version <= 3) {
+        await dockerService.appDockerStop(appname);
+      } else {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of appSpecs.compose) {
+          // eslint-disable-next-line no-await-in-loop
+          await dockerService.appDockerStop(`${appComponent.name}_${appSpecs.name}`);
+        }
+      }
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
+ * To delete all data inside app mount point
+ * Function to ba called before starting synthing in r: mode.
+ * @param {string} appname Request.
+ */
+async function appDeleteDataInMountPoint(appname) {
+  try {
+    const execDIR = `sudo rm -fr ${appsFolder + appname}/appdata/*`;
+    await cmdAsync(execDIR);
+  } catch (error) {
+    log.error(error);
+  }
+}
+
 let updateSyncthingRunning = false;
+let syncthingAppsFirstRun = true;
 // update syncthing configuration for locally installed apps
 async function syncthingApps() {
   try {
@@ -9894,10 +10037,13 @@ async function syncthingApps() {
     const devicesConfiguration = [];
     const folderIds = [];
     const foldersConfiguration = [];
+    const newFoldersConfiguration = [];
     const myDeviceID = await syncthingService.getDeviceID();
     if (myDeviceID.status !== 'success') {
       return;
     }
+    const allFoldersResp = await syncthingService.getConfigFolders();
+    const allDevicesResp = await syncthingService.getConfigDevices();
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled.data) {
       if (installedApp.version <= 3) {
@@ -9906,7 +10052,7 @@ async function syncthingApps() {
         for (let i = 0; i < containersData.length; i += 1) {
           const container = containersData[i];
           const containerDataFlags = container.split(':')[1] ? container.split(':')[0] : '';
-          if (containerDataFlags.includes('s')) {
+          if (containerDataFlags.includes('s') || containerDataFlags.includes('r')) {
             const containerFolder = i === 0 ? '' : `/appdata${container.split(':')[1].replace(containersData[0], '')}`;
             const identifier = installedApp.name;
             const appId = dockerService.getAppIdentifier(identifier);
@@ -9937,22 +10083,120 @@ async function syncthingApps() {
                     deviceID,
                     name,
                     addresses,
+                    autoAcceptFolders: true,
                   };
                   devicesIds.push(deviceID);
                   if (deviceID !== myDeviceID.data) {
-                    devicesConfiguration.push(newDevice);
+                    const syncthingDeviceExists = allDevicesResp.data.find((device) => device.name === name);
+                    if (!syncthingDeviceExists) {
+                      devicesConfiguration.push(newDevice);
+                    }
                   }
                 }
               }
             }
-            folderIds.push(id);
-            foldersConfiguration.push({
+            const syncthingFolder = {
               id,
               label,
               path: folder,
               devices,
               paused: false,
-            });
+              type: 'sendreceive',
+            };
+            const syncFolder = allFoldersResp.data.find((x) => x.id === id);
+            if (containerDataFlags.includes('r')) {
+              if (syncthingAppsFirstRun) {
+                if (!syncFolder) {
+                  log.info(`SyncthingApps stopping and cleaning appIdentifier ${appId}`);
+                  syncthingFolder.type = 'receiveonly';
+                  const cache = {
+                    numberOfExecutions: 1,
+                  };
+                  receiveOnlySyncthingAppsCache.set(appId, cache);
+                  // eslint-disable-next-line no-await-in-loop
+                  await appDockerStop(id);
+                  // eslint-disable-next-line no-await-in-loop
+                  await serviceHelper.delay(500);
+                  // eslint-disable-next-line no-await-in-loop
+                  await appDeleteDataInMountPoint(id);
+                  // eslint-disable-next-line no-await-in-loop
+                  await serviceHelper.delay(500);
+                } else {
+                  const cache = {
+                    restarted: true,
+                  };
+                  receiveOnlySyncthingAppsCache.set(appId, cache);
+                  if (syncFolder.type === 'receiveonly') {
+                    cache.restarted = false;
+                    cache.numberOfExecutions = 1;
+                    receiveOnlySyncthingAppsCache.set(appId, cache);
+                  }
+                }
+              } else if (receiveOnlySyncthingAppsCache.has(appId) && !receiveOnlySyncthingAppsCache.get(appId).restarted) {
+                const cache = receiveOnlySyncthingAppsCache.get(appId);
+                if (!cache.numberOfExecutionsRequired) {
+                  // eslint-disable-next-line no-await-in-loop
+                  const runningAppList = await getRunningAppList(installedApp.name);
+                  runningAppList.sort((a, b) => {
+                    if (a.broadcastedAt < b.broadcastedAt) {
+                      return -1;
+                    }
+                    if (a.broadcastedAt > b.broadcastedAt) {
+                      return 1;
+                    }
+                    if (a.ip < b.ip) {
+                      return -1;
+                    }
+                    if (a.ip > b.ip) {
+                      return 1;
+                    }
+                    return 0;
+                  });
+                  // eslint-disable-next-line no-await-in-loop
+                  const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+                  const index = runningAppList.findIndex((x) => x.ip === myIP);
+                  let numberOfExecutionsRequired = 2;
+                  if (index > 0) {
+                    numberOfExecutionsRequired = 24;
+                  }
+                  cache.numberOfExecutionsRequired = numberOfExecutionsRequired;
+                }
+                syncthingFolder.type = 'receiveonly';
+                cache.numberOfExecutions += 1;
+                if (cache.numberOfExecutions === cache.numberOfExecutionsRequired) {
+                  syncthingFolder.type = 'sendreceive';
+                } else if (cache.numberOfExecutions === cache.numberOfExecutionsRequired + 1) {
+                  log.info(`SyncthingApps starting appIdentifier ${appId}`);
+                  syncthingFolder.type = 'sendreceive';
+                  // eslint-disable-next-line no-await-in-loop
+                  await appDockerRestart(id);
+                  cache.restarted = true;
+                }
+                receiveOnlySyncthingAppsCache.set(appId, cache);
+              } else if (!receiveOnlySyncthingAppsCache.has(appId)) {
+                log.info(`SyncthingApps stopping and cleaning appIdentifier ${appId}`);
+                syncthingFolder.type = 'receiveonly';
+                const cache = {
+                  numberOfExecutions: 1,
+                };
+                receiveOnlySyncthingAppsCache.set(appId, cache);
+                // eslint-disable-next-line no-await-in-loop
+                await appDockerStop(id);
+                // eslint-disable-next-line no-await-in-loop
+                await serviceHelper.delay(500);
+                // eslint-disable-next-line no-await-in-loop
+                await appDeleteDataInMountPoint(id);
+                // eslint-disable-next-line no-await-in-loop
+                await serviceHelper.delay(500);
+              }
+            }
+            folderIds.push(id);
+            foldersConfiguration.push(syncthingFolder);
+            if (!syncFolder) {
+              newFoldersConfiguration.push(syncthingFolder);
+            } else if (syncFolder && (syncFolder.paused || syncFolder.type !== syncthingFolder.type)) {
+              newFoldersConfiguration.push(syncthingFolder);
+            }
           }
         }
       } else {
@@ -9963,7 +10207,7 @@ async function syncthingApps() {
           for (let i = 0; i < containersData.length; i += 1) {
             const container = containersData[i];
             const containerDataFlags = container.split(':')[1] ? container.split(':')[0] : '';
-            if (containerDataFlags.includes('s')) {
+            if (containerDataFlags.includes('s') || containerDataFlags.includes('r')) {
               const containerFolder = i === 0 ? '' : `/appdata${container.split(':')[1].replace(containersData[0], '')}`;
               const identifier = `${installedComponent.name}_${installedApp.name}`;
               const appId = dockerService.getAppIdentifier(identifier);
@@ -9994,29 +10238,126 @@ async function syncthingApps() {
                       deviceID,
                       name,
                       addresses,
+                      autoAcceptFolders: true,
                     };
                     devicesIds.push(deviceID);
                     if (deviceID !== myDeviceID.data) {
-                      devicesConfiguration.push(newDevice);
+                      const syncthingDeviceExists = allDevicesResp.data.find((device) => device.name === name);
+                      if (!syncthingDeviceExists) {
+                        devicesConfiguration.push(newDevice);
+                      }
                     }
                   }
                 }
               }
-              folderIds.push(id);
-              foldersConfiguration.push({
+              const syncthingFolder = {
                 id,
                 label,
                 path: folder,
                 devices,
                 paused: false,
-              });
+                type: 'sendreceive',
+              };
+              const syncFolder = allFoldersResp.data.find((x) => x.id === id);
+              if (containerDataFlags.includes('r')) {
+                if (syncthingAppsFirstRun) {
+                  if (!syncFolder) {
+                    log.info(`SyncthingApps stopping and cleaning appIdentifier ${appId}`);
+                    syncthingFolder.type = 'receiveonly';
+                    const cache = {
+                      numberOfExecutions: 1,
+                    };
+                    receiveOnlySyncthingAppsCache.set(appId, cache);
+                    // eslint-disable-next-line no-await-in-loop
+                    await appDockerStop(id);
+                    // eslint-disable-next-line no-await-in-loop
+                    await serviceHelper.delay(500);
+                    // eslint-disable-next-line no-await-in-loop
+                    await appDeleteDataInMountPoint(id);
+                    // eslint-disable-next-line no-await-in-loop
+                    await serviceHelper.delay(500);
+                  } else {
+                    const cache = {
+                      restarted: true,
+                    };
+                    receiveOnlySyncthingAppsCache.set(appId, cache);
+                    if (syncFolder.type === 'receiveonly') {
+                      cache.restarted = false;
+                      cache.numberOfExecutions = 1;
+                      receiveOnlySyncthingAppsCache.set(appId, cache);
+                    }
+                  }
+                } else if (receiveOnlySyncthingAppsCache.has(appId) && !receiveOnlySyncthingAppsCache.get(appId).restarted) {
+                  const cache = receiveOnlySyncthingAppsCache.get(appId);
+                  if (!cache.numberOfExecutionsRequired) {
+                    // eslint-disable-next-line no-await-in-loop
+                    const runningAppList = await getRunningAppList(installedApp.name);
+                    runningAppList.sort((a, b) => {
+                      if (a.broadcastedAt < b.broadcastedAt) {
+                        return -1;
+                      }
+                      if (a.broadcastedAt > b.broadcastedAt) {
+                        return 1;
+                      }
+                      if (a.ip < b.ip) {
+                        return -1;
+                      }
+                      if (a.ip > b.ip) {
+                        return 1;
+                      }
+                      return 0;
+                    });
+                    // eslint-disable-next-line no-await-in-loop
+                    const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+                    const index = runningAppList.findIndex((x) => x.ip === myIP);
+                    let numberOfExecutionsRequired = 2;
+                    if (index > 0) {
+                      numberOfExecutionsRequired = 24;
+                    }
+                    cache.numberOfExecutionsRequired = numberOfExecutionsRequired;
+                  }
+                  syncthingFolder.type = 'receiveonly';
+                  cache.numberOfExecutions += 1;
+                  if (cache.numberOfExecutions === cache.numberOfExecutionsRequired) {
+                    syncthingFolder.type = 'sendreceive';
+                  } else if (cache.numberOfExecutions === cache.numberOfExecutionsRequired + 1) {
+                    log.info(`SyncthingApps starting appIdentifier ${appId}`);
+                    syncthingFolder.type = 'sendreceive';
+                    // eslint-disable-next-line no-await-in-loop
+                    await appDockerRestart(id);
+                    cache.restarted = true;
+                  }
+                  receiveOnlySyncthingAppsCache.set(appId, cache);
+                } else if (!receiveOnlySyncthingAppsCache.has(appId)) {
+                  log.info(`SyncthingApps stopping and cleaning appIdentifier ${appId}`);
+                  syncthingFolder.type = 'receiveonly';
+                  const cache = {
+                    numberOfExecutions: 1,
+                  };
+                  receiveOnlySyncthingAppsCache.set(appId, cache);
+                  // eslint-disable-next-line no-await-in-loop
+                  await appDockerStop(id);
+                  // eslint-disable-next-line no-await-in-loop
+                  await serviceHelper.delay(500);
+                  // eslint-disable-next-line no-await-in-loop
+                  await appDeleteDataInMountPoint(id);
+                  // eslint-disable-next-line no-await-in-loop
+                  await serviceHelper.delay(500);
+                }
+              }
+              folderIds.push(id);
+              foldersConfiguration.push(syncthingFolder);
+              if (!syncFolder) {
+                newFoldersConfiguration.push(syncthingFolder);
+              } else if (syncFolder && (syncFolder.paused || syncFolder.type !== syncthingFolder.type)) {
+                newFoldersConfiguration.push(syncthingFolder);
+              }
             }
           }
         }
       }
     }
     // remove folders that should not be synced anymore (this shall actually not trigger)
-    const allFoldersResp = await syncthingService.getConfigFolders();
     const nonUsedFolders = allFoldersResp.data.filter((syncthingFolder) => !folderIds.includes(syncthingFolder.id));
     // eslint-disable-next-line no-restricted-syntax
     for (const nonUsedFolder of nonUsedFolders) {
@@ -10025,7 +10366,6 @@ async function syncthingApps() {
       await syncthingService.adjustConfigFolders('delete', undefined, nonUsedFolder.id);
     }
     // remove obsolete devices
-    const allDevicesResp = await syncthingService.getConfigDevices();
     const nonUsedDevices = allDevicesResp.data.filter((syncthingDevice) => !devicesIds.includes(syncthingDevice.deviceID));
     // eslint-disable-next-line no-restricted-syntax
     for (const nonUsedDevice of nonUsedDevices) {
@@ -10040,9 +10380,12 @@ async function syncthingApps() {
     // now we have new accurate devicesConfiguration and foldersConfiguration
     // add more of current devices
     // excludes our current deviceID adjustment
-    await syncthingService.adjustConfigDevices('put', devicesConfiguration);
-    // add more of current folders
-    await syncthingService.adjustConfigFolders('put', foldersConfiguration);
+    if (devicesConfiguration.length >= 0) {
+      await syncthingService.adjustConfigDevices('put', devicesConfiguration);
+    }
+    if (newFoldersConfiguration.length >= 0) {
+      await syncthingService.adjustConfigFolders('put', newFoldersConfiguration);
+    }
     // all configuration changes applied
 
     // check for errors in folders and if true reset that index database
@@ -10074,7 +10417,8 @@ async function syncthingApps() {
     log.error(error);
   } finally {
     updateSyncthingRunning = false;
-    await serviceHelper.delay(2 * 60 * 1000);
+    syncthingAppsFirstRun = false;
+    await serviceHelper.delay(30 * 1000);
     syncthingApps();
   }
 }
