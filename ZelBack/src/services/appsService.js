@@ -10157,7 +10157,10 @@ async function syncthingApps() {
                   const index = runningAppList.findIndex((x) => x.ip === myIP);
                   let numberOfExecutionsRequired = 2;
                   if (index > 0) {
-                    numberOfExecutionsRequired = 24;
+                    numberOfExecutionsRequired = 2 + 12 * index;
+                  }
+                  if (numberOfExecutionsRequired > 60) {
+                    numberOfExecutionsRequired = 60;
                   }
                   cache.numberOfExecutionsRequired = numberOfExecutionsRequired;
                 }
@@ -10292,6 +10295,7 @@ async function syncthingApps() {
                   if (!cache.numberOfExecutionsRequired) {
                     // eslint-disable-next-line no-await-in-loop
                     const runningAppList = await getRunningAppList(installedApp.name);
+                    log.info(`SyncthingApps appIdentifier ${appId} is running on nodes ${JSON.stringify(runningAppList)}`);
                     runningAppList.sort((a, b) => {
                       if (a.broadcastedAt < b.broadcastedAt) {
                         return -1;
@@ -10310,14 +10314,19 @@ async function syncthingApps() {
                     // eslint-disable-next-line no-await-in-loop
                     const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
                     const index = runningAppList.findIndex((x) => x.ip === myIP);
+                    log.info(`SyncthingApps appIdentifier ${appId} is node index ${index}`);
                     let numberOfExecutionsRequired = 2;
                     if (index > 0) {
-                      numberOfExecutionsRequired = 24;
+                      numberOfExecutionsRequired = 2 + 12 * index;
+                    }
+                    if (numberOfExecutionsRequired > 60) {
+                      numberOfExecutionsRequired = 60;
                     }
                     cache.numberOfExecutionsRequired = numberOfExecutionsRequired;
                   }
                   syncthingFolder.type = 'receiveonly';
                   cache.numberOfExecutions += 1;
+                  log.info(`SyncthingApps appIdentifier ${appId} execution ${cache.numberOfExecutions} of ${cache.numberOfExecutionsRequired + 1} to start the app`);
                   if (cache.numberOfExecutions === cache.numberOfExecutionsRequired) {
                     syncthingFolder.type = 'sendreceive';
                   } else if (cache.numberOfExecutions === cache.numberOfExecutionsRequired + 1) {
