@@ -10022,7 +10022,6 @@ let syncthingAppsFirstRun = true;
 // update syncthing configuration for locally installed apps
 async function syncthingApps() {
   try {
-    log.info('SyncthingApps starting');
     // do not run if installationInProgress or removalInProgress
     if (installationInProgress || removalInProgress || updateSyncthingRunning) {
       return;
@@ -10426,7 +10425,6 @@ async function syncthingApps() {
   } catch (error) {
     log.error(error);
   } finally {
-    log.info('SyncthingApps finished');
     updateSyncthingRunning = false;
     syncthingAppsFirstRun = false;
     await serviceHelper.delay(30 * 1000);
