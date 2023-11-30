@@ -238,7 +238,6 @@ function handleIncomingConnection(websocket, req, expressWS) {
     const msgObj = serviceHelper.ensureObject(msg);
     const messageHash = hash(msgObj.data);
     if (myCacheTemp.has(messageHash)) {
-      log.error(`New message duplicated received: ${JSON.stringify(msgObj.data)}`);
       return;
     }
     myCacheTemp.set(messageHash, messageHash);
@@ -538,7 +537,6 @@ async function initiateAndHandleConnection(connection) {
       const msgObj = serviceHelper.ensureObject(evt.data);
       const messageHash = hash(msgObj.data);
       if (myCacheTemp.has(messageHash)) {
-        log.error(`New message duplicated received: ${JSON.stringify(msgObj.data)}`);
         return;
       }
       myCacheTemp.set(messageHash, messageHash);

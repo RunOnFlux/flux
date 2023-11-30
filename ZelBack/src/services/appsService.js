@@ -8942,6 +8942,7 @@ async function checkAndNotifyPeersOfRunningApps() {
         // eslint-disable-next-line no-await-in-loop
         await storeAppRunningMessage(newAppRunningMessage);
         if (daemonHeight < config.fluxapps.apprunningv2 || installedAndRunning.length === 1) {
+          log.error(`Broadcasting fluxapprunning: ${JSON.stringify(newAppRunningMessage)}`);
           // eslint-disable-next-line no-await-in-loop
           await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessage);
           // eslint-disable-next-line no-await-in-loop
@@ -8960,6 +8961,7 @@ async function checkAndNotifyPeersOfRunningApps() {
           ip: myIP,
           broadcastedAt: new Date().getTime(),
         };
+        log.error(`Broadcasting fluxapprunning: ${JSON.stringify(newAppRunningMessageV2)}`);
         // eslint-disable-next-line no-await-in-loop
         await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessageV2);
         // eslint-disable-next-line no-await-in-loop
