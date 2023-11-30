@@ -148,10 +148,7 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
 function verifyTimestampInFluxBroadcast(data, currentTimeStamp, maxOld = 300000) {
   // eslint-disable-next-line no-param-reassign
   const dataObj = serviceHelper.ensureObject(data);
-  let { timestamp } = dataObj; // ms
-  if (!timestamp) {
-    timestamp = dataObj.broadcastedAt;
-  }
+  const { timestamp } = dataObj; // ms
   // eslint-disable-next-line no-param-reassign
   currentTimeStamp = currentTimeStamp || Date.now(); // ms
   if (currentTimeStamp < (timestamp + maxOld)) { // not older than 5 mins
