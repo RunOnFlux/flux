@@ -117,9 +117,9 @@ async function handleAppRunningMessage(message, fromIP, port) {
         wsList.splice(incPeerIndex, 1);
       }
       fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
-      log.error(`fluxapprunning message: ${JSON.stringify(message.data)} processed and sent to ${JSON.stringify(wsListOut.length)} out peers and to ${JSON.stringify(wsList.length)} incoming peers`);
-    } else {
-      log.error(`error fluxapprunning message: ${JSON.stringify(message.data)} rebroadcastToPeers ${JSON.stringify(rebroadcastToPeers)} and timestampOK ${JSON.stringify(timestampOK)}`);
+      if (incPeerIndex < 0 && outPeerIndex < 0) {
+        log.error(`Peer with ip ${fromIP} and port ${fromIP} not found in outgoing clients: ${JSON.stringify(wsListOut)} and incoming clients: ${JSON.stringify(wsList)}`);
+      }
     }
   } catch (error) {
     log.error(error);
