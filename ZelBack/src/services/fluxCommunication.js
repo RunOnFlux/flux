@@ -125,6 +125,7 @@ async function handleAppRunningMessage(message, fromIP, port) {
         wsList.splice(incPeerIndex, 1);
       }
       fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
+      log.error(`incoming message sent to ${wsList.length} incoming peers and ${wsListOut.length} outgoing peers`);
     }
   } catch (error) {
     log.error(error);
