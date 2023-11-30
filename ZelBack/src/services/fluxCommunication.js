@@ -238,9 +238,11 @@ function handleIncomingConnection(websocket, req, expressWS) {
     const msgObj = serviceHelper.ensureObject(msg);
     const messageHash = hash(msgObj.data);
     if (myCacheTemp.has(messageHash)) {
+      log.error(`New message duplicated received: ${JSON.stringify(msgObj.data)}`);
       return;
     }
     myCacheTemp.set(messageHash, messageHash);
+    log.error(`New message received: ${JSON.stringify(msgObj.data)}`);
     // check rate limit
     const rateOK = fluxNetworkHelper.lruRateLimit(`${ipv4Peer}:${port}`, 90);
     if (!rateOK) {
@@ -280,7 +282,9 @@ function handleIncomingConnection(websocket, req, expressWS) {
           log.error(e);
         }
       }
+      log.error(`Message received: ${JSON.stringify(msgObj.data)} failed verifyTimestampInFluxBroadcast`);
     } else {
+      log.error(`Message received: ${JSON.stringify(msgObj.data)} failed verifyFluxBroadcast`);
       // we dont like this peer as it sent wrong message (wrong, or message belonging to node no longer on network). Lets close the connection
       // and add him to blocklist
       try {
@@ -533,9 +537,11 @@ async function initiateAndHandleConnection(connection) {
       const msgObj = serviceHelper.ensureObject(evt.data);
       const messageHash = hash(msgObj.data);
       if (myCacheTemp.has(messageHash)) {
+        log.error(`New message duplicated received: ${JSON.stringify(msgObj.data)}`);
         return;
       }
       myCacheTemp.set(messageHash, messageHash);
+      log.error(`New message received: ${JSON.stringify(msgObj.data)}`);
       // incoming messages from outgoing connections
       const currentTimeStamp = Date.now(); // ms
       // check rate limit
@@ -570,6 +576,7 @@ async function initiateAndHandleConnection(connection) {
           log.warn(`Unrecognised message type of ${msgObj.data.type}`);
         }
       } else {
+        log.error(`Message received: ${JSON.stringify(msgObj.data)} failed verifyFluxBroadcast`);
         // we dont like this peer as it sent wrong message (wrong, or message belonging to node no longer on network). Lets close the connection
         // and add him to blocklist
         try {
