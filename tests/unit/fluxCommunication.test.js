@@ -124,7 +124,7 @@ describe('fluxCommunication tests', () => {
 
       const messageString = JSON.stringify(message);
       const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIp && client.port !== port);
-      const wsListIn = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIp && client.port !== port);
+      const wsListIn = incomingConnections.filter((client) => client._peername.address.replace('::ffff:', '') !== fromIp && client.port !== port);
 
       await fluxCommunication.handleAppMessages(message, fromIp, port);
 
@@ -279,7 +279,7 @@ describe('fluxCommunication tests', () => {
 
       const messageString = JSON.stringify(message);
       const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIp && client.port !== port);
-      const wsListIn = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIp && client.port !== port);
+      const wsListIn = incomingConnections.filter((client) => client.peername.address.replace('::ffff:', '') !== fromIp && client.port !== port);
 
       await fluxCommunication.handleAppRunningMessage(message, fromIp, port);
 
