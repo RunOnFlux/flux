@@ -103,10 +103,18 @@ async function handleAppRunningMessage(message, fromIP, port) {
     if (rebroadcastToPeers === true && timestampOK) {
       const messageString = serviceHelper.ensureString(message);
       log.error(`outgoingConnections: ${JSON.stringify(outgoingConnections)} going to be filtered by ip ${fromIP} and port ${port}`);
-      const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP && client.port !== port);
+      const wsListOut = outgoingConnections;
+      const outPeerIndex = outgoingConnections.findIndex((client) => client._socket.remoteAddress === fromIP && client.port === port);
+      if (outPeerIndex >= 0) {
+        wsListOut.splice(outPeerIndex, 1);
+      }
       fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
       await serviceHelper.delay(500);
-      const wsList = incomingConnections.filter((client) => client._socket._peername.address.replace('::ffff:', '') !== fromIP && client.port !== port);
+      const wsList = incomingConnections;
+      const incPeerIndex = incomingConnections.findIndex((client) => client._socket._peername.address.replace('::ffff:', '') === fromIP && client.port === port);
+      if (incPeerIndex >= 0) {
+        wsList.splice(incPeerIndex, 1);
+      }
       fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
       log.error(`fluxapprunning message: ${JSON.stringify(message.data)} processed and sent to ${JSON.stringify(wsListOut.length)} out peers and to ${JSON.stringify(wsList.length)} incoming peers`);
     } else {
