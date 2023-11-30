@@ -113,7 +113,6 @@ async function handleAppRunningMessage(message, fromIP, port) {
       const wsListOut = outgoingConnections;
       const outPeerIndex = outgoingConnections.findIndex((client) => client._socket.remoteAddress === fromIP && client.port === port);
       if (outPeerIndex >= 0) {
-        log.error(`outgoingPeer found on index: ${outPeerIndex}`);
         wsListOut.splice(outPeerIndex, 1);
       }
       fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
@@ -121,11 +120,9 @@ async function handleAppRunningMessage(message, fromIP, port) {
       const wsList = incomingConnections;
       const incPeerIndex = incomingConnections.findIndex((client) => client._socket.remoteAddress.replace('::ffff:', '') === fromIP && client.port === port);
       if (incPeerIndex >= 0) {
-        log.error(`incomingPeer found on index: ${incPeerIndex}`);
         wsList.splice(incPeerIndex, 1);
       }
       fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
-      log.error(`incoming message sent to ${wsList.length} incoming peers and ${wsListOut.length} outgoing peers`);
     }
   } catch (error) {
     log.error(error);
@@ -157,7 +154,7 @@ async function handleIPChangedMessage(message, fromIP, port) {
       fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
       await serviceHelper.delay(500);
       const wsList = incomingConnections;
-      const incPeerIndex = incomingConnections.findIndex((client) => client._socket.remoteAddress.address.replace('::ffff:', '') === fromIP && client.port === port);
+      const incPeerIndex = incomingConnections.findIndex((client) => client._socket.remoteAddress.replace('::ffff:', '') === fromIP && client.port === port);
       if (incPeerIndex >= 0) {
         wsList.splice(incPeerIndex, 1);
       }
@@ -193,7 +190,7 @@ async function handleAppRemovedMessage(message, fromIP, port) {
       fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
       await serviceHelper.delay(500);
       const wsList = incomingConnections;
-      const incPeerIndex = incomingConnections.findIndex((client) => client._socket.remoteAddress.address.replace('::ffff:', '') === fromIP && client.port === port);
+      const incPeerIndex = incomingConnections.findIndex((client) => client._socket.remoteAddress.replace('::ffff:', '') === fromIP && client.port === port);
       if (incPeerIndex >= 0) {
         wsList.splice(incPeerIndex, 1);
       }
@@ -226,14 +223,14 @@ function handleIncomingConnection(websocket, req, expressWS) {
     }, 1000);
     return;
   }
-  const findPeer = incomingPeers.find((p) => p.ip === ws._socket._peername.address.replace('::ffff:', '') && p.port === port);
+  const findPeer = incomingPeers.find((p) => p.ip === ws._socket.remoteAddress.replace('::ffff:', '') && p.port === port);
   if (findPeer) {
     setTimeout(() => {
       ws.close(1000, 'Peer received is already in incomingPeers list');
     }, 1000);
     return;
   }
-  const ipv4Peer = ws._socket._peername.address.replace('::ffff:', '');
+  const ipv4Peer = ws._socket.remoteAddress.replace('::ffff:', '');
   const peer = {
     ip: ipv4Peer,
     port,
@@ -337,9 +334,9 @@ function handleIncomingConnection(websocket, req, expressWS) {
     }
   });
   ws.on('error', async (msg) => {
-    const ip = ws._socket._peername.address.replace('::ffff:', '');
+    const ip = ws._socket.remoteAddress.replace('::ffff:', '');
     log.warn(`Incoming connection error ${ip}:${port}`);
-    const ocIndex = incomingConnections.findIndex((incomingCon) => ip === incomingCon._socket._peername.address.replace('::ffff:', '') && ws.port === incomingCon.port);
+    const ocIndex = incomingConnections.findIndex((incomingCon) => ip === incomingCon._socket.remoteAddress.replace('::ffff:', '') && ws.port === incomingCon.port);
     const foundPeer = incomingPeers.find((mypeer) => mypeer.ip === ip && mypeer.port === port);
     if (ocIndex > -1) {
       incomingConnections.splice(ocIndex, 1);
@@ -353,9 +350,9 @@ function handleIncomingConnection(websocket, req, expressWS) {
     log.warn(`Incoming connection errored with: ${msg}`);
   });
   ws.on('close', async (msg) => {
-    const ip = ws._socket._peername.address.replace('::ffff:', '');
+    const ip = ws._socket.remoteAddress.replace('::ffff:', '');
     log.warn(`Incoming connection close ${ip}:${port}`);
-    const ocIndex = incomingConnections.findIndex((incomingCon) => ip === incomingCon._socket._peername.address.replace('::ffff:', '') && ws.port === incomingCon.port);
+    const ocIndex = incomingConnections.findIndex((incomingCon) => ip === incomingCon._socket.remoteAddress.replace('::ffff:', '') && ws.port === incomingCon.port);
     const foundPeer = incomingPeers.find((mypeer) => mypeer.ip === ip && mypeer.port === port);
     if (ocIndex > -1) {
       incomingConnections.splice(ocIndex, 1);
