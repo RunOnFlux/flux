@@ -223,14 +223,14 @@ function handleIncomingConnection(websocket, req, expressWS) {
     }, 1000);
     return;
   }
-  const findPeer = incomingPeers.find((p) => p.ip === ws._socket.remoteAddress.replace('::ffff:', '') && p.port === port);
+  const findPeer = incomingPeers.find((p) => p.ip === ws._socket._peername.address.replace('::ffff:', '') && p.port === port);
   if (findPeer) {
     setTimeout(() => {
       ws.close(1000, 'Peer received is already in incomingPeers list');
     }, 1000);
     return;
   }
-  const ipv4Peer = ws._socket.remoteAddress.replace('::ffff:', '');
+  const ipv4Peer = ws._socket._peername.address.replace('::ffff:', '');
   const peer = {
     ip: ipv4Peer,
     port,
@@ -334,9 +334,9 @@ function handleIncomingConnection(websocket, req, expressWS) {
     }
   });
   ws.on('error', async (msg) => {
-    const ip = ws._socket.remoteAddress;
+    const ip = ws._socket._peername.address.replace('::ffff:', '');
     log.warn(`Incoming connection error ${ip}:${port}`);
-    const ocIndex = incomingConnections.findIndex((incomingCon) => ws._socket.remoteAddress === incomingCon._socket.remoteAddress && ws.port === incomingCon.port);
+    const ocIndex = incomingConnections.findIndex((incomingCon) => ip === incomingCon._socket._peername.address.replace('::ffff:', '') && ws.port === incomingCon.port);
     const foundPeer = incomingPeers.find((mypeer) => mypeer.ip === ip && mypeer.port === port);
     if (ocIndex > -1) {
       incomingConnections.splice(ocIndex, 1);
@@ -350,9 +350,9 @@ function handleIncomingConnection(websocket, req, expressWS) {
     log.warn(`Incoming connection errored with: ${msg}`);
   });
   ws.on('close', async (msg) => {
-    const ip = ws._socket.remoteAddress;
+    const ip = ws._socket._peername.address.replace('::ffff:', '');
     log.warn(`Incoming connection close ${ip}:${port}`);
-    const ocIndex = incomingConnections.findIndex((incomingCon) => ws._socket.remoteAddress === incomingCon._socket.remoteAddress && ws.port === incomingCon.port);
+    const ocIndex = incomingConnections.findIndex((incomingCon) => ip === incomingCon._socket._peername.address.replace('::ffff:', '') && ws.port === incomingCon.port);
     const foundPeer = incomingPeers.find((mypeer) => mypeer.ip === ip && mypeer.port === port);
     if (ocIndex > -1) {
       incomingConnections.splice(ocIndex, 1);
