@@ -76,7 +76,6 @@ async function handleAppMessages(message, fromIP, port) {
       const wsListOut = outgoingConnections;
       const outPeerIndex = outgoingConnections.findIndex((client) => client._socket.remoteAddress === fromIP && client.port === port);
       if (outPeerIndex >= 0) {
-        log.error(`outgoingPeer found on index: ${outPeerIndex}`);
         wsListOut.splice(outPeerIndex, 1);
       }
       fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
@@ -84,7 +83,6 @@ async function handleAppMessages(message, fromIP, port) {
       const wsList = incomingConnections;
       const incPeerIndex = incomingConnections.findIndex((client) => client._socket._peername.address.replace('::ffff:', '') === fromIP && client.port === port);
       if (incPeerIndex >= 0) {
-        log.error(`incoming peer found on index: ${incPeerIndex}`);
         wsList.splice(incPeerIndex, 1);
       }
       fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
@@ -115,7 +113,6 @@ async function handleAppRunningMessage(message, fromIP, port) {
       const wsListOut = outgoingConnections;
       const outPeerIndex = outgoingConnections.findIndex((client) => client._socket.remoteAddress === fromIP && client.port === port);
       if (outPeerIndex >= 0) {
-        log.error(`outgoingPeer found on index: ${outPeerIndex}`);
         wsListOut.splice(outPeerIndex, 1);
       }
       fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
@@ -123,7 +120,6 @@ async function handleAppRunningMessage(message, fromIP, port) {
       const wsList = incomingConnections;
       const incPeerIndex = incomingConnections.findIndex((client) => client._socket._peername.address.replace('::ffff:', '') === fromIP && client.port === port);
       if (incPeerIndex >= 0) {
-        log.error(`incoming peer found on index: ${incPeerIndex}`);
         wsList.splice(incPeerIndex, 1);
       }
       fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
@@ -153,7 +149,6 @@ async function handleIPChangedMessage(message, fromIP, port) {
       const wsListOut = outgoingConnections;
       const outPeerIndex = outgoingConnections.findIndex((client) => client._socket.remoteAddress === fromIP && client.port === port);
       if (outPeerIndex >= 0) {
-        log.error(`outgoingPeer found on index: ${outPeerIndex}`);
         wsListOut.splice(outPeerIndex, 1);
       }
       fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
@@ -161,7 +156,6 @@ async function handleIPChangedMessage(message, fromIP, port) {
       const wsList = incomingConnections;
       const incPeerIndex = incomingConnections.findIndex((client) => client._socket._peername.address.replace('::ffff:', '') === fromIP && client.port === port);
       if (incPeerIndex >= 0) {
-        log.error(`incoming peer found on index: ${incPeerIndex}`);
         wsList.splice(incPeerIndex, 1);
       }
       fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
@@ -191,7 +185,6 @@ async function handleAppRemovedMessage(message, fromIP, port) {
       const wsListOut = outgoingConnections;
       const outPeerIndex = outgoingConnections.findIndex((client) => client._socket.remoteAddress === fromIP && client.port === port);
       if (outPeerIndex >= 0) {
-        log.error(`outgoingPeer found on index: ${outPeerIndex}`);
         wsListOut.splice(outPeerIndex, 1);
       }
       fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
@@ -199,7 +192,6 @@ async function handleAppRemovedMessage(message, fromIP, port) {
       const wsList = incomingConnections;
       const incPeerIndex = incomingConnections.findIndex((client) => client._socket._peername.address.replace('::ffff:', '') === fromIP && client.port === port);
       if (incPeerIndex >= 0) {
-        log.error(`incoming peer found on index: ${incPeerIndex}`);
         wsList.splice(incPeerIndex, 1);
       }
       fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
@@ -319,11 +311,8 @@ function handleIncomingConnection(websocket, req, expressWS) {
         } catch (e) {
           log.error(e);
         }
-      } else {
-        log.error(`Message received: ${JSON.stringify(msgObj.data)} failed verifyTimestampInFluxBroadcast`);
       }
     } else {
-      log.error(`Message received: ${JSON.stringify(msgObj.data)} failed verifyFluxBroadcast`);
       // we dont like this peer as it sent wrong message (wrong, or message belonging to node no longer on network). Lets close the connection
       // and add him to blocklist
       try {
@@ -613,7 +602,6 @@ async function initiateAndHandleConnection(connection) {
           log.warn(`Unrecognised message type of ${msgObj.data.type}`);
         }
       } else {
-        log.error(`Message received: ${JSON.stringify(msgObj.data)} failed verifyFluxBroadcast`);
         // we dont like this peer as it sent wrong message (wrong, or message belonging to node no longer on network). Lets close the connection
         // and add him to blocklist
         try {
