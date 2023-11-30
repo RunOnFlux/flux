@@ -107,6 +107,9 @@ async function handleAppRunningMessage(message, fromIP, port) {
       await serviceHelper.delay(500);
       const wsList = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIP && client.port !== port);
       fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
+      log.error(`fluxapprunning message: ${JSON.stringify(message.data)} processed and sent to ${JSON.stringify(wsListOut.length)} out peers and to ${JSON.stringify(wsList.length)} incoming peers`);
+    } else {
+      log.error(`error fluxapprunning message: ${JSON.stringify(message.data)} rebroadcastToPeers ${JSON.stringify(rebroadcastToPeers)} and timestampOK ${JSON.stringify(timestampOK)}`);
     }
   } catch (error) {
     log.error(error);
@@ -241,7 +244,6 @@ function handleIncomingConnection(websocket, req, expressWS) {
       return;
     }
     myCacheTemp.set(messageHash, messageHash);
-    log.error(`New message received: ${JSON.stringify(msgObj.data)}`);
     // check rate limit
     const rateOK = fluxNetworkHelper.lruRateLimit(`${ipv4Peer}:${port}`, 90);
     if (!rateOK) {
@@ -540,7 +542,6 @@ async function initiateAndHandleConnection(connection) {
         return;
       }
       myCacheTemp.set(messageHash, messageHash);
-      log.error(`New message received: ${JSON.stringify(msgObj.data)}`);
       // incoming messages from outgoing connections
       const currentTimeStamp = Date.now(); // ms
       // check rate limit
