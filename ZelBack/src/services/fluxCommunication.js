@@ -106,7 +106,6 @@ async function handleAppRunningMessage(message, fromIP, port) {
       const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP && client.port !== port);
       fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
       await serviceHelper.delay(500);
-      log.error(`incomingConnections: ${JSON.stringify(incomingConnections)} going to be filtered by ip ${fromIP} and port ${port}`);
       const wsList = incomingConnections.filter((client) => client._socket._peername.replace('::ffff:', '') !== fromIP && client.port !== port);
       fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
       log.error(`fluxapprunning message: ${JSON.stringify(message.data)} processed and sent to ${JSON.stringify(wsListOut.length)} out peers and to ${JSON.stringify(wsList.length)} incoming peers`);
