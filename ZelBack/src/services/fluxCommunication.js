@@ -281,8 +281,9 @@ function handleIncomingConnection(websocket, req, expressWS) {
         } catch (e) {
           log.error(e);
         }
+      } else {
+        log.error(`Message received: ${JSON.stringify(msgObj.data)} failed verifyTimestampInFluxBroadcast`);
       }
-      log.error(`Message received: ${JSON.stringify(msgObj.data)} failed verifyTimestampInFluxBroadcast`);
     } else {
       log.error(`Message received: ${JSON.stringify(msgObj.data)} failed verifyFluxBroadcast`);
       // we dont like this peer as it sent wrong message (wrong, or message belonging to node no longer on network). Lets close the connection
