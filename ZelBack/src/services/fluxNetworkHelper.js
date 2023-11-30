@@ -496,7 +496,7 @@ async function closeIncomingConnection(ip, port, expressWS, clientToClose) {
   const clientsSet = expressWS.clients || [];
   let wsObj = null || clientToClose;
   clientsSet.forEach((client) => {
-    if (client._socket._peername.address === ip && client.port === port) {
+    if (client._socket.remoteAddress === ip && client.port === port) {
       wsObj = client;
     }
   });
@@ -550,7 +550,7 @@ function getIncomingConnections(req, res, expressWS) {
   const clientsSet = expressWS.clients;
   const connections = [];
   clientsSet.forEach((client) => {
-    connections.push(client._socket._peername.address);
+    connections.push(client._socket.remoteAddress);
   });
   const message = messageHelper.createDataMessage(connections);
   response = message;
