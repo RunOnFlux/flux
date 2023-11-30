@@ -102,10 +102,10 @@ async function handleAppRunningMessage(message, fromIP, port) {
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
     if (rebroadcastToPeers === true && timestampOK) {
       const messageString = serviceHelper.ensureString(message);
-      log.error(`outgoingConnections: ${JSON.stringify(outgoingConnections)} going to be filtered by ip ${fromIP} and port ${port}`);
       const wsListOut = outgoingConnections;
       const outPeerIndex = outgoingConnections.findIndex((client) => client._socket.remoteAddress === fromIP && client.port === port);
       if (outPeerIndex >= 0) {
+        log.error(`outgoingPeer found on index: ${outPeerIndex}`);
         wsListOut.splice(outPeerIndex, 1);
       }
       fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
@@ -113,11 +113,10 @@ async function handleAppRunningMessage(message, fromIP, port) {
       const wsList = incomingConnections;
       const incPeerIndex = incomingConnections.findIndex((client) => client._socket._peername.address.replace('::ffff:', '') === fromIP && client.port === port);
       if (incPeerIndex >= 0) {
+        log.error(`incoming peer found on index: ${outPeerIndex}`);
         wsList.splice(incPeerIndex, 1);
       }
       fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
-      log.error(`fluxapprunning message: ${JSON.stringify(message.data)} processed and sent to ${JSON.stringify(wsListOut.length)} out peers and to ${JSON.stringify(wsList.length)} incoming peers`);
-    } else {
       log.error(`error fluxapprunning message: ${JSON.stringify(message.data)} rebroadcastToPeers ${JSON.stringify(rebroadcastToPeers)} and timestampOK ${JSON.stringify(timestampOK)}`);
     }
   } catch (error) {
