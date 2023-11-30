@@ -113,7 +113,7 @@ async function handleAppRunningMessage(message, fromIP, port) {
       const wsList = incomingConnections;
       const incPeerIndex = incomingConnections.findIndex((client) => client._socket._peername.address.replace('::ffff:', '') === fromIP && client.port === port);
       if (incPeerIndex >= 0) {
-        log.error(`incoming peer found on index: ${outPeerIndex}`);
+        log.error(`incoming peer found on index: ${incPeerIndex}`);
         wsList.splice(incPeerIndex, 1);
       }
       fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
