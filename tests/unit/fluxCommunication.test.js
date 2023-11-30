@@ -123,8 +123,16 @@ describe('fluxCommunication tests', () => {
       incomingConnections.push(wsIncoming);
 
       const messageString = JSON.stringify(message);
-      const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIp && client.port !== port);
-      const wsListIn = incomingConnections.filter((client) => client._socket._peername.address.replace('::ffff:', '') !== fromIp && client.port !== port);
+      const wsListOut = outgoingConnections;
+      const outPeerIndex = outgoingConnections.findIndex((client) => client._socket.remoteAddress === fromIp && client.port === port);
+      if (outPeerIndex >= 0) {
+        wsListOut.splice(outPeerIndex, 1);
+      }
+      const wsListIn = incomingConnections;
+      const incPeerIndex = incomingConnections.findIndex((client) => client._socket._peername.address.replace('::ffff:', '') === fromIp && client.port === port);
+      if (incPeerIndex >= 0) {
+        wsListIn.splice(incPeerIndex, 1);
+      }
 
       await fluxCommunication.handleAppMessages(message, fromIp, port);
 

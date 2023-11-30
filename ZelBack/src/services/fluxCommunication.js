@@ -73,11 +73,24 @@ async function handleAppMessages(message, fromIP, port) {
     const rebroadcastToPeers = await appsService.storeAppTemporaryMessage(message.data, true);
     if (rebroadcastToPeers === true) {
       const messageString = serviceHelper.ensureString(message);
-      const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP && client.port !== port);
+      const wsListOut = outgoingConnections;
+      const outPeerIndex = outgoingConnections.findIndex((client) => client._socket.remoteAddress === fromIP && client.port === port);
+      if (outPeerIndex >= 0) {
+        log.error(`outgoingPeer found on index: ${outPeerIndex}`);
+        wsListOut.splice(outPeerIndex, 1);
+      }
       fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
-      await serviceHelper.delay(100);
-      const wsList = incomingConnections.filter((client) => client._socket._peername.address.replace('::ffff:', '') !== fromIP && client.port !== port);
+      await serviceHelper.delay(500);
+      const wsList = incomingConnections;
+      const incPeerIndex = incomingConnections.findIndex((client) => client._socket._peername.address.replace('::ffff:', '') === fromIP && client.port === port);
+      if (incPeerIndex >= 0) {
+        log.error(`incoming peer found on index: ${incPeerIndex}`);
+        wsList.splice(incPeerIndex, 1);
+      }
       fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
+      if (incPeerIndex < 0 && outPeerIndex < 0) {
+        log.error(`Peer with ip ${fromIP} and port ${port} not found in outgoing clients: ${JSON.stringify(wsListOut)} and incoming clients: ${JSON.stringify(wsList)}`);
+      }
     }
   } catch (error) {
     log.error(error);
@@ -143,11 +156,24 @@ async function handleIPChangedMessage(message, fromIP, port) {
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
     if (rebroadcastToPeers && timestampOK) {
       const messageString = serviceHelper.ensureString(message);
-      const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP && client.port !== port);
+      const wsListOut = outgoingConnections;
+      const outPeerIndex = outgoingConnections.findIndex((client) => client._socket.remoteAddress === fromIP && client.port === port);
+      if (outPeerIndex >= 0) {
+        log.error(`outgoingPeer found on index: ${outPeerIndex}`);
+        wsListOut.splice(outPeerIndex, 1);
+      }
       fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
       await serviceHelper.delay(500);
-      const wsList = incomingConnections.filter((client) => client._socket._peername.address.replace('::ffff:', '') !== fromIP && client.port !== port);
+      const wsList = incomingConnections;
+      const incPeerIndex = incomingConnections.findIndex((client) => client._socket._peername.address.replace('::ffff:', '') === fromIP && client.port === port);
+      if (incPeerIndex >= 0) {
+        log.error(`incoming peer found on index: ${incPeerIndex}`);
+        wsList.splice(incPeerIndex, 1);
+      }
       fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
+      if (incPeerIndex < 0 && outPeerIndex < 0) {
+        log.error(`Peer with ip ${fromIP} and port ${port} not found in outgoing clients: ${JSON.stringify(wsListOut)} and incoming clients: ${JSON.stringify(wsList)}`);
+      }
     }
   } catch (error) {
     log.error(error);
@@ -171,11 +197,24 @@ async function handleAppRemovedMessage(message, fromIP, port) {
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
     if (rebroadcastToPeers && timestampOK) {
       const messageString = serviceHelper.ensureString(message);
-      const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP && client.port !== port);
+      const wsListOut = outgoingConnections;
+      const outPeerIndex = outgoingConnections.findIndex((client) => client._socket.remoteAddress === fromIP && client.port === port);
+      if (outPeerIndex >= 0) {
+        log.error(`outgoingPeer found on index: ${outPeerIndex}`);
+        wsListOut.splice(outPeerIndex, 1);
+      }
       fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
       await serviceHelper.delay(500);
-      const wsList = incomingConnections.filter((client) => client._socket._peername.address.replace('::ffff:', '') !== fromIP && client.port !== port);
+      const wsList = incomingConnections;
+      const incPeerIndex = incomingConnections.findIndex((client) => client._socket._peername.address.replace('::ffff:', '') === fromIP && client.port === port);
+      if (incPeerIndex >= 0) {
+        log.error(`incoming peer found on index: ${incPeerIndex}`);
+        wsList.splice(incPeerIndex, 1);
+      }
       fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
+      if (incPeerIndex < 0 && outPeerIndex < 0) {
+        log.error(`Peer with ip ${fromIP} and port ${port} not found in outgoing clients: ${JSON.stringify(wsListOut)} and incoming clients: ${JSON.stringify(wsList)}`);
+      }
     }
   } catch (error) {
     log.error(error);
