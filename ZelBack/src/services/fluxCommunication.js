@@ -88,9 +88,6 @@ async function handleAppMessages(message, fromIP, port) {
         wsList.splice(incPeerIndex, 1);
       }
       fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
-      if (incPeerIndex < 0 && outPeerIndex < 0) {
-        log.error(`Peer with ip ${fromIP} and port ${port} not found in outgoing clients: ${JSON.stringify(wsListOut)} and incoming clients: ${JSON.stringify(wsList)}`);
-      }
     }
   } catch (error) {
     log.error(error);
@@ -130,9 +127,6 @@ async function handleAppRunningMessage(message, fromIP, port) {
         wsList.splice(incPeerIndex, 1);
       }
       fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
-      if (incPeerIndex < 0 && outPeerIndex < 0) {
-        log.error(`Peer with ip ${fromIP} and port ${port} not found in outgoing clients: ${JSON.stringify(wsListOut)} and incoming clients: ${JSON.stringify(wsList)}`);
-      }
     }
   } catch (error) {
     log.error(error);
@@ -171,9 +165,6 @@ async function handleIPChangedMessage(message, fromIP, port) {
         wsList.splice(incPeerIndex, 1);
       }
       fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
-      if (incPeerIndex < 0 && outPeerIndex < 0) {
-        log.error(`Peer with ip ${fromIP} and port ${port} not found in outgoing clients: ${JSON.stringify(wsListOut)} and incoming clients: ${JSON.stringify(wsList)}`);
-      }
     }
   } catch (error) {
     log.error(error);
@@ -212,9 +203,6 @@ async function handleAppRemovedMessage(message, fromIP, port) {
         wsList.splice(incPeerIndex, 1);
       }
       fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
-      if (incPeerIndex < 0 && outPeerIndex < 0) {
-        log.error(`Peer with ip ${fromIP} and port ${port} not found in outgoing clients: ${JSON.stringify(wsListOut)} and incoming clients: ${JSON.stringify(wsList)}`);
-      }
     }
   } catch (error) {
     log.error(error);
