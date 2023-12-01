@@ -269,8 +269,8 @@ function handleIncomingConnection(websocket, req, expressWS) {
 
       // check if we have the message in cache. If yes, return false. If not, store it and continue
       await serviceHelper.delay(Math.floor(Math.random() * 75 + 1)); // await max 75 miliseconds random, should jelp on processing duplicated messages received at same timestamp
-      const msgObj = serviceHelper.ensureObject(msg);
-      const messageHash = hash(msgObj.data);
+      const msgObj = serviceHelper.ensureObject(msg.data);
+      const messageHash = hash(msgObj);
       if (myCacheTemp.has(messageHash)) {
         return;
       }
@@ -295,9 +295,9 @@ function handleIncomingConnection(websocket, req, expressWS) {
         log.warn(`Message without pubkey received from incoming peer ${peer.ip}:${peer.port}. Message: ${JSON.stringify(msgObj)}`);
       }
       const currentTimeStamp = Date.now();
-      const messageOK = await fluxCommunicationUtils.verifyFluxBroadcast(msg, undefined, currentTimeStamp);
+      const messageOK = await fluxCommunicationUtils.verifyFluxBroadcast(msgObj, undefined, currentTimeStamp);
       if (messageOK === true) {
-        const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(msg, currentTimeStamp);
+        const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(msgObj, currentTimeStamp);
         if (timestampOK === true) {
           try {
             if (msgObj.data.type === 'zelappregister' || msgObj.data.type === 'zelappupdate' || msgObj.data.type === 'fluxappregister' || msgObj.data.type === 'fluxappupdate') {
