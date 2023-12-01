@@ -38,7 +38,7 @@ async function sendToAllPeers(data, wsList) {
         if (client.readyState === WebSocket.OPEN) {
           if (!data) {
             const pingTime = new Date().getTime();
-            client.ping('flux'); // do ping with flux str instead
+            client.ping(); // do ping instead
             const foundPeer = outgoingPeers.find((peer) => peer.ip === client._socket.remoteAddress && peer.port === client.port);
             if (foundPeer) {
               foundPeer.lastPingTime = pingTime;
@@ -99,7 +99,7 @@ async function sendToAllIncomingConnections(data, wsList) {
         await serviceHelper.delay(25);
         if (client.readyState === WebSocket.OPEN) {
           if (!data) {
-            client.ping('flux'); // do ping with flux str instead
+            client.ping(); // do ping instead
           } else {
             client.send(data);
           }
