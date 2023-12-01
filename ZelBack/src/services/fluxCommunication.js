@@ -335,9 +335,10 @@ function handleIncomingConnection(websocket, req, expressWS) {
   });
   ws.on('error', async (msg) => {
     const ip = ws._socket.remoteAddress.replace('::ffff:', '');
+    log.info(`Incoming connection to ${ip}:${port} errord with code ${msg.code}`);
     const ocIndex = incomingConnections.findIndex((incomingCon) => ip === incomingCon._socket.remoteAddress.replace('::ffff:', '') && port === incomingCon.port);
     if (ocIndex > -1) {
-      log.info(`Incoming connection to ${ip}:${port} errord with code ${msg.code}`);
+      log.info(`Connection to ${ip}:${port} removed from incomingConnections`);
       incomingConnections.splice(ocIndex, 1);
     }
     const foundPeer = incomingPeers.find((mypeer) => mypeer.ip === ip && mypeer.port === port);
@@ -351,9 +352,10 @@ function handleIncomingConnection(websocket, req, expressWS) {
   });
   ws.on('close', async (msg) => {
     const ip = ws._socket.remoteAddress.replace('::ffff:', '');
+    log.info(`Incoming connection to ${ip}:${port} closed with code ${msg.code}`);
     const ocIndex = incomingConnections.findIndex((incomingCon) => ip === incomingCon._socket.remoteAddress.replace('::ffff:', '') && port === incomingCon.port);
     if (ocIndex > -1) {
-      log.info(`Incoming connection to ${ip}:${port} closed with code ${msg.code}`);
+      log.info(`Connection to ${ip}:${port} removed from incomingConnections`);
       incomingConnections.splice(ocIndex, 1);
     }
     const foundPeer = incomingPeers.find((mypeer) => mypeer.ip === ip && mypeer.port === port);
@@ -532,9 +534,10 @@ async function initiateAndHandleConnection(connection) {
     });
 
     websocket.onclose = (evt) => {
+      log.info(`Connection to ${ip}:${port} closed with code ${evt.code}`);
       const ocIndex = outgoingConnections.findIndex((ws) => ip === ws._socket.remoteAddress && port === ws.port);
       if (ocIndex > -1) {
-        log.info(`Connection to ${ip}:${port} closed with code ${evt.code}`);
+        log.info(`Connection ${ip}:${port} removed from outgoingConnections`);
         outgoingConnections.splice(ocIndex, 1);
       }
       const foundPeer = outgoingPeers.find((peer) => peer.ip === ip && peer.port === port);
@@ -625,9 +628,10 @@ async function initiateAndHandleConnection(connection) {
     };
 
     websocket.onerror = (evt) => {
+      log.info(`Connection to ${ip}:${port} errord with code ${evt.code}`);
       const ocIndex = outgoingConnections.findIndex((ws) => ip === ws._socket.remoteAddress && port === ws.port);
       if (ocIndex > -1) {
-        log.info(`Connection to ${ip}:${port} errord with code ${evt.code}`);
+        log.info(`Connection ${ip}:${port} removed from outgoingConnections`);
         outgoingConnections.splice(ocIndex, 1);
       }
       const foundPeer = outgoingPeers.find((peer) => peer.ip === ip && peer.port === port);
