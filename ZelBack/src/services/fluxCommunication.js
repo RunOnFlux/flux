@@ -335,28 +335,28 @@ function handleIncomingConnection(websocket, req, expressWS) {
   });
   ws.on('error', async (msg) => {
     const ip = ws._socket.remoteAddress.replace('::ffff:', '');
-    log.warn(`Incoming connection error ${ip}:${port}`);
-    const ocIndex = incomingConnections.findIndex((incomingCon) => ip === incomingCon._socket.remoteAddress.replace('::ffff:', '') && ws.port === incomingCon.port);
-    const foundPeer = incomingPeers.find((mypeer) => mypeer.ip === ip && mypeer.port === port);
+    const ocIndex = incomingConnections.indexOf(ws);
     if (ocIndex > -1) {
+      log.info(`Incoming connection to ${ip}:${port} errord with code ${msg.code}`);
       incomingConnections.splice(ocIndex, 1);
     }
+    const foundPeer = incomingPeers.find((mypeer) => mypeer.ip === ip && mypeer.port === port);
     if (foundPeer) {
       const peerIndex = incomingPeers.indexOf(foundPeer);
       if (peerIndex > -1) {
+        log.info(`Connection ${ip}:${port} removed from incomingPeers`);
         incomingPeers.splice(peerIndex, 1);
       }
     }
-    log.warn(`Incoming connection errored with: ${msg}`);
   });
   ws.on('close', async (msg) => {
     const ip = ws._socket.remoteAddress.replace('::ffff:', '');
     log.warn(`Incoming connection close ${ip}:${port}`);
-    const ocIndex = incomingConnections.findIndex((incomingCon) => ip === incomingCon._socket.remoteAddress.replace('::ffff:', '') && ws.port === incomingCon.port);
-    const foundPeer = incomingPeers.find((mypeer) => mypeer.ip === ip && mypeer.port === port);
+    const ocIndex = incomingConnections.indexOf(ws);
     if (ocIndex > -1) {
       incomingConnections.splice(ocIndex, 1);
     }
+    const foundPeer = incomingPeers.find((mypeer) => mypeer.ip === ip && mypeer.port === port);
     if (foundPeer) {
       const peerIndex = incomingPeers.indexOf(foundPeer);
       if (peerIndex > -1) {
