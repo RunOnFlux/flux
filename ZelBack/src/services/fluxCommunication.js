@@ -791,6 +791,8 @@ async function fluxDiscovery() {
     // const minIncomingPeers = Math.min(sortedNodeList.length, 1.5 * config.fluxapps.minIncoming);
     log.info(`Current number of outgoing connections:${outgoingConnections.length}`);
     log.info(`Current number of incoming connections:${incomingConnections.length}`);
+    log.info(`Current number of outgoing peers:${outgoingPeers.length}`);
+    log.info(`Current number of incoming peers:${incomingPeers.length}`);
     // always try to connect to deterministic nodes
     // established deterministic outgoing connections
     let deterministicPeerConnections = false;
