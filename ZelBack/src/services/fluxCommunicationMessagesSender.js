@@ -27,7 +27,6 @@ let response = messageHelper.createErrorMessage();
 async function sendToAllPeers(data, wsList) {
   try {
     const removals = [];
-    const ipremovals = [];
     // wsList is always a sublist of outgoingConnections
     const outConList = wsList || outgoingConnections;
     // eslint-disable-next-line no-restricted-syntax
@@ -54,8 +53,6 @@ async function sendToAllPeers(data, wsList) {
         try {
           const ip = client._socket.remoteAddress;
           const { port } = client;
-          const foundPeer = outgoingPeers.find((peer) => peer.ip === ip && peer.port === port);
-          ipremovals.push(foundPeer);
           // eslint-disable-next-line no-use-before-define
           fluxNetworkHelper.closeConnection(ip, port);
         } catch (err) {
@@ -64,18 +61,18 @@ async function sendToAllPeers(data, wsList) {
       }
     }
 
-    for (let i = 0; i < ipremovals.length; i += 1) {
-      const ocIndex = outgoingConnections.findIndex((ws) => ipremovals[i]._socket.remoteAddress === ws._socket.remoteAddress && ipremovals[i].port === ws.port);
+    for (let i = 0; i < removals.length; i += 1) {
+      const ocIndex = outgoingConnections.findIndex((ws) => removals[i]._socket.remoteAddress === ws._socket.remoteAddress && removals[i].port === ws.port);
       if (ocIndex > -1) {
-        log.info(`Connection ${ipremovals[i]._socket.remoteAddress}:${ipremovals[i].port} removed from outgoingConnections`);
+        log.info(`Connection ${removals[i]._socket.remoteAddress}:${removals[i].port} removed from outgoingConnections`);
         outgoingConnections.splice(ocIndex, 1);
       }
-      const foundPeer = outgoingPeers.find((peer) => peer.ip === ipremovals[i]._socket.remoteAddress && peer.port === ipremovals[i].port);
+      const foundPeer = outgoingPeers.find((peer) => peer.ip === removals[i]._socket.remoteAddress && peer.port === removals[i].port);
       if (foundPeer) {
         const peerIndex = outgoingPeers.indexOf(foundPeer);
         if (peerIndex > -1) {
           outgoingPeers.splice(peerIndex, 1);
-          log.info(`Connection ${ipremovals[i]._socket.remoteAddress}:${ipremovals[i].port} removed from outgoingPeers`);
+          log.info(`Connection ${removals[i]._socket.remoteAddress}:${removals[i].port} removed from outgoingPeers`);
         }
       }
     }
@@ -112,28 +109,26 @@ async function sendToAllIncomingConnections(data, wsList) {
       } catch (e) {
         removals.push(client);
         try {
-          const ip = client._socket.remoteAddress;
+          const ip = client._socket.remoteAddress.replace('::ffff:', '');
           const { port } = client;
-          const foundPeer = incomingPeers.find((peer) => peer.ip === ip && peer.port === port);
-          ipremovals.push(foundPeer);
-          fluxNetworkHelper.closeIncomingConnection(ip, port, [], client); // this is wrong
+          fluxNetworkHelper.closeIncomingConnection(ip, port); // this is wrong
         } catch (err) {
           log.error(err);
         }
       }
     }
 
-    for (let i = 0; i < ipremovals.length; i += 1) {
-      const ocIndex = incomingConnections.findIndex((incomingCon) => ipremovals[i]._socket.remoteAddress.replace('::ffff:', '') === incomingCon._socket.remoteAddress.replace('::ffff:', '') && ipremovals[i].port === incomingCon.port);
+    for (let i = 0; i < removals.length; i += 1) {
+      const ocIndex = incomingConnections.findIndex((incomingCon) => removals[i]._socket.remoteAddress.replace('::ffff:', '') === incomingCon._socket.remoteAddress.replace('::ffff:', '') && ipremovals[i].port === incomingCon.port);
       if (ocIndex > -1) {
-        log.info(`Connection to ${ipremovals[i]._socket.remoteAddress.replace('::ffff:', '')}:${ipremovals[i].port} removed from incomingConnections`);
+        log.info(`Connection to ${removals[i]._socket.remoteAddress.replace('::ffff:', '')}:${removals[i].port} removed from incomingConnections`);
         incomingConnections.splice(ocIndex, 1);
       }
-      const foundPeer = incomingPeers.find((mypeer) => mypeer.ip === ipremovals[i]._socket.remoteAddress.replace('::ffff:', '') && mypeer.port === ipremovals[i].port);
+      const foundPeer = incomingPeers.find((mypeer) => mypeer.ip === removals[i]._socket.remoteAddress.replace('::ffff:', '') && mypeer.port === removals[i].port);
       if (foundPeer) {
         const peerIndex = incomingPeers.indexOf(foundPeer);
         if (peerIndex > -1) {
-          log.info(`Connection ${ipremovals[i]._socket.remoteAddress.replace('::ffff:', '')}:${ipremovals[i].port} removed from incomingPeers`);
+          log.info(`Connection ${removals[i]._socket.remoteAddress.replace('::ffff:', '')}:${removals[i].port} removed from incomingPeers`);
           incomingPeers.splice(peerIndex, 1);
         }
       }

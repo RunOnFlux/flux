@@ -463,17 +463,14 @@ async function getRandomConnection() {
  */
 async function closeConnection(ip, port) {
   if (!ip) return messageHelper.createWarningMessage('To close a connection please provide a proper IP number.');
-  const wsObj = outgoingConnections.find((client) => client._socket.remoteAddress === ip && client.port === port);
-  if (!wsObj) {
+  const ocIndex = outgoingConnections.findIndex((client) => client._socket.remoteAddress === ip && client.port === port);
+  if (ocIndex < 0) {
     return messageHelper.createWarningMessage(`Connection to ${ip}:${port} does not exists.`);
   }
-  const ocIndex = outgoingConnections.indexOf(wsObj);
   const foundPeer = outgoingPeers.find((peer) => peer.ip === ip && peer.port === port);
-  if (ocIndex === -1) {
-    return messageHelper.createErrorMessage(`Unable to close connection ${ip}:${port}. Try again later.`);
-  }
+  const wsObj = outgoingConnections[ocIndex];
   wsObj.close(4009, 'purpusfully closed');
-  log.info(`Connection to ${ip}:${port} closed`);
+  log.info(`Connection to ${ip}:${port} closed with code 4009`);
   outgoingConnections.splice(ocIndex, 1);
   if (foundPeer) {
     const peerIndex = outgoingPeers.indexOf(foundPeer);
@@ -497,7 +494,7 @@ async function closeIncomingConnection(ip, port, expressWS, clientToClose) {
   const clientsSet = expressWS.clients || [];
   let wsObj = null || clientToClose;
   clientsSet.forEach((client) => {
-    if (client._socket.remoteAddress === ip && client.port === port) {
+    if (client._socket.remoteAddress.replace('::ffff:', '') === ip && client.port === port) {
       wsObj = client;
     }
   });
@@ -510,7 +507,7 @@ async function closeIncomingConnection(ip, port, expressWS, clientToClose) {
     return messageHelper.createErrorMessage(`Unable to close incoming connection ${ip}:${port}. Try again later.`);
   }
   wsObj.close(4010, 'purpusfully closed');
-  log.info(`Connection from ${ip}:${port} closed`);
+  log.info(`Connection from ${ip}:${port} closed with code 4010`);
   incomingConnections.splice(ocIndex, 1);
   if (foundPeer) {
     const peerIndex = incomingPeers.indexOf(foundPeer);
