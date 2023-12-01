@@ -784,7 +784,7 @@ async function fluxDiscovery() {
         return 0;
       });
       sortedNodeListCache.set('sortedNodeList', sortedNodeList);
-      log.info('sortedNodeList stored in cache');
+      log.info('sortedNodeList stored to cache');
     }
     log.info('Searching for my node on sortedNodeList');
     const fluxNodeIndex = sortedNodeList.findIndex((node) => node.ip === myIP);
