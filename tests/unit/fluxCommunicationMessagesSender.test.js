@@ -281,7 +281,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
       sinon.assert.threw(webSocket1.send);
       sinon.assert.calledOnceWithExactly(webSocket2.send, data);
-      sinon.assert.calledOnceWithExactly(closeConnectionStub, '127.0.0.1', port, [], webSocket1);
+      sinon.assert.calledOnceWithExactly(closeConnectionStub, '127.0.0.1', 16127);
       expect(incomingPeers).to.contain(peer2);
       expect(incomingPeers).to.not.contain(peer1);
       expect(incomingConnections).to.contain(webSocket2);

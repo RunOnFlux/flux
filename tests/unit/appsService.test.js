@@ -14,6 +14,7 @@ const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBenchmarkRpcs');
 const generalService = require('../../ZelBack/src/services/generalService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const log = require('../../ZelBack/src/lib/log');
 
 chai.use(chaiAsPromised);
@@ -5084,6 +5085,14 @@ describe('appsService tests', () => {
       const res = generateResponse();
       nodeTierStub.resolves('cumulus');
       dbStub.returns('testapp');
+
+      const getBenchmarksStub = sinon.stub(benchmarkService, 'getBenchmarks');
+      const ip = '127.0.0.1:5050';
+      const getBenchmarkResponseData = {
+        status: 'success',
+        data: { ipaddress: ip },
+      };
+      getBenchmarksStub.resolves(getBenchmarkResponseData);
 
       const result = await appsService.registerAppLocally(appSpec, componentSpecs, res);
 
