@@ -292,7 +292,7 @@ function handleIncomingConnection(websocket, req, expressWS) {
         return;
       }
       if (!pubKey) {
-        log.warn(`Message without pubkey received from incoming peer ${peer.ip}:${peer.port}. Message: ${JSON.stringify(msg)}`);
+        log.warn(`Message without pubkey received from incoming peer ${peer.ip}:${peer.port}. Message: ${JSON.stringify(msgObj)}`);
       }
       const currentTimeStamp = Date.now();
       const messageOK = await fluxCommunicationUtils.verifyFluxBroadcast(msg, undefined, currentTimeStamp);
