@@ -78,6 +78,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(fluxAvailabilitySuccessResponse);
+      sinon.stub(util, 'promisify').returns(() => Promise.resolve());
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
       const expectedAddressHome = 'http://127.0.0.1:16126';
       const expectedMessage = {
@@ -110,6 +111,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(fluxAvailabilitySuccessResponse);
+      sinon.stub(util, 'promisify').returns(() => Promise.resolve());
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
       const expectedAddressHome = 'http://127.0.0.1:16126';
       const expectedMessage = {
@@ -287,7 +289,6 @@ describe('fluxNetworkHelper tests', () => {
 
   describe('isFluxAvailable tests', () => {
     let stub;
-    sinon.stub(fluxNetworkHelper, 'isPortOpen').resolves(true);
     const ip = '127.0.0.1';
     const port = '16127';
     const axiosConfig = {
@@ -311,6 +312,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       });
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
+      sinon.stub(util, 'promisify').returns(() => Promise.resolve());
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
       const expectedAddressHome = 'http://127.0.0.1:16126';
 
@@ -325,7 +327,7 @@ describe('fluxNetworkHelper tests', () => {
       const mockResponse = {
         data: {
           status: 'success',
-          data: '4.20.0',
+          data: '4.20.2',
         },
       };
       Object.setPrototypeOf(mockResponse.data, { // axios on home expects string
@@ -646,7 +648,7 @@ describe('fluxNetworkHelper tests', () => {
 
       const closeConnectionResult = await fluxNetworkHelper.closeConnection(ip, port);
 
-      sinon.assert.calledOnceWithExactly(websocket.close, 4010, 'purpusfully closed');
+      sinon.assert.calledOnceWithExactly(websocket.close, 4009, 'purpusfully closed');
       expect(closeConnectionResult).to.eql(successMessage);
       expect(outgoingConnections).to.have.length(0);
       expect(outgoingPeers).to.have.length(0);
