@@ -1015,7 +1015,7 @@ describe('fluxCommunication tests', () => {
       sinon.assert.calledWithExactly(ensureObjectSpy, message);
       sinon.assert.calledWithExactly(websocketCloseSpy, 4006, 'blocked list');
       sinon.assert.calledWith(logSpy, 'Closing outgoing connection, peer is on blockedList');
-      sinon.assert.calledWith(logSpy, 'Connection to 127.0.0.2:16127 closed with code 1000');
+      sinon.assert.calledWith(logSpy, 'Connection to 127.0.0.2:16127 closed with code 4006');
       sinon.assert.calledWith(logSpy, 'Connection 127.0.0.2:16127 removed from outgoingPeers');
     });
 

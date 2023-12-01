@@ -146,7 +146,6 @@ describe('fluxCommunicationMessagesSender tests', () => {
     });
 
     it('should send a ping message to all peers if no data is given', async () => {
-      const pingMessage = '';
       closeConnectionStub.returns('closed!');
       const wsIp = '127.0.0.1';
       const wsIp2 = '127.0.0.2';
@@ -158,8 +157,8 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
       await fluxCommunicationMessagesSender.sendToAllPeers();
 
-      sinon.assert.calledOnceWithExactly(webSocket1.ping, pingMessage);
-      sinon.assert.calledOnceWithExactly(webSocket2.ping, pingMessage);
+      sinon.assert.calledOnceWithExactly(webSocket1.ping);
+      sinon.assert.calledOnceWithExactly(webSocket2.ping);
       expect(peer1.lastPingTime).to.be.a('number');
       expect(peer2.lastPingTime).to.be.a('number');
     });
@@ -290,7 +289,6 @@ describe('fluxCommunicationMessagesSender tests', () => {
     });
 
     it('should send a ping message to all peers if no data is given', async () => {
-      const pingMessage = '';
       closeConnectionStub.returns('closed!');
       const wsIp = '127.0.0.1';
       const wsIp2 = '127.0.0.2';
@@ -302,8 +300,8 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
       await fluxCommunicationMessagesSender.sendToAllIncomingConnections();
 
-      sinon.assert.calledOnceWithExactly(webSocket1.ping, pingMessage);
-      sinon.assert.calledOnceWithExactly(webSocket2.ping, pingMessage);
+      sinon.assert.calledOnceWithExactly(webSocket1.ping);
+      sinon.assert.calledOnceWithExactly(webSocket2.ping);
     });
   });
 

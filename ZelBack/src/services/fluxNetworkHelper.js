@@ -823,6 +823,26 @@ async function adjustExternalIP(ip) {
     if (ip === userconfig.initial.ipaddress) {
       return;
     }
+
+    log.info(`Adjusting External IP from ${userconfig.initial.ipaddress} to ${ip}`);
+    const dataToWrite = `module.exports = {
+  initial: {
+    ipaddress: '${ip}',
+    zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
+    kadena: '${userconfig.initial.kadena || ''}',
+    testnet: ${userconfig.initial.testnet || false},
+    development: ${userconfig.initial.development || false},
+    apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
+    routerIP: '${userconfig.initial.routerIP || ''}',
+    pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
+    pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
+    blockedPorts: [${userconfig.initial.blockedPorts || ''}],
+    blockedRepositories: ${JSON.stringify(userconfig.initial.blockedRepositories || []).replace(/"/g, "'")},
+  }
+}`;
+
+    await fs.writeFile(fluxDirPath, dataToWrite);
+
     if (userconfig.initial.ipaddress && v4exact.test(userconfig.initial.ipaddress) && !myCache.has(ip)) {
       myCache.set(ip, ip);
       const newIP = userconfig.initial.apiport !== 16127 ? `${ip}:${userconfig.initial.apiport}` : ip;
@@ -854,25 +874,6 @@ async function adjustExternalIP(ip) {
       const result = await daemonServiceWalletRpcs.createConfirmationTransaction();
       log.info(`createConfirmationTransaction: ${JSON.stringify(result)}`);
     }
-
-    log.info(`Adjusting External IP from ${userconfig.initial.ipaddress} to ${ip}`);
-    const dataToWrite = `module.exports = {
-  initial: {
-    ipaddress: '${ip}',
-    zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
-    kadena: '${userconfig.initial.kadena || ''}',
-    testnet: ${userconfig.initial.testnet || false},
-    development: ${userconfig.initial.development || false},
-    apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
-    routerIP: '${userconfig.initial.routerIP || ''}',
-    pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
-    pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-    blockedPorts: [${userconfig.initial.blockedPorts || ''}],
-    blockedRepositories: ${JSON.stringify(userconfig.initial.blockedRepositories || []).replace(/"/g, "'")},
-  }
-}`;
-
-    await fs.writeFile(fluxDirPath, dataToWrite);
   } catch (error) {
     log.error(error);
   }
