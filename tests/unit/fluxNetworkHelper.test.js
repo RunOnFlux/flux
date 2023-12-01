@@ -120,6 +120,7 @@ describe('fluxNetworkHelper tests', () => {
           message: 'Asking Flux is available',
         },
       };
+      sinon.stub(fluxNetworkHelper, 'isPortOpen').resolves(true);
 
       const checkFluxAvailabilityResult = await fluxNetworkHelper.checkFluxAvailability(req, mockResponse);
 
@@ -624,7 +625,7 @@ describe('fluxNetworkHelper tests', () => {
 
       const closeConnectionResult = await fluxNetworkHelper.closeConnection(ip, port);
 
-      sinon.assert.calledOnceWithExactly(websocket.close, 1000, 'purpusfully closed');
+      sinon.assert.calledOnceWithExactly(websocket.close, 4009, 'purpusfully closed');
       expect(closeConnectionResult).to.eql(successMessage);
       expect(outgoingConnections).to.have.length(0);
       expect(outgoingPeers).to.have.length(0);
@@ -645,7 +646,7 @@ describe('fluxNetworkHelper tests', () => {
 
       const closeConnectionResult = await fluxNetworkHelper.closeConnection(ip, port);
 
-      sinon.assert.calledOnceWithExactly(websocket.close, 1000, 'purpusfully closed');
+      sinon.assert.calledOnceWithExactly(websocket.close, 4010, 'purpusfully closed');
       expect(closeConnectionResult).to.eql(successMessage);
       expect(outgoingConnections).to.have.length(0);
       expect(outgoingPeers).to.have.length(0);
@@ -746,7 +747,7 @@ describe('fluxNetworkHelper tests', () => {
 
       const closeConnectionResult = await fluxNetworkHelper.closeIncomingConnection(ip, port, expressWsList);
 
-      sinon.assert.calledOnceWithExactly(websocket.close, 1000, 'purpusfully closed');
+      sinon.assert.calledOnceWithExactly(websocket.close, 4010, 'purpusfully closed');
       expect(closeConnectionResult).to.eql(successMessage);
       expect(incomingConnections).to.have.length(0);
       expect(incomingPeers).to.have.length(0);
@@ -768,7 +769,7 @@ describe('fluxNetworkHelper tests', () => {
 
       const closeConnectionResult = await fluxNetworkHelper.closeIncomingConnection(ip, port, [], websocket);
 
-      sinon.assert.calledOnceWithExactly(websocket.close, 1000, 'purpusfully closed');
+      sinon.assert.calledOnceWithExactly(websocket.close, 4010, 'purpusfully closed');
       expect(closeConnectionResult).to.eql(successMessage);
       expect(incomingConnections).to.have.length(0);
       expect(incomingPeers).to.have.length(0);
@@ -790,7 +791,7 @@ describe('fluxNetworkHelper tests', () => {
 
       const closeConnectionResult = await fluxNetworkHelper.closeIncomingConnection(ip, port, expressWsList);
 
-      sinon.assert.calledOnceWithExactly(websocket.close, 1000, 'purpusfully closed');
+      sinon.assert.calledOnceWithExactly(websocket.close, 4010, 'purpusfully closed');
       expect(closeConnectionResult).to.eql(successMessage);
       expect(incomingConnections).to.have.length(0);
       expect(incomingPeers).to.have.length(0);
@@ -1219,7 +1220,7 @@ describe('fluxNetworkHelper tests', () => {
       sinon.stub(benchmarkService, 'getPublicIp').returns(getPublicIptResponse);
       const axiosGetResponse = {
         data: {
-          status: 'success',
+          status: 'error',
           data: {
             message: 'all is good!',
           },
@@ -1229,27 +1230,7 @@ describe('fluxNetworkHelper tests', () => {
 
       const result = await fluxNetworkHelper.checkMyFluxAvailability();
 
-      expect(result).to.be.true;
-    });
-
-    it('should return false if getPublicIp status is not a success', async () => {
-      const getPublicIptResponse = {
-        status: 'error',
-      };
-      sinon.stub(benchmarkService, 'getPublicIp').returns(getPublicIptResponse);
-      const axiosGetResponse = {
-        data: {
-          status: 'success',
-          data: {
-            message: 'all is good!',
-          },
-        },
-      };
-      sinon.stub(serviceHelper, 'axiosGet').resolves(axiosGetResponse);
-
-      const result = await fluxNetworkHelper.checkMyFluxAvailability();
-
-      expect(result).to.be.true;
+      expect(result).to.be.false;
     });
 
     it('should return true if getPublicIp status is a success and has a proper ip', async () => {
@@ -1267,13 +1248,20 @@ describe('fluxNetworkHelper tests', () => {
         },
       };
       sinon.stub(serviceHelper, 'axiosGet').resolves(axiosGetResponse);
+      const getBenchmarkStub = {
+        status: 'success',
+        data: JSON.stringify({
+          ipaddress: '129.0.0.1',
+        }),
+      };
+      sinon.stub(daemonServiceBenchmarkRpcs, 'getBenchmarks').resolves(getBenchmarkStub);
 
       const result = await fluxNetworkHelper.checkMyFluxAvailability();
 
       expect(result).to.be.true;
     });
 
-    it('should return true if getPublicIp status is a success and does not have a proper ip', async () => {
+    it('should return false if getPublicIp status is a success but does not have a proper ip', async () => {
       const getPublicIptResponse = {
         status: 'success',
         data: '120',
@@ -1315,8 +1303,8 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/initial: {/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/ipaddress: '127.0.0.66',/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',/gm));
-      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/kadena: '123456789',/gm));
-      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/testnet: true,/gm));
+      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/kadena: 'kadena:3a2e6166907d0c2fb28a16cd6966a705de129e8358b9872d9cefe694e910d5b2\?chainid=0',/gm));
+      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/testnet: false,/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/development: false,/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/apiport: 16127,/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/routerIP: '',/gm));

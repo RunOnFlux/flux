@@ -146,7 +146,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     });
 
     it('should send a ping message to all peers if no data is given', async () => {
-      const pingMessage = 'flux';
+      const pingMessage = '';
       closeConnectionStub.returns('closed!');
       const wsIp = '127.0.0.1';
       const wsIp2 = '127.0.0.2';
@@ -290,7 +290,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     });
 
     it('should send a ping message to all peers if no data is given', async () => {
-      const pingMessage = 'flux';
+      const pingMessage = '';
       closeConnectionStub.returns('closed!');
       const wsIp = '127.0.0.1';
       const wsIp2 = '127.0.0.2';

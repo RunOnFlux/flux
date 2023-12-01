@@ -242,7 +242,8 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
     if (!UIok) return false;
 
     const syncthingPort = +port + 2;
-    return isPortOpen(ip, syncthingPort);
+    const portOpen = await isPortOpen(ip, syncthingPort);
+    return portOpen;
   } catch (e) {
     log.error(e);
     return false;

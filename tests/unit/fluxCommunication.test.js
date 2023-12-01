@@ -286,8 +286,8 @@ describe('fluxCommunication tests', () => {
       incomingConnections.push(wsIncoming);
 
       const messageString = JSON.stringify(message);
-      const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIp && client.port !== port);
-      const wsListIn = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIp && client.port !== port);
+      const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIp);
+      const wsListIn = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIp);
 
       await fluxCommunication.handleAppRunningMessage(message, fromIp, port);
 
@@ -1013,7 +1013,7 @@ describe('fluxCommunication tests', () => {
       await serviceHelper.delay(100);
 
       sinon.assert.calledWithExactly(ensureObjectSpy, message);
-      sinon.assert.calledWithExactly(websocketCloseSpy, 1000, 'blocked list');
+      sinon.assert.calledWithExactly(websocketCloseSpy, 4006, 'blocked list');
       sinon.assert.calledWith(logSpy, 'Closing outgoing connection, peer is on blockedList');
       sinon.assert.calledWith(logSpy, 'Connection to 127.0.0.2:16127 closed with code 1000');
       sinon.assert.calledWith(logSpy, 'Connection 127.0.0.2:16127 removed from outgoingPeers');
