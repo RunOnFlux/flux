@@ -1065,8 +1065,21 @@ function startAppMonitoring(appName) {
     if (!appsMonitored[appName].oneMinuteStatsStore) {
       appsMonitored[appName].oneMinuteStatsStore = [];
     }
+    clearInterval(appsMonitored[appName].oneMinuteInterval);
     appsMonitored[appName].oneMinuteInterval = setInterval(async () => {
       try {
+        if (!appsMonitored[appName]) {
+          log.error(`Monitoring of ${appName} already stopped`);
+          clearInterval(appsMonitored[appName].oneMinuteInterval);
+          return;
+        }
+        const dockerContainer = await dockerService.getDockerContainerOnly(appName);
+        if (!dockerContainer) {
+          log.error(`Monitoring of ${appName} not possible. App does not exist. Forcing stopping of monitoring`);
+          // eslint-disable-next-line no-use-before-define
+          stopAppMonitoring(appName, true);
+          return;
+        }
         const statsNow = await dockerService.dockerContainerStats(appName);
         const appFolderName = dockerService.getAppDockerNameIdentifier(appName).substring(1);
         const folderSize = await getAppFolderSize(appFolderName);
@@ -1081,8 +1094,21 @@ function startAppMonitoring(appName) {
         log.error(error);
       }
     }, 1 * 60 * 1000);
+    clearInterval(appsMonitored[appName].fifteenMinInterval);
     appsMonitored[appName].fifteenMinInterval = setInterval(async () => {
       try {
+        if (!appsMonitored[appName]) {
+          log.error(`Monitoring of ${appName} already stopped`);
+          clearInterval(appsMonitored[appName].fifteenMinInterval);
+          return;
+        }
+        const dockerContainer = await dockerService.getDockerContainerOnly(appName);
+        if (!dockerContainer) {
+          log.error(`Monitoring of ${appName} not possible. App does not exist. Forcing stopping of monitoring`);
+          // eslint-disable-next-line no-use-before-define
+          stopAppMonitoring(appName, true);
+          return;
+        }
         const statsNow = await dockerService.dockerContainerStats(appName);
         const appFolderName = dockerService.getAppDockerNameIdentifier(appName).substring(1);
         const folderSize = await getAppFolderSize(appFolderName);
@@ -2633,7 +2659,7 @@ async function softRemoveAppLocally(app, res) {
     // eslint-disable-next-line no-restricted-syntax
     for (const appComposedComponent of appSpecifications.compose.reverse()) {
       isComponent = true;
-      appId = `${appComposedComponent.name}_${appSpecifications.name}`;
+      appId = dockerService.getAppIdentifier(`${appComposedComponent.name}_${appSpecifications.name}`);
       const appComponentSpecifications = appComposedComponent;
       // eslint-disable-next-line no-await-in-loop
       await appUninstallSoft(appName, appId, appComponentSpecifications, isComponent, res);
