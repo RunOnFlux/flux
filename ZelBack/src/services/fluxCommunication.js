@@ -291,6 +291,9 @@ function handleIncomingConnection(websocket, req, expressWS) {
         }
         return;
       }
+      if (!pubKey) {
+        log.warn(`Message without pubkey received from incoming peer ${peer.ip}:${peer.port}. Message: ${JSON.stringify(msg)}`);
+      }
       const currentTimeStamp = Date.now();
       const messageOK = await fluxCommunicationUtils.verifyFluxBroadcast(msg, undefined, currentTimeStamp);
       if (messageOK === true) {
@@ -351,7 +354,6 @@ function handleIncomingConnection(websocket, req, expressWS) {
           incomingPeers.splice(peerIndex, 1);
         }
       }
-      log.warn(`Incoming connection closed with: ${msg}`);
     };
     ws.onerror = (msg) => {
       const ip = ws._socket.remoteAddress.replace('::ffff:', '');
