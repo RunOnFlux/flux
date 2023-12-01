@@ -471,7 +471,7 @@ async function closeConnection(ip, port) {
   if (ocIndex === -1) {
     return messageHelper.createErrorMessage(`Unable to close connection ${ip}:${port}. Try again later.`);
   }
-  wsObj.close(10010, 'purpusfully closed');
+  wsObj.close(4009, 'purpusfully closed');
   log.info(`Connection to ${ip}:${port} closed`);
   outgoingConnections.splice(ocIndex, 1);
   if (foundPeer) {
@@ -508,7 +508,7 @@ async function closeIncomingConnection(ip, port, expressWS, clientToClose) {
   if (ocIndex === -1) {
     return messageHelper.createErrorMessage(`Unable to close incoming connection ${ip}:${port}. Try again later.`);
   }
-  wsObj.close(10011, 'purpusfully closed');
+  wsObj.close(4010, 'purpusfully closed');
   log.info(`Connection from ${ip}:${port} closed`);
   incomingConnections.splice(ocIndex, 1);
   if (foundPeer) {

@@ -580,7 +580,7 @@ async function initiateAndHandleConnection(connection) {
       if (blockedPubKeysCache.has(pubKey)) {
         try {
           log.info('Closing outgoing connection, peer is on blockedList');
-          websocket.close(10007, 'blocked list'); // close as of policy violation?
+          websocket.close(4006, 'blocked list'); // close as of policy violation?
         } catch (e) {
           log.error(e);
         }
@@ -611,11 +611,11 @@ async function initiateAndHandleConnection(connection) {
           const nodeFound = possibleNodes.find((n) => n.ip === connection);
           if (!nodeFound) {
             log.warn(`Invalid message received from outgoing peer ${connection} which is not an originating node of ${pubKey}.`);
-            websocket.close(10008, 'invalid message, disconnect'); // close as of policy violation
+            websocket.close(4007, 'invalid message, disconnect'); // close as of policy violation
           } else {
             blockedPubKeysCache.set(pubKey, pubKey); // blocks ALL the nodes corresponding to the pubKey
             log.warn(`closing outgoing connection, adding peers ${pubKey} to the blockedList. Originated from ${connection}.`);
-            websocket.close(10009, 'invalid message, blocked'); // close as of policy violation?
+            websocket.close(4008, 'invalid message, blocked'); // close as of policy violation?
           }
         } catch (e) {
           log.error(e);
