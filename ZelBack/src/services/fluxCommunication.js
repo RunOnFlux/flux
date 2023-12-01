@@ -219,14 +219,14 @@ function handleIncomingConnection(websocket, req, expressWS) {
   const maxCon = Math.max(maxPeers, maxNumberOfConnections);
   if (incomingConnections.length > maxCon) {
     setTimeout(() => {
-      ws.close(10001, `Max number of incomming connections ${maxCon} reached`);
+      ws.close(4000, `Max number of incomming connections ${maxCon} reached`);
     }, 1000);
     return;
   }
   const findPeer = incomingPeers.find((p) => p.ip === ws._socket.remoteAddress.replace('::ffff:', '') && p.port === port);
   if (findPeer) {
     setTimeout(() => {
-      ws.close(10002, 'Peer received is already in incomingPeers list');
+      ws.close(4001, 'Peer received is already in incomingPeers list');
     }, 1000);
     return;
   }
@@ -240,7 +240,7 @@ function handleIncomingConnection(websocket, req, expressWS) {
   for (const privateIp of privateIpsList) {
     if (ipv4Peer.startsWith(privateIp)) {
       setTimeout(() => {
-        ws.close(10003, 'Peer received is using internal IP');
+        ws.close(4002, 'Peer received is using internal IP');
       }, 1000);
       log.error(`Incoming connection of peer from internal IP not allowed: ${ipv4Peer}`);
       return;
@@ -283,7 +283,7 @@ function handleIncomingConnection(websocket, req, expressWS) {
     if (blockedPubKeysCache.has(pubKey)) {
       try {
         log.info('Closing incoming connection, peer is on blockedList');
-        ws.close(10004, 'blocked list'); // close as of policy violation?
+        ws.close(4003, 'blocked list'); // close as of policy violation?
       } catch (e) {
         log.error(e);
       }
@@ -322,11 +322,11 @@ function handleIncomingConnection(websocket, req, expressWS) {
         const nodeFound = possibleNodes.find((n) => n.ip.split(':')[0] === peer.ip.replace('::ffff:', '') && (n.ip.split(':')[1] || 16127) === peer.port);
         if (!nodeFound) {
           log.warn(`Invalid message received from incoming peer ${peer.ip}:${peer.port} which is not an originating node of ${pubKey}.`);
-          ws.close(10005, 'invalid message, disconnect'); // close as of policy violation
+          ws.close(4004, 'invalid message, disconnect'); // close as of policy violation
         } else {
           blockedPubKeysCache.set(pubKey, pubKey); // blocks ALL the nodes corresponding to the pubKey
           log.warn(`closing incoming connection, adding peers ${pubKey}:${peer.port} to the blockedList. Originated from ${peer.ip}.`);
-          ws.close(10006, 'invalid message, blocked'); // close as of policy violation?
+          ws.close(4005, 'invalid message, blocked'); // close as of policy violation?
         }
       } catch (e) {
         log.error(e);
