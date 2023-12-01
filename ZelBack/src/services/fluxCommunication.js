@@ -335,7 +335,7 @@ function handleIncomingConnection(websocket, req, expressWS) {
   });
   ws.on('error', async (msg) => {
     const ip = ws._socket.remoteAddress.replace('::ffff:', '');
-    const ocIndex = incomingConnections.indexOf(ws);
+    const ocIndex = incomingConnections.findIndex((incomingCon) => ip === incomingCon._socket.remoteAddress.replace('::ffff:', '') && port === incomingCon.port);
     if (ocIndex > -1) {
       log.info(`Incoming connection to ${ip}:${port} errord with code ${msg.code}`);
       incomingConnections.splice(ocIndex, 1);
@@ -351,15 +351,16 @@ function handleIncomingConnection(websocket, req, expressWS) {
   });
   ws.on('close', async (msg) => {
     const ip = ws._socket.remoteAddress.replace('::ffff:', '');
-    log.warn(`Incoming connection close ${ip}:${port}`);
-    const ocIndex = incomingConnections.indexOf(ws);
+    const ocIndex = incomingConnections.findIndex((incomingCon) => ip === incomingCon._socket.remoteAddress.replace('::ffff:', '') && port === incomingCon.port);
     if (ocIndex > -1) {
+      log.info(`Incoming connection to ${ip}:${port} closed with code ${msg.code}`);
       incomingConnections.splice(ocIndex, 1);
     }
     const foundPeer = incomingPeers.find((mypeer) => mypeer.ip === ip && mypeer.port === port);
     if (foundPeer) {
       const peerIndex = incomingPeers.indexOf(foundPeer);
       if (peerIndex > -1) {
+        log.info(`Connection ${ip}:${port} removed from incomingPeers`);
         incomingPeers.splice(peerIndex, 1);
       }
     }
@@ -531,7 +532,7 @@ async function initiateAndHandleConnection(connection) {
     });
 
     websocket.onclose = (evt) => {
-      const ocIndex = outgoingConnections.indexOf(websocket);
+      const ocIndex = outgoingConnections.findIndex((ws) => ip === ws._socket.remoteAddress && port === ws.port);
       if (ocIndex > -1) {
         log.info(`Connection to ${ip}:${port} closed with code ${evt.code}`);
         outgoingConnections.splice(ocIndex, 1);
@@ -624,7 +625,7 @@ async function initiateAndHandleConnection(connection) {
     };
 
     websocket.onerror = (evt) => {
-      const ocIndex = outgoingConnections.indexOf(websocket);
+      const ocIndex = outgoingConnections.findIndex((ws) => ip === ws._socket.remoteAddress && port === ws.port);
       if (ocIndex > -1) {
         log.info(`Connection to ${ip}:${port} errord with code ${evt.code}`);
         outgoingConnections.splice(ocIndex, 1);
