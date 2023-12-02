@@ -1000,6 +1000,7 @@ describe('fluxCommunication tests', () => {
       const message = JSON.stringify({
         timestamp: new Date().getTime(),
         pubKey: '1234asd',
+        signature: 'blabla',
         data: {
           type: 'fluxapprunning',
         },
@@ -1049,6 +1050,7 @@ describe('fluxCommunication tests', () => {
         const message = JSON.stringify({
           timestamp: new Date().getTime(),
           pubKey: '1234asd',
+          signature: 'blabla',
           data: {
             type: `${command}`,
           },
@@ -1095,6 +1097,7 @@ describe('fluxCommunication tests', () => {
         const message = JSON.stringify({
           timestamp: new Date().getTime(),
           pubKey: '1234asd',
+          signature: 'blabla',
           data: {
             type: `${command}`,
           },
@@ -1141,6 +1144,7 @@ describe('fluxCommunication tests', () => {
         const message = JSON.stringify({
           timestamp: new Date().getTime(),
           pubKey: '1234asd',
+          signature: 'blabla',
           data: {
             type: `${command}`,
           },

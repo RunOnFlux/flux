@@ -505,17 +505,16 @@ async function closeIncomingConnection(ip, port, expressWS, clientToClose) {
       }
     });
   }
-
-  const peerIndex = incomingPeers.findIndex((peer) => peer.ip === ip && peer.port === port);
-  if (peerIndex > -1) {
-    incomingPeers.splice(peerIndex, 1);
-  }
   if (!wsObj) {
     return messageHelper.createWarningMessage(`Connection from ${ip}:${port} does not exists.`);
   }
   const ocIndex = incomingConnections.findIndex((peer) => peer.ip === ip && peer.port === port);
   if (ocIndex === -1) {
     return messageHelper.createErrorMessage(`Unable to close incoming connection ${ip}:${port}. Try again later.`);
+  }
+  const peerIndex = incomingPeers.findIndex((peer) => peer.ip === ip && peer.port === port);
+  if (peerIndex > -1) {
+    incomingPeers.splice(peerIndex, 1);
   }
   wsObj.close(4010, 'purpusfully closed');
   log.info(`Connection from ${ip}:${port} closed with code 4010`);
