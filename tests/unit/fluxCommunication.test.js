@@ -1001,6 +1001,7 @@ describe('fluxCommunication tests', () => {
         timestamp: new Date().getTime(),
         pubKey: '1234asd',
         signature: 'blabla',
+        version: 1,
         data: {
           type: 'fluxapprunning',
         },
@@ -1051,6 +1052,7 @@ describe('fluxCommunication tests', () => {
           timestamp: new Date().getTime(),
           pubKey: '1234asd',
           signature: 'blabla',
+          version: 1,
           data: {
             type: `${command}`,
           },
@@ -1098,6 +1100,7 @@ describe('fluxCommunication tests', () => {
           timestamp: new Date().getTime(),
           pubKey: '1234asd',
           signature: 'blabla',
+          version: 1,
           data: {
             type: `${command}`,
           },
@@ -1145,6 +1148,7 @@ describe('fluxCommunication tests', () => {
           timestamp: new Date().getTime(),
           pubKey: '1234asd',
           signature: 'blabla',
+          version: 1,
           data: {
             type: `${command}`,
           },
