@@ -488,13 +488,24 @@ async function closeConnection(ip, port) {
  */
 async function closeIncomingConnection(ip, port, expressWS, clientToClose) {
   if (!ip) return messageHelper.createWarningMessage('To close a connection please provide a proper IP number.');
-  const clientsSet = expressWS.clients || [];
-  let wsObj = null || clientToClose;
-  clientsSet.forEach((client) => {
-    if (client.ip === ip && client.port === port) {
-      wsObj = client;
-    }
-  });
+  let wsObj = clientToClose;
+  if (expressWS && !wsObj) {
+    const clientsSet = expressWS.clients || [];
+    clientsSet.forEach((client) => {
+      if (client.ip === ip && client.port === port) {
+        wsObj = client;
+      }
+    });
+  }
+  if (!wsObj) {
+    const clientsSet = incomingConnections;
+    clientsSet.forEach((client) => {
+      if (client.ip === ip && client.port === port) {
+        wsObj = client;
+      }
+    });
+  }
+
   const peerIndex = incomingPeers.findIndex((peer) => peer.ip === ip && peer.port === port);
   if (peerIndex > -1) {
     incomingPeers.splice(peerIndex, 1);
