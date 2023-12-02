@@ -67,13 +67,10 @@ async function sendToAllPeers(data, wsList) {
         log.info(`Connection ${removals[i].ip}:${removals[i].port} removed from outgoingConnections`);
         outgoingConnections.splice(ocIndex, 1);
       }
-      const foundPeer = outgoingPeers.find((peer) => peer.ip === removals[i].ip && peer.port === removals[i].port);
-      if (foundPeer) {
-        const peerIndex = outgoingPeers.indexOf(foundPeer);
-        if (peerIndex > -1) {
-          outgoingPeers.splice(peerIndex, 1);
-          log.info(`Connection ${removals[i].ip}:${removals[i].port} removed from outgoingPeers`);
-        }
+      const peerIndex = outgoingPeers.findIndex((peer) => peer.ip === removals[i].ip && peer.port === removals[i].port);
+      if (peerIndex > -1) {
+        outgoingPeers.splice(peerIndex, 1);
+        log.info(`Connection ${removals[i].ip}:${removals[i].port} removed from outgoingPeers`);
       }
     }
   } catch (error) {
@@ -111,7 +108,7 @@ async function sendToAllIncomingConnections(data, wsList) {
         try {
           const { ip } = client;
           const { port } = client;
-          fluxNetworkHelper.closeIncomingConnection(ip, port); // this is wrong
+          fluxNetworkHelper.closeIncomingConnection(ip, port);
         } catch (err) {
           log.error(err);
         }
@@ -124,13 +121,10 @@ async function sendToAllIncomingConnections(data, wsList) {
         log.info(`Connection to ${removals[i].ip}:${removals[i].port} removed from incomingConnections`);
         incomingConnections.splice(ocIndex, 1);
       }
-      const foundPeer = incomingPeers.find((mypeer) => mypeer.ip === removals[i].ip && mypeer.port === removals[i].port);
-      if (foundPeer) {
-        const peerIndex = incomingPeers.indexOf(foundPeer);
-        if (peerIndex > -1) {
-          log.info(`Connection ${removals[i].ip}:${removals[i].port} removed from incomingPeers`);
-          incomingPeers.splice(peerIndex, 1);
-        }
+      const peerIndex = incomingPeers.findIndex((mypeer) => mypeer.ip === removals[i].ip && mypeer.port === removals[i].port);
+      if (peerIndex > -1) {
+        log.info(`Connection ${removals[i].ip}:${removals[i].port} removed from incomingPeers`);
+        incomingPeers.splice(peerIndex, 1);
       }
     }
   } catch (error) {

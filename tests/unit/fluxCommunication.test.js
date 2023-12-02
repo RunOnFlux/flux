@@ -125,16 +125,22 @@ describe('fluxCommunication tests', () => {
       incomingConnections.push(wsIncoming);
 
       const messageString = JSON.stringify(message);
-      const wsListOut = outgoingConnections;
-      const outPeerIndex = outgoingConnections.findIndex((client) => client._socket.remoteAddress === fromIp && client.port === port);
-      if (outPeerIndex >= 0) {
-        wsListOut.splice(outPeerIndex, 1);
-      }
-      const wsListIn = incomingConnections;
-      const incPeerIndex = incomingConnections.findIndex((client) => client._socket.remoteAddress.replace('::ffff:', '') === fromIp && client.port === port);
-      if (incPeerIndex >= 0) {
-        wsListIn.splice(incPeerIndex, 1);
-      }
+      const wsListOut = [];
+      outgoingConnections.forEach((client) => {
+        if (client._socket.remoteAddress === fromIp && client.port === port) {
+          // do not broadcast to this peer
+        } else {
+          wsListOut.push(client);
+        }
+      });
+      const wsListIn = [];
+      incomingConnections.forEach((client) => {
+        if (client._socket.remoteAddress.replace('::ffff:', '') === fromIp && client.port === port) {
+          // do not broadcast to this peer
+        } else {
+          wsListIn.push(client);
+        }
+      });
 
       await fluxCommunication.handleAppMessages(message, fromIp, port);
 
@@ -673,6 +679,8 @@ describe('fluxCommunication tests', () => {
         lastPingTime: new Date().getTime(),
         latency: 50,
       };
+      incomingConnections.push(peer1);
+      incomingConnections.push(peer2);
       incomingPeers.push(peer1);
       incomingPeers.push(peer2);
     });
@@ -1423,9 +1431,9 @@ describe('fluxCommunication tests', () => {
       sinon.assert.calledWith(infoSpy, 'Searching for my node on sortedNodeList');
       sinon.assert.calledWith(infoSpy, 'My node was found on index: 9 of 10 nodes');
       sinon.assert.calledWith(infoSpy, 'Current number of outgoing connections:0');
-      sinon.assert.calledWith(infoSpy, 'Current number of incoming connections:0');
+      sinon.assert.calledWith(infoSpy, 'Current number of incoming connections:2'); // this is coming from removeIncomingPeer tests where we pushing it
       sinon.assert.calledWith(infoSpy, 'Current number of outgoing peers:0');
-      sinon.assert.calledWith(infoSpy, 'Current number of incoming peers:2'); // todo fix why 2?
+      sinon.assert.calledWith(infoSpy, 'Current number of incoming peers:2'); // this is coming from removeIncomingPeer tests where we pushing it
     }).timeout(50000);
   });
 });
