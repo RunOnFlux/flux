@@ -38,7 +38,7 @@ async function sendToAllPeers(data, wsList) {
           if (!data) {
             const pingTime = new Date().getTime();
             client.ping(); // do ping instead
-            const foundPeer = outgoingPeers.find((peer) => peer.ip === client._socket.remoteAddress && peer.port === client.port);
+            const foundPeer = outgoingPeers.find((peer) => peer.ip === client.ip && peer.port === client.port);
             if (foundPeer) {
               foundPeer.lastPingTime = pingTime;
             }
@@ -46,12 +46,12 @@ async function sendToAllPeers(data, wsList) {
             client.send(data);
           }
         } else {
-          throw new Error(`Connection to ${client._socket.remoteAddress} is not open`);
+          throw new Error(`Connection to ${client.ip} is not open`);
         }
       } catch (e) {
         removals.push(client);
         try {
-          const ip = client._socket.remoteAddress;
+          const { ip } = client;
           const { port } = client;
           // eslint-disable-next-line no-use-before-define
           fluxNetworkHelper.closeConnection(ip, port);
@@ -62,17 +62,17 @@ async function sendToAllPeers(data, wsList) {
     }
 
     for (let i = 0; i < removals.length; i += 1) {
-      const ocIndex = outgoingConnections.findIndex((ws) => removals[i]._socket.remoteAddress === ws._socket.remoteAddress && removals[i].port === ws.port);
+      const ocIndex = outgoingConnections.findIndex((ws) => removals[i].ip === ws.ip && removals[i].port === ws.port);
       if (ocIndex > -1) {
-        log.info(`Connection ${removals[i]._socket.remoteAddress}:${removals[i].port} removed from outgoingConnections`);
+        log.info(`Connection ${removals[i].ip}:${removals[i].port} removed from outgoingConnections`);
         outgoingConnections.splice(ocIndex, 1);
       }
-      const foundPeer = outgoingPeers.find((peer) => peer.ip === removals[i]._socket.remoteAddress && peer.port === removals[i].port);
+      const foundPeer = outgoingPeers.find((peer) => peer.ip === removals[i].ip && peer.port === removals[i].port);
       if (foundPeer) {
         const peerIndex = outgoingPeers.indexOf(foundPeer);
         if (peerIndex > -1) {
           outgoingPeers.splice(peerIndex, 1);
-          log.info(`Connection ${removals[i]._socket.remoteAddress}:${removals[i].port} removed from outgoingPeers`);
+          log.info(`Connection ${removals[i].ip}:${removals[i].port} removed from outgoingPeers`);
         }
       }
     }
@@ -104,12 +104,12 @@ async function sendToAllIncomingConnections(data, wsList) {
             client.send(data);
           }
         } else {
-          throw new Error(`Connection to ${client._socket.remoteAddress} is not open`);
+          throw new Error(`Connection to ${client.ip} is not open`);
         }
       } catch (e) {
         removals.push(client);
         try {
-          const ip = client._socket.remoteAddress.replace('::ffff:', '');
+          const { ip } = client;
           const { port } = client;
           fluxNetworkHelper.closeIncomingConnection(ip, port); // this is wrong
         } catch (err) {
@@ -119,16 +119,16 @@ async function sendToAllIncomingConnections(data, wsList) {
     }
 
     for (let i = 0; i < removals.length; i += 1) {
-      const ocIndex = incomingConnections.findIndex((incomingCon) => removals[i]._socket.remoteAddress.replace('::ffff:', '') === incomingCon._socket.remoteAddress.replace('::ffff:', '') && ipremovals[i].port === incomingCon.port);
+      const ocIndex = incomingConnections.findIndex((incomingCon) => removals[i].ip === incomingCon.ip && ipremovals[i].port === incomingCon.port);
       if (ocIndex > -1) {
-        log.info(`Connection to ${removals[i]._socket.remoteAddress.replace('::ffff:', '')}:${removals[i].port} removed from incomingConnections`);
+        log.info(`Connection to ${removals[i].ip}:${removals[i].port} removed from incomingConnections`);
         incomingConnections.splice(ocIndex, 1);
       }
-      const foundPeer = incomingPeers.find((mypeer) => mypeer.ip === removals[i]._socket.remoteAddress.replace('::ffff:', '') && mypeer.port === removals[i].port);
+      const foundPeer = incomingPeers.find((mypeer) => mypeer.ip === removals[i].ip && mypeer.port === removals[i].port);
       if (foundPeer) {
         const peerIndex = incomingPeers.indexOf(foundPeer);
         if (peerIndex > -1) {
-          log.info(`Connection ${removals[i]._socket.remoteAddress.replace('::ffff:', '')}:${removals[i].port} removed from incomingPeers`);
+          log.info(`Connection ${removals[i].ip}:${removals[i].port} removed from incomingPeers`);
           incomingPeers.splice(peerIndex, 1);
         }
       }

@@ -583,6 +583,7 @@ describe('fluxNetworkHelper tests', () => {
     const generateWebsocket = (ip, port, readyState) => {
       const ws = {};
       ws.port = port;
+      ws.ip = ip;
       ws.readyState = readyState;
       ws.ping = sinon.stub().returns('pong');
       ws.close = sinon.stub().returns('okay');
@@ -704,6 +705,7 @@ describe('fluxNetworkHelper tests', () => {
     const generateWebsocket = (ip, port, readyState) => {
       const ws = {};
       ws.port = port;
+      ws.ip = ip;
       ws.readyState = readyState;
       ws.ping = sinon.stub().returns('pong');
       ws.close = sinon.stub().returns('okay');
@@ -914,6 +916,7 @@ describe('fluxNetworkHelper tests', () => {
     const generateWebsocket = (ip, port) => {
       const ws = {};
       ws.port = port;
+      ws.ip = ip;
       ws._socket = {
         remoteAddress: ip,
       };

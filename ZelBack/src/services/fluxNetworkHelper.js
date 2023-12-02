@@ -463,7 +463,7 @@ async function getRandomConnection() {
  */
 async function closeConnection(ip, port) {
   if (!ip) return messageHelper.createWarningMessage('To close a connection please provide a proper IP number.');
-  const ocIndex = outgoingConnections.findIndex((client) => client._socket.remoteAddress === ip && client.port === port);
+  const ocIndex = outgoingConnections.findIndex((client) => client.ip === ip && client.port === port);
   if (ocIndex < 0) {
     return messageHelper.createWarningMessage(`Connection to ${ip}:${port} does not exists.`);
   }
@@ -494,7 +494,7 @@ async function closeIncomingConnection(ip, port, expressWS, clientToClose) {
   const clientsSet = expressWS.clients || [];
   let wsObj = null || clientToClose;
   clientsSet.forEach((client) => {
-    if (client._socket.remoteAddress.replace('::ffff:', '') === ip && client.port === port) {
+    if (client.ip === ip && client.port === port) {
       wsObj = client;
     }
   });
@@ -548,7 +548,7 @@ function getIncomingConnections(req, res, expressWS) {
   const clientsSet = expressWS.clients;
   const connections = [];
   clientsSet.forEach((client) => {
-    connections.push(client._socket.remoteAddress);
+    connections.push(client.ip);
   });
   const message = messageHelper.createDataMessage(connections);
   response = message;
