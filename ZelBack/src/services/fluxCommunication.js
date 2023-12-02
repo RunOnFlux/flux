@@ -247,13 +247,6 @@ function handleIncomingConnection(websocket, req) {
       }, 1000);
       return;
     }
-    const findPeer = incomingPeers.find((p) => p.ip === ws.ip && p.port === port);
-    if (findPeer) {
-      setTimeout(() => {
-        ws.close(4001, 'Peer received is already in incomingPeers list');
-      }, 1000);
-      return;
-    }
     let ipv4Peer;
     try {
       ipv4Peer = ws._socket.remoteAddress.replace('::ffff:', '');
@@ -282,6 +275,13 @@ function handleIncomingConnection(websocket, req) {
     }
     ws.port = port;
     ws.ip = ipv4Peer;
+    const findPeer = incomingPeers.find((p) => p.ip === ws.ip && p.port === port);
+    if (findPeer) {
+      setTimeout(() => {
+        ws.close(4001, 'Peer received is already in incomingPeers list');
+      }, 1000);
+      return;
+    }
     incomingConnections.push(ws);
     incomingPeers.push(peer);
 
@@ -878,7 +878,7 @@ async function fluxDiscovery() {
       await serviceHelper.delay(500);
     }
     index = 0;
-    while ((incomingConnections.length < 10 || [...new Set(incomingConnections.map((client) => client.ip))].length < 5) && index < 100) { // Max of 14 outgoing connections - 12 possible deterministic + min. 2 random (we will get more random as others nodes have more random outgoing connections)
+    while ((incomingConnections.length < 10 || [...new Set(incomingConnections.map((client) => client.ip))].length < 5) && index < 100) { // Max of 14 incoming connections - 12 possible deterministic + min. 2 random (we will get more random as others nodes have more random outgoing connections)
       index += 1;
       // eslint-disable-next-line no-await-in-loop
       const connection = await fluxNetworkHelper.getRandomConnection();
