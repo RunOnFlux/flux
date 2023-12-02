@@ -254,7 +254,17 @@ function handleIncomingConnection(websocket, req) {
       }, 1000);
       return;
     }
-    const ipv4Peer = ws._socket.remoteAddress.replace('::ffff:', '');
+    let ipv4Peer;
+    try {
+      ipv4Peer = ws._socket.remoteAddress.replace('::ffff:', '');
+      if (!ipv4Peer) {
+        ipv4Peer = ws._socket._peername.address.replace('::ffff:', '');
+      }
+    } catch (error) {
+      log.error(error);
+      ipv4Peer = ws._socket._peername.address.replace('::ffff:', '');
+    }
+
     const peer = {
       ip: ipv4Peer,
       port,
