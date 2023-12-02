@@ -314,8 +314,21 @@ function handleIncomingConnection(websocket, req) {
       if (!rateOK) {
         return; // do not react to the message
       }
-      // check blocked list
       const { pubKey } = msgObj;
+      const { timestamp } = msgObj;
+      const { signature } = msgObj;
+      const { version } = msgObj;
+      const { data } = msgObj;
+      if (!pubKey || !timestamp || !signature || !version || !data) {
+        try {
+          log.info(`Invalid received from incoming peer ${peer.ip}:${peer.port}. Closing incoming connection`);
+          ws.close(4016, 'Message not valid, disconnect');
+        } catch (e) {
+          log.error(e);
+        }
+        return;
+      }
+      // check blocked list
       if (blockedPubKeysCache.has(pubKey)) {
         try {
           log.info('Closing incoming connection, peer is on blockedList');
@@ -324,9 +337,6 @@ function handleIncomingConnection(websocket, req) {
           log.error(e);
         }
         return;
-      }
-      if (!pubKey) {
-        log.warn(`Message without pubkey received from incoming peer ${peer.ip}:${peer.port}. Message: ${JSON.stringify(msg)}`);
       }
       const currentTimeStamp = Date.now();
       const messageOK = await fluxCommunicationUtils.verifyFluxBroadcast(msgObj, undefined, currentTimeStamp);
@@ -612,8 +622,21 @@ async function initiateAndHandleConnection(connection) {
       if (!rateOK) {
         return; // do not react to the message
       }
-      // check blocked list
       const { pubKey } = msgObj;
+      const { timestamp } = msgObj;
+      const { signature } = msgObj;
+      const { version } = msgObj;
+      const { data } = msgObj;
+      if (!pubKey || !timestamp || !signature || !version || !data) {
+        try {
+          log.info(`Invalid received from outgoing peer ${ip}:${port}. Closing outgoing connection`);
+          websocket.close(4017, 'Message not valid, disconnect');
+        } catch (e) {
+          log.error(e);
+        }
+        return;
+      }
+      // check blocked list
       if (blockedPubKeysCache.has(pubKey)) {
         try {
           log.info('Closing outgoing connection, peer is on blockedList');
