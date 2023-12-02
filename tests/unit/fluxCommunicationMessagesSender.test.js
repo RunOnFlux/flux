@@ -36,6 +36,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     const generateWebsocket = (ip, port, readyState) => {
       const ws = {};
       ws.port = port;
+      ws.ip = ip;
       ws.readyState = readyState;
       ws.ping = sinon.stub().returns('pong');
       ws.send = sinon.stub().returns('okay');
@@ -180,6 +181,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     const generateWebsocket = (ip, port, readyState) => {
       const ws = {};
       ws.port = port;
+      ws.ip = ip;
       ws.readyState = readyState;
       ws.ping = sinon.stub().returns('pong');
       ws.send = sinon.stub().returns('okay');
@@ -581,6 +583,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     const generateWebsocket = (ip, port, readyState) => {
       const ws = {};
       ws.port = port;
+      ws.ip = ip;
       ws.readyState = readyState;
       ws.ping = sinon.stub().returns('pong');
       ws.send = sinon.stub().returns('okay');
@@ -628,6 +631,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     const generateWebsocket = (ip, port, readyState) => {
       const ws = {};
       ws.port = port;
+      ws.ip = ip;
       ws.readyState = readyState;
       ws.ping = sinon.stub().returns('pong');
       ws.send = sinon.stub().returns('okay');
@@ -675,6 +679,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     const generateWebsocket = (ip, port, readyState) => {
       const ws = {};
       ws.port = port;
+      ws.ip = ip;
       ws.readyState = readyState;
       ws.ping = sinon.stub().returns('pong');
       ws.send = sinon.stub().returns('okay');
@@ -853,6 +858,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     const generateWebsocket = (ip, port, readyState) => {
       const ws = {};
       ws.port = port;
+      ws.ip = ip;
       ws.readyState = readyState;
       ws.ping = sinon.stub().returns('pong');
       ws.send = sinon.stub().returns('okay');
@@ -1031,6 +1037,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     const generateIncomingWebsocket = (ip, port, readyState) => {
       const ws = {};
       ws.port = port;
+      ws.ip = ip;
       ws.readyState = readyState;
       ws.ping = sinon.stub().returns('pong');
       ws.send = sinon.stub().returns('okay');
@@ -1043,6 +1050,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     const generateOutgoingWebsocket = (ip, port, readyState) => {
       const ws = {};
       ws.port = port;
+      ws.ip = ip;
       ws.readyState = readyState;
       ws.ping = sinon.stub().returns('pong');
       ws.send = sinon.stub().returns('okay');
@@ -1244,6 +1252,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     const generateWebsocket = (ip, port, readyState) => {
       const ws = {};
       ws.port = port;
+      ws.ip = ip;
       ws.readyState = readyState;
       ws.ping = sinon.stub().returns('pong');
       ws.send = sinon.stub().returns('okay');
@@ -1435,6 +1444,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     const generateWebsocket = (ip, port, readyState) => {
       const ws = {};
       ws.port = port;
+      ws.ip = ip;
       ws.readyState = readyState;
       ws.ping = sinon.stub().returns('pong');
       ws.send = sinon.stub().returns('okay');
@@ -1626,6 +1636,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     const generateIncomingWebsocket = (ip, port, readyState) => {
       const ws = {};
       ws.port = port;
+      ws.ip = ip;
       ws.readyState = readyState;
       ws.ping = sinon.stub().returns('pong');
       ws.send = sinon.stub().returns('okay');
@@ -1638,6 +1649,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     const generateOutgoingWebsocket = (ip, port, readyState) => {
       const ws = {};
       ws.port = port;
+      ws.ip = ip;
       ws.readyState = readyState;
       ws.ping = sinon.stub().returns('pong');
       ws.send = sinon.stub().returns('okay');
@@ -1848,6 +1860,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     const generateOutgoingWebsocket = (ip, port, readyState) => {
       const ws = {};
       ws.port = port;
+      ws.ip = ip;
       ws.readyState = readyState;
       ws.ping = sinon.stub().returns('pong');
       ws.send = sinon.stub().returns('okay');
@@ -1860,6 +1873,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     const generateIncomingWebsocket = (ip, port, readyState) => {
       const ws = {};
       ws.port = port;
+      ws.ip = ip;
       ws.readyState = readyState;
       ws.ping = sinon.stub().returns('pong');
       ws.send = sinon.stub().returns('okay');
