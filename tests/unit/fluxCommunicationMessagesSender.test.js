@@ -26,7 +26,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       const peer = {
         ip,
         port,
-        lastPingTime: 'test',
+        lastPingTime: new Date().getTime(),
         latency: 50,
       };
       outgoingPeers.push(peer);
@@ -113,6 +113,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       const generateFaultyWebsocket = (ip, port, readyState) => {
         const ws = {};
         ws.port = port;
+        ws.ip = ip;
         ws.readyState = readyState;
         ws.ping = sinon.stub().returns('pong');
         ws.send = sinon.stub().throws();
@@ -256,6 +257,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       const generateFaultyWebsocket = (ip, port, readyState) => {
         const ws = {};
         ws.port = port;
+        ws.ip = ip;
         ws.readyState = readyState;
         ws.ping = sinon.stub().returns('pong');
         ws.send = sinon.stub().throws();
