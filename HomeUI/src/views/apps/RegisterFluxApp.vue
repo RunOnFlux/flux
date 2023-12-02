@@ -4,7 +4,7 @@
       <b-card-sub-title>
         Note: Only verified images can currently run on Flux. To whitelist your image, please contact the Flux Team via
         <b-link
-          href="https://discord.io/runonflux"
+          href="https://discord.gg/runonflux"
           target="_blank"
           active-class="primary"
         >
