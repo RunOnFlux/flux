@@ -86,7 +86,6 @@ async function sendToAllPeers(data, wsList) {
 async function sendToAllIncomingConnections(data, wsList) {
   try {
     const removals = [];
-    const ipremovals = [];
     // wsList is always a sublist of incomingConnections
     const incConList = wsList || incomingConnections;
     // eslint-disable-next-line no-restricted-syntax
@@ -116,7 +115,7 @@ async function sendToAllIncomingConnections(data, wsList) {
     }
 
     for (let i = 0; i < removals.length; i += 1) {
-      const ocIndex = incomingConnections.findIndex((incomingCon) => removals[i].ip === incomingCon.ip && ipremovals[i].port === incomingCon.port);
+      const ocIndex = incomingConnections.findIndex((incomingCon) => removals[i].ip === incomingCon.ip && removals[i].port === incomingCon.port);
       if (ocIndex > -1) {
         log.info(`Connection to ${removals[i].ip}:${removals[i].port} removed from incomingConnections`);
         incomingConnections.splice(ocIndex, 1);

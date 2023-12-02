@@ -1,4 +1,5 @@
 /* eslint-disable no-underscore-dangle */
+global.userconfig = require('../../config/userconfig');
 const chai = require('chai');
 const chaiAsPromised = require('chai-as-promised');
 const sinon = require('sinon');
