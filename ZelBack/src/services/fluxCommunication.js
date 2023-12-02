@@ -255,7 +255,7 @@ function handleIncomingConnection(websocket, req, expressWS) {
       }, 1000);
       return;
     }
-    const ipv4Peer = ws.ip;
+    const ipv4Peer = ws._socket.remoteAddress.replace('::ffff:', '');
     const peer = {
       ip: ipv4Peer,
       port,
