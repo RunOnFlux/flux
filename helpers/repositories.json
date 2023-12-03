@@ -376,5 +376,6 @@
    "fishflyhuang",
    "danielrhr/noderank",
    "edouardl",
-   "opentensor"
+   "opentensor",
+   "omniadevs/ic-http-request-executor"
 ]
