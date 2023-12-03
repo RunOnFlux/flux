@@ -785,12 +785,12 @@ describe('fluxCommunication tests', () => {
         data: {
           code: undefined,
           name: undefined,
-          message: 'Connection from 127.0.3.1:16127 does not exists.',
+          message: 'Connection from 127.0.4.1:16127 does not exists.',
         },
       };
       const req = {
         params: {
-          ip: '127.0.3.1',
+          ip: '127.0.4.1',
           port: 16127,
         },
       };
