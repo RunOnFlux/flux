@@ -4533,9 +4533,9 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth');
       this.socket = io.connect(backendURL);
       if (this.customValue) {
-        this.socket.emit('exec', zelidauth, name, this.$refs.terminalElement.clientWidth, this.$refs.terminalElement.clientHeight, this.customValue, this.envInputValue);
+        this.socket.emit('exec', zelidauth, name, this.customValue, this.envInputValue);
       } else {
-        this.socket.emit('exec', zelidauth, name, this.$refs.terminalElement.clientWidth, this.$refs.terminalElement.clientHeight, this.selectedCmd, this.envInputValue);
+        this.socket.emit('exec', zelidauth, name, this.selectedCmd, this.envInputValue);
       }
 
       this.terminal.open(this.$refs.terminalElement);
@@ -4552,8 +4552,8 @@ export default {
 
       this.terminal.onResize((event) => {
         const { cols, rows } = event;
-        console.log('resizing to', { cols, rows: rows + 1 });
-        this.socket.emit('resize', { cols, rows: rows + 1 });
+        console.log('Resizing to', { cols, rows });
+        this.socket.emit('resize', { cols, rows });
       });
 
       this.terminal.onTitleChange((event) => {
@@ -4593,6 +4593,7 @@ export default {
             this.$nextTick(() => {
               setTimeout(() => {
                 this.terminal.focus();
+                fitAddon.fit();
               }, 500);
             });
           }, 1400);
