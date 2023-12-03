@@ -1,4 +1,5 @@
 /* eslint-disable no-underscore-dangle */
+global.userconfig = require('../../config/userconfig');
 const chai = require('chai');
 const chaiAsPromised = require('chai-as-promised');
 const sinon = require('sinon');
@@ -26,7 +27,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       const peer = {
         ip,
         port,
-        lastPingTime: 'test',
+        lastPingTime: new Date().getTime(),
         latency: 50,
       };
       outgoingPeers.push(peer);
@@ -36,6 +37,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     const generateWebsocket = (ip, port, readyState) => {
       const ws = {};
       ws.port = port;
+      ws.ip = ip;
       ws.readyState = readyState;
       ws.ping = sinon.stub().returns('pong');
       ws.send = sinon.stub().returns('okay');
@@ -113,6 +115,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       const generateFaultyWebsocket = (ip, port, readyState) => {
         const ws = {};
         ws.port = port;
+        ws.ip = ip;
         ws.readyState = readyState;
         ws.ping = sinon.stub().returns('pong');
         ws.send = sinon.stub().throws();
@@ -146,7 +149,6 @@ describe('fluxCommunicationMessagesSender tests', () => {
     });
 
     it('should send a ping message to all peers if no data is given', async () => {
-      const pingMessage = 'flux';
       closeConnectionStub.returns('closed!');
       const wsIp = '127.0.0.1';
       const wsIp2 = '127.0.0.2';
@@ -158,8 +160,8 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
       await fluxCommunicationMessagesSender.sendToAllPeers();
 
-      sinon.assert.calledOnceWithExactly(webSocket1.ping, pingMessage);
-      sinon.assert.calledOnceWithExactly(webSocket2.ping, pingMessage);
+      sinon.assert.calledOnceWithExactly(webSocket1.ping);
+      sinon.assert.calledOnceWithExactly(webSocket2.ping);
       expect(peer1.lastPingTime).to.be.a('number');
       expect(peer2.lastPingTime).to.be.a('number');
     });
@@ -180,6 +182,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     const generateWebsocket = (ip, port, readyState) => {
       const ws = {};
       ws.port = port;
+      ws.ip = ip;
       ws.readyState = readyState;
       ws.ping = sinon.stub().returns('pong');
       ws.send = sinon.stub().returns('okay');
@@ -257,6 +260,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       const generateFaultyWebsocket = (ip, port, readyState) => {
         const ws = {};
         ws.port = port;
+        ws.ip = ip;
         ws.readyState = readyState;
         ws.ping = sinon.stub().returns('pong');
         ws.send = sinon.stub().throws();
@@ -282,7 +286,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
       sinon.assert.threw(webSocket1.send);
       sinon.assert.calledOnceWithExactly(webSocket2.send, data);
-      sinon.assert.calledOnceWithExactly(closeConnectionStub, '127.0.0.1', port, [], webSocket1);
+      sinon.assert.calledOnceWithExactly(closeConnectionStub, '127.0.0.1', 16127);
       expect(incomingPeers).to.contain(peer2);
       expect(incomingPeers).to.not.contain(peer1);
       expect(incomingConnections).to.contain(webSocket2);
@@ -290,7 +294,6 @@ describe('fluxCommunicationMessagesSender tests', () => {
     });
 
     it('should send a ping message to all peers if no data is given', async () => {
-      const pingMessage = 'flux';
       closeConnectionStub.returns('closed!');
       const wsIp = '127.0.0.1';
       const wsIp2 = '127.0.0.2';
@@ -302,8 +305,8 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
       await fluxCommunicationMessagesSender.sendToAllIncomingConnections();
 
-      sinon.assert.calledOnceWithExactly(webSocket1.ping, pingMessage);
-      sinon.assert.calledOnceWithExactly(webSocket2.ping, pingMessage);
+      sinon.assert.calledOnceWithExactly(webSocket1.ping);
+      sinon.assert.calledOnceWithExactly(webSocket2.ping);
     });
   });
 
@@ -581,6 +584,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     const generateWebsocket = (ip, port, readyState) => {
       const ws = {};
       ws.port = port;
+      ws.ip = ip;
       ws.readyState = readyState;
       ws.ping = sinon.stub().returns('pong');
       ws.send = sinon.stub().returns('okay');
@@ -628,6 +632,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     const generateWebsocket = (ip, port, readyState) => {
       const ws = {};
       ws.port = port;
+      ws.ip = ip;
       ws.readyState = readyState;
       ws.ping = sinon.stub().returns('pong');
       ws.send = sinon.stub().returns('okay');
@@ -675,6 +680,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     const generateWebsocket = (ip, port, readyState) => {
       const ws = {};
       ws.port = port;
+      ws.ip = ip;
       ws.readyState = readyState;
       ws.ping = sinon.stub().returns('pong');
       ws.send = sinon.stub().returns('okay');
@@ -853,6 +859,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     const generateWebsocket = (ip, port, readyState) => {
       const ws = {};
       ws.port = port;
+      ws.ip = ip;
       ws.readyState = readyState;
       ws.ping = sinon.stub().returns('pong');
       ws.send = sinon.stub().returns('okay');
@@ -1031,6 +1038,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     const generateIncomingWebsocket = (ip, port, readyState) => {
       const ws = {};
       ws.port = port;
+      ws.ip = ip;
       ws.readyState = readyState;
       ws.ping = sinon.stub().returns('pong');
       ws.send = sinon.stub().returns('okay');
@@ -1043,6 +1051,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     const generateOutgoingWebsocket = (ip, port, readyState) => {
       const ws = {};
       ws.port = port;
+      ws.ip = ip;
       ws.readyState = readyState;
       ws.ping = sinon.stub().returns('pong');
       ws.send = sinon.stub().returns('okay');
@@ -1244,6 +1253,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     const generateWebsocket = (ip, port, readyState) => {
       const ws = {};
       ws.port = port;
+      ws.ip = ip;
       ws.readyState = readyState;
       ws.ping = sinon.stub().returns('pong');
       ws.send = sinon.stub().returns('okay');
@@ -1435,6 +1445,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     const generateWebsocket = (ip, port, readyState) => {
       const ws = {};
       ws.port = port;
+      ws.ip = ip;
       ws.readyState = readyState;
       ws.ping = sinon.stub().returns('pong');
       ws.send = sinon.stub().returns('okay');
@@ -1626,6 +1637,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     const generateIncomingWebsocket = (ip, port, readyState) => {
       const ws = {};
       ws.port = port;
+      ws.ip = ip;
       ws.readyState = readyState;
       ws.ping = sinon.stub().returns('pong');
       ws.send = sinon.stub().returns('okay');
@@ -1638,6 +1650,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     const generateOutgoingWebsocket = (ip, port, readyState) => {
       const ws = {};
       ws.port = port;
+      ws.ip = ip;
       ws.readyState = readyState;
       ws.ping = sinon.stub().returns('pong');
       ws.send = sinon.stub().returns('okay');
@@ -1848,6 +1861,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     const generateOutgoingWebsocket = (ip, port, readyState) => {
       const ws = {};
       ws.port = port;
+      ws.ip = ip;
       ws.readyState = readyState;
       ws.ping = sinon.stub().returns('pong');
       ws.send = sinon.stub().returns('okay');
@@ -1860,6 +1874,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     const generateIncomingWebsocket = (ip, port, readyState) => {
       const ws = {};
       ws.port = port;
+      ws.ip = ip;
       ws.readyState = readyState;
       ws.ping = sinon.stub().returns('pong');
       ws.send = sinon.stub().returns('okay');

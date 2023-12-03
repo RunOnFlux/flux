@@ -287,7 +287,7 @@ module.exports = (app, expressWs) => {
     fluxNetworkHelper.getIncomingConnections(req, res, expressWs.getWss('/ws/flux'));
   });
   app.get('/flux/incomingconnectionsinfo', cache('30 seconds'), (req, res) => {
-    fluxNetworkHelper.getIncomingConnectionsInfo(req, res, expressWs.getWss('/ws/flux'));
+    fluxNetworkHelper.getIncomingConnectionsInfo(req, res);
   });
   app.get('/flux/checkfluxavailability/:ip?/:port?', cache('30 seconds'), (req, res) => {
     fluxNetworkHelper.checkFluxAvailability(req, res);
@@ -1326,10 +1326,10 @@ module.exports = (app, expressWs) => {
 
   // communication between multiple flux solution is on this:
   app.ws('/ws/flux/:port', (ws, req) => {
-    fluxCommunication.handleIncomingConnection(ws, req, expressWs.getWss('/ws/flux/:port'));
+    fluxCommunication.handleIncomingConnection(ws, req);
   });
   app.ws('/ws/flux', (ws, req) => {
-    fluxCommunication.handleIncomingConnection(ws, req, expressWs.getWss('/ws/flux/'));
+    fluxCommunication.handleIncomingConnection(ws, req);
   });
 
   // FluxShare

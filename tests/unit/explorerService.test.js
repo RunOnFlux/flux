@@ -101,7 +101,7 @@ describe('explorerService tests', () => {
         vout: [{
           n: 444,
           scriptPubKey:
-          { addresses: ['1ZACDE1234567'] },
+            { addresses: ['1ZACDE1234567'] },
           valueSat: 1000,
         }],
       };
@@ -124,7 +124,7 @@ describe('explorerService tests', () => {
         vout: [{
           n: 443,
           scriptPubKey:
-          { addresses: ['1ZACDE1234567'] },
+            { addresses: ['1ZACDE1234567'] },
           valueSat: 1000,
         }],
       };
@@ -265,7 +265,7 @@ describe('explorerService tests', () => {
           vout: {
             444: {
               scriptPubKey:
-            { addresses: ['1ZACDE1234567'] },
+                { addresses: ['1ZACDE1234567'] },
               valueSat: 1000,
             },
           },
@@ -362,7 +362,7 @@ describe('explorerService tests', () => {
           vout: {
             444: {
               scriptPubKey:
-            { addresses: ['1ZACDE1234567'] },
+                { addresses: ['1ZACDE1234567'] },
               valueSat: 1000,
             },
           },
@@ -541,13 +541,19 @@ describe('explorerService tests', () => {
             outidx: '1111',
             vin: [],
             vout: [{
-              n: 444,
+              n: 0,
               scriptPubKey:
               {
                 addresses: ['t1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6'],
+              },
+              valueSat: 200000000,
+            },
+            {
+              n: 444,
+              scriptPubKey:
+              {
                 asm: 'OP_RETURN 5468697320737472696e672069732065786163746c792036342063686172616374657273206c6f6e672e20496e636c7564696e67207468697320737472696e67',
               },
-              valueSat: 20000000,
             }],
           },
         ],
@@ -564,7 +570,7 @@ describe('explorerService tests', () => {
           txid: '12345',
           height: 983000,
           hash: 'This string is exactly 64 characters long. Including this string',
-          value: 20000000,
+          value: 200000000,
           message: false,
         },
       ], { ordered: false });
@@ -824,7 +830,7 @@ describe('explorerService tests', () => {
           vout: {
             444: {
               scriptPubKey:
-            { addresses: ['1ZACDE1234567'] },
+                { addresses: ['1ZACDE1234567'] },
               valueSat: 1000,
             },
           },
@@ -889,7 +895,7 @@ describe('explorerService tests', () => {
           vout: {
             444: {
               scriptPubKey:
-            { addresses: ['1ZACDE1234567'] },
+                { addresses: ['1ZACDE1234567'] },
               valueSat: 1000,
             },
           },
@@ -964,7 +970,7 @@ describe('explorerService tests', () => {
           vout: {
             444: {
               scriptPubKey:
-            { addresses: ['1ZACDE1234567'] },
+                { addresses: ['1ZACDE1234567'] },
               valueSat: 1000,
             },
           },
@@ -1037,7 +1043,7 @@ describe('explorerService tests', () => {
           vout: {
             444: {
               scriptPubKey:
-            { addresses: ['1ZACDE1234567'] },
+                { addresses: ['1ZACDE1234567'] },
               valueSat: 1000,
             },
           },
@@ -1069,7 +1075,6 @@ describe('explorerService tests', () => {
     let logInfoSpy;
     let expireGlobalApplicationsStub;
     let checkAndRemoveApplicationInstanceStub;
-    let reinstallOldApplicationsStub;
     let restorePortsSupportStub;
     let daemonServiceBlockchainRpcsStub;
     let daemonServiceMiscRpcsStub;
@@ -1081,7 +1086,6 @@ describe('explorerService tests', () => {
       dbStubCollectionStats = sinon.stub(dbHelper, 'collectionStats');
       expireGlobalApplicationsStub = sinon.stub(appsService, 'expireGlobalApplications');
       checkAndRemoveApplicationInstanceStub = sinon.stub(appsService, 'checkAndRemoveApplicationInstance');
-      reinstallOldApplicationsStub = sinon.stub(appsService, 'reinstallOldApplications');
       restorePortsSupportStub = sinon.stub(appsService, 'restorePortsSupport');
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
@@ -1099,9 +1103,9 @@ describe('explorerService tests', () => {
       const isInsightExplorer = true;
       daemonServiceMiscRpcsStub.returns({
         data:
-      {
-        synced: false,
-      },
+        {
+          synced: false,
+        },
       });
 
       const result = await explorerService.processBlock(blockHeight, isInsightExplorer);
@@ -1123,9 +1127,9 @@ describe('explorerService tests', () => {
       });
       daemonServiceMiscRpcsStub.returns({
         data:
-      {
-        synced: true,
-      },
+        {
+          synced: true,
+        },
       });
       daemonServiceBlockchainRpcsStub.returns({
         status: 'success',
@@ -1161,7 +1165,6 @@ describe('explorerService tests', () => {
 
       sinon.assert.calledOnce(expireGlobalApplicationsStub);
       sinon.assert.notCalled(checkAndRemoveApplicationInstanceStub);
-      sinon.assert.notCalled(reinstallOldApplicationsStub);
       sinon.assert.notCalled(restorePortsSupportStub);
       sinon.assert.calledOnceWithMatch(dbStubUpdate, sinon.match.object, 'scannedheight',
         { generalScannedHeight: { $gte: 0 } },
@@ -1185,9 +1188,9 @@ describe('explorerService tests', () => {
       });
       daemonServiceMiscRpcsStub.returns({
         data:
-      {
-        synced: true,
-      },
+        {
+          synced: true,
+        },
       });
       daemonServiceBlockchainRpcsStub.returns({
         status: 'success',
@@ -1223,7 +1226,6 @@ describe('explorerService tests', () => {
 
       sinon.assert.notCalled(expireGlobalApplicationsStub);
       sinon.assert.calledOnce(checkAndRemoveApplicationInstanceStub);
-      sinon.assert.calledOnce(reinstallOldApplicationsStub);
       sinon.assert.notCalled(restorePortsSupportStub);
       sinon.assert.calledOnceWithMatch(dbStubUpdate, sinon.match.object, 'scannedheight',
         { generalScannedHeight: { $gte: 0 } },
@@ -1231,7 +1233,7 @@ describe('explorerService tests', () => {
         { upsert: true });
     });
 
-    it('should update db if all parameters are passed correctly, height == 9000254', async () => {
+    it('should update db if all parameters are passed correctly, height == 900024', async () => {
       const blockHeight = 900024;
       const isInsightExplorer = true;
       dbStubUpdate.returns(true);
@@ -1245,9 +1247,9 @@ describe('explorerService tests', () => {
       });
       daemonServiceMiscRpcsStub.returns({
         data:
-      {
-        synced: true,
-      },
+        {
+          synced: true,
+        },
       });
       daemonServiceBlockchainRpcsStub.returns({
         status: 'success',
@@ -1283,7 +1285,6 @@ describe('explorerService tests', () => {
 
       sinon.assert.notCalled(expireGlobalApplicationsStub);
       sinon.assert.notCalled(checkAndRemoveApplicationInstanceStub);
-      sinon.assert.notCalled(reinstallOldApplicationsStub);
       sinon.assert.calledOnceWithMatch(dbStubUpdate, sinon.match.object, 'scannedheight',
         { generalScannedHeight: { $gte: 0 } },
         { $set: { generalScannedHeight: 900024 } },

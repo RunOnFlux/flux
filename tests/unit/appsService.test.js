@@ -14,6 +14,7 @@ const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBenchmarkRpcs');
 const generalService = require('../../ZelBack/src/services/generalService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const log = require('../../ZelBack/src/lib/log');
 
 chai.use(chaiAsPromised);
@@ -3002,8 +3003,8 @@ describe('appsService tests', () => {
       appsService.setAppsMonitored(
         {
           appName: 'myAppNamev3',
-          oneMinuteInterval: setInterval(() => {}, 60000),
-          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteInterval: setInterval(() => { }, 60000),
+          fifteenMinInterval: setInterval(() => { }, 900000),
           oneMinuteStatsStore: 1000,
           fifteenMinStatsStore: 100000,
         },
@@ -3011,8 +3012,8 @@ describe('appsService tests', () => {
       appsService.setAppsMonitored(
         {
           appName: 'myAppNamev2',
-          oneMinuteInterval: setInterval(() => {}, 60000),
-          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteInterval: setInterval(() => { }, 60000),
+          fifteenMinInterval: setInterval(() => { }, 900000),
           oneMinuteStatsStore: 1000,
           fifteenMinStatsStore: 100000,
         },
@@ -3020,8 +3021,8 @@ describe('appsService tests', () => {
       appsService.setAppsMonitored(
         {
           appName: 'compname1_myAppNamev4',
-          oneMinuteInterval: setInterval(() => {}, 60000),
-          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteInterval: setInterval(() => { }, 60000),
+          fifteenMinInterval: setInterval(() => { }, 900000),
           oneMinuteStatsStore: 1000,
           fifteenMinStatsStore: 100000,
         },
@@ -3029,8 +3030,8 @@ describe('appsService tests', () => {
       appsService.setAppsMonitored(
         {
           appName: 'compname2_myAppNamev4',
-          oneMinuteInterval: setInterval(() => {}, 60000),
-          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteInterval: setInterval(() => { }, 60000),
+          fifteenMinInterval: setInterval(() => { }, 900000),
           oneMinuteStatsStore: 1000,
           fifteenMinStatsStore: 100000,
         },
@@ -3064,8 +3065,8 @@ describe('appsService tests', () => {
       appsService.setAppsMonitored(
         {
           appName: 'myAppNamev3',
-          oneMinuteInterval: setInterval(() => {}, 60000),
-          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteInterval: setInterval(() => { }, 60000),
+          fifteenMinInterval: setInterval(() => { }, 900000),
           oneMinuteStatsStore: 1000,
           fifteenMinStatsStore: 100000,
         },
@@ -3073,8 +3074,8 @@ describe('appsService tests', () => {
       appsService.setAppsMonitored(
         {
           appName: 'myAppNamev2',
-          oneMinuteInterval: setInterval(() => {}, 60000),
-          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteInterval: setInterval(() => { }, 60000),
+          fifteenMinInterval: setInterval(() => { }, 900000),
           oneMinuteStatsStore: 1000,
           fifteenMinStatsStore: 100000,
         },
@@ -3082,8 +3083,8 @@ describe('appsService tests', () => {
       appsService.setAppsMonitored(
         {
           appName: 'compname1_myAppNamev4',
-          oneMinuteInterval: setInterval(() => {}, 60000),
-          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteInterval: setInterval(() => { }, 60000),
+          fifteenMinInterval: setInterval(() => { }, 900000),
           oneMinuteStatsStore: 1000,
           fifteenMinStatsStore: 100000,
         },
@@ -3091,8 +3092,8 @@ describe('appsService tests', () => {
       appsService.setAppsMonitored(
         {
           appName: 'compname2_myAppNamev4',
-          oneMinuteInterval: setInterval(() => {}, 60000),
-          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteInterval: setInterval(() => { }, 60000),
+          fifteenMinInterval: setInterval(() => { }, 900000),
           oneMinuteStatsStore: 1000,
           fifteenMinStatsStore: 100000,
         },
@@ -3127,8 +3128,8 @@ describe('appsService tests', () => {
       appsService.setAppsMonitored(
         {
           appName: 'myAppNamev3',
-          oneMinuteInterval: setInterval(() => {}, 60000),
-          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteInterval: setInterval(() => { }, 60000),
+          fifteenMinInterval: setInterval(() => { }, 900000),
           oneMinuteStatsStore: 1000,
           fifteenMinStatsStore: 100000,
         },
@@ -3136,8 +3137,8 @@ describe('appsService tests', () => {
       appsService.setAppsMonitored(
         {
           appName: 'myAppNamev2',
-          oneMinuteInterval: setInterval(() => {}, 60000),
-          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteInterval: setInterval(() => { }, 60000),
+          fifteenMinInterval: setInterval(() => { }, 900000),
           oneMinuteStatsStore: 1000,
           fifteenMinStatsStore: 100000,
         },
@@ -3145,8 +3146,8 @@ describe('appsService tests', () => {
       appsService.setAppsMonitored(
         {
           appName: 'compname1_myAppNamev4',
-          oneMinuteInterval: setInterval(() => {}, 60000),
-          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteInterval: setInterval(() => { }, 60000),
+          fifteenMinInterval: setInterval(() => { }, 900000),
           oneMinuteStatsStore: 1000,
           fifteenMinStatsStore: 100000,
         },
@@ -3154,8 +3155,8 @@ describe('appsService tests', () => {
       appsService.setAppsMonitored(
         {
           appName: 'compname2_myAppNamev4',
-          oneMinuteInterval: setInterval(() => {}, 60000),
-          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteInterval: setInterval(() => { }, 60000),
+          fifteenMinInterval: setInterval(() => { }, 900000),
           oneMinuteStatsStore: 1000,
           fifteenMinStatsStore: 100000,
         },
@@ -3186,8 +3187,8 @@ describe('appsService tests', () => {
       appsService.setAppsMonitored(
         {
           appName: 'myAppNamev3',
-          oneMinuteInterval: setInterval(() => {}, 60000),
-          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteInterval: setInterval(() => { }, 60000),
+          fifteenMinInterval: setInterval(() => { }, 900000),
           oneMinuteStatsStore: 1000,
           fifteenMinStatsStore: 100000,
         },
@@ -3195,8 +3196,8 @@ describe('appsService tests', () => {
       appsService.setAppsMonitored(
         {
           appName: 'myAppNamev2',
-          oneMinuteInterval: setInterval(() => {}, 60000),
-          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteInterval: setInterval(() => { }, 60000),
+          fifteenMinInterval: setInterval(() => { }, 900000),
           oneMinuteStatsStore: 1000,
           fifteenMinStatsStore: 100000,
         },
@@ -3204,8 +3205,8 @@ describe('appsService tests', () => {
       appsService.setAppsMonitored(
         {
           appName: 'compname1_myAppNamev4',
-          oneMinuteInterval: setInterval(() => {}, 60000),
-          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteInterval: setInterval(() => { }, 60000),
+          fifteenMinInterval: setInterval(() => { }, 900000),
           oneMinuteStatsStore: 1000,
           fifteenMinStatsStore: 100000,
         },
@@ -3213,8 +3214,8 @@ describe('appsService tests', () => {
       appsService.setAppsMonitored(
         {
           appName: 'compname2_myAppNamev4',
-          oneMinuteInterval: setInterval(() => {}, 60000),
-          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteInterval: setInterval(() => { }, 60000),
+          fifteenMinInterval: setInterval(() => { }, 900000),
           oneMinuteStatsStore: 1000,
           fifteenMinStatsStore: 100000,
         },
@@ -4120,8 +4121,8 @@ describe('appsService tests', () => {
       appsService.setAppsMonitored(
         {
           appName: 'testapp',
-          oneMinuteInterval: setInterval(() => {}, 60000),
-          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteInterval: setInterval(() => { }, 60000),
+          fifteenMinInterval: setInterval(() => { }, 900000),
           oneMinuteStatsStore: 1000,
           fifteenMinStatsStore: 100000,
         },
@@ -4318,8 +4319,8 @@ describe('appsService tests', () => {
       appsService.setAppsMonitored(
         {
           appName: 'testapp',
-          oneMinuteInterval: setInterval(() => {}, 60000),
-          fifteenMinInterval: setInterval(() => {}, 900000),
+          oneMinuteInterval: setInterval(() => { }, 60000),
+          fifteenMinInterval: setInterval(() => { }, 900000),
           oneMinuteStatsStore: 1000,
           fifteenMinStatsStore: 100000,
         },
@@ -5083,11 +5084,27 @@ describe('appsService tests', () => {
       const componentSpecs = false;
       const res = generateResponse();
       nodeTierStub.resolves('cumulus');
-      dbStub.returns('testapp');
+      const dbStubOne = sinon.stub(dbHelper, 'findOneInDatabase');
+      dbStubOne.returns('testapp');
+
+      const getBenchmarksStub = sinon.stub(benchmarkService, 'getBenchmarks');
+      const ip = '127.0.0.1:5050';
+      const getBenchmarkResponseData = {
+        status: 'success',
+        data: { ipaddress: ip },
+      };
+      getBenchmarksStub.resolves(getBenchmarkResponseData);
 
       const result = await appsService.registerAppLocally(appSpec, componentSpecs, res);
 
-      sinon.assert.calledOnceWithExactly(logSpy, 'Flux App testapp already installed');
+      sinon.assert.calledOnceWithExactly(logSpy, {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: undefined,
+          message: 'Flux App testapp already installed',
+        },
+      });
       sinon.assert.calledWithExactly(res.write, {
         status: 'error',
         data: {

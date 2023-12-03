@@ -1065,8 +1065,21 @@ function startAppMonitoring(appName) {
     if (!appsMonitored[appName].oneMinuteStatsStore) {
       appsMonitored[appName].oneMinuteStatsStore = [];
     }
+    clearInterval(appsMonitored[appName].oneMinuteInterval);
     appsMonitored[appName].oneMinuteInterval = setInterval(async () => {
       try {
+        if (!appsMonitored[appName]) {
+          log.error(`Monitoring of ${appName} already stopped`);
+          clearInterval(appsMonitored[appName].oneMinuteInterval);
+          return;
+        }
+        const dockerContainer = await dockerService.getDockerContainerOnly(appName);
+        if (!dockerContainer) {
+          log.error(`Monitoring of ${appName} not possible. App does not exist. Forcing stopping of monitoring`);
+          // eslint-disable-next-line no-use-before-define
+          stopAppMonitoring(appName, true);
+          return;
+        }
         const statsNow = await dockerService.dockerContainerStats(appName);
         const appFolderName = dockerService.getAppDockerNameIdentifier(appName).substring(1);
         const folderSize = await getAppFolderSize(appFolderName);
@@ -1081,8 +1094,21 @@ function startAppMonitoring(appName) {
         log.error(error);
       }
     }, 1 * 60 * 1000);
+    clearInterval(appsMonitored[appName].fifteenMinInterval);
     appsMonitored[appName].fifteenMinInterval = setInterval(async () => {
       try {
+        if (!appsMonitored[appName]) {
+          log.error(`Monitoring of ${appName} already stopped`);
+          clearInterval(appsMonitored[appName].fifteenMinInterval);
+          return;
+        }
+        const dockerContainer = await dockerService.getDockerContainerOnly(appName);
+        if (!dockerContainer) {
+          log.error(`Monitoring of ${appName} not possible. App does not exist. Forcing stopping of monitoring`);
+          // eslint-disable-next-line no-use-before-define
+          stopAppMonitoring(appName, true);
+          return;
+        }
         const statsNow = await dockerService.dockerContainerStats(appName);
         const appFolderName = dockerService.getAppDockerNameIdentifier(appName).substring(1);
         const folderSize = await getAppFolderSize(appFolderName);
@@ -2633,7 +2659,7 @@ async function softRemoveAppLocally(app, res) {
     // eslint-disable-next-line no-restricted-syntax
     for (const appComposedComponent of appSpecifications.compose.reverse()) {
       isComponent = true;
-      appId = `${appComposedComponent.name}_${appSpecifications.name}`;
+      appId = dockerService.getAppIdentifier(`${appComposedComponent.name}_${appSpecifications.name}`);
       const appComponentSpecifications = appComposedComponent;
       // eslint-disable-next-line no-await-in-loop
       await appUninstallSoft(appName, appId, appComponentSpecifications, isComponent, res);
@@ -4498,7 +4524,7 @@ async function getUserBlockedRepositores() {
  */
 async function checkApplicationImagesComplience(appSpecs) {
   const repos = await getBlockedRepositores();
-
+  const userBlockedRepos = await getUserBlockedRepositores();
   if (!repos) {
     throw new Error('Unable to communicate with Flux Services! Try again later.');
   }
@@ -4542,6 +4568,15 @@ async function checkApplicationImagesComplience(appSpecs) {
       throw new Error(`Organisation ${org} is blocked. Application ${appSpecs.name} connot be spawned.`);
     }
   });
+
+  if (userBlockedRepos) {
+    log.info(`userBlockedRepos: ${JSON.stringify(userBlockedRepos)}`);
+    images.forEach((image) => {
+      if (userBlockedRepos.includes(image.toLowerCase())) {
+        throw new Error(`Image ${image} is user blocked. Application ${appSpecs.name} connot be spawned.`);
+      }
+    });
+  }
 
   return true;
 }
@@ -10038,7 +10073,6 @@ async function syncthingApps() {
       return;
     }
     const allFoldersResp = await syncthingService.getConfigFolders();
-    log.info(`allFoldersResp: ${JSON.stringify(allFoldersResp.data)}`);
     const allDevicesResp = await syncthingService.getConfigDevices();
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled.data) {
@@ -10102,9 +10136,8 @@ async function syncthingApps() {
             const syncFolder = allFoldersResp.data.find((x) => x.id === id);
             if (containerDataFlags.includes('r')) {
               if (syncthingAppsFirstRun) {
-                log.info('SyncthingApps first run');
                 if (!syncFolder) {
-                  log.info(`SyncthingApps appIdentifier ${appId} execution number: 1`);
+                  log.info(`SyncthingApps stopping and cleaning appIdentifier ${appId}`);
                   syncthingFolder.type = 'receiveonly';
                   const cache = {
                     numberOfExecutions: 1,
@@ -10154,16 +10187,19 @@ async function syncthingApps() {
                   const index = runningAppList.findIndex((x) => x.ip === myIP);
                   let numberOfExecutionsRequired = 2;
                   if (index > 0) {
-                    numberOfExecutionsRequired = 24;
+                    numberOfExecutionsRequired = 2 + 12 * index;
+                  }
+                  if (numberOfExecutionsRequired > 60) {
+                    numberOfExecutionsRequired = 60;
                   }
                   cache.numberOfExecutionsRequired = numberOfExecutionsRequired;
                 }
                 syncthingFolder.type = 'receiveonly';
                 cache.numberOfExecutions += 1;
-                log.info(`receiveOnlySyncthingAppsCache has appIdentifier ${appId} execution number: ${cache.numberOfExecutions} of ${cache.numberOfExecutionsRequired} total required`);
                 if (cache.numberOfExecutions === cache.numberOfExecutionsRequired) {
                   syncthingFolder.type = 'sendreceive';
                 } else if (cache.numberOfExecutions === cache.numberOfExecutionsRequired + 1) {
+                  log.info(`SyncthingApps starting appIdentifier ${appId}`);
                   syncthingFolder.type = 'sendreceive';
                   // eslint-disable-next-line no-await-in-loop
                   await appDockerRestart(id);
@@ -10171,7 +10207,7 @@ async function syncthingApps() {
                 }
                 receiveOnlySyncthingAppsCache.set(appId, cache);
               } else if (!receiveOnlySyncthingAppsCache.has(appId)) {
-                log.info(`SyncthingApps appIdentifier ${appId} execution number: 1`);
+                log.info(`SyncthingApps stopping and cleaning appIdentifier ${appId}`);
                 syncthingFolder.type = 'receiveonly';
                 const cache = {
                   numberOfExecutions: 1,
@@ -10258,9 +10294,8 @@ async function syncthingApps() {
               const syncFolder = allFoldersResp.data.find((x) => x.id === id);
               if (containerDataFlags.includes('r')) {
                 if (syncthingAppsFirstRun) {
-                  log.info('SyncthingApps first run');
                   if (!syncFolder) {
-                    log.info(`SyncthingApps appIdentifier ${appId} execution number: 1`);
+                    log.info(`SyncthingApps stopping and cleaning appIdentifier ${appId}`);
                     syncthingFolder.type = 'receiveonly';
                     const cache = {
                       numberOfExecutions: 1,
@@ -10290,6 +10325,7 @@ async function syncthingApps() {
                   if (!cache.numberOfExecutionsRequired) {
                     // eslint-disable-next-line no-await-in-loop
                     const runningAppList = await getRunningAppList(installedApp.name);
+                    log.info(`SyncthingApps appIdentifier ${appId} is running on nodes ${JSON.stringify(runningAppList)}`);
                     runningAppList.sort((a, b) => {
                       if (a.broadcastedAt < b.broadcastedAt) {
                         return -1;
@@ -10308,18 +10344,23 @@ async function syncthingApps() {
                     // eslint-disable-next-line no-await-in-loop
                     const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
                     const index = runningAppList.findIndex((x) => x.ip === myIP);
+                    log.info(`SyncthingApps appIdentifier ${appId} is node index ${index}`);
                     let numberOfExecutionsRequired = 2;
                     if (index > 0) {
-                      numberOfExecutionsRequired = 24;
+                      numberOfExecutionsRequired = 2 + 12 * index;
+                    }
+                    if (numberOfExecutionsRequired > 60) {
+                      numberOfExecutionsRequired = 60;
                     }
                     cache.numberOfExecutionsRequired = numberOfExecutionsRequired;
                   }
                   syncthingFolder.type = 'receiveonly';
                   cache.numberOfExecutions += 1;
-                  log.info(`receiveOnlySyncthingAppsCache has appIdentifier ${appId} execution number: ${cache.numberOfExecutions} of ${cache.numberOfExecutionsRequired} total required`);
+                  log.info(`SyncthingApps appIdentifier ${appId} execution ${cache.numberOfExecutions} of ${cache.numberOfExecutionsRequired + 1} to start the app`);
                   if (cache.numberOfExecutions === cache.numberOfExecutionsRequired) {
                     syncthingFolder.type = 'sendreceive';
                   } else if (cache.numberOfExecutions === cache.numberOfExecutionsRequired + 1) {
+                    log.info(`SyncthingApps starting appIdentifier ${appId}`);
                     syncthingFolder.type = 'sendreceive';
                     // eslint-disable-next-line no-await-in-loop
                     await appDockerRestart(id);
@@ -10327,7 +10368,7 @@ async function syncthingApps() {
                   }
                   receiveOnlySyncthingAppsCache.set(appId, cache);
                 } else if (!receiveOnlySyncthingAppsCache.has(appId)) {
-                  log.info(`SyncthingApps appIdentifier ${appId} execution number: 1`);
+                  log.info(`SyncthingApps stopping and cleaning appIdentifier ${appId}`);
                   syncthingFolder.type = 'receiveonly';
                   const cache = {
                     numberOfExecutions: 1,

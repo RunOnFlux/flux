@@ -684,7 +684,7 @@ async function wsRespondLoginPhrase(ws, req) {
       const result = await dbHelper.findOneInDatabase(database, collection, query, projection).catch((error) => {
         const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
         ws.send(qs.stringify(errMessage));
-        ws.close(1011);
+        ws.close(4011);
         throw error;
       });
       if (result) {
@@ -708,7 +708,7 @@ async function wsRespondLoginPhrase(ws, req) {
         if (!connclosed) {
           try {
             ws.send(qs.stringify(message));
-            ws.close(1000);
+            ws.close(4012);
           } catch (e) {
             log.error(e);
           }
@@ -719,7 +719,7 @@ async function wsRespondLoginPhrase(ws, req) {
         const resultB = await dbHelper.findOneInDatabase(database, activeLoginPhrasesCollection, query, projection).catch((error) => {
           const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
           ws.send(qs.stringify(errMessage));
-          ws.close(1011);
+          ws.close(4013);
           throw error;
         });
         if (resultB) {
@@ -779,7 +779,7 @@ async function wsRespondSignature(ws, req) {
       const result = await dbHelper.findOneInDatabase(database, collection, query, projection).catch((error) => {
         const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
         ws.send(qs.stringify(errMessage));
-        ws.close(1011);
+        ws.close(4014);
         throw error;
       });
 
@@ -789,7 +789,7 @@ async function wsRespondSignature(ws, req) {
         if (!connclosed) {
           try {
             ws.send(qs.stringify(response));
-            ws.close(1000);
+            ws.close(4015);
           } catch (e) {
             log.error(e);
           }

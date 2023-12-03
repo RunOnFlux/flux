@@ -4,7 +4,7 @@
       <b-card-sub-title>
         Note: Only verified images can currently run on Flux. To whitelist your image, please contact the Flux Team via
         <b-link
-          href="https://discord.io/runonflux"
+          href="https://discord.gg/runonflux"
           target="_blank"
           active-class="primary"
         >
@@ -623,7 +623,7 @@
                 <label class="col-3 col-form-label">
                   Cont. Data
                   <v-icon
-                    v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with s: for synced data between instances. Eg. s:/data'"
+                    v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with r: for synced data between instances. Eg. r:/data'"
                     name="info-circle"
                     class="mr-1"
                   />
@@ -1214,7 +1214,7 @@
               <label class="col-3 col-form-label">
                 Cont. Data
                 <v-icon
-                  v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with s: for synced data between instances. Eg. s:/data'"
+                  v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with r: for synced data between instances. Eg. r:/data'"
                   name="info-circle"
                   class="mr-1"
                 />

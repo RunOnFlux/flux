@@ -108,6 +108,7 @@ describe('fluxCommunication tests', () => {
 
       const wsOutgoing = await connectWs(wsuri);
       wsOutgoing.port = port;
+      wsOutgoing.ip = '127.8.8.1';
       wsOutgoing._socket = {
         remoteAddress: '127.8.8.1',
         end: sinon.fake(() => true),
@@ -116,6 +117,7 @@ describe('fluxCommunication tests', () => {
 
       const wsIncoming = await connectWs(wsuri2);
       wsIncoming.port = port;
+      wsIncoming.ip = '127.8.8.1';
       wsIncoming._socket = {
         remoteAddress: '::ffff:127.8.8.1',
         end: sinon.fake(() => true),
@@ -123,8 +125,22 @@ describe('fluxCommunication tests', () => {
       incomingConnections.push(wsIncoming);
 
       const messageString = JSON.stringify(message);
-      const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIp && client.port !== port);
-      const wsListIn = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIp && client.port !== port);
+      const wsListOut = [];
+      outgoingConnections.forEach((client) => {
+        if (client._socket.remoteAddress === fromIp && client.port === port) {
+          // do not broadcast to this peer
+        } else {
+          wsListOut.push(client);
+        }
+      });
+      const wsListIn = [];
+      incomingConnections.forEach((client) => {
+        if (client._socket.remoteAddress.replace('::ffff:', '') === fromIp && client.port === port) {
+          // do not broadcast to this peer
+        } else {
+          wsListIn.push(client);
+        }
+      });
 
       await fluxCommunication.handleAppMessages(message, fromIp, port);
 
@@ -269,17 +285,19 @@ describe('fluxCommunication tests', () => {
 
       const wsOutgoing = await connectWs(wsuri);
       wsOutgoing.port = port;
+      wsOutgoing.ip = '127.8.8.1';
       wsOutgoing._socket = { remoteAddress: '127.8.8.1' };
       outgoingConnections.push(wsOutgoing);
 
       const wsIncoming = await connectWs(wsuri2);
       wsIncoming.port = port;
+      wsIncoming.ip = '127.8.8.1';
       wsIncoming._socket = { remoteAddress: '::ffff:127.8.8.1' };
       incomingConnections.push(wsIncoming);
 
       const messageString = JSON.stringify(message);
-      const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIp && client.port !== port);
-      const wsListIn = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIp && client.port !== port);
+      const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIp);
+      const wsListIn = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIp);
 
       await fluxCommunication.handleAppRunningMessage(message, fromIp, port);
 
@@ -315,6 +333,7 @@ describe('fluxCommunication tests', () => {
 
       const wsOutgoing = await connectWs(wsuri);
       wsOutgoing.port = port;
+      wsOutgoing.ip = '127.8.8.1';
       wsOutgoing._socket = {
         remoteAddress: '127.8.8.1',
         end: sinon.fake(() => true),
@@ -323,6 +342,7 @@ describe('fluxCommunication tests', () => {
 
       const wsIncoming = await connectWs(wsuri2);
       wsIncoming.port = port;
+      wsIncoming.ip = '127.8.8.1';
       wsIncoming._socket = {
         remoteAddress: '::ffff:127.8.8.1',
         end: sinon.fake(() => true),
@@ -358,10 +378,12 @@ describe('fluxCommunication tests', () => {
       const port = 16127;
       const wsOutgoing1 = await connectWs(wsuri);
       wsOutgoing1.port = port;
+      wsOutgoing1.ip = '127.8.8.1';
       wsOutgoing1._socket = { remoteAddress: '127.8.8.1', end: sinon.fake(() => true) };
       outgoingConnections.push(wsOutgoing1);
       const wsOutgoing2 = await connectWs(wsuri2);
       wsOutgoing2.port = port;
+      wsOutgoing2.ip = '127.8.8.2';
       wsOutgoing2._socket = { remoteAddress: '127.8.8.2', end: sinon.fake(() => true) };
       outgoingConnections.push(wsOutgoing2);
       const expectedResult = { status: 'success', data: ['127.8.8.1', '127.8.8.2'] };
@@ -471,6 +493,7 @@ describe('fluxCommunication tests', () => {
       const port = 16127;
       const wsOutgoing1 = await connectWs(wsuri);
       wsOutgoing1.port = port;
+      wsOutgoing1.ip = '127.0.3.1';
       wsOutgoing1._socket = { remoteAddress: '127.0.3.1' };
       wsOutgoing1.close = () => true;
       outgoingConnections.push(wsOutgoing1);
@@ -508,6 +531,7 @@ describe('fluxCommunication tests', () => {
       const port = 16127;
       const wsOutgoing1 = await connectWs(wsuri);
       wsOutgoing1.port = port;
+      wsOutgoing1.ip = '127.0.3.1';
       wsOutgoing1._socket = { remoteAddress: '127.0.3.1' };
       wsOutgoing1.close = () => true;
       outgoingConnections.push(wsOutgoing1);
@@ -655,6 +679,8 @@ describe('fluxCommunication tests', () => {
         lastPingTime: new Date().getTime(),
         latency: 50,
       };
+      incomingConnections.push(peer1);
+      incomingConnections.push(peer2);
       incomingPeers.push(peer1);
       incomingPeers.push(peer2);
     });
@@ -668,6 +694,7 @@ describe('fluxCommunication tests', () => {
       const port = 16127;
       const wsIncoming1 = await connectWs(wsuri1);
       wsIncoming1.port = port;
+      wsIncoming1.ip = '127.0.3.1';
       wsIncoming1._socket = { remoteAddress: '127.0.3.1' };
       wsIncoming1.close = () => true;
       incomingConnections.push(wsIncoming1);
@@ -706,6 +733,7 @@ describe('fluxCommunication tests', () => {
       const port = 16127;
       const wsIncoming1 = await connectWs(wsuri1);
       wsIncoming1.port = port;
+      wsIncoming1.ip = '127.0.3.1';
       wsIncoming1._socket = { remoteAddress: '127.0.3.1' };
       wsIncoming1.close = () => true;
       incomingConnections.push(wsIncoming1);
@@ -747,6 +775,7 @@ describe('fluxCommunication tests', () => {
       const port = 16127;
       const wsIncoming1 = await connectWs(wsuri1);
       wsIncoming1.port = port;
+      wsIncoming1.ip = '128.1.3.4';
       wsIncoming1._socket = { remoteAddress: '128.1.3.4' };
       wsIncoming1.close = () => true;
       incomingConnections.push(wsIncoming1);
@@ -924,7 +953,8 @@ describe('fluxCommunication tests', () => {
 
       expect(outgoingConnections).to.have.length(0);
       expect(outgoingPeers).to.have.length(0);
-      sinon.assert.calledWith(logSpy, 'Connection to 127.0.0.2:16127 closed with code 1006');
+      sinon.assert.calledWith(logSpy, 'Outgoing connection to 127.0.0.2:16127 closed with code 1006');
+      sinon.assert.calledWith(logSpy, 'Connection 127.0.0.2:16127 removed from outgoingConnections');
       sinon.assert.calledWith(logSpy, 'Connection 127.0.0.2:16127 removed from outgoingPeers');
     });
 
@@ -970,6 +1000,8 @@ describe('fluxCommunication tests', () => {
       const message = JSON.stringify({
         timestamp: new Date().getTime(),
         pubKey: '1234asd',
+        signature: 'blabla',
+        version: 1,
         data: {
           type: 'fluxapprunning',
         },
@@ -1005,9 +1037,9 @@ describe('fluxCommunication tests', () => {
       await serviceHelper.delay(100);
 
       sinon.assert.calledWithExactly(ensureObjectSpy, message);
-      sinon.assert.calledWithExactly(websocketCloseSpy, 1000, 'blocked list');
+      sinon.assert.calledWithExactly(websocketCloseSpy, 4006, 'blocked list');
       sinon.assert.calledWith(logSpy, 'Closing outgoing connection, peer is on blockedList');
-      sinon.assert.calledWith(logSpy, 'Connection to 127.0.0.2:16127 closed with code 1000');
+      sinon.assert.calledWith(logSpy, 'Outgoing connection to 127.0.0.2:16127 closed with code 4006');
       sinon.assert.calledWith(logSpy, 'Connection 127.0.0.2:16127 removed from outgoingPeers');
     });
 
@@ -1019,6 +1051,8 @@ describe('fluxCommunication tests', () => {
         const message = JSON.stringify({
           timestamp: new Date().getTime(),
           pubKey: '1234asd',
+          signature: 'blabla',
+          version: 1,
           data: {
             type: `${command}`,
           },
@@ -1065,6 +1099,8 @@ describe('fluxCommunication tests', () => {
         const message = JSON.stringify({
           timestamp: new Date().getTime(),
           pubKey: '1234asd',
+          signature: 'blabla',
+          version: 1,
           data: {
             type: `${command}`,
           },
@@ -1111,6 +1147,8 @@ describe('fluxCommunication tests', () => {
         const message = JSON.stringify({
           timestamp: new Date().getTime(),
           pubKey: '1234asd',
+          signature: 'blabla',
+          version: 1,
           data: {
             type: `${command}`,
           },
@@ -1232,7 +1270,7 @@ describe('fluxCommunication tests', () => {
           name: undefined,
         },
       };
-      outgoingConnections.push({ _socket: { remoteAddress: ip }, port: 16127 });
+      outgoingConnections.push({ _socket: { remoteAddress: ip }, port: 16127, ip });
       const result = await fluxCommunication.addPeer(req, res);
 
       expect(result).to.eql(expectedMessage);
@@ -1384,16 +1422,26 @@ describe('fluxCommunication tests', () => {
         },
       });
 
+      const axiosGetResponse = {
+        data: {
+          status: 'success',
+          data: {
+            message: 'all is good!',
+          },
+        },
+      };
+      sinon.stub(serviceHelper, 'axiosGet').resolves(axiosGetResponse);
+
       await fluxCommunication.fluxDiscovery();
 
+      sinon.assert.calledWith(infoSpy, 'sortedNodeList not found in cache');
+      sinon.assert.calledWith(infoSpy, 'sortedNodeList stored to cache');
+      sinon.assert.calledWith(infoSpy, 'Searching for my node on sortedNodeList');
+      sinon.assert.calledWith(infoSpy, 'My node was found on index: 9 of 10 nodes');
       sinon.assert.calledWith(infoSpy, 'Current number of outgoing connections:0');
-      sinon.assert.calledWith(infoSpy, 'Current number of incoming connections:0');
-      // eslint-disable-next-line no-restricted-syntax
-      for (const node of fluxNodeList) {
-        if (node.ip !== '44.192.51.11:16127') {
-          sinon.assert.calledWith(infoSpy, `Adding Flux peer: ${node.ip}`);
-        }
-      }
-    });
+      sinon.assert.calledWith(infoSpy, 'Current number of incoming connections:2'); // this is coming from removeIncomingPeer tests where we pushing it
+      sinon.assert.calledWith(infoSpy, 'Current number of outgoing peers:0');
+      sinon.assert.calledWith(infoSpy, 'Current number of incoming peers:2'); // this is coming from removeIncomingPeer tests where we pushing it
+    }).timeout(50000);
   });
 });
