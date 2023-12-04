@@ -832,7 +832,7 @@ export default {
         });
       });
       currentComponent.value = props.appData.compose[0];
-      if (props.appData?.nodes) {
+      if (props.appData?.nodes?.length === 0) {
         autoSelectNodes().then((v) => {
           // appSpecification.nodes = v;
           selectedEnterpriseNodes.value = v;
@@ -887,7 +887,7 @@ export default {
         }
         if (props.appData.version >= 7) {
           appSpecification.staticip = props.appData.staticip;
-          if (props.appData?.nodes) {
+          if (props.appData?.nodes?.length === 0) {
             appSpecification.nodes = selectedEnterpriseNodes.value;
           } else {
             appSpecification.nodes = [];
