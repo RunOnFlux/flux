@@ -11215,4 +11215,5 @@ module.exports = {
   setInstallationInProgressTrue,
   checkForNonAllowedAppsOnLocalNetwork,
   triggerAppHashesCheckAPI,
+  getAuthToken,
 };

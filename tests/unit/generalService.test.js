@@ -1079,4 +1079,16 @@ describe('generalService tests', () => {
       expect(result).to.throw();
     });
   });
+
+  describe('parseAuthHeader tests', () => {
+    it('should parse auth header correctly', async () => {
+      const authHeader = 'Bearer realm="https://auth.docker.io/token",service="registry.docker.io",scope="repository:runonflux/secretwebsite:pull"';
+
+      const result = generalService.parseAuthHeader(authHeader);
+
+      expect(result.realm).to.eql('https://auth.docker.io/token');
+      expect(result.service).to.eql('registry.docker.io');
+      expect(result.scope).to.eql('repository:runonflux/secretwebsite:pull');
+    });
+  });
 });
