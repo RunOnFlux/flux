@@ -5,9 +5,9 @@ const zeltrezjs = require('zeltrezjs');
 const nodecmd = require('node-cmd');
 const fs = require('fs').promises;
 const path = require('path');
+const os = require('os');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
-const si = require('systeminformation');
 const { LRUCache } = require('lru-cache');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
@@ -656,8 +656,8 @@ function fluxUptime(req, res) {
 function fluxSystemUptime(req, res) {
   let message;
   try {
-    const info = si.time();
-    const measureUptime = Math.floor(info.uptime);
+    const uptime = os.uptime();
+    const measureUptime = Math.floor(uptime);
     message = messageHelper.createDataMessage(measureUptime);
     return res ? res.json(message) : message;
   } catch (error) {

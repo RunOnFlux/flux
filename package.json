@@ -102,13 +102,11 @@
     "object-hash": "~3.0.0",
     "openpgp": "~5.9.0",
     "path": "~0.12.7",
-    "systeminformation": "~5.21.20",
     "qs": "~6.11.2",
     "socket.io": "~4.7.2",
     "splitargs": "~0.0.7",
     "store": "~2.0.12",
     "ws": "~7.5.9",
-    "xterm": "~5.1.0",
     "zeltrezjs": "~2.12.0"
   },
   "devDependencies": {
@@ -170,6 +168,7 @@
     "vue2-leaflet": "~2.7.1",
     "vuex": "~3.6.2",
     "webpack": "~4.46.0",
+    "xterm": "~5.3.0",
     "xterm-addon-fit": "~0.8.0",
     "xterm-addon-serialize": "~0.11.0",
     "xterm-addon-unicode11": "~0.6.0",
