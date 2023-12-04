@@ -7,6 +7,7 @@ const fs = require('fs').promises;
 const path = require('path');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
+const si = require('systeminformation');
 const { LRUCache } = require('lru-cache');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
@@ -638,6 +639,25 @@ function fluxUptime(req, res) {
   try {
     const ut = process.uptime();
     const measureUptime = Math.floor(ut);
+    message = messageHelper.createDataMessage(measureUptime);
+    return res ? res.json(message) : message;
+  } catch (error) {
+    log.error(error);
+    message = messageHelper.createErrorMessage('Error obtaining uptime');
+    return res ? res.json(message) : message;
+  }
+}
+
+/**
+ * To get system uptime in seconds
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+function fluxSystemUptime(req, res) {
+  let message;
+  try {
+    const info = si.time();
+    const measureUptime = Math.floor(info.uptime);
     message = messageHelper.createDataMessage(measureUptime);
     return res ? res.json(message) : message;
   } catch (error) {
@@ -1427,6 +1447,7 @@ module.exports = {
   setDosStateValue,
   getDosStateValue,
   fluxUptime,
+  fluxSystemUptime,
   isCommunicationEstablished,
   lruRateLimit,
   isPortOpen,

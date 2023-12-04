@@ -1005,6 +1005,9 @@ module.exports = (app, expressWs) => {
   app.get('/flux/uptime', (req, res) => {
     fluxNetworkHelper.fluxUptime(req, res);
   });
+  app.get('/flux/systemuptime', (req, res) => {
+    fluxNetworkHelper.fluxSystemUptime(req, res);
+  });
   app.get('/flux/backendfolder', isLocal, (req, res) => {
     fluxService.fluxBackendFolder(req, res);
   });

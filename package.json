@@ -102,6 +102,7 @@
     "object-hash": "~3.0.0",
     "openpgp": "~5.9.0",
     "path": "~0.12.7",
+    "systeminformation": "~5.21.20",
     "qs": "~6.11.2",
     "socket.io": "~4.7.2",
     "splitargs": "~0.0.7",

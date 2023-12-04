@@ -853,6 +853,36 @@ async function pruneNetworks() {
   return docker.pruneNetworks();
 }
 
+/**
+ * Return docker system information
+ *
+ * @returns {object}
+ */
+async function dockerInfo() {
+  const info = await docker.info();
+  return info;
+}
+
+/**
+ * Returns the version of Docker that is running and various information about the system that Docker is running on.
+ *
+ * @returns {object}
+ */
+async function dockerVersion() {
+  const version = await docker.version();
+  return version;
+}
+
+/**
+ * Returns docker events
+ *
+ * @returns {object}
+ */
+async function dockerGetEvents() {
+  const events = await docker.getEvents();
+  return events;
+}
+
 module.exports = {
   getDockerContainer,
   getAppIdentifier,
@@ -886,4 +916,7 @@ module.exports = {
   createFluxAppDockerNetwork,
   removeFluxAppDockerNetwork,
   pruneNetworks,
+  dockerInfo,
+  dockerVersion,
+  dockerGetEvents,
 };
