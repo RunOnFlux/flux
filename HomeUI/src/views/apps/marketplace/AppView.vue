@@ -720,6 +720,7 @@ export default {
       series: [],
     });
 
+    // eslint-disable-next-line no-unused-vars
     const fetchEnterpriseKey = async (nodeip) => { // we must have at least +5 nodes or up to 10% of spare keys
       try {
         const node = nodeip.split(':')[0];
@@ -766,7 +767,7 @@ export default {
       const notSelectedEnterpriseNodes = await getEnterpriseNodes();
       const nodesToSelect = [];
       const selectedEnNodes = [];
-      const enterprisePublicKeys = [];
+      // const enterprisePublicKeys = [];
       for (let i = 0; i < notSelectedEnterpriseNodes.length; i += 1) {
         // todo here check if max same pub key is satisfied
         const alreadySelectedPubKeyOccurances = selectedEnNodes.filter((node) => node.pubkey === notSelectedEnterpriseNodes[i].pubkey).length;
@@ -783,20 +784,21 @@ export default {
         if (!nodeExists) {
           selectedEnNodes.push(node);
           // fetch pgp key
-          const keyExists = enterprisePublicKeys.find((key) => key.nodeip === node.ip);
-          if (!keyExists) {
-            const pgpKey = await fetchEnterpriseKey(node.ip);
-            if (pgpKey) {
-              const pair = {
-                nodeip: node.ip,
-                nodekey: pgpKey,
-              };
-              const keyExistsB = enterprisePublicKeys.find((key) => key.nodeip === node.ip);
-              if (!keyExistsB) {
-                enterprisePublicKeys.push(pair);
-              }
-            }
-          }
+          // we do not need pgp key as we dont do encryption
+          // const keyExists = enterprisePublicKeys.find((key) => key.nodeip === node.ip);
+          // if (!keyExists) {
+          //   const pgpKey = await fetchEnterpriseKey(node.ip);
+          //   if (pgpKey) {
+          //     const pair = {
+          //       nodeip: node.ip,
+          //       nodekey: pgpKey,
+          //     };
+          //     const keyExistsB = enterprisePublicKeys.find((key) => key.nodeip === node.ip);
+          //     if (!keyExistsB) {
+          //       enterprisePublicKeys.push(pair);
+          //     }
+          //   }
+          // }
         }
       });
       console.log(selectedEnNodes);
@@ -832,7 +834,7 @@ export default {
         });
       });
       currentComponent.value = props.appData.compose[0];
-      if (props.appData?.nodes?.length === 0) {
+      if (props.appData.isAutoEnterprise) {
         autoSelectNodes().then((v) => {
           // appSpecification.nodes = v;
           selectedEnterpriseNodes.value = v;
@@ -887,10 +889,15 @@ export default {
         }
         if (props.appData.version >= 7) {
           appSpecification.staticip = props.appData.staticip;
-          if (props.appData?.nodes?.length === 0) {
+          if (props.appData.isAutoEnterprise) {
+            if (selectedEnterpriseNodes.value.length === 0) {
+              const v = await autoSelectNodes();
+              // appSpecification.nodes = v;
+              selectedEnterpriseNodes.value = v;
+            }
             appSpecification.nodes = selectedEnterpriseNodes.value;
           } else {
-            appSpecification.nodes = [];
+            appSpecification.nodes = props.appData.nodes || [];
           }
         }
         // formation, pre verification
@@ -941,8 +948,8 @@ export default {
             appComponent.hddbamf = component.hddbamf;
           }
           if (props.appData.version >= 7) {
-            appComponent.secrets = '';
-            appComponent.repoauth = '';
+            appComponent.secrets = props.appData.secrets || '';
+            appComponent.repoauth = props.appData.repoauth || '';
           }
           appSpecification.compose.push(appComponent);
         }
