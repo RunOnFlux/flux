@@ -252,18 +252,8 @@ async function dockerContainerChanges(idOrName) {
 function dockerPullStream(config, res, callback) {
   const { repoTag, authToken } = config;
   let pullOptions;
-  const splittedRepo = generalService.splitRepoTag(repoTag);
-  const {
-    provider,
-    port,
-    providerName,
-  } = splittedRepo;
-  let serveraddress;
-  if (port) {
-    serveraddress = `${provider}:${port}`;
-  } else if (providerName !== 'Docker Hub') {
-    serveraddress = provider;
-  }
+  const { provider } = generalService.parseDockerTag(repoTag);
+
   if (authToken) {
     if (authToken.includes(':')) { // specified by username:token
       pullOptions = {
@@ -272,15 +262,16 @@ function dockerPullStream(config, res, callback) {
           password: authToken.split(':')[1],
         },
       };
-      if (serveraddress) {
-        pullOptions.authconfig.serveraddress = serveraddress;
+      if (provider) {
+        pullOptions.authconfig.serveraddress = provider;
       }
     } else {
       throw new Error('Invalid login credentials for docker provided');
     }
   }
   if (pullOptions) {
-    log.info(pullOptions);
+    // why are we logging this? It contains auth credentials in the clear
+    // log.info(pullOptions);
   }
   docker.pull(repoTag, pullOptions, (err, mystream) => {
     function onFinished(error, output) {

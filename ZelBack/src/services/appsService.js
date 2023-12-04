@@ -4271,29 +4271,27 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
 }
 
 /**
- * To verfiy a Docker Hub repository.
- * @param {string} repotag Docker Hub repository tag.
- * @returns {boolean} True if no errors are thrown.
+ * To fetch an auth token from registry auth provider.
+ * @param {object} authDetails Parsed www-authenticate header.
+ * @param {object} AxiosConfig axios Auth object.
  */
-async function verifyRepository(repotag, repoauth, skipVerification = false) {
-  const splittedRepo = generalService.splitRepoTag(repotag);
-  let {
-    provider,
-    service,
-    authentication,
-  } = splittedRepo;
-  const {
-    providerName,
-    namespace,
-    repository,
-    tag,
-    port,
-  } = splittedRepo;
-  if (port) {
-    provider = `${provider}:${port}`;
-    service = `${service}:${port}`;
-    authentication = `${authentication}:${port}`;
+async function getAuthToken(authDetails, axiosConfig) {
+  const { realm, service, scope } = authDetails;
+  const authTokenRes = await serviceHelper.axiosGet(`${realm}?service=${service}&scope=${scope}`, axiosConfig).catch((error) => {
+    log.warn(error);
+    throw new Error(`Authentication token from ${realm} for ${scope} not available`);
+  });
+  if (!authTokenRes) {
+    throw new Error(`Unable to communicate with authentication token provider ${realm}! Try again later.`);
   }
+  return authTokenRes.data.token;
+}
+
+async function verifyRepository(repotag, repoauth, skipVerification = false) {
+  const {
+    provider, namespace, repository, tag,
+  } = generalService.parseDockerTag(repotag);
+
   const image = repository;
   if (repoauth && skipVerification) {
     return true;
@@ -4305,9 +4303,9 @@ async function verifyRepository(repotag, repoauth, skipVerification = false) {
       throw new Error('Unable to decrypt provided credentials');
     }
   }
-  if (providerName === 'Docker Hub') { // favor docker hub api
+  if (provider === 'hub.docker.com') { // favor docker hub api
     // if we are using private image, we need to authenticate first
-    let axiosConfig = {};
+    const axiosConfig = {};
     if (decryptedRepoAuth) {
       let loginData = {};
       if (decryptedRepoAuth.includes(':')) { // specified by username:token
@@ -4319,21 +4317,19 @@ async function verifyRepository(repotag, repoauth, skipVerification = false) {
         throw new Error('Invalid login credentials for docker provided');
       }
       const loginResp = await axios.post('https://hub.docker.com/v2/users/login', loginData).catch((error) => {
-        console.log(error);
+        log.warn(error);
       });
       const { token } = loginResp.data;
-      axiosConfig = {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+      axiosConfig.headers = {
+        Authorization: `Bearer ${token}`,
       };
     }
     const resDocker = await serviceHelper.axiosGet(`https://hub.docker.com/v2/repositories/${namespace}/${image}/tags/${tag}`, axiosConfig).catch((error) => {
       log.warn(error);
-      throw new Error(`Repository ${repotag} is not found on ${providerName} in expected format`);
+      throw new Error(`Repository ${repotag} is not found on ${provider} in expected format`);
     });
     if (!resDocker) {
-      throw new Error(`Unable to communicate with ${providerName}! Try again later.`);
+      throw new Error(`Unable to communicate with ${provider}! Try again later.`);
     }
     if (resDocker.data.errinfo) {
       throw new Error('Docker image not found');
@@ -4355,7 +4351,7 @@ async function verifyRepository(repotag, repoauth, skipVerification = false) {
     }
   } else { // use docker v2 api, general for any public docker repositories
     // if we are using private image, we need to authenticate first
-    let axiosConfig = {};
+    const axiosAuthConfig = {};
     if (decryptedRepoAuth) {
       let loginData = {};
       if (decryptedRepoAuth.includes(':')) { // specified by username:token
@@ -4366,38 +4362,46 @@ async function verifyRepository(repotag, repoauth, skipVerification = false) {
       } else {
         throw new Error('Invalid login credentials for docker provided');
       }
-      axiosConfig = {
-        auth: loginData,
-      };
+      axiosAuthConfig.auth = loginData;
     }
-    const authTokenRes = await serviceHelper.axiosGet(`https://${authentication}/token?service=${service}&scope=repository:${namespace}/${image}:pull`, axiosConfig).catch((error) => {
-      log.warn(error);
-      throw new Error(`Authentication token from ${provider} for ${namespace}/${image} not available`);
-    });
-    if (!authTokenRes) {
-      throw new Error(`Unable to communicate with authentication token provider ${provider}! Try again later.`);
-    }
-    const authToken = authTokenRes.data.token;
-    const axiosOptionsManifestList = {
-      timeout: 20000,
-      headers: {
-        // eslint-disable-next-line max-len
-        Authorization: `Bearer ${authToken}`,
-        Accept: 'application/vnd.docker.distribution.manifest.list.v2+json',
-      },
-    };
+
     const axiosOptionsManifest = {
       timeout: 20000,
       headers: {
         // eslint-disable-next-line max-len
-        Authorization: `Bearer ${authToken}`,
-        Accept: 'application/vnd.docker.distribution.manifest.v2+json',
+        // need to accept both media types here, some registries (google artifact registry)
+        // will respond with error if only the manifest exists and not the manifest list (instead
+        // of just returning the manifest list)
+        Accept: 'application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json',
       },
     };
-    const manifestsListResp = await serviceHelper.axiosGet(`https://${provider}/v2/${namespace}/${image}/manifests/${tag}`, axiosOptionsManifestList).catch((error) => {
-      log.warn(error);
-      throw new Error(`Manifests List from ${provider} for ${namespace}/${image}:${tag} not available`);
+
+    let manifestsListResp = await serviceHelper.axiosGet(`https://${provider}/v2/${namespace}/${image}/manifests/${tag}`, axiosOptionsManifest).catch(async (error) => {
+      let authToken;
+      // unauthorized
+      if (error.response && error.response.status === 401) {
+        const authDetails = generalService.parseAuthHeader(error.response.headers['www-authenticate']);
+        if (!authDetails) {
+          log.warn(error);
+          throw new Error(`Manifests List from ${provider} for ${namespace}/${image}:${tag} not available`);
+        }
+        authToken = await getAuthToken(authDetails, axiosAuthConfig);
+      }
+
+      if (!authToken) {
+        log.warn(error);
+        throw new Error(`Manifests List from ${provider} for ${namespace}/${image}:${tag} not available`);
+      }
+      axiosOptionsManifest.headers.Authorization = `Bearer ${authToken}`;
     });
+
+    // we got challenged on the first try, and now have auth details
+    if (!manifestsListResp && axiosOptionsManifest.headers.Authorization) {
+      manifestsListResp = await serviceHelper.axiosGet(`https://${provider}/v2/${namespace}/${image}/manifests/${tag}`, axiosOptionsManifest).catch((error) => {
+        log.warn(error);
+        throw new Error(`Manifests List from ${provider} for ${namespace}/${image}:${tag} not available`);
+      });
+    }
 
     if (!manifestsListResp) {
       throw new Error(`Unable to communicate with manifest list provider ${provider}! Try again later.`);
@@ -5846,24 +5850,10 @@ async function ensureApplicationPortsNotUsed(appSpecFormatted, globalCheckedApps
  * @returns {string[]} List of Docker image architectures.
  */
 async function repositoryArchitectures(repotag, repoauth) {
-  const splittedRepo = generalService.splitRepoTag(repotag);
-  let {
-    provider,
-    service,
-    authentication,
-  } = splittedRepo;
   const {
-    providerName,
-    namespace,
-    repository,
-    tag,
-    port,
-  } = splittedRepo;
-  if (port) {
-    provider = `${provider}:${port}`;
-    service = `${service}:${port}`;
-    authentication = `${authentication}:${port}`;
-  }
+    provider, namespace, repository, tag,
+  } = generalService.parseDockerTag(repotag);
+
   const image = repository;
   const architectures = [];
   let decryptedRepoAuth;
@@ -5873,9 +5863,9 @@ async function repositoryArchitectures(repotag, repoauth) {
       throw new Error('Unable to decrypt provided credentials');
     }
   }
-  if (providerName === 'Docker Hub') { // favor docker hub api
+  if (provider === 'hub.docker.com') { // favor docker hub api
     // if we are using private image, we need to authenticate first
-    let axiosConfig = {};
+    const axiosConfig = {};
     if (decryptedRepoAuth) {
       let loginData = {};
       if (decryptedRepoAuth.includes(':')) { // specified by username:token
@@ -5887,21 +5877,19 @@ async function repositoryArchitectures(repotag, repoauth) {
         throw new Error('Invalid login credentials for docker provided');
       }
       const loginResp = await axios.post('https://hub.docker.com/v2/users/login', loginData).catch((error) => {
-        console.log(error);
+        log.warn(error);
       });
       const { token } = loginResp.data;
-      axiosConfig = {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+      axiosConfig.headers = {
+        Authorization: `Bearer ${token}`,
       };
     }
     const resDocker = await serviceHelper.axiosGet(`https://hub.docker.com/v2/repositories/${namespace}/${image}/tags/${tag}`, axiosConfig).catch((error) => {
       log.warn(error);
-      throw new Error(`Repository ${repotag} is not found on ${providerName} in expected format`);
+      throw new Error(`Repository ${repotag} is not found on ${provider} in expected format`);
     });
     if (!resDocker) {
-      throw new Error(`Unable to communicate with ${providerName}! Try again later.`);
+      throw new Error(`Unable to communicate with ${provider}! Try again later.`);
     }
     if (resDocker.data.errinfo) {
       throw new Error('Docker image not found');
@@ -5918,7 +5906,7 @@ async function repositoryArchitectures(repotag, repoauth) {
     }
   } else { // use docker v2 api, general for any public docker repositories
     // if we are using private image, we need to authenticate first
-    let axiosConfig = {};
+    const axiosAuthConfig = {};
     if (decryptedRepoAuth) {
       let loginData = {};
       if (decryptedRepoAuth.includes(':')) { // specified by username:token
@@ -5929,30 +5917,46 @@ async function repositoryArchitectures(repotag, repoauth) {
       } else {
         throw new Error('Invalid login credentials for docker provided');
       }
-      axiosConfig = {
-        auth: loginData,
-      };
+      axiosAuthConfig.auth = loginData;
     }
-    const authTokenRes = await serviceHelper.axiosGet(`https://${authentication}/token?service=${service}&scope=repository:${namespace}/${image}:pull`, axiosConfig).catch((error) => {
-      log.warn(error);
-      throw new Error(`Authentication token from ${provider} for ${namespace}/${image} not available`);
-    });
-    if (!authTokenRes) {
-      throw new Error(`Unable to communicate with authentication token provider ${provider}! Try again later.`);
-    }
-    const authToken = authTokenRes.data.token;
-    const axiosOptionsManifestList = {
+
+    const axiosOptionsManifest = {
       timeout: 20000,
       headers: {
         // eslint-disable-next-line max-len
-        Authorization: `Bearer ${authToken}`,
-        Accept: 'application/vnd.docker.distribution.manifest.list.v2+json',
+        // need to accept both media types here, some registries (google artifact registry)
+        // will respond with error if only the manifest exists and not the manifest list (instead
+        // of just returning the manifest list)
+        Accept: 'application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json',
       },
     };
-    const manifestsListResp = await serviceHelper.axiosGet(`https://${provider}/v2/${namespace}/${image}/manifests/${tag}`, axiosOptionsManifestList).catch((error) => {
-      log.warn(error);
-      throw new Error(`Manifests List from ${provider} for ${namespace}/${image}:${tag} not available`);
+
+    let manifestsListResp = await serviceHelper.axiosGet(`https://${provider}/v2/${namespace}/${image}/manifests/${tag}`, axiosOptionsManifest).catch(async (error) => {
+      let authToken;
+      // unauthorized
+      if (error.response && error.response.status === 401) {
+        const authDetails = generalService.parseAuthHeader(error.response.headers['www-authenticate']);
+        if (!authDetails) {
+          log.warn(error);
+          throw new Error(`Manifests List from ${provider} for ${namespace}/${image}:${tag} not available`);
+        }
+        authToken = await getAuthToken(authDetails, axiosAuthConfig);
+      }
+
+      if (!authToken) {
+        log.warn(error);
+        throw new Error(`Manifests List from ${provider} for ${namespace}/${image}:${tag} not available`);
+      }
+      axiosOptionsManifest.headers.Authorization = `Bearer ${authToken}`;
     });
+
+    // we got challenged on the first try, and now have auth details
+    if (!manifestsListResp && axiosOptionsManifest.headers.Authorization) {
+      manifestsListResp = await serviceHelper.axiosGet(`https://${provider}/v2/${namespace}/${image}/manifests/${tag}`, axiosOptionsManifest).catch((error) => {
+        log.warn(error);
+        throw new Error(`Manifests List from ${provider} for ${namespace}/${image}:${tag} not available`);
+      });
+    }
 
     if (!manifestsListResp) {
       throw new Error(`Unable to communicate with manifest list provider ${provider}! Try again later.`);
@@ -5962,7 +5966,7 @@ async function repositoryArchitectures(repotag, repoauth) {
     }
     const manifests = manifestsListResp.data.manifests || [];
 
-    if (manifestsListResp.data.mediaType === 'application/vnd.docker.distribution.manifest.v2+json') { // returned not a list like we wanted
+    if (manifestsListResp.data.mediaType === 'application/vnd.docker.distribution.manifest.v2+json') {
       // handle as single platform amd64.
       architectures.push('amd64');
     } else if (manifestsListResp.data.mediaType !== 'application/vnd.docker.distribution.manifest.list.v2+json') { // we only want v2 or list
