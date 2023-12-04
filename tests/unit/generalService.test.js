@@ -1,3 +1,5 @@
+global.userconfig = require('../../config/userconfig');
+
 const chai = require('chai');
 const sinon = require('sinon');
 const chaiAsPromised = require('chai-as-promised');
@@ -790,7 +792,7 @@ describe('generalService tests', () => {
       const repotag = 1234;
 
       await expect(
-        generalService.checkWhitelistedRepository(repotag)
+        generalService.checkWhitelistedRepository(repotag),
       ).to.eventually.be.rejectedWith('Invalid repotag');
     });
 
@@ -800,9 +802,9 @@ describe('generalService tests', () => {
       const repotag = 'testing/12343:latest';
 
       await expect(
-        generalService.checkWhitelistedRepository(repotag)
+        generalService.checkWhitelistedRepository(repotag),
       ).to.eventually.be.rejectedWith(
-        'Unable to communicate with Flux Services! Try again later.'
+        'Unable to communicate with Flux Services! Try again later.',
       );
     });
 
@@ -810,9 +812,9 @@ describe('generalService tests', () => {
       const repotag = 'improperformat';
 
       await expect(
-        generalService.checkWhitelistedRepository(repotag)
+        generalService.checkWhitelistedRepository(repotag),
       ).to.eventually.be.rejectedWith(
-        'Repository improperformat is not in valid format namespace/repository:tag'
+        'Repository improperformat is not in valid format namespace/repository:tag',
       );
     });
 
@@ -820,9 +822,9 @@ describe('generalService tests', () => {
       const repotag = 'improper/format';
 
       await expect(
-        generalService.checkWhitelistedRepository(repotag)
+        generalService.checkWhitelistedRepository(repotag),
       ).to.eventually.be.rejectedWith(
-        'Repository improper/format is not in valid format namespace/repository:tag'
+        'Repository improper/format is not in valid format namespace/repository:tag',
       );
     });
 
@@ -830,9 +832,9 @@ describe('generalService tests', () => {
       const repotag = 'doesnotexist/inthewhitelist:nope';
 
       await expect(
-        generalService.checkWhitelistedRepository(repotag)
+        generalService.checkWhitelistedRepository(repotag),
       ).to.eventually.be.rejectedWith(
-        'Repository is not whitelisted. Please contact Flux Team.'
+        'Repository is not whitelisted. Please contact Flux Team.',
       );
     });
 
@@ -840,9 +842,9 @@ describe('generalService tests', () => {
       const repotag = 'public.ecr.aws/docker/library/hello-world:notlisted';
 
       await expect(
-        generalService.checkWhitelistedRepository(repotag)
+        generalService.checkWhitelistedRepository(repotag),
       ).to.eventually.be.rejectedWith(
-        'Repository is not whitelisted. Please contact Flux Team.'
+        'Repository is not whitelisted. Please contact Flux Team.',
       );
     });
 
@@ -850,9 +852,9 @@ describe('generalService tests', () => {
       const repotag = 'ghcr.io/handshake-org/london:latest';
 
       await expect(
-        generalService.checkWhitelistedRepository(repotag)
+        generalService.checkWhitelistedRepository(repotag),
       ).to.eventually.be.rejectedWith(
-        'Repository is not whitelisted. Please contact Flux Team.'
+        'Repository is not whitelisted. Please contact Flux Team.',
       );
     });
 
@@ -891,8 +893,7 @@ describe('generalService tests', () => {
     });
 
     it('should return true if registry namespace has 2 slashes and is whitelisted', async () => {
-      const repotag =
-        'europe-west2-docker.pkg.dev/chode-400710/mugawump/testimage:blahblah';
+      const repotag = 'europe-west2-docker.pkg.dev/chode-400710/mugawump/testimage:blahblah';
 
       const result = await generalService.checkWhitelistedRepository(repotag);
 
@@ -900,8 +901,7 @@ describe('generalService tests', () => {
     });
 
     it('should return true if registry namespace and image has 2 slashes and namespace is whitelisted', async () => {
-      const repotag =
-        'us-docker.pkg.dev/google-samples/containers/gke/hello-app:2.0';
+      const repotag = 'us-docker.pkg.dev/google-samples/containers/gke/hello-app:2.0';
 
       const result = await generalService.checkWhitelistedRepository(repotag);
 
@@ -909,8 +909,7 @@ describe('generalService tests', () => {
     });
 
     it('should return true if registry namespace and image has 2 slashes and image is whitelisted', async () => {
-      const repotag =
-        'us-docker.pkg.dev/google-samples/containers/madeup/image:sausages';
+      const repotag = 'us-docker.pkg.dev/google-samples/containers/madeup/image:sausages';
 
       const result = await generalService.checkWhitelistedRepository(repotag);
 
@@ -939,6 +938,16 @@ describe('generalService tests', () => {
       const result = await generalService.checkWhitelistedRepository(repotag);
 
       expect(result).to.eql(true);
+    });
+
+    it('should be rejected if namespace not whitelisted', async () => {
+      const repotag = 'runonfluxb/website:latest';
+
+      await expect(
+        generalService.checkWhitelistedRepository(repotag),
+      ).to.eventually.be.rejectedWith(
+        'Repository is not whitelisted. Please contact Flux Team.',
+      );
     });
   });
 
@@ -1005,8 +1014,7 @@ describe('generalService tests', () => {
 
   describe('parse repoTag tests', () => {
     it('should parse complex repository correctly', async () => {
-      const repotag =
-        'example.repository.com:50000/complex/namespace/split/image:latest';
+      const repotag = 'example.repository.com:50000/complex/namespace/split/image:latest';
 
       const result = generalService.parseDockerTag(repotag);
 

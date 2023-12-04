@@ -256,7 +256,7 @@ function parseDockerTag(targetDockerTag) {
     provider: '', namespace: '', repository: '', tag: '',
   };
 
-  parsedTag.provider = provider === undefined ? 'hub.docker.com' : provider;
+  parsedTag.provider = provider || 'hub.docker.com';
 
   // Without doing a lookup against the dockerhub library, no way to know if a single string is
   // an image or a namespace
@@ -278,7 +278,7 @@ function parseDockerTag(targetDockerTag) {
   } else {
     // we have certainty that the image parts that we have are correct
     // this would be better to lookup against dockerhub library (only 150 odd images to pull via api)
-    parsedTag.namespace = namespace === '' ? 'library' : namespace;
+    parsedTag.namespace = namespace || 'library';
     parsedTag.repository = repository;
     parsedTag.tag = tag;
     parsedTag.ambiguous = false;
@@ -303,7 +303,8 @@ async function checkWhitelistedRepository(targetDockerTag) {
     throw new Error('Invalid repotag');
   }
 
-  parseDockerTag(targetDockerTag);
+  const parsedTag = parseDockerTag(targetDockerTag);
+  console.log(parsedTag);
 
   // Cache?
   const res = await serviceHelper.axiosGet(
@@ -316,10 +317,34 @@ async function checkWhitelistedRepository(targetDockerTag) {
     );
   }
 
+  // this does not work few scenarios - e.g. if we have namespace whitelisted but this is namespaceb
   const filteredImageTags = res.data.filter((imageTag) => targetDockerTag.slice(0, imageTag.length) === imageTag);
 
   if (filteredImageTags.length) {
-    return true;
+    // the check above has scenarios not covered. Enforce additional check that namespace is truly matching
+    if (res.data.includes(`${parsedTag.provider}/${parsedTag.namespace}/${parsedTag.repository}:${parsedTag.tag}`)
+      || res.data.includes(`${parsedTag.provider}/${parsedTag.namespace}/${parsedTag.repository}`)
+      || res.data.includes(`${parsedTag.provider}/${parsedTag.namespace}`)
+    ) {
+      return true;
+    }
+    if (parsedTag.provider === 'hub.docker.com') {
+      if (res.data.includes(`${parsedTag.namespace}/${parsedTag.repository}:${parsedTag.tag}`)
+        || res.data.includes(`${parsedTag.namespace}/${parsedTag.repository}`)
+        || res.data.includes(parsedTag.namespace)
+      ) {
+        return true;
+      }
+    }
+    if (parsedTag.namespace === 'library') {
+      if (res.data.includes(`${parsedTag.repository}:${parsedTag.tag}`)
+        || res.data.includes(parsedTag.repository)
+        || res.data.includes(`${parsedTag.provider}/${parsedTag.repository}:${parsedTag.tag}`)
+        || res.data.includes(`${parsedTag.provider}/${parsedTag.repository}`)
+      ) {
+        return true;
+      }
+    }
   }
   throw new Error('Repository is not whitelisted. Please contact Flux Team.');
 }
