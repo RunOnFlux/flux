@@ -577,6 +577,16 @@ export default {
       return 'primary';
     };
 
+    const showToast = (variant, title, icon = 'InfoIcon') => {
+      toast({
+        component: ToastificationContent,
+        props: {
+          title,
+          icon,
+          variant,
+        },
+      });
+    };
     const tier = ref('');
     tier.value = props.tier;
     const userZelid = ref('');
@@ -601,6 +611,7 @@ export default {
     const appPricePerMonth = ref(0);
     const registrationHash = ref(null);
     const websocket = ref(null);
+    const selectedEnterpriseNodes = ref([]);
 
     const config = computed(() => ctx.root.$store.state.flux.config);
     const validTill = computed(() => timestamp.value + 60 * 60 * 1000); // 1 hour
@@ -709,6 +720,91 @@ export default {
       series: [],
     });
 
+    const fetchEnterpriseKey = async (nodeip) => { // we must have at least +5 nodes or up to 10% of spare keys
+      try {
+        const node = nodeip.split(':')[0];
+        const port = Number(nodeip.split(':')[1] || 16127);
+        // const agent = new https.Agent({
+        //   rejectUnauthorized: false,
+        // });
+        const response = await axios.get(`https://${node.replace(/\./g, '-')}-${port}.node.api.runonflux.io/flux/pgp`); // ip with port
+        if (response.data.status === 'error') {
+          showToast('danger', response.data.data.message || response.data.data);
+        } else {
+          const pgpKey = response.data.data;
+          return pgpKey;
+        }
+        return null;
+      } catch (error) {
+        console.log(error);
+        return null;
+      }
+    };
+
+    const getEnterpriseNodes = async () => {
+      const enterpriseList = localStorage.getItem('flux_enterprise_nodes');
+      if (enterpriseList) {
+        return JSON.parse(enterpriseList);
+      }
+      try {
+        const entList = await AppsService.getEnterpriseNodes();
+        if (entList.data.status === 'error') {
+          showToast('danger', entList.data.data.message || entList.data.data);
+        } else {
+          localStorage.setItem('flux_enterprise_nodes', JSON.stringify(entList.data.data));
+          return entList.data.data;
+        }
+      } catch (error) {
+        console.log(error);
+      }
+      return [];
+    };
+    const autoSelectNodes = async () => {
+      const { instances } = props.appData;
+      const maxSamePubKeyNodes = +instances + 3;
+      const maxNumberOfNodes = +instances + Math.ceil(Math.max(7, +instances * 0.15));
+      const notSelectedEnterpriseNodes = await getEnterpriseNodes();
+      const nodesToSelect = [];
+      const selectedEnNodes = [];
+      const enterprisePublicKeys = [];
+      for (let i = 0; i < notSelectedEnterpriseNodes.length; i += 1) {
+        // todo here check if max same pub key is satisfied
+        const alreadySelectedPubKeyOccurances = selectedEnNodes.filter((node) => node.pubkey === notSelectedEnterpriseNodes[i].pubkey).length;
+        const toSelectPubKeyOccurances = nodesToSelect.filter((node) => node.pubkey === notSelectedEnterpriseNodes[i].pubkey).length;
+        if (alreadySelectedPubKeyOccurances + toSelectPubKeyOccurances < maxSamePubKeyNodes) {
+          nodesToSelect.push(notSelectedEnterpriseNodes[i]);
+        }
+        if (nodesToSelect.length + selectedEnNodes.length >= maxNumberOfNodes) {
+          break;
+        }
+      }
+      nodesToSelect.forEach(async (node) => {
+        const nodeExists = selectedEnNodes.find((existingNode) => existingNode.ip === node.ip);
+        if (!nodeExists) {
+          selectedEnNodes.push(node);
+          // fetch pgp key
+          const keyExists = enterprisePublicKeys.find((key) => key.nodeip === node.ip);
+          if (!keyExists) {
+            const pgpKey = await fetchEnterpriseKey(node.ip);
+            if (pgpKey) {
+              const pair = {
+                nodeip: node.ip,
+                nodekey: pgpKey,
+              };
+              const keyExistsB = enterprisePublicKeys.find((key) => key.nodeip === node.ip);
+              if (!keyExistsB) {
+                enterprisePublicKeys.push(pair);
+              }
+            }
+          }
+        }
+      });
+      console.log(selectedEnNodes);
+      // console.log(nodesToSelect);
+      // console.log(enterprisePublicKeys);
+      return selectedEnNodes.map((node) => node.ip);
+    };
+
     watch(() => props.appData, () => {
       if (websocket.value !== null) {
         websocket.value.close();
@@ -735,8 +831,14 @@ export default {
           }
         });
       });
-
       currentComponent.value = props.appData.compose[0];
+      if (props.appData?.nodes?.length === 0) {
+        autoSelectNodes().then((v) => {
+          // appSpecification.nodes = v;
+          selectedEnterpriseNodes.value = v;
+          console.log('auto selected nodes', v);
+        }).catch(console.log);
+      }
     });
 
     const constructUniqueAppName = (appName) => `${appName}${Date.now()}`;
@@ -749,17 +851,6 @@ export default {
       const lowerCaseName = appNameWithTimestamp.toLowerCase();
       const domains = [`${lowerCaseName}.app.runonflux.io`];
       return domains;
-    };
-
-    const showToast = (variant, title, icon = 'InfoIcon') => {
-      toast({
-        component: ToastificationContent,
-        props: {
-          title,
-          icon,
-          variant,
-        },
-      });
     };
 
     const deploymentAddress = ref(null);
@@ -796,7 +887,11 @@ export default {
         }
         if (props.appData.version >= 7) {
           appSpecification.staticip = props.appData.staticip;
-          appSpecification.nodes = [];
+          if (props.appData?.nodes?.length === 0) {
+            appSpecification.nodes = selectedEnterpriseNodes.value;
+          } else {
+            appSpecification.nodes = [];
+          }
         }
         // formation, pre verification
         for (let i = 0; i < props.appData.compose.length; i += 1) {
@@ -1279,7 +1374,6 @@ export default {
         confirmLaunchDialogCloseShowing.value = true;
       }
     };
-
     return {
 
       // UI
