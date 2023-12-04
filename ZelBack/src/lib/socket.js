@@ -1,7 +1,7 @@
 const socketio = require('socket.io');
-const splitargs = require('splitargs');
 const verificationHelperUtils = require('../services/verificationHelperUtils');
 const dockerService = require('../services/dockerService');
+const serviceHelper = require('../services/serviceHelper');
 
 const log = require('./log');
 
@@ -38,8 +38,8 @@ function initIO(httpServer) {
         AttachStderr: true,
         AttachStdin: true,
         Tty: true,
-        Cmd: splitargs(dockerCmd),
-        Env: splitargs(dockerEnv),
+        Cmd: serviceHelper.commandStringToArray(dockerCmd),
+        Env: serviceHelper.commandStringToArray(dockerEnv),
       };
       container.exec(cmd, (err, exec) => {
         const options = {

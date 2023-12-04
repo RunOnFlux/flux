@@ -1,5 +1,6 @@
 const axios = require('axios');
 const config = require('config');
+const splitargs = require('splitargs');
 const qs = require('qs');
 
 const dbHelper = require('./dbHelper');
@@ -188,6 +189,15 @@ function dockerBufferToString(dataBuffer) {
   return result;
 }
 
+/**
+ * To convert string to array.
+ * @param {string}
+ * @returns {array}.
+ */
+function commandStringToArray(command) {
+  return splitargs(command);
+}
+
 module.exports = {
   ensureBoolean,
   ensureNumber,
@@ -199,4 +209,5 @@ module.exports = {
   deleteLoginPhrase,
   isDecimalLimit,
   dockerBufferToString,
+  commandStringToArray,
 };
