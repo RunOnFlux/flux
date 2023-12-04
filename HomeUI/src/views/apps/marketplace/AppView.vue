@@ -832,11 +832,13 @@ export default {
         });
       });
       currentComponent.value = props.appData.compose[0];
-      autoSelectNodes().then((v) => {
-        // appSpecification.nodes = v;
-        selectedEnterpriseNodes.value = v;
-        console.log('auto selected nodes', v);
-      }).catch(console.log);
+      if (props.appData?.nodes) {
+        autoSelectNodes().then((v) => {
+          // appSpecification.nodes = v;
+          selectedEnterpriseNodes.value = v;
+          console.log('auto selected nodes', v);
+        }).catch(console.log);
+      }
     });
 
     const constructUniqueAppName = (appName) => `${appName}${Date.now()}`;
@@ -885,7 +887,7 @@ export default {
         }
         if (props.appData.version >= 7) {
           appSpecification.staticip = props.appData.staticip;
-          if (props.appData.compose?.some((c) => (c?.enterpriseApp === true))) {
+          if (props.appData?.nodes) {
             appSpecification.nodes = selectedEnterpriseNodes.value;
           } else {
             appSpecification.nodes = [];
