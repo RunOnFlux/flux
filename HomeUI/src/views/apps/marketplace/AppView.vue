@@ -877,7 +877,7 @@ export default {
 
       // Evaluate any user parameters from the database
       props.appData.compose.forEach((component) => {
-        const paramModel = component.userEnvironmentParameters;
+        const paramModel = component.userEnvironmentParameters || [];
         // check if any of these parameters are special 'port' parameters
         paramModel.forEach((parameter) => {
           if (Object.prototype.hasOwnProperty.call(parameter, 'port')) {
@@ -957,7 +957,8 @@ export default {
         for (let i = 0; i < props.appData.compose.length; i += 1) {
           const component = props.appData.compose[i];
           let envParams = JSON.parse(JSON.stringify(component.environmentParameters));
-          component.userEnvironmentParameters.forEach((param) => {
+          const assignedEnv = component.userEnvironmentParameters || [];
+          assignedEnv.forEach((param) => {
             envParams.push(`${param.name}=${param.value}`);
           });
           if (component.envFluxStorage) {
@@ -1004,7 +1005,8 @@ export default {
             appComponent.secrets = props.appData.secrets || '';
             appComponent.repoauth = props.appData.repoauth || '';
             const userSecrets = JSON.parse(JSON.stringify(component.secrets));
-            component.usersSecrets.forEach((param) => {
+            const assignedSecrets = component.usersSecrets || [];
+            assignedSecrets.forEach((param) => {
               userSecrets.push(`${param.name}=${param.value}`);
             });
             if (userSecrets.length && typeof userSecrets !== 'string') {
