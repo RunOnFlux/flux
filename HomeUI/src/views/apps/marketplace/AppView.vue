@@ -800,9 +800,8 @@ export default {
     */
     const encryptMessage = async (message, encryptionKeys) => {
       try {
-        const publicKeys = await Promise.all(encryptionKeys.map((armoredKey) => openpgp.readKey({ armoredKey })));
-        console.log(encryptionKeys);
-        console.log(message);
+        const encKeys = encryptionKeys.map((key) => key.nodekey);
+        const publicKeys = await Promise.all(encKeys.map((armoredKey) => openpgp.readKey({ armoredKey })));
         const pgpMessage = await openpgp.createMessage({ text: message });
         const encryptedMessage = await openpgp.encrypt({
           message: pgpMessage, // input as Message object
