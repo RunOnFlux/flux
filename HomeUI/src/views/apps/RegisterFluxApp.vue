@@ -3178,7 +3178,7 @@ export default {
       }
     },
     async getEnterpriseNodes() {
-      const enterpriseList = localStorage.getItem('flux_enterprise_nodes');
+      const enterpriseList = sessionStorage.getItem('flux_enterprise_nodes');
       if (enterpriseList) {
         this.enterpriseNodes = JSON.parse(enterpriseList);
         this.entNodesSelectTable.totalRows = this.enterpriseNodes.length;
@@ -3190,7 +3190,7 @@ export default {
         } else {
           this.enterpriseNodes = entList.data.data;
           this.entNodesSelectTable.totalRows = this.enterpriseNodes.length;
-          localStorage.setItem('flux_enterprise_nodes', JSON.stringify(this.enterpriseNodes));
+          sessionStorage.setItem('flux_enterprise_nodes', JSON.stringify(this.enterpriseNodes));
         }
       } catch (error) {
         console.log(error);

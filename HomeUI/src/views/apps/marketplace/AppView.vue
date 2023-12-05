@@ -87,6 +87,37 @@
                       </b-tab>
                     </b-tabs>
                   </b-card>
+                  <b-card
+                    v-if="component.usersSecrets"
+                    title="Secrets"
+                    border-variant="primary"
+                  >
+                    <b-tabs v-if="component.usersSecrets">
+                      <b-tab
+                        v-for="(parameter, paramIndex) in component.usersSecrets"
+                        :key="paramIndex"
+                        :title="parameter.name"
+                      >
+                        <div class="form-row form-group">
+                          <label class="col-2 col-form-label">
+                            Value
+                            <v-icon
+                              v-b-tooltip.hover.top="parameter.description"
+                              name="info-circle"
+                              class="mr-1"
+                            />
+                          </label>
+                          <div class="col">
+                            <b-form-input
+                              id="secrets"
+                              v-model="parameter.value"
+                              :placeholder="parameter.placeholder"
+                            />
+                          </div>
+                        </div>
+                      </b-tab>
+                    </b-tabs>
+                  </b-card>
                   <b-button
                     v-if="userZelid"
                     v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -516,6 +547,7 @@ import tierColors from '@/libs/colors';
 const qs = require('qs');
 const axios = require('axios');
 const store = require('store');
+const openpgp = require('openpgp');
 const timeoptions = require('@/libs/dateFormat');
 
 export default {
@@ -612,6 +644,7 @@ export default {
     const registrationHash = ref(null);
     const websocket = ref(null);
     const selectedEnterpriseNodes = ref([]);
+    const enterprisePublicKeys = ref([]);
 
     const config = computed(() => ctx.root.$store.state.flux.config);
     const validTill = computed(() => timestamp.value + 60 * 60 * 1000); // 1 hour
@@ -720,7 +753,6 @@ export default {
       series: [],
     });
 
-    // eslint-disable-next-line no-unused-vars
     const fetchEnterpriseKey = async (nodeip) => { // we must have at least +5 nodes or up to 10% of spare keys
       try {
         const node = nodeip.split(':')[0];
@@ -743,7 +775,7 @@ export default {
     };
 
     const getEnterpriseNodes = async () => {
-      const enterpriseList = localStorage.getItem('flux_enterprise_nodes');
+      const enterpriseList = sessionStorage.getItem('flux_enterprise_nodes');
       if (enterpriseList) {
         return JSON.parse(enterpriseList);
       }
@@ -752,13 +784,36 @@ export default {
         if (entList.data.status === 'error') {
           showToast('danger', entList.data.data.message || entList.data.data);
         } else {
-          localStorage.setItem('flux_enterprise_nodes', JSON.stringify(entList.data.data));
+          sessionStorage.setItem('flux_enterprise_nodes', JSON.stringify(entList.data.data));
           return entList.data.data;
         }
       } catch (error) {
         console.log(error);
       }
       return [];
+    };
+    /**
+    * To encrypt a message with an array of encryption public keys
+    * @param {string} message Message to encrypt
+    * @param {array} encryptionKeys Armored version of array of public key
+    * @returns {string} Return armored version of encrypted message
+    */
+    const encryptMessage = async (message, encryptionKeys) => {
+      try {
+        const publicKeys = await Promise.all(encryptionKeys.map((armoredKey) => openpgp.readKey({ armoredKey })));
+        console.log(encryptionKeys);
+        console.log(message);
+        const pgpMessage = await openpgp.createMessage({ text: message });
+        const encryptedMessage = await openpgp.encrypt({
+          message: pgpMessage, // input as Message object
+          encryptionKeys: publicKeys,
+        });
+        // '-----BEGIN PGP MESSAGE ... END PGP MESSAGE-----'
+        return encryptedMessage;
+      } catch (error) {
+        showToast('danger', 'Data encryption failed');
+        return null;
+      }
     };
     const autoSelectNodes = async () => {
       const { instances } = props.appData;
@@ -767,7 +822,6 @@ export default {
       const notSelectedEnterpriseNodes = await getEnterpriseNodes();
       const nodesToSelect = [];
       const selectedEnNodes = [];
-      // const enterprisePublicKeys = [];
       for (let i = 0; i < notSelectedEnterpriseNodes.length; i += 1) {
         // todo here check if max same pub key is satisfied
         const alreadySelectedPubKeyOccurances = selectedEnNodes.filter((node) => node.pubkey === notSelectedEnterpriseNodes[i].pubkey).length;
@@ -785,25 +839,24 @@ export default {
           selectedEnNodes.push(node);
           // fetch pgp key
           // we do not need pgp key as we dont do encryption
-          // const keyExists = enterprisePublicKeys.find((key) => key.nodeip === node.ip);
-          // if (!keyExists) {
-          //   const pgpKey = await fetchEnterpriseKey(node.ip);
-          //   if (pgpKey) {
-          //     const pair = {
-          //       nodeip: node.ip,
-          //       nodekey: pgpKey,
-          //     };
-          //     const keyExistsB = enterprisePublicKeys.find((key) => key.nodeip === node.ip);
-          //     if (!keyExistsB) {
-          //       enterprisePublicKeys.push(pair);
-          //     }
-          //   }
-          // }
+          const keyExists = enterprisePublicKeys.value.find((key) => key.nodeip === node.ip);
+          if (!keyExists) {
+            const pgpKey = await fetchEnterpriseKey(node.ip);
+            if (pgpKey) {
+              const pair = {
+                nodeip: node.ip,
+                nodekey: pgpKey,
+              };
+              const keyExistsB = enterprisePublicKeys.value.find((key) => key.nodeip === node.ip);
+              if (!keyExistsB) {
+                enterprisePublicKeys.value.push(pair);
+              }
+            }
+          }
         }
       });
       console.log(selectedEnNodes);
-      // console.log(nodesToSelect);
-      // console.log(enterprisePublicKeys);
+      console.log(enterprisePublicKeys.value);
       return selectedEnNodes.map((node) => node.ip);
     };
 
@@ -950,6 +1003,17 @@ export default {
           if (props.appData.version >= 7) {
             appComponent.secrets = props.appData.secrets || '';
             appComponent.repoauth = props.appData.repoauth || '';
+            const userSecrets = JSON.parse(JSON.stringify(component.secrets));
+            component.usersSecrets.forEach((param) => {
+              userSecrets.push(`${param.name}=${param.value}`);
+            });
+            if (userSecrets.length && typeof userSecrets !== 'string') {
+              // eslint-disable-next-line no-await-in-loop
+              const encryptedMessage = await encryptMessage(userSecrets, enterprisePublicKeys.value);
+              if (encryptedMessage) {
+                appComponent.secrets = encryptMessage;
+              }
+            }
           }
           appSpecification.compose.push(appComponent);
         }
