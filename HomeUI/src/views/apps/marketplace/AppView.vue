@@ -1004,16 +1004,16 @@ export default {
           if (props.appData.version >= 7) {
             appComponent.secrets = props.appData.secrets || '';
             appComponent.repoauth = props.appData.repoauth || '';
-            const userSecrets = JSON.parse(JSON.stringify(component.secrets));
+            const userSecrets = [];
             const assignedSecrets = component.userSecrets || [];
             assignedSecrets.forEach((param) => {
               userSecrets.push(`${param.name}=${param.value}`);
             });
             if (userSecrets.length && typeof userSecrets !== 'string') {
               // eslint-disable-next-line no-await-in-loop
-              const encryptedMessage = await encryptMessage(userSecrets, enterprisePublicKeys.value);
+              const encryptedMessage = await encryptMessage(JSON.stringify(userSecrets), enterprisePublicKeys.value);
               if (encryptedMessage) {
-                appComponent.secrets = encryptMessage;
+                appComponent.secrets = encryptedMessage;
               }
             }
           }
