@@ -559,7 +559,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     HostConfig: {
       NanoCPUs: appSpecifications.cpu * 1e9,
       Memory: appSpecifications.ram * 1024 * 1024,
-      StorageOpt: { size: '12G' }, // root fs has max 12G
+      // StorageOpt: { size: '12G' }, // root fs has max 12G FIXME only for overlay over xfs with 'pquota' mount option "
       Binds: constructedVolumes,
       Ulimits: [
         {
