@@ -309,4 +309,61 @@ describe('serviceHelper tests', () => {
       expect(serviceHelper.isDecimalLimit(3.2342342341, 2)).to.equal(false);
     });
   });
+
+  describe('commandStringToArray tests', () => {
+    beforeEach(() => {});
+    afterEach(() => {});
+
+    it('should split double quoted string', () => {
+      const i = " I  said 'I am sorry.', and he said \"it doesn't matter.\" ";
+      const o = serviceHelper.commandStringToArray(i);
+      expect(o).to.have.lengthOf(7);
+      expect(o[0]).to.equal('I');
+      expect(o[1]).to.equal('said');
+      expect(o[2]).to.equal('I am sorry.,');
+      expect(o[3]).to.equal('and');
+      expect(o[4]).to.equal('he');
+      expect(o[5]).to.equal('said');
+      expect(o[6]).to.equal("it doesn't matter.");
+    });
+
+    it('should split pure double quoted string', () => {
+      const i = 'I said "I am sorry.", and he said "it doesn\'t matter."';
+      const o = serviceHelper.commandStringToArray(i);
+      expect(o).to.have.lengthOf(7);
+      expect(o[0]).to.equal('I');
+      expect(o[1]).to.equal('said');
+      expect(o[2]).to.equal('I am sorry.,');
+      expect(o[3]).to.equal('and');
+      expect(o[4]).to.equal('he');
+      expect(o[5]).to.equal('said');
+      expect(o[6]).to.equal("it doesn't matter.");
+    });
+
+    it('should split single quoted string', () => {
+      const i = 'I said "I am sorry.", and he said "it doesn\'t matter."';
+      const o = serviceHelper.commandStringToArray(i);
+      expect(o).to.have.lengthOf(7);
+      expect(o[0]).to.equal('I');
+      expect(o[1]).to.equal('said');
+      expect(o[2]).to.equal('I am sorry.,');
+      expect(o[3]).to.equal('and');
+      expect(o[4]).to.equal('he');
+      expect(o[5]).to.equal('said');
+      expect(o[6]).to.equal("it doesn't matter.");
+    });
+
+    it('should split pure single quoted string', () => {
+      const i = "I said 'I am sorry.', and he said \"it doesn't matter.\"";
+      const o = serviceHelper.commandStringToArray(i);
+      expect(o).to.have.lengthOf(7);
+      expect(o[0]).to.equal('I');
+      expect(o[1]).to.equal('said');
+      expect(o[2]).to.equal('I am sorry.,');
+      expect(o[3]).to.equal('and');
+      expect(o[4]).to.equal('he');
+      expect(o[5]).to.equal('said');
+      expect(o[6]).to.equal("it doesn't matter.");
+    });
+  });
 });

@@ -5,6 +5,7 @@ const zeltrezjs = require('zeltrezjs');
 const nodecmd = require('node-cmd');
 const fs = require('fs').promises;
 const path = require('path');
+const os = require('os');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
 const { LRUCache } = require('lru-cache');
@@ -242,7 +243,8 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
     if (!UIok) return false;
 
     const syncthingPort = +port + 2;
-    return isPortOpen(ip, syncthingPort);
+    const portOpen = await isPortOpen(ip, syncthingPort);
+    return portOpen;
   } catch (e) {
     log.error(e);
     return false;
@@ -462,24 +464,18 @@ async function getRandomConnection() {
  */
 async function closeConnection(ip, port) {
   if (!ip) return messageHelper.createWarningMessage('To close a connection please provide a proper IP number.');
-  const wsObj = outgoingConnections.find((client) => client._socket.remoteAddress === ip && client.port === port);
-  if (!wsObj) {
+  const peerIndex = outgoingPeers.findIndex((peer) => peer.ip === ip && peer.port === port);
+  if (peerIndex > -1) {
+    outgoingPeers.splice(peerIndex, 1);
+  }
+  const ocIndex = outgoingConnections.findIndex((client) => client.ip === ip && client.port === port);
+  if (ocIndex < 0) {
     return messageHelper.createWarningMessage(`Connection to ${ip}:${port} does not exists.`);
   }
-  const ocIndex = outgoingConnections.indexOf(wsObj);
-  const foundPeer = outgoingPeers.find((peer) => peer.ip === ip && peer.port === port);
-  if (ocIndex === -1) {
-    return messageHelper.createErrorMessage(`Unable to close connection ${ip}:${port}. Try again later.`);
-  }
-  wsObj.close(1000, 'purpusfully closed');
-  log.info(`Connection to ${ip}:${port} closed`);
+  const wsObj = outgoingConnections[ocIndex];
+  wsObj.close(4009, 'purpusfully closed');
+  log.info(`Connection to ${ip}:${port} closed with code 4009`);
   outgoingConnections.splice(ocIndex, 1);
-  if (foundPeer) {
-    const peerIndex = outgoingPeers.indexOf(foundPeer);
-    if (peerIndex > -1) {
-      outgoingPeers.splice(peerIndex, 1);
-    }
-  }
   return messageHelper.createSuccessMessage(`Outgoing connection to ${ip}:${port} closed`);
 }
 
@@ -493,30 +489,37 @@ async function closeConnection(ip, port) {
  */
 async function closeIncomingConnection(ip, port, expressWS, clientToClose) {
   if (!ip) return messageHelper.createWarningMessage('To close a connection please provide a proper IP number.');
-  const clientsSet = expressWS.clients || [];
-  let wsObj = null || clientToClose;
-  clientsSet.forEach((client) => {
-    if (client._socket.remoteAddress === ip && client.port === port) {
-      wsObj = client;
-    }
-  });
+  let wsObj = clientToClose;
+  if (expressWS && !wsObj) {
+    const clientsSet = expressWS.clients || [];
+    clientsSet.forEach((client) => {
+      if (client.ip === ip && client.port === port) {
+        wsObj = client;
+      }
+    });
+  }
+  if (!wsObj) {
+    const clientsSet = incomingConnections;
+    clientsSet.forEach((client) => {
+      if (client.ip === ip && client.port === port) {
+        wsObj = client;
+      }
+    });
+  }
   if (!wsObj) {
     return messageHelper.createWarningMessage(`Connection from ${ip}:${port} does not exists.`);
   }
-  const ocIndex = incomingConnections.indexOf(wsObj);
-  const foundPeer = incomingPeers.find((peer) => peer.ip === ip && peer.port === port);
+  const ocIndex = incomingConnections.findIndex((peer) => peer.ip === ip && peer.port === port);
   if (ocIndex === -1) {
     return messageHelper.createErrorMessage(`Unable to close incoming connection ${ip}:${port}. Try again later.`);
   }
-  wsObj.close(1000, 'purpusfully closed');
-  log.info(`Connection from ${ip}:${port} closed`);
-  incomingConnections.splice(ocIndex, 1);
-  if (foundPeer) {
-    const peerIndex = incomingPeers.indexOf(foundPeer);
-    if (peerIndex > -1) {
-      incomingPeers.splice(peerIndex, 1);
-    }
+  const peerIndex = incomingPeers.findIndex((peer) => peer.ip === ip && peer.port === port);
+  if (peerIndex > -1) {
+    incomingPeers.splice(peerIndex, 1);
   }
+  wsObj.close(4010, 'purpusfully closed');
+  log.info(`Connection from ${ip}:${port} closed with code 4010`);
+  incomingConnections.splice(ocIndex, 1);
   return messageHelper.createSuccessMessage(`Incoming connection to ${ip}:${port} closed`);
 }
 
@@ -550,7 +553,7 @@ function getIncomingConnections(req, res, expressWS) {
   const clientsSet = expressWS.clients;
   const connections = [];
   clientsSet.forEach((client) => {
-    connections.push(client._socket.remoteAddress);
+    connections.push(client.ip);
   });
   const message = messageHelper.createDataMessage(connections);
   response = message;
@@ -636,6 +639,25 @@ function fluxUptime(req, res) {
   try {
     const ut = process.uptime();
     const measureUptime = Math.floor(ut);
+    message = messageHelper.createDataMessage(measureUptime);
+    return res ? res.json(message) : message;
+  } catch (error) {
+    log.error(error);
+    message = messageHelper.createErrorMessage('Error obtaining uptime');
+    return res ? res.json(message) : message;
+  }
+}
+
+/**
+ * To get system uptime in seconds
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+function fluxSystemUptime(req, res) {
+  let message;
+  try {
+    const uptime = os.uptime();
+    const measureUptime = Math.floor(uptime);
     message = messageHelper.createDataMessage(measureUptime);
     return res ? res.json(message) : message;
   } catch (error) {
@@ -822,6 +844,26 @@ async function adjustExternalIP(ip) {
     if (ip === userconfig.initial.ipaddress) {
       return;
     }
+
+    log.info(`Adjusting External IP from ${userconfig.initial.ipaddress} to ${ip}`);
+    const dataToWrite = `module.exports = {
+  initial: {
+    ipaddress: '${ip}',
+    zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
+    kadena: '${userconfig.initial.kadena || ''}',
+    testnet: ${userconfig.initial.testnet || false},
+    development: ${userconfig.initial.development || false},
+    apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
+    routerIP: '${userconfig.initial.routerIP || ''}',
+    pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
+    pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
+    blockedPorts: [${userconfig.initial.blockedPorts || ''}],
+    blockedRepositories: ${JSON.stringify(userconfig.initial.blockedRepositories || []).replace(/"/g, "'")},
+  }
+}`;
+
+    await fs.writeFile(fluxDirPath, dataToWrite);
+
     if (userconfig.initial.ipaddress && v4exact.test(userconfig.initial.ipaddress) && !myCache.has(ip)) {
       myCache.set(ip, ip);
       const newIP = userconfig.initial.apiport !== 16127 ? `${ip}:${userconfig.initial.apiport}` : ip;
@@ -853,25 +895,6 @@ async function adjustExternalIP(ip) {
       const result = await daemonServiceWalletRpcs.createConfirmationTransaction();
       log.info(`createConfirmationTransaction: ${JSON.stringify(result)}`);
     }
-
-    log.info(`Adjusting External IP from ${userconfig.initial.ipaddress} to ${ip}`);
-    const dataToWrite = `module.exports = {
-  initial: {
-    ipaddress: '${ip}',
-    zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
-    kadena: '${userconfig.initial.kadena || ''}',
-    testnet: ${userconfig.initial.testnet || false},
-    development: ${userconfig.initial.development || false},
-    apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
-    routerIP: '${userconfig.initial.routerIP || ''}',
-    pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
-    pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-    blockedPorts: [${userconfig.initial.blockedPorts || ''}],
-    blockedRepositories: ${JSON.stringify(userconfig.initial.blockedRepositories || []).replace(/"/g, "'")},
-  }
-}`;
-
-    await fs.writeFile(fluxDirPath, dataToWrite);
   } catch (error) {
     log.error(error);
   }
@@ -1424,6 +1447,7 @@ module.exports = {
   setDosStateValue,
   getDosStateValue,
   fluxUptime,
+  fluxSystemUptime,
   isCommunicationEstablished,
   lruRateLimit,
   isPortOpen,

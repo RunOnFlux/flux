@@ -1,3 +1,5 @@
+global.userconfig = require('../../config/userconfig');
+
 const chai = require('chai');
 const sinon = require('sinon');
 const chaiAsPromised = require('chai-as-promised');
@@ -7,6 +9,7 @@ const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
 const daemonServiceTransactionRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceTransactionRpcs');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
+const whitelistRepos = require('./data/whitelistRepos');
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
@@ -779,35 +782,83 @@ describe('generalService tests', () => {
   });
 
   describe('checkWhitelistedRepository tests', () => {
+    beforeEach(() => {
+      sinon.stub(serviceHelper, 'axiosGet').returns(whitelistRepos);
+    });
     afterEach(() => {
       sinon.restore();
     });
     it('should throw error if repotag is not a string', async () => {
       const repotag = 1234;
 
-      await expect(generalService.checkWhitelistedRepository(repotag)).to.eventually.be.rejectedWith('Invalid repotag');
+      await expect(
+        generalService.checkWhitelistedRepository(repotag),
+      ).to.eventually.be.rejectedWith('Invalid repotag');
     });
 
-    it('should throw error axiosGet returns nothing', async () => {
+    it('should throw error if axiosGet returns nothing', async () => {
+      sinon.restore();
       sinon.stub(serviceHelper, 'axiosGet').returns(null);
       const repotag = 'testing/12343:latest';
 
-      await expect(generalService.checkWhitelistedRepository(repotag)).to.eventually.be.rejectedWith('Unable to communicate with Flux Services! Try again later.');
+      await expect(
+        generalService.checkWhitelistedRepository(repotag),
+      ).to.eventually.be.rejectedWith(
+        'Unable to communicate with Flux Services! Try again later.',
+      );
     });
 
-    it('should throw error if repo is not whitelsited', async () => {
-      const repotag = 'testing/12343:latest';
-
-      await expect(generalService.checkWhitelistedRepository(repotag)).to.eventually.be.rejectedWith('Repository is not whitelisted. Please contact Flux Team.');
-    });
-
-    it('should throw error if repo is not in a proper format', async () => {
+    it('should throw error if repo is not in a proper format A', async () => {
       const repotag = 'improperformat';
 
-      await expect(generalService.checkWhitelistedRepository(repotag)).to.eventually.be.rejectedWith('Repository improperformat is not in valid format namespace/repository:tag');
+      await expect(
+        generalService.checkWhitelistedRepository(repotag),
+      ).to.eventually.be.rejectedWith(
+        'Repository improperformat is not in valid format namespace/repository:tag',
+      );
     });
 
-    it('should return true if repository is whitelisted', async () => {
+    it('should throw error if repo is not in a proper format B', async () => {
+      const repotag = 'improper/format';
+
+      await expect(
+        generalService.checkWhitelistedRepository(repotag),
+      ).to.eventually.be.rejectedWith(
+        'Repository improper/format is not in valid format namespace/repository:tag',
+      );
+    });
+
+    it('should throw error if repo is not whitelisted', async () => {
+      const repotag = 'doesnotexist/inthewhitelist:nope';
+
+      await expect(
+        generalService.checkWhitelistedRepository(repotag),
+      ).to.eventually.be.rejectedWith(
+        'Repository is not whitelisted. Please contact Flux Team.',
+      );
+    });
+
+    it('should throw error if only tag is whitelisted and not namespace', async () => {
+      const repotag = 'public.ecr.aws/docker/library/hello-world:notlisted';
+
+      await expect(
+        generalService.checkWhitelistedRepository(repotag),
+      ).to.eventually.be.rejectedWith(
+        'Repository is not whitelisted. Please contact Flux Team.',
+      );
+    });
+
+    it('should throw error if only sibling image is whitelisted', async () => {
+      const repotag = 'ghcr.io/handshake-org/london:latest';
+
+      await expect(
+        generalService.checkWhitelistedRepository(repotag),
+      ).to.eventually.be.rejectedWith(
+        'Repository is not whitelisted. Please contact Flux Team.',
+      );
+    });
+
+    it('should return true if namespace is whitelisted A', async () => {
       const repotag = 'yurinnick/folding-at-home:latest';
 
       const result = await generalService.checkWhitelistedRepository(repotag);
@@ -815,39 +866,7 @@ describe('generalService tests', () => {
       expect(result).to.eql(true);
     });
 
-    it('should return true if repository is whitelisted B', async () => {
-      const repotag = 'gcr.io/google-samples/node-hello:latest';
-
-      const result = await generalService.checkWhitelistedRepository(repotag);
-
-      expect(result).to.eql(true);
-    });
-
-    it('should return true if repository is whitelisted C', async () => {
-      const repotag = 'public.ecr.aws/docker/library/hello-world:linux';
-
-      const result = await generalService.checkWhitelistedRepository(repotag);
-
-      expect(result).to.eql(true);
-    });
-
-    it('should return true if repository is whitelisted D', async () => {
-      const repotag = 'download.lootlink.xyz/wirewrex/kappa:delta';
-
-      const result = await generalService.checkWhitelistedRepository(repotag);
-
-      expect(result).to.eql(true);
-    });
-
-    it('should return true if repository namespace is whitelisted', async () => {
-      const repotag = 'public.ecr.aws/docker/library/hello-world:notlisted';
-
-      const result = await generalService.checkWhitelistedRepository(repotag);
-
-      expect(result).to.eql(true);
-    });
-
-    it('should return true if repository namespace is whitelisted B', async () => {
+    it('should return true if namespace is whitelisted B', async () => {
       const repotag = 'wirewrex/uptimekuma:latest';
 
       const result = await generalService.checkWhitelistedRepository(repotag);
@@ -855,20 +874,80 @@ describe('generalService tests', () => {
       expect(result).to.eql(true);
     });
 
-    it('should return true if repository namespace is whitelisted C', async () => {
-      const repotag = 'ghcr.io/handshake-org/london:latest';
+    it('should return true if image is whitelisted', async () => {
+      const repotag = 'justfortesting/imagetime:latest';
 
       const result = await generalService.checkWhitelistedRepository(repotag);
 
       expect(result).to.eql(true);
     });
 
-    it('should return true if repository namespace is whitelisted D', async () => {
+    // add image whitelisted here
+
+    it('should return true if registry namespace is whitelisted', async () => {
+      const repotag = 'download.lootlink.xyz/wirewrex/kappa:delta';
+
+      const result = await generalService.checkWhitelistedRepository(repotag);
+
+      expect(result).to.eql(true);
+    });
+
+    it('should return true if registry namespace has 2 slashes and is whitelisted', async () => {
+      const repotag = 'europe-west2-docker.pkg.dev/chode-400710/mugawump/testimage:blahblah';
+
+      const result = await generalService.checkWhitelistedRepository(repotag);
+
+      expect(result).to.eql(true);
+    });
+
+    it('should return true if registry namespace and image has 2 slashes and namespace is whitelisted', async () => {
+      const repotag = 'us-docker.pkg.dev/google-samples/containers/gke/hello-app:2.0';
+
+      const result = await generalService.checkWhitelistedRepository(repotag);
+
+      expect(result).to.eql(true);
+    });
+
+    it('should return true if registry namespace and image has 2 slashes and image is whitelisted', async () => {
+      const repotag = 'us-docker.pkg.dev/google-samples/containers/madeup/image:sausages';
+
+      const result = await generalService.checkWhitelistedRepository(repotag);
+
+      expect(result).to.eql(true);
+    });
+
+    it('should return true if registry image is whitelisted', async () => {
+      const repotag = 'gcr.io/google-samples/node-hello:latest';
+
+      const result = await generalService.checkWhitelistedRepository(repotag);
+
+      expect(result).to.eql(true);
+    });
+
+    it('should return true if registry tag is whitelisted', async () => {
+      const repotag = 'public.ecr.aws/docker/library/hello-world:linux';
+
+      const result = await generalService.checkWhitelistedRepository(repotag);
+
+      expect(result).to.eql(true);
+    });
+
+    it('should return true if dockerhub library tag is whitelisted', async () => {
       const repotag = 'mysql:latest';
 
       const result = await generalService.checkWhitelistedRepository(repotag);
 
       expect(result).to.eql(true);
+    });
+
+    it('should be rejected if namespace not whitelisted', async () => {
+      const repotag = 'runonfluxb/website:latest';
+
+      await expect(
+        generalService.checkWhitelistedRepository(repotag),
+      ).to.eventually.be.rejectedWith(
+        'Repository is not whitelisted. Please contact Flux Team.',
+      );
     });
   });
 
@@ -933,89 +1012,83 @@ describe('generalService tests', () => {
     });
   });
 
-  describe('splitRepoTag tests', () => {
-    it('should split complex repository correctly', async () => {
-      const repotag = 'example.repository.com:50000/my/super/complex/namespace/image:latest';
+  describe('parse repoTag tests', () => {
+    it('should parse complex repository correctly', async () => {
+      const repotag = 'example.repository.com:50000/complex/namespace/split/image:latest';
 
-      const result = generalService.splitRepoTag(repotag);
+      const result = generalService.parseDockerTag(repotag);
 
+      expect(result.provider).to.eql('example.repository.com:50000');
+      expect(result.namespace).to.eql('complex/namespace');
+      expect(result.repository).to.eql('split/image');
       expect(result.tag).to.eql('latest');
-      expect(result.provider).to.eql('example.repository.com');
-      expect(result.service).to.eql('example.repository.com');
-      expect(result.authentication).to.eql('example.repository.com');
-      expect(result.providerName).to.eql('Unkown provider');
-      expect(result.port).to.eql('50000');
-      expect(result.repository).to.eql('image');
-      expect(result.namespace).to.eql('my/super/complex/namespace');
     });
 
-    it('should split basic repository correctly', async () => {
+    it('should parse basic repository correctly', async () => {
       const repotag = 'runonflux/website:latest';
 
-      const result = generalService.splitRepoTag(repotag);
+      const result = generalService.parseDockerTag(repotag);
 
-      expect(result.tag).to.eql('latest');
-      expect(result.provider).to.eql('registry-1.docker.io');
-      expect(result.service).to.eql('registry.docker.io');
-      expect(result.authentication).to.eql('auth.docker.io');
-      expect(result.providerName).to.eql('Docker Hub');
-      expect(result.port).to.eql('');
-      expect(result.repository).to.eql('website');
+      expect(result.provider).to.eql('hub.docker.com');
       expect(result.namespace).to.eql('runonflux');
+      expect(result.repository).to.eql('website');
+      expect(result.tag).to.eql('latest');
     });
 
-    it('should split library of docker correctly', async () => {
+    it('should parse dockerhub library images correctly', async () => {
       const repotag = 'mysql:latest';
 
-      const result = generalService.splitRepoTag(repotag);
+      const result = generalService.parseDockerTag(repotag);
 
-      expect(result.tag).to.eql('latest');
-      expect(result.provider).to.eql('registry-1.docker.io');
-      expect(result.service).to.eql('registry.docker.io');
-      expect(result.authentication).to.eql('auth.docker.io');
-      expect(result.providerName).to.eql('Docker Hub');
-      expect(result.port).to.eql('');
-      expect(result.repository).to.eql('mysql');
+      expect(result.provider).to.eql('hub.docker.com');
       expect(result.namespace).to.eql('library');
+      expect(result.repository).to.eql('mysql');
+      expect(result.tag).to.eql('latest');
     });
 
-    it('should split basic docker api correctly', async () => {
+    it('should parse basic registry api correctly', async () => {
       const repotag = 'ghcr.io/iron-fish/ironfish:mytag';
 
-      const result = generalService.splitRepoTag(repotag);
+      const result = generalService.parseDockerTag(repotag);
 
-      expect(result.tag).to.eql('mytag');
       expect(result.provider).to.eql('ghcr.io');
-      expect(result.service).to.eql('ghcr.io');
-      expect(result.authentication).to.eql('ghcr.io');
-      expect(result.providerName).to.eql('Github Containers');
-      expect(result.port).to.eql('');
-      expect(result.repository).to.eql('ironfish');
       expect(result.namespace).to.eql('iron-fish');
+      expect(result.repository).to.eql('ironfish');
+      expect(result.tag).to.eql('mytag');
     });
 
-    it('should split library of docker api correctly', async () => {
+    it('should parse namespace of registry api correctly', async () => {
       const repotag = 'public.ecr.aws/docker/library/mongo:latest';
 
-      const result = generalService.splitRepoTag(repotag);
+      const result = generalService.parseDockerTag(repotag);
 
-      expect(result.tag).to.eql('latest');
       expect(result.provider).to.eql('public.ecr.aws');
-      expect(result.service).to.eql('public.ecr.aws');
-      expect(result.authentication).to.eql('public.ecr.aws');
-      expect(result.providerName).to.eql('Amazon ECR');
-      expect(result.port).to.eql('');
-      expect(result.repository).to.eql('mongo');
       expect(result.namespace).to.eql('docker/library');
+      expect(result.repository).to.eql('mongo');
+      expect(result.tag).to.eql('latest');
     });
 
     it('should fail if not correct repotag', async () => {
       const repotag = 'example';
 
       // eslint-disable-next-line func-names
-      const result = function () { generalService.splitRepoTag(repotag); };
+      const result = function () {
+        generalService.parseDockerTag(repotag);
+      };
 
       expect(result).to.throw();
+    });
+  });
+
+  describe('parseAuthHeader tests', () => {
+    it('should parse auth header correctly', async () => {
+      const authHeader = 'Bearer realm="https://auth.docker.io/token",service="registry.docker.io",scope="repository:runonflux/secretwebsite:pull"';
+
+      const result = generalService.parseAuthHeader(authHeader);
+
+      expect(result.realm).to.eql('https://auth.docker.io/token');
+      expect(result.service).to.eql('registry.docker.io');
+      expect(result.scope).to.eql('repository:runonflux/secretwebsite:pull');
     });
   });
 });

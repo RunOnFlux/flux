@@ -1,7 +1,7 @@
 const socketio = require('socket.io');
-const splitargs = require('splitargs');
 const verificationHelperUtils = require('../services/verificationHelperUtils');
 const dockerService = require('../services/dockerService');
+const serviceHelper = require('../services/serviceHelper');
 
 const log = require('./log');
 
@@ -18,7 +18,7 @@ function initIO(httpServer) {
   });
 
   io.on('connection', (socket) => {
-    socket.on('exec', async (zelidauth, nameOrId, w, h, dockerCmd, dockerEnv) => {
+    socket.on('exec', async (zelidauth, nameOrId, dockerCmd, dockerEnv) => {
       const auth = {
         zelidauth,
       };
@@ -38,14 +38,9 @@ function initIO(httpServer) {
         AttachStderr: true,
         AttachStdin: true,
         Tty: true,
-        Cmd: splitargs(dockerCmd),
-        Env: splitargs(dockerEnv),
+        Cmd: serviceHelper.commandStringToArray(dockerCmd),
+        Env: serviceHelper.commandStringToArray(dockerEnv),
       };
-      socket.on('resize', (data) => {
-        const { rows, cols } = data;
-        container.resize({ h: rows, w: cols }, () => {
-        });
-      });
       container.exec(cmd, (err, exec) => {
         const options = {
           Tty: true,
@@ -55,7 +50,11 @@ function initIO(httpServer) {
           stderr: true,
           hijack: true,
         };
-
+        socket.on('resize', (data) => {
+          const { rows, cols } = data;
+          exec.resize({ h: rows, w: cols }, () => {
+          });
+        });
         /* eslint-disable no-shadow, no-unused-vars */
         container.wait((err, data) => {
           socket.emit('end', 'ended');

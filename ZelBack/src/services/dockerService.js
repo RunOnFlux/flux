@@ -139,13 +139,26 @@ async function dockerListImages() {
 
 /**
  * Returns a docker container found by name or ID
+ * @param {string} idOrName
+ * @returns {object} dockerContainer from list containers
+ */
+async function getDockerContainerOnly(idOrName) {
+  const containers = await dockerListContainers(true);
+  const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
+  if (!myContainer) {
+    log.error(`Container ${idOrName} not found`);
+  }
+  return myContainer;
+}
+
+/**
+ * Returns a docker container found by name or ID
  *
  * @param {string} idOrName
  * @returns {object} dockerContainer
  */
 async function getDockerContainerByIdOrName(idOrName) {
-  const containers = await dockerListContainers(true);
-  const myContainer = containers.find((container) => (container.Names[0] === getAppDockerNameIdentifier(idOrName) || container.Id === idOrName));
+  const myContainer = await getDockerContainerOnly(idOrName);
   const dockerContainer = docker.getContainer(myContainer.Id);
   return dockerContainer;
 }
@@ -239,18 +252,8 @@ async function dockerContainerChanges(idOrName) {
 function dockerPullStream(config, res, callback) {
   const { repoTag, authToken } = config;
   let pullOptions;
-  const splittedRepo = generalService.splitRepoTag(repoTag);
-  const {
-    provider,
-    port,
-    providerName,
-  } = splittedRepo;
-  let serveraddress;
-  if (port) {
-    serveraddress = `${provider}:${port}`;
-  } else if (providerName !== 'Docker Hub') {
-    serveraddress = provider;
-  }
+  const { provider } = generalService.parseDockerTag(repoTag);
+
   if (authToken) {
     if (authToken.includes(':')) { // specified by username:token
       pullOptions = {
@@ -259,15 +262,12 @@ function dockerPullStream(config, res, callback) {
           password: authToken.split(':')[1],
         },
       };
-      if (serveraddress) {
-        pullOptions.authconfig.serveraddress = serveraddress;
+      if (provider) {
+        pullOptions.authconfig.serveraddress = provider;
       }
     } else {
       throw new Error('Invalid login credentials for docker provided');
     }
-  }
-  if (pullOptions) {
-    log.info(pullOptions);
   }
   docker.pull(repoTag, pullOptions, (err, mystream) => {
     function onFinished(error, output) {
@@ -559,7 +559,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     HostConfig: {
       NanoCPUs: appSpecifications.cpu * 1e9,
       Memory: appSpecifications.ram * 1024 * 1024,
-      StorageOpts: { size: '12G' }, // root fs has max 12G
+      // StorageOpt: { size: '12G' }, // root fs has max 12G FIXME only for overlay over xfs with 'pquota' mount option "
       Binds: constructedVolumes,
       Ulimits: [
         {
@@ -853,6 +853,36 @@ async function pruneNetworks() {
   return docker.pruneNetworks();
 }
 
+/**
+ * Return docker system information
+ *
+ * @returns {object}
+ */
+async function dockerInfo() {
+  const info = await docker.info();
+  return info;
+}
+
+/**
+ * Returns the version of Docker that is running and various information about the system that Docker is running on.
+ *
+ * @returns {object}
+ */
+async function dockerVersion() {
+  const version = await docker.version();
+  return version;
+}
+
+/**
+ * Returns docker events
+ *
+ * @returns {object}
+ */
+async function dockerGetEvents() {
+  const events = await docker.getEvents();
+  return events;
+}
+
 module.exports = {
   getDockerContainer,
   getAppIdentifier,
@@ -881,8 +911,12 @@ module.exports = {
   appDockerUnpause,
   appDockerTop,
   createFluxDockerNetwork,
+  getDockerContainerOnly,
   getDockerContainerByIdOrName,
   createFluxAppDockerNetwork,
   removeFluxAppDockerNetwork,
   pruneNetworks,
+  dockerInfo,
+  dockerVersion,
+  dockerGetEvents,
 };
