@@ -88,13 +88,13 @@
                     </b-tabs>
                   </b-card>
                   <b-card
-                    v-if="component.usersSecrets"
+                    v-if="component.userSecrets"
                     title="Secrets"
                     border-variant="primary"
                   >
-                    <b-tabs v-if="component.usersSecrets">
+                    <b-tabs v-if="component.userSecrets">
                       <b-tab
-                        v-for="(parameter, paramIndex) in component.usersSecrets"
+                        v-for="(parameter, paramIndex) in component.userSecrets"
                         :key="paramIndex"
                         :title="parameter.name"
                       >
@@ -1005,7 +1005,7 @@ export default {
             appComponent.secrets = props.appData.secrets || '';
             appComponent.repoauth = props.appData.repoauth || '';
             const userSecrets = JSON.parse(JSON.stringify(component.secrets));
-            const assignedSecrets = component.usersSecrets || [];
+            const assignedSecrets = component.userSecrets || [];
             assignedSecrets.forEach((param) => {
               userSecrets.push(`${param.name}=${param.value}`);
             });
