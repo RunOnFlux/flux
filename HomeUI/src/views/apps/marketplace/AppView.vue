@@ -871,7 +871,7 @@ export default {
         series: [((resolveRam(props.appData) / 59000) * 100)],
       };
       hdd.value = {
-        series: [((resolveHdd(props.appData) / 840) * 100)],
+        series: [((resolveHdd(props.appData) / 820) * 100)],
       };
 
       // Evaluate any user parameters from the database
@@ -1323,7 +1323,7 @@ export default {
               fontSize: '1.5rem',
             },
             value: {
-              formatter: (val) => ((parseFloat(val) * 840) / 100).toFixed(0),
+              formatter: (val) => ((parseFloat(val) * 820) / 100).toFixed(0),
               offsetY: 10,
               color: $themeColors.light,
               fontSize: '2.86rem',
@@ -1378,7 +1378,7 @@ export default {
               fontSize: '1.2rem',
             },
             value: {
-              formatter: (val) => ((parseFloat(val) * 840) / 100).toFixed(0),
+              formatter: (val) => ((parseFloat(val) * 820) / 100).toFixed(0),
               offsetY: 10,
               color: $themeColors.light,
               fontSize: '2rem',

@@ -2723,7 +2723,7 @@
                       placeholder="SSD in GB value to use by default"
                       type="range"
                       min="1"
-                      max="840"
+                      max="820"
                       step="1"
                     />
                   </b-form-group>
@@ -2839,7 +2839,7 @@
                     v-model="component.hddbamf"
                     type="range"
                     min="1"
-                    max="840"
+                    max="820"
                     step="1"
                   />
                 </b-card>
@@ -3344,7 +3344,7 @@
                     placeholder="SSD in GB value to use by default"
                     type="range"
                     min="1"
-                    max="840"
+                    max="820"
                     step="1"
                   />
                 </b-form-group>
@@ -3460,7 +3460,7 @@
                   v-model="appUpdateSpecification.hddbamf"
                   type="range"
                   min="1"
-                  max="840"
+                  max="820"
                   step="1"
                 />
               </b-card>
