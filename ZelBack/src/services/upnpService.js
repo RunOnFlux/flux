@@ -24,7 +24,7 @@ function isUPNP() {
 
 /**
  * To check if a firewall is active.
- * @returns {boolean} True if a firewall is active. Otherwise false.
+ * @returns {Promise<boolean>} True if a firewall is active. Otherwise false.
  */
 async function isFirewallActive() {
   try {
@@ -74,7 +74,7 @@ async function adjustFirewallForUPNP() {
 /**
  * To verify that a port has UPnP (Universal Plug and Play) support.
  * @param {number} apiport Port number.
- * @returns {boolean} True if port mappings can be set. Otherwise false.
+ * @returns {Promise<boolean>} True if port mappings can be set. Otherwise false.
  */
 async function verifyUPNPsupport(apiport = config.server.apiport) {
   try {
@@ -134,7 +134,7 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
 /**
  * To set up UPnP (Universal Plug and Play) support.
  * @param {number} apiport Port number.
- * @returns {boolean} True if port mappings can be set. Otherwise false.
+ * @returns {Promise<boolean>} True if port mappings can be set. Otherwise false.
  */
 async function setupUPNP(apiport = config.server.apiport) {
   try {
@@ -173,7 +173,7 @@ async function setupUPNP(apiport = config.server.apiport) {
  * To create mappings for UPnP (Universal Plug and Play) port.
  * @param {number} port Port number.
  * @param {string} description Port description.
- * @returns {boolean} True if port mappings can be created for both TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) protocols. Otherwise false.
+ * @returns {Promise<boolean>} True if port mappings can be created for both TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) protocols. Otherwise false.
  */
 async function mapUpnpPort(port, description) {
   try {
@@ -201,7 +201,7 @@ async function mapUpnpPort(port, description) {
 /**
  * To remove TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) port mappings from UPnP (Universal Plug and Play) port.
  * @param {number} port Port number.
- * @returns {boolean} True if port mappings have been removed for both TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) protocols. Otherwise false.
+ * @returns {Promise<boolean>} True if port mappings have been removed for both TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) protocols. Otherwise false.
  */
 async function removeMapUpnpPort(port) {
   try {
@@ -223,7 +223,7 @@ async function removeMapUpnpPort(port) {
 /**
  * To map a specified port and show a message if successfully mapped. Only accessible by admins and Flux team members.
  * @param {object} req Request.
- * @param {object} res Response.
+ * @param {Promise<object>} res Response.
  */
 async function mapPortApi(req, res) {
   try {
@@ -269,7 +269,7 @@ async function mapPortApi(req, res) {
 /**
  * To unmap a specified port and show a message if successfully unmapped. Only accessible by admins and Flux team members.
  * @param {object} req Request.
- * @param {object} res Response.
+ * @param {Promise<object>} res Response.
  */
 async function removeMapPortApi(req, res) {
   try {
@@ -309,7 +309,7 @@ async function removeMapPortApi(req, res) {
 /**
  * To show a message with mappings. Only accessible by admins and Flux team members.
  * @param {object} req Request.
- * @param {object} res Response.
+ * @param {Promise<object>} res Response.
  */
 async function getMapApi(req, res) {
   try {
@@ -336,7 +336,7 @@ async function getMapApi(req, res) {
 /**
  * To show a message with IP address. Only accessible by admins and Flux team members.
  * @param {object} req Request.
- * @param {object} res Response.
+ * @param {Promise<object>} res Response.
  */
 async function getIpApi(req, res) {
   try {
@@ -363,7 +363,7 @@ async function getIpApi(req, res) {
 /**
  * To show a message with gateway address. Only accessible by admins and Flux team members.
  * @param {object} req Request.
- * @param {object} res Response.
+ * @param {Promise<object>} res Response.
  */
 async function getGatewayApi(req, res) {
   try {
