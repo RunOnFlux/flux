@@ -29,7 +29,7 @@ async function loadUpnpIfRequired() {
   }
   // User configured UPnP node
   if (userconfig.initial.apiport) {
-    if (!userconfig.initial.apiport || !userconfig.initial.routerIP) {
+    if (!userconfig.initial.routerIP) {
       log.error(`Flux UPnP port and RouterIP must both be set if running UPnP. Apiport: ${userconfig.initial.apiport}, RouterIP: ${userconfig.initial.routerIP}. Shutting down.`);
       process.exit();
     }
