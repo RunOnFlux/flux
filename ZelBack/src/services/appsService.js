@@ -1750,7 +1750,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
 
   await getNodeSpecs();
   const totalSpaceOnNode = nodeSpecs.ssdStorage;
-  const useableSpaceOnNode = totalSpaceOnNode - config.lockedSystemResources.hdd;
+  const useableSpaceOnNode = totalSpaceOnNode - config.lockedSystemResources.hdd - config.lockedSystemResources.extrahdd;
   const resourcesLocked = await appsResources();
   if (resourcesLocked.status !== 'success') {
     throw new Error('Unable to obtain locked system resources by Flux App. Aborting.');
@@ -1768,20 +1768,21 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     usedSpace += serviceHelper.ensureNumber(volume.used);
     availableSpace += serviceHelper.ensureNumber(volume.available);
   });
-  // space that is further reserved for flux os and that will be later substracted from available space. Max 30.
-  const fluxSystemReserve = config.lockedSystemResources.hdd - usedSpace > 0 ? config.lockedSystemResources.hdd - usedSpace : 0;
-  const totalAvailableSpaceLeft = availableSpace - fluxSystemReserve;
+  // space that is further reserved for flux os and that will be later substracted from available space. Max 40 + 20.
+  const fluxSystemReserve = config.lockedSystemResources.hdd + config.lockedSystemResources.extrahdd - usedSpace > 0 ? config.lockedSystemResources.hdd + config.lockedSystemResources.extrahdd - usedSpace : 0;
+  const minSystemReserve = Math.max(config.lockedSystemResources.extrahdd, fluxSystemReserve);
+  const totalAvailableSpaceLeft = availableSpace - minSystemReserve;
   if (appSpecifications.hdd >= totalAvailableSpaceLeft) {
     // sadly user free space is not enough for this application
     throw new Error('Insufficient space on Flux Node. Space is already assigned to system files');
   }
 
-  // check if space is not sharded in some bad way. Always count the fluxSystemReserve
+  // check if space is not sharded in some bad way. Always count the minSystemReserve
   let useThisVolume = null;
   const totalVolumes = okVolumes.length;
   for (let i = 0; i < totalVolumes; i += 1) {
     // check available volumes one by one. If a sufficient is found. Use this one.
-    if (okVolumes[i].available > appSpecifications.hdd + fluxSystemReserve) {
+    if (okVolumes[i].available > appSpecifications.hdd + minSystemReserve) {
       useThisVolume = okVolumes[i];
       break;
     }
@@ -2923,7 +2924,7 @@ async function checkAppHWRequirements(appSpecs) {
   if (totalSpaceOnNode === 0) {
     throw new Error('Insufficient space on Flux Node to spawn an application');
   }
-  const useableSpaceOnNode = totalSpaceOnNode - config.lockedSystemResources.hdd;
+  const useableSpaceOnNode = totalSpaceOnNode - config.lockedSystemResources.hdd - config.lockedSystemResources.extrahdd;
   const hddLockedByApps = resourcesLocked.data.appsHddLocked;
   const availableSpaceForApps = useableSpaceOnNode - hddLockedByApps;
   // bigger or equal so we have the 1 gb free...
