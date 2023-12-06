@@ -306,7 +306,7 @@
                         size="sm"
                         class="mr-0"
                         variant="danger"
-                        @click="openApp(row.item.name)"
+                        @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
                       >
                         Visit
                       </b-button>
