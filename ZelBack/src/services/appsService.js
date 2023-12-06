@@ -2106,7 +2106,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
       }
     }
     const isUPNP = upnpService.isUPNP();
-    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+    if (isUPNP) {
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
@@ -2120,7 +2120,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
       await fluxNetworkHelper.deleteAllowPortRule(serviceHelper.ensureNumber(appSpecifications.port));
     }
     const isUPNP = upnpService.isUPNP();
-    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+    if (isUPNP) {
       await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`);
     }
   }
@@ -2581,7 +2581,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
       }
     }
     const isUPNP = upnpService.isUPNP();
-    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+    if (isUPNP) {
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
@@ -2595,7 +2595,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
       await fluxNetworkHelper.deleteAllowPortRule(serviceHelper.ensureNumber(appSpecifications.port));
     }
     const isUPNP = upnpService.isUPNP();
-    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+    if (isUPNP) {
       await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`);
     }
   }
@@ -3061,7 +3061,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
       log.info('Firewall not active, application ports are open');
     }
     const isUPNP = upnpService.isUPNP();
-    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+    if (isUPNP) {
       log.info('Custom port specified, mapping ports');
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
@@ -3100,7 +3100,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
       log.info('Firewall not active, application ports are open');
     }
     const isUPNP = upnpService.isUPNP();
-    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+    if (isUPNP) {
       log.info('Custom port specified, mapping ports');
       const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`);
       if (portResponse === true) {
@@ -3468,7 +3468,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
       log.info('Firewall not active, application ports are open');
     }
     const isUPNP = upnpService.isUPNP();
-    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+    if (isUPNP) {
       log.info('Custom port specified, mapping ports');
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
@@ -3507,7 +3507,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
       log.info('Firewall not active, application ports are open');
     }
     const isUPNP = upnpService.isUPNP();
-    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+    if (isUPNP) {
       log.info('Custom port specified, mapping ports');
       const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`);
       if (portResponse === true) {
@@ -5739,7 +5739,7 @@ async function restoreFluxPortsSupport() {
     }
 
     // UPNP
-    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+    if (isUPNP) {
       // map our Flux API, UI and SYNCTHING port
       await upnpService.setupUPNP(apiPort);
     }
@@ -5770,7 +5770,7 @@ async function restoreAppsPortsSupport() {
     }
 
     // UPNP
-    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+    if (isUPNP) {
       // map application ports
       // eslint-disable-next-line no-restricted-syntax
       for (const application of currentAppsPorts) {
@@ -10578,7 +10578,7 @@ async function checkMyAppsAvailability() {
       checkMyAppsAvailability();
       return;
     }
-    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+    if (isUPNP) {
       iBP = fluxNetworkHelper.isPortUPNPBanned(testingPort);
       if (iBP) {
         log.info(`checkMyAppsAvailability - Testing port ${testingPort} is UPNP banned.`);
@@ -10611,7 +10611,7 @@ async function checkMyAppsAvailability() {
     if (firewallActive) {
       await fluxNetworkHelper.allowPort(testingPort);
     }
-    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+    if (isUPNP) {
       const upnpMapResult = await upnpService.mapUpnpPort(testingPort, 'Flux_Test_App');
       if (!upnpMapResult) {
         if (lastUPNPMapFailed) {
@@ -10697,7 +10697,7 @@ async function checkMyAppsAvailability() {
     if (firewallActive) {
       await fluxNetworkHelper.deleteAllowPortRule(testingPort);
     }
-    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+    if (isUPNP) {
       await upnpService.removeMapUpnpPort(testingPort, 'Flux_Test_App');
     }
 
@@ -10731,7 +10731,7 @@ async function checkMyAppsAvailability() {
     if (firewallActive) {
       await fluxNetworkHelper.deleteAllowPortRule(testingPort).catch((e) => log.error(e));
     }
-    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+    if (isUPNP) {
       await upnpService.removeMapUpnpPort(testingPort, 'Flux_Test_App').catch((e) => log.error(e));
     }
     testingAppserver.shutdown((err) => {
@@ -10770,7 +10770,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
     if (somePortBanned) {
       return false;
     }
-    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+    if (isUPNP) {
       somePortBanned = false;
       portsToTest.forEach((portToTest) => {
         const iBP = fluxNetworkHelper.isPortUPNPBanned(portToTest);
@@ -10790,7 +10790,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
         // eslint-disable-next-line no-await-in-loop
         await fluxNetworkHelper.allowPort(portToTest);
       }
-      if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+      if (isUPNP) {
         // eslint-disable-next-line no-await-in-loop
         const upnpMapResult = await upnpService.mapUpnpPort(portToTest, `Flux_Prelaunch_App_${portToTest}`);
         if (!upnpMapResult) {
@@ -10863,7 +10863,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
         // eslint-disable-next-line no-await-in-loop
         await fluxNetworkHelper.deleteAllowPortRule(portToTest);
       }
-      if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+      if (isUPNP) {
         // eslint-disable-next-line no-await-in-loop
         await upnpService.removeMapUpnpPort(portToTest, `Flux_Prelaunch_App_${portToTest}`);
       }
@@ -10889,7 +10889,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
         // eslint-disable-next-line no-await-in-loop
         await fluxNetworkHelper.deleteAllowPortRule(portToTest).catch((e) => log.error(e));
       }
-      if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+      if (isUPNP) {
         // eslint-disable-next-line no-await-in-loop
         await upnpService.removeMapUpnpPort(portToTest, `Flux_Prelaunch_App_${portToTest}`).catch((e) => log.error(e));
       }
