@@ -178,6 +178,7 @@ module.exports = {
     benchUpnpPeriod: 6480, // every 9 days execute upnp bench
     apprunningv2: 1444444, // daemon block height when version 2 of fluxapprunning type messages start propagating on the network (around August 10th)
     socketPortsInformation: 1527040, // daemon block height when we will start webservice socket request with origin port information (November 30 2023)
+    hddFileSystemMinimum: 5, // minimum of 5GB of free space on hdd for docker
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core

@@ -3896,7 +3896,7 @@ describe('appsService tests', () => {
         data: {
           appsCpusLocked: 2000,
           appsRamLocked: 512000,
-          appsHddLocked: 200004,
+          appsHddLocked: 200010,
         },
       });
     });
@@ -3918,7 +3918,7 @@ describe('appsService tests', () => {
         data: {
           appsCpusLocked: 4000,
           appsRamLocked: 200000,
-          appsHddLocked: 400004,
+          appsHddLocked: 400010,
         },
       });
     });
@@ -3950,7 +3950,7 @@ describe('appsService tests', () => {
         data: {
           appsCpusLocked: 4000,
           appsRamLocked: 1024000,
-          appsHddLocked: 400008,
+          appsHddLocked: 400020,
         },
       });
     });
@@ -3982,7 +3982,7 @@ describe('appsService tests', () => {
         data: {
           appsCpusLocked: 8000,
           appsRamLocked: 400000,
-          appsHddLocked: 800008,
+          appsHddLocked: 800020,
         },
       });
     });
@@ -4016,7 +4016,7 @@ describe('appsService tests', () => {
         data: {
           appsCpusLocked: 8000,
           appsRamLocked: 400000,
-          appsHddLocked: 800008,
+          appsHddLocked: 800020,
         },
       });
     });

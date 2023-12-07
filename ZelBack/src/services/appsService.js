@@ -1627,18 +1627,18 @@ async function appsResources(req, res) {
             appsRamLocked += serviceHelper.ensureNumber(component.ram) || 0;
             appsHddLocked += serviceHelper.ensureNumber(component.hdd) || 0;
           }
-          appsHddLocked += 2; // 2gb per image
+          appsHddLocked += config.fluxapps.hddFileSystemMinimum; // 5gb per component
         });
       } else if (app.tiered && tier) {
         appsCpusLocked += serviceHelper.ensureNumber(app[cpuTier] || app.cpu) || 0;
         appsRamLocked += serviceHelper.ensureNumber(app[ramTier] || app.ram) || 0;
         appsHddLocked += serviceHelper.ensureNumber(app[hddTier] || app.hdd) || 0;
-        appsHddLocked += 2; // 2gb per image
+        appsHddLocked += config.fluxapps.hddFileSystemMinimum; // 5gb per component
       } else {
         appsCpusLocked += serviceHelper.ensureNumber(app.cpu) || 0;
         appsRamLocked += serviceHelper.ensureNumber(app.ram) || 0;
         appsHddLocked += serviceHelper.ensureNumber(app.hdd) || 0;
-        appsHddLocked += 2; // 2gb per image
+        appsHddLocked += config.fluxapps.hddFileSystemMinimum; // 5gb per component
       }
     });
     const appsUsage = {
