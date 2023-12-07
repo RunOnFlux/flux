@@ -4595,6 +4595,20 @@ async function checkApplicationImagesBlocked(appSpecs) {
     return isBlocked;
   }
   const images = [];
+  const organisations = [];
+  if (appSpecs.version <= 3) {
+    const repository = appSpecs.repotag.substring(0, appSpecs.repotag.lastIndexOf(':') > -1 ? appSpecs.repotag.lastIndexOf(':') : appSpecs.repotag.length);
+    images.push(repository);
+    const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
+    organisations.push(pureNamespace);
+  } else {
+    appSpecs.compose.forEach((component) => {
+      const repository = component.repotag.substring(0, component.repotag.lastIndexOf(':') > -1 ? component.repotag.lastIndexOf(':') : component.repotag.length);
+      images.push(repository);
+      const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
+      organisations.push(pureNamespace);
+    });
+  }
   if (repos) {
     const pureImagesOrOrganisationsRepos = [];
     repos.forEach((repo) => {
@@ -4607,21 +4621,6 @@ async function checkApplicationImagesBlocked(appSpecs) {
     }
     if (pureImagesOrOrganisationsRepos.includes(appSpecs.owner)) {
       return `${appSpecs.owner} is not allowed to run applications`;
-    }
-
-    const organisations = [];
-    if (appSpecs.version <= 3) {
-      const repository = appSpecs.repotag.substring(0, appSpecs.repotag.lastIndexOf(':') > -1 ? appSpecs.repotag.lastIndexOf(':') : appSpecs.repotag.length);
-      images.push(repository);
-      const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
-      organisations.push(pureNamespace);
-    } else {
-      appSpecs.compose.forEach((component) => {
-        const repository = component.repotag.substring(0, component.repotag.lastIndexOf(':') > -1 ? component.repotag.lastIndexOf(':') : component.repotag.length);
-        images.push(repository);
-        const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
-        organisations.push(pureNamespace);
-      });
     }
 
     images.forEach((image) => {
