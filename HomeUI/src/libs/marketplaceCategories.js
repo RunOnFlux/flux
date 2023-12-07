@@ -1,4 +1,5 @@
 const categories = [
+  { name: 'Minecraft', variant: 'success', icon: 'gamepad' },
   { name: 'Games', variant: 'success', icon: 'gamepad' },
   { name: 'Productivity', variant: 'danger', icon: 'file-alt' },
   { name: 'Hosting', variant: 'success', icon: 'server' },
