@@ -1756,7 +1756,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     throw new Error('Unable to obtain locked system resources by Flux App. Aborting.');
   }
   const hddLockedByApps = resourcesLocked.data.appsHddLocked;
-  const availableSpaceForApps = useableSpaceOnNode - hddLockedByApps + appSpecifications.hdd; // because our application is already accounted in locked resources
+  const availableSpaceForApps = useableSpaceOnNode - hddLockedByApps + appSpecifications.hdd + config.fluxapps.hddFileSystemMinimum; // because our application is already accounted in locked resources
   // bigger or equal so we have the 1 gb free...
   if (appSpecifications.hdd >= availableSpaceForApps) {
     throw new Error('Insufficient space on Flux Node to spawn an application');
