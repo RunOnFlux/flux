@@ -540,8 +540,10 @@ async function initiateAndHandleConnection(connection) {
     }
     if (!myPort) {
       const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+      if (!myIP) {
+        return;
+      }
       myPort = myIP.split(':')[1] || 16127;
-      log.info(`initiateAndHandleConnection myPort:${myPort}`);
     }
     const wsuri = `ws://${ip}:${port}/ws/flux/${myPort}`;
     const websocket = new WebSocket(wsuri);
