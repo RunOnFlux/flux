@@ -171,6 +171,7 @@ module.exports = {
     apprunningv2: 1444444, // daemon block height when version 2 of fluxapprunning type messages start propagating on the network (around August 10th)
     socketPortsInformation: 1527040, // daemon block height when we will start webservice socket request with origin port information (November 30 2023)
     hddFileSystemMinimum: 10, // right now 10, to be decreased to a minimum of 5GB of free space on hdd for docker with v8 specs activation
+    defaultSwap: 2, // 2gb swap memory minimum, this is in gb
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
