@@ -11079,6 +11079,71 @@ async function checkForNonAllowedAppsOnLocalNetwork() {
   }
 }
 
+/**
+  * Check if the running application container, volumes are using less than maximum allowed space
+  * If not, then softly redeploy the application, potentially remove
+  * This is to prevent applications from using too much space
+*/
+async function checkStorageSpaceForApps() {
+  try {
+    // get list of locally installed apps.
+    const installedAppsRes = await installedApps();
+    if (installedAppsRes.status !== 'success') {
+      throw new Error('Failed to get installed Apps');
+    }
+    const appsInstalled = installedAppsRes.data;
+    const dockerSystemDF = await dockerService.dockerGetUsage();
+    const allowedMaximum = (config.fluxapps.hddFileSystemMinimum + config.fluxapps.defaultSwap) * 1000 * 1024 * 1024;
+    // eslint-disable-next-line no-restricted-syntax
+    for (const app of appsInstalled) {
+      if (app.version >= 4) {
+        let totalSize = 0;
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of app.compose) {
+          // compose
+          const identifier = `${component.name}_${app.name}`;
+          const contId = dockerService.getAppDockerNameIdentifier(identifier);
+          const contExists = dockerSystemDF.Containers.find((cont) => cont.Names[0] === contId);
+          if (contExists) {
+            totalSize += contExists.sizeRootFs;
+          }
+        }
+        const maxAllowedSize = app.compose.length * allowedMaximum;
+        if (totalSize > maxAllowedSize) { // here we allow that one component can take more space than allowed as long as total per entire app is lower than total allowed
+          // soft redeploy, todo remove the entire app if multiple violations
+          log.warn(`Application ${app.name} is using ${totalSize} space which is more than allowed ${maxAllowedSize}. Soft redeploying...`);
+          // eslint-disable-next-line no-await-in-loop
+          await softRemoveAppLocally(app.name).catch((error) => {
+            log.error(error);
+          });
+        }
+      } else {
+        const identifier = app.name;
+        const contId = dockerService.getAppDockerNameIdentifier(identifier);
+        const contExists = dockerSystemDF.Containers.find((cont) => cont.Names[0] === contId);
+        if (contExists) {
+          if (contExists.sizeRootFs > allowedMaximum) {
+            // soft redeploy, todo remove the entire app if multiple violations
+            log.warn(`Application ${app.name} is using ${contExists.sizeRootFs} space which is more than allowed ${allowedMaximum}. Soft redeploying...`);
+            // eslint-disable-next-line no-await-in-loop
+            await softRemoveAppLocally(app.name).catch((error) => {
+              log.error(error);
+            });
+          }
+        }
+      }
+    }
+    setTimeout(() => {
+      checkStorageSpaceForApps();
+    }, 30 * 60 * 1000);
+  } catch (error) {
+    log.error(error);
+    setTimeout(() => {
+      checkStorageSpaceForApps();
+    }, 30 * 60 * 1000);
+  }
+}
+
 function removalInProgressReset() {
   removalInProgress = false;
 }
@@ -11191,6 +11256,7 @@ module.exports = {
   checkMyAppsAvailability,
   checkApplicationsCompliance,
   testAppMount,
+  checkStorageSpaceForApps,
 
   // exports for testing purposes
   setAppsMonitored,

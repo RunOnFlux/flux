@@ -150,6 +150,9 @@ async function startFluxFunctions() {
         appsService.forceAppRemovals();
       }, 24 * 60 * 60 * 1000);
     }, 30 * 60 * 1000);
+    setTimeout(() => {
+      appsService.checkStorageSpaceForApps();
+    }, 20 * 60 * 1000);
     if (development) { // just on development branch
       setInterval(async () => {
         await fluxService.enterDevelopment().catch((error) => log.error(error));
