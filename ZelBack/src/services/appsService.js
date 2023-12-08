@@ -11084,6 +11084,7 @@ async function checkForNonAllowedAppsOnLocalNetwork() {
   * If not, then softly redeploy the application, potentially remove
   * This is to prevent applications from using too much space
 */
+let appsStorageViolations = [];
 async function checkStorageSpaceForApps() {
   try {
     // get list of locally installed apps.
@@ -11111,11 +11112,25 @@ async function checkStorageSpaceForApps() {
         const maxAllowedSize = app.compose.length * allowedMaximum;
         if (totalSize > maxAllowedSize) { // here we allow that one component can take more space than allowed as long as total per entire app is lower than total allowed
           // soft redeploy, todo remove the entire app if multiple violations
-          log.warn(`Application ${app.name} is using ${totalSize} space which is more than allowed ${maxAllowedSize}. Soft redeploying...`);
+          appsStorageViolations.push(app.name);
+          const occurancies = appsStorageViolations.filter((appName) => (appName) === app.name).length;
+          if (occurancies > 3) { // if more than 3 violations, then remove the app
+            log.warn(`Application ${app.name} is using ${totalSize} space which is more than allowed ${maxAllowedSize}. Removing...`);
+            // eslint-disable-next-line no-await-in-loop
+            await removeAppLocally(app.name).catch((error) => {
+              log.error(error);
+            });
+            const adjArray = appsStorageViolations.filter((appName) => (appName) !== app.name);
+            appsStorageViolations = adjArray;
+          } else {
+            log.warn(`Application ${app.name} is using ${totalSize} space which is more than allowed ${maxAllowedSize}. Soft redeploying...`);
+            // eslint-disable-next-line no-await-in-loop
+            await softRedeploy(app).catch((error) => {
+              log.error(error);
+            });
+          }
           // eslint-disable-next-line no-await-in-loop
-          await softRemoveAppLocally(app.name).catch((error) => {
-            log.error(error);
-          });
+          await serviceHelper.delay(2 * 60 * 1000); // 2 mins
         }
       } else {
         const identifier = app.name;
@@ -11124,11 +11139,25 @@ async function checkStorageSpaceForApps() {
         if (contExists) {
           if (contExists.sizeRootFs > allowedMaximum) {
             // soft redeploy, todo remove the entire app if multiple violations
-            log.warn(`Application ${app.name} is using ${contExists.sizeRootFs} space which is more than allowed ${allowedMaximum}. Soft redeploying...`);
+            appsStorageViolations.push(app.name);
+            const occurancies = appsStorageViolations.filter((appName) => (appName) === app.name).length;
+            if (occurancies > 3) { // if more than 3 violations, then remove the app
+              log.warn(`Application ${app.name} is using ${contExists.sizeRootFs} space which is more than allowed ${allowedMaximum}. Removing...`);
+              // eslint-disable-next-line no-await-in-loop
+              await removeAppLocally(app.name).catch((error) => {
+                log.error(error);
+              });
+              const adjArray = appsStorageViolations.filter((appName) => (appName) !== app.name);
+              appsStorageViolations = adjArray;
+            } else {
+              log.warn(`Application ${app.name} is using ${contExists.sizeRootFs} space which is more than allowed ${allowedMaximum}. Soft redeploying...`);
+              // eslint-disable-next-line no-await-in-loop
+              await softRedeploy(app).catch((error) => {
+                log.error(error);
+              });
+            }
             // eslint-disable-next-line no-await-in-loop
-            await softRemoveAppLocally(app.name).catch((error) => {
-              log.error(error);
-            });
+            await serviceHelper.delay(2 * 60 * 1000); // 2 mins
           }
         }
       }
