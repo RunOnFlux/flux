@@ -378,5 +378,6 @@
    "edouardl",
    "opentensor",
    "clachx/clabe",
-   "omniadevs/ic-http-request-executor"
+   "omniadevs/ic-http-request-executor",
+   "ghcr.io/akash-network/cosmos-omnibus"
 ]
