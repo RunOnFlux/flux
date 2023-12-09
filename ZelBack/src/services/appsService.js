@@ -10056,6 +10056,7 @@ async function syncthingApps() {
     if (installationInProgress || removalInProgress || updateSyncthingRunning) {
       return;
     }
+    let callCheckAndNotifyPeersOfRunningApps = false;
     updateSyncthingRunning = true;
     // get list of all installed apps
     const appsInstalled = await installedApps();
@@ -10204,6 +10205,7 @@ async function syncthingApps() {
                   // eslint-disable-next-line no-await-in-loop
                   await appDockerRestart(id);
                   cache.restarted = true;
+                  callCheckAndNotifyPeersOfRunningApps = true;
                 }
                 receiveOnlySyncthingAppsCache.set(appId, cache);
               } else if (!receiveOnlySyncthingAppsCache.has(appId)) {
@@ -10365,6 +10367,7 @@ async function syncthingApps() {
                     // eslint-disable-next-line no-await-in-loop
                     await appDockerRestart(id);
                     cache.restarted = true;
+                    callCheckAndNotifyPeersOfRunningApps = true;
                   }
                   receiveOnlySyncthingAppsCache.set(appId, cache);
                 } else if (!receiveOnlySyncthingAppsCache.has(appId)) {
@@ -10395,6 +10398,10 @@ async function syncthingApps() {
           }
         }
       }
+    }
+
+    if (callCheckAndNotifyPeersOfRunningApps) {
+      checkAndNotifyPeersOfRunningApps();
     }
     // remove folders that should not be synced anymore (this shall actually not trigger)
     const nonUsedFolders = allFoldersResp.data.filter((syncthingFolder) => !folderIds.includes(syncthingFolder.id));
