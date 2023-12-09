@@ -642,12 +642,7 @@
                 <label
                   class="col-3 col-form-label"
                 >
-                  Volume Ownership
-                  <v-icon
-                    v-b-tooltip.hover.top="'Change the ownership of a volume when using a user other than root.'"
-                    name="info-circle"
-                    class="mr-1"
-                  />
+                  Ownership
                 </label>
                 <div class="col">
                   <b-form-input
@@ -686,18 +681,28 @@
                   class="mr-3"
                 >
                   User Ownership
+                  <v-icon
+                    v-b-tooltip.hover.top="'Change the ownership of a volume when using a user other than root.'"
+                    name="info-circle"
+                    class="mr-1"
+                  />
                 </b-form-checkbox>
                 <b-form-checkbox
                   v-model="component.readOnlyRootFs"
                 >
                   ReadonlyRootfs
+                  <v-icon
+                    v-b-tooltip.hover.top="'Mount the container\'s root filesystem as read only.'"
+                    name="info-circle"
+                    class="mr-1"
+                  />
                 </b-form-checkbox>
               </h6>
               <b-card-title class="mt-4">
                 <span>Resources</span>
               </b-card-title>
               <div v-if="!component.tiered">
-                <b-input-group class="mt-4">
+                <b-input-group class="mt-3">
                   <b-input-group-prepend is-text>
                     <div
                       style="width: 50px; text-align: center;"
@@ -725,7 +730,7 @@
                   </b-input-group-append>
                 </b-input-group>
 
-                <b-input-group class="mt-3">
+                <b-input-group class="mt-2">
                   <b-input-group-prepend is-text>
                     <div
                       style="width: 50px; text-align: center;"
@@ -750,7 +755,7 @@
                     </div>
                   </b-input-group-append>
                 </b-input-group>
-                <b-input-group class="mt-3">
+                <b-input-group class="mt-2">
                   <b-input-group-prepend is-text>
                     <div
                       style="width: 50px; text-align: center;"
@@ -794,13 +799,13 @@
                 v-if="AdvancedSettings && !component.tiered"
               >
                 <b-input-group
-                  class="mt-3"
+                  class="mt-2"
                 >
                   <b-input-group-prepend
                     is-text
                   >
                     <div
-                      style="width: 60px; text-align: center;"
+                      style="width: 65px; text-align: center;"
                     >
                       SWAP
                     </div>
@@ -825,12 +830,12 @@
                   </b-input-group-append>
                 </b-input-group>
 
-                <b-input-group class="mt-3">
+                <b-input-group class="mt-2">
                   <b-input-group-prepend
                     is-text
                   >
                     <div
-                      style="width: 60px; text-align: center;"
+                      style="width: 65px; text-align: center;"
                     >
                       OVERLAY
                     </div>
