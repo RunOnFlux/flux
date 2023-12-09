@@ -301,19 +301,7 @@ function handleIncomingConnection(websocket, req) {
         messageNumber = 0;
       } */
 
-      // check if we have the message in cache. If yes, return false. If not, store it and continue
-      await serviceHelper.delay(Math.floor(Math.random() * 75 + 1)); // await max 75 miliseconds random, should jelp on processing duplicated messages received at same timestamp
       const msgObj = serviceHelper.ensureObject(msg.data);
-      const messageHash = hash(msgObj.data);
-      if (myCacheTemp.has(messageHash)) {
-        return;
-      }
-      myCacheTemp.set(messageHash, messageHash);
-      // check rate limit
-      const rateOK = fluxNetworkHelper.lruRateLimit(`${ipv4Peer}:${port}`, 90);
-      if (!rateOK) {
-        return; // do not react to the message
-      }
       const { pubKey } = msgObj;
       const { timestamp } = msgObj;
       const { signature } = msgObj;
@@ -328,6 +316,20 @@ function handleIncomingConnection(websocket, req) {
         }
         return;
       }
+
+      // check if we have the message in cache. If yes, return false. If not, store it and continue
+      await serviceHelper.delay(Math.floor(Math.random() * 75 + 1)); // await max 75 miliseconds random, should jelp on processing duplicated messages received at same timestamp
+      const messageHash = hash(msgObj.data);
+      if (myCacheTemp.has(messageHash)) {
+        return;
+      }
+      myCacheTemp.set(messageHash, messageHash);
+      // check rate limit
+      const rateOK = fluxNetworkHelper.lruRateLimit(`${ipv4Peer}:${port}`, 90);
+      if (!rateOK) {
+        return; // do not react to the message
+      }
+
       // check blocked list
       if (blockedPubKeysCache.has(pubKey)) {
         try {
@@ -601,21 +603,7 @@ async function initiateAndHandleConnection(connection) {
       if (messageNumber === 100000000) {
         messageNumber = 0;
       } */
-      // check if we have the message in cache. If yes, return false. If not, store it and continue
-      await serviceHelper.delay(Math.floor(Math.random() * 75 + 1)); // await max 75 miliseconds random, should help processing duplicated messages received at same timestamp
       const msgObj = serviceHelper.ensureObject(evt.data);
-      const messageHash = hash(msgObj.data);
-      if (myCacheTemp.has(messageHash)) {
-        return;
-      }
-      myCacheTemp.set(messageHash, messageHash);
-      // incoming messages from outgoing connections
-      const currentTimeStamp = Date.now(); // ms
-      // check rate limit
-      const rateOK = fluxNetworkHelper.lruRateLimit(`${ip}:${port}`, 90);
-      if (!rateOK) {
-        return; // do not react to the message
-      }
       const { pubKey } = msgObj;
       const { timestamp } = msgObj;
       const { signature } = msgObj;
@@ -629,6 +617,20 @@ async function initiateAndHandleConnection(connection) {
           log.error(e);
         }
         return;
+      }
+      // check if we have the message in cache. If yes, return false. If not, store it and continue
+      await serviceHelper.delay(Math.floor(Math.random() * 75 + 1)); // await max 75 miliseconds random, should help processing duplicated messages received at same timestamp
+      const messageHash = hash(msgObj.data);
+      if (myCacheTemp.has(messageHash)) {
+        return;
+      }
+      myCacheTemp.set(messageHash, messageHash);
+      // incoming messages from outgoing connections
+      const currentTimeStamp = Date.now(); // ms
+      // check rate limit
+      const rateOK = fluxNetworkHelper.lruRateLimit(`${ip}:${port}`, 90);
+      if (!rateOK) {
+        return; // do not react to the message
       }
       // check blocked list
       if (blockedPubKeysCache.has(pubKey)) {
