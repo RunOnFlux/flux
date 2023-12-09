@@ -643,12 +643,17 @@
                   class="col-3 col-form-label"
                 >
                   Ownership
+                  <v-icon
+                    v-b-tooltip.hover.top="'By default, the first user in a Docker container is assigned UID 1000. UID 1001 is typically used for the nobody user'"
+                    name="info-circle"
+                    class="mr-1"
+                  />
                 </label>
                 <div class="col">
                   <b-form-input
                     id="Ownership"
                     v-model="component.volumeOwnership"
-                    placeholder="User ownership of volume. Format is one of: uid or uid:gid"
+                    placeholder="Set ownership for the volume using the format uid or uid:gid (e.g., 1000 or 1000:1000)."
                   />
                 </div>
               </div>
@@ -698,11 +703,11 @@
                   />
                 </b-form-checkbox>
               </h6>
-              <b-card-title class="mt-4">
+              <b-card-title class="mt-4 mb-0">
                 <span>Resources</span>
               </b-card-title>
               <div v-if="!component.tiered">
-                <b-input-group class="mt-3">
+                <b-input-group class="mt-2">
                   <b-input-group-prepend is-text>
                     <div
                       style="width: 50px; text-align: center;"
@@ -785,13 +790,20 @@
               </div>
 
               <div
-                class="d-flex mt-3"
+                class="d-flex mt-2"
               >
                 <b-form-checkbox
                   v-show="!component.tiered "
                   v-model="AdvancedSettings"
                 >
-                  <h6>Advanced Settings</h6>
+                  <h6>
+                    Advanced Settings
+                    <v-icon
+                      v-b-tooltip.hover.top="'With these settings, you can increase the default value assigned to the component.'"
+                      name="info-circle"
+                      class="mr-1"
+                    />
+                  </h6>
                 </b-form-checkbox>
               </div>
 
@@ -805,9 +817,14 @@
                     is-text
                   >
                     <div
-                      style="width: 65px; text-align: center;"
+                      style="width: 75px; text-align: center;"
                     >
                       SWAP
+                      <v-icon
+                        v-b-tooltip.hover.top="'Amount of disk space that is used by the operating system to simulate additional RAM when the physical RAM is fully utilized. By default, the component has 2GB disk space.'"
+                        name="info-circle"
+                        class="mr-1"
+                      />
                     </div>
                   </b-input-group-prepend>
                   <b-form-input
@@ -835,9 +852,14 @@
                     is-text
                   >
                     <div
-                      style="width: 65px; text-align: center;"
+                      style="width: 75px; text-align: center;"
                     >
                       OVERLAY
+                      <v-icon
+                        v-b-tooltip.hover.top="'The required temporary disk storage for this workload is established with a default allocation of 10GB per component. This storage is designed to be cleared during every deployment update or system reboot.'"
+                        name="info-circle"
+                        class="mr-1"
+                      />
                     </div>
                   </b-input-group-prepend>
                   <b-form-input
