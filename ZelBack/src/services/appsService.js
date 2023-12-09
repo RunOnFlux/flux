@@ -11106,7 +11106,7 @@ async function checkStorageSpaceForApps() {
           const contId = dockerService.getAppDockerNameIdentifier(identifier);
           const contExists = dockerSystemDF.Containers.find((cont) => cont.Names[0] === contId);
           if (contExists) {
-            totalSize += contExists.sizeRootFs;
+            totalSize += contExists.SizeRootFs;
           }
         }
         const maxAllowedSize = app.compose.length * allowedMaximum;
@@ -11137,12 +11137,12 @@ async function checkStorageSpaceForApps() {
         const contId = dockerService.getAppDockerNameIdentifier(identifier);
         const contExists = dockerSystemDF.Containers.find((cont) => cont.Names[0] === contId);
         if (contExists) {
-          if (contExists.sizeRootFs > allowedMaximum) {
+          if (contExists.SizeRootFs > allowedMaximum) {
             // soft redeploy, todo remove the entire app if multiple violations
             appsStorageViolations.push(app.name);
             const occurancies = appsStorageViolations.filter((appName) => (appName) === app.name).length;
             if (occurancies > 3) { // if more than 3 violations, then remove the app
-              log.warn(`Application ${app.name} is using ${contExists.sizeRootFs} space which is more than allowed ${allowedMaximum}. Removing...`);
+              log.warn(`Application ${app.name} is using ${contExists.SizeRootFs} space which is more than allowed ${allowedMaximum}. Removing...`);
               // eslint-disable-next-line no-await-in-loop
               await removeAppLocally(app.name).catch((error) => {
                 log.error(error);
@@ -11150,7 +11150,7 @@ async function checkStorageSpaceForApps() {
               const adjArray = appsStorageViolations.filter((appName) => (appName) !== app.name);
               appsStorageViolations = adjArray;
             } else {
-              log.warn(`Application ${app.name} is using ${contExists.sizeRootFs} space which is more than allowed ${allowedMaximum}. Soft redeploying...`);
+              log.warn(`Application ${app.name} is using ${contExists.SizeRootFs} space which is more than allowed ${allowedMaximum}. Soft redeploying...`);
               // eslint-disable-next-line no-await-in-loop
               await softRedeploy(app).catch((error) => {
                 log.error(error);
