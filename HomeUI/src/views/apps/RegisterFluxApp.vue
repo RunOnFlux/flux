@@ -553,7 +553,7 @@
           >
             <b-card>
               <b-card-title>
-                Environment
+                Settings
               </b-card-title>
               <div class="form-row form-group">
                 <label class="col-3 col-form-label">
@@ -636,7 +636,7 @@
                 </div>
               </div>
               <div
-                v-if="UserOwnership"
+                v-if="UserOwnership && appRegistrationSpecification.version >= 8"
                 class="form-row form-group"
               >
                 <label
@@ -657,21 +657,6 @@
                   />
                 </div>
               </div>
-              <h6
-                class="d-flex"
-              >
-                <b-form-checkbox
-                  v-model="UserOwnership"
-                  class="mr-3"
-                >
-                  User Ownership
-                </b-form-checkbox>
-                <b-form-checkbox
-                  v-model="component.readOnlyRootFs"
-                >
-                  ReadonlyRootfs
-                </b-form-checkbox>
-              </h6>
               <div
                 v-if="appRegistrationSpecification.version >= 7 && isPrivateApp"
                 class="form-row form-group"
@@ -692,6 +677,22 @@
                   />
                 </div>
               </div>
+              <h6
+                v-if="appRegistrationSpecification.version >= 8"
+                class="d-flex mt-3"
+              >
+                <b-form-checkbox
+                  v-model="UserOwnership"
+                  class="mr-3"
+                >
+                  User Ownership
+                </b-form-checkbox>
+                <b-form-checkbox
+                  v-model="component.readOnlyRootFs"
+                >
+                  ReadonlyRootfs
+                </b-form-checkbox>
+              </h6>
               <b-card-title class="mt-4">
                 <span>Resources</span>
               </b-card-title>
@@ -713,7 +714,6 @@
                     max="15"
                     step="0.1"
                   />
-
                   <b-input-group-append
                     is-text
                   >
@@ -1354,42 +1354,6 @@
                 />
               </div>
             </div>
-            <div
-              v-if="appRegistrationSpecification.version >= 8 && UserOwnership"
-              class="form-row form-group"
-            >
-              <label class="col-3 col-form-label">
-                Volume Ownership
-                <v-icon
-                  v-b-tooltip.hover.top="'Set the ownership of a volume when using a user other than root.'"
-                  name="info-circle"
-                  class="mr-1"
-                />
-              </label>
-              <div class="col">
-                <b-form-input
-                  id="VolumeOwnership"
-                  v-model="component.VolumeOwnership"
-                  placeholder="User ownership of volume. Format is one of: uid or uid:gid"
-                />
-              </div>
-            </div>
-            <h6
-              v-if="appRegistrationSpecification.version >= 8"
-              class="d-flex"
-            >
-              <b-form-checkbox
-                v-model="UserOwnership"
-                class="mr-3"
-              >
-                User Ownership
-              </b-form-checkbox>
-              <b-form-checkbox
-                v-model="component.readOnlyRootFs"
-              >
-                ReadonlyRootfs
-              </b-form-checkbox>
-            </h6>
           </b-card>
         </b-col>
       </b-row>
@@ -2062,6 +2026,7 @@ import {
   BPagination,
   BInputGroup,
   BInputGroupAppend,
+  BInputGroupPrepend,
   VBTooltip,
 } from 'bootstrap-vue';
 
@@ -2123,6 +2088,7 @@ export default {
     BPagination,
     BInputGroup,
     BInputGroupAppend,
+    BInputGroupPrepend,
     // eslint-disable-next-line vue/no-unused-components
     ToastificationContent,
     ConfirmDialog,
