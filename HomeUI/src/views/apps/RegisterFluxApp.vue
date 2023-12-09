@@ -636,6 +636,43 @@
                 </div>
               </div>
               <div
+                v-if="UserOwnership"
+                class="form-row form-group"
+              >
+                <label
+                  class="col-3 col-form-label"
+                >
+                  Volume Ownership
+                  <v-icon
+                    v-b-tooltip.hover.top="'Change the ownership of a volume when using a user other than root.'"
+                    name="info-circle"
+                    class="mr-1"
+                  />
+                </label>
+                <div class="col">
+                  <b-form-input
+                    id="Ownership"
+                    v-model="component.volumeOwnership"
+                    placeholder="User ownership of volume. Format is one of: uid or uid:gid"
+                  />
+                </div>
+              </div>
+              <h6
+                class="d-flex"
+              >
+                <b-form-checkbox
+                  v-model="UserOwnership"
+                  class="mr-3"
+                >
+                  User Ownership
+                </b-form-checkbox>
+                <b-form-checkbox
+                  v-model="component.readOnlyRootFs"
+                >
+                  ReadonlyRootfs
+                </b-form-checkbox>
+              </h6>
+              <div
                 v-if="appRegistrationSpecification.version >= 7 && isPrivateApp"
                 class="form-row form-group"
               >
@@ -655,78 +692,169 @@
                   />
                 </div>
               </div>
-              <br>
-              <b-card-title>
-                Resources &nbsp;&nbsp;&nbsp;<h6 class="inline text-small">
-                  Tiered:
-                  <b-form-checkbox
-                    id="tiered"
-                    v-model="component.tiered"
-                    switch
-                    class="custom-control-primary inline"
-                  />
-                </h6>
+              <b-card-title class="mt-4">
+                <span>Resources</span>
               </b-card-title>
-              <b-form-group
-                v-if="!component.tiered"
-                label-cols="2"
-                label-cols-lg="1"
-                label="CPU"
-                label-for="cpu"
+              <div v-if="!component.tiered">
+                <b-input-group class="mt-4">
+                  <b-input-group-prepend is-text>
+                    <div
+                      style="width: 50px; text-align: center;"
+                    >
+                      CPU
+                    </div>
+                  </b-input-group-prepend>
+                  <b-form-input
+                    id="cpu"
+                    v-model="component.cpu"
+                    placeholder="CPU cores to use by default"
+                    type="range"
+                    min="0.1"
+                    max="15"
+                    step="0.1"
+                  />
+
+                  <b-input-group-append
+                    is-text
+                  >
+                    <div
+                      style="width: 50px; text-align: center;"
+                    >
+                      {{ component.cpu }}
+                    </div>
+                  </b-input-group-append>
+                </b-input-group>
+
+                <b-input-group class="mt-3">
+                  <b-input-group-prepend is-text>
+                    <div
+                      style="width: 50px; text-align: center;"
+                    >
+                      RAM
+                    </div>
+                  </b-input-group-prepend>
+                  <b-form-input
+                    id="ram"
+                    v-model="component.ram"
+                    placeholder="Ram cores to use by default"
+                    type="range"
+                    min="100"
+                    max="59000"
+                    step="100"
+                  />
+                  <b-input-group-append is-text>
+                    <div
+                      style="width: 50px; text-align: center;"
+                    >
+                      {{ component.ram }}
+                    </div>
+                  </b-input-group-append>
+                </b-input-group>
+                <b-input-group class="mt-3">
+                  <b-input-group-prepend is-text>
+                    <div
+                      style="width: 50px; text-align: center;"
+                    >
+                      SSD
+                    </div>
+                  </b-input-group-prepend>
+                  <b-form-input
+                    id="hdd"
+                    v-model="component.hdd"
+                    placeholder="CPU cores to use by default"
+                    type="range"
+                    min="1"
+                    max="820"
+                    step="1"
+                  />
+                  <b-input-group-append
+                    is-text
+                  >
+                    <div
+                      style="width: 50px; text-align: center;"
+                    >
+                      {{ component.hdd }}
+                    </div>
+                  </b-input-group-append>
+                </b-input-group>
+              </div>
+
+              <div
+                class="d-flex mt-3"
               >
-                <div class="mx-1">
-                  {{ component.cpu }}
-                </div>
-                <b-form-input
-                  id="cpu"
-                  v-model="component.cpu"
-                  placeholder="CPU cores to use by default"
-                  type="range"
-                  min="0.1"
-                  max="15"
-                  step="0.1"
-                />
-              </b-form-group>
-              <b-form-group
-                v-if="!component.tiered"
-                label-cols="2"
-                label-cols-lg="1"
-                label="RAM"
-                label-for="ram"
+                <b-form-checkbox
+                  v-show="!component.tiered "
+                  v-model="AdvancedSettings"
+                >
+                  <h6>Advanced Settings</h6>
+                </b-form-checkbox>
+              </div>
+
+              <div
+                v-if="AdvancedSettings && !component.tiered"
               >
-                <div class="mx-1">
-                  {{ component.ram }}
-                </div>
-                <b-form-input
-                  id="ram"
-                  v-model="component.ram"
-                  placeholder="RAM in MB value to use by default"
-                  type="range"
-                  min="100"
-                  max="59000"
-                  step="100"
-                />
-              </b-form-group>
-              <b-form-group
-                v-if="!component.tiered"
-                label-cols="2"
-                label-cols-lg="1"
-                label="SSD"
-                label-for="ssd"
-              >
-                <div class="mx-1">
-                  {{ component.hdd }}
-                </div>
-                <b-form-input
-                  id="ssd"
-                  v-model="component.hdd"
-                  placeholder="SSD in GB value to use by default"
-                  type="range"
-                  min="1"
-                  max="820"
-                  step="1"
-                />
-              </b-form-group>
+                <b-input-group
+                  class="mt-3"
+                >
+                  <b-input-group-prepend
+                    is-text
+                  >
+                    <div
+                      style="width: 60px; text-align: center;"
+                    >
+                      SWAP
+                    </div>
+                  </b-input-group-prepend>
+                  <b-form-input
+                    id="swap"
+                    v-model="component.swap"
+                    placeholder="Ram cores to use by default"
+                    type="range"
+                    min="0"
+                    max="20000"
+                    step="100"
+                  />
+                  <b-input-group-append
+                    is-text
+                  >
+                    <div
+                      style="width: 50px; text-align: center;"
+                    >
+                      {{ component.swap }}
+                    </div>
+                  </b-input-group-append>
+                </b-input-group>
+
+                <b-input-group class="mt-3">
+                  <b-input-group-prepend
+                    is-text
+                  >
+                    <div
+                      style="width: 60px; text-align: center;"
+                    >
+                      OVERLAY
+                    </div>
+                  </b-input-group-prepend>
+                  <b-form-input
+                    id="overlay"
+                    v-model="component.overlay"
+                    placeholder="CPU cores to use by default"
+                    type="range"
+                    min="0"
+                    max="50"
+                    step="1"
+                  />
+                  <b-input-group-append
+                    is-text
+                  >
+                    <div
+                      style="width: 50px; text-align: center;"
+                    >
+                      {{ component.overlay }}
+                    </div>
+                  </b-input-group-append>
+                </b-input-group>
+              </div>
             </b-card>
           </b-col>
         </b-row>
@@ -1226,6 +1354,42 @@
                 />
               </div>
             </div>
+            <div
+              v-if="appRegistrationSpecification.version >= 8 && UserOwnership"
+              class="form-row form-group"
+            >
+              <label class="col-3 col-form-label">
+                Volume Ownership
+                <v-icon
+                  v-b-tooltip.hover.top="'Set the ownership of a volume when using a user other than root.'"
+                  name="info-circle"
+                  class="mr-1"
+                />
+              </label>
+              <div class="col">
+                <b-form-input
+                  id="VolumeOwnership"
+                  v-model="component.VolumeOwnership"
+                  placeholder="User ownership of volume. Format is one of: uid or uid:gid"
+                />
+              </div>
+            </div>
+            <h6
+              v-if="appRegistrationSpecification.version >= 8"
+              class="d-flex"
+            >
+              <b-form-checkbox
+                v-model="UserOwnership"
+                class="mr-3"
+              >
+                User Ownership
+              </b-form-checkbox>
+              <b-form-checkbox
+                v-model="component.readOnlyRootFs"
+              >
+                ReadonlyRootfs
+              </b-form-checkbox>
+            </h6>
           </b-card>
         </b-col>
       </b-row>
@@ -1980,6 +2144,9 @@ export default {
       registrationtype: 'fluxappregister',
       currentHeight: 1350000,
       specificationVersion: 6,
+      UserOwnership: false,
+      ReadonlyRootfs: false,
+      AdvancedSettings: false,
       appRegistrationSpecification: {},
       appRegistrationSpecificationV3Template: {
         version: 3,
@@ -2152,6 +2319,40 @@ export default {
           },
         ],
       },
+      appRegistrationSpecificationV8Template: {
+        version: 8,
+        name: '',
+        description: '',
+        owner: '',
+        instances: 3,
+        contacts: '[]',
+        geolocation: [],
+        nodes: [],
+        expire: 22000,
+        staticip: false,
+        compose: [
+          {
+            name: '',
+            description: '',
+            repotag: '',
+            repoauth: '',
+            ports: '[]',
+            domains: '[]',
+            environmentParameters: '[]',
+            secrets: '', // at encryption will become string
+            commands: '[]',
+            containerPorts: '[]',
+            containerData: '',
+            VolumeOwnership: '',
+            readonlyRootFs: false,
+            cpu: 0.5,
+            ram: 2000,
+            hdd: 40,
+            overlay: 0,
+            swap: 0,
+          },
+        ],
+      },
       isPrivateApp: false,
       composeTemplate: {
         name: '',
@@ -2200,6 +2401,26 @@ export default {
         ramsuper: 2500,
         hddsuper: 60,
         cpubamf: 3.5,
+      },
+      composeTemplatev8: {
+        name: '',
+        description: '',
+        repotag: '',
+        repoauth: '',
+        ports: '[]',
+        domains: '[]',
+        environmentParameters: '[]',
+        secrets: '', // at encryption will become string
+        commands: '[]',
+        containerPorts: '[]',
+        containerData: '',
+        volumeOwnership: '',
+        readOnlyRootFs: false,
+        cpu: 0.5,
+        ram: 2000,
+        hdd: 40,
+        overlay: 0,
+        swap: 0,
       },
       dataForAppRegistration: {},
       applicationPrice: 0,
@@ -2608,10 +2829,21 @@ export default {
           // eslint-disable-next-line no-param-reassign
           component.domains = '[""]';
         });
-      } else {
+      } else if (this.currentHeight < 1530463) {
         this.specificationVersion = 7;
         this.composeTemplate = this.composeTemplatev7;
         this.appRegistrationSpecification = this.appRegistrationSpecificationV7Template;
+        this.appRegistrationSpecification.compose.forEach((component) => {
+          const ports = this.getRandomPort();
+          // eslint-disable-next-line no-param-reassign
+          component.ports = ports;
+          // eslint-disable-next-line no-param-reassign
+          component.domains = '[""]';
+        });
+      } else {
+        this.specificationVersion = 8;
+        this.composeTemplate = this.composeTemplatev8;
+        this.appRegistrationSpecification = this.appRegistrationSpecificationV8Template;
         this.appRegistrationSpecification.compose.forEach((component) => {
           const ports = this.getRandomPort();
           // eslint-disable-next-line no-param-reassign
