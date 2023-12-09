@@ -653,7 +653,7 @@
                   <b-form-input
                     id="Ownership"
                     v-model="component.volumeOwnership"
-                    placeholder="Set ownership for the volume using the format uid or uid:gid (e.g., 1000 or 1000:1000)."
+                    placeholder="Allow the format uid or uid:gid (e.g., 1000 or 1000:1000)."
                   />
                 </div>
               </div>
@@ -817,7 +817,7 @@
                     is-text
                   >
                     <div
-                      style="width: 75px; text-align: center;"
+                      style="width: 85px; text-align: center;"
                     >
                       SWAP
                       <v-icon
@@ -852,7 +852,7 @@
                     is-text
                   >
                     <div
-                      style="width: 75px; text-align: center;"
+                      style="width: 85px; text-align: center;"
                     >
                       OVERLAY
                       <v-icon
