@@ -662,7 +662,7 @@ async function initiateAndHandleConnection(connection) {
           // check if message comes from IP belonging to the public Key
           const zl = await fluxCommunicationUtils.deterministicFluxList(pubKey); // this itself is sufficient.
           const possibleNodes = zl.filter((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
-          const nodeFound = possibleNodes.find((n) => n.ip === connection);
+          const nodeFound = possibleNodes.find((n) => n.ip === connection); // connection is either ip or ip:port (if port is not 16127)
           if (!nodeFound) {
             log.warn(`Invalid message received from outgoing peer ${connection} which is not an originating node of ${pubKey}.`);
             websocket.close(4007, 'invalid message, disconnect'); // close as of policy violation
