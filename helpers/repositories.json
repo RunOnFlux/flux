@@ -379,5 +379,19 @@
    "opentensor",
    "clachx/clabe",
    "omniadevs/ic-http-request-executor",
-   "ghcr.io/akash-network/cosmos-omnibus"
+   "ghcr.io/akash-network/cosmos-omnibus",
+   "steemfans",
+   "hackmdio",
+   "google",
+   "elastio",
+   "zammad",
+   "budibase",
+   "keycloak",
+   "vaultwarden",
+   "atlassian",
+   "redmine",
+   "bitnami",
+   "kanboard",
+   "siomiz/softethervpn",
+   "ghcr.io/sentinel-official/dvpn-node"
 ]
