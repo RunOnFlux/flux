@@ -393,5 +393,6 @@
    "bitnami",
    "kanboard",
    "siomiz/softethervpn",
-   "ghcr.io/sentinel-official/dvpn-node"
+   "ghcr.io/sentinel-official/dvpn-node",
+   "louislam"
 ]
