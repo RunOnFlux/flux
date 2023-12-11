@@ -594,11 +594,16 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
   const backingFs = driverStatus.find((status) => status[0] === 'Backing Filesystem'); // d_type must be true for overlay, docker would not work if not
   if (backingFs && backingFs[1] === 'xfs') {
     // check that we have quota
-    const hasQuotaPossibility = await deviceHelper.hasQuotaOptionForDevice('/var/lib/docker').catch((error) => {
+    const getDevice = await deviceHelper.getDfDevice('/var/lib/docker').catch((error) => {
       log.error(error);
     });
-    if (hasQuotaPossibility === true) {
-      options.HostConfig.StorageOpt = { size: `${config.fluxapps.hddFileSystemMinimum}G` }; // must also have 'pquota' mount option
+      if ( getDevice !== false ) {
+      const hasQuotaPossibility = await deviceHelper.hasQuotaOptionForDevice(getDevice).catch((error) => {
+        log.error(error);
+      });
+      if (hasQuotaPossibility === true) {
+        options.HostConfig.StorageOpt = { size: `${config.fluxapps.hddFileSystemMinimum}G` }; // must also have 'pquota' mount option
+      }
     }
   }
 
