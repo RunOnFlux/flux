@@ -885,6 +885,7 @@ describe('fluxCommunication tests', () => {
       outgoingConnections.length = 0;
       outgoingPeers.length = 0;
       daemonServiceMiscRpcsStub = sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced');
+      sinon.stub(fluxNetworkHelper, 'getMyFluxIPandPort').returns('44.192.51.11:16127');
     });
 
     afterEach(() => {
