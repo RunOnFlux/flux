@@ -6,6 +6,7 @@ const serviceHelper = require('./serviceHelper');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
 const pgpService = require('./pgpService');
 const generalService = require('./generalService');
+const deviceHelper = require('./deviceHelper');
 const log = require('../lib/log');
 
 const fluxDirPath = path.join(__dirname, '../../../');
@@ -592,7 +593,13 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
   const driverStatus = dockerInfoResp.DriverStatus;
   const backingFs = driverStatus.find((status) => status[0] === 'Backing Filesystem'); // d_type must be true for overlay, docker would not work if not
   if (backingFs && backingFs[1] === 'xfs') {
-    options.HostConfig.StorageOpt = { size: `${config.fluxapps.hddFileSystemMinimum}G` }; // must also have 'pquota' mount option
+    // check that we have quota
+    const hasQuotaPossibility = await deviceHelper.hasQuotaOptionForDevice('/var/lib/docker').catch((error) => {
+      log.error(error);
+    });
+    if (hasQuotaPossibility === true) {
+      options.HostConfig.StorageOpt = { size: `${config.fluxapps.hddFileSystemMinimum}G` }; // must also have 'pquota' mount option
+    }
   }
 
   if (options.Env.length) {
