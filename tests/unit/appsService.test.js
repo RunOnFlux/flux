@@ -3918,7 +3918,7 @@ describe('appsService tests', () => {
         data: {
           appsCpusLocked: 4000,
           appsRamLocked: 200000,
-          appsHddLocked: 400048,
+          appsHddLocked: 400024,
         },
       });
     });
