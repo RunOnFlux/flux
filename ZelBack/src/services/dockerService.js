@@ -597,7 +597,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     const getDevice = await deviceHelper.getDfDevice('/var/lib/docker').catch((error) => {
       log.error(error);
     });
-      if ( getDevice !== false ) {
+    if (getDevice && getDevice !== false) {
       const hasQuotaPossibility = await deviceHelper.hasQuotaOptionForDevice(getDevice).catch((error) => {
         log.error(error);
       });
