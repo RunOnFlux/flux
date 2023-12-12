@@ -1,3 +1,4 @@
+const config = require('config');
 const stream = require('stream');
 const Docker = require('dockerode');
 const path = require('path');
@@ -5,6 +6,7 @@ const serviceHelper = require('./serviceHelper');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
 const pgpService = require('./pgpService');
 const generalService = require('./generalService');
+const deviceHelper = require('./deviceHelper');
 const log = require('../lib/log');
 
 const fluxDirPath = path.join(__dirname, '../../../');
@@ -245,12 +247,12 @@ async function dockerContainerChanges(idOrName) {
 
 /**
  * To pull a Docker Hub image and follow progress of the stream.
- * @param {object} config Pulling config consisting of repoTag and optional authToken
+ * @param {object} pullConfig Pulling config consisting of repoTag and optional authToken
  * @param {object} res Response.
  * @param {function} callback Callback.
  */
-function dockerPullStream(config, res, callback) {
-  const { repoTag, authToken } = config;
+function dockerPullStream(pullConfig, res, callback) {
+  const { repoTag, authToken } = pullConfig;
   let pullOptions;
   const { provider } = generalService.parseDockerTag(repoTag);
 
@@ -559,7 +561,8 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     HostConfig: {
       NanoCPUs: appSpecifications.cpu * 1e9,
       Memory: appSpecifications.ram * 1024 * 1024,
-      // StorageOpt: { size: '12G' }, // root fs has max 12G FIXME only for overlay over xfs with 'pquota' mount option "
+      MemorySwap: (appSpecifications.ram + (config.fluxapps.defaultSwap * 1000)) * 1024 * 1024, // default 2GB swap
+      // StorageOpt: { size: '5G' }, // root fs has max default 5G size, v8 is 5G + specified as per config.fluxapps.hddFileSystemMinimum
       Binds: constructedVolumes,
       Ulimits: [
         {
@@ -582,6 +585,27 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
       },
     },
   };
+
+  // get docker info about Backing Filesystem
+  // eslint-disable-next-line no-use-before-define
+  const dockerInfoResp = await dockerInfo();
+  log.info(dockerInfoResp);
+  const driverStatus = dockerInfoResp.DriverStatus;
+  const backingFs = driverStatus.find((status) => status[0] === 'Backing Filesystem'); // d_type must be true for overlay, docker would not work if not
+  if (backingFs && backingFs[1] === 'xfs') {
+    // check that we have quota
+    const getDevice = await deviceHelper.getDfDevice('/var/lib/docker').catch((error) => {
+      log.error(error);
+    });
+      if ( getDevice !== false ) {
+      const hasQuotaPossibility = await deviceHelper.hasQuotaOptionForDevice(getDevice).catch((error) => {
+        log.error(error);
+      });
+      if (hasQuotaPossibility === true) {
+        options.HostConfig.StorageOpt = { size: `${config.fluxapps.hddFileSystemMinimum}G` }; // must also have 'pquota' mount option
+      }
+    }
+  }
 
   if (options.Env.length) {
     const fluxStorageEnv = options.Env.find((env) => env.startsWith(('F_S_ENV=')));
@@ -883,6 +907,16 @@ async function dockerGetEvents() {
   return events;
 }
 
+/**
+ * Returns docker usage information
+ *
+ * @returns {object}
+ */
+async function dockerGetUsage() {
+  const df = await docker.df();
+  return df;
+}
+
 module.exports = {
   getDockerContainer,
   getAppIdentifier,
@@ -919,4 +953,5 @@ module.exports = {
   dockerInfo,
   dockerVersion,
   dockerGetEvents,
+  dockerGetUsage,
 };

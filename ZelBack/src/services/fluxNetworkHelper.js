@@ -890,7 +890,12 @@ async function adjustExternalIP(ip) {
         await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newIpChangedMessage);
         await serviceHelper.delay(500);
         await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newIpChangedMessage);
-        await serviceHelper.delay(1 * 60 * 1000); // lets wait 1 minute to give time for message being propagated on the network before we try to update the ip on blockchain
+      }
+      const benchmarkResponse = await benchmarkService.getBenchmarks();
+      if (benchmarkResponse.status === 'error') {
+        await serviceHelper.delay(15 * 60 * 1000);
+      } else if (benchmarkResponse.status === 'running') {
+        await serviceHelper.delay(8 * 60 * 1000);
       }
       const result = await daemonServiceWalletRpcs.createConfirmationTransaction();
       log.info(`createConfirmationTransaction: ${JSON.stringify(result)}`);
