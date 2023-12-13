@@ -1979,7 +1979,7 @@ export default {
       registrationHash: '',
       registrationtype: 'fluxappregister',
       currentHeight: 1350000,
-      specificationVersion: 6,
+      specificationVersion: 7,
       appRegistrationSpecification: {},
       appRegistrationSpecificationV3Template: {
         version: 3,
@@ -2413,7 +2413,7 @@ export default {
     },
   },
   beforeMount() {
-    this.appRegistrationSpecification = this.appRegistrationSpecificationV5Template;
+    this.appRegistrationSpecification = this.appRegistrationSpecificationV7Template;
   },
   mounted() {
     this.getGeolocationData();
@@ -2427,7 +2427,95 @@ export default {
     this.appRegistrationSpecification.owner = auth.zelid;
     console.log(this.$router.currentRoute.params.appspecs);
     if (this.$router.currentRoute.params.appspecs) {
-      this.appRegistrationSpecification = this.$router.currentRoute.params.appspecs; // TODO this needs adjusting for UI
+      const specs = JSON.parse(this.$router.currentRoute.params.appspecs);
+      console.log(specs);
+      this.appRegistrationSpecification = JSON.parse(this.$router.currentRoute.params.appspecs);
+
+      this.appRegistrationSpecification.instances = specs.instances || 3;
+      if (this.appRegistrationSpecification.version <= 3) {
+        this.appRegistrationSpecification.version = 3; // enforce specs version 3
+        this.appRegistrationSpecification.ports = specs.port || this.ensureString(specs.ports); // v1 compatibility
+        this.appRegistrationSpecification.domains = this.ensureString(specs.domains);
+        this.appRegistrationSpecification.enviromentParameters = this.ensureString(specs.enviromentParameters);
+        this.appRegistrationSpecification.commands = this.ensureString(specs.commands);
+        this.appRegistrationSpecification.containerPorts = specs.containerPort || this.ensureString(specs.containerPorts); // v1 compatibility
+      } else {
+        if (this.appRegistrationSpecification.version <= 7) {
+          this.appRegistrationSpecification.version = 7;
+        }
+        this.appRegistrationSpecification.contacts = this.ensureString([]);
+        this.appRegistrationSpecification.geolocation = this.ensureString([]);
+        if (this.appRegistrationSpecification.version >= 5) {
+          this.appRegistrationSpecification.contacts = this.ensureString(specs.contacts || []);
+          this.appRegistrationSpecification.geolocation = this.ensureString(specs.geolocation || []);
+          try {
+            this.decodeGeolocation(specs.geolocation || []);
+          } catch (error) {
+            console.log(error);
+            this.appRegistrationSpecification.geolocation = this.ensureString([]);
+          }
+        }
+        this.appRegistrationSpecification.compose.forEach((component) => {
+          // eslint-disable-next-line no-param-reassign
+          component.ports = this.ensureString(component.ports);
+          // eslint-disable-next-line no-param-reassign
+          component.domains = this.ensureString(component.domains);
+          // eslint-disable-next-line no-param-reassign
+          component.environmentParameters = this.ensureString(component.environmentParameters);
+          // eslint-disable-next-line no-param-reassign
+          component.commands = this.ensureString(component.commands);
+          // eslint-disable-next-line no-param-reassign
+          component.containerPorts = this.ensureString(component.containerPorts);
+          // eslint-disable-next-line no-param-reassign
+          component.secrets = this.ensureString(component.secrets || '');
+          // eslint-disable-next-line no-param-reassign
+          component.repoauth = this.ensureString(component.repoauth || '');
+        });
+        if (this.appRegistrationSpecification.version >= 6) {
+          this.appRegistrationSpecification.expire = this.ensureNumber(specs.expire || 22000);
+          this.expirePosition = this.getExpirePosition(this.appRegistrationSpecification.expire);
+        }
+        if (this.appRegistrationSpecification.version >= 7) {
+          this.appRegistrationSpecification.staticip = this.appRegistrationSpecification.staticip ?? false;
+          this.appRegistrationSpecification.nodes = this.appRegistrationSpecification.nodes || [];
+          if (this.appRegistrationSpecification.nodes && this.appRegistrationSpecification.nodes.length) {
+            this.isPrivateApp = true;
+          }
+          // fetch information about enterprise nodes, pgp keys
+          this.appRegistrationSpecification.nodes.forEach(async (node) => {
+            if (!this.enterpriseNodes) {
+              await this.getEnterpriseNodes();
+            }
+            // fetch pgp key
+            const keyExists = this.enterprisePublicKeys.find((key) => key.nodeip === node);
+            if (!keyExists) {
+              const pgpKey = await this.fetchEnterpriseKey(node);
+              if (pgpKey) {
+                const pair = {
+                  nodeip: node.ip,
+                  nodekey: pgpKey,
+                };
+                const keyExistsB = this.enterprisePublicKeys.find((key) => key.nodeip === node);
+                if (!keyExistsB) {
+                  this.enterprisePublicKeys.push(pair);
+                }
+              }
+            }
+          });
+          this.selectedEnterpriseNodes = [];
+          this.appRegistrationSpecification.nodes.forEach((node) => {
+            // add to selected node list
+            if (this.enterpriseNodes) {
+              const nodeFound = this.enterpriseNodes.find((entNode) => entNode.ip === node || node === `${entNode.txhash}:${entNode.outidx}`);
+              if (nodeFound) {
+                this.selectedEnterpriseNodes.push(nodeFound);
+              }
+            } else {
+              this.showToast('danger', 'Failed to load Enterprise Node List');
+            }
+          });
+        }
+      }
     }
   },
   methods: {
@@ -2435,6 +2523,63 @@ export default {
       // Trigger pagination to update the number of buttons/pages due to filtering
       this.entNodesSelectTable.totalRows = filteredItems.length;
       this.entNodesSelectTable.currentPage = 1;
+    },
+    getExpirePosition(value) {
+      const position = this.expireOptions.findIndex((opt) => opt.value === value);
+      if (position || position === 0) {
+        return position;
+      }
+      return 2;
+    },
+    decodeGeolocation(existingGeolocation) {
+      // decode geolocation and push it properly numberOfGeolocations, numberOfNegativeGeolocations
+      // selectedContinent1, selectedCountry1, selectedRegion1
+      // existingGeolocation is an array that can contain older specs of a, b OR can contain new specs of ac (a!c);
+      console.log(existingGeolocation);
+      let isOldSpecs = false;
+      existingGeolocation.forEach((location) => {
+        if (location.startsWith('b')) {
+          isOldSpecs = true;
+        }
+        if (location.startsWith('a') && location.startsWith('ac') && location.startsWith('a!c')) {
+          isOldSpecs = true;
+        }
+      });
+      let updatedNewSpecGeo = existingGeolocation;
+      if (isOldSpecs) {
+        const continentEncoded = existingGeolocation.find((location) => location.startsWith('a') && location.startsWith('ac') && location.startsWith('a!c'));
+        const countryEncoded = existingGeolocation.find((location) => location.startsWith('b'));
+        let newSpecLocation = `ac${continentEncoded.slice(1)}`;
+        if (countryEncoded) {
+          newSpecLocation += `_${countryEncoded.slice(1)}`;
+        }
+        updatedNewSpecGeo = [newSpecLocation];
+      }
+      // updatedNewSpecGeo is now geolocation according to new specs
+      const allowedLocations = updatedNewSpecGeo.filter((locations) => locations.startsWith('ac'));
+      const forbiddenLocations = updatedNewSpecGeo.filter((locations) => locations.startsWith('a!c'));
+      for (let i = 1; i < allowedLocations.length + 1; i += 1) {
+        this.numberOfGeolocations = i;
+        const specifiedLocation = allowedLocations[i - 1].slice(2);
+        const locations = specifiedLocation.split('_');
+        const continentCode = locations[0];
+        const countryCode = locations[1];
+        const regionName = locations[2];
+        this.allowedGeolocations[`selectedContinent${i}`] = continentCode;
+        this.allowedGeolocations[`selectedCountry${i}`] = countryCode || 'ALL';
+        this.allowedGeolocations[`selectedRegion${i}`] = regionName || 'ALL';
+      }
+      for (let i = 1; i < forbiddenLocations.length + 1; i += 1) {
+        this.numberOfNegativeGeolocations = i;
+        const specifiedLocation = forbiddenLocations[i - 1].slice(3);
+        const locations = specifiedLocation.split('_');
+        const continentCode = locations[0];
+        const countryCode = locations[1];
+        const regionName = locations[2];
+        this.forbiddenGeolocations[`selectedContinent${i}`] = continentCode;
+        this.forbiddenGeolocations[`selectedCountry${i}`] = countryCode || 'NONE';
+        this.forbiddenGeolocations[`selectedRegion${i}`] = regionName || 'NONE';
+      }
     },
     async getFluxnodeStatus() {
       try {

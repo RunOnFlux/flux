@@ -1237,7 +1237,7 @@ export default {
       }
     },
     redeployApp(appSpecs) {
-      this.$router.replace({ name: 'apps-registerapp', params: { appspecs: appSpecs } });
+      this.$router.replace({ name: 'apps-registerapp', params: { appspecs: JSON.stringify(appSpecs) } });
     },
     openApp(name, _ip, _port) {
       console.log(name, _ip, _port);
