@@ -32,16 +32,19 @@ async function initiate() {
     log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
     process.exit();
   }
+  let verifyUpnp = false;
+  let setupUpnp = false;
   if (userconfig.initial.apiport) {
-    await upnpService.setupUPNP(apiPort);
+    verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
+    if (verifyUpnp) {
+      setupUpnp = await upnpService.setupUPNP(apiPort);
+    }
   }
-  if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
-    const verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
+  if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || userconfig.initial.routerIP) {
     if (verifyUpnp !== true) {
       log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to verify support. Shutting down.`);
       process.exit();
     }
-    const setupUpnp = await upnpService.setupUPNP(apiPort);
     if (setupUpnp !== true) {
       log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to map to api or home port. Shutting down.`);
       process.exit();

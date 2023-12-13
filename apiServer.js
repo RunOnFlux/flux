@@ -23,21 +23,19 @@ const apiPortHttps = +apiPort + 1;
 let initialHash = hash(fs.readFileSync(path.join(__dirname, '/config/userconfig.js')));
 
 async function loadUpnpIfRequired() {
-  // direct node (non UPnP)
+  let verifyUpnp = false;
+  let setupUpnp = false;
   if (userconfig.initial.apiport) {
-    await upnpService.setupUPNP(apiPort);
+    verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
+    if (verifyUpnp) {
+      setupUpnp = await upnpService.setupUPNP(apiPort);
+    }
   }
-  if (userconfig.initial.apiport === config.server.apiport && !userconfig.initial.routerIP) {
-    return;
-  }
-  // User configured UPnP node
-  if (userconfig.initial.apiport) {
-    const verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
+  if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || userconfig.initial.routerIP) {
     if (verifyUpnp !== true) {
       log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to verify support. Shutting down.`);
       process.exit();
     }
-    const setupUpnp = await upnpService.setupUPNP(apiPort);
     if (setupUpnp !== true) {
       log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to map to api or home port. Shutting down.`);
       process.exit();
