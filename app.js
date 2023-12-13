@@ -10,11 +10,11 @@ const apiServer = require('./apiServer');
 const args = parseArgs({
   options: {
     apiServer: {
-      type: "boolean",
-      short: "a",
-      default: false
-    }
-  }
+      type: 'boolean',
+      short: 'a',
+      default: false,
+    },
+  },
 }, process.argv.slice(2));
 
 async function initiate() {
