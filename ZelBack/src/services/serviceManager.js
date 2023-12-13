@@ -29,10 +29,10 @@ async function startFluxFunctions() {
     }
 
     // User configured UPnP node, UPnP has already been verified and setup
-    if (userconfig.initial.apiport || userconfig.initial.routerIP) {
+    if (userconfig.initial.routerIP) {
       setInterval(() => {
         upnpService.adjustFirewallForUPNP();
-      }, 2 * 60 * 60 * 1000); // every 2 hours
+      }, 1 * 60 * 60 * 1000); // every 1 hours
     }
 
     fluxNetworkHelper.installNetcat();
