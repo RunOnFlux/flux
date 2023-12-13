@@ -78,7 +78,9 @@ async function adjustFirewallForUPNP() {
  */
 async function verifyUPNPsupport(apiport = config.server.apiport) {
   try {
-    await adjustFirewallForUPNP();
+    if (userconfig.initial.routerIP) {
+      await adjustFirewallForUPNP();
+    }
     // run test on apiport + 1
     await client.getPublicIp();
   } catch (error) {
