@@ -2425,6 +2425,10 @@ export default {
     const zelidauth = localStorage.getItem('zelidauth');
     const auth = qs.parse(zelidauth);
     this.appRegistrationSpecification.owner = auth.zelid;
+    console.log(this.$router.currentRoute.params.appspecs);
+    if (this.$router.currentRoute.params.appspecs) {
+      this.appRegistrationSpecification = this.$router.currentRoute.params.appspecs; // TODO this needs adjusting for UI
+    }
   },
   methods: {
     onFilteredSelection(filteredItems) {
@@ -2571,55 +2575,54 @@ export default {
     },
 
     async getDaemonInfo() {
-      const daemonGetInfo = await DaemonService.getInfo();
-      if (daemonGetInfo.data.status === 'error') {
-        this.showToast('danger', daemonGetInfo.data.data.message || daemonGetInfo.data.data);
-      } else {
-        this.currentHeight = daemonGetInfo.data.data.blocks;
-      }
-      if (this.currentHeight < 1004000) { // fork height for spec v4
-        this.specificationVersion = 3;
-        this.appRegistrationSpecification = this.appRegistrationSpecificationV3Template;
+      // const daemonGetInfo = await DaemonService.getInfo();
+      // if (daemonGetInfo.data.status === 'error') {
+      //   this.showToast('danger', daemonGetInfo.data.data.message || daemonGetInfo.data.data);
+      // } else {
+      //   this.currentHeight = daemonGetInfo.data.data.blocks;
+      // }
+      // if (this.currentHeight < 1004000) { // fork height for spec v4
+      //   this.specificationVersion = 3;
+      //   this.appRegistrationSpecification = this.appRegistrationSpecificationV3Template;
+      //   const ports = this.getRandomPort();
+      //   this.appRegistrationSpecification.ports = ports;
+      // } else if (this.currentHeight < 1142000) {
+      //   this.specificationVersion = 4;
+      //   this.appRegistrationSpecification = this.appRegistrationSpecificationV4Template;
+      //   this.appRegistrationSpecification.compose.forEach((component) => {
+      //     const ports = this.getRandomPort();
+      //     // eslint-disable-next-line no-param-reassign
+      //     component.ports = ports;
+      //   });
+      // } else if (this.currentHeight < 1300000) {
+      //   this.specificationVersion = 5;
+      //   this.appRegistrationSpecification = this.appRegistrationSpecificationV5Template;
+      //   this.appRegistrationSpecification.compose.forEach((component) => {
+      //     const ports = this.getRandomPort();
+      //     // eslint-disable-next-line no-param-reassign
+      //     component.ports = ports;
+      //   });
+      // } else if (this.currentHeight < 1420000) {
+      //   this.specificationVersion = 6;
+      //   this.appRegistrationSpecification = this.appRegistrationSpecificationV6Template;
+      //   this.appRegistrationSpecification.compose.forEach((component) => {
+      //     const ports = this.getRandomPort();
+      //     // eslint-disable-next-line no-param-reassign
+      //     component.ports = ports;
+      //     // eslint-disable-next-line no-param-reassign
+      //     component.domains = '[""]';
+      //   });
+      // } else {
+      this.specificationVersion = 7;
+      this.composeTemplate = this.composeTemplatev7;
+      this.appRegistrationSpecification = this.appRegistrationSpecificationV7Template;
+      this.appRegistrationSpecification.compose.forEach((component) => {
         const ports = this.getRandomPort();
-        this.appRegistrationSpecification.ports = ports;
-      } else if (this.currentHeight < 1142000) {
-        this.specificationVersion = 4;
-        this.appRegistrationSpecification = this.appRegistrationSpecificationV4Template;
-        this.appRegistrationSpecification.compose.forEach((component) => {
-          const ports = this.getRandomPort();
-          // eslint-disable-next-line no-param-reassign
-          component.ports = ports;
-        });
-      } else if (this.currentHeight < 1300000) {
-        this.specificationVersion = 5;
-        this.appRegistrationSpecification = this.appRegistrationSpecificationV5Template;
-        this.appRegistrationSpecification.compose.forEach((component) => {
-          const ports = this.getRandomPort();
-          // eslint-disable-next-line no-param-reassign
-          component.ports = ports;
-        });
-      } else if (this.currentHeight < 1420000) {
-        this.specificationVersion = 6;
-        this.appRegistrationSpecification = this.appRegistrationSpecificationV6Template;
-        this.appRegistrationSpecification.compose.forEach((component) => {
-          const ports = this.getRandomPort();
-          // eslint-disable-next-line no-param-reassign
-          component.ports = ports;
-          // eslint-disable-next-line no-param-reassign
-          component.domains = '[""]';
-        });
-      } else {
-        this.specificationVersion = 7;
-        this.composeTemplate = this.composeTemplatev7;
-        this.appRegistrationSpecification = this.appRegistrationSpecificationV7Template;
-        this.appRegistrationSpecification.compose.forEach((component) => {
-          const ports = this.getRandomPort();
-          // eslint-disable-next-line no-param-reassign
-          component.ports = ports;
-          // eslint-disable-next-line no-param-reassign
-          component.domains = '[""]';
-        });
-      }
+        // eslint-disable-next-line no-param-reassign
+        component.ports = ports;
+        // eslint-disable-next-line no-param-reassign
+        component.domains = '[""]';
+      });
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
       this.appRegistrationSpecification.owner = auth.zelid;
