@@ -24,6 +24,9 @@ let initialHash = hash(fs.readFileSync(path.join(__dirname, '/config/userconfig.
 
 async function loadUpnpIfRequired() {
   // direct node (non UPnP)
+  if (userconfig.initial.apiport) {
+    await upnpService.setupUPNP(apiPort);
+  }
   if (userconfig.initial.apiport === config.server.apiport && !userconfig.initial.routerIP) {
     return;
   }

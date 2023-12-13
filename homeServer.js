@@ -32,6 +32,9 @@ async function initiate() {
     log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
     process.exit();
   }
+  if (userconfig.initial.apiport) {
+    await upnpService.setupUPNP(apiPort);
+  }
   if (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) {
     const verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
     if (verifyUpnp !== true) {
