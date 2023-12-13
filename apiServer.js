@@ -29,10 +29,6 @@ async function loadUpnpIfRequired() {
   }
   // User configured UPnP node
   if (userconfig.initial.apiport) {
-    if (!userconfig.initial.routerIP) {
-      log.error(`Flux UPnP port and RouterIP must both be set if running UPnP. Apiport: ${userconfig.initial.apiport}, RouterIP: ${userconfig.initial.routerIP}. Shutting down.`);
-      process.exit();
-    }
     const verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
     if (verifyUpnp !== true) {
       log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to verify support. Shutting down.`);
@@ -113,5 +109,5 @@ async function initiate() {
 }
 
 module.exports = {
-  initiate
-}
+  initiate,
+};
