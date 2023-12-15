@@ -365,10 +365,7 @@
           </b-card>
         </b-overlay>
       </b-tab>
-      <b-tab
-        active
-        title="Marketplce Deployments"
-      >
+      <b-tab title="Marketplace Deployments">
         <b-overlay
           :show="tableconfig.active.loading"
           variant="transparent"
@@ -1397,6 +1394,7 @@ import {
   BRow,
   BButton,
   BOverlay,
+  VBTooltip,
 } from 'bootstrap-vue';
 
 import Ripple from 'vue-ripple-directive';
@@ -1428,6 +1426,7 @@ export default {
     ToastificationContent,
   },
   directives: {
+    'b-tooltip': VBTooltip,
     Ripple,
   },
   data() {
@@ -1627,6 +1626,7 @@ export default {
     redeployApp(appSpecs, isFromActive = false) {
       const specs = appSpecs;
       if (isFromActive) {
+        specs.name += 'XXX';
         specs.name += Date.now().toString().slice(-5);
       }
       const zelidauth = localStorage.getItem('zelidauth');

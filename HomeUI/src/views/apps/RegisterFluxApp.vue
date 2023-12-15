@@ -24,6 +24,14 @@
       <b-row class="match-height">
         <b-col xs="6">
           <b-card title="Details">
+            <b-button
+              v-b-tooltip.hover.top="'Import Application Specification'"
+              variant="outline-primary"
+              class="importSpecsButton"
+              @click="importAppSpecs = true"
+            >
+              <v-icon name="cloud-download-alt" /> Import
+            </b-button>
             <b-form-group
               label-cols="2"
               label-cols-lg="1"
@@ -1876,6 +1884,22 @@
         </b-col>
       </b-row>
     </b-modal>
+    <b-modal
+      v-model="importAppSpecs"
+      title="Import Application Specifications"
+      size="lg"
+      centered
+      ok-title="Import"
+      cancel-title="Cancel"
+      @ok="importSpecs(importedSpecs)"
+      @cancel="importAppSpecs = false; importedSpecs = ''"
+    >
+      <b-form-textarea
+        id="importedAppSpecs"
+        v-model="importedSpecs"
+        rows="6"
+      />
+    </b-modal>
   </div>
 </template>
 
@@ -1970,6 +1994,8 @@ export default {
   },
   data() {
     return {
+      importAppSpecs: false,
+      importedSpecs: '',
       timeoptions,
       version: 1,
       websocket: null,
@@ -2425,97 +2451,8 @@ export default {
     const zelidauth = localStorage.getItem('zelidauth');
     const auth = qs.parse(zelidauth);
     this.appRegistrationSpecification.owner = auth.zelid;
-    console.log(this.$router.currentRoute.params.appspecs);
     if (this.$router.currentRoute.params.appspecs) {
-      const specs = JSON.parse(this.$router.currentRoute.params.appspecs);
-      console.log(specs);
-      this.appRegistrationSpecification = JSON.parse(this.$router.currentRoute.params.appspecs);
-
-      this.appRegistrationSpecification.instances = specs.instances || 3;
-      if (this.appRegistrationSpecification.version <= 3) {
-        this.appRegistrationSpecification.version = 3; // enforce specs version 3
-        this.appRegistrationSpecification.ports = specs.port || this.ensureString(specs.ports); // v1 compatibility
-        this.appRegistrationSpecification.domains = this.ensureString(specs.domains);
-        this.appRegistrationSpecification.enviromentParameters = this.ensureString(specs.enviromentParameters);
-        this.appRegistrationSpecification.commands = this.ensureString(specs.commands);
-        this.appRegistrationSpecification.containerPorts = specs.containerPort || this.ensureString(specs.containerPorts); // v1 compatibility
-      } else {
-        if (this.appRegistrationSpecification.version <= 7) {
-          this.appRegistrationSpecification.version = 7;
-        }
-        this.appRegistrationSpecification.contacts = this.ensureString([]);
-        this.appRegistrationSpecification.geolocation = this.ensureString([]);
-        if (this.appRegistrationSpecification.version >= 5) {
-          this.appRegistrationSpecification.contacts = this.ensureString(specs.contacts || []);
-          this.appRegistrationSpecification.geolocation = this.ensureString(specs.geolocation || []);
-          try {
-            this.decodeGeolocation(specs.geolocation || []);
-          } catch (error) {
-            console.log(error);
-            this.appRegistrationSpecification.geolocation = this.ensureString([]);
-          }
-        }
-        this.appRegistrationSpecification.compose.forEach((component) => {
-          // eslint-disable-next-line no-param-reassign
-          component.ports = this.ensureString(component.ports);
-          // eslint-disable-next-line no-param-reassign
-          component.domains = this.ensureString(component.domains);
-          // eslint-disable-next-line no-param-reassign
-          component.environmentParameters = this.ensureString(component.environmentParameters);
-          // eslint-disable-next-line no-param-reassign
-          component.commands = this.ensureString(component.commands);
-          // eslint-disable-next-line no-param-reassign
-          component.containerPorts = this.ensureString(component.containerPorts);
-          // eslint-disable-next-line no-param-reassign
-          component.secrets = this.ensureString(component.secrets || '');
-          // eslint-disable-next-line no-param-reassign
-          component.repoauth = this.ensureString(component.repoauth || '');
-        });
-        if (this.appRegistrationSpecification.version >= 6) {
-          this.appRegistrationSpecification.expire = this.ensureNumber(specs.expire || 22000);
-          this.expirePosition = this.getExpirePosition(this.appRegistrationSpecification.expire);
-        }
-        if (this.appRegistrationSpecification.version >= 7) {
-          this.appRegistrationSpecification.staticip = this.appRegistrationSpecification.staticip ?? false;
-          this.appRegistrationSpecification.nodes = this.appRegistrationSpecification.nodes || [];
-          if (this.appRegistrationSpecification.nodes && this.appRegistrationSpecification.nodes.length) {
-            this.isPrivateApp = true;
-          }
-          // fetch information about enterprise nodes, pgp keys
-          this.appRegistrationSpecification.nodes.forEach(async (node) => {
-            if (!this.enterpriseNodes) {
-              await this.getEnterpriseNodes();
-            }
-            // fetch pgp key
-            const keyExists = this.enterprisePublicKeys.find((key) => key.nodeip === node);
-            if (!keyExists) {
-              const pgpKey = await this.fetchEnterpriseKey(node);
-              if (pgpKey) {
-                const pair = {
-                  nodeip: node.ip,
-                  nodekey: pgpKey,
-                };
-                const keyExistsB = this.enterprisePublicKeys.find((key) => key.nodeip === node);
-                if (!keyExistsB) {
-                  this.enterprisePublicKeys.push(pair);
-                }
-              }
-            }
-          });
-          this.selectedEnterpriseNodes = [];
-          this.appRegistrationSpecification.nodes.forEach((node) => {
-            // add to selected node list
-            if (this.enterpriseNodes) {
-              const nodeFound = this.enterpriseNodes.find((entNode) => entNode.ip === node || node === `${entNode.txhash}:${entNode.outidx}`);
-              if (nodeFound) {
-                this.selectedEnterpriseNodes.push(nodeFound);
-              }
-            } else {
-              this.showToast('danger', 'Failed to load Enterprise Node List');
-            }
-          });
-        }
-      }
+      this.importSpecs(this.$router.currentRoute.params.appspecs);
     }
     if (auth.zelid) {
       this.appRegistrationSpecification.owner = auth.zelid;
@@ -3479,6 +3416,113 @@ export default {
         this.showToast('danger', error.message);
       }
     },
+    importSpecs(appSpecs) {
+      try {
+        JSON.parse(appSpecs);
+      } catch (error) {
+        this.showToast('error', 'Invalid Application Specifications');
+        return;
+      }
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      if (appSpecs) {
+        const specs = JSON.parse(appSpecs);
+        console.log(specs);
+        this.appRegistrationSpecification = JSON.parse(appSpecs);
+
+        this.appRegistrationSpecification.instances = specs.instances || 3;
+        if (this.appRegistrationSpecification.version <= 3) {
+          this.appRegistrationSpecification.version = 3; // enforce specs version 3
+          this.appRegistrationSpecification.ports = specs.port || this.ensureString(specs.ports); // v1 compatibility
+          this.appRegistrationSpecification.domains = this.ensureString(specs.domains);
+          this.appRegistrationSpecification.enviromentParameters = this.ensureString(specs.enviromentParameters);
+          this.appRegistrationSpecification.commands = this.ensureString(specs.commands);
+          this.appRegistrationSpecification.containerPorts = specs.containerPort || this.ensureString(specs.containerPorts); // v1 compatibility
+        } else {
+          if (this.appRegistrationSpecification.version <= 7) {
+            this.appRegistrationSpecification.version = 7;
+          }
+          this.appRegistrationSpecification.contacts = this.ensureString([]);
+          this.appRegistrationSpecification.geolocation = this.ensureString([]);
+          if (this.appRegistrationSpecification.version >= 5) {
+            this.appRegistrationSpecification.contacts = this.ensureString(specs.contacts || []);
+            this.appRegistrationSpecification.geolocation = this.ensureString(specs.geolocation || []);
+            try {
+              this.decodeGeolocation(specs.geolocation || []);
+            } catch (error) {
+              console.log(error);
+              this.appRegistrationSpecification.geolocation = this.ensureString([]);
+            }
+          }
+          this.appRegistrationSpecification.compose.forEach((component) => {
+            // eslint-disable-next-line no-param-reassign
+            component.ports = this.ensureString(component.ports);
+            // eslint-disable-next-line no-param-reassign
+            component.domains = this.ensureString(component.domains);
+            // eslint-disable-next-line no-param-reassign
+            component.environmentParameters = this.ensureString(component.environmentParameters);
+            // eslint-disable-next-line no-param-reassign
+            component.commands = this.ensureString(component.commands);
+            // eslint-disable-next-line no-param-reassign
+            component.containerPorts = this.ensureString(component.containerPorts);
+            // eslint-disable-next-line no-param-reassign
+            component.secrets = this.ensureString(component.secrets || '');
+            // eslint-disable-next-line no-param-reassign
+            component.repoauth = this.ensureString(component.repoauth || '');
+          });
+          if (this.appRegistrationSpecification.version >= 6) {
+            this.appRegistrationSpecification.expire = this.ensureNumber(specs.expire || 22000);
+            this.expirePosition = this.getExpirePosition(this.appRegistrationSpecification.expire);
+          }
+          if (this.appRegistrationSpecification.version >= 7) {
+            this.appRegistrationSpecification.staticip = this.appRegistrationSpecification.staticip ?? false;
+            this.appRegistrationSpecification.nodes = this.appRegistrationSpecification.nodes || [];
+            if (this.appRegistrationSpecification.nodes && this.appRegistrationSpecification.nodes.length) {
+              this.isPrivateApp = true;
+            }
+            // fetch information about enterprise nodes, pgp keys
+            this.appRegistrationSpecification.nodes.forEach(async (node) => {
+              if (!this.enterpriseNodes) {
+                await this.getEnterpriseNodes();
+              }
+              // fetch pgp key
+              const keyExists = this.enterprisePublicKeys.find((key) => key.nodeip === node);
+              if (!keyExists) {
+                const pgpKey = await this.fetchEnterpriseKey(node);
+                if (pgpKey) {
+                  const pair = {
+                    nodeip: node.ip,
+                    nodekey: pgpKey,
+                  };
+                  const keyExistsB = this.enterprisePublicKeys.find((key) => key.nodeip === node);
+                  if (!keyExistsB) {
+                    this.enterprisePublicKeys.push(pair);
+                  }
+                }
+              }
+            });
+            this.selectedEnterpriseNodes = [];
+            this.appRegistrationSpecification.nodes.forEach((node) => {
+              // add to selected node list
+              if (this.enterpriseNodes) {
+                const nodeFound = this.enterpriseNodes.find((entNode) => entNode.ip === node || node === `${entNode.txhash}:${entNode.outidx}`);
+                if (nodeFound) {
+                  this.selectedEnterpriseNodes.push(nodeFound);
+                }
+              } else {
+                this.showToast('danger', 'Failed to load Enterprise Node List');
+              }
+            });
+          }
+        }
+      }
+      if (auth.zelid) {
+        this.appRegistrationSpecification.owner = auth.zelid;
+      } else {
+        this.appRegistrationSpecification.owner = '';
+        this.showToast('warning', 'Please log in first before registering an application');
+      }
+    },
   },
 };
 </script>
@@ -3539,5 +3583,10 @@ a img {
 a:hover img {
   filter: opacity(70%);
   transform: scale(1.1);
+}
+
+.importSpecsButton {
+  float: right;
+  margin-top: -50px;
 }
 </style>
