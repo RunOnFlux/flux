@@ -2517,6 +2517,11 @@ export default {
         }
       }
     }
+    if (auth.zelid) {
+      this.appRegistrationSpecification.owner = auth.zelid;
+    } else {
+      this.showToast('warning', 'Please log in first before registering an application');
+    }
   },
   methods: {
     onFilteredSelection(filteredItems) {

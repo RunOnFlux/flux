@@ -40,6 +40,31 @@
                   </template>
                   <template #row-details="row">
                     <b-card class="mx-2">
+                      <b-button
+                        :id="`copy-active-app-${row.item.name}`"
+                        v-b-tooltip.hover.top="'Copy to Clipboard'"
+                        size="sm"
+                        class="mr-2"
+                        variant="danger"
+                        @click="copyToClipboard(JSON.stringify(row.item))"
+                      >
+                        Copy Specifications
+                      </b-button>
+                      <b-button
+                        :id="`deploy-active-app-${row.item.name}`"
+                        size="sm"
+                        class="mr-2"
+                        variant="danger"
+                      >
+                        Deploy Myself
+                      </b-button>
+                      <confirm-dialog
+                        :target="`deploy-active-app-${row.item.name}`"
+                        confirm-button="Deploy App"
+                        @confirm="redeployApp(row.item, true)"
+                      />
+                    </b-card>
+                    <b-card class="mx-2">
                       <list-entry
                         title="Description"
                         :data="row.item.description"
@@ -1503,6 +1528,14 @@ export default {
       }
       return [];
     },
+    isLoggedIn() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      if (auth.zelid) {
+        return true;
+      }
+      return false;
+    },
   },
   mounted() {
     this.appsGetListGlobalApps();
@@ -1591,8 +1624,35 @@ export default {
         console.log(error);
       }
     },
-    redeployApp(appSpecs) {
+    redeployApp(appSpecs, isFromActive = false) {
+      const specs = appSpecs;
+      if (isFromActive) {
+        specs.name += Date.now().toString().slice(-5);
+      }
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      if (auth) {
+        specs.owner = auth.zelid;
+      } else if (isFromActive) {
+        specs.owner = '';
+      }
       this.$router.replace({ name: 'apps-registerapp', params: { appspecs: JSON.stringify(appSpecs) } });
+    },
+    copyToClipboard(appspecs) {
+      const specs = JSON.parse(appspecs);
+      // eslint-disable-next-line no-underscore-dangle
+      delete specs._showDetails;
+      const specsString = JSON.stringify(specs);
+      const el = document.createElement('textarea');
+      el.value = specsString;
+      el.setAttribute('readonly', '');
+      el.style.position = 'absolute';
+      el.style.left = '-9999px';
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+      this.showToast('success', 'Application Specifications copied to Clipboard');
     },
     openApp(name, _ip, _port) {
       console.log(name, _ip, _port);
