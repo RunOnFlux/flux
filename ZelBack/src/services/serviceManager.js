@@ -28,7 +28,7 @@ async function startFluxFunctions() {
       process.exit();
     }
 
-    // User configured UPnP node, UPnP has already been verified and setup
+    // User configured UPnP node with routerIP, UPnP has already been verified and setup
     if (userconfig.initial.routerIP) {
       setInterval(() => {
         upnpService.adjustFirewallForUPNP();
