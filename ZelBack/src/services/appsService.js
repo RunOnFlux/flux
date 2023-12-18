@@ -3261,6 +3261,36 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
       res.write(serviceHelper.ensureString(dockerNetworks2));
     }
 
+    const dockerVolumes = {
+      status: 'Clearing up unused docker volumes...',
+    };
+    log.info(dockerVolumes);
+    if (res) {
+      res.write(serviceHelper.ensureString(dockerVolumes));
+    }
+    await dockerService.pruneVolumes();
+    const dockerVolumes2 = {
+      status: 'Docker volumes cleaned.',
+    };
+    if (res) {
+      res.write(serviceHelper.ensureString(dockerVolumes2));
+    }
+
+    const dockerImages = {
+      status: 'Clearing up unused docker images...',
+    };
+    log.info(dockerImages);
+    if (res) {
+      res.write(serviceHelper.ensureString(dockerImages));
+    }
+    await dockerService.pruneImages();
+    const dockerImages2 = {
+      status: 'Docker images cleaned.',
+    };
+    if (res) {
+      res.write(serviceHelper.ensureString(dockerImages2));
+    }
+
     if (!isComponent) {
       // last character of appName determines gateway
       const lastCharCode = appName.charCodeAt(appName.length - 1);
