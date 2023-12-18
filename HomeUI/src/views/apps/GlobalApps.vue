@@ -1357,7 +1357,7 @@
                       class="mr-0"
                       variant="danger"
                     >
-                      Rdeploy
+                      Redeploy
                     </b-button>
                     <confirm-dialog
                       :target="`redeploy-installed-app-${row.item.name}`"
