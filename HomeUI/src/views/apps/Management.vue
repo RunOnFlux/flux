@@ -4828,8 +4828,13 @@ export default {
           this.appUpdateSpecification.geolocation = this.ensureString([]);
           if (this.appUpdateSpecification.version >= 5) {
             this.appUpdateSpecification.contacts = this.ensureString(specs.contacts || []);
-            this.decodeGeolocation(specs.geolocation || []);
             this.appUpdateSpecification.geolocation = this.ensureString(specs.geolocation || []);
+            try {
+              this.decodeGeolocation(specs.geolocation || []);
+            } catch (error) {
+              console.log(error);
+              this.appUpdateSpecification.geolocation = this.ensureString([]);
+            }
           }
           this.appUpdateSpecification.compose.forEach((component) => {
             // eslint-disable-next-line no-param-reassign

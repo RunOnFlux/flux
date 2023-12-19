@@ -36,7 +36,7 @@ export default [
     },
   },
   {
-    path: '/apps/registerapp',
+    path: '/apps/registerapp/:appspecs?',
     name: 'apps-registerapp',
     component: () => import('@/views/apps/RegisterFluxApp.vue'),
     meta: {

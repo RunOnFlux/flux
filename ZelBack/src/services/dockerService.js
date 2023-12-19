@@ -878,6 +878,20 @@ async function pruneNetworks() {
 }
 
 /**
+ * Remove all unused Volumes. Unused Volumes are those which are not referenced by any containers
+ */
+async function pruneVolumes() {
+  return docker.pruneVolumes();
+}
+
+/**
+ * Remove all unused Images. Unused Images are those which are not referenced by any containers
+ */
+async function pruneImages() {
+  return docker.pruneImages();
+}
+
+/**
  * Return docker system information
  *
  * @returns {object}
@@ -950,6 +964,8 @@ module.exports = {
   createFluxAppDockerNetwork,
   removeFluxAppDockerNetwork,
   pruneNetworks,
+  pruneVolumes,
+  pruneImages,
   dockerInfo,
   dockerVersion,
   dockerGetEvents,
