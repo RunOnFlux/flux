@@ -815,6 +815,7 @@ export default {
       }
     };
     const autoSelectNodes = async () => {
+      showToast('info', 'Selecting enterprise nodes...');
       const { instances } = props.appData;
       const maxSamePubKeyNodes = +instances + 3;
       const maxNumberOfNodes = +instances + Math.ceil(Math.max(7, +instances * 0.15));
@@ -1026,11 +1027,14 @@ export default {
             assignedSecrets.forEach((param) => {
               userSecrets.push(`${param.name}=${param.value}`);
             });
-            if (userSecrets.length && typeof userSecrets !== 'string') {
+            if (userSecrets.length > 0) {
+              showToast('info', 'Encrypting specifications, this will take a while...');
               // eslint-disable-next-line no-await-in-loop
               const encryptedMessage = await encryptMessage(JSON.stringify(userSecrets), enterprisePublicKeys.value);
               if (encryptedMessage) {
                 appComponent.secrets = encryptedMessage;
+              } else {
+                throw new Error('Secrets failed to encrypt');
               }
             }
           }
