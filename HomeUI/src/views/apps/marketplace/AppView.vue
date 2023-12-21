@@ -815,7 +815,6 @@ export default {
       }
     };
     const autoSelectNodes = async () => {
-      showToast('info', 'Selecting enterprise nodes...');
       const { instances } = props.appData;
       const maxSamePubKeyNodes = +instances + 3;
       const maxNumberOfNodes = +instances + Math.ceil(Math.max(7, +instances * 0.15));
@@ -1028,11 +1027,34 @@ export default {
               userSecrets.push(`${param.name}=${param.value}`);
             });
             if (userSecrets.length > 0) {
+              const fetchedKeys = [];
+              // eslint-disable-next-line no-restricted-syntax
+              for (const node of appSpecification.nodes) {
+                const keyExists = this.enterprisePublicKeys.value.find((key) => key.nodeip === node);
+                if (keyExists) {
+                  fetchedKeys.push(keyExists.nodekey);
+                } else {
+                  // eslint-disable-next-line no-await-in-loop
+                  const pgpKey = await this.fetchEnterpriseKey(node);
+                  if (pgpKey) {
+                    const pair = {
+                      nodeip: node.ip,
+                      nodekey: pgpKey,
+                    };
+                    const keyExistsB = this.enterprisePublicKeys.value.find((key) => key.nodeip === node.ip);
+                    if (!keyExistsB) {
+                      this.enterprisePublicKeys.value.push(pair);
+                    }
+                    fetchedKeys.push(pgpKey);
+                  } // else silently fail
+                }
+              }
               showToast('info', 'Encrypting specifications, this will take a while...');
               // eslint-disable-next-line no-await-in-loop
-              const encryptedMessage = await encryptMessage(JSON.stringify(userSecrets), enterprisePublicKeys.value);
+              const encryptedMessage = await encryptMessage(JSON.stringify(userSecrets), fetchedKeys);
               if (encryptedMessage) {
                 appComponent.secrets = encryptedMessage;
+                showToast('success', 'Successful encrypting specifications');
               } else {
                 throw new Error('Secrets failed to encrypt');
               }
