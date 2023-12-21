@@ -975,11 +975,25 @@ export default {
             showToast('success', 'Successful upload of Environment Parameters to Flux Storage');
             envParams = [`F_S_ENV=https://storage.runonflux.io/v1/env/${envid}`];
           }
+          let { ports } = component;
+          if (component.portSpecs) {
+            ports = [];
+            for (let y = 0; y < component.portSpecs.length; y += 1) {
+              const portInterval = component.portSpecs[y];
+              if (typeof portInterval === 'string') { // '0-10'
+                const minPort = Number(portInterval.split('-')[0]);
+                const maxPort = Number(portInterval.split('-')[1]);
+                ports.push(Math.floor(Math.random() * (maxPort - minPort + 1) + minPort));
+              } else {
+                throw new Error('Port Specs Range for the application on Marketplace is not properly configured');
+              }
+            }
+          }
           const appComponent = {
             name: component.name,
             description: component.description,
             repotag: component.repotag,
-            ports: component.ports,
+            ports,
             containerPorts: component.containerPorts,
             environmentParameters: envParams,
             commands: component.commands,
