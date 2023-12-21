@@ -821,7 +821,7 @@ export default {
       const notSelectedEnterpriseNodes = await getEnterpriseNodes();
       const nodesToSelect = [];
       const selectedEnNodes = [];
-      const kycNodes = notSelectedEnterpriseNodes.filter((x) => x.enterprisePoints === 2000);
+      const kycNodes = notSelectedEnterpriseNodes.filter((x) => x.enterprisePoints > 0 && x.score > 1000); // allows to install multiple apps 3 to 4 only in kyc nodes
       for (let i = 0; i < kycNodes.length; i += 1) {
         // todo here check if max same pub key is satisfied
         const alreadySelectedPubKeyOccurances = selectedEnNodes.filter((node) => node.pubkey === kycNodes[i].pubkey).length;
@@ -832,6 +832,9 @@ export default {
         if (nodesToSelect.length + selectedEnNodes.length >= maxNumberOfNodes) {
           break;
         }
+      }
+      if (nodesToSelect.length < maxNumberOfNodes) {
+        throw new Error('Not enough kyc nodes available to run your enterprise app.');
       }
       nodesToSelect.forEach(async (node) => {
         const nodeExists = selectedEnNodes.find((existingNode) => existingNode.ip === node.ip);
