@@ -821,12 +821,13 @@ export default {
       const notSelectedEnterpriseNodes = await getEnterpriseNodes();
       const nodesToSelect = [];
       const selectedEnNodes = [];
-      for (let i = 0; i < notSelectedEnterpriseNodes.length; i += 1) {
+      const kycNodes = notSelectedEnterpriseNodes.filter((x) => x.enterprisePoints === 2000);
+      for (let i = 0; i < kycNodes.length; i += 1) {
         // todo here check if max same pub key is satisfied
-        const alreadySelectedPubKeyOccurances = selectedEnNodes.filter((node) => node.pubkey === notSelectedEnterpriseNodes[i].pubkey).length;
-        const toSelectPubKeyOccurances = nodesToSelect.filter((node) => node.pubkey === notSelectedEnterpriseNodes[i].pubkey).length;
+        const alreadySelectedPubKeyOccurances = selectedEnNodes.filter((node) => node.pubkey === kycNodes[i].pubkey).length;
+        const toSelectPubKeyOccurances = nodesToSelect.filter((node) => node.pubkey === kycNodes[i].pubkey).length;
         if (alreadySelectedPubKeyOccurances + toSelectPubKeyOccurances < maxSamePubKeyNodes) {
-          nodesToSelect.push(notSelectedEnterpriseNodes[i]);
+          nodesToSelect.push(kycNodes[i]);
         }
         if (nodesToSelect.length + selectedEnNodes.length >= maxNumberOfNodes) {
           break;
