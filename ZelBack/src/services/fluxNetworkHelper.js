@@ -844,7 +844,7 @@ async function adjustExternalIP(ip) {
     if (ip === userconfig.initial.ipaddress) {
       return;
     }
-
+    const oldUserConfigIp = userconfig.initial.ipaddress;
     log.info(`Adjusting External IP from ${userconfig.initial.ipaddress} to ${ip}`);
     const dataToWrite = `module.exports = {
   initial: {
@@ -864,10 +864,10 @@ async function adjustExternalIP(ip) {
 
     await fs.writeFile(fluxDirPath, dataToWrite);
 
-    if (userconfig.initial.ipaddress && v4exact.test(userconfig.initial.ipaddress) && !myCache.has(ip)) {
+    if (oldUserConfigIp && v4exact.test(oldUserConfigIp) && !myCache.has(ip)) {
       myCache.set(ip, ip);
       const newIP = userconfig.initial.apiport !== 16127 ? `${ip}:${userconfig.initial.apiport}` : ip;
-      const oldIP = userconfig.initial.apiport !== 16127 ? `${userconfig.initial.ipaddress}:${userconfig.initial.apiport}` : userconfig.initial.ipaddress;
+      const oldIP = userconfig.initial.apiport !== 16127 ? `${oldUserConfigIp}:${userconfig.initial.apiport}` : oldUserConfigIp;
       log.info(`New public Ip detected: ${newIP}, old Ip:${oldIP} , updating the FluxNode info in the network`);
       // eslint-disable-next-line global-require
       const dockerService = require('./dockerService');
