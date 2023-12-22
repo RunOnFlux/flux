@@ -1027,12 +1027,10 @@ export default {
               userSecrets.push(`${param.name}=${param.value}`);
             });
             if (userSecrets.length > 0) {
-              showToast('info', 'Encrypting specifications, this will take a while...');
               // eslint-disable-next-line no-await-in-loop
               const encryptedMessage = await encryptMessage(JSON.stringify(userSecrets), enterprisePublicKeys.value);
               if (encryptedMessage) {
                 appComponent.secrets = encryptedMessage;
-                showToast('success', 'Successful encrypt specifications');
               } else {
                 throw new Error('Secrets failed to encrypt');
               }
