@@ -2480,17 +2480,22 @@ export default {
       this.tableconfig.available.loading = false;
     },
     openApp(name, _ip, _port) {
-      console.log(name, _ip, _port);
-      const appInfo = this.installedApp(name);
-      if (appInfo || (_port && _ip)) {
-        const backendURL = store.get('backendURL') || `http://${this.userconfig.externalip}:${this.config.apiPort}`;
-        const ip = _ip || backendURL.split(':')[1].split('//')[1];
-        const port = _port || appInfo.port || appInfo.ports ? appInfo.ports[0] : appInfo.compose[0].ports[0];
-        console.log(ip, port);
-        const url = `http://${ip}:${port}`;
+      if (_port && _ip) {
+        console.log(name, _ip, _port);
+        const url = `http://${_ip}:${_port}`;
         this.openSite(url);
       } else {
-        this.showToast('danger', 'Unable to open App :(, App does not have a port.');
+        const appInfo = this.installedApp(name);
+        const backendURL = store.get('backendURL') || `http://${this.userconfig.externalip}:${this.config.apiPort}`;
+        const ip = backendURL.split(':')[1].split('//')[1];
+        const port = appInfo.port || appInfo.ports ? appInfo?.ports[0] : appInfo?.compose[0].ports[0];
+        console.log(name, ip, port);
+        if (port === '') {
+          this.showToast('danger', 'Unable to open App :(, App does not have a port.');
+          return;
+        }
+        const url = `http://${ip}:${port}`;
+        this.openSite(url);
       }
     },
     getProperPort(appSpecs) {
