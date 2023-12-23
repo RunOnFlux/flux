@@ -306,7 +306,7 @@
                         size="sm"
                         class="mr-0"
                         variant="danger"
-                        @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
+                        @click="openApp(row.item.name, row.item.ip.split(':')[0], getProperPort(row.item))"
                       >
                         Visit
                       </b-button>
@@ -690,7 +690,7 @@
                                   size="sm"
                                   class="mr-0"
                                   variant="danger"
-                                  @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
+                                  @click="openApp(locationRow.item.name, locationRow.item.ip.split(':')[0], getProperPort(locationRow.item))"
                                 >
                                   Visit
                                 </b-button>
@@ -1138,7 +1138,7 @@
                                   size="sm"
                                   class="mr-0"
                                   variant="danger"
-                                  @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
+                                  @click="openApp(locationRow.item.name, locationRow.item.ip.split(':')[0], getProperPort(locationRow.item))"
                                 >
                                   Visit
                                 </b-button>
@@ -1534,7 +1534,7 @@
                                   size="sm"
                                   class="mr-0"
                                   variant="danger"
-                                  @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
+                                  @click="openApp(locationRow.item.name, locationRow.item.ip.split(':')[0], getProperPort(locationRow.item))"
                                 >
                                   Visit
                                 </b-button>
@@ -1994,7 +1994,7 @@
                                   size="sm"
                                   class="mr-0"
                                   variant="danger"
-                                  @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
+                                  @click="openApp(locationRow.item.name, locationRow.item.ip.split(':')[0], getProperPort(locationRow.item))"
                                 >
                                   Visit
                                 </b-button>
