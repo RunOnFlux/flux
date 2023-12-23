@@ -306,7 +306,7 @@
                         size="sm"
                         class="mr-0"
                         variant="danger"
-                        @click="openApp(row.item.name, row.item.ip.split(':')[0], getProperPort(row.item))"
+                        @click="openApp(row.item.name)"
                       >
                         Visit
                       </b-button>
@@ -690,7 +690,7 @@
                                   size="sm"
                                   class="mr-0"
                                   variant="danger"
-                                  @click="openApp(locationRow.item.name, locationRow.item.ip.split(':')[0], getProperPort(locationRow.item))"
+                                  @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
                                 >
                                   Visit
                                 </b-button>
@@ -1138,7 +1138,7 @@
                                   size="sm"
                                   class="mr-0"
                                   variant="danger"
-                                  @click="openApp(locationRow.item.name, locationRow.item.ip.split(':')[0], getProperPort(locationRow.item))"
+                                  @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
                                 >
                                   Visit
                                 </b-button>
@@ -1534,7 +1534,7 @@
                                   size="sm"
                                   class="mr-0"
                                   variant="danger"
-                                  @click="openApp(locationRow.item.name, locationRow.item.ip.split(':')[0], getProperPort(locationRow.item))"
+                                  @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
                                 >
                                   Visit
                                 </b-button>
@@ -1994,7 +1994,7 @@
                                   size="sm"
                                   class="mr-0"
                                   variant="danger"
-                                  @click="openApp(locationRow.item.name, locationRow.item.ip.split(':')[0], getProperPort(locationRow.item))"
+                                  @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
                                 >
                                   Visit
                                 </b-button>
@@ -2177,6 +2177,7 @@ import Management from '@/views/apps/Management.vue';
 import AppsService from '@/services/AppsService';
 import DaemonService from '@/services/DaemonService';
 
+const store = require('store');
 const qs = require('qs');
 const timeoptions = require('@/libs/dateFormat');
 
@@ -2480,9 +2481,12 @@ export default {
     },
     openApp(name, _ip, _port) {
       console.log(name, _ip, _port);
-      if (_port && _ip) {
-        const ip = _ip;
-        const port = _port;
+      const appInfo = this.installedApp(name);
+      if (appInfo || (_port && _ip)) {
+        const backendURL = store.get('backendURL') || `http://${this.userconfig.externalip}:${this.config.apiPort}`;
+        const ip = _ip || backendURL.split(':')[1].split('//')[1];
+        const port = _port || appInfo.port || appInfo.ports ? appInfo.ports[0] : appInfo.compose[0].ports[0];
+        console.log(ip, port);
         const url = `http://${ip}:${port}`;
         this.openSite(url);
       } else {
