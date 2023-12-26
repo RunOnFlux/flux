@@ -821,16 +821,20 @@ export default {
       const notSelectedEnterpriseNodes = await getEnterpriseNodes();
       const nodesToSelect = [];
       const selectedEnNodes = [];
-      for (let i = 0; i < notSelectedEnterpriseNodes.length; i += 1) {
+      const kycNodes = notSelectedEnterpriseNodes.filter((x) => x.enterprisePoints > 0 && x.score > 1000); // allows to install multiple apps 3 to 4 only in kyc nodes
+      for (let i = 0; i < kycNodes.length; i += 1) {
         // todo here check if max same pub key is satisfied
-        const alreadySelectedPubKeyOccurances = selectedEnNodes.filter((node) => node.pubkey === notSelectedEnterpriseNodes[i].pubkey).length;
-        const toSelectPubKeyOccurances = nodesToSelect.filter((node) => node.pubkey === notSelectedEnterpriseNodes[i].pubkey).length;
+        const alreadySelectedPubKeyOccurances = selectedEnNodes.filter((node) => node.pubkey === kycNodes[i].pubkey).length;
+        const toSelectPubKeyOccurances = nodesToSelect.filter((node) => node.pubkey === kycNodes[i].pubkey).length;
         if (alreadySelectedPubKeyOccurances + toSelectPubKeyOccurances < maxSamePubKeyNodes) {
-          nodesToSelect.push(notSelectedEnterpriseNodes[i]);
+          nodesToSelect.push(kycNodes[i]);
         }
         if (nodesToSelect.length + selectedEnNodes.length >= maxNumberOfNodes) {
           break;
         }
+      }
+      if (nodesToSelect.length < maxNumberOfNodes) {
+        throw new Error('Not enough kyc nodes available to run your enterprise app.');
       }
       nodesToSelect.forEach(async (node) => {
         const nodeExists = selectedEnNodes.find((existingNode) => existingNode.ip === node.ip);
@@ -974,11 +978,25 @@ export default {
             showToast('success', 'Successful upload of Environment Parameters to Flux Storage');
             envParams = [`F_S_ENV=https://storage.runonflux.io/v1/env/${envid}`];
           }
+          let { ports } = component;
+          if (component.portSpecs) {
+            ports = [];
+            for (let y = 0; y < component.portSpecs.length; y += 1) {
+              const portInterval = component.portSpecs[y];
+              if (typeof portInterval === 'string') { // '0-10'
+                const minPort = Number(portInterval.split('-')[0]);
+                const maxPort = Number(portInterval.split('-')[1]);
+                ports.push(Math.floor(Math.random() * (maxPort - minPort + 1) + minPort));
+              } else {
+                throw new Error('Port Specs Range for the application on Marketplace is not properly configured');
+              }
+            }
+          }
           const appComponent = {
             name: component.name,
             description: component.description,
             repotag: component.repotag,
-            ports: component.ports,
+            ports,
             containerPorts: component.containerPorts,
             environmentParameters: envParams,
             commands: component.commands,
@@ -1008,11 +1026,13 @@ export default {
             assignedSecrets.forEach((param) => {
               userSecrets.push(`${param.name}=${param.value}`);
             });
-            if (userSecrets.length && typeof userSecrets !== 'string') {
+            if (userSecrets.length > 0) {
               // eslint-disable-next-line no-await-in-loop
               const encryptedMessage = await encryptMessage(JSON.stringify(userSecrets), enterprisePublicKeys.value);
               if (encryptedMessage) {
                 appComponent.secrets = encryptedMessage;
+              } else {
+                throw new Error('Secrets failed to encrypt');
               }
             }
           }

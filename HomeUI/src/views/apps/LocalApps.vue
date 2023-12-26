@@ -306,7 +306,7 @@
                         size="sm"
                         class="mr-0"
                         variant="danger"
-                        @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
+                        @click="openApp(row.item.name)"
                       >
                         Visit
                       </b-button>
@@ -2177,6 +2177,7 @@ import Management from '@/views/apps/Management.vue';
 import AppsService from '@/services/AppsService';
 import DaemonService from '@/services/DaemonService';
 
+const store = require('store');
 const qs = require('qs');
 const timeoptions = require('@/libs/dateFormat');
 
@@ -2479,14 +2480,22 @@ export default {
       this.tableconfig.available.loading = false;
     },
     openApp(name, _ip, _port) {
-      console.log(name, _ip, _port);
       if (_port && _ip) {
-        const ip = _ip;
-        const port = _port;
-        const url = `http://${ip}:${port}`;
+        console.log(name, _ip, _port);
+        const url = `http://${_ip}:${_port}`;
         this.openSite(url);
       } else {
-        this.showToast('danger', 'Unable to open App :(, App does not have a port.');
+        const appInfo = this.installedApp(name);
+        const backendURL = store.get('backendURL') || `http://${this.userconfig.externalip}:${this.config.apiPort}`;
+        const ip = backendURL.split(':')[1].split('//')[1];
+        const port = appInfo.port || appInfo.ports ? appInfo?.ports[0] : appInfo?.compose[0].ports[0];
+        console.log(name, ip, port);
+        if (port === '') {
+          this.showToast('danger', 'Unable to open App :(, App does not have a port.');
+          return;
+        }
+        const url = `http://${ip}:${port}`;
+        this.openSite(url);
       }
     },
     getProperPort(appSpecs) {

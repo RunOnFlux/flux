@@ -1953,7 +1953,7 @@ const metamaskOptions = {
 };
 
 const MMSDK = new MetaMaskSDK(metamaskOptions);
-const ethereum = MMSDK.getProvider();
+let ethereum;
 
 const qs = require('qs');
 const axios = require('axios');
@@ -2320,9 +2320,6 @@ export default {
         totalRows: 1,
       },
       chooseEnterpriseDialog: false,
-      walletConnectButton: {
-        disabled: false,
-      },
       signClient: null,
     };
   },
@@ -2442,6 +2439,7 @@ export default {
     this.appRegistrationSpecification = this.appRegistrationSpecificationV7Template;
   },
   mounted() {
+    this.initMMSDK();
     this.getGeolocationData();
     this.getDaemonInfo();
     this.appsDeploymentInformation();
@@ -2461,6 +2459,14 @@ export default {
     }
   },
   methods: {
+    async initMMSDK() {
+      try {
+        await MMSDK.init();
+        ethereum = MMSDK.getProvider();
+      } catch (error) {
+        console.log(error);
+      }
+    },
     onFilteredSelection(filteredItems) {
       // Trigger pagination to update the number of buttons/pages due to filtering
       this.entNodesSelectTable.totalRows = filteredItems.length;
@@ -3225,16 +3231,20 @@ export default {
       const maxNumberOfNodes = +instances + Math.ceil(Math.max(7, +instances * 0.15));
       const notSelectedEnterpriseNodes = this.enterpriseNodes.filter((node) => !this.selectedEnterpriseNodes.includes(node));
       const nodesToSelect = [];
-      for (let i = 0; i < notSelectedEnterpriseNodes.length; i += 1) {
+      const kycNodes = notSelectedEnterpriseNodes.filter((x) => x.enterprisePoints > 0 && x.score > 1000); // allows to install multiple apps 3 to 4 only in kyc nodes
+      for (let i = 0; i < kycNodes.length; i += 1) {
         // todo here check if max same pub key is satisfied
-        const alreadySelectedPubKeyOccurances = this.selectedEnterpriseNodes.filter((node) => node.pubkey === notSelectedEnterpriseNodes[i].pubkey).length;
-        const toSelectPubKeyOccurances = nodesToSelect.filter((node) => node.pubkey === notSelectedEnterpriseNodes[i].pubkey).length;
+        const alreadySelectedPubKeyOccurances = this.selectedEnterpriseNodes.filter((node) => node.pubkey === kycNodes[i].pubkey).length;
+        const toSelectPubKeyOccurances = nodesToSelect.filter((node) => node.pubkey === kycNodes[i].pubkey).length;
         if (alreadySelectedPubKeyOccurances + toSelectPubKeyOccurances < maxSamePubKeyNodes) {
-          nodesToSelect.push(notSelectedEnterpriseNodes[i]);
+          nodesToSelect.push(kycNodes[i]);
         }
         if (nodesToSelect.length + this.selectedEnterpriseNodes.length >= maxNumberOfNodes) {
           break;
         }
+      }
+      if (nodesToSelect.length < maxNumberOfNodes) {
+        throw new Error('Not enough kyc nodes available to run your enterprise app.');
       }
       nodesToSelect.forEach(async (node) => {
         const nodeExists = this.selectedEnterpriseNodes.find((existingNode) => existingNode.ip === node.ip);
@@ -3347,11 +3357,7 @@ export default {
       this.signature = result;
     },
     async initWalletConnect() {
-      if (this.walletConnectButton.disabled) {
-        return;
-      }
       try {
-        this.walletConnectButton.disabled = true;
         const signClient = await SignClient.init(walletConnectOptions);
         this.signClient = signClient;
         const lastKeyIndex = signClient.session.getAll().length - 1;
@@ -3364,8 +3370,6 @@ export default {
       } catch (error) {
         console.error(error);
         this.showToast('danger', error.message);
-      } finally {
-        this.walletConnectButton.disabled = false;
       }
     },
     async siwe(siweMessage, from) {
