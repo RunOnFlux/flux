@@ -190,7 +190,7 @@ const metamaskOptions = {
   enableDebug: true,
 };
 const MMSDK = new MetaMaskSDK(metamaskOptions);
-const ethereum = MMSDK.getProvider();
+let ethereum;
 
 const qs = require('qs');
 const store = require('store');
@@ -231,9 +231,6 @@ export default {
         loginPhrase: '',
       },
       staticIp: false,
-      walletConnectButton: {
-        disabled: false,
-      },
       signClient: null,
     };
   },
@@ -255,8 +252,17 @@ export default {
     this.getZelIdLoginPhrase();
     this.getOwnerZelid();
     this.getStaticIpInfo();
+    this.initMMSDK();
   },
   methods: {
+    async initMMSDK() {
+      try {
+        await MMSDK.init();
+        ethereum = MMSDK.getProvider();
+      } catch (error) {
+        console.log(error);
+      }
+    },
     backendURL() {
       const { protocol, hostname, port } = window.location;
       let mybackend = '';
@@ -473,11 +479,7 @@ export default {
     },
     async initWalletConnect() {
       const self = this;
-      if (this.walletConnectButton.disabled) {
-        return;
-      }
       try {
-        this.walletConnectButton.disabled = true;
         const signClient = await SignClient.init(walletConnectOptions);
         this.signClient = signClient;
         signClient.on('session_event', ({ event }) => {
@@ -526,8 +528,6 @@ export default {
       } catch (error) {
         console.error(error);
         this.showToast('danger', error.message);
-      } finally {
-        this.walletConnectButton.disabled = false;
       }
     },
     async siwe(siweMessage, from) {

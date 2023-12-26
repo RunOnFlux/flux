@@ -3919,7 +3919,7 @@ const metamaskOptions = {
 };
 
 const MMSDK = new MetaMaskSDK(metamaskOptions);
-const ethereum = MMSDK.getProvider();
+let ethereum;
 
 const axios = require('axios');
 const qs = require('qs');
@@ -4184,9 +4184,6 @@ export default {
       },
       chooseEnterpriseDialog: false,
       isPrivateApp: false,
-      walletConnectButton: {
-        disabled: false,
-      },
       signClient: null,
     };
   },
@@ -4448,6 +4445,7 @@ export default {
     },
   },
   mounted() {
+    this.initMMSDK();
     this.callBResponse.data = '';
     this.callBResponse.status = '';
     this.appSpecification = {};
@@ -4470,6 +4468,14 @@ export default {
     this.getEnterpriseNodes();
   },
   methods: {
+    async initMMSDK() {
+      try {
+        await MMSDK.init();
+        ethereum = MMSDK.getProvider();
+      } catch (error) {
+        console.log(error);
+      }
+    },
     connectTerminal(name) {
       if (this.appSpecification.version >= 4) {
         const composeValues = Object.values(this.appSpecification.compose);
@@ -6378,11 +6384,7 @@ export default {
       this.signature = result;
     },
     async initWalletConnect() {
-      if (this.walletConnectButton.disabled) {
-        return;
-      }
       try {
-        this.walletConnectButton.disabled = true;
         const signClient = await SignClient.init(walletConnectOptions);
         this.signClient = signClient;
         const lastKeyIndex = signClient.session.getAll().length - 1;
@@ -6395,8 +6397,6 @@ export default {
       } catch (error) {
         console.error(error);
         this.showToast('danger', error.message);
-      } finally {
-        this.walletConnectButton.disabled = false;
       }
     },
     async siwe(siweMessage, from) {
