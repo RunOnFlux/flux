@@ -1408,9 +1408,8 @@ async function allowNodeToBindPrivilegedPorts() {
  */
 async function installNetcat() {
   try {
-    const exec = 'sudo apt install netcat -y';
-    const cmdAsync = util.promisify(nodecmd.get);
-    cmdAsync(exec);
+    const exec = 'sudo apt install netcat-openbsd -y';
+    await util.promisify(nodecmd.get)(`${exec}`);
   } catch (error) {
     log.error(error);
   }
