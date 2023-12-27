@@ -1925,7 +1925,8 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
           res.write(serviceHelper.ensureString(stFolderCreation2));
         }
         if (appId.toLowerCase().includes('minecraft')) {
-          const stignore = `sudo mkdir -p ${appsFolder + appId + containerFolder}/.stignore`;
+          const stignore = `sudo mkdir -p ${appsFolder + appId + containerFolder}/.stignore && sudo echo '*.paused' > ${appsFolder + appId + containerFolder}/.stignore`;
+          log.info(stignore);
           // eslint-disable-next-line no-await-in-loop
           await cmdAsync(stignore);
           const stiFileCreation = {
@@ -1935,10 +1936,6 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
           if (res) {
             res.write(serviceHelper.ensureString(stiFileCreation));
           }
-          const stIgnoredir = path.join(__dirname, `../../../ZelApps/${appId + containerFolder}/.stignore`);
-          const dataToWrite = '*.paused';
-          // eslint-disable-next-line no-await-in-loop
-          await fs.writeFile(stIgnoredir, dataToWrite);
         }
       }
     }
