@@ -12,6 +12,7 @@ const { LRUCache } = require('lru-cache');
 const systemcrontab = require('crontab');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
+const fs = require('fs').promises;
 const httpShutdown = require('http-shutdown');
 const fluxCommunication = require('./fluxCommunication');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
@@ -1934,9 +1935,10 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
           if (res) {
             res.write(serviceHelper.ensureString(stiFileCreation));
           }
-          const paused = `echo "*.paused" >> ${appsFolder + appId + containerFolder}/.stignore`;
+          const stIgnoredir = path.join(__dirname, `${appsFolder + appId + containerFolder}/.stignore`);
+          const dataToWrite = '*.paused';
           // eslint-disable-next-line no-await-in-loop
-          await cmdAsync(paused);
+          await fs.writeFile(stIgnoredir, dataToWrite);
         }
       }
     }
