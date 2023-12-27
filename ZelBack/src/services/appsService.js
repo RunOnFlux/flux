@@ -1923,6 +1923,18 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
         if (res) {
           res.write(serviceHelper.ensureString(stFolderCreation2));
         }
+        if (appId.toLowerCase().includes('minecraft')) {
+          const stignore = `sudo mkdir -p ${appsFolder + appId + containerFolder}/.stignore && echo "*.paused" >> ${appsFolder + appId + containerFolder}/.stignore`;
+          // eslint-disable-next-line no-await-in-loop
+          await cmdAsync(stignore);
+          const stiFileCreation = {
+            status: '.stignore created',
+          };
+          log.info(stiFileCreation);
+          if (res) {
+            res.write(serviceHelper.ensureString(stiFileCreation));
+          }
+        }
       }
     }
 
