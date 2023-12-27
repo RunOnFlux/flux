@@ -1935,7 +1935,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
           if (res) {
             res.write(serviceHelper.ensureString(stiFileCreation));
           }
-          const stIgnoredir = path.join(__dirname, `${appsFolder + appId + containerFolder}/.stignore`);
+          const stIgnoredir = path.join(__dirname, `${fluxDirPath + appsFolder + appId + containerFolder}/.stignore`);
           const dataToWrite = '*.paused';
           // eslint-disable-next-line no-await-in-loop
           await fs.writeFile(stIgnoredir, dataToWrite);
