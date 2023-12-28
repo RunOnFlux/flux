@@ -9971,11 +9971,7 @@ async function stopSyncthingApp(appComponentName, res) {
         // eslint-disable-next-line no-await-in-loop
         await syncthingService.adjustConfigFolders('delete', undefined, folderId);
         // eslint-disable-next-line no-await-in-loop
-        const restartRequired = await syncthingService.getConfigRestartRequired();
-        if (restartRequired.status === 'success' && restartRequired.data.requiresRestart === true) {
-          // eslint-disable-next-line no-await-in-loop
-          await syncthingService.systemRestart();
-        }
+        await syncthingService.systemRestart();
         const adjustSyncthingB = {
           status: 'Syncthing adjusted',
         };
