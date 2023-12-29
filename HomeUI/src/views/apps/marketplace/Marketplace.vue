@@ -2,7 +2,7 @@
   <div style="height: inherit">
     <div
       class="body-content-overlay"
-      :class="{'show': showDetailSidebar}"
+      :class="{ show: showDetailSidebar }"
       @click="showDetailSidebar = false"
     />
     <div class="marketplace-app-list">
@@ -144,7 +144,7 @@
         </ul>
         <div
           class="no-results"
-          :class="{'show': filteredApps.length === 0}"
+          :class="{ show: filteredApps.length === 0 }"
         >
           <h5>No Marketplace Apps Found</h5>
         </div>
@@ -153,7 +153,7 @@
 
     <!-- Proposal View/Detail -->
     <app-view
-      :class="{'show': isAppViewActive}"
+      :class="{ show: isAppViewActive }"
       :app-data="app"
       :zelid="zelid"
       :tier="tier"
@@ -161,7 +161,7 @@
     />
 
     <shared-nodes-view
-      :class="{'show': isSharedNodesViewActive}"
+      :class="{ show: isSharedNodesViewActive }"
       :app-data="app"
       :zelid="zelid"
       :tier="tier"
@@ -171,7 +171,7 @@
     <!-- Sidebar -->
     <portal to="content-renderer-sidebar-left">
       <category-sidebar
-        :class="{'show': showDetailSidebar}"
+        :class="{ show: showDetailSidebar }"
         :zelid="zelid"
         @close-left-sidebar="showDetailSidebar = false"
         @close-app-view="isAppViewActive = false; isSharedNodesViewActive = false;"

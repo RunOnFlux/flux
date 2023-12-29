@@ -414,7 +414,7 @@
             class="text-center wizard-card"
           >
             <a
-              :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=' + callbackValue()"
+              :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
               @click="initiateSignWS"
             >
               <img
@@ -486,7 +486,7 @@
                 title="Pay with Zelcore"
                 class="text-center wizard-card"
               >
-                <a :href="'zel:?action=pay&coin=zelcash&address=' + deploymentAddress + '&amount=' + appPricePerMonth + '&message=' + registrationHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png'">
+                <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${appPricePerMonth}&message=${registrationHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
                   <img
                     class="zelidLogin"
                     src="@/assets/images/zelID.svg"

@@ -2,7 +2,7 @@
   <div>
     <div class="mb-2">
       <h6 class="progress-label">
-        {{ storage.used.toFixed(2) + ' / ' + storage.total.toFixed(2) }} GB
+        {{ `${storage.used.toFixed(2)} / ${storage.total.toFixed(2)}` }} GB
       </h6>
       <b-progress
         :value="percentage"

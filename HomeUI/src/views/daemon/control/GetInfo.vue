@@ -61,7 +61,7 @@
       :data="getInfoResponse.data.relayfee.toString()"
     />
     <list-entry
-      v-if="getInfoResponse.data.errors != ''"
+      v-if="getInfoResponse.data.errors !== ''"
       title="Error"
       :data="getInfoResponse.data.errors"
       variant="danger"

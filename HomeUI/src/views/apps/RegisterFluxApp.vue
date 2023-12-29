@@ -7,6 +7,7 @@
           href="https://discord.gg/runonflux"
           target="_blank"
           active-class="primary"
+          rel="noopener noreferrer"
         >
           Discord
         </b-link>
@@ -15,6 +16,7 @@
           href="https://github.com/RunOnFlux/flux"
           target="_blank"
           active-class="primary"
+          rel="noopener noreferrer"
         >
           Flux repository
         </b-link>.
@@ -120,12 +122,12 @@
                 <h4>Allowed Geolocation</h4>
                 <div
                   v-for="n in numberOfGeolocations"
-                  :key="n + 'pos'"
+                  :key="`${n}pos`"
                 >
                   <b-form-group
                     label-cols="3"
                     label-cols-lg="1"
-                    :label="'Continent - ' + n"
+                    :label="`Continent - ${n}`"
                     label-for="Continent"
                   >
                     <b-form-select
@@ -148,7 +150,7 @@
                     v-if="allowedGeolocations[`selectedContinent${n}`] && allowedGeolocations[`selectedContinent${n}`] !== 'ALL'"
                     label-cols="3"
                     label-cols-lg="1"
-                    :label="'Country - ' + n"
+                    :label="`Country - ${n}`"
                     label-for="Country"
                   >
                     <b-form-select
@@ -171,7 +173,7 @@
                     v-if="allowedGeolocations[`selectedContinent${n}`] && allowedGeolocations[`selectedContinent${n}`] !== 'ALL' && allowedGeolocations[`selectedCountry${n}`] && allowedGeolocations[`selectedCountry${n}`] !== 'ALL'"
                     label-cols="3"
                     label-cols-lg="1"
-                    :label="'Region - ' + n"
+                    :label="`Region - ${n}`"
                     label-for="Region"
                   >
                     <b-form-select
@@ -221,12 +223,12 @@
                 <h4>Forbidden Geolocation</h4>
                 <div
                   v-for="n in numberOfNegativeGeolocations"
-                  :key="n + 'posB'"
+                  :key="`${n}posB`"
                 >
                   <b-form-group
                     label-cols="3"
                     label-cols-lg="1"
-                    :label="'Continent - ' + n"
+                    :label="`Continent - ${n}`"
                     label-for="Continent"
                   >
                     <b-form-select
@@ -248,7 +250,7 @@
                     v-if="forbiddenGeolocations[`selectedContinent${n}`] && forbiddenGeolocations[`selectedContinent${n}`] !== 'NONE'"
                     label-cols="3"
                     label-cols-lg="1"
-                    :label="'Country - ' + n"
+                    :label="`Country - ${n}`"
                     label-for="Country"
                   >
                     <b-form-select
@@ -270,7 +272,7 @@
                     v-if="forbiddenGeolocations[`selectedContinent${n}`] && forbiddenGeolocations[`selectedContinent${n}`] !== 'NONE' && forbiddenGeolocations[`selectedCountry${n}`] && forbiddenGeolocations[`selectedCountry${n}`] !== 'ALL'"
                     label-cols="3"
                     label-cols-lg="1"
-                    :label="'Region - ' + n"
+                    :label="`Region - ${n}`"
                     label-for="Region"
                   >
                     <b-form-select
@@ -345,7 +347,7 @@
               label-for="period"
             >
               <div class="mx-1">
-                {{ getExpireLabel || (appRegistrationSpecification.expire ? appRegistrationSpecification.expire + ' blocks' : '1 month') }}
+                {{ getExpireLabel || (appRegistrationSpecification.expire ? `${appRegistrationSpecification.expire} blocks` : '1 month') }}
               </div>
               <b-form-input
                 id="period"
@@ -1462,6 +1464,7 @@
       <a
         href="https://cdn.runonflux.io/Flux_Terms_of_Service.pdf"
         target="_blank"
+        rel="noopener noreferrer"
       >
         Terms of Service
       </a>
@@ -1526,7 +1529,7 @@
               Price: {{ applicationPrice }} FLUX
             </b-card-text>
             <b-card-text>
-              Subscription period: {{ getExpireLabel || (appRegistrationSpecification.expire ? appRegistrationSpecification.expire + ' blocks' : '1 month') }}
+              Subscription period: {{ getExpireLabel || (appRegistrationSpecification.expire ? `${appRegistrationSpecification.expire} blocks` : '1 month') }}
             </b-card-text>
             <b-button
               v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -1546,7 +1549,7 @@
           <b-card title="Sign with">
             <div class="loginRow">
               <a
-                :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=' + callbackValue"
+                :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue}`"
                 @click="initiateSignWS"
               >
                 <img
@@ -1616,7 +1619,7 @@
           lg="4"
         >
           <b-card title="Pay with Zelcore">
-            <a :href="'zel:?action=pay&coin=zelcash&address=' + deploymentAddress + '&amount=' + applicationPrice + '&message=' + registrationHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png'">
+            <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${applicationPrice}&message=${registrationHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
               <img
                 class="zelidLogin"
                 src="@/assets/images/zelID.svg"

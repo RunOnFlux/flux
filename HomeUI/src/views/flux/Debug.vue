@@ -31,7 +31,7 @@
               <b-card-text
                 class="mt-1 mb-0 mr-auto"
               >
-                {{ (downloaded[logType] / 1e6).toFixed(2) + " / " + (total[logType] / 1e6).toFixed(2) }} MB - {{ ((downloaded[logType] / total[logType]) * 100).toFixed(2) + "%" }}
+                {{ `${(downloaded[logType] / 1e6).toFixed(2)} / ${(total[logType] / 1e6).toFixed(2)}` }} MB - {{ `${((downloaded[logType] / total[logType]) * 100).toFixed(2)}%` }}
               </b-card-text>
               <b-button
                 v-ripple.400="'rgba(255, 255, 255, 0.15)'"

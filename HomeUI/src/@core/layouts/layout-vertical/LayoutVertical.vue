@@ -13,9 +13,9 @@
     >
       <slot
         name="navbar"
-        :toggleVerticalMenuActive="toggleVerticalMenuActive"
-        :navbarBackgroundColor="navbarBackgroundColor"
-        :navbarTypeClass="[...navbarTypeClass, 'header-navbar navbar navbar-shadow align-items-center']"
+        :toggle-vertical-menu-active="toggleVerticalMenuActive"
+        :navbar-background-color="navbarBackgroundColor"
+        :navbar-type-class="[...navbarTypeClass, 'header-navbar navbar navbar-shadow align-items-center']"
       >
         <app-navbar-vertical-layout :toggle-vertical-menu-active="toggleVerticalMenuActive" />
       </slot>

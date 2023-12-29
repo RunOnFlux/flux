@@ -198,7 +198,7 @@
                   :href="`https://explorer.runonflux.io/address/${proposalViewData.grantAddress}`"
                   target="_blank"
                   active-class="primary"
-                  rel
+                  rel="noopener noreferrer"
                 >
                   {{ proposalViewData.grantAddress }}
                 </b-link>
@@ -224,7 +224,7 @@
                 </p>
                 <div>
                   <a
-                    :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=' + callbackValueSign()"
+                    :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValueSign()}`"
                     @click="initiateSignWS"
                   >
                     <img

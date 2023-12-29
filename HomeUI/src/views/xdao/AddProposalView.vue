@@ -144,7 +144,7 @@
                     :href="`https://explorer.runonflux.io/address/${foundationAddress}`"
                     target="_blank"
                     active-class="primary"
-                    rel
+                    rel="noopener noreferrer"
                   >
                     {{ foundationAddress }}
                   </b-link>
@@ -165,7 +165,7 @@
                   </p>
                   <div>
                     <a
-                      :href="'zel:?action=pay&coin=zelcash&address=' + foundationAddress + '&amount=' + proposalPrice + '&message=' + registrationHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png'"
+                      :href="`zel:?action=pay&coin=zelcash&address=${foundationAddress}&amount=${proposalPrice}&message=${registrationHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`"
                     >
                       <img
                         class="zelidLogin"

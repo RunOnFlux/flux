@@ -108,7 +108,7 @@
             />
             <list-entry
               title="Period"
-              :data="getExpireLabel || (callResponse.data.expire ? callResponse.data.expire + ' blocks' : '1 month')"
+              :data="getExpireLabel || (callResponse.data.expire ? `${callResponse.data.expire} blocks` : '1 month')"
             />
             <list-entry
               title="Enterprise Nodes"
@@ -156,53 +156,53 @@
                 <div v-if="callResponse.data.tiered">
                   <list-entry
                     title="CPU Cumulus"
-                    :data="callResponse.data.cpubasic + ' vCore'"
+                    :data="`${callResponse.data.cpubasic} vCore`"
                   />
                   <list-entry
                     title="CPU Nimbus"
-                    :data="callResponse.data.cpusuper + ' vCore'"
+                    :data="`${callResponse.data.cpusuper} vCore`"
                   />
                   <list-entry
                     title="CPU Stratus"
-                    :data="callResponse.data.cpubamf + ' vCore'"
+                    :data="`${callResponse.data.cpubamf} vCore`"
                   />
                   <list-entry
                     title="RAM Cumulus"
-                    :data="callResponse.data.rambasic + ' MB'"
+                    :data="`${callResponse.data.rambasic} MB`"
                   />
                   <list-entry
                     title="RAM Nimbus"
-                    :data="callResponse.data.ramsuper + ' MB'"
+                    :data="`${callResponse.data.ramsuper} MB`"
                   />
                   <list-entry
                     title="RAM Stratus"
-                    :data="callResponse.data.rambamf + ' MB'"
+                    :data="`${callResponse.data.rambamf} MB`"
                   />
                   <list-entry
                     title="SSD Cumulus"
-                    :data="callResponse.data.hddbasic + ' GB'"
+                    :data="`${callResponse.data.hddbasic} GB`"
                   />
                   <list-entry
                     title="SSD Nimbus"
-                    :data="callResponse.data.hddsuper + ' GB'"
+                    :data="`${callResponse.data.hddsuper} GB`"
                   />
                   <list-entry
                     title="SSD Stratus"
-                    :data="callResponse.data.hddbamf + ' GB'"
+                    :data="`${callResponse.data.hddbamf} GB`"
                   />
                 </div>
                 <div v-else>
                   <list-entry
                     title="CPU"
-                    :data="callResponse.data.cpu + ' vCore'"
+                    :data="`${callResponse.data.cpu} vCore`"
                   />
                   <list-entry
                     title="RAM"
-                    :data="callResponse.data.ram + ' MB'"
+                    :data="`${callResponse.data.ram} MB`"
                   />
                   <list-entry
                     title="SSD"
-                    :data="callResponse.data.hdd + ' GB'"
+                    :data="`${callResponse.data.hdd} GB`"
                   />
                 </div>
               </b-card>
@@ -266,53 +266,53 @@
                 <div v-if="component.tiered">
                   <list-entry
                     title="CPU Cumulus"
-                    :data="component.cpubasic + ' vCore'"
+                    :data="`${component.cpubasic} vCore`"
                   />
                   <list-entry
                     title="CPU Nimbus"
-                    :data="component.cpusuper + ' vCore'"
+                    :data="`${component.cpusuper} vCore`"
                   />
                   <list-entry
                     title="CPU Stratus"
-                    :data="component.cpubamf + ' vCore'"
+                    :data="`${component.cpubamf} vCore`"
                   />
                   <list-entry
                     title="RAM Cumulus"
-                    :data="component.rambasic + ' MB'"
+                    :data="`${component.rambasic} MB`"
                   />
                   <list-entry
                     title="RAM Nimbus"
-                    :data="component.ramsuper + ' MB'"
+                    :data="`${component.ramsuper} MB`"
                   />
                   <list-entry
                     title="RAM Stratus"
-                    :data="component.rambamf + ' MB'"
+                    :data="`${component.rambamf} MB`"
                   />
                   <list-entry
                     title="SSD Cumulus"
-                    :data="component.hddbasic + ' GB'"
+                    :data="`${component.hddbasic} GB`"
                   />
                   <list-entry
                     title="SSD Nimbus"
-                    :data="component.hddsuper + ' GB'"
+                    :data="`${component.hddsuper} GB`"
                   />
                   <list-entry
                     title="SSD Stratus"
-                    :data="component.hddbamf + ' GB'"
+                    :data="`${component.hddbamf} GB`"
                   />
                 </div>
                 <div v-else>
                   <list-entry
                     title="CPU"
-                    :data="component.cpu + ' vCore'"
+                    :data="`${component.cpu} vCore`"
                   />
                   <list-entry
                     title="RAM"
-                    :data="component.ram + ' MB'"
+                    :data="`${component.ram} MB`"
                   />
                   <list-entry
                     title="SSD"
-                    :data="component.hdd + ' GB'"
+                    :data="`${component.hdd} GB`"
                   />
                 </div>
               </b-card>
@@ -393,7 +393,7 @@
             />
             <list-entry
               title="Period"
-              :data="getExpireLabel || (callBResponse.data.expire ? callBResponse.data.expire + ' blocks' : '1 month')"
+              :data="getExpireLabel || (callBResponse.data.expire ? `${callBResponse.data.expire} blocks` : '1 month')"
             />
             <list-entry
               title="Enterprise Nodes"
@@ -441,53 +441,53 @@
                 <div v-if="callBResponse.data.tiered">
                   <list-entry
                     title="CPU Cumulus"
-                    :data="callBResponse.data.cpubasic + ' vCore'"
+                    :data="`${callBResponse.data.cpubasic} vCore`"
                   />
                   <list-entry
                     title="CPU Nimbus"
-                    :data="callBResponse.data.cpusuper + ' vCore'"
+                    :data="`${callBResponse.data.cpusuper} vCore`"
                   />
                   <list-entry
                     title="CPU Stratus"
-                    :data="callBResponse.data.cpubamf + ' vCore'"
+                    :data="`${callBResponse.data.cpubamf} vCore`"
                   />
                   <list-entry
                     title="RAM Cumulus"
-                    :data="callBResponse.data.rambasic + ' MB'"
+                    :data="`${callBResponse.data.rambasic} MB`"
                   />
                   <list-entry
                     title="RAM Nimbus"
-                    :data="callBResponse.data.ramsuper + ' MB'"
+                    :data="`${callBResponse.data.ramsuper} MB`"
                   />
                   <list-entry
                     title="RAM Stratus"
-                    :data="callBResponse.data.rambamf + ' MB'"
+                    :data="`${callBResponse.data.rambamf} MB`"
                   />
                   <list-entry
                     title="SSD Cumulus"
-                    :data="callBResponse.data.hddbasic + ' GB'"
+                    :data="`${callBResponse.data.hddbasic} GB`"
                   />
                   <list-entry
                     title="SSD Nimbus"
-                    :data="callBResponse.data.hddsuper + ' GB'"
+                    :data="`${callBResponse.data.hddsuper} GB`"
                   />
                   <list-entry
                     title="SSD Stratus"
-                    :data="callBResponse.data.hddbamf + ' GB'"
+                    :data="`${callBResponse.data.hddbamf} GB`"
                   />
                 </div>
                 <div v-else>
                   <list-entry
                     title="CPU"
-                    :data="callBResponse.data.cpu + ' vCore'"
+                    :data="`${callBResponse.data.cpu} vCore`"
                   />
                   <list-entry
                     title="RAM"
-                    :data="callBResponse.data.ram + ' MB'"
+                    :data="`${callBResponse.data.ram} MB`"
                   />
                   <list-entry
                     title="SSD"
-                    :data="callBResponse.data.hdd + ' GB'"
+                    :data="`${callBResponse.data.hdd} GB`"
                   />
                 </div>
               </b-card>
@@ -551,53 +551,53 @@
                 <div v-if="component.tiered">
                   <list-entry
                     title="CPU Cumulus"
-                    :data="component.cpubasic + ' vCore'"
+                    :data="`${component.cpubasic} vCore`"
                   />
                   <list-entry
                     title="CPU Nimbus"
-                    :data="component.cpusuper + ' vCore'"
+                    :data="`${component.cpusuper} vCore`"
                   />
                   <list-entry
                     title="CPU Stratus"
-                    :data="component.cpubamf + ' vCore'"
+                    :data="`${component.cpubamf} vCore`"
                   />
                   <list-entry
                     title="RAM Cumulus"
-                    :data="component.rambasic + ' MB'"
+                    :data="`${component.rambasic} MB`"
                   />
                   <list-entry
                     title="RAM Nimbus"
-                    :data="component.ramsuper + ' MB'"
+                    :data="`${component.ramsuper} MB`"
                   />
                   <list-entry
                     title="RAM Stratus"
-                    :data="component.rambamf + ' MB'"
+                    :data="`${component.rambamf} MB`"
                   />
                   <list-entry
                     title="SSD Cumulus"
-                    :data="component.hddbasic + ' GB'"
+                    :data="`${component.hddbasic} GB`"
                   />
                   <list-entry
                     title="SSD Nimbus"
-                    :data="component.hddsuper + ' GB'"
+                    :data="`${component.hddsuper} GB`"
                   />
                   <list-entry
                     title="SSD Stratus"
-                    :data="component.hddbamf + ' GB'"
+                    :data="`${component.hddbamf} GB`"
                   />
                 </div>
                 <div v-else>
                   <list-entry
                     title="CPU"
-                    :data="component.cpu + ' vCore'"
+                    :data="`${component.cpu} vCore`"
                   />
                   <list-entry
                     title="RAM"
-                    :data="component.ram + ' MB'"
+                    :data="`${component.ram} MB`"
                   />
                   <list-entry
                     title="SSD"
-                    :data="component.hdd + ' GB'"
+                    :data="`${component.hdd} GB`"
                   />
                 </div>
               </b-card>
@@ -862,7 +862,7 @@
               </div>
               <div>
                 <b-card-text v-if="total && downloaded">
-                  {{ (downloaded / 1e6).toFixed(2) + " / " + (total / 1e6).toFixed(2) }} MB - {{ ((downloaded / total) * 100).toFixed(2) + "%" }}
+                  {{ `${(downloaded / 1e6).toFixed(2)} / ${(total / 1e6).toFixed(2)}` }} MB - {{ `${((downloaded / total) * 100).toFixed(2)}%` }}
                 </b-card-text>
                 <h6 class="mb-1 mt-2">
                   Last 100 lines of the log file
@@ -903,7 +903,7 @@
             </div>
             <div>
               <b-card-text v-if="total && downloaded">
-                {{ (downloaded / 1e6).toFixed(2) + " / " + (total / 1e6).toFixed(2) }} MB - {{ ((downloaded / total) * 100).toFixed(2) + "%" }}
+                {{ `${(downloaded / 1e6).toFixed(2)} / ${(total / 1e6).toFixed(2)}` }} MB - {{ `${((downloaded / total) * 100).toFixed(2)}%` }}
               </b-card-text>
               <h6 class="mb-1 mt-2">
                 Last 100 lines of the log file
@@ -1357,9 +1357,7 @@
                     variant="primary"
                     disabled
                   >
-                    <b-spinner
-                      small
-                    />
+                    <b-spinner small />
                     Connecting...
                   </b-button>
                   <div class="ml-auto mt-1">
@@ -1513,7 +1511,7 @@
             />
             <list-entry
               title="Period"
-              :data="getExpireLabel || (callBResponse.data.expire ? callBResponse.data.expire + ' blocks' : '1 month')"
+              :data="getExpireLabel || (callBResponse.data.expire ? `${callBResponse.data.expire} blocks` : '1 month')"
             />
             <list-entry
               title="Enterprise Nodes"
@@ -1560,53 +1558,53 @@
               <div v-if="callBResponse.data.tiered">
                 <list-entry
                   title="CPU Cumulus"
-                  :data="callBResponse.data.cpubasic + ' vCore'"
+                  :data="`${callBResponse.data.cpubasic} vCore`"
                 />
                 <list-entry
                   title="CPU Nimbus"
-                  :data="callBResponse.data.cpusuper + ' vCore'"
+                  :data="`${callBResponse.data.cpusuper} vCore`"
                 />
                 <list-entry
                   title="CPU Stratus"
-                  :data="callBResponse.data.cpubamf + ' vCore'"
+                  :data="`${callBResponse.data.cpubamf} vCore`"
                 />
                 <list-entry
                   title="RAM Cumulus"
-                  :data="callBResponse.data.rambasic + ' MB'"
+                  :data="`${callBResponse.data.rambasic} MB`"
                 />
                 <list-entry
                   title="RAM Nimbus"
-                  :data="callBResponse.data.ramsuper + ' MB'"
+                  :data="`${callBResponse.data.ramsuper} MB`"
                 />
                 <list-entry
                   title="RAM Stratus"
-                  :data="callBResponse.data.rambamf + ' MB'"
+                  :data="`${callBResponse.data.rambamf} MB`"
                 />
                 <list-entry
                   title="SSD Cumulus"
-                  :data="callBResponse.data.hddbasic + ' GB'"
+                  :data="`${callBResponse.data.hddbasic} GB`"
                 />
                 <list-entry
                   title="SSD Nimbus"
-                  :data="callBResponse.data.hddsuper + ' GB'"
+                  :data="`${callBResponse.data.hddsuper} GB`"
                 />
                 <list-entry
                   title="SSD Stratus"
-                  :data="callBResponse.data.hddbamf + ' GB'"
+                  :data="`${callBResponse.data.hddbamf} GB`"
                 />
               </div>
               <div v-else>
                 <list-entry
                   title="CPU"
-                  :data="callBResponse.data.cpu + ' vCore'"
+                  :data="`${callBResponse.data.cpu} vCore`"
                 />
                 <list-entry
                   title="RAM"
-                  :data="callBResponse.data.ram + ' MB'"
+                  :data="`${callBResponse.data.ram} MB`"
                 />
                 <list-entry
                   title="SSD"
-                  :data="callBResponse.data.hdd + ' GB'"
+                  :data="`${callBResponse.data.hdd} GB`"
                 />
               </div>
             </b-card>
@@ -1669,53 +1667,53 @@
               <div v-if="component.tiered">
                 <list-entry
                   title="CPU Cumulus"
-                  :data="component.cpubasic + ' vCore'"
+                  :data="`${component.cpubasic} vCore`"
                 />
                 <list-entry
                   title="CPU Nimbus"
-                  :data="component.cpusuper + ' vCore'"
+                  :data="`${component.cpusuper} vCore`"
                 />
                 <list-entry
                   title="CPU Stratus"
-                  :data="component.cpubamf + ' vCore'"
+                  :data="`${component.cpubamf} vCore`"
                 />
                 <list-entry
                   title="RAM Cumulus"
-                  :data="component.rambasic + ' MB'"
+                  :data="`${component.rambasic} MB`"
                 />
                 <list-entry
                   title="RAM Nimbus"
-                  :data="component.ramsuper + ' MB'"
+                  :data="`${component.ramsuper} MB`"
                 />
                 <list-entry
                   title="RAM Stratus"
-                  :data="component.rambamf + ' MB'"
+                  :data="`${component.rambamf} MB`"
                 />
                 <list-entry
                   title="SSD Cumulus"
-                  :data="component.hddbasic + ' GB'"
+                  :data="`${component.hddbasic} GB`"
                 />
                 <list-entry
                   title="SSD Nimbus"
-                  :data="component.hddsuper + ' GB'"
+                  :data="`${component.hddsuper} GB`"
                 />
                 <list-entry
                   title="SSD Stratus"
-                  :data="component.hddbamf + ' GB'"
+                  :data="`${component.hddbamf} GB`"
                 />
               </div>
               <div v-else>
                 <list-entry
                   title="CPU"
-                  :data="component.cpu + ' vCore'"
+                  :data="`${component.cpu} vCore`"
                 />
                 <list-entry
                   title="RAM"
-                  :data="component.ram + ' MB'"
+                  :data="`${component.ram} MB`"
                 />
                 <list-entry
                   title="SSD"
-                  :data="component.hdd + ' GB'"
+                  :data="`${component.hdd} GB`"
                 />
               </div>
             </b-card>
@@ -2122,12 +2120,12 @@
                   <h4>Allowed Geolocation</h4>
                   <div
                     v-for="n in numberOfGeolocations"
-                    :key="n + 'pos'"
+                    :key="`${n}pos`"
                   >
                     <b-form-group
                       label-cols="3"
                       label-cols-lg="1"
-                      :label="'Continent - ' + n"
+                      :label="`Continent - ${n}`"
                       label-for="Continent"
                     >
                       <b-form-select
@@ -2150,7 +2148,7 @@
                       v-if="allowedGeolocations[`selectedContinent${n}`] && allowedGeolocations[`selectedContinent${n}`] !== 'ALL'"
                       label-cols="3"
                       label-cols-lg="1"
-                      :label="'Country - ' + n"
+                      :label="`Country - ${n}`"
                       label-for="Country"
                     >
                       <b-form-select
@@ -2173,7 +2171,7 @@
                       v-if="allowedGeolocations[`selectedContinent${n}`] && allowedGeolocations[`selectedContinent${n}`] !== 'ALL' && allowedGeolocations[`selectedCountry${n}`] && allowedGeolocations[`selectedCountry${n}`] !== 'ALL'"
                       label-cols="3"
                       label-cols-lg="1"
-                      :label="'Region - ' + n"
+                      :label="`Region - ${n}`"
                       label-for="Region"
                     >
                       <b-form-select
@@ -2223,12 +2221,12 @@
                   <h4>Forbidden Geolocation</h4>
                   <div
                     v-for="n in numberOfNegativeGeolocations"
-                    :key="n + 'posB'"
+                    :key="`${n}posB`"
                   >
                     <b-form-group
                       label-cols="3"
                       label-cols-lg="1"
-                      :label="'Continent - ' + n"
+                      :label="`Continent - ${n}`"
                       label-for="Continent"
                     >
                       <b-form-select
@@ -2250,7 +2248,7 @@
                       v-if="forbiddenGeolocations[`selectedContinent${n}`] && forbiddenGeolocations[`selectedContinent${n}`] !== 'NONE'"
                       label-cols="3"
                       label-cols-lg="1"
-                      :label="'Country - ' + n"
+                      :label="`Country - ${n}`"
                       label-for="Country"
                     >
                       <b-form-select
@@ -2272,7 +2270,7 @@
                       v-if="forbiddenGeolocations[`selectedContinent${n}`] && forbiddenGeolocations[`selectedContinent${n}`] !== 'NONE' && forbiddenGeolocations[`selectedCountry${n}`] && forbiddenGeolocations[`selectedCountry${n}`] !== 'ALL'"
                       label-cols="3"
                       label-cols-lg="1"
-                      :label="'Region - ' + n"
+                      :label="`Region - ${n}`"
                       label-for="Region"
                     >
                       <b-form-select
@@ -2346,7 +2344,7 @@
                   label-for="period"
                 >
                   <div class="mx-1">
-                    {{ getExpireLabel || (appUpdateSpecification.expire ? appUpdateSpecification.expire + ' blocks' : '1 month') }}
+                    {{ getExpireLabel || (appUpdateSpecification.expire ? `${appUpdateSpecification.expire} blocks` : '1 month') }}
                   </div>
                   <b-form-input
                     id="period"
@@ -3156,7 +3154,7 @@
                   label-for="period"
                 >
                   <div class="mx-1">
-                    {{ getExpireLabel || (appUpdateSpecification.expire ? appUpdateSpecification.expire + ' blocks' : '1 month') }}
+                    {{ getExpireLabel || (appUpdateSpecification.expire ? `${appUpdateSpecification.expire} blocks` : '1 month') }}
                   </div>
                   <b-form-input
                     id="period"
@@ -3477,6 +3475,7 @@
           <a
             href="https://cdn.runonflux.io/Flux_Terms_of_Service.pdf"
             target="_blank"
+            rel="noopener noreferrer"
           >
             Terms of Service
           </a>
@@ -3548,7 +3547,7 @@
               <b-card title="Sign with">
                 <div class="loginRow">
                   <a
-                    :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=' + callbackValue"
+                    :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue}`"
                     @click="initiateSignWSUpdate"
                   >
                     <img
@@ -3618,7 +3617,7 @@
               lg="4"
             >
               <b-card title="Pay with Zelcore">
-                <a :href="'zel:?action=pay&coin=zelcash&address=' + deploymentAddress + '&amount=' + appPricePerSpecs + '&message=' + updateHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png'">
+                <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${appPricePerSpecs}&message=${updateHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
                   <img
                     class="zelidLogin"
                     src="@/assets/images/zelID.svg"
@@ -3652,6 +3651,7 @@
       <a
         href="https://cdn.runonflux.io/Flux_Terms_of_Service.pdf"
         target="_blank"
+        rel="noopener noreferrer"
       >
         Terms of Service
       </a>
@@ -5585,7 +5585,9 @@ export default {
       }
     },
     async delay(ms) {
-      return new Promise((resolve) => setTimeout(resolve, ms));
+      return new Promise((resolve) => {
+        setTimeout(resolve, ms);
+      });
     },
     async executeCommand(app, command, warningText, parameter) {
       try {

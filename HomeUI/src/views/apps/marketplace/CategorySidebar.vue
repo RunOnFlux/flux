@@ -34,6 +34,7 @@
                 :to="action.route"
                 :active="isDynamicRouteActive(action.route)"
                 target="_blank"
+                rel="noopener noreferrer"
                 @click="$emit('close-app-view'); $emit('close-left-sidebar'); $emit(action.event)"
               >
                 <v-icon
