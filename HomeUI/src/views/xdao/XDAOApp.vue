@@ -229,7 +229,7 @@ import {
 
 import {
   ref, computed, watch, onBeforeMount,
-} from '@vue/composition-api';
+} from 'vue';
 
 // eslint-disable-next-line import/no-cycle
 import { avatarText } from '@core/utils/filter';

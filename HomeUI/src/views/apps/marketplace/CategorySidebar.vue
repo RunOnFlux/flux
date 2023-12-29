@@ -61,7 +61,7 @@ import Ripple from 'vue-ripple-directive';
 
 import {
   ref,
-} from '@vue/composition-api';
+} from 'vue';
 
 import { categories } from '../../../libs/marketplaceCategories';
 

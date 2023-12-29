@@ -394,7 +394,7 @@ import {
   ref,
   watch,
   computed,
-} from '@vue/composition-api';
+} from 'vue';
 
 const axios = require('axios');
 const qs = require('qs');

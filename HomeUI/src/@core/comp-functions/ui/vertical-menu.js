@@ -1,4 +1,4 @@
-import { onBeforeUnmount } from '@vue/composition-api';
+import { onBeforeUnmount } from 'vue';
 import userAppConfig from '@core/app-config/useAppConfig';
 
 /**

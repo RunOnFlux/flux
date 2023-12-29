@@ -91,7 +91,7 @@ import {
   computed,
   ref,
   onBeforeMount,
-} from '@vue/composition-api';
+} from 'vue';
 import useAppConfig from '@core/app-config/useAppConfig';
 import { $themeConfig } from '@themeConfig';
 import navMenuItems from '@/navigation/vertical';

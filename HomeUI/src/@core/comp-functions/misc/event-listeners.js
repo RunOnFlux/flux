@@ -1,4 +1,4 @@
-import { ref, onUnmounted } from '@vue/composition-api';
+import { ref, onUnmounted } from 'vue';
 
 export const useScrollListener = () => {
   const scrolledTo = ref(null);

@@ -1,4 +1,4 @@
-import { computed, watch } from '@vue/composition-api';
+import { computed, watch } from 'vue';
 import store from '@/store';
 
 export default function usAppConfig() {

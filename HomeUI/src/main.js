@@ -5,7 +5,6 @@ import {
   ToastPlugin,
   ModalPlugin,
 } from 'bootstrap-vue';
-import VueCompositionAPI from '@vue/composition-api';
 
 import router from './router';
 import store from './store';
@@ -27,9 +26,6 @@ Vue.use(BVConfigPlugin, {
 Vue.use(LayoutPlugin);
 Vue.use(ToastPlugin);
 Vue.use(ModalPlugin);
-
-// Composition API
-Vue.use(VueCompositionAPI);
 
 // import core styles
 require('@core/scss/core.scss');

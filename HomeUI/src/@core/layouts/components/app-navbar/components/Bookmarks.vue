@@ -86,7 +86,7 @@ import {
 } from 'bootstrap-vue';
 import VuePerfectScrollbar from 'vue-perfect-scrollbar';
 import useAutoSuggest from '@core/components/app-auto-suggest/useAutoSuggest';
-import { ref, watch } from '@vue/composition-api';
+import { ref, watch } from 'vue';
 import router from '@/router';
 import store from '@/store';
 // import searchAndBookmarkData from '../search-and-bookmark-data'

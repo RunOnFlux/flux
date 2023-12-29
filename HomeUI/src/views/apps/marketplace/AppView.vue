@@ -538,7 +538,7 @@ import {
   ref,
   watch,
   computed,
-} from '@vue/composition-api';
+} from 'vue';
 
 import ListEntry from '@/views/components/ListEntry.vue';
 import AppsService from '@/services/AppsService';

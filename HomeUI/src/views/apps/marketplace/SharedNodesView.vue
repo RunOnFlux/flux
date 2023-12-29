@@ -1654,7 +1654,7 @@ import 'vue-form-wizard/dist/vue-form-wizard.min.css';
 import {
   ref,
   computed,
-} from '@vue/composition-api';
+} from 'vue';
 
 import axios from 'axios';
 

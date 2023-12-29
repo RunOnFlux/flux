@@ -204,7 +204,7 @@ import ToastificationContent from '@core/components/toastification/Toastificatio
 
 import {
   ref,
-} from '@vue/composition-api';
+} from 'vue';
 
 const axios = require('axios');
 const timeoptions = require('@/libs/dateFormat');
