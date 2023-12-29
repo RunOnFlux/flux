@@ -103,7 +103,7 @@ module.exports = {
       // entry for the page
       entry: 'HomeUI/src/main.js',
       // the source template
-      template: 'HomeUI/public/index.html',
+      template: 'HomeUI/src/index.html',
       // output as dist/index.html
       filename: 'index.html',
     },
