@@ -46,6 +46,7 @@ module.exports = {
     },
   },
   configureWebpack: {
+    mode: process.env.NODE_ENV,
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './HomeUI/src/'),
