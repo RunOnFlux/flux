@@ -10130,6 +10130,9 @@ async function syncthingApps() {
             const id = appId;
             const label = appId;
             const devices = [{ deviceID: myDeviceID.data }];
+            const execDIRst = `[ ! -d ${appsFolder + appId + containerFolder}/.stfolder ] && sudo mkdir -p ${appsFolder + appId + containerFolder}/.stfolder`; // if stfolder doesn't exist creates it
+            // eslint-disable-next-line no-await-in-loop
+            await cmdAsync(execDIRst);
             // eslint-disable-next-line no-await-in-loop
             const locations = await appLocation(installedApp.name);
             // eslint-disable-next-line no-restricted-syntax
@@ -10289,6 +10292,9 @@ async function syncthingApps() {
               const id = appId;
               const label = appId;
               const devices = [{ deviceID: myDeviceID.data }];
+              const execDIRst = `[ ! -d ${appsFolder + appId + containerFolder}/.stfolder ] && sudo mkdir -p ${appsFolder + appId + containerFolder}/.stfolder`; // if stfolder doesn't exist creates it
+              // eslint-disable-next-line no-await-in-loop
+              await cmdAsync(execDIRst);
               // eslint-disable-next-line no-await-in-loop
               const locations = await appLocation(installedApp.name);
               // eslint-disable-next-line no-restricted-syntax
