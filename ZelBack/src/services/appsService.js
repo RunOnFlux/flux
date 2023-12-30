@@ -10130,7 +10130,7 @@ async function syncthingApps() {
             const id = appId;
             const label = appId;
             const devices = [{ deviceID: myDeviceID.data }];
-            const execDIRst = `[ ! -d ${appsFolder + appId + containerFolder}/.stfolder ] && sudo mkdir -p ${appsFolder + appId + containerFolder}/.stfolder`; // if stfolder doesn't exist creates it
+            const execDIRst = `[ ! -d \\"${folder}/.stfolder\\" ] && sudo mkdir -p ${folder}/.stfolder`; // if stfolder doesn't exist creates it
             // eslint-disable-next-line no-await-in-loop
             await cmdAsync(execDIRst);
             // eslint-disable-next-line no-await-in-loop
@@ -10292,7 +10292,7 @@ async function syncthingApps() {
               const id = appId;
               const label = appId;
               const devices = [{ deviceID: myDeviceID.data }];
-              const execDIRst = `[ ! -d ${appsFolder + appId + containerFolder}/.stfolder ] && sudo mkdir -p ${appsFolder + appId + containerFolder}/.stfolder`; // if stfolder doesn't exist creates it
+              const execDIRst = `[ ! -d \\"${folder}/.stfolder\\" ] && sudo mkdir -p ${folder}/.stfolder`; // if stfolder doesn't exist creates it
               // eslint-disable-next-line no-await-in-loop
               await cmdAsync(execDIRst);
               // eslint-disable-next-line no-await-in-loop
