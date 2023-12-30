@@ -597,7 +597,7 @@ export default {
       default: '',
     },
   },
-  setup(props, ctx) {
+  setup(props) {
     // Use toast
     const toast = useToast();
 
@@ -646,7 +646,7 @@ export default {
     const selectedEnterpriseNodes = ref([]);
     const enterprisePublicKeys = ref([]);
 
-    const config = computed(() => ctx.root.$store.state.flux.config);
+    const config = computed(() => this.$store.state.flux.config);
     const validTill = computed(() => timestamp.value + 60 * 60 * 1000); // 1 hour
     const subscribedTill = computed(() => timestamp.value + 30 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000); // 1 month
 
@@ -662,11 +662,11 @@ export default {
         mybackend += names.join('.');
       } else {
         if (typeof hostname === 'string') {
-          ctx.root.$store.commit('flux/setUserIp', hostname);
+          this.$store.commit('flux/setUserIp', hostname);
         }
         if (+port > 16100) {
           const apiPort = +port + 1;
-          ctx.root.$store.commit('flux/setFluxPort', apiPort);
+          this.$store.commit('flux/setFluxPort', apiPort);
         }
         mybackend += hostname;
         mybackend += ':';
@@ -708,11 +708,11 @@ export default {
         mybackend += names.join('.');
       } else {
         if (typeof hostname === 'string') {
-          ctx.root.$store.commit('flux/setUserIp', hostname);
+          this.$store.commit('flux/setUserIp', hostname);
         }
         if (+port > 16100) {
           const apiPort = +port + 1;
-          ctx.root.$store.commit('flux/setFluxPort', apiPort);
+          this.$store.commit('flux/setFluxPort', apiPort);
         }
         mybackend += hostname;
         mybackend += ':';

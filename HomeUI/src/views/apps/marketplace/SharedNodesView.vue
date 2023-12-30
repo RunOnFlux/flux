@@ -1712,7 +1712,7 @@ export default {
       default: '',
     },
   },
-  setup(props, ctx) {
+  setup(props) {
     // Use toast
     const toast = useToast();
     const showToast = (variant, title, icon = 'InfoIcon') => {
@@ -1748,7 +1748,7 @@ export default {
     const stakeRegistered = ref(false);
     const stakeRegisterFailed = ref(false);
     const registeringStake = ref(false);
-    const config = computed(() => ctx.root.$store.state.flux.config);
+    const config = computed(() => this.$store.state.flux.config);
     const selectedStake = ref(null);
     const autoReinvestStake = ref(true);
     const reinvestingNewStake = ref(false);
@@ -1780,7 +1780,7 @@ export default {
         mybackend += names.join('.');
       } else {
         if (typeof hostname === 'string') {
-          ctx.root.$store.commit('flux/setUserIp', hostname);
+          this.$store.commit('flux/setUserIp', hostname);
         }
         mybackend += hostname;
         mybackend += ':';
@@ -1830,7 +1830,7 @@ export default {
         mybackend += names.join('.');
       } else {
         if (typeof hostname === 'string') {
-          ctx.root.$store.commit('flux/setUserIp', hostname);
+          this.$store.commit('flux/setUserIp', hostname);
         }
         mybackend += hostname;
         mybackend += ':';

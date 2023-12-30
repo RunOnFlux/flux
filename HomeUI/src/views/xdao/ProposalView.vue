@@ -445,8 +445,8 @@ export default {
       required: true,
     },
   },
-  setup(props, ctx) {
-    const config = computed(() => ctx.root.$store.state.flux.config);
+  setup(props) {
+    const config = computed(() => this.$store.state.flux.config);
 
     // Use toast
     const toast = useToast();
@@ -541,11 +541,11 @@ export default {
         mybackend += names.join('.');
       } else {
         if (typeof hostname === 'string') {
-          ctx.root.$store.commit('flux/setUserIp', hostname);
+          this.$store.commit('flux/setUserIp', hostname);
         }
         if (+port > 16100) {
           const apiPort = +port + 1;
-          ctx.root.$store.commit('flux/setFluxPort', apiPort);
+          this.$store.commit('flux/setFluxPort', apiPort);
         }
         mybackend += hostname;
         mybackend += ':';
@@ -587,11 +587,11 @@ export default {
         mybackend += names.join('.');
       } else {
         if (typeof hostname === 'string') {
-          ctx.root.$store.commit('flux/setUserIp', hostname);
+          this.$store.commit('flux/setUserIp', hostname);
         }
         if (+port > 16100) {
           const apiPort = +port + 1;
-          ctx.root.$store.commit('flux/setFluxPort', apiPort);
+          this.$store.commit('flux/setFluxPort', apiPort);
         }
         mybackend += hostname;
         mybackend += ':';
