@@ -394,6 +394,7 @@ import {
   ref,
   watch,
   computed,
+  getCurrentInstance,
 } from 'vue';
 
 const axios = require('axios');
@@ -446,7 +447,8 @@ export default {
     },
   },
   setup(props) {
-    const config = computed(() => this.$store.state.flux.config);
+    const vm = getCurrentInstance();
+    const config = computed(() => vm.$store.state.flux.config);
 
     // Use toast
     const toast = useToast();
@@ -541,11 +543,11 @@ export default {
         mybackend += names.join('.');
       } else {
         if (typeof hostname === 'string') {
-          this.$store.commit('flux/setUserIp', hostname);
+          vm.$store.commit('flux/setUserIp', hostname);
         }
         if (+port > 16100) {
           const apiPort = +port + 1;
-          this.$store.commit('flux/setFluxPort', apiPort);
+          vm.$store.commit('flux/setFluxPort', apiPort);
         }
         mybackend += hostname;
         mybackend += ':';
@@ -587,11 +589,11 @@ export default {
         mybackend += names.join('.');
       } else {
         if (typeof hostname === 'string') {
-          this.$store.commit('flux/setUserIp', hostname);
+          vm.$store.commit('flux/setUserIp', hostname);
         }
         if (+port > 16100) {
           const apiPort = +port + 1;
-          this.$store.commit('flux/setFluxPort', apiPort);
+          vm.$store.commit('flux/setFluxPort', apiPort);
         }
         mybackend += hostname;
         mybackend += ':';

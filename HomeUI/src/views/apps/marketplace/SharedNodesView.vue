@@ -1654,6 +1654,7 @@ import 'vue-form-wizard/dist/vue-form-wizard.min.css';
 import {
   ref,
   computed,
+  getCurrentInstance,
 } from 'vue';
 
 import axios from 'axios';
@@ -1713,6 +1714,7 @@ export default {
     },
   },
   setup(props) {
+    const vm = getCurrentInstance();
     // Use toast
     const toast = useToast();
     const showToast = (variant, title, icon = 'InfoIcon') => {
@@ -1748,7 +1750,7 @@ export default {
     const stakeRegistered = ref(false);
     const stakeRegisterFailed = ref(false);
     const registeringStake = ref(false);
-    const config = computed(() => this.$store.state.flux.config);
+    const config = computed(() => vm.$store.state.flux.config);
     const selectedStake = ref(null);
     const autoReinvestStake = ref(true);
     const reinvestingNewStake = ref(false);
@@ -1780,7 +1782,7 @@ export default {
         mybackend += names.join('.');
       } else {
         if (typeof hostname === 'string') {
-          this.$store.commit('flux/setUserIp', hostname);
+          vm.$store.commit('flux/setUserIp', hostname);
         }
         mybackend += hostname;
         mybackend += ':';
@@ -1830,7 +1832,7 @@ export default {
         mybackend += names.join('.');
       } else {
         if (typeof hostname === 'string') {
-          this.$store.commit('flux/setUserIp', hostname);
+          vm.$store.commit('flux/setUserIp', hostname);
         }
         mybackend += hostname;
         mybackend += ':';
