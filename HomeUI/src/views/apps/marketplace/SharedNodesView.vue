@@ -1714,7 +1714,7 @@ export default {
     },
   },
   setup(props) {
-    const vm = getCurrentInstance();
+    const vm = getCurrentInstance().proxy;
     // Use toast
     const toast = useToast();
     const showToast = (variant, title, icon = 'InfoIcon') => {

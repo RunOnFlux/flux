@@ -447,7 +447,7 @@ export default {
     },
   },
   setup(props) {
-    const vm = getCurrentInstance();
+    const vm = getCurrentInstance().proxy;
     const config = computed(() => vm.$store.state.flux.config);
 
     // Use toast
