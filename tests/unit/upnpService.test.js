@@ -24,8 +24,10 @@ const generateResponse = () => {
   return res;
 };
 
-const upnpService = proxyquire('../../ZelBack/src/services/upnpService',
-  { config });
+const upnpService = proxyquire(
+  '../../ZelBack/src/services/upnpService',
+  { config },
+);
 
 describe('upnpService tests', () => {
   describe('verifyUPNPsupport tests', () => {

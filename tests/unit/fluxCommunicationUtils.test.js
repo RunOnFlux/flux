@@ -82,8 +82,10 @@ describe('fluxCommunicationUtils tests', () => {
 
     it('should return the whole list if the filter was not provided', async () => {
       // Start with clear cache
-      fluxCommunicationUtils = proxyquire('../../ZelBack/src/services/fluxCommunicationUtils',
-        { 'lru-cache': LRUCache });
+      fluxCommunicationUtils = proxyquire(
+        '../../ZelBack/src/services/fluxCommunicationUtils',
+        { 'lru-cache': LRUCache },
+      );
       const deterministicFluxnodeListResponse = {
         ...deterministicFluxnodeListResponseBase,
         status: 'success',
@@ -98,8 +100,10 @@ describe('fluxCommunicationUtils tests', () => {
 
     it('should return the list filtered out with proper public key', async () => {
       // Start with clear cache
-      fluxCommunicationUtils = proxyquire('../../ZelBack/src/services/fluxCommunicationUtils',
-        { 'lru-cache': LRUCache });
+      fluxCommunicationUtils = proxyquire(
+        '../../ZelBack/src/services/fluxCommunicationUtils',
+        { 'lru-cache': LRUCache },
+      );
       const filteredPubKey = '04d50620a31f045c61be42bad44b7a9424ffb6de37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc';
       const expectedResult = [{
         collateral: 'COutPoint(46c9ae0313fc128d0fb4327f5babc7868fe557035b58e0a7cb475cfd8819f8c7, 0)',
@@ -152,8 +156,10 @@ describe('fluxCommunicationUtils tests', () => {
 
     it('should return an empty list if the public key does not match', async () => {
       // Start with clear cache
-      fluxCommunicationUtils = proxyquire('../../ZelBack/src/services/fluxCommunicationUtils',
-        { 'lru-cache': LRUCache });
+      fluxCommunicationUtils = proxyquire(
+        '../../ZelBack/src/services/fluxCommunicationUtils',
+        { 'lru-cache': LRUCache },
+      );
       const filteredPubKey = '04d50620a31f045c61be42bad44b7a9424asdfde37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc';
       const expectedResult = [];
 
@@ -177,8 +183,10 @@ describe('fluxCommunicationUtils tests', () => {
       }));
       const stubCacheB = { LRUCache: stubCache };
       getCacheStub.withArgs('fluxList').returns(deterministicFluxnodeListResponseBase.data);
-      fluxCommunicationUtils = proxyquire('../../ZelBack/src/services/fluxCommunicationUtils',
-        { 'lru-cache': stubCacheB });
+      fluxCommunicationUtils = proxyquire(
+        '../../ZelBack/src/services/fluxCommunicationUtils',
+        { 'lru-cache': stubCacheB },
+      );
 
       const deterministicFluxListResult = await fluxCommunicationUtils.deterministicFluxList();
 
@@ -231,8 +239,10 @@ describe('fluxCommunicationUtils tests', () => {
       }));
       const stubCacheB = { LRUCache: stubCache };
       getCacheStub.withArgs(`fluxList${filteredPubKey}`).returns(expectedResult);
-      fluxCommunicationUtils = proxyquire('../../ZelBack/src/services/fluxCommunicationUtils',
-        { 'lru-cache': stubCacheB });
+      fluxCommunicationUtils = proxyquire(
+        '../../ZelBack/src/services/fluxCommunicationUtils',
+        { 'lru-cache': stubCacheB },
+      );
 
       const deterministicFluxListResult = await fluxCommunicationUtils.deterministicFluxList(filteredPubKey);
 

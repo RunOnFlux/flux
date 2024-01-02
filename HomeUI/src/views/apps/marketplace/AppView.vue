@@ -414,7 +414,7 @@
             class="text-center wizard-card"
           >
             <a
-              :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=' + callbackValue()"
+              :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
               @click="initiateSignWS"
             >
               <img
@@ -486,7 +486,7 @@
                 title="Pay with Zelcore"
                 class="text-center wizard-card"
               >
-                <a :href="'zel:?action=pay&coin=zelcash&address=' + deploymentAddress + '&amount=' + appPricePerMonth + '&message=' + registrationHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png'">
+                <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${appPricePerMonth}&message=${registrationHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
                   <img
                     class="zelidLogin"
                     src="@/assets/images/zelID.svg"
@@ -538,7 +538,8 @@ import {
   ref,
   watch,
   computed,
-} from '@vue/composition-api';
+  getCurrentInstance,
+} from 'vue';
 
 import ListEntry from '@/views/components/ListEntry.vue';
 import AppsService from '@/services/AppsService';
@@ -597,7 +598,8 @@ export default {
       default: '',
     },
   },
-  setup(props, ctx) {
+  setup(props) {
+    const vm = getCurrentInstance().proxy;
     // Use toast
     const toast = useToast();
 
@@ -646,7 +648,7 @@ export default {
     const selectedEnterpriseNodes = ref([]);
     const enterprisePublicKeys = ref([]);
 
-    const config = computed(() => ctx.root.$store.state.flux.config);
+    const config = computed(() => vm.$store.state.flux.config);
     const validTill = computed(() => timestamp.value + 60 * 60 * 1000); // 1 hour
     const subscribedTill = computed(() => timestamp.value + 30 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000); // 1 month
 
@@ -662,11 +664,11 @@ export default {
         mybackend += names.join('.');
       } else {
         if (typeof hostname === 'string') {
-          ctx.root.$store.commit('flux/setUserIp', hostname);
+          vm.$store.commit('flux/setUserIp', hostname);
         }
         if (+port > 16100) {
           const apiPort = +port + 1;
-          ctx.root.$store.commit('flux/setFluxPort', apiPort);
+          vm.$store.commit('flux/setFluxPort', apiPort);
         }
         mybackend += hostname;
         mybackend += ':';
@@ -708,11 +710,11 @@ export default {
         mybackend += names.join('.');
       } else {
         if (typeof hostname === 'string') {
-          ctx.root.$store.commit('flux/setUserIp', hostname);
+          vm.$store.commit('flux/setUserIp', hostname);
         }
         if (+port > 16100) {
           const apiPort = +port + 1;
-          ctx.root.$store.commit('flux/setFluxPort', apiPort);
+          vm.$store.commit('flux/setFluxPort', apiPort);
         }
         mybackend += hostname;
         mybackend += ':';

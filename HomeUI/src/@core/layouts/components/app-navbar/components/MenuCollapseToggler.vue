@@ -14,7 +14,7 @@
 
 <script>
 import useAppConfig from '@core/app-config/useAppConfig';
-import { computed } from '@vue/composition-api';
+import { computed } from 'vue';
 import {
   BNavItem,
   VBTooltip,

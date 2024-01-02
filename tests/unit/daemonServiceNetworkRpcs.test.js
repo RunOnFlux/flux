@@ -62,8 +62,11 @@ describe('daemonServiceNetworkRpcs tests', () => {
       const result = await daemonServiceNetworkRpcs.addNode(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
-        'addNode', [req.params.node, req.params.command]);
+      sinon.assert.calledOnceWithExactly(
+        daemonServiceUtilsStub,
+        'addNode',
+        [req.params.node, req.params.command],
+      );
     });
 
     it('should trigger rpc, all parameters passed in query, no response passed', async () => {
@@ -83,8 +86,11 @@ describe('daemonServiceNetworkRpcs tests', () => {
       const result = await daemonServiceNetworkRpcs.addNode(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
-        'addNode', [req.query.node, req.query.command]);
+      sinon.assert.calledOnceWithExactly(
+        daemonServiceUtilsStub,
+        'addNode',
+        [req.query.node, req.query.command],
+      );
     });
 
     it('should trigger rpc, even without params', async () => {
@@ -104,8 +110,11 @@ describe('daemonServiceNetworkRpcs tests', () => {
       const result = await daemonServiceNetworkRpcs.addNode(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
-        'addNode', []);
+      sinon.assert.calledOnceWithExactly(
+        daemonServiceUtilsStub,
+        'addNode',
+        [],
+      );
     });
 
     it('should trigger rpc, all parameters passed in params,  response passed', async () => {
@@ -124,8 +133,11 @@ describe('daemonServiceNetworkRpcs tests', () => {
 
       expect(result).to.equal(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
-        'addNode', [req.params.node, req.params.command]);
+      sinon.assert.calledOnceWithExactly(
+        daemonServiceUtilsStub,
+        'addNode',
+        [req.params.node, req.params.command],
+      );
     });
   });
 
@@ -234,8 +246,11 @@ describe('daemonServiceNetworkRpcs tests', () => {
       const result = await daemonServiceNetworkRpcs.disconnectNode(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
-        'disconnectNode', [req.params.node]);
+      sinon.assert.calledOnceWithExactly(
+        daemonServiceUtilsStub,
+        'disconnectNode',
+        [req.params.node],
+      );
     });
 
     it('should trigger rpc, all parameters passed in query, no response passed', async () => {
@@ -254,8 +269,11 @@ describe('daemonServiceNetworkRpcs tests', () => {
       const result = await daemonServiceNetworkRpcs.disconnectNode(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
-        'disconnectNode', [req.query.node]);
+      sinon.assert.calledOnceWithExactly(
+        daemonServiceUtilsStub,
+        'disconnectNode',
+        [req.query.node],
+      );
     });
 
     it('should trigger rpc, even without params', async () => {
@@ -347,8 +365,11 @@ describe('daemonServiceNetworkRpcs tests', () => {
       const result = await daemonServiceNetworkRpcs.getAddedNodeInfo(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
-        'getAddedNodeInfo', [req.params.dns, req.params.node]);
+      sinon.assert.calledOnceWithExactly(
+        daemonServiceUtilsStub,
+        'getAddedNodeInfo',
+        [req.params.dns, req.params.node],
+      );
     });
 
     it('should trigger rpc with dns parameter when no node is passed, no response passed', async () => {
@@ -367,8 +388,11 @@ describe('daemonServiceNetworkRpcs tests', () => {
       const result = await daemonServiceNetworkRpcs.getAddedNodeInfo(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
-        'getAddedNodeInfo', [true]);
+      sinon.assert.calledOnceWithExactly(
+        daemonServiceUtilsStub,
+        'getAddedNodeInfo',
+        [true],
+      );
     });
 
     it('should trigger rpc without parameters if no dns passed, no response passed', async () => {
@@ -387,8 +411,11 @@ describe('daemonServiceNetworkRpcs tests', () => {
       const result = await daemonServiceNetworkRpcs.getAddedNodeInfo(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
-        'getAddedNodeInfo', []);
+      sinon.assert.calledOnceWithExactly(
+        daemonServiceUtilsStub,
+        'getAddedNodeInfo',
+        [],
+      );
     });
 
     it('should trigger rpc, all parameters passed in query, no response passed', async () => {
@@ -408,8 +435,11 @@ describe('daemonServiceNetworkRpcs tests', () => {
       const result = await daemonServiceNetworkRpcs.getAddedNodeInfo(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
-        'getAddedNodeInfo', [req.query.dns, req.query.node]);
+      sinon.assert.calledOnceWithExactly(
+        daemonServiceUtilsStub,
+        'getAddedNodeInfo',
+        [req.query.dns, req.query.node],
+      );
     });
 
     it('should trigger rpc, even without params', async () => {

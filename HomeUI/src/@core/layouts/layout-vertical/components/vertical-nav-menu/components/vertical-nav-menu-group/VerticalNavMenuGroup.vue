@@ -3,8 +3,8 @@
     v-if="hasPrivilegeLevel(item)"
     class="nav-item has-sub"
     :class="{
-      'open': isOpen,
-      'disabled': item.disabled,
+      open: isOpen,
+      disabled: item.disabled,
       'sidebar-group-active': isActive,
       'sidebar-group-spacing': item.spacing,
     }"

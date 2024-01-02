@@ -2809,12 +2809,15 @@ describe('appsService tests', () => {
       await appsService.appMonitorStream(req, res);
 
       sinon.assert.calledOnce(res.end);
-      sinon.assert.calledWithExactly(dockerContainerStatsStreamFake,
+      sinon.assert.calledWithExactly(
+        dockerContainerStatsStreamFake,
         'test_myappname',
         {
           params: { appname: 'test_myappname', lines: [10, 11, 12] },
           query: { test2: 'test2' },
-        }, res);
+        },
+        res,
+      );
       sinon.assert.notCalled(logSpy);
     });
 
@@ -2834,12 +2837,15 @@ describe('appsService tests', () => {
       await appsService.appMonitorStream(req, res);
 
       sinon.assert.calledOnce(res.end);
-      sinon.assert.calledWithExactly(dockerContainerStatsStreamFake,
+      sinon.assert.calledWithExactly(
+        dockerContainerStatsStreamFake,
         'myappname',
         {
           params: { appname: 'myappname', lines: [10, 11, 12] },
           query: { test2: 'test2' },
-        }, res);
+        },
+        res,
+      );
       sinon.assert.notCalled(logSpy);
     });
   });

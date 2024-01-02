@@ -12,7 +12,7 @@
       />
       <list-entry
         title="Static Ip ISP/Org"
-        :data="staticIp ? 'Yes': 'No'"
+        :data="staticIp ? 'Yes' : 'No'"
       />
       <list-entry
         v-if="getInfoResponse.message !== ''"
@@ -30,7 +30,7 @@
         :data="getInfoResponse.message.blocks.toString()"
       />
       <list-entry
-        v-if="getInfoResponse.status.length > 0 && getInfoResponse.message.errors != ''"
+        v-if="getInfoResponse.status.length > 0 && getInfoResponse.message.errors !== ''"
         title="Error"
         :data="getInfoResponse.message.errors"
         variant="danger"
@@ -46,7 +46,7 @@
           </b-card-text>
           <div class="loginRow">
             <a
-              :href="'zel:?action=sign&message=' + loginPhrase + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=' + callbackValue"
+              :href="`zel:?action=sign&message=${loginPhrase}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue}`"
               @click="initiateLoginWS"
             >
               <img

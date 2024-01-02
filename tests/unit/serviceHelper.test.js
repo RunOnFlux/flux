@@ -16,8 +16,10 @@ const adminConfig = {
     testnet: true,
   },
 };
-serviceHelper = proxyquire('../../ZelBack/src/services/serviceHelper',
-  { '../../../config/userconfig': adminConfig });
+serviceHelper = proxyquire(
+  '../../ZelBack/src/services/serviceHelper',
+  { '../../../config/userconfig': adminConfig },
+);
 
 describe('serviceHelper tests', () => {
   describe('ensureBoolean function tests', () => {

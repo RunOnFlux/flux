@@ -1,3 +1,5 @@
+const path = require('path');
+
 module.exports = {
   root: true,
   env: {
@@ -7,10 +9,21 @@ module.exports = {
   },
   extends: [
     'plugin:vue/recommended',
-    '@vue/airbnb',
+    '@vue/eslint-config-airbnb',
+  ],
+  plugins: [
+    'vue',
   ],
   rules: {
     'max-len': [
+      'error',
+      {
+        code: 300,
+        ignoreUrls: true,
+        ignoreTrailingComments: true,
+      },
+    ],
+    'vue/max-len': [
       'error',
       {
         code: 300,
@@ -31,9 +44,17 @@ module.exports = {
     camelcase: ['error', { properties: 'never', ignoreDestructuring: true, ignoreImports: true }],
     'import/extensions': ['error', 'ignorePackages', { vue: 'always', js: 'never' }],
     'import/order': 'off',
+    'vue/multi-word-component-names': 'off',
+    'vuejs-accessibility/label-has-for': 'off',
+    'vuejs-accessibility/click-events-have-key-events': 'off',
+    'vuejs-accessibility/heading-has-content': 'off',
+    'vuejs-accessibility/anchor-has-content': 'off',
+    'vuejs-accessibility/form-control-has-label': 'off',
   },
+  parser: 'vue-eslint-parser',
   parserOptions: {
-    parser: 'babel-eslint',
+    parser: '@babel/eslint-parser',
+    requireConfigFile: false,
   },
   settings: {
     'import/resolver': {
@@ -43,6 +64,18 @@ module.exports = {
           '.jsx',
           '.vue',
         ],
+      },
+      alias: {
+        map: [
+          ['@', path.resolve(__dirname, './HomeUI/src')],
+          ['@themeConfig', path.resolve(__dirname, './HomeUI/themeConfig.js')],
+          ['@core', path.resolve(__dirname, './HomeUI/src/@core')],
+          ['@validations', path.resolve(__dirname, './HomeUI/src/@core/utils/validations/validations.js')],
+          ['@axios', path.resolve(__dirname, './HomeUI/src/libs/axios')],
+          ['ZelBack', path.resolve(__dirname, './ZelBack')],
+          ['Config', path.resolve(__dirname, './config')],
+        ],
+        extensions: ['.js', '.jsx', '.vue'],
       },
     },
   },
@@ -58,8 +91,8 @@ module.exports = {
     {
       files: ['*.html'],
       rules: {
-        'vue/comment-directive': 'off'
-      }
-    }
+        'vue/comment-directive': 'off',
+      },
+    },
   ],
 };

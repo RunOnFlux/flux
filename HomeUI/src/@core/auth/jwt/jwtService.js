@@ -2,16 +2,16 @@ import jwtDefaultConfig from './jwtDefaultConfig';
 
 export default class JwtService {
   // Will be used by this service for making API calls
-  axiosIns = null
+  axiosIns = null;
 
   // jwtConfig <= Will be used by this service
-  jwtConfig = { ...jwtDefaultConfig }
+  jwtConfig = { ...jwtDefaultConfig };
 
   // For Refreshing Token
-  isAlreadyFetchingAccessToken = false
+  isAlreadyFetchingAccessToken = false;
 
   // For Refreshing Token
-  subscribers = []
+  subscribers = [];
 
   constructor(axiosIns, jwtOverrideConfig) {
     this.axiosIns = axiosIns;

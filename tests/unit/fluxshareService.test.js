@@ -22,8 +22,10 @@ const adminConfig = {
   },
 };
 
-const fluxshareService = proxyquire('../../ZelBack/src/services/fluxshareService',
-  { '../../../config/userconfig': adminConfig });
+const fluxshareService = proxyquire(
+  '../../ZelBack/src/services/fluxshareService',
+  { '../../../config/userconfig': adminConfig },
+);
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
