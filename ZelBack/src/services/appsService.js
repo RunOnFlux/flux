@@ -1904,7 +1904,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     for (let i = 0; i < containersData.length; i += 1) {
       const container = containersData[i];
       const containerDataFlags = container.split(':')[1] ? container.split(':')[0] : '';
-      if (containerDataFlags.includes('s') || containerDataFlags.includes('r')) {
+      if (containerDataFlags.includes('s') || containerDataFlags.includes('r') || containerDataFlags.includes('g')) {
         const containerFolder = i === 0 ? '' : `/appdata${container.split(':')[1].replace(containersData[0], '')}`;
         const stFolderCreation = {
           status: 'Creating .stfolder for syncthing...',
@@ -10122,7 +10122,7 @@ async function syncthingApps() {
         for (let i = 0; i < containersData.length; i += 1) {
           const container = containersData[i];
           const containerDataFlags = container.split(':')[1] ? container.split(':')[0] : '';
-          if (containerDataFlags.includes('s') || containerDataFlags.includes('r')) {
+          if (containerDataFlags.includes('s') || containerDataFlags.includes('r') || containerDataFlags.includes('g')) {
             const containerFolder = i === 0 ? '' : `/appdata${container.split(':')[1].replace(containersData[0], '')}`;
             const identifier = installedApp.name;
             const appId = dockerService.getAppIdentifier(identifier);
@@ -10177,7 +10177,7 @@ async function syncthingApps() {
               type: 'sendreceive',
             };
             const syncFolder = allFoldersResp.data.find((x) => x.id === id);
-            if (containerDataFlags.includes('r')) {
+            if (containerDataFlags.includes('r') || containerDataFlags.includes('g')) {
               if (syncthingAppsFirstRun) {
                 if (!syncFolder) {
                   log.info(`SyncthingApps stopping and cleaning appIdentifier ${appId}`);
@@ -10284,7 +10284,7 @@ async function syncthingApps() {
           for (let i = 0; i < containersData.length; i += 1) {
             const container = containersData[i];
             const containerDataFlags = container.split(':')[1] ? container.split(':')[0] : '';
-            if (containerDataFlags.includes('s') || containerDataFlags.includes('r')) {
+            if (containerDataFlags.includes('s') || containerDataFlags.includes('r') || containerDataFlags.includes('g')) {
               const containerFolder = i === 0 ? '' : `/appdata${container.split(':')[1].replace(containersData[0], '')}`;
               const identifier = `${installedComponent.name}_${installedApp.name}`;
               const appId = dockerService.getAppIdentifier(identifier);
@@ -10339,7 +10339,7 @@ async function syncthingApps() {
                 type: 'sendreceive',
               };
               const syncFolder = allFoldersResp.data.find((x) => x.id === id);
-              if (containerDataFlags.includes('r')) {
+              if (containerDataFlags.includes('r') || containerDataFlags.includes('g')) {
                 if (syncthingAppsFirstRun) {
                   if (!syncFolder) {
                     log.info(`SyncthingApps stopping and cleaning appIdentifier ${appId}`);
