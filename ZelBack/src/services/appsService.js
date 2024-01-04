@@ -10665,6 +10665,10 @@ async function masterSlaveApps() {
                 // eslint-disable-next-line no-await-in-loop
                 let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
                 myIP = myIP.split(':')[0];
+                log.info(`masterSlaveApps: myIP:${myIP}`);
+                log.info(`masterSlaveApps: ip:${ip}`);
+                log.info(`masterSlaveApps: identifier:${identifier}`);
+                log.info(`masterSlaveApps: runningAppsNames:${JSON.stringify(runningAppsNames)}`);
                 if (myIP !== ip && runningAppsNames.includes(identifier)) {
                   appDockerStop(installedApp.name);
                   log.info(`masterSlaveApps: runningAppsNames:${JSON.stringify(runningAppsNames)}`);
