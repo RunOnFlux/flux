@@ -8737,7 +8737,7 @@ async function trySpawningGlobalApplication() {
 
     trySpawningGlobalAppCache.set(appToRun, appToRun);
 
-    const runningAppList = await getRunningAppList(appToRun);
+    let runningAppList = await getRunningAppList(appToRun);
 
     const adjustedIP = myIP.split(':')[0]; // just IP address
     // check if app not running on this device
@@ -8766,7 +8766,7 @@ async function trySpawningGlobalApplication() {
     }
 
     // check if app is installed on the number of instances requested
-    const minInstances = appSpecifications.instances || config.fluxapps.minimumInstances; // introduced in v3 of apps specs
+    let minInstances = appSpecifications.instances || config.fluxapps.minimumInstances; // introduced in v3 of apps specs
     if (runningAppList.length >= minInstances) {
       log.info(`Application ${appToRun} is already spawned on ${runningAppList.length} instances`);
       await serviceHelper.delay(adjustedDelay);
@@ -8864,6 +8864,15 @@ async function trySpawningGlobalApplication() {
       return;
     }
 
+    // double check if app is installed on the number of instances requested
+    runningAppList = await getRunningAppList(appToRun);
+    minInstances = appSpecifications.instances || config.fluxapps.minimumInstances; // introduced in v3 of apps specs
+    if (runningAppList.length >= minInstances) {
+      log.info(`Application ${appToRun} is already spawned on ${runningAppList.length} instances`);
+      await serviceHelper.delay(adjustedDelay);
+      trySpawningGlobalApplication();
+      return;
+    }
     // an application was selected and checked that it can run on this node. try to install and run it locally
     // install the app
     const registerOk = await registerAppLocally(appSpecifications); // can throw
