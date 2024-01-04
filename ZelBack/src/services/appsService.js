@@ -8947,6 +8947,7 @@ async function checkAndNotifyPeersOfRunningApps() {
           const appInstalledMasterSlave = appsInstalled.find((app) => app.name === mainAppName);
           log.info(`checkAndNotifyPeersOfRunningApps: mainAppName: ${mainAppName}`);
           log.info(`checkAndNotifyPeersOfRunningApps: appInstalledMasterSlave: ${JSON.stringify(appInstalledMasterSlave)}`);
+          log.info(`checkAndNotifyPeersOfRunningApps: appInstalledMasterSlave.compose: ${JSON.stringify(appInstalledMasterSlave.compose)}`);
           const appInstalledMasterSlaveCheck = appInstalledMasterSlave.compose.indexOf((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:'));
           log.info(`checkAndNotifyPeersOfRunningApps: appInstalledMasterSlaveCheck: ${appInstalledMasterSlaveCheck}`);
           if (appInstalledMasterSlaveCheck > 0) {
