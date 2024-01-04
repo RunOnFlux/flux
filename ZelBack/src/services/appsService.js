@@ -8945,7 +8945,7 @@ async function checkAndNotifyPeersOfRunningApps() {
           // eslint-disable-next-line no-await-in-loop
           const appDetails = await getApplicationGlobalSpecifications(mainAppName);
           const appInstalledMasterSlave = appsInstalled.find((app) => app.name === mainAppName);
-          const appInstalledMasterSlaveCheck = appInstalledMasterSlave.compose.includes((comp) => comp.containerData.includes('g:'));
+          const appInstalledMasterSlaveCheck = appInstalledMasterSlave.compose.includes((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:'));
           if (appInstalledMasterSlaveCheck) {
             masterSlaveAppsInstalled.push(appInstalledMasterSlave);
           } else if (appDetails) {
@@ -10101,7 +10101,6 @@ async function syncthingApps() {
     if (installationInProgress || removalInProgress || updateSyncthingRunning) {
       return;
     }
-    let callCheckAndNotifyPeersOfRunningApps = false;
     updateSyncthingRunning = true;
     // get list of all installed apps
     const appsInstalled = await installedApps();
@@ -10329,7 +10328,6 @@ async function syncthingApps() {
                     await appDockerRestart(id);
                     startAppMonitoring(appId);
                     cache.restarted = true;
-                    callCheckAndNotifyPeersOfRunningApps = true;
                   }
                   receiveOnlySyncthingAppsCache.set(appId, cache);
                 } else if (!receiveOnlySyncthingAppsCache.has(appId)) {
@@ -10362,9 +10360,6 @@ async function syncthingApps() {
       }
     }
 
-    if (callCheckAndNotifyPeersOfRunningApps) {
-      checkAndNotifyPeersOfRunningApps();
-    }
     // remove folders that should not be synced anymore (this shall actually not trigger)
     const nonUsedFolders = allFoldersResp.data.filter((syncthingFolder) => !folderIds.includes(syncthingFolder.id));
     // eslint-disable-next-line no-restricted-syntax
