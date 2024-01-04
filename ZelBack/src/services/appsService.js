@@ -10559,7 +10559,7 @@ async function masterSlaveApps() {
           if (fdmEUData && fdmEUData.length > 0) {
             const ipElement = fdmEUData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
             if (ipElement) {
-              ip = ipElement[0].value.value.split(':');
+              ip = ipElement.value.value.split(':');
               serverStatus = fdmEUData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
             }
           }
@@ -10572,7 +10572,7 @@ async function masterSlaveApps() {
             if (fdmUSAData && fdmUSAData.length > 0) {
               const ipElement = fdmUSAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
               if (ipElement) {
-                ip = ipElement[0].value.value.split(':');
+                ip = ipElement.value.value.split(':');
                 serverStatus = fdmUSAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
               }
             }
@@ -10586,7 +10586,7 @@ async function masterSlaveApps() {
             if (fdmASIAData && fdmASIAData.length > 0) {
               const ipElement = fdmASIAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
               if (ipElement) {
-                ip = ipElement[0].value.value.split(':');
+                ip = ipElement.value.value.split(':');
                 serverStatus = fdmASIAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
               }
             }
@@ -10620,6 +10620,7 @@ async function masterSlaveApps() {
             });
             fdmOk = true;
             if (fdmEUData && fdmEUData.length > 0) {
+              log.error(`masterSlaveApps: fdmEUData[0]: ${fdmEUData[0].toString()}`);
               const ipElement = fdmEUData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
               if (ipElement) {
                 ip = ipElement.value.value.split(':');
