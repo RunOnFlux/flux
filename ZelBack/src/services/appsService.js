@@ -1,5 +1,6 @@
 /* global userconfig */
 const config = require('config');
+const https = require('https');
 const axios = require('axios');
 const express = require('express');
 const http = require('http');
@@ -10522,8 +10523,12 @@ async function masterSlaveApps() {
     if (appsInstalled.status === 'error') {
       return;
     }
+    const agent = new https.Agent({
+      rejectUnauthorized: false,
+    });
     const axiosOptions = {
       timeout: 10000,
+      httpsAgent: agent,
     };
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled.data) {
