@@ -1924,7 +1924,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
         if (res) {
           res.write(serviceHelper.ensureString(stFolderCreation2));
         }
-        if (appId.toLowerCase().includes('minecraft')) {
+        /* if (appId.toLowerCase().includes('minecraft')) {
           const stignore = `sudo echo '*.paused' >| ${appsFolder + appId + containerFolder}/.stignore`;
           log.info(stignore);
           // eslint-disable-next-line no-await-in-loop
@@ -1936,7 +1936,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
           if (res) {
             res.write(serviceHelper.ensureString(stiFileCreation));
           }
-        }
+        } */
       }
     }
 
