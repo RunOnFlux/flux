@@ -3383,6 +3383,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
       hash: appSpecifications.hash, // hash of application specifics that are running
       ip: myIP,
       broadcastedAt,
+      runningSince: broadcastedAt,
     };
 
     // store it in local database first
@@ -6455,15 +6456,27 @@ async function storeAppRunningMessage(message) {
     };
 
     // indexes over name, hash, ip. Then name + ip and name + ip + broadcastedAt.
-    const queryFind = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip, broadcastedAt: { $gte: newAppRunningMessage.broadcastedAt } };
-    const projection = { _id: 0 };
+    let queryFind = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip, broadcastedAt: { $gte: newAppRunningMessage.broadcastedAt } };
+    let projection = { _id: 0 };
     // we already have the exact same data
     // eslint-disable-next-line no-await-in-loop
-    const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
+    let result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
     if (result) {
       // found a message that was already stored/bad message
       messageNotOk = true;
       break;
+    }
+    if (message.runningSince) {
+      newAppRunningMessage.runningSince = new Date(message.runningSince);
+    } else {
+      queryFind = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
+      projection = { _id: 0, runningSince: 1 };
+      // we already have the exact same data
+      // eslint-disable-next-line no-await-in-loop
+      result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
+      if (result.runningSince) {
+        newAppRunningMessage.runningSince = result.runningSince;
+      }
     }
     const queryUpdate = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
     const update = { $set: newAppRunningMessage };
