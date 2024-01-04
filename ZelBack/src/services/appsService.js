@@ -10655,10 +10655,12 @@ async function masterSlaveApps() {
               }
             }
             if (fdmOk) {
+              log.info(`masterSlaveApps: ip:${ip}`);
+              log.info(`masterSlaveApps: identifier:${identifier}`);
+              log.info(`masterSlaveApps: runningAppsNames:${JSON.stringify(runningAppsNames)}`);
               if ((!ip || serverStatus === 'DOWN')) {
                 if (!runningAppsNames.includes(identifier)) {
                   appDockerRestart(installedApp.name);
-                  log.info(`masterSlaveApps: runningAppsNames:${JSON.stringify(runningAppsNames)}`);
                   log.info(`masterSlaveApps: starting docker app:${installedApp.name}`);
                 }
               } else {
@@ -10666,12 +10668,8 @@ async function masterSlaveApps() {
                 let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
                 myIP = myIP.split(':')[0];
                 log.info(`masterSlaveApps: myIP:${myIP}`);
-                log.info(`masterSlaveApps: ip:${ip}`);
-                log.info(`masterSlaveApps: identifier:${identifier}`);
-                log.info(`masterSlaveApps: runningAppsNames:${JSON.stringify(runningAppsNames)}`);
                 if (myIP !== ip && runningAppsNames.includes(identifier)) {
                   appDockerStop(installedApp.name);
-                  log.info(`masterSlaveApps: runningAppsNames:${JSON.stringify(runningAppsNames)}`);
                   log.info(`masterSlaveApps: stopping docker app:${installedApp.name}`);
                 }
               }
