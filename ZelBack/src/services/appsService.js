@@ -8995,7 +8995,6 @@ async function checkAndNotifyPeersOfRunningApps() {
       }
     });
     installedAndRunning.push(...masterSlaveAppsInstalled);
-    log.info(`checkAndNotifyPeersOfRunningApps: installedAndRunning: ${JSON.stringify(installedAndRunning)}`);
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     const daemonHeight = syncStatus.data.height || 0;
     const apps = [];
