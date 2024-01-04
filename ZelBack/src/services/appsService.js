@@ -10622,7 +10622,7 @@ async function masterSlaveApps() {
             if (fdmEUData && fdmEUData.length > 0) {
               const ipElement = fdmEUData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
               if (ipElement) {
-                ip = ipElement[0].value.value.split(':');
+                ip = ipElement.value.value.split(':');
                 serverStatus = fdmEUData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
               }
             }
@@ -10635,7 +10635,7 @@ async function masterSlaveApps() {
               if (fdmUSAData && fdmUSAData.length > 0) {
                 const ipElement = fdmUSAData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
                 if (ipElement) {
-                  ip = ipElement[0].value.value.split(':');
+                  ip = ipElement.value.value.split(':');
                   serverStatus = fdmUSAData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
                 }
               }
@@ -10649,13 +10649,14 @@ async function masterSlaveApps() {
               if (fdmASIAData && fdmASIAData.length > 0) {
                 const ipElement = fdmASIAData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
                 if (ipElement) {
-                  ip = ipElement[0].value.value.split(':');
+                  ip = ipElement.value.value.split(':');
                   serverStatus = fdmASIAData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
                 }
               }
             }
             if (fdmOk) {
               log.info(`masterSlaveApps: ip:${ip}`);
+              log.info(`masterSlaveApps: serverStatus:${serverStatus}`);
               log.info(`masterSlaveApps: identifier:${identifier}`);
               log.info(`masterSlaveApps: runningAppsNames:${JSON.stringify(runningAppsNames)}`);
               if ((!ip || serverStatus === 'DOWN')) {
