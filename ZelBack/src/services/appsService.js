@@ -10618,9 +10618,9 @@ async function masterSlaveApps() {
             const fdmEUData = await serviceHelper.axiosGet(`https://fdm-fn-1-4.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
               log.error(`masterSlaveApps: Failed to reach EU FDM with error: ${error}`);
             });
+            log.info(`masterSlaveApps: fdmEUData[0]: ${JSON.stringify(fdmEUData)}`);
             fdmOk = true;
             if (fdmEUData && fdmEUData.length > 0) {
-              log.error(`masterSlaveApps: fdmEUData[0]: ${fdmEUData[0].toString()}`);
               const ipElement = fdmEUData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
               if (ipElement) {
                 ip = ipElement.value.value.split(':');
