@@ -123,7 +123,10 @@ async function startFluxFunctions() {
     }, 4 * 60 * 1000);
     setTimeout(() => {
       appsService.syncthingApps(); // rechecks and possibly adjust syncthing configuration every 2 minutes
-    }, 2 * 60 * 1000);
+    }, 30 * 1000);
+    setTimeout(() => {
+      appsService.masterSlaveApps(); // stop and starts apps using syncthing g: when a new master is required or was changed.
+    }, 40 * 1000);
     setTimeout(() => {
       setInterval(() => { // every 30 mins (15 blocks)
         appsService.continuousFluxAppHashesCheck();
