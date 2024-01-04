@@ -10470,7 +10470,6 @@ async function masterSlaveApps() {
           } else if (appNameFirstLetterLowerCase.match(/[v-z]/)) {
             fdmIndex = 4;
           }
-          log.info(`masterSlaveApps: fdmIndex:${fdmIndex}`);
           let ip = null;
           let serverStatus = null;
           // eslint-disable-next-line no-await-in-loop
@@ -10517,10 +10516,6 @@ async function masterSlaveApps() {
             }
           }
           if (fdmOk) {
-            log.info(`masterSlaveApps: ip:${ip}`);
-            log.info(`masterSlaveApps: serverStatus:${serverStatus}`);
-            log.info(`masterSlaveApps: identifier:${identifier}`);
-            log.info(`masterSlaveApps: runningAppsNames:${JSON.stringify(runningAppsNames)}`);
             if ((!ip || serverStatus === 'DOWN')) {
               if (!runningAppsNames.includes(identifier)) {
                 appDockerRestart(installedApp.name);
@@ -10531,7 +10526,6 @@ async function masterSlaveApps() {
               // eslint-disable-next-line no-await-in-loop
               let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
               myIP = myIP.split(':')[0];
-              log.info(`masterSlaveApps: myIP:${myIP}`);
               if (myIP !== ip && runningAppsNames.includes(identifier)) {
                 appDockerStop(installedApp.name);
                 log.info(`masterSlaveApps: stopping docker app:${installedApp.name}`);
