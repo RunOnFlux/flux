@@ -10615,9 +10615,10 @@ async function masterSlaveApps() {
             let ip = null;
             let serverStatus = null;
             // eslint-disable-next-line no-await-in-loop
-            const fdmEUData = await serviceHelper.axiosGet(`https://fdm-fn-1-4.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
+            let fdmEUData = await serviceHelper.axiosGet(`https://fdm-fn-1-4.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
               log.error(`masterSlaveApps: Failed to reach EU FDM with error: ${error}`);
             });
+            fdmEUData = fdmEUData.data;
             log.info(`masterSlaveApps: fdmEUData[0]: ${JSON.stringify(fdmEUData)}`);
             fdmOk = true;
             if (fdmEUData && fdmEUData.length > 0) {
