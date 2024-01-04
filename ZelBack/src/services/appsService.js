@@ -8934,6 +8934,7 @@ async function checkAndNotifyPeersOfRunningApps() {
     // installed always is bigger array than running
     const runningSet = new Set(runningAppsNames);
     const stoppedApps = installedAppComponentNames.filter((installedApp) => !runningSet.has(installedApp));
+    const masterSlaveAppsInstalled = [];
     // check if stoppedApp is a global application present in specifics. If so, try to start it.
     if (!removalInProgress && !installationInProgress && !reinstallationOfOldAppsInProgress) {
       // eslint-disable-next-line no-restricted-syntax
@@ -8943,7 +8944,11 @@ async function checkAndNotifyPeersOfRunningApps() {
           const mainAppName = stoppedApp.split('_')[1] || stoppedApp;
           // eslint-disable-next-line no-await-in-loop
           const appDetails = await getApplicationGlobalSpecifications(mainAppName);
-          if (appDetails) {
+          const appInstalledMasterSlave = appsInstalled.find((app) => app.name === mainAppName);
+          const appInstalledMasterSlaveCheck = appInstalledMasterSlave.compose.includes((comp) => comp.containerData.includes('g:'));
+          if (appInstalledMasterSlaveCheck) {
+            masterSlaveAppsInstalled.push(appInstalledMasterSlave);
+          } else if (appDetails) {
             log.warn(`${stoppedApp} is stopped but should be running. Starting...`);
             // it is a stopped global app. Try to run it.
             // check if some removal is in progress and if it is don't start it!
@@ -8989,7 +8994,7 @@ async function checkAndNotifyPeersOfRunningApps() {
         installedAndRunning.push(app);
       }
     });
-
+    installedAndRunning.push(...masterSlaveAppsInstalled);
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     const daemonHeight = syncStatus.data.height || 0;
     const apps = [];
