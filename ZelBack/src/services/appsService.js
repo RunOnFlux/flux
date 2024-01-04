@@ -8945,7 +8945,10 @@ async function checkAndNotifyPeersOfRunningApps() {
           // eslint-disable-next-line no-await-in-loop
           const appDetails = await getApplicationGlobalSpecifications(mainAppName);
           const appInstalledMasterSlave = appsInstalled.find((app) => app.name === mainAppName);
+          log.info(`checkAndNotifyPeersOfRunningApps: mainAppName: ${mainAppName}`);
+          log.info(`checkAndNotifyPeersOfRunningApps: appInstalledMasterSlave: ${JSON.stringify(appInstalledMasterSlave)}`);
           const appInstalledMasterSlaveCheck = appInstalledMasterSlave.compose.includes((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:'));
+          log.info(`checkAndNotifyPeersOfRunningApps: appInstalledMasterSlaveCheck: ${appInstalledMasterSlaveCheck}`);
           if (appInstalledMasterSlaveCheck) {
             masterSlaveAppsInstalled.push(appInstalledMasterSlave);
           } else if (appDetails) {
@@ -8995,6 +8998,7 @@ async function checkAndNotifyPeersOfRunningApps() {
       }
     });
     installedAndRunning.push(...masterSlaveAppsInstalled);
+    log.info(`checkAndNotifyPeersOfRunningApps: installedAndRunning: ${JSON.stringify(installedAndRunning)}`);
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     const daemonHeight = syncStatus.data.height || 0;
     const apps = [];
