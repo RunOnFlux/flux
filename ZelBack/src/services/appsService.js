@@ -10550,7 +10550,7 @@ async function masterSlaveApps() {
         const appId = dockerService.getAppIdentifier(identifier);
         if (installedApp.containerData.includes('g:') && receiveOnlySyncthingAppsCache.get(appId).restarted) {
           let fdmIndex = 1;
-          const appNameFirstLetterLowerCase = installedApp.name.substring(1, 1).toLowerCase();
+          const appNameFirstLetterLowerCase = installedApp.name.substring(0, 1).toLowerCase();
           if (appNameFirstLetterLowerCase.match(/[h-n]/)) {
             fdmIndex = 2;
           } else if (appNameFirstLetterLowerCase.match(/[o-u]/)) {
@@ -10626,7 +10626,7 @@ async function masterSlaveApps() {
           const appId = dockerService.getAppIdentifier(identifier);
           if (installedComponent.containerData.includes('g:') && receiveOnlySyncthingAppsCache.get(appId).restarted) {
             let fdmIndex = 1;
-            const appNameFirstLetterLowerCase = installedApp.name.substring(1, 1).toLowerCase();
+            const appNameFirstLetterLowerCase = installedApp.name.substring(0, 1).toLowerCase();
             if (appNameFirstLetterLowerCase.match(/[h-n]/)) {
               fdmIndex = 2;
             } else if (appNameFirstLetterLowerCase.match(/[o-u]/)) {
