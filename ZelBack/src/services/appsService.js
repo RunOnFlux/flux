@@ -8310,6 +8310,7 @@ async function appLocation(appname) {
       ip: 1,
       broadcastedAt: 1,
       expireAt: 1,
+      runningSince: 1,
     },
   };
   const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
