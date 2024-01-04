@@ -8945,12 +8945,8 @@ async function checkAndNotifyPeersOfRunningApps() {
           // eslint-disable-next-line no-await-in-loop
           const appDetails = await getApplicationGlobalSpecifications(mainAppName);
           const appInstalledMasterSlave = appsInstalled.find((app) => app.name === mainAppName);
-          log.info(`checkAndNotifyPeersOfRunningApps: mainAppName: ${mainAppName}`);
-          log.info(`checkAndNotifyPeersOfRunningApps: appInstalledMasterSlave: ${JSON.stringify(appInstalledMasterSlave)}`);
-          log.info(`checkAndNotifyPeersOfRunningApps: appInstalledMasterSlave.compose: ${JSON.stringify(appInstalledMasterSlave.compose)}`);
-          const appInstalledMasterSlaveCheck = appInstalledMasterSlave.compose.indexOf((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:'));
-          log.info(`checkAndNotifyPeersOfRunningApps: appInstalledMasterSlaveCheck: ${appInstalledMasterSlaveCheck}`);
-          if (appInstalledMasterSlaveCheck > 0) {
+          const appInstalledMasterSlaveCheck = appInstalledMasterSlave.compose.find((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:'));
+          if (appInstalledMasterSlaveCheck) {
             masterSlaveAppsInstalled.push(appInstalledMasterSlave);
           } else if (appDetails) {
             log.warn(`${stoppedApp} is stopped but should be running. Starting...`);
