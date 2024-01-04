@@ -10549,10 +10549,20 @@ async function masterSlaveApps() {
         const identifier = installedApp.name;
         const appId = dockerService.getAppIdentifier(identifier);
         if (installedApp.containerData.includes('g:') && receiveOnlySyncthingAppsCache.get(appId).restarted) {
+          let fdmIndex = 1;
+          const appNameFirstLetterLowerCase = installedApp.name.substring(1, 1).toLowerCase();
+          if (appNameFirstLetterLowerCase.match(/[h-n]/)) {
+            fdmIndex = 2;
+          } else if (appNameFirstLetterLowerCase.match(/[o-u]/)) {
+            fdmIndex = 3;
+          } else if (appNameFirstLetterLowerCase.match(/[v-z]/)) {
+            fdmIndex = 4;
+          }
+          log.info(`masterSlaveApps: fdmIndex:${fdmIndex}`);
           let ip = null;
           let serverStatus = null;
           // eslint-disable-next-line no-await-in-loop
-          let fdmEUData = await serviceHelper.axiosGet(`https://fdm-fn-1-4.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
+          let fdmEUData = await serviceHelper.axiosGet(`https://fdm-fn-1-${fdmIndex}.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
             log.error(`masterSlaveApps: Failed to reach EU FDM with error: ${error}`);
           });
           fdmEUData = fdmEUData.data;
@@ -10566,7 +10576,7 @@ async function masterSlaveApps() {
           }
           if (!ip || !serverStatus) {
             // eslint-disable-next-line no-await-in-loop
-            let fdmUSAData = await serviceHelper.axiosGet(`https://fdm-usa-1-4.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
+            let fdmUSAData = await serviceHelper.axiosGet(`https://fdm-usa-1-${fdmIndex}.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
               log.error(`masterSlaveApps: Failed to reach USA FDM with error: ${error}`);
             });
             fdmUSAData = fdmUSAData.data;
@@ -10581,7 +10591,7 @@ async function masterSlaveApps() {
           }
           if (!ip || !serverStatus) {
             // eslint-disable-next-line no-await-in-loop
-            let fdmASIAData = await serviceHelper.axiosGet(`https://fdm-sg-1-4.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
+            let fdmASIAData = await serviceHelper.axiosGet(`https://fdm-sg-1-${fdmIndex}.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
               log.error(`masterSlaveApps: Failed to reach ASIA FDM with error: ${error}`);
             });
             fdmASIAData = fdmASIAData.data;
@@ -10615,10 +10625,20 @@ async function masterSlaveApps() {
           const identifier = `${installedComponent.name}_${installedApp.name}`;
           const appId = dockerService.getAppIdentifier(identifier);
           if (installedComponent.containerData.includes('g:') && receiveOnlySyncthingAppsCache.get(appId).restarted) {
+            let fdmIndex = 1;
+            const appNameFirstLetterLowerCase = installedApp.name.substring(1, 1).toLowerCase();
+            if (appNameFirstLetterLowerCase.match(/[h-n]/)) {
+              fdmIndex = 2;
+            } else if (appNameFirstLetterLowerCase.match(/[o-u]/)) {
+              fdmIndex = 3;
+            } else if (appNameFirstLetterLowerCase.match(/[v-z]/)) {
+              fdmIndex = 4;
+            }
+            log.info(`masterSlaveApps: fdmIndex:${fdmIndex}`);
             let ip = null;
             let serverStatus = null;
             // eslint-disable-next-line no-await-in-loop
-            let fdmEUData = await serviceHelper.axiosGet(`https://fdm-fn-1-4.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
+            let fdmEUData = await serviceHelper.axiosGet(`https://fdm-fn-1-${fdmIndex}.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
               log.error(`masterSlaveApps: Failed to reach EU FDM with error: ${error}`);
             });
             fdmEUData = fdmEUData.data;
@@ -10632,7 +10652,7 @@ async function masterSlaveApps() {
             }
             if (!ip || !serverStatus) {
               // eslint-disable-next-line no-await-in-loop
-              let fdmUSAData = await serviceHelper.axiosGet(`https://fdm-usa-1-4.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
+              let fdmUSAData = await serviceHelper.axiosGet(`https://fdm-usa-1-${fdmIndex}.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
                 log.error(`masterSlaveApps: Failed to reach USA FDM with error: ${error}`);
               });
               fdmUSAData = fdmUSAData.data;
@@ -10647,7 +10667,7 @@ async function masterSlaveApps() {
             }
             if (!ip || !serverStatus) {
               // eslint-disable-next-line no-await-in-loop
-              let fdmASIAData = await serviceHelper.axiosGet(`https://fdm-sg-1-4.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
+              let fdmASIAData = await serviceHelper.axiosGet(`https://fdm-sg-1-${fdmIndex}.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
                 log.error(`masterSlaveApps: Failed to reach ASIA FDM with error: ${error}`);
               });
               fdmASIAData = fdmASIAData.data;
