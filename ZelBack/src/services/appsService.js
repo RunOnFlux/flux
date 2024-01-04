@@ -10128,7 +10128,7 @@ async function syncthingApps() {
         for (let i = 0; i < containersData.length; i += 1) {
           const container = containersData[i];
           const containerDataFlags = container.split(':')[1] ? container.split(':')[0] : '';
-          if (containerDataFlags.includes('s') || containerDataFlags.includes('r') || containerDataFlags.includes('g')) {
+          if (containerDataFlags.includes('s')) {
             const containerFolder = i === 0 ? '' : `/appdata${container.split(':')[1].replace(containersData[0], '')}`;
             const identifier = installedApp.name;
             const appId = dockerService.getAppIdentifier(identifier);
@@ -10183,97 +10183,6 @@ async function syncthingApps() {
               type: 'sendreceive',
             };
             const syncFolder = allFoldersResp.data.find((x) => x.id === id);
-            if (containerDataFlags.includes('r') || containerDataFlags.includes('g')) {
-              if (syncthingAppsFirstRun) {
-                if (!syncFolder) {
-                  log.info(`SyncthingApps stopping and cleaning appIdentifier ${appId}`);
-                  syncthingFolder.type = 'receiveonly';
-                  const cache = {
-                    numberOfExecutions: 1,
-                  };
-                  receiveOnlySyncthingAppsCache.set(appId, cache);
-                  // eslint-disable-next-line no-await-in-loop
-                  await appDockerStop(id);
-                  // eslint-disable-next-line no-await-in-loop
-                  await serviceHelper.delay(500);
-                  // eslint-disable-next-line no-await-in-loop
-                  await appDeleteDataInMountPoint(id);
-                  // eslint-disable-next-line no-await-in-loop
-                  await serviceHelper.delay(500);
-                } else {
-                  const cache = {
-                    restarted: true,
-                  };
-                  receiveOnlySyncthingAppsCache.set(appId, cache);
-                  if (syncFolder.type === 'receiveonly') {
-                    cache.restarted = false;
-                    cache.numberOfExecutions = 1;
-                    receiveOnlySyncthingAppsCache.set(appId, cache);
-                  }
-                }
-              } else if (receiveOnlySyncthingAppsCache.has(appId) && !receiveOnlySyncthingAppsCache.get(appId).restarted) {
-                const cache = receiveOnlySyncthingAppsCache.get(appId);
-                if (!cache.numberOfExecutionsRequired) {
-                  // eslint-disable-next-line no-await-in-loop
-                  const runningAppList = await getRunningAppList(installedApp.name);
-                  runningAppList.sort((a, b) => {
-                    if (a.broadcastedAt < b.broadcastedAt) {
-                      return -1;
-                    }
-                    if (a.broadcastedAt > b.broadcastedAt) {
-                      return 1;
-                    }
-                    if (a.ip < b.ip) {
-                      return -1;
-                    }
-                    if (a.ip > b.ip) {
-                      return 1;
-                    }
-                    return 0;
-                  });
-                  // eslint-disable-next-line no-await-in-loop
-                  const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
-                  const index = runningAppList.findIndex((x) => x.ip === myIP);
-                  let numberOfExecutionsRequired = 2;
-                  if (index > 0) {
-                    numberOfExecutionsRequired = 2 + 12 * index;
-                  }
-                  if (numberOfExecutionsRequired > 60) {
-                    numberOfExecutionsRequired = 60;
-                  }
-                  cache.numberOfExecutionsRequired = numberOfExecutionsRequired;
-                }
-                syncthingFolder.type = 'receiveonly';
-                cache.numberOfExecutions += 1;
-                if (cache.numberOfExecutions === cache.numberOfExecutionsRequired) {
-                  syncthingFolder.type = 'sendreceive';
-                } else if (cache.numberOfExecutions === cache.numberOfExecutionsRequired + 1) {
-                  log.info(`SyncthingApps starting appIdentifier ${appId}`);
-                  syncthingFolder.type = 'sendreceive';
-                  // eslint-disable-next-line no-await-in-loop
-                  await appDockerRestart(id);
-                  startAppMonitoring(appId);
-                  cache.restarted = true;
-                  callCheckAndNotifyPeersOfRunningApps = true;
-                }
-                receiveOnlySyncthingAppsCache.set(appId, cache);
-              } else if (!receiveOnlySyncthingAppsCache.has(appId)) {
-                log.info(`SyncthingApps stopping and cleaning appIdentifier ${appId}`);
-                syncthingFolder.type = 'receiveonly';
-                const cache = {
-                  numberOfExecutions: 1,
-                };
-                receiveOnlySyncthingAppsCache.set(appId, cache);
-                // eslint-disable-next-line no-await-in-loop
-                await appDockerStop(id);
-                // eslint-disable-next-line no-await-in-loop
-                await serviceHelper.delay(500);
-                // eslint-disable-next-line no-await-in-loop
-                await appDeleteDataInMountPoint(id);
-                // eslint-disable-next-line no-await-in-loop
-                await serviceHelper.delay(500);
-              }
-            }
             folderIds.push(id);
             foldersConfiguration.push(syncthingFolder);
             if (!syncFolder) {
@@ -10552,10 +10461,11 @@ async function masterSlaveApps() {
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled.data) {
       let fdmOk = false;
-      if (installedApp.version <= 3) {
-        const identifier = installedApp.name;
+      // eslint-disable-next-line no-restricted-syntax
+      for (const installedComponent of installedApp.compose) {
+        const identifier = `${installedComponent.name}_${installedApp.name}`;
         const appId = dockerService.getAppIdentifier(identifier);
-        if (installedApp.containerData.includes('g:') && receiveOnlySyncthingAppsCache.get(appId).restarted) {
+        if (installedComponent.containerData.includes('g:') && receiveOnlySyncthingAppsCache.get(appId).restarted) {
           let fdmIndex = 1;
           const appNameFirstLetterLowerCase = installedApp.name.substring(0, 1).toLowerCase();
           if (appNameFirstLetterLowerCase.match(/[h-n]/)) {
@@ -10612,106 +10522,28 @@ async function masterSlaveApps() {
             }
           }
           if (fdmOk) {
+            log.info(`masterSlaveApps: ip:${ip}`);
+            log.info(`masterSlaveApps: serverStatus:${serverStatus}`);
+            log.info(`masterSlaveApps: identifier:${identifier}`);
+            log.info(`masterSlaveApps: runningAppsNames:${JSON.stringify(runningAppsNames)}`);
             if ((!ip || serverStatus === 'DOWN')) {
               if (!runningAppsNames.includes(identifier)) {
-                appDockerRestart(appId);
+                appDockerRestart(installedApp.name);
                 startAppMonitoring(appId);
+                log.info(`masterSlaveApps: starting docker app:${installedApp.name}`);
               }
             } else {
               // eslint-disable-next-line no-await-in-loop
               let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
               myIP = myIP.split(':')[0];
+              log.info(`masterSlaveApps: myIP:${myIP}`);
               if (myIP !== ip && runningAppsNames.includes(identifier)) {
-                appDockerStop(appId);
+                appDockerStop(installedApp.name);
+                log.info(`masterSlaveApps: stopping docker app:${installedApp.name}`);
               }
             }
           }
-        }
-      } else {
-        // eslint-disable-next-line no-restricted-syntax
-        for (const installedComponent of installedApp.compose) {
-          const identifier = `${installedComponent.name}_${installedApp.name}`;
-          const appId = dockerService.getAppIdentifier(identifier);
-          if (installedComponent.containerData.includes('g:') && receiveOnlySyncthingAppsCache.get(appId).restarted) {
-            let fdmIndex = 1;
-            const appNameFirstLetterLowerCase = installedApp.name.substring(0, 1).toLowerCase();
-            if (appNameFirstLetterLowerCase.match(/[h-n]/)) {
-              fdmIndex = 2;
-            } else if (appNameFirstLetterLowerCase.match(/[o-u]/)) {
-              fdmIndex = 3;
-            } else if (appNameFirstLetterLowerCase.match(/[v-z]/)) {
-              fdmIndex = 4;
-            }
-            log.info(`masterSlaveApps: fdmIndex:${fdmIndex}`);
-            let ip = null;
-            let serverStatus = null;
-            // eslint-disable-next-line no-await-in-loop
-            let fdmEUData = await serviceHelper.axiosGet(`https://fdm-fn-1-${fdmIndex}.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
-              log.error(`masterSlaveApps: Failed to reach EU FDM with error: ${error}`);
-            });
-            fdmEUData = fdmEUData.data;
-            fdmOk = true;
-            if (fdmEUData && fdmEUData.length > 0) {
-              const ipElement = fdmEUData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
-              if (ipElement) {
-                ip = ipElement.value.value.split(':')[0];
-                serverStatus = fdmEUData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
-              }
-            }
-            if (!ip || !serverStatus) {
-              // eslint-disable-next-line no-await-in-loop
-              let fdmUSAData = await serviceHelper.axiosGet(`https://fdm-usa-1-${fdmIndex}.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
-                log.error(`masterSlaveApps: Failed to reach USA FDM with error: ${error}`);
-              });
-              fdmUSAData = fdmUSAData.data;
-              fdmOk = true;
-              if (fdmUSAData && fdmUSAData.length > 0) {
-                const ipElement = fdmUSAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
-                if (ipElement) {
-                  ip = ipElement.value.value.split(':')[0];
-                  serverStatus = fdmUSAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
-                }
-              }
-            }
-            if (!ip || !serverStatus) {
-              // eslint-disable-next-line no-await-in-loop
-              let fdmASIAData = await serviceHelper.axiosGet(`https://fdm-sg-1-${fdmIndex}.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
-                log.error(`masterSlaveApps: Failed to reach ASIA FDM with error: ${error}`);
-              });
-              fdmASIAData = fdmASIAData.data;
-              fdmOk = true;
-              if (fdmASIAData && fdmASIAData.length > 0) {
-                const ipElement = fdmASIAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
-                if (ipElement) {
-                  ip = ipElement.value.value.split(':')[0];
-                  serverStatus = fdmASIAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
-                }
-              }
-            }
-            if (fdmOk) {
-              log.info(`masterSlaveApps: ip:${ip}`);
-              log.info(`masterSlaveApps: serverStatus:${serverStatus}`);
-              log.info(`masterSlaveApps: identifier:${identifier}`);
-              log.info(`masterSlaveApps: runningAppsNames:${JSON.stringify(runningAppsNames)}`);
-              if ((!ip || serverStatus === 'DOWN')) {
-                if (!runningAppsNames.includes(identifier)) {
-                  appDockerRestart(installedApp.name);
-                  startAppMonitoring(appId);
-                  log.info(`masterSlaveApps: starting docker app:${installedApp.name}`);
-                }
-              } else {
-                // eslint-disable-next-line no-await-in-loop
-                let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
-                myIP = myIP.split(':')[0];
-                log.info(`masterSlaveApps: myIP:${myIP}`);
-                if (myIP !== ip && runningAppsNames.includes(identifier)) {
-                  appDockerStop(installedApp.name);
-                  log.info(`masterSlaveApps: stopping docker app:${installedApp.name}`);
-                }
-              }
-            }
-            break;
-          }
+          break;
         }
       }
     }
