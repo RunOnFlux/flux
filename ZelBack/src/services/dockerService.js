@@ -507,6 +507,10 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
       });
     }
   }
+  let restartPolicy = 'unless-stopped';
+  if (appSpecifications.containerData.includes('g:')) {
+    restartPolicy = 'no';
+  }
   if (outsideVolumesToAttach.length && !fullAppSpecs) {
     throw new Error(`Complete App Specification was not supplied but additional volumes requested for ${appName}`);
   }
@@ -573,7 +577,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
       ],
       PortBindings: portBindings,
       RestartPolicy: {
-        Name: 'unless-stopped',
+        Name: restartPolicy,
       },
       NetworkMode: `fluxDockerNetwork_${appName}`,
       LogConfig: {
