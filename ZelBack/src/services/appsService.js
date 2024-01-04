@@ -8947,9 +8947,9 @@ async function checkAndNotifyPeersOfRunningApps() {
           const appInstalledMasterSlave = appsInstalled.find((app) => app.name === mainAppName);
           log.info(`checkAndNotifyPeersOfRunningApps: mainAppName: ${mainAppName}`);
           log.info(`checkAndNotifyPeersOfRunningApps: appInstalledMasterSlave: ${JSON.stringify(appInstalledMasterSlave)}`);
-          const appInstalledMasterSlaveCheck = appInstalledMasterSlave.compose.includes((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:'));
+          const appInstalledMasterSlaveCheck = appInstalledMasterSlave.compose.indexOf((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:'));
           log.info(`checkAndNotifyPeersOfRunningApps: appInstalledMasterSlaveCheck: ${appInstalledMasterSlaveCheck}`);
-          if (appInstalledMasterSlaveCheck) {
+          if (appInstalledMasterSlaveCheck > 0) {
             masterSlaveAppsInstalled.push(appInstalledMasterSlave);
           } else if (appDetails) {
             log.warn(`${stoppedApp} is stopped but should be running. Starting...`);
