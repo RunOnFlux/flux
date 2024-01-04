@@ -10552,41 +10552,44 @@ async function masterSlaveApps() {
           let ip = null;
           let serverStatus = null;
           // eslint-disable-next-line no-await-in-loop
-          const fdmEUData = await serviceHelper.axiosGet(`https://fdm-fn-1-4.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
+          let fdmEUData = await serviceHelper.axiosGet(`https://fdm-fn-1-4.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
             log.error(`masterSlaveApps: Failed to reach EU FDM with error: ${error}`);
           });
+          fdmEUData = fdmEUData.data;
           fdmOk = true;
           if (fdmEUData && fdmEUData.length > 0) {
             const ipElement = fdmEUData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
             if (ipElement) {
-              ip = ipElement.value.value.split(':');
+              ip = ipElement.value.value.split(':')[0];
               serverStatus = fdmEUData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
             }
           }
           if (!ip || !serverStatus) {
             // eslint-disable-next-line no-await-in-loop
-            const fdmUSAData = await serviceHelper.axiosGet(`https://fdm-usa-1-4.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
+            let fdmUSAData = await serviceHelper.axiosGet(`https://fdm-usa-1-4.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
               log.error(`masterSlaveApps: Failed to reach USA FDM with error: ${error}`);
             });
+            fdmUSAData = fdmUSAData.data;
             fdmOk = true;
             if (fdmUSAData && fdmUSAData.length > 0) {
               const ipElement = fdmUSAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
               if (ipElement) {
-                ip = ipElement.value.value.split(':');
+                ip = ipElement.value.value.split(':')[0];
                 serverStatus = fdmUSAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
               }
             }
           }
           if (!ip || !serverStatus) {
             // eslint-disable-next-line no-await-in-loop
-            const fdmASIAData = await serviceHelper.axiosGet(`https://fdm-sg-1-4.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
+            let fdmASIAData = await serviceHelper.axiosGet(`https://fdm-sg-1-4.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
               log.error(`masterSlaveApps: Failed to reach ASIA FDM with error: ${error}`);
             });
+            fdmASIAData = fdmASIAData.data;
             fdmOk = true;
             if (fdmASIAData && fdmASIAData.length > 0) {
               const ipElement = fdmASIAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
               if (ipElement) {
-                ip = ipElement.value.value.split(':');
+                ip = ipElement.value.value.split(':')[0];
                 serverStatus = fdmASIAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
               }
             }
@@ -10619,39 +10622,40 @@ async function masterSlaveApps() {
               log.error(`masterSlaveApps: Failed to reach EU FDM with error: ${error}`);
             });
             fdmEUData = fdmEUData.data;
-            log.info(`masterSlaveApps: fdmEUData[0]: ${JSON.stringify(fdmEUData)}`);
             fdmOk = true;
             if (fdmEUData && fdmEUData.length > 0) {
               const ipElement = fdmEUData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
               if (ipElement) {
-                ip = ipElement.value.value.split(':');
+                ip = ipElement.value.value.split(':')[0];
                 serverStatus = fdmEUData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
               }
             }
             if (!ip || !serverStatus) {
               // eslint-disable-next-line no-await-in-loop
-              const fdmUSAData = await serviceHelper.axiosGet(`https://fdm-usa-1-4.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
+              let fdmUSAData = await serviceHelper.axiosGet(`https://fdm-usa-1-4.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
                 log.error(`masterSlaveApps: Failed to reach USA FDM with error: ${error}`);
               });
+              fdmUSAData = fdmUSAData.data;
               fdmOk = true;
               if (fdmUSAData && fdmUSAData.length > 0) {
                 const ipElement = fdmUSAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
                 if (ipElement) {
-                  ip = ipElement.value.value.split(':');
+                  ip = ipElement.value.value.split(':')[0];
                   serverStatus = fdmUSAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
                 }
               }
             }
             if (!ip || !serverStatus) {
               // eslint-disable-next-line no-await-in-loop
-              const fdmASIAData = await serviceHelper.axiosGet(`https://fdm-sg-1-4.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
+              let fdmASIAData = await serviceHelper.axiosGet(`https://fdm-sg-1-4.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
                 log.error(`masterSlaveApps: Failed to reach ASIA FDM with error: ${error}`);
               });
+              fdmASIAData = fdmASIAData.data;
               fdmOk = true;
               if (fdmASIAData && fdmASIAData.length > 0) {
                 const ipElement = fdmASIAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
                 if (ipElement) {
-                  ip = ipElement.value.value.split(':');
+                  ip = ipElement.value.value.split(':')[0];
                   serverStatus = fdmASIAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
                 }
               }
