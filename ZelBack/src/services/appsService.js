@@ -10658,6 +10658,7 @@ async function masterSlaveApps() {
               if ((!ip || serverStatus === 'DOWN')) {
                 if (!runningAppsNames.includes(installedApp.name)) {
                   appDockerRestart(installedApp.name);
+                  log.info(`masterSlaveApps: runningAppsNames:${JSON.stringify(runningAppsNames)}`);
                   log.info(`masterSlaveApps: starting docker app:${installedApp.name}`);
                 }
               } else {
@@ -10666,6 +10667,7 @@ async function masterSlaveApps() {
                 myIP = myIP.split(':')[0];
                 if (myIP !== ip && runningAppsNames.includes(installedApp.name)) {
                   appDockerStop(installedApp.name);
+                  log.info(`masterSlaveApps: runningAppsNames:${JSON.stringify(runningAppsNames)}`);
                   log.info(`masterSlaveApps: stopping docker app:${installedApp.name}`);
                 }
               }
