@@ -10247,6 +10247,7 @@ async function syncthingApps() {
                   syncthingFolder.type = 'sendreceive';
                   // eslint-disable-next-line no-await-in-loop
                   await appDockerRestart(id);
+                  startAppMonitoring(appId);
                   cache.restarted = true;
                   callCheckAndNotifyPeersOfRunningApps = true;
                 }
@@ -10412,6 +10413,7 @@ async function syncthingApps() {
                     syncthingFolder.type = 'sendreceive';
                     // eslint-disable-next-line no-await-in-loop
                     await appDockerRestart(id);
+                    startAppMonitoring(appId);
                     cache.restarted = true;
                     callCheckAndNotifyPeersOfRunningApps = true;
                   }
@@ -10608,6 +10610,7 @@ async function masterSlaveApps() {
             if ((!ip || serverStatus === 'DOWN')) {
               if (!runningAppsNames.includes(identifier)) {
                 appDockerRestart(appId);
+                startAppMonitoring(appId);
               }
             } else {
               // eslint-disable-next-line no-await-in-loop
@@ -10688,6 +10691,7 @@ async function masterSlaveApps() {
               if ((!ip || serverStatus === 'DOWN')) {
                 if (!runningAppsNames.includes(identifier)) {
                   appDockerRestart(installedApp.name);
+                  startAppMonitoring(appId);
                   log.info(`masterSlaveApps: starting docker app:${installedApp.name}`);
                 }
               } else {
