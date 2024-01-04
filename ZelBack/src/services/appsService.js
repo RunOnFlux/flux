@@ -10557,10 +10557,10 @@ async function masterSlaveApps() {
           });
           fdmOk = true;
           if (fdmEUData && fdmEUData.length > 0) {
-            const ipElement = fdmEUData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
+            const ipElement = fdmEUData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
             if (ipElement) {
               ip = ipElement[0].value.value.split(':');
-              serverStatus = fdmEUData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
+              serverStatus = fdmEUData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
             }
           }
           if (!ip || !serverStatus) {
@@ -10570,10 +10570,10 @@ async function masterSlaveApps() {
             });
             fdmOk = true;
             if (fdmUSAData && fdmUSAData.length > 0) {
-              const ipElement = fdmUSAData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
+              const ipElement = fdmUSAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
               if (ipElement) {
                 ip = ipElement[0].value.value.split(':');
-                serverStatus = fdmUSAData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
+                serverStatus = fdmUSAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
               }
             }
           }
@@ -10584,10 +10584,10 @@ async function masterSlaveApps() {
             });
             fdmOk = true;
             if (fdmASIAData && fdmASIAData.length > 0) {
-              const ipElement = fdmASIAData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
+              const ipElement = fdmASIAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
               if (ipElement) {
                 ip = ipElement[0].value.value.split(':');
-                serverStatus = fdmASIAData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
+                serverStatus = fdmASIAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
               }
             }
           }
@@ -10620,10 +10620,10 @@ async function masterSlaveApps() {
             });
             fdmOk = true;
             if (fdmEUData && fdmEUData.length > 0) {
-              const ipElement = fdmEUData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
+              const ipElement = fdmEUData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
               if (ipElement) {
                 ip = ipElement.value.value.split(':');
-                serverStatus = fdmEUData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
+                serverStatus = fdmEUData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
               }
             }
             if (!ip || !serverStatus) {
@@ -10633,10 +10633,10 @@ async function masterSlaveApps() {
               });
               fdmOk = true;
               if (fdmUSAData && fdmUSAData.length > 0) {
-                const ipElement = fdmUSAData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
+                const ipElement = fdmUSAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
                 if (ipElement) {
                   ip = ipElement.value.value.split(':');
-                  serverStatus = fdmUSAData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
+                  serverStatus = fdmUSAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
                 }
               }
             }
@@ -10647,10 +10647,10 @@ async function masterSlaveApps() {
               });
               fdmOk = true;
               if (fdmASIAData && fdmASIAData.length > 0) {
-                const ipElement = fdmASIAData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
+                const ipElement = fdmASIAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
                 if (ipElement) {
                   ip = ipElement.value.value.split(':');
-                  serverStatus = fdmASIAData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
+                  serverStatus = fdmASIAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
                 }
               }
             }
