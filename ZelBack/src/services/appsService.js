@@ -8946,9 +8946,9 @@ async function trySpawningGlobalApplication() {
       };
       log.info('Broadcasting appremoved message to the network');
       // broadcast messages about app removed to all peers
-      await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(appRemovedMessage).catch((error) => log.error(error));
+      await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(appRemovedMessage);
       await serviceHelper.delay(500);
-      await fluxCommunicationMessagesSender.broadcastMessageToIncoming(appRemovedMessage).catch((error) => log.error(error));
+      await fluxCommunicationMessagesSender.broadcastMessageToIncoming(appRemovedMessage);
       await serviceHelper.delay(adjustedDelay);
       trySpawningGlobalApplication();
       return;
