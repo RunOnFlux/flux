@@ -3151,8 +3151,9 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   startAppMonitoring(identifier);
   const appResponse = messageHelper.createDataMessage(app);
   log.info(appResponse);
-  if (appSpecifications.containerData.includes('r:')) {
+  if (appSpecifications.containerData.includes('r:') || appSpecifications.containerData.includes('g:')) {
     dockerService.appDockerStop(identifier).catch((error) => log.error(`Error stopping app docker after installApplicationHard:${error}`));
+    stopAppMonitoring(identifier, false).catch((error) => log.error(`Error stopping app monitor after installApplicationHard:${error}`));
   }
   if (res) {
     res.write(serviceHelper.ensureString(appResponse));
@@ -10149,6 +10150,7 @@ async function appDockerStop(appname) {
     const isComponent = appname.includes('_'); // it is a component restart. Proceed with restarting just component
     if (isComponent) {
       await dockerService.appDockerStop(appname);
+      stopAppMonitoring(appname, false);
     } else {
       // ask for restarting entire composed application
       // eslint-disable-next-line no-use-before-define
@@ -10158,11 +10160,13 @@ async function appDockerStop(appname) {
       }
       if (appSpecs.version <= 3) {
         await dockerService.appDockerStop(appname);
+        stopAppMonitoring(appname, false);
       } else {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecs.compose) {
           // eslint-disable-next-line no-await-in-loop
           await dockerService.appDockerStop(`${appComponent.name}_${appSpecs.name}`);
+          stopAppMonitoring(`${appComponent.name}_${appSpecs.name}`, false);
         }
       }
     }
