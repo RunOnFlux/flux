@@ -10055,6 +10055,7 @@ async function appDockerRestart(appname) {
     const isComponent = appname.includes('_'); // it is a component restart. Proceed with restarting just component
     if (isComponent) {
       await dockerService.appDockerRestart(appname);
+      startAppMonitoring(appname);
     } else {
       // ask for restarting entire composed application
       // eslint-disable-next-line no-use-before-define
@@ -10064,11 +10065,13 @@ async function appDockerRestart(appname) {
       }
       if (appSpecs.version <= 3) {
         await dockerService.appDockerRestart(appname);
+        startAppMonitoring(appname);
       } else {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecs.compose) {
           // eslint-disable-next-line no-await-in-loop
           await dockerService.appDockerRestart(`${appComponent.name}_${appSpecs.name}`);
+          startAppMonitoring(`${appComponent.name}_${appSpecs.name}`);
         }
       }
     }
@@ -10283,7 +10286,6 @@ async function syncthingApps() {
                   syncthingFolder.type = 'sendreceive';
                   // eslint-disable-next-line no-await-in-loop
                   await appDockerRestart(id);
-                  startAppMonitoring(appId);
                   cache.restarted = true;
                 }
                 receiveOnlySyncthingAppsCache.set(appId, cache);
@@ -10448,7 +10450,6 @@ async function syncthingApps() {
                     syncthingFolder.type = 'sendreceive';
                     // eslint-disable-next-line no-await-in-loop
                     await appDockerRestart(id);
-                    startAppMonitoring(appId);
                     cache.restarted = true;
                   }
                   receiveOnlySyncthingAppsCache.set(appId, cache);
@@ -10654,7 +10655,6 @@ async function masterSlaveApps() {
           if ((!ip || serverStatus === 'DOWN')) {
             if (!runningAppsNames.includes(identifier)) {
               appDockerRestart(installedApp.name);
-              startAppMonitoring(appId);
               log.info(`masterSlaveApps: starting docker app:${installedApp.name}`);
             }
           } else {
