@@ -10740,6 +10740,13 @@ async function checkMyAppsAvailability() {
       dosState = 100;
       return;
     }
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    if (!syncStatus.data.synced) {
+      log.info('Flux Node daemon not synced. checkMyAppsAvailability checks are disabled');
+      await serviceHelper.delay(4 * 60 * 1000);
+      checkMyAppsAvailability();
+      return;
+    }
     const isNodeConfirmed = await generalService.isNodeStatusConfirmed();
     if (!isNodeConfirmed) {
       log.info('Flux Node not Confirmed. Application checks are disabled');
