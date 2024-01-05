@@ -6444,27 +6444,20 @@ async function storeAppRunningMessage(message) {
     };
 
     // indexes over name, hash, ip. Then name + ip and name + ip + broadcastedAt.
-    let queryFind = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip, broadcastedAt: { $gte: newAppRunningMessage.broadcastedAt } };
-    let projection = { _id: 0 };
+    const queryFind = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
+    const projection = { _id: 0, runningSince: 1 };
     // we already have the exact same data
     // eslint-disable-next-line no-await-in-loop
-    let result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
-    if (result) {
+    const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
+    if (result && result.broadcastedAt && result.broadcastedAt >= newAppRunningMessage.broadcastedAt) {
       // found a message that was already stored/bad message
       messageNotOk = true;
       break;
     }
     if (message.runningSince) {
       newAppRunningMessage.runningSince = new Date(message.runningSince);
-    } else {
-      queryFind = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
-      projection = { _id: 0, runningSince: 1 };
-      // we already have the exact same data
-      // eslint-disable-next-line no-await-in-loop
-      result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
-      if (result && result.runningSince) {
-        newAppRunningMessage.runningSince = result.runningSince;
-      }
+    } else if (result && result.runningSince) {
+      newAppRunningMessage.runningSince = result.runningSince;
     }
     const queryUpdate = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
     const update = { $set: newAppRunningMessage };
