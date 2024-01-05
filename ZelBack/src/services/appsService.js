@@ -3152,7 +3152,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   const appResponse = messageHelper.createDataMessage(app);
   log.info(appResponse);
   if (appSpecifications.containerData.includes('g:') || appSpecifications.containerData.includes('r:')) {
-    await dockerService.appDockerStop(identifier);
+    dockerService.appDockerStop(identifier).catch((error) => log.error(`Error stopping app docker after installApplicationHard:${error}`));
   }
   if (res) {
     res.write(serviceHelper.ensureString(appResponse));
