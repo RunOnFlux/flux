@@ -6462,7 +6462,7 @@ async function storeAppRunningMessage(message) {
       // we already have the exact same data
       // eslint-disable-next-line no-await-in-loop
       result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
-      if (result.runningSince) {
+      if (result && result.runningSince) {
         newAppRunningMessage.runningSince = result.runningSince;
       }
     }
@@ -8394,6 +8394,7 @@ async function getRunningAppIpList(ip) { // returns all apps running on this ip
       ip: 1,
       broadcastedAt: 1,
       expireAt: 1,
+      runningSince: 1,
     },
   };
   const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
@@ -8417,6 +8418,7 @@ async function getRunningAppList(appName) {
       ip: 1,
       broadcastedAt: 1,
       expireAt: 1,
+      runningSince: 1,
     },
   };
   const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
