@@ -3269,6 +3269,41 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
       return false;
     }
 
+    const installedAppsRes = await installedApps();
+    if (installedAppsRes.status !== 'success') {
+      throw new Error('Failed to get installed Apps');
+    }
+    const runningAppsRes = await listRunningApps();
+    if (runningAppsRes.status !== 'success') {
+      throw new Error('Unable to check running Apps');
+    }
+    const appsInstalled = installedAppsRes.data;
+    const runningApps = runningAppsRes.data;
+    const installedAppComponentNames = [];
+    appsInstalled.forEach((app) => {
+      if (app.version >= 4) {
+        app.compose.forEach((appAux) => {
+          installedAppComponentNames.push(`${appAux.name}_${app.name}`);
+        });
+      } else {
+        installedAppComponentNames.push(app.name);
+      }
+    });
+    // kadena and folding is old naming scheme having /zel.  all global application start with /flux
+    const runningAppsNames = runningApps.map((app) => {
+      if (app.Names[0].startsWith('/zel')) {
+        return app.Names[0].slice(4);
+      }
+      return app.Names[0].slice(5);
+    });
+    // installed always is bigger array than running
+    const runningSet = new Set(runningAppsNames);
+    const stoppedApps = installedAppComponentNames.filter((installedApp) => !runningSet.has(installedApp));
+    // eslint-disable-next-line no-restricted-syntax
+    for (const stoppedApp of stoppedApps) {
+      // eslint-disable-next-line no-await-in-loop
+      await dockerService.appDockerStart(stoppedApp);
+    }
     const dockerNetworks = {
       status: 'Clearing up unused docker networks...',
     };
@@ -3312,6 +3347,11 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     };
     if (res) {
       res.write(serviceHelper.ensureString(dockerImages2));
+    }
+    // eslint-disable-next-line no-restricted-syntax
+    for (const stoppedApp of stoppedApps) {
+      // eslint-disable-next-line no-await-in-loop
+      await dockerService.appDockerStop(stoppedApp);
     }
 
     if (!isComponent) {
@@ -10572,6 +10612,10 @@ async function syncthingApps() {
 // function responsable for starting and stopping apps to have only one instance running as master
 async function masterSlaveApps() {
   try {
+    // do not run if installationInProgress or removalInProgress
+    if (installationInProgress || removalInProgress) {
+      return;
+    }
     // get list of all installed apps
     const appsInstalled = await installedApps();
     // eslint-disable-next-line no-await-in-loop
