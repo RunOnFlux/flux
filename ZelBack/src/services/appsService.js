@@ -10229,6 +10229,7 @@ async function syncthingApps() {
               devices,
               paused: false,
               type: 'sendreceive',
+              rescanIntervalS: 1800,
             };
             const syncFolder = allFoldersResp.data.find((x) => x.id === id);
             if (containerDataFlags.includes('r') || containerDataFlags.includes('g')) {
@@ -10390,6 +10391,7 @@ async function syncthingApps() {
                 devices,
                 paused: false,
                 type: 'sendreceive',
+                rescanIntervalS: 1800,
               };
               const syncFolder = allFoldersResp.data.find((x) => x.id === id);
               if (containerDataFlags.includes('r') || containerDataFlags.includes('g')) {
