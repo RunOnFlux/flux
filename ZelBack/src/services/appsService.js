@@ -8913,6 +8913,17 @@ async function trySpawningGlobalApplication() {
       return;
     }
 
+    // double check if app is installed in more of the instances requested
+    runningAppList = await getRunningAppList(appToRun);
+    minInstances = appSpecifications.instances || config.fluxapps.minimumInstances; // introduced in v3 of apps specs
+    if (runningAppList.length >= minInstances) {
+      log.info(`Application ${appToRun} is already spawned on ${runningAppList.length} instances, will unninstall it`);
+      removeAppLocally(appSpecifications.name, null, true, null, true).catch((error) => log.error(error));
+      await serviceHelper.delay(10 * config.fluxapps.installation.delay * 1000);
+      trySpawningGlobalApplication();
+      return;
+    }
+
     await serviceHelper.delay(10 * config.fluxapps.installation.delay * 1000);
     log.info('Reinitiating possible app installation');
     trySpawningGlobalApplication();
