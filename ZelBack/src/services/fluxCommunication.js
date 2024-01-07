@@ -81,9 +81,7 @@ async function handleAppMessages(message, fromIP, port) {
           wsListOut.push(client);
         }
       });
-      fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut).catch((error) => {
-        log.error(error);
-      });
+      fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
       await serviceHelper.delay(500);
       const wsList = [];
       incomingConnections.forEach((client) => {
@@ -126,9 +124,7 @@ async function handleAppRunningMessage(message, fromIP, port) {
           wsListOut.push(client);
         }
       });
-      fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut).catch((error) => {
-        log.error(error);
-      });
+      fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
       await serviceHelper.delay(500);
       const wsList = [];
       incomingConnections.forEach((client) => {
@@ -453,9 +449,7 @@ function connectedPeersInfo(req, res) {
  */
 function keepConnectionsAlive() {
   setInterval(() => {
-    fluxCommunicationMessagesSender.sendToAllPeers().catch((error) => {
-      log.error(error);
-    }); // perform ping
+    fluxCommunicationMessagesSender.sendToAllPeers(); // perform ping
     fluxCommunicationMessagesSender.sendToAllIncomingConnections(); // perform ping
   }, 15 * 1000);
 }
