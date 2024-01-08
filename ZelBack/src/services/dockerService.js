@@ -875,7 +875,14 @@ async function removeFluxAppDockerNetwork(appname) {
 }
 
 /**
- * Remove all unused networks. Unused networks are those which are not referenced by any containers
+ * Remove all unused containers. Unused contaienrs are those wich are not running
+ */
+async function pruneContainers() {
+  return docker.pruneContainers();
+}
+
+/**
+ * Remove all unused networks. Unused networks are those which are not referenced by any running containers
  */
 async function pruneNetworks() {
   return docker.pruneNetworks();
@@ -970,6 +977,7 @@ module.exports = {
   pruneNetworks,
   pruneVolumes,
   pruneImages,
+  pruneContainers,
   dockerInfo,
   dockerVersion,
   dockerGetEvents,

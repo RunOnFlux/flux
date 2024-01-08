@@ -3349,6 +3349,21 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     if (res) {
       res.write(serviceHelper.ensureString(dockerImages2));
     }
+
+    const dockerContainers = {
+      status: 'Clearing up unused docker containers...',
+    };
+    log.info(dockerContainers);
+    if (res) {
+      res.write(serviceHelper.ensureString(dockerContainers));
+    }
+    await dockerService.pruneContainers();
+    const dockerContainers2 = {
+      status: 'Docker containers cleaned.',
+    };
+    if (res) {
+      res.write(serviceHelper.ensureString(dockerContainers2));
+    }
     // eslint-disable-next-line no-restricted-syntax
     for (const stoppedApp of stoppedApps) {
       // eslint-disable-next-line no-await-in-loop
