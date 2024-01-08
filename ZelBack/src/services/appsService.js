@@ -3300,74 +3300,66 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     // installed always is bigger array than running
     const runningSet = new Set(runningAppsNames);
     const stoppedApps = installedAppComponentNames.filter((installedApp) => !runningSet.has(installedApp));
-    // eslint-disable-next-line no-restricted-syntax
-    for (const stoppedApp of stoppedApps) {
-      // eslint-disable-next-line no-await-in-loop
-      await dockerService.appDockerStart(stoppedApp);
-    }
-    const dockerNetworks = {
-      status: 'Clearing up unused docker networks...',
-    };
-    log.info(dockerNetworks);
-    if (res) {
-      res.write(serviceHelper.ensureString(dockerNetworks));
-    }
-    await dockerService.pruneNetworks();
-    const dockerNetworks2 = {
-      status: 'Docker networks cleaned.',
-    };
-    if (res) {
-      res.write(serviceHelper.ensureString(dockerNetworks2));
-    }
+    if (stoppedApps.length === 0) {
+      const dockerContainers = {
+        status: 'Clearing up unused docker containers...',
+      };
+      log.info(dockerContainers);
+      if (res) {
+        res.write(serviceHelper.ensureString(dockerContainers));
+      }
+      await dockerService.pruneContainers();
+      const dockerContainers2 = {
+        status: 'Docker containers cleaned.',
+      };
+      if (res) {
+        res.write(serviceHelper.ensureString(dockerContainers2));
+      }
 
-    const dockerVolumes = {
-      status: 'Clearing up unused docker volumes...',
-    };
-    log.info(dockerVolumes);
-    if (res) {
-      res.write(serviceHelper.ensureString(dockerVolumes));
-    }
-    await dockerService.pruneVolumes();
-    const dockerVolumes2 = {
-      status: 'Docker volumes cleaned.',
-    };
-    if (res) {
-      res.write(serviceHelper.ensureString(dockerVolumes2));
-    }
+      const dockerNetworks = {
+        status: 'Clearing up unused docker networks...',
+      };
+      log.info(dockerNetworks);
+      if (res) {
+        res.write(serviceHelper.ensureString(dockerNetworks));
+      }
+      await dockerService.pruneNetworks();
+      const dockerNetworks2 = {
+        status: 'Docker networks cleaned.',
+      };
+      if (res) {
+        res.write(serviceHelper.ensureString(dockerNetworks2));
+      }
 
-    const dockerImages = {
-      status: 'Clearing up unused docker images...',
-    };
-    log.info(dockerImages);
-    if (res) {
-      res.write(serviceHelper.ensureString(dockerImages));
-    }
-    await dockerService.pruneImages();
-    const dockerImages2 = {
-      status: 'Docker images cleaned.',
-    };
-    if (res) {
-      res.write(serviceHelper.ensureString(dockerImages2));
-    }
+      const dockerVolumes = {
+        status: 'Clearing up unused docker volumes...',
+      };
+      log.info(dockerVolumes);
+      if (res) {
+        res.write(serviceHelper.ensureString(dockerVolumes));
+      }
+      await dockerService.pruneVolumes();
+      const dockerVolumes2 = {
+        status: 'Docker volumes cleaned.',
+      };
+      if (res) {
+        res.write(serviceHelper.ensureString(dockerVolumes2));
+      }
 
-    const dockerContainers = {
-      status: 'Clearing up unused docker containers...',
-    };
-    log.info(dockerContainers);
-    if (res) {
-      res.write(serviceHelper.ensureString(dockerContainers));
-    }
-    await dockerService.pruneContainers();
-    const dockerContainers2 = {
-      status: 'Docker containers cleaned.',
-    };
-    if (res) {
-      res.write(serviceHelper.ensureString(dockerContainers2));
-    }
-    // eslint-disable-next-line no-restricted-syntax
-    for (const stoppedApp of stoppedApps) {
-      // eslint-disable-next-line no-await-in-loop
-      await dockerService.appDockerStop(stoppedApp);
+      const dockerImages = {
+        status: 'Clearing up unused docker images...',
+      };
+      log.info(dockerImages);
+      if (res) {
+        res.write(serviceHelper.ensureString(dockerImages));
+      }
+      await dockerService.pruneImages();
+      const dockerImages2 = {
+        status: 'Docker images cleaned.',
+      };
+      if (res) {
+        res.write(serviceHelper.ensureString(dockerImages2));
+      }
     }
 
     if (!isComponent) {
