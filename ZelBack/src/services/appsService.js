@@ -95,6 +95,7 @@ const appsStopedCache = new LRUCache(stopedAppsCache);
 let removalInProgress = false;
 let installationInProgress = false;
 let reinstallationOfOldAppsInProgress = false;
+let masterSlaveAppsRunning = false;
 
 const hashesNumberOfSearchs = new Map();
 
@@ -3300,7 +3301,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     // installed always is bigger array than running
     const runningSet = new Set(runningAppsNames);
     const stoppedApps = installedAppComponentNames.filter((installedApp) => !runningSet.has(installedApp));
-    if (stoppedApps.length === 0) {
+    if (stoppedApps.length === 0 && !masterSlaveAppsRunning) {
       const dockerContainers = {
         status: 'Clearing up unused docker containers...',
       };
@@ -10623,6 +10624,7 @@ async function syncthingApps() {
 // function responsable for starting and stopping apps to have only one instance running as master
 async function masterSlaveApps() {
   try {
+    masterSlaveAppsRunning = true;
     // do not run if installationInProgress or removalInProgress
     if (installationInProgress || removalInProgress) {
       return;
@@ -10747,6 +10749,7 @@ async function masterSlaveApps() {
   } catch (error) {
     log.error(`masterSlaveApps: ${error}`);
   } finally {
+    masterSlaveAppsRunning = false;
     await serviceHelper.delay(30 * 1000);
     masterSlaveApps();
   }
