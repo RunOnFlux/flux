@@ -1,5 +1,5 @@
 import { isObject } from '@core/utils/utils';
-import { computed } from '@vue/composition-api';
+import { computed } from 'vue';
 import router from '@/router';
 
 /**

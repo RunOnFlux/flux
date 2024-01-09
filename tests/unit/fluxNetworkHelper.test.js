@@ -24,8 +24,10 @@ const {
 
 const adminConfig = require('../../config/userconfig');
 
-const fluxNetworkHelper = proxyquire('../../ZelBack/src/services/fluxNetworkHelper',
-  { '../../../config/userconfig': adminConfig });
+const fluxNetworkHelper = proxyquire(
+  '../../ZelBack/src/services/fluxNetworkHelper',
+  { '../../../config/userconfig': adminConfig },
+);
 
 chai.use(chaiAsPromised);
 const { expect } = chai;

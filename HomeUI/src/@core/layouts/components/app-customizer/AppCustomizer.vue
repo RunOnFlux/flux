@@ -1,7 +1,7 @@
 <template>
   <div
     class="customizer d-none d-md-block"
-    :class="{'open': isCustomizerOpen}"
+    :class="{ open: isCustomizerOpen }"
   >
     <!-- Toggler -->
     <b-link
@@ -142,7 +142,7 @@
             v-for="(color, index) in navbarColors"
             :key="color"
             class="p-1 d-inline-block rounded mr-1 cursor-pointer"
-            :class="[`bg-${color}`, {'border border-light': !index}, {'mark-active': navbarBackgroundColor === color}]"
+            :class="[`bg-${color}`, { 'border border-light': !index }, { 'mark-active': navbarBackgroundColor === color }]"
             @click="navbarBackgroundColor = color"
           />
         </b-form-group>

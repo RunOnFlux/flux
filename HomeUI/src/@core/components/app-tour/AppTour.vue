@@ -33,7 +33,7 @@
           >
             <!-- Skip Button -->
             <b-button
-              v-if="tour.currentStep != tour.steps.length - 1"
+              v-if="tour.currentStep !== tour.steps.length - 1"
               size="sm"
               variant="outline-primary"
               class="btn-tour-skip mr-1"
@@ -62,7 +62,7 @@
 
             <!-- Next Button -->
             <b-button
-              v-if="tour.currentStep != tour.steps.length - 1"
+              v-if="tour.currentStep !== tour.steps.length - 1"
               size="sm"
               variant="primary"
               class="btn-tour-next"
@@ -77,7 +77,7 @@
 
             <!-- Finish Button -->
             <b-button
-              v-if="tour.currentStep == tour.steps.length - 1"
+              v-if="tour.currentStep === tour.steps.length - 1"
               size="sm"
               variant="primary"
               class="btn-tour-finish"

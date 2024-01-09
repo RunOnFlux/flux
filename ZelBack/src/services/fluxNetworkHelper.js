@@ -1019,6 +1019,7 @@ function getDOSState(req, res) {
  * @returns {object} Command status.
  */
 async function allowPort(port) {
+  const cmdAsync = util.promisify(nodecmd.get);
   const cmdStat = {
     status: false,
     message: null,
@@ -1028,8 +1029,6 @@ async function allowPort(port) {
     return cmdStat;
   }
   const exec = `LANG="en_US.UTF-8" && sudo ufw allow ${port} && sudo ufw allow out ${port}`;
-  const cmdAsync = util.promisify(nodecmd.get);
-
   const cmdres = await cmdAsync(exec);
   cmdStat.message = cmdres;
   if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
@@ -1049,6 +1048,7 @@ async function allowPort(port) {
  * @returns {object} Command status.
  */
 async function allowOutPort(port) {
+  const cmdAsync = util.promisify(nodecmd.get);
   const cmdStat = {
     status: false,
     message: null,
@@ -1058,8 +1058,6 @@ async function allowOutPort(port) {
     return cmdStat;
   }
   const exec = `LANG="en_US.UTF-8" && sudo ufw allow out ${port}`;
-  const cmdAsync = util.promisify(nodecmd.get);
-
   const cmdres = await cmdAsync(exec);
   cmdStat.message = cmdres;
   if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
@@ -1079,6 +1077,7 @@ async function allowOutPort(port) {
  * @returns {object} Command status.
  */
 async function denyPort(port) {
+  const cmdAsync = util.promisify(nodecmd.get);
   const cmdStat = {
     status: false,
     message: null,
@@ -1093,8 +1092,6 @@ async function denyPort(port) {
     return cmdStat;
   }
   const exec = `LANG="en_US.UTF-8" && sudo ufw deny ${port} && sudo ufw deny out ${port}`;
-  const cmdAsync = util.promisify(nodecmd.get);
-
   const cmdres = await cmdAsync(exec);
   cmdStat.message = cmdres;
   if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
@@ -1114,6 +1111,7 @@ async function denyPort(port) {
  * @returns {object} Command status.
  */
 async function deleteAllowPortRule(port) {
+  const cmdAsync = util.promisify(nodecmd.get);
   const cmdStat = {
     status: false,
     message: null,
@@ -1128,8 +1126,6 @@ async function deleteAllowPortRule(port) {
     return cmdStat;
   }
   const exec = `LANG="en_US.UTF-8" && sudo ufw delete allow ${port} && sudo ufw delete allow out ${port}`;
-  const cmdAsync = util.promisify(nodecmd.get);
-
   const cmdres = await cmdAsync(exec);
   cmdStat.message = cmdres;
   if (serviceHelper.ensureString(cmdres).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
@@ -1146,6 +1142,7 @@ async function deleteAllowPortRule(port) {
  * @returns {object} Command status.
  */
 async function deleteDenyPortRule(port) {
+  const cmdAsync = util.promisify(nodecmd.get);
   const cmdStat = {
     status: false,
     message: null,
@@ -1160,8 +1157,6 @@ async function deleteDenyPortRule(port) {
     return cmdStat;
   }
   const exec = `LANG="en_US.UTF-8" && sudo ufw delete deny ${port} && sudo ufw delete deny out ${port}`;
-  const cmdAsync = util.promisify(nodecmd.get);
-
   const cmdres = await cmdAsync(exec);
   cmdStat.message = cmdres;
   if (serviceHelper.ensureString(cmdres).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
@@ -1178,6 +1173,7 @@ async function deleteDenyPortRule(port) {
  * @returns {object} Command status.
  */
 async function deleteAllowOutPortRule(port) {
+  const cmdAsync = util.promisify(nodecmd.get);
   const cmdStat = {
     status: false,
     message: null,
@@ -1192,8 +1188,6 @@ async function deleteAllowOutPortRule(port) {
     return cmdStat;
   }
   const exec = `LANG="en_US.UTF-8" && sudo ufw delete allow out ${port}`;
-  const cmdAsync = util.promisify(nodecmd.get);
-
   const cmdres = await cmdAsync(exec);
   cmdStat.message = cmdres;
   if (serviceHelper.ensureString(cmdres).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
@@ -1394,8 +1388,8 @@ function lruRateLimit(ip, limitPerSecond = 20) {
  */
 async function allowNodeToBindPrivilegedPorts() {
   try {
-    const exec = "sudo setcap 'cap_net_bind_service=+ep' `which node`";
     const cmdAsync = util.promisify(nodecmd.get);
+    const exec = "sudo setcap 'cap_net_bind_service=+ep' `which node`";
     await cmdAsync(exec);
   } catch (error) {
     log.error(error);
@@ -1408,9 +1402,9 @@ async function allowNodeToBindPrivilegedPorts() {
  */
 async function installNetcat() {
   try {
-    const exec = 'sudo apt install netcat -y';
     const cmdAsync = util.promisify(nodecmd.get);
-    cmdAsync(exec);
+    const exec = 'sudo apt install netcat-openbsd -y';
+    await cmdAsync(exec);
   } catch (error) {
     log.error(error);
   }

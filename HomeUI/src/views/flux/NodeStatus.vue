@@ -36,27 +36,27 @@
       <list-entry
         title="Added Height"
         :number="getNodeStatusResponse.data.added_height"
-        :href="'https://explorer.runonflux.io/block-index/' + getNodeStatusResponse.data.added_height"
+        :href="`https://explorer.runonflux.io/block-index/${getNodeStatusResponse.data.added_height}`"
       />
       <list-entry
         title="Confirmed Height"
         :number="getNodeStatusResponse.data.confirmed_height"
-        :href="'https://explorer.runonflux.io/block-index/' + getNodeStatusResponse.data.confirmed_height"
+        :href="`https://explorer.runonflux.io/block-index/${getNodeStatusResponse.data.confirmed_height}`"
       />
       <list-entry
         title="Last Confirmed Height"
         :number="getNodeStatusResponse.data.last_confirmed_height"
-        :href="'https://explorer.runonflux.io/block-index/' + getNodeStatusResponse.data.last_confirmed_height"
+        :href="`https://explorer.runonflux.io/block-index/${getNodeStatusResponse.data.last_confirmed_height}`"
       />
       <list-entry
         title="Last Paid Height"
         :number="getNodeStatusResponse.data.last_paid_height"
-        :href="'https://explorer.runonflux.io/block-index/' + getNodeStatusResponse.data.last_paid_height"
+        :href="`https://explorer.runonflux.io/block-index/${getNodeStatusResponse.data.last_paid_height}`"
       />
       <list-entry
         title="Locked Transaction"
         :data="'Click to view'"
-        :href="'https://explorer.runonflux.io/tx/' + getNodeStatusResponse.data.txhash"
+        :href="`https://explorer.runonflux.io/tx/${getNodeStatusResponse.data.txhash}`"
       />
     </div>
     <list-entry
@@ -73,7 +73,7 @@
     />
 
     <list-entry
-      v-if="getInfoResponse.data.errors != ''"
+      v-if="getInfoResponse.data.errors !== ''"
       title="Error"
       :data="getInfoResponse.data.errors"
       variant="danger"

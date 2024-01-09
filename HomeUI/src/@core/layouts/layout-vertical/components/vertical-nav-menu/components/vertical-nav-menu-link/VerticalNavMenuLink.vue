@@ -3,8 +3,8 @@
     v-if="hasPrivilegeLevel(item)"
     class="nav-item"
     :class="{
-      'active': isActive,
-      'disabled': item.disabled
+      active: isActive,
+      disabled: item.disabled,
     }"
   >
     <b-link

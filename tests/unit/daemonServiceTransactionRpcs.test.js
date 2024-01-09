@@ -1025,14 +1025,17 @@ describe('daemonServiceTransactionRpcs tests', () => {
       const result = await daemonServiceTransactionRpcs.signRawTransaction(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
-        'signRawTransaction', [
+      sinon.assert.calledOnceWithExactly(
+        daemonServiceUtilsStub,
+        'signRawTransaction',
+        [
           '0x412368904412378BAF',
           { t1: 'test12', t2: 'test34' },
           { k1: 'key1', k2: 'key2' },
           'some',
           '12345',
-        ]);
+        ],
+      );
     });
 
     it('should trigger rpc, all parameters passed in query, no response passed', async () => {
@@ -1061,14 +1064,17 @@ describe('daemonServiceTransactionRpcs tests', () => {
       const result = await daemonServiceTransactionRpcs.signRawTransaction(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
-        'signRawTransaction', [
+      sinon.assert.calledOnceWithExactly(
+        daemonServiceUtilsStub,
+        'signRawTransaction',
+        [
           '0x412368904412378BAF',
           { t1: 'test12', t2: 'test34' },
           { k1: 'key1', k2: 'key2' },
           'some',
           '12345',
-        ]);
+        ],
+      );
     });
 
     it('should trigger rpc, parameters passed in params no sighashtype, no response passed', async () => {
@@ -1096,14 +1102,17 @@ describe('daemonServiceTransactionRpcs tests', () => {
       const result = await daemonServiceTransactionRpcs.signRawTransaction(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
-        'signRawTransaction', [
+      sinon.assert.calledOnceWithExactly(
+        daemonServiceUtilsStub,
+        'signRawTransaction',
+        [
           '0x412368904412378BAF',
           { t1: 'test12', t2: 'test34' },
           { k1: 'key1', k2: 'key2' },
           'ALL',
           '12345',
-        ]);
+        ],
+      );
     });
 
     it('should trigger rpc, no hexstring passed, no response passed', async () => {
@@ -1131,8 +1140,11 @@ describe('daemonServiceTransactionRpcs tests', () => {
       const result = await daemonServiceTransactionRpcs.signRawTransaction(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
-        'signRawTransaction', []);
+      sinon.assert.calledOnceWithExactly(
+        daemonServiceUtilsStub,
+        'signRawTransaction',
+        [],
+      );
     });
 
     it('should trigger rpc, no prevtxs passed, no response passed', async () => {
@@ -1157,8 +1169,11 @@ describe('daemonServiceTransactionRpcs tests', () => {
       const result = await daemonServiceTransactionRpcs.signRawTransaction(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
-        'signRawTransaction', ['0x412368904412378BAF']);
+      sinon.assert.calledOnceWithExactly(
+        daemonServiceUtilsStub,
+        'signRawTransaction',
+        ['0x412368904412378BAF'],
+      );
     });
 
     it('should trigger rpc, no privatekeys passed, no response passed', async () => {
@@ -1183,8 +1198,11 @@ describe('daemonServiceTransactionRpcs tests', () => {
       const result = await daemonServiceTransactionRpcs.signRawTransaction(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
-        'signRawTransaction', ['0x412368904412378BAF', { t1: 'test12', t2: 'test34' }]);
+      sinon.assert.calledOnceWithExactly(
+        daemonServiceUtilsStub,
+        'signRawTransaction',
+        ['0x412368904412378BAF', { t1: 'test12', t2: 'test34' }],
+      );
     });
 
     it('should trigger rpc, no branchid passed, no response passed', async () => {
@@ -1212,13 +1230,16 @@ describe('daemonServiceTransactionRpcs tests', () => {
       const result = await daemonServiceTransactionRpcs.signRawTransaction(req);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub,
-        'signRawTransaction', [
+      sinon.assert.calledOnceWithExactly(
+        daemonServiceUtilsStub,
+        'signRawTransaction',
+        [
           '0x412368904412378BAF',
           { t1: 'test12', t2: 'test34' },
           { k1: 'key1', k2: 'key2' },
           'some',
-        ]);
+        ],
+      );
     });
   });
 

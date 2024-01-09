@@ -1,4 +1,4 @@
-import { ref } from '@vue/composition-api';
+import { ref } from 'vue';
 import { isNavLinkActive, navLinkProps } from '@core/layouts/utils';
 
 export default function useVerticalNavMenuLink(item) {

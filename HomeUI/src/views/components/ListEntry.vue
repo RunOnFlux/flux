@@ -17,7 +17,7 @@
         target="_blank"
         rel="noopener noreferrer"
       >
-        {{ (data.length > 0 ? data : (number !== Number.MAX_VALUE ? number : '' )) }}
+        {{ (data.length > 0 ? data : (number !== Number.MAX_VALUE ? number : '')) }}
       </b-link>
     </dd>
     <dd
@@ -27,7 +27,7 @@
       @click="$emit('click')"
     >
       <b-link>
-        {{ (data.length > 0 ? data : (number !== Number.MAX_VALUE ? number : '' )) }}
+        {{ (data.length > 0 ? data : (number !== Number.MAX_VALUE ? number : '')) }}
       </b-link>
     </dd>
     <dd
@@ -35,7 +35,7 @@
       class="col-sm-9 mb-0"
       :class="`text-${variant}`"
     >
-      {{ (data.length > 0 ? data : (number !== Number.MAX_VALUE ? number : '' )) }}
+      {{ (data.length > 0 ? data : (number !== Number.MAX_VALUE ? number : '')) }}
     </dd>
   </dl>
 </template>
