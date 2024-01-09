@@ -403,6 +403,15 @@
               rows="6"
               readonly
             />
+            <b-button
+              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+              variant="success"
+              aria-label="Copy Message to Sign to Clipboard"
+              class="my-1"
+              @click="copyMessageToSign"
+            >
+              Copy
+            </b-button>
           </b-card>
         </tab-content>
         <tab-content
@@ -1436,6 +1445,15 @@ export default {
       },
     };
 
+    const copyMessageToSign = async () => {
+      try {
+        await navigator.clipboard.writeText(dataToSign.value);
+        showToast('success', 'Copied to clipboard');
+      } catch ($e) {
+        showToast('danger', 'Failed to Copy to clipboard');
+      }
+    };
+
     const register = async () => {
       const zelidauth = localStorage.getItem('zelidauth');
       const data = {
@@ -1512,6 +1530,7 @@ export default {
       register,
       callbackValue,
       initiateSignWS,
+      copyMessageToSign,
 
       launchModalShowing,
       componentParamsModalShowing,
