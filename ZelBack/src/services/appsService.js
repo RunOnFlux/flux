@@ -10245,6 +10245,15 @@ async function syncthingApps() {
             await cmdAsync(execDIRst);
             // eslint-disable-next-line no-await-in-loop
             const locations = await appLocation(installedApp.name);
+            locations.sort((a, b) => {
+              if (a.ip < b.ip) {
+                return -1;
+              }
+              if (a.ip > b.ip) {
+                return 1;
+              }
+              return 0;
+            });
             // eslint-disable-next-line no-restricted-syntax
             for (const appInstance of locations) {
               const ip = appInstance.ip.split(':')[0];
@@ -10407,6 +10416,15 @@ async function syncthingApps() {
               await cmdAsync(execDIRst);
               // eslint-disable-next-line no-await-in-loop
               const locations = await appLocation(installedApp.name);
+              locations.sort((a, b) => {
+                if (a.ip < b.ip) {
+                  return -1;
+                }
+                if (a.ip > b.ip) {
+                  return 1;
+                }
+                return 0;
+              });
               // eslint-disable-next-line no-restricted-syntax
               for (const appInstance of locations) {
                 const ip = appInstance.ip.split(':')[0];
