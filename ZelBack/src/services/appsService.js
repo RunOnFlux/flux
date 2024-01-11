@@ -10381,7 +10381,7 @@ async function syncthingApps() {
             foldersConfiguration.push(syncthingFolder);
             if (!syncFolder) {
               newFoldersConfiguration.push(syncthingFolder);
-            } else if (syncFolder && (syncFolder.paused || syncFolder.type !== syncthingFolder.type || syncFolder.devices !== syncthingFolder.devices)) {
+            } else if (syncFolder && (syncFolder.paused || syncFolder.type !== syncthingFolder.type || JSON.stringify(syncFolder.devices) !== JSON.stringify(syncthingFolder.devices))) {
               newFoldersConfiguration.push(syncthingFolder);
             }
           }
@@ -10546,7 +10546,7 @@ async function syncthingApps() {
               foldersConfiguration.push(syncthingFolder);
               if (!syncFolder) {
                 newFoldersConfiguration.push(syncthingFolder);
-              } else if (syncFolder && (syncFolder.paused || syncFolder.type !== syncthingFolder.type || syncFolder.devices !== syncthingFolder.devices)) {
+              } else if (syncFolder && (syncFolder.paused || syncFolder.type !== syncthingFolder.type || JSON.stringify(syncFolder.devices) !== JSON.stringify(syncthingFolder.devices))) {
                 newFoldersConfiguration.push(syncthingFolder);
               }
             }
