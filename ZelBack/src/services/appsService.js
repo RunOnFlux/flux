@@ -10546,7 +10546,7 @@ async function syncthingApps() {
               foldersConfiguration.push(syncthingFolder);
               if (!syncFolder) {
                 newFoldersConfiguration.push(syncthingFolder);
-              } else if (syncFolder && (syncFolder.paused || syncFolder.type !== syncthingFolder.type)) {
+              } else if (syncFolder && (syncFolder.paused || syncFolder.type !== syncthingFolder.type || syncFolder.devices !== syncthingFolder.devices)) {
                 newFoldersConfiguration.push(syncthingFolder);
               }
             }
