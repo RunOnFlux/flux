@@ -24,8 +24,10 @@ const fsPromises = fs.promises;
 
 const adminConfig = require('../../config/userconfig');
 
-const fluxService = proxyquire('../../ZelBack/src/services/fluxService',
-  { '../../../config/userconfig': adminConfig });
+const fluxService = proxyquire(
+  '../../ZelBack/src/services/fluxService',
+  { '../../../config/userconfig': adminConfig },
+);
 
 chai.use(chaiAsPromised);
 const { expect } = chai;

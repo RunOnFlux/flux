@@ -4,11 +4,6 @@ const fs = require('fs');
 const path = './config/userconfig.js';
 
 const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/;
-if (fs.existsSync(path)) {
-  console.log('Configuration file found. You can change your configuration in ./config/userconfig.js');
-  console.log('Starting Flux...');
-  return;
-}
 
 const questions = [
   {
@@ -24,6 +19,12 @@ const questions = [
 ];
 
 function showQuestions() {
+  if (fs.existsSync(path)) {
+    console.log('Configuration file found. You can change your configuration in ./config/userconfig.js');
+    console.log('Starting Flux...');
+    return;
+  }
+
   inquirer.prompt(questions).then((answers) => {
     console.log(`IP address: ${answers.ipaddr}`);
     console.log(`ZelID: ${answers.zelid}`);

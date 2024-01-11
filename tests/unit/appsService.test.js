@@ -2809,12 +2809,15 @@ describe('appsService tests', () => {
       await appsService.appMonitorStream(req, res);
 
       sinon.assert.calledOnce(res.end);
-      sinon.assert.calledWithExactly(dockerContainerStatsStreamFake,
+      sinon.assert.calledWithExactly(
+        dockerContainerStatsStreamFake,
         'test_myappname',
         {
           params: { appname: 'test_myappname', lines: [10, 11, 12] },
           query: { test2: 'test2' },
-        }, res);
+        },
+        res,
+      );
       sinon.assert.notCalled(logSpy);
     });
 
@@ -2834,12 +2837,15 @@ describe('appsService tests', () => {
       await appsService.appMonitorStream(req, res);
 
       sinon.assert.calledOnce(res.end);
-      sinon.assert.calledWithExactly(dockerContainerStatsStreamFake,
+      sinon.assert.calledWithExactly(
+        dockerContainerStatsStreamFake,
         'myappname',
         {
           params: { appname: 'myappname', lines: [10, 11, 12] },
           query: { test2: 'test2' },
-        }, res);
+        },
+        res,
+      );
       sinon.assert.notCalled(logSpy);
     });
   });
@@ -3896,7 +3902,7 @@ describe('appsService tests', () => {
         data: {
           appsCpusLocked: 2000,
           appsRamLocked: 512000,
-          appsHddLocked: 200004,
+          appsHddLocked: 200024,
         },
       });
     });
@@ -3918,7 +3924,7 @@ describe('appsService tests', () => {
         data: {
           appsCpusLocked: 4000,
           appsRamLocked: 200000,
-          appsHddLocked: 400004,
+          appsHddLocked: 400024,
         },
       });
     });
@@ -3950,7 +3956,7 @@ describe('appsService tests', () => {
         data: {
           appsCpusLocked: 4000,
           appsRamLocked: 1024000,
-          appsHddLocked: 400008,
+          appsHddLocked: 400048,
         },
       });
     });
@@ -3982,7 +3988,7 @@ describe('appsService tests', () => {
         data: {
           appsCpusLocked: 8000,
           appsRamLocked: 400000,
-          appsHddLocked: 800008,
+          appsHddLocked: 800048,
         },
       });
     });
@@ -4016,7 +4022,7 @@ describe('appsService tests', () => {
         data: {
           appsCpusLocked: 8000,
           appsRamLocked: 400000,
-          appsHddLocked: 800008,
+          appsHddLocked: 800048,
         },
       });
     });

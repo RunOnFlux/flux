@@ -844,7 +844,7 @@ async function adjustExternalIP(ip) {
     if (ip === userconfig.initial.ipaddress) {
       return;
     }
-
+    const oldUserConfigIp = userconfig.initial.ipaddress;
     log.info(`Adjusting External IP from ${userconfig.initial.ipaddress} to ${ip}`);
     const dataToWrite = `module.exports = {
   initial: {
@@ -864,10 +864,10 @@ async function adjustExternalIP(ip) {
 
     await fs.writeFile(fluxDirPath, dataToWrite);
 
-    if (userconfig.initial.ipaddress && v4exact.test(userconfig.initial.ipaddress) && !myCache.has(ip)) {
+    if (oldUserConfigIp && v4exact.test(oldUserConfigIp) && !myCache.has(ip)) {
       myCache.set(ip, ip);
       const newIP = userconfig.initial.apiport !== 16127 ? `${ip}:${userconfig.initial.apiport}` : ip;
-      const oldIP = userconfig.initial.apiport !== 16127 ? `${userconfig.initial.ipaddress}:${userconfig.initial.apiport}` : userconfig.initial.ipaddress;
+      const oldIP = userconfig.initial.apiport !== 16127 ? `${oldUserConfigIp}:${userconfig.initial.apiport}` : oldUserConfigIp;
       log.info(`New public Ip detected: ${newIP}, old Ip:${oldIP} , updating the FluxNode info in the network`);
       // eslint-disable-next-line global-require
       const dockerService = require('./dockerService');
@@ -890,7 +890,12 @@ async function adjustExternalIP(ip) {
         await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newIpChangedMessage);
         await serviceHelper.delay(500);
         await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newIpChangedMessage);
-        await serviceHelper.delay(1 * 60 * 1000); // lets wait 1 minute to give time for message being propagated on the network before we try to update the ip on blockchain
+      }
+      const benchmarkResponse = await benchmarkService.getBenchmarks();
+      if (benchmarkResponse.status === 'error') {
+        await serviceHelper.delay(15 * 60 * 1000);
+      } else if (benchmarkResponse.status === 'running') {
+        await serviceHelper.delay(8 * 60 * 1000);
       }
       const result = await daemonServiceWalletRpcs.createConfirmationTransaction();
       log.info(`createConfirmationTransaction: ${JSON.stringify(result)}`);
@@ -1014,6 +1019,7 @@ function getDOSState(req, res) {
  * @returns {object} Command status.
  */
 async function allowPort(port) {
+  const cmdAsync = util.promisify(nodecmd.get);
   const cmdStat = {
     status: false,
     message: null,
@@ -1023,8 +1029,6 @@ async function allowPort(port) {
     return cmdStat;
   }
   const exec = `LANG="en_US.UTF-8" && sudo ufw allow ${port} && sudo ufw allow out ${port}`;
-  const cmdAsync = util.promisify(nodecmd.get);
-
   const cmdres = await cmdAsync(exec);
   cmdStat.message = cmdres;
   if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
@@ -1044,6 +1048,7 @@ async function allowPort(port) {
  * @returns {object} Command status.
  */
 async function allowOutPort(port) {
+  const cmdAsync = util.promisify(nodecmd.get);
   const cmdStat = {
     status: false,
     message: null,
@@ -1053,8 +1058,6 @@ async function allowOutPort(port) {
     return cmdStat;
   }
   const exec = `LANG="en_US.UTF-8" && sudo ufw allow out ${port}`;
-  const cmdAsync = util.promisify(nodecmd.get);
-
   const cmdres = await cmdAsync(exec);
   cmdStat.message = cmdres;
   if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
@@ -1074,6 +1077,7 @@ async function allowOutPort(port) {
  * @returns {object} Command status.
  */
 async function denyPort(port) {
+  const cmdAsync = util.promisify(nodecmd.get);
   const cmdStat = {
     status: false,
     message: null,
@@ -1088,8 +1092,6 @@ async function denyPort(port) {
     return cmdStat;
   }
   const exec = `LANG="en_US.UTF-8" && sudo ufw deny ${port} && sudo ufw deny out ${port}`;
-  const cmdAsync = util.promisify(nodecmd.get);
-
   const cmdres = await cmdAsync(exec);
   cmdStat.message = cmdres;
   if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
@@ -1109,6 +1111,7 @@ async function denyPort(port) {
  * @returns {object} Command status.
  */
 async function deleteAllowPortRule(port) {
+  const cmdAsync = util.promisify(nodecmd.get);
   const cmdStat = {
     status: false,
     message: null,
@@ -1123,8 +1126,6 @@ async function deleteAllowPortRule(port) {
     return cmdStat;
   }
   const exec = `LANG="en_US.UTF-8" && sudo ufw delete allow ${port} && sudo ufw delete allow out ${port}`;
-  const cmdAsync = util.promisify(nodecmd.get);
-
   const cmdres = await cmdAsync(exec);
   cmdStat.message = cmdres;
   if (serviceHelper.ensureString(cmdres).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
@@ -1141,6 +1142,7 @@ async function deleteAllowPortRule(port) {
  * @returns {object} Command status.
  */
 async function deleteDenyPortRule(port) {
+  const cmdAsync = util.promisify(nodecmd.get);
   const cmdStat = {
     status: false,
     message: null,
@@ -1155,8 +1157,6 @@ async function deleteDenyPortRule(port) {
     return cmdStat;
   }
   const exec = `LANG="en_US.UTF-8" && sudo ufw delete deny ${port} && sudo ufw delete deny out ${port}`;
-  const cmdAsync = util.promisify(nodecmd.get);
-
   const cmdres = await cmdAsync(exec);
   cmdStat.message = cmdres;
   if (serviceHelper.ensureString(cmdres).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
@@ -1173,6 +1173,7 @@ async function deleteDenyPortRule(port) {
  * @returns {object} Command status.
  */
 async function deleteAllowOutPortRule(port) {
+  const cmdAsync = util.promisify(nodecmd.get);
   const cmdStat = {
     status: false,
     message: null,
@@ -1187,8 +1188,6 @@ async function deleteAllowOutPortRule(port) {
     return cmdStat;
   }
   const exec = `LANG="en_US.UTF-8" && sudo ufw delete allow out ${port}`;
-  const cmdAsync = util.promisify(nodecmd.get);
-
   const cmdres = await cmdAsync(exec);
   cmdStat.message = cmdres;
   if (serviceHelper.ensureString(cmdres).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
@@ -1389,8 +1388,8 @@ function lruRateLimit(ip, limitPerSecond = 20) {
  */
 async function allowNodeToBindPrivilegedPorts() {
   try {
-    const exec = "sudo setcap 'cap_net_bind_service=+ep' `which node`";
     const cmdAsync = util.promisify(nodecmd.get);
+    const exec = "sudo setcap 'cap_net_bind_service=+ep' `which node`";
     await cmdAsync(exec);
   } catch (error) {
     log.error(error);
@@ -1403,9 +1402,9 @@ async function allowNodeToBindPrivilegedPorts() {
  */
 async function installNetcat() {
   try {
-    const exec = 'sudo apt install netcat -y';
     const cmdAsync = util.promisify(nodecmd.get);
-    cmdAsync(exec);
+    const exec = 'sudo apt install netcat-openbsd -y';
+    await cmdAsync(exec);
   } catch (error) {
     log.error(error);
   }

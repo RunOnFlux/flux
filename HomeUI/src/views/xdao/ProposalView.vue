@@ -198,7 +198,7 @@
                   :href="`https://explorer.runonflux.io/address/${proposalViewData.grantAddress}`"
                   target="_blank"
                   active-class="primary"
-                  rel
+                  rel="noopener noreferrer"
                 >
                   {{ proposalViewData.grantAddress }}
                 </b-link>
@@ -224,7 +224,7 @@
                 </p>
                 <div>
                   <a
-                    :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=' + callbackValueSign()"
+                    :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValueSign()}`"
                     @click="initiateSignWS"
                   >
                     <img
@@ -394,7 +394,8 @@ import {
   ref,
   watch,
   computed,
-} from '@vue/composition-api';
+  getCurrentInstance,
+} from 'vue';
 
 const axios = require('axios');
 const qs = require('qs');
@@ -445,8 +446,9 @@ export default {
       required: true,
     },
   },
-  setup(props, ctx) {
-    const config = computed(() => ctx.root.$store.state.flux.config);
+  setup(props) {
+    const vm = getCurrentInstance().proxy;
+    const config = computed(() => vm.$store.state.flux.config);
 
     // Use toast
     const toast = useToast();
@@ -541,11 +543,11 @@ export default {
         mybackend += names.join('.');
       } else {
         if (typeof hostname === 'string') {
-          ctx.root.$store.commit('flux/setUserIp', hostname);
+          vm.$store.commit('flux/setUserIp', hostname);
         }
         if (+port > 16100) {
           const apiPort = +port + 1;
-          ctx.root.$store.commit('flux/setFluxPort', apiPort);
+          vm.$store.commit('flux/setFluxPort', apiPort);
         }
         mybackend += hostname;
         mybackend += ':';
@@ -587,11 +589,11 @@ export default {
         mybackend += names.join('.');
       } else {
         if (typeof hostname === 'string') {
-          ctx.root.$store.commit('flux/setUserIp', hostname);
+          vm.$store.commit('flux/setUserIp', hostname);
         }
         if (+port > 16100) {
           const apiPort = +port + 1;
-          ctx.root.$store.commit('flux/setFluxPort', apiPort);
+          vm.$store.commit('flux/setFluxPort', apiPort);
         }
         mybackend += hostname;
         mybackend += ':';

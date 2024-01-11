@@ -132,53 +132,53 @@
                             <div v-if="row.item.tiered">
                               <list-entry
                                 title="CPU Cumulus"
-                                :data="row.item.cpubasic + ' vCore'"
+                                :data="`${row.item.cpubasic} vCore`"
                               />
                               <list-entry
                                 title="CPU Nimbus"
-                                :data="row.item.cpusuper + ' vCore'"
+                                :data="`${row.item.cpusuper} vCore`"
                               />
                               <list-entry
                                 title="CPU Stratus"
-                                :data="row.item.cpubamf + ' vCore'"
+                                :data="`${row.item.cpubamf} vCore`"
                               />
                               <list-entry
                                 title="RAM Cumulus"
-                                :data="row.item.rambasic + ' MB'"
+                                :data="`${row.item.rambasic} MB`"
                               />
                               <list-entry
                                 title="RAM Nimbus"
-                                :data="row.item.ramsuper + ' MB'"
+                                :data="`${row.item.ramsuper} MB`"
                               />
                               <list-entry
                                 title="RAM Stratus"
-                                :data="row.item.rambamf + ' MB'"
+                                :data="`${row.item.rambamf} MB`"
                               />
                               <list-entry
                                 title="SSD Cumulus"
-                                :data="row.item.hddbasic + ' GB'"
+                                :data="`${row.item.hddbasic} GB`"
                               />
                               <list-entry
                                 title="SSD Nimbus"
-                                :data="row.item.hddsuper + ' GB'"
+                                :data="`${row.item.hddsuper} GB`"
                               />
                               <list-entry
                                 title="SSD Stratus"
-                                :data="row.item.hddbamf + ' GB'"
+                                :data="`${row.item.hddbamf} GB`"
                               />
                             </div>
                             <div v-else>
                               <list-entry
                                 title="CPU"
-                                :data="row.item.cpu + ' vCore'"
+                                :data="`${row.item.cpu} vCore`"
                               />
                               <list-entry
                                 title="RAM"
-                                :data="row.item.ram + ' MB'"
+                                :data="`${row.item.ram} MB`"
                               />
                               <list-entry
                                 title="SSD"
-                                :data="row.item.hdd + ' GB'"
+                                :data="`${row.item.hdd} GB`"
                               />
                             </div>
                           </b-card>
@@ -242,53 +242,53 @@
                             <div v-if="component.tiered">
                               <list-entry
                                 title="CPU Cumulus"
-                                :data="component.cpubasic + ' vCore'"
+                                :data="`${component.cpubasic} vCore`"
                               />
                               <list-entry
                                 title="CPU Nimbus"
-                                :data="component.cpusuper + ' vCore'"
+                                :data="`${component.cpusuper} vCore`"
                               />
                               <list-entry
                                 title="CPU Stratus"
-                                :data="component.cpubamf + ' vCore'"
+                                :data="`${component.cpubamf} vCore`"
                               />
                               <list-entry
                                 title="RAM Cumulus"
-                                :data="component.rambasic + ' MB'"
+                                :data="`${component.rambasic} MB`"
                               />
                               <list-entry
                                 title="RAM Nimbus"
-                                :data="component.ramsuper + ' MB'"
+                                :data="`${component.ramsuper} MB`"
                               />
                               <list-entry
                                 title="RAM Stratus"
-                                :data="component.rambamf + ' MB'"
+                                :data="`${component.rambamf} MB`"
                               />
                               <list-entry
                                 title="SSD Cumulus"
-                                :data="component.hddbasic + ' GB'"
+                                :data="`${component.hddbasic} GB`"
                               />
                               <list-entry
                                 title="SSD Nimbus"
-                                :data="component.hddsuper + ' GB'"
+                                :data="`${component.hddsuper} GB`"
                               />
                               <list-entry
                                 title="SSD Stratus"
-                                :data="component.hddbamf + ' GB'"
+                                :data="`${component.hddbamf} GB`"
                               />
                             </div>
                             <div v-else>
                               <list-entry
                                 title="CPU"
-                                :data="component.cpu + ' vCore'"
+                                :data="`${component.cpu} vCore`"
                               />
                               <list-entry
                                 title="RAM"
-                                :data="component.ram + ' MB'"
+                                :data="`${component.ram} MB`"
                               />
                               <list-entry
                                 title="SSD"
-                                :data="component.hdd + ' GB'"
+                                :data="`${component.hdd} GB`"
                               />
                             </div>
                           </b-card>
@@ -466,53 +466,53 @@
                             <div v-if="row.item.tiered">
                               <list-entry
                                 title="CPU Cumulus"
-                                :data="row.item.cpubasic + ' vCore'"
+                                :data="`${row.item.cpubasic} vCore`"
                               />
                               <list-entry
                                 title="CPU Nimbus"
-                                :data="row.item.cpusuper + ' vCore'"
+                                :data="`${row.item.cpusuper} vCore`"
                               />
                               <list-entry
                                 title="CPU Stratus"
-                                :data="row.item.cpubamf + ' vCore'"
+                                :data="`${row.item.cpubamf} vCore`"
                               />
                               <list-entry
                                 title="RAM Cumulus"
-                                :data="row.item.rambasic + ' MB'"
+                                :data="`${row.item.rambasic} MB`"
                               />
                               <list-entry
                                 title="RAM Nimbus"
-                                :data="row.item.ramsuper + ' MB'"
+                                :data="`${row.item.ramsuper} MB`"
                               />
                               <list-entry
                                 title="RAM Stratus"
-                                :data="row.item.rambamf + ' MB'"
+                                :data="`${row.item.rambamf} MB`"
                               />
                               <list-entry
                                 title="SSD Cumulus"
-                                :data="row.item.hddbasic + ' GB'"
+                                :data="`${row.item.hddbasic} GB`"
                               />
                               <list-entry
                                 title="SSD Nimbus"
-                                :data="row.item.hddsuper + ' GB'"
+                                :data="`${row.item.hddsuper} GB`"
                               />
                               <list-entry
                                 title="SSD Stratus"
-                                :data="row.item.hddbamf + ' GB'"
+                                :data="`${row.item.hddbamf} GB`"
                               />
                             </div>
                             <div v-else>
                               <list-entry
                                 title="CPU"
-                                :data="row.item.cpu + ' vCore'"
+                                :data="`${row.item.cpu} vCore`"
                               />
                               <list-entry
                                 title="RAM"
-                                :data="row.item.ram + ' MB'"
+                                :data="`${row.item.ram} MB`"
                               />
                               <list-entry
                                 title="SSD"
-                                :data="row.item.hdd + ' GB'"
+                                :data="`${row.item.hdd} GB`"
                               />
                             </div>
                           </b-card>
@@ -576,53 +576,53 @@
                             <div v-if="component.tiered">
                               <list-entry
                                 title="CPU Cumulus"
-                                :data="component.cpubasic + ' vCore'"
+                                :data="`${component.cpubasic} vCore`"
                               />
                               <list-entry
                                 title="CPU Nimbus"
-                                :data="component.cpusuper + ' vCore'"
+                                :data="`${component.cpusuper} vCore`"
                               />
                               <list-entry
                                 title="CPU Stratus"
-                                :data="component.cpubamf + ' vCore'"
+                                :data="`${component.cpubamf} vCore`"
                               />
                               <list-entry
                                 title="RAM Cumulus"
-                                :data="component.rambasic + ' MB'"
+                                :data="`${component.rambasic} MB`"
                               />
                               <list-entry
                                 title="RAM Nimbus"
-                                :data="component.ramsuper + ' MB'"
+                                :data="`${component.ramsuper} MB`"
                               />
                               <list-entry
                                 title="RAM Stratus"
-                                :data="component.rambamf + ' MB'"
+                                :data="`${component.rambamf} MB`"
                               />
                               <list-entry
                                 title="SSD Cumulus"
-                                :data="component.hddbasic + ' GB'"
+                                :data="`${component.hddbasic} GB`"
                               />
                               <list-entry
                                 title="SSD Nimbus"
-                                :data="component.hddsuper + ' GB'"
+                                :data="`${component.hddsuper} GB`"
                               />
                               <list-entry
                                 title="SSD Stratus"
-                                :data="component.hddbamf + ' GB'"
+                                :data="`${component.hddbamf} GB`"
                               />
                             </div>
                             <div v-else>
                               <list-entry
                                 title="CPU"
-                                :data="component.cpu + ' vCore'"
+                                :data="`${component.cpu} vCore`"
                               />
                               <list-entry
                                 title="RAM"
-                                :data="component.ram + ' MB'"
+                                :data="`${component.ram} MB`"
                               />
                               <list-entry
                                 title="SSD"
-                                :data="component.hdd + ' GB'"
+                                :data="`${component.hdd} GB`"
                               />
                             </div>
                           </b-card>
@@ -914,53 +914,53 @@
                             <div v-if="row.item.tiered">
                               <list-entry
                                 title="CPU Cumulus"
-                                :data="row.item.cpubasic + ' vCore'"
+                                :data="`${row.item.cpubasic} vCore`"
                               />
                               <list-entry
                                 title="CPU Nimbus"
-                                :data="row.item.cpusuper + ' vCore'"
+                                :data="`${row.item.cpusuper} vCore`"
                               />
                               <list-entry
                                 title="CPU Stratus"
-                                :data="row.item.cpubamf + ' vCore'"
+                                :data="`${row.item.cpubamf} vCore`"
                               />
                               <list-entry
                                 title="RAM Cumulus"
-                                :data="row.item.rambasic + ' MB'"
+                                :data="`${row.item.rambasic} MB`"
                               />
                               <list-entry
                                 title="RAM Nimbus"
-                                :data="row.item.ramsuper + ' MB'"
+                                :data="`${row.item.ramsuper} MB`"
                               />
                               <list-entry
                                 title="RAM Stratus"
-                                :data="row.item.rambamf + ' MB'"
+                                :data="`${row.item.rambamf} MB`"
                               />
                               <list-entry
                                 title="SSD Cumulus"
-                                :data="row.item.hddbasic + ' GB'"
+                                :data="`${row.item.hddbasic} GB`"
                               />
                               <list-entry
                                 title="SSD Nimbus"
-                                :data="row.item.hddsuper + ' GB'"
+                                :data="`${row.item.hddsuper} GB`"
                               />
                               <list-entry
                                 title="SSD Stratus"
-                                :data="row.item.hddbamf + ' GB'"
+                                :data="`${row.item.hddbamf} GB`"
                               />
                             </div>
                             <div v-else>
                               <list-entry
                                 title="CPU"
-                                :data="row.item.cpu + ' vCore'"
+                                :data="`${row.item.cpu} vCore`"
                               />
                               <list-entry
                                 title="RAM"
-                                :data="row.item.ram + ' MB'"
+                                :data="`${row.item.ram} MB`"
                               />
                               <list-entry
                                 title="SSD"
-                                :data="row.item.hdd + ' GB'"
+                                :data="`${row.item.hdd} GB`"
                               />
                             </div>
                           </b-card>
@@ -1024,53 +1024,53 @@
                             <div v-if="component.tiered">
                               <list-entry
                                 title="CPU Cumulus"
-                                :data="component.cpubasic + ' vCore'"
+                                :data="`${component.cpubasic} vCore`"
                               />
                               <list-entry
                                 title="CPU Nimbus"
-                                :data="component.cpusuper + ' vCore'"
+                                :data="`${component.cpusuper} vCore`"
                               />
                               <list-entry
                                 title="CPU Stratus"
-                                :data="component.cpubamf + ' vCore'"
+                                :data="`${component.cpubamf} vCore`"
                               />
                               <list-entry
                                 title="RAM Cumulus"
-                                :data="component.rambasic + ' MB'"
+                                :data="`${component.rambasic} MB`"
                               />
                               <list-entry
                                 title="RAM Nimbus"
-                                :data="component.ramsuper + ' MB'"
+                                :data="`${component.ramsuper} MB`"
                               />
                               <list-entry
                                 title="RAM Stratus"
-                                :data="component.rambamf + ' MB'"
+                                :data="`${component.rambamf} MB`"
                               />
                               <list-entry
                                 title="SSD Cumulus"
-                                :data="component.hddbasic + ' GB'"
+                                :data="`${component.hddbasic} GB`"
                               />
                               <list-entry
                                 title="SSD Nimbus"
-                                :data="component.hddsuper + ' GB'"
+                                :data="`${component.hddsuper} GB`"
                               />
                               <list-entry
                                 title="SSD Stratus"
-                                :data="component.hddbamf + ' GB'"
+                                :data="`${component.hddbamf} GB`"
                               />
                             </div>
                             <div v-else>
                               <list-entry
                                 title="CPU"
-                                :data="component.cpu + ' vCore'"
+                                :data="`${component.cpu} vCore`"
                               />
                               <list-entry
                                 title="RAM"
-                                :data="component.ram + ' MB'"
+                                :data="`${component.ram} MB`"
                               />
                               <list-entry
                                 title="SSD"
-                                :data="component.hdd + ' GB'"
+                                :data="`${component.hdd} GB`"
                               />
                             </div>
                           </b-card>
@@ -1310,53 +1310,53 @@
                             <div v-if="row.item.tiered">
                               <list-entry
                                 title="CPU Cumulus"
-                                :data="row.item.cpubasic + ' vCore'"
+                                :data="`${row.item.cpubasic} vCore`"
                               />
                               <list-entry
                                 title="CPU Nimbus"
-                                :data="row.item.cpusuper + ' vCore'"
+                                :data="`${row.item.cpusuper} vCore`"
                               />
                               <list-entry
                                 title="CPU Stratus"
-                                :data="row.item.cpubamf + ' vCore'"
+                                :data="`${row.item.cpubamf} vCore`"
                               />
                               <list-entry
                                 title="RAM Cumulus"
-                                :data="row.item.rambasic + ' MB'"
+                                :data="`${row.item.rambasic} MB`"
                               />
                               <list-entry
                                 title="RAM Nimbus"
-                                :data="row.item.ramsuper + ' MB'"
+                                :data="`${row.item.ramsuper} MB`"
                               />
                               <list-entry
                                 title="RAM Stratus"
-                                :data="row.item.rambamf + ' MB'"
+                                :data="`${row.item.rambamf} MB`"
                               />
                               <list-entry
                                 title="SSD Cumulus"
-                                :data="row.item.hddbasic + ' GB'"
+                                :data="`${row.item.hddbasic} GB`"
                               />
                               <list-entry
                                 title="SSD Nimbus"
-                                :data="row.item.hddsuper + ' GB'"
+                                :data="`${row.item.hddsuper} GB`"
                               />
                               <list-entry
                                 title="SSD Stratus"
-                                :data="row.item.hddbamf + ' GB'"
+                                :data="`${row.item.hddbamf} GB`"
                               />
                             </div>
                             <div v-else>
                               <list-entry
                                 title="CPU"
-                                :data="row.item.cpu + ' vCore'"
+                                :data="`${row.item.cpu} vCore`"
                               />
                               <list-entry
                                 title="RAM"
-                                :data="row.item.ram + ' MB'"
+                                :data="`${row.item.ram} MB`"
                               />
                               <list-entry
                                 title="SSD"
-                                :data="row.item.hdd + ' GB'"
+                                :data="`${row.item.hdd} GB`"
                               />
                             </div>
                           </b-card>
@@ -1420,53 +1420,53 @@
                             <div v-if="component.tiered">
                               <list-entry
                                 title="CPU Cumulus"
-                                :data="component.cpubasic + ' vCore'"
+                                :data="`${component.cpubasic} vCore`"
                               />
                               <list-entry
                                 title="CPU Nimbus"
-                                :data="component.cpusuper + ' vCore'"
+                                :data="`${component.cpusuper} vCore`"
                               />
                               <list-entry
                                 title="CPU Stratus"
-                                :data="component.cpubamf + ' vCore'"
+                                :data="`${component.cpubamf} vCore`"
                               />
                               <list-entry
                                 title="RAM Cumulus"
-                                :data="component.rambasic + ' MB'"
+                                :data="`${component.rambasic} MB`"
                               />
                               <list-entry
                                 title="RAM Nimbus"
-                                :data="component.ramsuper + ' MB'"
+                                :data="`${component.ramsuper} MB`"
                               />
                               <list-entry
                                 title="RAM Stratus"
-                                :data="component.rambamf + ' MB'"
+                                :data="`${component.rambamf} MB`"
                               />
                               <list-entry
                                 title="SSD Cumulus"
-                                :data="component.hddbasic + ' GB'"
+                                :data="`${component.hddbasic} GB`"
                               />
                               <list-entry
                                 title="SSD Nimbus"
-                                :data="component.hddsuper + ' GB'"
+                                :data="`${component.hddsuper} GB`"
                               />
                               <list-entry
                                 title="SSD Stratus"
-                                :data="component.hddbamf + ' GB'"
+                                :data="`${component.hddbamf} GB`"
                               />
                             </div>
                             <div v-else>
                               <list-entry
                                 title="CPU"
-                                :data="component.cpu + ' vCore'"
+                                :data="`${component.cpu} vCore`"
                               />
                               <list-entry
                                 title="RAM"
-                                :data="component.ram + ' MB'"
+                                :data="`${component.ram} MB`"
                               />
                               <list-entry
                                 title="SSD"
-                                :data="component.hdd + ' GB'"
+                                :data="`${component.hdd} GB`"
                               />
                             </div>
                           </b-card>
@@ -1770,53 +1770,53 @@
                             <div v-if="row.item.tiered">
                               <list-entry
                                 title="CPU Cumulus"
-                                :data="row.item.cpubasic + ' vCore'"
+                                :data="`${row.item.cpubasic} vCore`"
                               />
                               <list-entry
                                 title="CPU Nimbus"
-                                :data="row.item.cpusuper + ' vCore'"
+                                :data="`${row.item.cpusuper} vCore`"
                               />
                               <list-entry
                                 title="CPU Stratus"
-                                :data="row.item.cpubamf + ' vCore'"
+                                :data="`${row.item.cpubamf} vCore`"
                               />
                               <list-entry
                                 title="RAM Cumulus"
-                                :data="row.item.rambasic + ' MB'"
+                                :data="`${row.item.rambasic} MB`"
                               />
                               <list-entry
                                 title="RAM Nimbus"
-                                :data="row.item.ramsuper + ' MB'"
+                                :data="`${row.item.ramsuper} MB`"
                               />
                               <list-entry
                                 title="RAM Stratus"
-                                :data="row.item.rambamf + ' MB'"
+                                :data="`${row.item.rambamf} MB`"
                               />
                               <list-entry
                                 title="SSD Cumulus"
-                                :data="row.item.hddbasic + ' GB'"
+                                :data="`${row.item.hddbasic} GB`"
                               />
                               <list-entry
                                 title="SSD Nimbus"
-                                :data="row.item.hddsuper + ' GB'"
+                                :data="`${row.item.hddsuper} GB`"
                               />
                               <list-entry
                                 title="SSD Stratus"
-                                :data="row.item.hddbamf + ' GB'"
+                                :data="`${row.item.hddbamf} GB`"
                               />
                             </div>
                             <div v-else>
                               <list-entry
                                 title="CPU"
-                                :data="row.item.cpu + ' vCore'"
+                                :data="`${row.item.cpu} vCore`"
                               />
                               <list-entry
                                 title="RAM"
-                                :data="row.item.ram + ' MB'"
+                                :data="`${row.item.ram} MB`"
                               />
                               <list-entry
                                 title="SSD"
-                                :data="row.item.hdd + ' GB'"
+                                :data="`${row.item.hdd} GB`"
                               />
                             </div>
                           </b-card>
@@ -1880,53 +1880,53 @@
                             <div v-if="component.tiered">
                               <list-entry
                                 title="CPU Cumulus"
-                                :data="component.cpubasic + ' vCore'"
+                                :data="`${component.cpubasic} vCore`"
                               />
                               <list-entry
                                 title="CPU Nimbus"
-                                :data="component.cpusuper + ' vCore'"
+                                :data="`${component.cpusuper} vCore`"
                               />
                               <list-entry
                                 title="CPU Stratus"
-                                :data="component.cpubamf + ' vCore'"
+                                :data="`${component.cpubamf} vCore`"
                               />
                               <list-entry
                                 title="RAM Cumulus"
-                                :data="component.rambasic + ' MB'"
+                                :data="`${component.rambasic} MB`"
                               />
                               <list-entry
                                 title="RAM Nimbus"
-                                :data="component.ramsuper + ' MB'"
+                                :data="`${component.ramsuper} MB`"
                               />
                               <list-entry
                                 title="RAM Stratus"
-                                :data="component.rambamf + ' MB'"
+                                :data="`${component.rambamf} MB`"
                               />
                               <list-entry
                                 title="SSD Cumulus"
-                                :data="component.hddbasic + ' GB'"
+                                :data="`${component.hddbasic} GB`"
                               />
                               <list-entry
                                 title="SSD Nimbus"
-                                :data="component.hddsuper + ' GB'"
+                                :data="`${component.hddsuper} GB`"
                               />
                               <list-entry
                                 title="SSD Stratus"
-                                :data="component.hddbamf + ' GB'"
+                                :data="`${component.hddbamf} GB`"
                               />
                             </div>
                             <div v-else>
                               <list-entry
                                 title="CPU"
-                                :data="component.cpu + ' vCore'"
+                                :data="`${component.cpu} vCore`"
                               />
                               <list-entry
                                 title="RAM"
-                                :data="component.ram + ' MB'"
+                                :data="`${component.ram} MB`"
                               />
                               <list-entry
                                 title="SSD"
-                                :data="component.hdd + ' GB'"
+                                :data="`${component.hdd} GB`"
                               />
                             </div>
                           </b-card>
@@ -2177,6 +2177,7 @@ import Management from '@/views/apps/Management.vue';
 import AppsService from '@/services/AppsService';
 import DaemonService from '@/services/DaemonService';
 
+const store = require('store');
 const qs = require('qs');
 const timeoptions = require('@/libs/dateFormat');
 
@@ -2479,14 +2480,22 @@ export default {
       this.tableconfig.available.loading = false;
     },
     openApp(name, _ip, _port) {
-      console.log(name, _ip, _port);
       if (_port && _ip) {
-        const ip = _ip;
-        const port = _port;
-        const url = `http://${ip}:${port}`;
+        console.log(name, _ip, _port);
+        const url = `http://${_ip}:${_port}`;
         this.openSite(url);
       } else {
-        this.showToast('danger', 'Unable to open App :(, App does not have a port.');
+        const appInfo = this.installedApp(name);
+        const backendURL = store.get('backendURL') || `http://${this.userconfig.externalip}:${this.config.apiPort}`;
+        const ip = backendURL.split(':')[1].split('//')[1];
+        const port = appInfo.port || appInfo.ports ? appInfo?.ports[0] : appInfo?.compose[0].ports[0];
+        console.log(name, ip, port);
+        if (port === '') {
+          this.showToast('danger', 'Unable to open App :(, App does not have a port.');
+          return;
+        }
+        const url = `http://${ip}:${port}`;
+        this.openSite(url);
       }
     },
     getProperPort(appSpecs) {
@@ -2800,6 +2809,7 @@ export default {
         },
       });
     },
+    // eslint-disable-next-line default-param-last
     constructAutomaticDomains(ports, componentName = '', appName, index = 0) {
       const lowerCaseName = appName.toLowerCase();
       const lowerCaseCopmonentName = componentName.toLowerCase();

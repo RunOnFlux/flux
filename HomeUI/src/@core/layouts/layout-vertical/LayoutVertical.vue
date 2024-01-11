@@ -13,9 +13,9 @@
     >
       <slot
         name="navbar"
-        :toggleVerticalMenuActive="toggleVerticalMenuActive"
-        :navbarBackgroundColor="navbarBackgroundColor"
-        :navbarTypeClass="[...navbarTypeClass, 'header-navbar navbar navbar-shadow align-items-center']"
+        :toggle-vertical-menu-active="toggleVerticalMenuActive"
+        :navbar-background-color="navbarBackgroundColor"
+        :navbar-type-class="[...navbarTypeClass, 'header-navbar navbar navbar-shadow align-items-center']"
       >
         <app-navbar-vertical-layout :toggle-vertical-menu-active="toggleVerticalMenuActive" />
       </slot>
@@ -85,7 +85,7 @@
 </template>
 
 <script>
-import { onUnmounted } from '@vue/composition-api';
+import { onUnmounted } from 'vue';
 import AppFooter from '@core/layouts/components/AppFooter.vue';
 import useAppConfig from '@core/app-config/useAppConfig';
 import { BNavbar } from 'bootstrap-vue';

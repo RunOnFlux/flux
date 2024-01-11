@@ -177,12 +177,14 @@ module.exports = {
     reconstructAppMessagesHashPeriod: 3600, // every 5 days we ask for old messages
     benchUpnpPeriod: 6480, // every 9 days execute upnp bench
     apprunningv2: 1444444, // daemon block height when version 2 of fluxapprunning type messages start propagating on the network (around August 10th)
-    socketPortsInformation: 1527040, // daemon block height when we will start webservice socket request with origin port information (November 30 2023)
+    hddFileSystemMinimum: 10, // right now 10, to be decreased to a minimum of 5GB of free space on hdd for docker with v8 specs activation
+    defaultSwap: 2, // 2gb swap memory minimum, this is in gb
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
     ram: 2000, // 2000mb
     hdd: 40, // 40gb // this value is likely to raise
+    extrahdd: 20, // extra 20gb to be left on a node // this value is likely to raise
   },
   fluxSpecifics: { // tbd during forks
     cpu: {

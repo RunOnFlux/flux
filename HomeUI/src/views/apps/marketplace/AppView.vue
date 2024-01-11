@@ -403,6 +403,15 @@
               rows="6"
               readonly
             />
+            <b-button
+              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+              variant="success"
+              aria-label="Copy Message to Sign to Clipboard"
+              class="my-1"
+              @click="copyMessageToSign"
+            >
+              Copy
+            </b-button>
           </b-card>
         </tab-content>
         <tab-content
@@ -414,7 +423,7 @@
             class="text-center wizard-card"
           >
             <a
-              :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=' + callbackValue()"
+              :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
               @click="initiateSignWS"
             >
               <img
@@ -486,7 +495,7 @@
                 title="Pay with Zelcore"
                 class="text-center wizard-card"
               >
-                <a :href="'zel:?action=pay&coin=zelcash&address=' + deploymentAddress + '&amount=' + appPricePerMonth + '&message=' + registrationHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png'">
+                <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${appPricePerMonth}&message=${registrationHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
                   <img
                     class="zelidLogin"
                     src="@/assets/images/zelID.svg"
@@ -538,7 +547,8 @@ import {
   ref,
   watch,
   computed,
-} from '@vue/composition-api';
+  getCurrentInstance,
+} from 'vue';
 
 import ListEntry from '@/views/components/ListEntry.vue';
 import AppsService from '@/services/AppsService';
@@ -597,7 +607,8 @@ export default {
       default: '',
     },
   },
-  setup(props, ctx) {
+  setup(props) {
+    const vm = getCurrentInstance().proxy;
     // Use toast
     const toast = useToast();
 
@@ -646,7 +657,7 @@ export default {
     const selectedEnterpriseNodes = ref([]);
     const enterprisePublicKeys = ref([]);
 
-    const config = computed(() => ctx.root.$store.state.flux.config);
+    const config = computed(() => vm.$store.state.flux.config);
     const validTill = computed(() => timestamp.value + 60 * 60 * 1000); // 1 hour
     const subscribedTill = computed(() => timestamp.value + 30 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000); // 1 month
 
@@ -662,11 +673,11 @@ export default {
         mybackend += names.join('.');
       } else {
         if (typeof hostname === 'string') {
-          ctx.root.$store.commit('flux/setUserIp', hostname);
+          vm.$store.commit('flux/setUserIp', hostname);
         }
         if (+port > 16100) {
           const apiPort = +port + 1;
-          ctx.root.$store.commit('flux/setFluxPort', apiPort);
+          vm.$store.commit('flux/setFluxPort', apiPort);
         }
         mybackend += hostname;
         mybackend += ':';
@@ -708,11 +719,11 @@ export default {
         mybackend += names.join('.');
       } else {
         if (typeof hostname === 'string') {
-          ctx.root.$store.commit('flux/setUserIp', hostname);
+          vm.$store.commit('flux/setUserIp', hostname);
         }
         if (+port > 16100) {
           const apiPort = +port + 1;
-          ctx.root.$store.commit('flux/setFluxPort', apiPort);
+          vm.$store.commit('flux/setFluxPort', apiPort);
         }
         mybackend += hostname;
         mybackend += ':';
@@ -821,16 +832,20 @@ export default {
       const notSelectedEnterpriseNodes = await getEnterpriseNodes();
       const nodesToSelect = [];
       const selectedEnNodes = [];
-      for (let i = 0; i < notSelectedEnterpriseNodes.length; i += 1) {
+      const kycNodes = notSelectedEnterpriseNodes.filter((x) => x.enterprisePoints > 0 && x.score > 1000); // allows to install multiple apps 3 to 4 only in kyc nodes
+      for (let i = 0; i < kycNodes.length; i += 1) {
         // todo here check if max same pub key is satisfied
-        const alreadySelectedPubKeyOccurances = selectedEnNodes.filter((node) => node.pubkey === notSelectedEnterpriseNodes[i].pubkey).length;
-        const toSelectPubKeyOccurances = nodesToSelect.filter((node) => node.pubkey === notSelectedEnterpriseNodes[i].pubkey).length;
+        const alreadySelectedPubKeyOccurances = selectedEnNodes.filter((node) => node.pubkey === kycNodes[i].pubkey).length;
+        const toSelectPubKeyOccurances = nodesToSelect.filter((node) => node.pubkey === kycNodes[i].pubkey).length;
         if (alreadySelectedPubKeyOccurances + toSelectPubKeyOccurances < maxSamePubKeyNodes) {
-          nodesToSelect.push(notSelectedEnterpriseNodes[i]);
+          nodesToSelect.push(kycNodes[i]);
         }
         if (nodesToSelect.length + selectedEnNodes.length >= maxNumberOfNodes) {
           break;
         }
+      }
+      if (nodesToSelect.length < maxNumberOfNodes) {
+        throw new Error('Not enough kyc nodes available to run your enterprise app.');
       }
       nodesToSelect.forEach(async (node) => {
         const nodeExists = selectedEnNodes.find((existingNode) => existingNode.ip === node.ip);
@@ -871,7 +886,7 @@ export default {
         series: [((resolveRam(props.appData) / 59000) * 100)],
       };
       hdd.value = {
-        series: [((resolveHdd(props.appData) / 840) * 100)],
+        series: [((resolveHdd(props.appData) / 820) * 100)],
       };
 
       // Evaluate any user parameters from the database
@@ -974,11 +989,29 @@ export default {
             showToast('success', 'Successful upload of Environment Parameters to Flux Storage');
             envParams = [`F_S_ENV=https://storage.runonflux.io/v1/env/${envid}`];
           }
+          let { ports } = component;
+          if (component.portSpecs) {
+            ports = [];
+            for (let y = 0; y < component.portSpecs.length; y += 1) {
+              const portInterval = component.portSpecs[y];
+              if (typeof portInterval === 'string') { // '0-10'
+                const minPort = Number(portInterval.split('-')[0]);
+                const maxPort = Number(portInterval.split('-')[1]);
+                ports.push(Math.floor(Math.random() * (maxPort - minPort + 1) + minPort));
+              } else {
+                throw new Error('Port Specs Range for the application on Marketplace is not properly configured');
+              }
+            }
+          }
+          if (props.appData.name.toLowerCase().includes('streamr')) {
+            envParams.push(`STREAMR__BROKER__CLIENT__NETWORK__CONTROL_LAYER__WEBSOCKET_PORT_RANGE__MIN=${ports[0]}`);
+            envParams.push(`STREAMR__BROKER__CLIENT__NETWORK__CONTROL_LAYER__WEBSOCKET_PORT_RANGE__MAX=${ports[0]}`);
+          }
           const appComponent = {
             name: component.name,
             description: component.description,
             repotag: component.repotag,
-            ports: component.ports,
+            ports,
             containerPorts: component.containerPorts,
             environmentParameters: envParams,
             commands: component.commands,
@@ -1008,11 +1041,13 @@ export default {
             assignedSecrets.forEach((param) => {
               userSecrets.push(`${param.name}=${param.value}`);
             });
-            if (userSecrets.length && typeof userSecrets !== 'string') {
+            if (userSecrets.length > 0) {
               // eslint-disable-next-line no-await-in-loop
               const encryptedMessage = await encryptMessage(JSON.stringify(userSecrets), enterprisePublicKeys.value);
               if (encryptedMessage) {
                 appComponent.secrets = encryptedMessage;
+              } else {
+                throw new Error('Secrets failed to encrypt');
               }
             }
           }
@@ -1323,7 +1358,7 @@ export default {
               fontSize: '1.5rem',
             },
             value: {
-              formatter: (val) => ((parseFloat(val) * 840) / 100).toFixed(0),
+              formatter: (val) => ((parseFloat(val) * 820) / 100).toFixed(0),
               offsetY: 10,
               color: $themeColors.light,
               fontSize: '2.86rem',
@@ -1378,7 +1413,7 @@ export default {
               fontSize: '1.2rem',
             },
             value: {
-              formatter: (val) => ((parseFloat(val) * 840) / 100).toFixed(0),
+              formatter: (val) => ((parseFloat(val) * 820) / 100).toFixed(0),
               offsetY: 10,
               color: $themeColors.light,
               fontSize: '2rem',
@@ -1408,6 +1443,15 @@ export default {
           bottom: 10,
         },
       },
+    };
+
+    const copyMessageToSign = async () => {
+      try {
+        await navigator.clipboard.writeText(dataToSign.value);
+        showToast('success', 'Copied to clipboard');
+      } catch ($e) {
+        showToast('danger', 'Failed to Copy to clipboard');
+      }
     };
 
     const register = async () => {
@@ -1486,6 +1530,7 @@ export default {
       register,
       callbackValue,
       initiateSignWS,
+      copyMessageToSign,
 
       launchModalShowing,
       componentParamsModalShowing,

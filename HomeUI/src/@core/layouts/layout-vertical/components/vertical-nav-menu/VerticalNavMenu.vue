@@ -2,19 +2,21 @@
   <div
     class="main-menu menu-fixed menu-accordion menu-shadow"
     :class="[
-      { 'expanded': !isVerticalMenuCollapsed || (isVerticalMenuCollapsed && isMouseHovered) },
-      skin === 'semi-dark' ? 'menu-dark' : 'menu-light'
+      { expanded: !isVerticalMenuCollapsed || (isVerticalMenuCollapsed && isMouseHovered) },
+      skin === 'semi-dark' ? 'menu-dark' : 'menu-light',
     ]"
     @mouseenter="updateMouseHovered(true)"
     @mouseleave="updateMouseHovered(false)"
+    @focus="updateMouseHovered(true)"
+    @blur="updateMouseHovered(false)"
   >
     <!-- main menu header-->
     <div class="navbar-header expanded">
       <slot
         name="header"
-        :toggleVerticalMenuActive="toggleVerticalMenuActive"
-        :toggleCollapsed="toggleCollapsed"
-        :collapseTogglerIcon="collapseTogglerIcon"
+        :toggle-vertical-menu-active="toggleVerticalMenuActive"
+        :toggle-collapsed="toggleCollapsed"
+        :collapse-toggler-icon="collapseTogglerIcon"
       >
         <ul class="nav navbar-nav flex-row">
           <!-- Logo & Text -->
@@ -60,7 +62,7 @@
 
     <!-- Shadow -->
     <div
-      :class="{'d-block': shallShadowBottom}"
+      :class="{ 'd-block': shallShadowBottom }"
       class="shadow-bottom"
     />
 
@@ -89,7 +91,7 @@ import {
   computed,
   ref,
   onBeforeMount,
-} from '@vue/composition-api';
+} from 'vue';
 import useAppConfig from '@core/app-config/useAppConfig';
 import { $themeConfig } from '@themeConfig';
 import navMenuItems from '@/navigation/vertical';

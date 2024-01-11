@@ -13,12 +13,12 @@
               <div class="d-flex flex-sm-row flex-column flex-wrap justify-content-between mb-1 mb-sm-0">
                 <div>
                   <h6 class="mb-0">
-                    {{ beautifyValue(cumulusWeek / 7 ) }} FLUX
+                    {{ beautifyValue(cumulusWeek / 7) }} FLUX
                   </h6>
                   <!--<small class="mt-0">(${{ beautifyValue(cumulusUSDRewardWeek / 7) }} USD)</small>-->
                   <small class="mt-0">+</small>
                   <h6 class="mb-0">
-                    {{ beautifyValue(cumulusWeek * 0.1 * activeParallelAssets / 7 ) }} FLUX Tokens
+                    {{ beautifyValue(cumulusWeek * 0.1 * activeParallelAssets / 7) }} FLUX Tokens
                   </h6>
                   <!--<small class="mt-0 mt-1">(${{ beautifyValue(cumulusUSDRewardWeek * 0.1 * activeParallelAssets / 7) }} USD)</small>
                   <h6 class="mt-0 mt-1">
@@ -32,12 +32,12 @@
               <div class="d-flex flex-sm-row flex-column flex-wrap justify-content-between mb-1 mb-sm-0">
                 <div>
                   <h6 class="mb-0">
-                    {{ beautifyValue(cumulusWeek ) }} FLUX
+                    {{ beautifyValue(cumulusWeek) }} FLUX
                   </h6>
                   <!--<small class="mt-0">(${{ beautifyValue(cumulusUSDRewardWeek) }} USD)</small>-->
                   <small class="mt-0">+</small>
                   <h6 class="mb-0">
-                    {{ beautifyValue(cumulusWeek * 0.1 * activeParallelAssets ) }} FLUX Tokens
+                    {{ beautifyValue(cumulusWeek * 0.1 * activeParallelAssets) }} FLUX Tokens
                   </h6>
                   <!--<small class="mt-0 mt-1">(${{ beautifyValue(cumulusUSDRewardWeek * 0.1 * activeParallelAssets) }} USD)</small>
                   <h6 class="mt-0 mt-1">
@@ -51,12 +51,12 @@
               <div class="d-flex flex-sm-row flex-column flex-wrap justify-content-between mb-1 mb-sm-0">
                 <div>
                   <h6 class="mb-0">
-                    {{ beautifyValue(cumulusWeek * weeksInAMonth ) }} FLUX
+                    {{ beautifyValue(cumulusWeek * weeksInAMonth) }} FLUX
                   </h6>
                   <!--<small class="mt-0">(${{ beautifyValue(cumulusUSDRewardWeek * weeksInAMonth) }} USD)</small>-->
                   <small class="mt-0">+</small>
                   <h6 class="mb-0">
-                    {{ beautifyValue(cumulusWeek * weeksInAMonth * 0.1 * activeParallelAssets ) }} FLUX Tokens
+                    {{ beautifyValue(cumulusWeek * weeksInAMonth * 0.1 * activeParallelAssets) }} FLUX Tokens
                   </h6>
                   <!--<small class="mt-0 mt-1">(${{ beautifyValue(cumulusUSDRewardWeek * weeksInAMonth * 0.1 * activeParallelAssets) }} USD)</small>
                   <h6 class="mt-0 mt-1">
@@ -97,12 +97,12 @@
               <div class="d-flex flex-sm-row flex-column flex-wrap justify-content-between mb-1 mb-sm-0">
                 <div>
                   <h6 class="mb-0">
-                    {{ beautifyValue(nimbusWeek / 7 ) }} FLUX
+                    {{ beautifyValue(nimbusWeek / 7) }} FLUX
                   </h6>
                   <!--<small class="mt-0">(${{ beautifyValue((nimbusUSDRewardWeek / 7)) }} USD)</small>-->
                   <small class="mt-0">+</small>
                   <h6 class="mb-0">
-                    {{ beautifyValue(nimbusWeek * 0.1 * activeParallelAssets / 7 ) }} FLUX Tokens
+                    {{ beautifyValue(nimbusWeek * 0.1 * activeParallelAssets / 7) }} FLUX Tokens
                   </h6>
                   <!--<small class="mt-0 mt-1">(${{ beautifyValue(nimbusUSDRewardWeek * 0.1 * activeParallelAssets / 7) }} USD)</small>
                   <h6 class="mt-0 mt-1">
@@ -121,7 +121,7 @@
                   <!--<small class="mt-0">(${{ beautifyValue((nimbusUSDRewardWeek)) }} USD)</small>-->
                   <small class="mt-0">+</small>
                   <h6 class="mb-0">
-                    {{ beautifyValue(nimbusWeek * 0.1 * activeParallelAssets ) }} FLUX Tokens
+                    {{ beautifyValue(nimbusWeek * 0.1 * activeParallelAssets) }} FLUX Tokens
                   </h6>
                   <!--<small class="mt-0 mt-1">(${{ beautifyValue(nimbusUSDRewardWeek * 0.1 * activeParallelAssets) }} USD)</small>
                   <h6 class="mt-0 mt-1">
@@ -140,7 +140,7 @@
                   <!--<small class="mt-0">(${{ beautifyValue((nimbusUSDRewardWeek * weeksInAMonth)) }} USD)</small>-->
                   <small class="mt-0">+</small>
                   <h6 class="mb-0">
-                    {{ beautifyValue(nimbusWeek * weeksInAMonth * 0.1 * activeParallelAssets ) }} FLUX Tokens
+                    {{ beautifyValue(nimbusWeek * weeksInAMonth * 0.1 * activeParallelAssets) }} FLUX Tokens
                   </h6>
                   <!--<small class="mt-0 mt-1">(${{ beautifyValue(nimbusUSDRewardWeek * weeksInAMonth * 0.1 * activeParallelAssets) }} USD)</small>
                   <h6 class="mt-0 mt-1">
@@ -181,12 +181,12 @@
               <div class="d-flex flex-sm-row flex-column flex-wrap justify-content-between mb-1 mb-sm-0">
                 <div>
                   <h6 class="mb-0">
-                    {{ beautifyValue(stratusWeek / 7 ) }} FLUX
+                    {{ beautifyValue(stratusWeek / 7) }} FLUX
                   </h6>
                   <!--<small class="mt-0">(${{ beautifyValue((stratusUSDRewardWeek / 7)) }} USD)</small>-->
                   <small class="mt-0">+</small>
                   <h6 class="mb-0">
-                    {{ beautifyValue(stratusWeek * 0.1 * activeParallelAssets / 7 ) }} FLUX Tokens
+                    {{ beautifyValue(stratusWeek * 0.1 * activeParallelAssets / 7) }} FLUX Tokens
                   </h6>
                   <!--<small class="mt-0 mt-1">(${{ beautifyValue(stratusUSDRewardWeek * 0.1 * activeParallelAssets / 7) }} USD)</small>
                   <h6 class="mt-0 mt-1">
@@ -205,7 +205,7 @@
                   <!--<small class="mt-0">(${{ beautifyValue((stratusUSDRewardWeek)) }} USD)</small>-->
                   <small class="mt-0">+</small>
                   <h6 class="mb-0">
-                    {{ beautifyValue(stratusWeek * 0.1 * activeParallelAssets ) }} FLUX Tokens
+                    {{ beautifyValue(stratusWeek * 0.1 * activeParallelAssets) }} FLUX Tokens
                   </h6>
                   <!--<small class="mt-0 mt-1">(${{ beautifyValue(stratusUSDRewardWeek * 0.1 * activeParallelAssets) }} USD)</small>
                   <h6 class="mt-0 mt-1">
@@ -224,7 +224,7 @@
                   <!--<small class="mt-0">(${{ beautifyValue((stratusUSDRewardWeek * weeksInAMonth)) }} USD)</small>-->
                   <small class="mt-0">+</small>
                   <h6 class="mb-0">
-                    {{ beautifyValue(stratusWeek * weeksInAMonth * 0.1 * activeParallelAssets ) }} FLUX Tokens
+                    {{ beautifyValue(stratusWeek * weeksInAMonth * 0.1 * activeParallelAssets) }} FLUX Tokens
                   </h6>
                   <!--<small class="mt-0 mt-1">(${{ beautifyValue(stratusUSDRewardWeek * weeksInAMonth * 0.1 * activeParallelAssets) }} USD)</small>
                   <h6 class="mt-0 mt-1">

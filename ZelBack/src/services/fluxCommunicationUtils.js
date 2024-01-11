@@ -7,13 +7,44 @@ const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnode
 // default cache
 const LRUoptions = {
   max: 20000, // currently 20000 nodes
-  ttl: 1000 * 480, // 480 seconds, allow up to 4 blocks
-  maxAge: 1000 * 480, // 480 seconds, allow up to 4 blocks
+  ttl: 1000 * 240, // 240 seconds, allow up to 2 blocks
+  maxAge: 1000 * 240, // 240 seconds, allow up to 2 blocks
 };
 
 const myCache = new LRUCache(LRUoptions);
 
 let addingNodesToCache = false;
+
+/**
+ * To constantly update deterministic Flux list every 2 minutes so we always trigger cache and have up to date value
+ */
+async function constantlyUpdateDeterministicFluxList() {
+  try {
+    while (addingNodesToCache) {
+      // prevent several instances filling the cache at the same time.
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(100);
+    }
+    addingNodesToCache = true;
+    const request = {
+      params: {},
+      query: {},
+    };
+    const daemonFluxNodesList = await daemonServiceFluxnodeRpcs.viewDeterministicFluxNodeList(request);
+    if (daemonFluxNodesList.status === 'success') {
+      const generalFluxList = daemonFluxNodesList.data || [];
+      myCache.set('fluxList', generalFluxList);
+    }
+    addingNodesToCache = false;
+    await serviceHelper.delay(2 * 60 * 1000); // 2 minutes
+    constantlyUpdateDeterministicFluxList();
+  } catch (error) {
+    addingNodesToCache = false;
+    log.error(error);
+    await serviceHelper.delay(2 * 60 * 1000); // 2 minutes
+    constantlyUpdateDeterministicFluxList();
+  }
+}
 
 /**
  * To get deterministc Flux list from cache.
@@ -108,7 +139,7 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
     if (dataObj.data && dataObj.data.type === 'fluxapprunning') {
       node = zl.find((key) => key.pubkey === pubKey && dataObj.data.ip && dataObj.data.ip === key.ip); // check ip is on the network and belongs to broadcasted public key
       if (!node) {
-        log.warn(`Invalid fluxapprunning message, ip: ${dataObj.data.ip} pubkey: ${pubKey}`);
+        log.warn(`Invalid fluxapprunning message, ip: ${dataObj.data.ip} pubkey: ${pubKey}`); // most of invalids are caused because our deterministic list is cached for couple of minutes
         return false;
       }
     } else if (dataObj.data && dataObj.data.type === 'fluxipchanged') {
@@ -175,6 +206,7 @@ async function verifyOriginalFluxBroadcast(data, obtainedFluxNodeList, currentTi
 }
 
 module.exports = {
+  constantlyUpdateDeterministicFluxList,
   verifyTimestampInFluxBroadcast,
   verifyOriginalFluxBroadcast,
   deterministicFluxList,

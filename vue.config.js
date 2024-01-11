@@ -1,5 +1,6 @@
 const path = require('path');
 const CopyPlugin = require('copy-webpack-plugin');
+// const { BundleAnalyzerPlugin } = require('webpack-bundle-analyzer');
 // const CompressionPlugin = require('compression-webpack-plugin');
 // ideally https://github.com/webpack-contrib/compression-webpack-plugin#using-brotli from nodejs 11.7.0
 // const BrotliPlugin = require('brotli-webpack-plugin');
@@ -13,6 +14,7 @@ const plugins = [
       { from: path.resolve(__dirname, 'HomeUI', 'public') },
     ],
   }),
+  // new BundleAnalyzerPlugin(),
 ];
 
 // if (process.env.NODE_ENV === 'production') {
@@ -46,6 +48,7 @@ module.exports = {
     },
   },
   configureWebpack: {
+    mode: process.env.NODE_ENV,
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './HomeUI/src/'),
@@ -66,6 +69,92 @@ module.exports = {
     },
     watchOptions: {
       ignored: /node_modules/,
+    },
+    optimization: {
+      splitChunks: {
+        cacheGroups: {
+          vueAwesome: {
+            name: 'vueAwesome',
+            test: /[\\/]node_modules[\\/](vue-awesome)[\\/]/,
+            chunks: 'all',
+          },
+          metamask: {
+            name: 'metamask',
+            test: /[\\/]node_modules[\\/](@metamask)[\\/]/,
+            chunks: 'all',
+          },
+          walletconnect: {
+            name: 'walletconnect',
+            test: /[\\/]node_modules[\\/](@walletconnect)[\\/]/,
+            chunks: 'all',
+          },
+          stablelib: {
+            name: 'stablelib',
+            test: /[\\/]node_modules[\\/](@stablelib)[\\/]/,
+            chunks: 'all',
+          },
+          xterm: {
+            name: 'xterm',
+            test: /[\\/]node_modules[\\/](xterm)[\\/]/,
+            chunks: 'all',
+          },
+          openpgp: {
+            name: 'openpgp',
+            test: /[\\/]node_modules[\\/](openpgp)[\\/]/,
+            chunks: 'all',
+          },
+          apexcharts: {
+            name: 'apexcharts',
+            test: /[\\/]node_modules[\\/](apexcharts)[\\/]/,
+            chunks: 'all',
+          },
+          vueFeatherIcons: {
+            name: 'vueFeatherIcons',
+            test: /[\\/]node_modules[\\/](vue-feather-icons)[\\/]/,
+            chunks: 'all',
+          },
+          bootstrapVue: {
+            name: 'bootstrapVue',
+            test: /[\\/]node_modules[\\/](bootstrap-vue)[\\/]/,
+            chunks: 'all',
+          },
+          leaflet: {
+            name: 'leaflet',
+            test: /[\\/]node_modules[\\/](leaflet)[\\/]/,
+            chunks: 'all',
+          },
+          vue: {
+            name: 'vue',
+            test: /[\\/]node_modules[\\/](vue)[\\/]/,
+            chunks: 'all',
+          },
+          vueAt: {
+            name: 'vueAt',
+            test: /[\\/]node_modules[\\/](@vue)[\\/]/,
+            chunks: 'all',
+          },
+          vuex: {
+            name: 'vuex',
+            test: /[\\/]node_modules[\\/](vuex)[\\/]/,
+            chunks: 'all',
+          },
+          vueRouterVendor: {
+            name: 'vueRouter',
+            test: /[\\/]node_modules[\\/](vue-router)[\\/]/,
+            chunks: 'all',
+          },
+          clipboard: {
+            name: 'clipboard',
+            test: /[\\/]node_modules[\\/](clipboard)[\\/]/,
+            chunks: 'all',
+          },
+          vueJsonViewer: {
+            name: 'vueJsonViewer',
+            test: /[\\/]node_modules[\\/](vue-json-viewer)[\\/]/,
+            chunks: 'all',
+          },
+        },
+      },
     },
   },
   chainWebpack: (config) => {
@@ -102,7 +191,7 @@ module.exports = {
       // entry for the page
       entry: 'HomeUI/src/main.js',
       // the source template
-      template: 'HomeUI/public/index.html',
+      template: 'HomeUI/src/index.html',
       // output as dist/index.html
       filename: 'index.html',
     },

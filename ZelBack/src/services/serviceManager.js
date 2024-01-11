@@ -5,6 +5,7 @@ const log = require('../lib/log');
 const dbHelper = require('./dbHelper');
 const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
+const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const appsService = require('./appsService');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
@@ -26,24 +27,14 @@ async function startFluxFunctions() {
       log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
       process.exit();
     }
-    const verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
-    if (userconfig.initial.apiport && (userconfig.initial.apiport !== config.server.apiport || userconfig.initial.routerIP)) {
-      log.info('FluxOS is configured to run under UPNP');
-      if (verifyUpnp !== true) {
-        log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to verify support. Shutting down.`);
-        process.exit();
-      }
-      const setupUpnp = await upnpService.setupUPNP(apiPort);
-      if (setupUpnp !== true) {
-        log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to map to api or home port. Shutting down.`);
-        process.exit();
-      }
+
+    // User configured UPnP node with routerIP, UPnP has already been verified and setup
+    if (userconfig.initial.routerIP) {
       setInterval(() => {
         upnpService.adjustFirewallForUPNP();
-      }, 2 * 60 * 60 * 1000); // every 2 hours
-    } else {
-      upnpService.setupUPNP(apiPort);
+      }, 1 * 60 * 60 * 1000); // every 1 hours
     }
+
     fluxNetworkHelper.installNetcat();
     log.info('Initiating MongoDB connection');
     await dbHelper.initiateDB(); // either true or throws error
@@ -97,6 +88,9 @@ async function startFluxFunctions() {
     await pgpService.generateIdentity();
     log.info('PGP service initiated');
     setTimeout(() => {
+      fluxCommunicationUtils.constantlyUpdateDeterministicFluxList(); // updates deterministic flux list for communication every 2 minutes, so we always trigger cache and have up to date value
+    }, 15 * 1000);
+    setTimeout(() => {
       log.info('Rechecking firewall app rules');
       fluxNetworkHelper.purgeUFW();
       appsService.testAppMount(); // test if our node can mount a volume
@@ -126,10 +120,13 @@ async function startFluxFunctions() {
       setInterval(() => { // every 60 mins messages stay on db for 65m
         appsService.checkAndNotifyPeersOfRunningApps();
       }, 60 * 60 * 1000);
-    }, 4 * 60 * 1000);
+    }, 2 * 60 * 1000);
     setTimeout(() => {
       appsService.syncthingApps(); // rechecks and possibly adjust syncthing configuration every 2 minutes
-    }, 2 * 60 * 1000);
+      setTimeout(() => {
+        appsService.masterSlaveApps(); // stop and starts apps using syncthing g: when a new master is required or was changed.
+      }, 30 * 1000);
+    }, 3 * 60 * 1000);
     setTimeout(() => {
       setInterval(() => { // every 30 mins (15 blocks)
         appsService.continuousFluxAppHashesCheck();
@@ -137,10 +134,11 @@ async function startFluxFunctions() {
       appsService.continuousFluxAppHashesCheck();
     }, (Math.floor(Math.random() * (30 - 15 + 1)) + 15) * 60 * 1000); // start between 15m and 30m after fluxOs start
     setTimeout(() => {
-      // after 90 minutes of running ok and to make sure we are connected for enough time for receiving all apps running on other nodes
+      // after 125 minutes of running ok and to make sure we are connected for enough time for receiving all apps running on other nodes
+      // 125 minutes should give enough time for node receive currently two times the apprunning messages
       log.info('Starting to spawn applications');
       appsService.trySpawningGlobalApplication();
-    }, 90 * 60 * 1000);
+    }, 125 * 60 * 1000);
     setInterval(() => {
       appsService.checkApplicationsCompliance();
     }, 60 * 60 * 1000); //  every hour
@@ -150,6 +148,9 @@ async function startFluxFunctions() {
         appsService.forceAppRemovals();
       }, 24 * 60 * 60 * 1000);
     }, 30 * 60 * 1000);
+    setTimeout(() => {
+      appsService.checkStorageSpaceForApps();
+    }, 20 * 60 * 1000);
     if (development) { // just on development branch
       setInterval(async () => {
         await fluxService.enterDevelopment().catch((error) => log.error(error));

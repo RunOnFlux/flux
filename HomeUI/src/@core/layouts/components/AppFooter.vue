@@ -5,10 +5,11 @@
         class="ml-25"
         href="https://github.com/runonflux/flux"
         target="_blank"
+        rel="noopener noreferrer"
       >Flux, Your Gateway to a Decentralized World</b-link>
     </span>
 
-    <span class="float-md-right d-none d-md-block">FluxOS {{ 'v' + fluxVersion }}
+    <span class="float-md-right d-none d-md-block">FluxOS {{ `v${fluxVersion}` }}
     </span>
   </p>
 </template>

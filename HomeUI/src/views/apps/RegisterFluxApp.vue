@@ -7,6 +7,7 @@
           href="https://discord.gg/runonflux"
           target="_blank"
           active-class="primary"
+          rel="noopener noreferrer"
         >
           Discord
         </b-link>
@@ -15,6 +16,7 @@
           href="https://github.com/RunOnFlux/flux"
           target="_blank"
           active-class="primary"
+          rel="noopener noreferrer"
         >
           Flux repository
         </b-link>.
@@ -24,6 +26,14 @@
       <b-row class="match-height">
         <b-col xs="6">
           <b-card title="Details">
+            <b-button
+              v-b-tooltip.hover.top="'Import Application Specification'"
+              variant="outline-primary"
+              class="importSpecsButton"
+              @click="importAppSpecs = true"
+            >
+              <v-icon name="cloud-download-alt" /> Import
+            </b-button>
             <b-form-group
               label-cols="2"
               label-cols-lg="1"
@@ -112,12 +122,12 @@
                 <h4>Allowed Geolocation</h4>
                 <div
                   v-for="n in numberOfGeolocations"
-                  :key="n + 'pos'"
+                  :key="`${n}pos`"
                 >
                   <b-form-group
                     label-cols="3"
                     label-cols-lg="1"
-                    :label="'Continent - ' + n"
+                    :label="`Continent - ${n}`"
                     label-for="Continent"
                   >
                     <b-form-select
@@ -140,7 +150,7 @@
                     v-if="allowedGeolocations[`selectedContinent${n}`] && allowedGeolocations[`selectedContinent${n}`] !== 'ALL'"
                     label-cols="3"
                     label-cols-lg="1"
-                    :label="'Country - ' + n"
+                    :label="`Country - ${n}`"
                     label-for="Country"
                   >
                     <b-form-select
@@ -163,7 +173,7 @@
                     v-if="allowedGeolocations[`selectedContinent${n}`] && allowedGeolocations[`selectedContinent${n}`] !== 'ALL' && allowedGeolocations[`selectedCountry${n}`] && allowedGeolocations[`selectedCountry${n}`] !== 'ALL'"
                     label-cols="3"
                     label-cols-lg="1"
-                    :label="'Region - ' + n"
+                    :label="`Region - ${n}`"
                     label-for="Region"
                   >
                     <b-form-select
@@ -213,12 +223,12 @@
                 <h4>Forbidden Geolocation</h4>
                 <div
                   v-for="n in numberOfNegativeGeolocations"
-                  :key="n + 'posB'"
+                  :key="`${n}posB`"
                 >
                   <b-form-group
                     label-cols="3"
                     label-cols-lg="1"
-                    :label="'Continent - ' + n"
+                    :label="`Continent - ${n}`"
                     label-for="Continent"
                   >
                     <b-form-select
@@ -240,7 +250,7 @@
                     v-if="forbiddenGeolocations[`selectedContinent${n}`] && forbiddenGeolocations[`selectedContinent${n}`] !== 'NONE'"
                     label-cols="3"
                     label-cols-lg="1"
-                    :label="'Country - ' + n"
+                    :label="`Country - ${n}`"
                     label-for="Country"
                   >
                     <b-form-select
@@ -262,7 +272,7 @@
                     v-if="forbiddenGeolocations[`selectedContinent${n}`] && forbiddenGeolocations[`selectedContinent${n}`] !== 'NONE' && forbiddenGeolocations[`selectedCountry${n}`] && forbiddenGeolocations[`selectedCountry${n}`] !== 'ALL'"
                     label-cols="3"
                     label-cols-lg="1"
-                    :label="'Region - ' + n"
+                    :label="`Region - ${n}`"
                     label-for="Region"
                   >
                     <b-form-select
@@ -337,7 +347,7 @@
               label-for="period"
             >
               <div class="mx-1">
-                {{ getExpireLabel || (appRegistrationSpecification.expire ? appRegistrationSpecification.expire + ' blocks' : '1 month') }}
+                {{ getExpireLabel || (appRegistrationSpecification.expire ? `${appRegistrationSpecification.expire} blocks` : '1 month') }}
               </div>
               <b-form-input
                 id="period"
@@ -623,7 +633,7 @@
                 <label class="col-3 col-form-label">
                   Cont. Data
                   <v-icon
-                    v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with r: for synced data between instances. Eg. r:/data'"
+                    v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with r: for synced data between instances. Ex. r:/data. Prepend with g: for synced data and master/slave solution. Ex. g:/data'"
                     name="info-circle"
                     class="mr-1"
                   />
@@ -723,7 +733,7 @@
                   placeholder="SSD in GB value to use by default"
                   type="range"
                   min="1"
-                  max="840"
+                  max="820"
                   step="1"
                 />
               </b-form-group>
@@ -839,7 +849,7 @@
                 v-model="component.hddbamf"
                 type="range"
                 min="1"
-                max="840"
+                max="820"
                 step="1"
               />
             </b-card>
@@ -1214,7 +1224,7 @@
               <label class="col-3 col-form-label">
                 Cont. Data
                 <v-icon
-                  v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with r: for synced data between instances. Eg. r:/data'"
+                  v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with r: for synced data between instances. Ex. r:/data. Prepend with g: for synced data and master/slave solution. Ex. g:/data'"
                   name="info-circle"
                   class="mr-1"
                 />
@@ -1319,7 +1329,7 @@
                 placeholder="SSD in GB value to use by default"
                 type="range"
                 min="1"
-                max="840"
+                max="820"
                 step="1"
               />
             </b-form-group>
@@ -1435,7 +1445,7 @@
               v-model="appRegistrationSpecification.hddbamf"
               type="range"
               min="1"
-              max="840"
+              max="820"
               step="1"
             />
           </b-card>
@@ -1454,6 +1464,7 @@
       <a
         href="https://cdn.runonflux.io/Flux_Terms_of_Service.pdf"
         target="_blank"
+        rel="noopener noreferrer"
       >
         Terms of Service
       </a>
@@ -1518,7 +1529,7 @@
               Price: {{ applicationPrice }} FLUX
             </b-card-text>
             <b-card-text>
-              Subscription period: {{ getExpireLabel || (appRegistrationSpecification.expire ? appRegistrationSpecification.expire + ' blocks' : '1 month') }}
+              Subscription period: {{ getExpireLabel || (appRegistrationSpecification.expire ? `${appRegistrationSpecification.expire} blocks` : '1 month') }}
             </b-card-text>
             <b-button
               v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -1538,7 +1549,7 @@
           <b-card title="Sign with">
             <div class="loginRow">
               <a
-                :href="'zel:?action=sign&message=' + dataToSign + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=' + callbackValue"
+                :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue}`"
                 @click="initiateSignWS"
               >
                 <img
@@ -1608,7 +1619,7 @@
           lg="4"
         >
           <b-card title="Pay with Zelcore">
-            <a :href="'zel:?action=pay&coin=zelcash&address=' + deploymentAddress + '&amount=' + applicationPrice + '&message=' + registrationHash + '&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png'">
+            <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${applicationPrice}&message=${registrationHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
               <img
                 class="zelidLogin"
                 src="@/assets/images/zelID.svg"
@@ -1876,6 +1887,22 @@
         </b-col>
       </b-row>
     </b-modal>
+    <b-modal
+      v-model="importAppSpecs"
+      title="Import Application Specifications"
+      size="lg"
+      centered
+      ok-title="Import"
+      cancel-title="Cancel"
+      @ok="importSpecs(importedSpecs)"
+      @cancel="importAppSpecs = false; importedSpecs = ''"
+    >
+      <b-form-textarea
+        id="importedAppSpecs"
+        v-model="importedSpecs"
+        rows="6"
+      />
+    </b-modal>
   </div>
 </template>
 
@@ -1929,7 +1956,7 @@ const metamaskOptions = {
 };
 
 const MMSDK = new MetaMaskSDK(metamaskOptions);
-const ethereum = MMSDK.getProvider();
+let ethereum;
 
 const qs = require('qs');
 const axios = require('axios');
@@ -1970,6 +1997,8 @@ export default {
   },
   data() {
     return {
+      importAppSpecs: false,
+      importedSpecs: '',
       timeoptions,
       version: 1,
       websocket: null,
@@ -1979,7 +2008,7 @@ export default {
       registrationHash: '',
       registrationtype: 'fluxappregister',
       currentHeight: 1350000,
-      specificationVersion: 6,
+      specificationVersion: 7,
       appRegistrationSpecification: {},
       appRegistrationSpecificationV3Template: {
         version: 3,
@@ -2294,9 +2323,6 @@ export default {
         totalRows: 1,
       },
       chooseEnterpriseDialog: false,
-      walletConnectButton: {
-        disabled: false,
-      },
       signClient: null,
     };
   },
@@ -2413,9 +2439,10 @@ export default {
     },
   },
   beforeMount() {
-    this.appRegistrationSpecification = this.appRegistrationSpecificationV5Template;
+    this.appRegistrationSpecification = this.appRegistrationSpecificationV7Template;
   },
   mounted() {
+    this.initMMSDK();
     this.getGeolocationData();
     this.getDaemonInfo();
     this.appsDeploymentInformation();
@@ -2425,12 +2452,85 @@ export default {
     const zelidauth = localStorage.getItem('zelidauth');
     const auth = qs.parse(zelidauth);
     this.appRegistrationSpecification.owner = auth.zelid;
+    if (this.$router.currentRoute.params.appspecs) {
+      this.importSpecs(this.$router.currentRoute.params.appspecs);
+    }
+    if (auth.zelid) {
+      this.appRegistrationSpecification.owner = auth.zelid;
+    } else {
+      this.showToast('warning', 'Please log in first before registering an application');
+    }
   },
   methods: {
+    async initMMSDK() {
+      try {
+        await MMSDK.init();
+        ethereum = MMSDK.getProvider();
+      } catch (error) {
+        console.log(error);
+      }
+    },
     onFilteredSelection(filteredItems) {
       // Trigger pagination to update the number of buttons/pages due to filtering
       this.entNodesSelectTable.totalRows = filteredItems.length;
       this.entNodesSelectTable.currentPage = 1;
+    },
+    getExpirePosition(value) {
+      const position = this.expireOptions.findIndex((opt) => opt.value === value);
+      if (position || position === 0) {
+        return position;
+      }
+      return 2;
+    },
+    decodeGeolocation(existingGeolocation) {
+      // decode geolocation and push it properly numberOfGeolocations, numberOfNegativeGeolocations
+      // selectedContinent1, selectedCountry1, selectedRegion1
+      // existingGeolocation is an array that can contain older specs of a, b OR can contain new specs of ac (a!c);
+      console.log(existingGeolocation);
+      let isOldSpecs = false;
+      existingGeolocation.forEach((location) => {
+        if (location.startsWith('b')) {
+          isOldSpecs = true;
+        }
+        if (location.startsWith('a') && location.startsWith('ac') && location.startsWith('a!c')) {
+          isOldSpecs = true;
+        }
+      });
+      let updatedNewSpecGeo = existingGeolocation;
+      if (isOldSpecs) {
+        const continentEncoded = existingGeolocation.find((location) => location.startsWith('a') && location.startsWith('ac') && location.startsWith('a!c'));
+        const countryEncoded = existingGeolocation.find((location) => location.startsWith('b'));
+        let newSpecLocation = `ac${continentEncoded.slice(1)}`;
+        if (countryEncoded) {
+          newSpecLocation += `_${countryEncoded.slice(1)}`;
+        }
+        updatedNewSpecGeo = [newSpecLocation];
+      }
+      // updatedNewSpecGeo is now geolocation according to new specs
+      const allowedLocations = updatedNewSpecGeo.filter((locations) => locations.startsWith('ac'));
+      const forbiddenLocations = updatedNewSpecGeo.filter((locations) => locations.startsWith('a!c'));
+      for (let i = 1; i < allowedLocations.length + 1; i += 1) {
+        this.numberOfGeolocations = i;
+        const specifiedLocation = allowedLocations[i - 1].slice(2);
+        const locations = specifiedLocation.split('_');
+        const continentCode = locations[0];
+        const countryCode = locations[1];
+        const regionName = locations[2];
+        this.allowedGeolocations[`selectedContinent${i}`] = continentCode;
+        this.allowedGeolocations[`selectedCountry${i}`] = countryCode || 'ALL';
+        this.allowedGeolocations[`selectedRegion${i}`] = regionName || 'ALL';
+      }
+      for (let i = 1; i < forbiddenLocations.length + 1; i += 1) {
+        this.numberOfNegativeGeolocations = i;
+        const specifiedLocation = forbiddenLocations[i - 1].slice(3);
+        const locations = specifiedLocation.split('_');
+        const continentCode = locations[0];
+        const countryCode = locations[1];
+        const regionName = locations[2];
+        this.forbiddenGeolocations[`selectedContinent${i}`] = continentCode;
+        this.forbiddenGeolocations[`selectedCountry${i}`] = countryCode || 'NONE';
+        this.forbiddenGeolocations[`selectedRegion${i}`] = regionName || 'NONE';
+      }
     },
     async getFluxnodeStatus() {
       try {
@@ -2571,55 +2671,54 @@ export default {
     },
 
     async getDaemonInfo() {
-      const daemonGetInfo = await DaemonService.getInfo();
-      if (daemonGetInfo.data.status === 'error') {
-        this.showToast('danger', daemonGetInfo.data.data.message || daemonGetInfo.data.data);
-      } else {
-        this.currentHeight = daemonGetInfo.data.data.blocks;
-      }
-      if (this.currentHeight < 1004000) { // fork height for spec v4
-        this.specificationVersion = 3;
-        this.appRegistrationSpecification = this.appRegistrationSpecificationV3Template;
+      // const daemonGetInfo = await DaemonService.getInfo();
+      // if (daemonGetInfo.data.status === 'error') {
+      //   this.showToast('danger', daemonGetInfo.data.data.message || daemonGetInfo.data.data);
+      // } else {
+      //   this.currentHeight = daemonGetInfo.data.data.blocks;
+      // }
+      // if (this.currentHeight < 1004000) { // fork height for spec v4
+      //   this.specificationVersion = 3;
+      //   this.appRegistrationSpecification = this.appRegistrationSpecificationV3Template;
+      //   const ports = this.getRandomPort();
+      //   this.appRegistrationSpecification.ports = ports;
+      // } else if (this.currentHeight < 1142000) {
+      //   this.specificationVersion = 4;
+      //   this.appRegistrationSpecification = this.appRegistrationSpecificationV4Template;
+      //   this.appRegistrationSpecification.compose.forEach((component) => {
+      //     const ports = this.getRandomPort();
+      //     // eslint-disable-next-line no-param-reassign
+      //     component.ports = ports;
+      //   });
+      // } else if (this.currentHeight < 1300000) {
+      //   this.specificationVersion = 5;
+      //   this.appRegistrationSpecification = this.appRegistrationSpecificationV5Template;
+      //   this.appRegistrationSpecification.compose.forEach((component) => {
+      //     const ports = this.getRandomPort();
+      //     // eslint-disable-next-line no-param-reassign
+      //     component.ports = ports;
+      //   });
+      // } else if (this.currentHeight < 1420000) {
+      //   this.specificationVersion = 6;
+      //   this.appRegistrationSpecification = this.appRegistrationSpecificationV6Template;
+      //   this.appRegistrationSpecification.compose.forEach((component) => {
+      //     const ports = this.getRandomPort();
+      //     // eslint-disable-next-line no-param-reassign
+      //     component.ports = ports;
+      //     // eslint-disable-next-line no-param-reassign
+      //     component.domains = '[""]';
+      //   });
+      // } else {
+      this.specificationVersion = 7;
+      this.composeTemplate = this.composeTemplatev7;
+      this.appRegistrationSpecification = this.appRegistrationSpecificationV7Template;
+      this.appRegistrationSpecification.compose.forEach((component) => {
         const ports = this.getRandomPort();
-        this.appRegistrationSpecification.ports = ports;
-      } else if (this.currentHeight < 1142000) {
-        this.specificationVersion = 4;
-        this.appRegistrationSpecification = this.appRegistrationSpecificationV4Template;
-        this.appRegistrationSpecification.compose.forEach((component) => {
-          const ports = this.getRandomPort();
-          // eslint-disable-next-line no-param-reassign
-          component.ports = ports;
-        });
-      } else if (this.currentHeight < 1300000) {
-        this.specificationVersion = 5;
-        this.appRegistrationSpecification = this.appRegistrationSpecificationV5Template;
-        this.appRegistrationSpecification.compose.forEach((component) => {
-          const ports = this.getRandomPort();
-          // eslint-disable-next-line no-param-reassign
-          component.ports = ports;
-        });
-      } else if (this.currentHeight < 1420000) {
-        this.specificationVersion = 6;
-        this.appRegistrationSpecification = this.appRegistrationSpecificationV6Template;
-        this.appRegistrationSpecification.compose.forEach((component) => {
-          const ports = this.getRandomPort();
-          // eslint-disable-next-line no-param-reassign
-          component.ports = ports;
-          // eslint-disable-next-line no-param-reassign
-          component.domains = '[""]';
-        });
-      } else {
-        this.specificationVersion = 7;
-        this.composeTemplate = this.composeTemplatev7;
-        this.appRegistrationSpecification = this.appRegistrationSpecificationV7Template;
-        this.appRegistrationSpecification.compose.forEach((component) => {
-          const ports = this.getRandomPort();
-          // eslint-disable-next-line no-param-reassign
-          component.ports = ports;
-          // eslint-disable-next-line no-param-reassign
-          component.domains = '[""]';
-        });
-      }
+        // eslint-disable-next-line no-param-reassign
+        component.ports = ports;
+        // eslint-disable-next-line no-param-reassign
+        component.domains = '[""]';
+      });
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
       this.appRegistrationSpecification.owner = auth.zelid;
@@ -3135,16 +3234,20 @@ export default {
       const maxNumberOfNodes = +instances + Math.ceil(Math.max(7, +instances * 0.15));
       const notSelectedEnterpriseNodes = this.enterpriseNodes.filter((node) => !this.selectedEnterpriseNodes.includes(node));
       const nodesToSelect = [];
-      for (let i = 0; i < notSelectedEnterpriseNodes.length; i += 1) {
+      const kycNodes = notSelectedEnterpriseNodes.filter((x) => x.enterprisePoints > 0 && x.score > 1000); // allows to install multiple apps 3 to 4 only in kyc nodes
+      for (let i = 0; i < kycNodes.length; i += 1) {
         // todo here check if max same pub key is satisfied
-        const alreadySelectedPubKeyOccurances = this.selectedEnterpriseNodes.filter((node) => node.pubkey === notSelectedEnterpriseNodes[i].pubkey).length;
-        const toSelectPubKeyOccurances = nodesToSelect.filter((node) => node.pubkey === notSelectedEnterpriseNodes[i].pubkey).length;
+        const alreadySelectedPubKeyOccurances = this.selectedEnterpriseNodes.filter((node) => node.pubkey === kycNodes[i].pubkey).length;
+        const toSelectPubKeyOccurances = nodesToSelect.filter((node) => node.pubkey === kycNodes[i].pubkey).length;
         if (alreadySelectedPubKeyOccurances + toSelectPubKeyOccurances < maxSamePubKeyNodes) {
-          nodesToSelect.push(notSelectedEnterpriseNodes[i]);
+          nodesToSelect.push(kycNodes[i]);
         }
         if (nodesToSelect.length + this.selectedEnterpriseNodes.length >= maxNumberOfNodes) {
           break;
         }
+      }
+      if (nodesToSelect.length < maxNumberOfNodes) {
+        throw new Error('Not enough kyc nodes available to run your enterprise app.');
       }
       nodesToSelect.forEach(async (node) => {
         const nodeExists = this.selectedEnterpriseNodes.find((existingNode) => existingNode.ip === node.ip);
@@ -3257,11 +3360,7 @@ export default {
       this.signature = result;
     },
     async initWalletConnect() {
-      if (this.walletConnectButton.disabled) {
-        return;
-      }
       try {
-        this.walletConnectButton.disabled = true;
         const signClient = await SignClient.init(walletConnectOptions);
         this.signClient = signClient;
         const lastKeyIndex = signClient.session.getAll().length - 1;
@@ -3274,8 +3373,6 @@ export default {
       } catch (error) {
         console.error(error);
         this.showToast('danger', error.message);
-      } finally {
-        this.walletConnectButton.disabled = false;
       }
     },
     async siwe(siweMessage, from) {
@@ -3324,6 +3421,113 @@ export default {
         this.signature = responseData.signature;
       } catch (error) {
         this.showToast('danger', error.message);
+      }
+    },
+    importSpecs(appSpecs) {
+      try {
+        JSON.parse(appSpecs);
+      } catch (error) {
+        this.showToast('error', 'Invalid Application Specifications');
+        return;
+      }
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      if (appSpecs) {
+        const specs = JSON.parse(appSpecs);
+        console.log(specs);
+        this.appRegistrationSpecification = JSON.parse(appSpecs);
+
+        this.appRegistrationSpecification.instances = specs.instances || 3;
+        if (this.appRegistrationSpecification.version <= 3) {
+          this.appRegistrationSpecification.version = 3; // enforce specs version 3
+          this.appRegistrationSpecification.ports = specs.port || this.ensureString(specs.ports); // v1 compatibility
+          this.appRegistrationSpecification.domains = this.ensureString(specs.domains);
+          this.appRegistrationSpecification.enviromentParameters = this.ensureString(specs.enviromentParameters);
+          this.appRegistrationSpecification.commands = this.ensureString(specs.commands);
+          this.appRegistrationSpecification.containerPorts = specs.containerPort || this.ensureString(specs.containerPorts); // v1 compatibility
+        } else {
+          if (this.appRegistrationSpecification.version <= 7) {
+            this.appRegistrationSpecification.version = 7;
+          }
+          this.appRegistrationSpecification.contacts = this.ensureString([]);
+          this.appRegistrationSpecification.geolocation = this.ensureString([]);
+          if (this.appRegistrationSpecification.version >= 5) {
+            this.appRegistrationSpecification.contacts = this.ensureString(specs.contacts || []);
+            this.appRegistrationSpecification.geolocation = this.ensureString(specs.geolocation || []);
+            try {
+              this.decodeGeolocation(specs.geolocation || []);
+            } catch (error) {
+              console.log(error);
+              this.appRegistrationSpecification.geolocation = this.ensureString([]);
+            }
+          }
+          this.appRegistrationSpecification.compose.forEach((component) => {
+            // eslint-disable-next-line no-param-reassign
+            component.ports = this.ensureString(component.ports);
+            // eslint-disable-next-line no-param-reassign
+            component.domains = this.ensureString(component.domains);
+            // eslint-disable-next-line no-param-reassign
+            component.environmentParameters = this.ensureString(component.environmentParameters);
+            // eslint-disable-next-line no-param-reassign
+            component.commands = this.ensureString(component.commands);
+            // eslint-disable-next-line no-param-reassign
+            component.containerPorts = this.ensureString(component.containerPorts);
+            // eslint-disable-next-line no-param-reassign
+            component.secrets = this.ensureString(component.secrets || '');
+            // eslint-disable-next-line no-param-reassign
+            component.repoauth = this.ensureString(component.repoauth || '');
+          });
+          if (this.appRegistrationSpecification.version >= 6) {
+            this.appRegistrationSpecification.expire = this.ensureNumber(specs.expire || 22000);
+            this.expirePosition = this.getExpirePosition(this.appRegistrationSpecification.expire);
+          }
+          if (this.appRegistrationSpecification.version >= 7) {
+            this.appRegistrationSpecification.staticip = this.appRegistrationSpecification.staticip ?? false;
+            this.appRegistrationSpecification.nodes = this.appRegistrationSpecification.nodes || [];
+            if (this.appRegistrationSpecification.nodes && this.appRegistrationSpecification.nodes.length) {
+              this.isPrivateApp = true;
+            }
+            // fetch information about enterprise nodes, pgp keys
+            this.appRegistrationSpecification.nodes.forEach(async (node) => {
+              if (!this.enterpriseNodes) {
+                await this.getEnterpriseNodes();
+              }
+              // fetch pgp key
+              const keyExists = this.enterprisePublicKeys.find((key) => key.nodeip === node);
+              if (!keyExists) {
+                const pgpKey = await this.fetchEnterpriseKey(node);
+                if (pgpKey) {
+                  const pair = {
+                    nodeip: node.ip,
+                    nodekey: pgpKey,
+                  };
+                  const keyExistsB = this.enterprisePublicKeys.find((key) => key.nodeip === node);
+                  if (!keyExistsB) {
+                    this.enterprisePublicKeys.push(pair);
+                  }
+                }
+              }
+            });
+            this.selectedEnterpriseNodes = [];
+            this.appRegistrationSpecification.nodes.forEach((node) => {
+              // add to selected node list
+              if (this.enterpriseNodes) {
+                const nodeFound = this.enterpriseNodes.find((entNode) => entNode.ip === node || node === `${entNode.txhash}:${entNode.outidx}`);
+                if (nodeFound) {
+                  this.selectedEnterpriseNodes.push(nodeFound);
+                }
+              } else {
+                this.showToast('danger', 'Failed to load Enterprise Node List');
+              }
+            });
+          }
+        }
+      }
+      if (auth.zelid) {
+        this.appRegistrationSpecification.owner = auth.zelid;
+      } else {
+        this.appRegistrationSpecification.owner = '';
+        this.showToast('warning', 'Please log in first before registering an application');
       }
     },
   },
@@ -3386,5 +3590,10 @@ a img {
 a:hover img {
   filter: opacity(70%);
   transform: scale(1.1);
+}
+
+.importSpecsButton {
+  float: right;
+  margin-top: -50px;
 }
 </style>
