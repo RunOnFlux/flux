@@ -425,9 +425,9 @@ function getFluxVersion(req, res) {
  * @param {object} res Response.
  * @returns {object} Message.
  */
-function getNodeJsVersion(req, res) {
-  const version = process.versions.node;
-  const message = messageHelper.createDataMessage(version);
+function getNodeJsVersions(req, res) {
+  const { versions } = process;
+  const message = messageHelper.createDataMessage(versions);
   return res ? res.json(message) : message;
 }
 
@@ -922,11 +922,11 @@ async function getFluxInfo(req, res) {
       throw versionRes.data;
     }
     info.flux.version = versionRes.data;
-    const nodeJsVersionRes = await getNodeJsVersion();
-    if (nodeJsVersionRes.status === 'error') {
-      throw nodeJsVersionRes.data;
+    const nodeJsVersionsRes = await getNodeJsVersions();
+    if (nodeJsVersionsRes.status === 'error') {
+      throw nodeJsVersionsRes.data;
     }
-    info.flux.nodeJsVersion = nodeJsVersionRes.data;
+    info.flux.nodeJsVersions = nodeJsVersionsRes.data;
     const ipRes = await getFluxIP();
     if (ipRes.status === 'error') {
       throw ipRes.data;
@@ -1473,7 +1473,7 @@ module.exports = {
   restartDaemon,
   reindexDaemon,
   getFluxVersion,
-  getNodeJsVersion,
+  getNodeJsVersions,
   getFluxIP,
   getFluxZelID,
   getFluxPGPidentity,

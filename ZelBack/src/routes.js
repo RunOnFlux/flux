@@ -232,8 +232,8 @@ module.exports = (app, expressWs) => {
   app.get('/flux/version', cache('30 seconds'), (req, res) => {
     fluxService.getFluxVersion(req, res);
   });
-  app.get('/flux/nodejsversion', cache('30 seconds'), (req, res) => {
-    fluxService.getNodeJsVersion(req, res);
+  app.get('/flux/nodejsversions', cache('30 seconds'), (req, res) => {
+    fluxService.getNodeJsVersions(req, res);
   });
   app.get('/flux/ip', cache('30 seconds'), (req, res) => {
     fluxService.getFluxIP(req, res);
