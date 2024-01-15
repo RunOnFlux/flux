@@ -926,7 +926,7 @@ async function getFluxInfo(req, res) {
     if (nodeJsVersionsRes.status === 'error') {
       throw nodeJsVersionsRes.data;
     }
-    info.flux.nodeJsVersions = nodeJsVersionsRes.data;
+    info.flux.nodeJsVersion = nodeJsVersionsRes.data.node;
     const ipRes = await getFluxIP();
     if (ipRes.status === 'error') {
       throw ipRes.data;
