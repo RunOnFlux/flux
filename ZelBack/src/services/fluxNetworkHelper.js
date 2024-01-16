@@ -428,8 +428,9 @@ async function getFluxNodePrivateKey(privatekey) {
 async function getFluxNodePublicKey(privatekey) {
   try {
     const pkWIF = await getFluxNodePrivateKey(privatekey);
+    const isCompressed = !pkWIF.startsWith('5');
     const privateKey = zeltrezjs.address.WIFToPrivKey(pkWIF);
-    const pubKey = zeltrezjs.address.privKeyToPubKey(privateKey, false);
+    const pubKey = zeltrezjs.address.privKeyToPubKey(privateKey, isCompressed);
     return pubKey;
   } catch (error) {
     return error;

@@ -1006,6 +1006,8 @@ export default {
           if (props.appData.name.toLowerCase().includes('streamr')) {
             envParams.push(`STREAMR__BROKER__CLIENT__NETWORK__CONTROL_LAYER__WEBSOCKET_PORT_RANGE__MIN=${ports[0]}`);
             envParams.push(`STREAMR__BROKER__CLIENT__NETWORK__CONTROL_LAYER__WEBSOCKET_PORT_RANGE__MAX=${ports[0]}`);
+            envParams.push('LOG_COLORS=false');
+            component.containerPorts = [ports[0]];
           }
           const appComponent = {
             name: component.name,
