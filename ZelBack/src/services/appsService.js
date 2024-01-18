@@ -3365,7 +3365,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
 
     if (!isComponent) {
       // eslint-disable-next-line no-use-before-define
-      const dockerNetworkAddrValue = await getRunningAppList(appName).length + 1;
+      const dockerNetworkAddrValue = Math.floor(Math.random() * (254 - 0 + 1) + 0);
       const fluxNetworkStatus = {
         status: `Checking Flux App network of ${appName}...`,
       };
@@ -3736,7 +3736,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
 
     if (!isComponent) {
       // eslint-disable-next-line no-use-before-define
-      const dockerNetworkAddrValue = await getRunningAppList(appName).length + 1;
+      const dockerNetworkAddrValue = Math.floor(Math.random() * (254 - 0 + 1) + 0);
 
       const fluxNetworkStatus = {
         status: `Checking Flux App network of ${appName}...`,
