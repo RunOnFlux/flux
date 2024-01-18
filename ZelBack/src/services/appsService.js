@@ -10405,10 +10405,13 @@ async function syncthingApps() {
                 if (cache.numberOfExecutions === cache.numberOfExecutionsRequired) {
                   syncthingFolder.type = 'sendreceive';
                 } else if (cache.numberOfExecutions === cache.numberOfExecutionsRequired + 1) {
-                  log.info(`SyncthingApps starting appIdentifier ${appId}`);
+                  log.info(`SyncthingApps changing syncthing type to sendreceive for appIdentifier ${appId}`);
                   syncthingFolder.type = 'sendreceive';
-                  // eslint-disable-next-line no-await-in-loop
-                  await appDockerRestart(id);
+                  if (containerDataFlags.includes('r')) {
+                    log.info(`SyncthingApps starting appIdentifier ${appId}`);
+                    // eslint-disable-next-line no-await-in-loop
+                    await appDockerRestart(id);
+                  }
                   cache.restarted = true;
                 }
                 receiveOnlySyncthingAppsCache.set(appId, cache);
@@ -10581,8 +10584,11 @@ async function syncthingApps() {
                   } else if (cache.numberOfExecutions === cache.numberOfExecutionsRequired + 1) {
                     log.info(`SyncthingApps starting appIdentifier ${appId}`);
                     syncthingFolder.type = 'sendreceive';
-                    // eslint-disable-next-line no-await-in-loop
-                    await appDockerRestart(id);
+                    if (containerDataFlags.includes('r')) {
+                      log.info(`SyncthingApps starting appIdentifier ${appId}`);
+                      // eslint-disable-next-line no-await-in-loop
+                      await appDockerRestart(id);
+                    }
                     cache.restarted = true;
                   }
                   receiveOnlySyncthingAppsCache.set(appId, cache);
