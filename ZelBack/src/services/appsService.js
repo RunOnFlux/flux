@@ -6585,7 +6585,7 @@ async function storeIPChangedMessage(message) {
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   const query = { ip: message.oldIP };
-  const update = { $set: { ip: message.newIP } };
+  const update = { $set: { ip: message.newIP, broadcastedAt: new Date(message.broadcastedAt) } };
   await dbHelper.updateInDatabase(database, globalAppsLocations, query, update);
 
   // all stored, rebroadcast
