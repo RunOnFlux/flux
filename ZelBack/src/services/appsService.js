@@ -10374,6 +10374,18 @@ async function syncthingApps() {
                   // eslint-disable-next-line no-await-in-loop
                   const runningAppList = await getRunningAppList(installedApp.name);
                   runningAppList.sort((a, b) => {
+                    if (!a.runningSince && b.runningSince) {
+                      return -1;
+                    }
+                    if (a.runningSince && !b.runningSince) {
+                      return 1;
+                    }
+                    if (a.runningSince < b.runningSince) {
+                      return -1;
+                    }
+                    if (a.runningSince > b.runningSince) {
+                      return 1;
+                    }
                     if (a.broadcastedAt < b.broadcastedAt) {
                       return -1;
                     }
@@ -10549,6 +10561,18 @@ async function syncthingApps() {
                     const runningAppList = await getRunningAppList(installedApp.name);
                     log.info(`SyncthingApps appIdentifier ${appId} is running on nodes ${JSON.stringify(runningAppList)}`);
                     runningAppList.sort((a, b) => {
+                      if (!a.runningSince && b.runningSince) {
+                        return -1;
+                      }
+                      if (a.runningSince && !b.runningSince) {
+                        return 1;
+                      }
+                      if (a.runningSince < b.runningSince) {
+                        return -1;
+                      }
+                      if (a.runningSince > b.runningSince) {
+                        return 1;
+                      }
                       if (a.broadcastedAt < b.broadcastedAt) {
                         return -1;
                       }
