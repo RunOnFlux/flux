@@ -3364,11 +3364,8 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     }
 
     if (!isComponent) {
-      // last character of appName determines gateway
-      const lastCharCode = appName.charCodeAt(appName.length - 1);
-
-      const dockerNetworkAddrValue = lastCharCode;
-
+      // eslint-disable-next-line no-use-before-define
+      const dockerNetworkAddrValue = await getRunningAppList(appName).length + 1;
       const fluxNetworkStatus = {
         status: `Checking Flux App network of ${appName}...`,
       };
@@ -3738,10 +3735,8 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     }
 
     if (!isComponent) {
-      // last character of appName determines gateway
-      const lastCharCode = appName.charCodeAt(appName.length - 1);
-
-      const dockerNetworkAddrValue = lastCharCode;
+      // eslint-disable-next-line no-use-before-define
+      const dockerNetworkAddrValue = await getRunningAppList(appName).length + 1;
 
       const fluxNetworkStatus = {
         status: `Checking Flux App network of ${appName}...`,
