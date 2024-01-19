@@ -99,6 +99,8 @@ let masterSlaveAppsRunning = false;
 
 const hashesNumberOfSearchs = new Map();
 
+const appsThatMightBeUsingOldGatewayIpAssignment = ['HNSDoH', 'dane', 'fdm', 'Jetpack2', 'fdmdedicated', 'isokosse', 'ChainBraryDApp', 'health', 'ethercalc'];
+
 const nodeSpecs = {
   cpuCores: 0,
   ram: 0,
@@ -3364,8 +3366,10 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     }
 
     if (!isComponent) {
-      // eslint-disable-next-line no-use-before-define
-      const dockerNetworkAddrValue = Math.floor(Math.random() * (254 - 0 + 1) + 0);
+      let dockerNetworkAddrValue = Math.floor(Math.random() * (254 - 0 + 1) + 0);
+      if (appsThatMightBeUsingOldGatewayIpAssignment.includes(appName)) {
+        dockerNetworkAddrValue = appName.charCodeAt(appName.length - 1);
+      }
       const fluxNetworkStatus = {
         status: `Checking Flux App network of ${appName}...`,
       };
@@ -3735,9 +3739,10 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     }
 
     if (!isComponent) {
-      // eslint-disable-next-line no-use-before-define
-      const dockerNetworkAddrValue = Math.floor(Math.random() * (254 - 0 + 1) + 0);
-
+      let dockerNetworkAddrValue = Math.floor(Math.random() * (254 - 0 + 1) + 0);
+      if (appsThatMightBeUsingOldGatewayIpAssignment.includes(appName)) {
+        dockerNetworkAddrValue = appName.charCodeAt(appName.length - 1);
+      }
       const fluxNetworkStatus = {
         status: `Checking Flux App network of ${appName}...`,
       };
