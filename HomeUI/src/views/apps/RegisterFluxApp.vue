@@ -2612,6 +2612,9 @@ export default {
           // time to encrypt
           // eslint-disable-next-line no-restricted-syntax
           for (const component of this.appRegistrationSpecification.compose) {
+            component.environmentParameters = component.environmentParameters.replace('\\“', '\\"');
+            component.commands = component.commands.replace('\\“', '\\"');
+            component.domains = component.domains.replace('\\“', '\\"');
             if (component.secrets && !component.secrets.startsWith('-----BEGIN PGP MESSAGE')) {
               // need encryption
               // eslint-disable-next-line no-await-in-loop
@@ -3330,7 +3333,7 @@ export default {
         const publicKeys = await Promise.all(encryptionKeys.map((armoredKey) => openpgp.readKey({ armoredKey })));
         console.log(encryptionKeys);
         console.log(message);
-        const pgpMessage = await openpgp.createMessage({ text: message });
+        const pgpMessage = await openpgp.createMessage({ text: message.replace('\\“', '\\"') });
         const encryptedMessage = await openpgp.encrypt({
           message: pgpMessage, // input as Message object
           encryptionKeys: publicKeys,
