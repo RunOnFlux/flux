@@ -418,22 +418,50 @@
           title="Sign App Message"
           :before-change="() => signature !== null"
         >
-          <b-card
-            title="Sign App Message with Zelcore"
-            class="text-center wizard-card"
-          >
-            <a
-              :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
-              @click="initiateSignWS"
-            >
-              <img
-                class="zelidLogin mb-2"
-                src="@/assets/images/zelID.svg"
-                alt="Zel ID"
-                height="100%"
-                width="100%"
+          <b-card title="Sign Message with same method you have used for login">
+            <div class="loginRow">
+              <a
+                :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue}`"
+                @click="initiateSignWS"
               >
-            </a>
+                <img
+                  class="zelidLogin"
+                  src="@/assets/images/zelID.svg"
+                  alt="Zel ID"
+                  height="100%"
+                  width="100%"
+                >
+              </a>
+              <a @click="initSSP">
+                <img
+                  class="sspLogin"
+                  src="@/assets/images/ssp-logo-white.svg"
+                  alt="SSP"
+                  height="100%"
+                  width="100%"
+                >
+              </a>
+            </div>
+            <div class="loginRow">
+              <a @click="initWalletConnect">
+                <img
+                  class="walletconnectLogin"
+                  src="@/assets/images/walletconnect.svg"
+                  alt="WalletConnect"
+                  height="100%"
+                  width="100%"
+                >
+              </a>
+              <a @click="initMetamask">
+                <img
+                  class="metamaskLogin"
+                  src="@/assets/images/metamask.svg"
+                  alt="Metamask"
+                  height="100%"
+                  width="100%"
+                >
+              </a>
+            </div>
             <b-form-input
               id="signature"
               v-model="signature"
@@ -553,6 +581,27 @@ import {
 import ListEntry from '@/views/components/ListEntry.vue';
 import AppsService from '@/services/AppsService';
 import tierColors from '@/libs/colors';
+import SignClient from '@walletconnect/sign-client';
+import { MetaMaskSDK } from '@metamask/sdk';
+
+const projectId = 'df787edc6839c7de49d527bba9199eaa';
+
+const walletConnectOptions = {
+  projectId,
+  metadata: {
+    name: 'Flux Cloud',
+    description: 'Flux, Your Gateway to a Decentralized World',
+    url: 'https://home.runonflux.io',
+    icons: ['https://home.runonflux.io/img/logo.png'],
+  },
+};
+
+const metamaskOptions = {
+  enableDebug: true,
+};
+
+const MMSDK = new MetaMaskSDK(metamaskOptions);
+let ethereum;
 
 const qs = require('qs');
 const axios = require('axios');
@@ -649,6 +698,7 @@ export default {
     const registrationtype = ref('fluxappregister');
     const dataToSign = ref(null);
     const signature = ref(null);
+    const signClient = ref(null);
     const dataForAppRegistration = ref(null);
     const timestamp = ref(null);
     const appPricePerMonth = ref(0);
@@ -742,6 +792,101 @@ export default {
       ws.onclose = (evt) => { onClose(evt); };
       ws.onmessage = (evt) => { onMessage(evt); };
       ws.onerror = (evt) => { onError(evt); };
+    };
+
+    const initMMSDK = async () => {
+      try {
+        await MMSDK.init();
+        ethereum = MMSDK.getProvider();
+      } catch (error) {
+        console.log(error);
+      }
+    };
+    initMMSDK();
+
+    const siwe = async (siweMessage, from) => {
+      try {
+        const msg = `0x${Buffer.from(siweMessage, 'utf8').toString('hex')}`;
+        const sign = await ethereum.request({
+          method: 'personal_sign',
+          params: [msg, from],
+        });
+        console.log(sign); // this is signature
+        signature.value = sign;
+      } catch (error) {
+        console.error(error); // rejection occured
+        showToast('danger', error.message);
+      }
+    };
+
+    const initMetamask = async () => {
+      try {
+        if (!ethereum) {
+          showToast('danger', 'Metamask not detected');
+          return;
+        }
+        let account;
+        if (ethereum && !ethereum.selectedAddress) {
+          const accounts = await ethereum.request({ method: 'eth_requestAccounts', params: [] });
+          console.log(accounts);
+          account = accounts[0];
+        } else {
+          account = ethereum.selectedAddress;
+        }
+        siwe(dataToSign.value, account);
+      } catch (error) {
+        showToast('danger', error.message);
+      }
+    };
+    const initSSP = async () => {
+      try {
+        if (!window.ssp) {
+          showToast('danger', 'SSP Wallet not installed');
+          return;
+        }
+        const responseData = await window.ssp.request('sspwid_sign_message', { message: dataToSign.value });
+        if (responseData.status === 'ERROR') {
+          throw new Error(responseData.data);
+        }
+        signature.value = responseData.signature;
+      } catch (error) {
+        showToast('danger', error.message);
+      }
+    };
+
+    const onSessionConnect = async (session) => {
+      console.log(session);
+      // const msg = `0x${Buffer.from(this.loginPhrase, 'utf8').toString('hex')}`;
+      const result = await signClient.value.request({
+        topic: session.topic,
+        chainId: 'eip155:1',
+        request: {
+          method: 'personal_sign',
+          params: [
+            dataToSign.value,
+            session.namespaces.eip155.accounts[0].split(':')[2],
+          ],
+        },
+      });
+      console.log(result);
+      signature.value = result;
+    };
+
+    const initWalletConnect = async () => {
+      try {
+        const signClientAux = await SignClient.init(walletConnectOptions);
+        signClient.value = signClientAux;
+        const lastKeyIndex = signClientAux.session.getAll().length - 1;
+        const lastSession = signClientAux.session.getAll()[lastKeyIndex];
+        if (lastSession) {
+          onSessionConnect(lastSession);
+        } else {
+          throw new Error('WalletConnect session expired. Please log into FluxOS again');
+        }
+      } catch (error) {
+        console.error(error);
+        showToast('danger', error.message);
+      }
     };
 
     const perfectScrollbarSettings = {
@@ -1521,6 +1666,7 @@ export default {
 
       userZelid,
       dataToSign,
+      signClient,
       signature,
       appPricePerMonth,
       registrationHash,
@@ -1532,6 +1678,11 @@ export default {
       register,
       callbackValue,
       initiateSignWS,
+      initMetamask,
+      initSSP,
+      initWalletConnect,
+      onSessionConnect,
+      siwe,
       copyMessageToSign,
 
       launchModalShowing,
@@ -1558,6 +1709,33 @@ export default {
   height: 100px;
 }
 .zelidLogin img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
+
+.walletconnectLogin {
+  height: 100px;
+  padding: 10px;
+}
+.walletconnectLogin img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
+
+.metamaskLogin {
+  height: 80px;
+  padding: 10px;
+}
+.metamaskLogin img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
+.sspLogin {
+  height: 90px;
+  padding: 10px;
+  margin-left: 5px;
+}
+.sspLogin img {
   -webkit-app-region: no-drag;
   transition: 0.1s;
 }
