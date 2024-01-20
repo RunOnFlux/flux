@@ -1341,7 +1341,7 @@ async function removeDockerContainerAccessToHost() {
     await cmdAsync(dropAccessToHostNetwork).catch((error) => log.error(`Error executing dropAccessToHostNetwork command:${error}`));
     const giveHostAccessToDockerNetwork = "sudo iptables -I FORWARD -i DOCKER-USER -d $(ip route | grep \"src $(ip addr show dev $(ip route | awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') -m state --state ESTABLISHED,RELATED -j ACCEPT";
     await cmdAsync(giveHostAccessToDockerNetwork).catch((error) => log.error(`Error executing giveHostAccessToDockerNetwork command:${error}`));
-    log.info('Firewall is not active. Purging UFW not necessary');
+    log.info('Access to host from containers removed');
   } catch (error) {
     log.error(error);
   }
