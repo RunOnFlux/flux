@@ -1293,6 +1293,9 @@ async function adjustFirewall() {
   }
 }
 
+/**
+ * To clean a firewall deny policies, and delete them from it.
+ */
 async function purgeUFW() {
   try {
     const cmdAsync = util.promisify(nodecmd.get);
@@ -1323,6 +1326,22 @@ async function purgeUFW() {
     } else {
       log.info('Firewall is not active. Purging UFW not necessary');
     }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
+ * This fix a docker security issue where docker containers can access host network, for example to create port forwarding on hosts
+ */
+async function removeDockerContainerAccessToHost() {
+  try {
+    const cmdAsync = util.promisify(nodecmd.get);
+    const dropAccessToHostNetwork = "sudo iptables -I DOCKER-USER -d $(ip route | grep \"src $(ip addr show dev $(ip route | awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') -j DROP";
+    await cmdAsync(dropAccessToHostNetwork).catch((error) => log.error(`Error executing dropAccessToHostNetwork command:${error}`));
+    const giveHostAccessToDockerNetwork = "sudo iptables -I FORWARD -i DOCKER-USER -d $(ip route | grep \"src $(ip addr show dev $(ip route | awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') -m state --state ESTABLISHED,RELATED -j ACCEPT";
+    await cmdAsync(giveHostAccessToDockerNetwork).catch((error) => log.error(`Error executing giveHostAccessToDockerNetwork command:${error}`));
+    log.info('Firewall is not active. Purging UFW not necessary');
   } catch (error) {
     log.error(error);
   }
@@ -1458,4 +1477,5 @@ module.exports = {
   isPortUserBlocked,
   allowNodeToBindPrivilegedPorts,
   installNetcat,
+  removeDockerContainerAccessToHost,
 };

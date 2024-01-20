@@ -94,6 +94,7 @@ async function startFluxFunctions() {
     setTimeout(() => {
       log.info('Rechecking firewall app rules');
       fluxNetworkHelper.purgeUFW();
+      fluxNetworkHelper.removeDockerContainerAccessToHost();
       appsService.testAppMount(); // test if our node can mount a volume
     }, 30 * 1000);
     setTimeout(() => {
