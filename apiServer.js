@@ -128,8 +128,9 @@ async function initiate() {
     const cert = fs.readFileSync(path.join(__dirname, './certs/v1.crt'), 'utf8');
     const credentials = { key, cert };
     const httpsServer = https.createServer(credentials, app);
-    httpsServer.listen(apiPortHttps, () => {
-      log.info(`Flux https listening on port ${apiPortHttps}!`);
+    const apiPortSsl = userconfig.computed.apiPortSsl
+    httpsServer.listen(apiPortSsl, () => {
+      log.info(`Flux https listening on port ${apiPortSsl}!`);
     });
   } catch (error) {
     log.error(error);
