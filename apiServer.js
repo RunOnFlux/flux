@@ -101,7 +101,7 @@ async function configReload() {
 
 /**
  *
- * @returns {Promise<String>}
+ * @returns {Promise<void>}
  */
 async function initiate() {
   await runPortAndUpnpSetup();
@@ -135,7 +135,6 @@ async function initiate() {
   } catch (error) {
     log.error(error);
   }
-  return apiPort;
 }
 
 module.exports = {

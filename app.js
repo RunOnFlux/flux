@@ -7,12 +7,14 @@ const express = require('express');
 const apiServer = require('./apiServer');
 
 async function initiate() {
-  const apiPort = await apiServer.initiate();
+  await apiServer.initiate();
+
   if (process.argv[2] === '--dev') {
     log.info('Running FluxOS development server.');
     return;
   }
-  const homePort = +apiPort - 1;
+
+  const homePort = userconfig.computed.homePort;
   // Flux Home configuration
   const home = path.join(__dirname, './HomeUI/dist');
 
