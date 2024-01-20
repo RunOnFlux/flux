@@ -2,6 +2,7 @@ const path = require('node:path');
 const { existsSync } = require("node:fs")
 const { writeFile, readFile } = require("node:fs/promises");
 
+const log = require('../lib/log');
 const { obtainNodeCollateralInformation } = require("./generalService");
 const { ufwAllowSsdpforInit, ufwRemoveAllowSsdpforInit, cleanOldMappings } = require("./upnpService");
 const { FluxGossipServer } = require("@megachips/fluxport-controller");
@@ -49,12 +50,12 @@ async function startGossipServer() {
     const res = await obtainNodeCollateralInformation();
     outPoint = { txhash: res.txhash, outidx: res.txindex }
   } catch {
-    console.log("Error getting collateral info from daemon.");
+    log.error("Error getting collateral info from daemon.");
     return false;
   }
 
   if (!(await ufwAllowSsdpforInit())) {
-    console.log("Error adjusting firewallfor SSDP.")
+    log.error("Error adjusting firewallfor SSDP.")
     return false;
   }
 
@@ -70,7 +71,7 @@ async function startGossipServer() {
 
   gossipServer.on("portConfirmed", async (port) => {
     if (port && port !== apiPort) {
-      console.log(`Gossip server got new apiPort: ${port}, updating`);
+      log.info(`Gossip server got new apiPort: ${port}, updating`);
       // would be great if bench exposed an api for the apiport, this is brutal
       // or just tried all 8 ports on localhost, until it found one.
       const priorFile = await readFile(benchmarkConfig, { flag: "a+" });
@@ -84,7 +85,7 @@ async function startGossipServer() {
 
   gossipServer.on("routerIpConfirmed", async (ip) => {
     if (ip && ip !== routerIp) {
-      console.log(`Gossip server got new routerIp: ${ip}, updating`);
+      log.info(`Gossip server got new routerIp: ${ip}, updating`);
       await ufwRemoveAllowSsdpforInit();
       // This is just good hygiene
       await cleanOldMappings(ip);
@@ -93,7 +94,7 @@ async function startGossipServer() {
   })
 
   gossipServer.on("startError", () => {
-    console.log("Upnp error starting gossipserver, starting again in 2 minutes...");
+    log.error("Upnp error starting gossipserver, starting again in 2 minutes...");
     setTimeout(() => gossipServer.start(), 2 * 60 * 1000);
   });
 

@@ -106,8 +106,6 @@ async function configReload() {
 async function initiate() {
   await runPortAndUpnpSetup();
 
-  process.exit();
-
   setInterval(async () => {
     configReload();
   }, 2 * 1000);
