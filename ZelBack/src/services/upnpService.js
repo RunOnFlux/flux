@@ -1,6 +1,6 @@
 /* global userconfig */
 const config = require('config');
-const natUpnp = require('@runonflux/nat-upnp');
+const natUpnp = require('@megachips/nat-upnp');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
@@ -43,27 +43,80 @@ async function isFirewallActive() {
 }
 
 /**
- * To adjust a firewall to allow comms between host and router.
+ * To allow inbound unicast SSDP M-SEARCH query response from as yet undiscovered
+ * router. I.e. allow SSDP for any lan address. This gets removed and updated to router
+ * Address once router found. Only applies to nodes using auto UPnP configuration.
+ * @returns {Promise<boolean>} True if SSDP is allowed. Otherwise false.
+ */
+async function ufwAllowSsdpforInit() {
+  if (!(await isFirewallActive())) return true;
+
+  const cmdAsync = util.promisify(nodecmd.get);
+  // allow from any address as we are looking for a router IP.
+  const allowSsdpCmd = "sudo ufw allow from any port 1900 to any proto udp > /dev/null 2>&1";
+  try {
+    await cmdAsync(allowSsdpCmd);
+    return true;
+  } catch {
+    log.error(error);
+    return false;
+  }
+}
+
+/**
+ * To remove allow inbound unicast SSDP M-SEARCH query response from LAN.
+ * @returns {Promise<boolean>} True if SSDP removed / not exist. Otherwise false.
+ */
+async function ufwRemoveAllowSsdpforInit() {
+  if (!(await isFirewallActive())) return true;
+
+  const cmdAsync = util.promisify(nodecmd.get);
+  // allow from any address as are looking for a router IP.
+  const removeAllowSsdpCmd = "sudo ufw delete allow from any port 1900 to any proto udp > /dev/null 2>&1";
+  try {
+    await cmdAsync(removeAllowSsdpCmd);
+    return true;
+  } catch {
+    log.error(error);
+    return false;
+  }
+}
+
+/**
+ *  * To adjust a firewall to allow comms between host and router.
  */
 async function adjustFirewallForUPNP() {
+  let routerIp;
+
+  if (userconfig.initial.upnp) {
+    // avoid circular
+    const { getRouterIp } = require('./fluxportControllerService')
+    routerIp = await getRouterIp();
+  }
+  else {
+    routerIp = serviceHelper.ensureString(userconfig.initial.routerIp);
+  }
   try {
-    let { routerIP } = userconfig.initial;
-    routerIP = serviceHelper.ensureString(routerIP);
-    if (routerIP) {
+    if (routerIp) {
       const cmdAsync = util.promisify(nodecmd.get);
       const firewallActive = await isFirewallActive();
       if (firewallActive) {
+        // why allow outbound?!? There is a default allow
         const execA = 'sudo ufw allow out from any to 239.255.255.250 port 1900 proto udp > /dev/null 2>&1';
-        const execB = `sudo ufw allow from ${routerIP} port 1900 to any proto udp > /dev/null 2>&1`;
-        const execC = `sudo ufw allow out from any to ${routerIP} proto tcp > /dev/null 2>&1`;
-        const execD = `sudo ufw allow from ${routerIP} to any proto udp > /dev/null 2>&1`;
+        const execB = `sudo ufw allow from ${routerIp} port 1900 to any proto udp > /dev/null 2>&1`;
+        const execC = `sudo ufw allow out from any to ${routerIp} proto tcp > /dev/null 2>&1`;
+        // why is this here, it is allowing all udp from the router, I.e. internet (if there is a forward)
+        const execD = `sudo ufw allow from ${routerIp} to any proto udp > /dev/null 2>&1`;
+        // added this as we are now using multicast and need to be able to receive igmp queries
+        const execE = `sudo ufw allow to any proto igmp > /dev/null 2>&1`;
         await cmdAsync(execA);
         await cmdAsync(execB);
         await cmdAsync(execC);
         await cmdAsync(execD);
+        await cmdAsync(execE);
         log.info('Firewall adjusted for UPNP');
       } else {
-        log.info('RouterIP is set but firewall is not active. Adjusting not applied for UPNP');
+        log.info('RouterIP is set but firewall is not active. Adjustment not applied for UPNP');
       }
     }
   } catch (error) {
@@ -219,6 +272,29 @@ async function removeMapUpnpPort(port) {
   } catch (error) {
     log.error(error);
     return false;
+  }
+}
+
+/**
+ * Removes any mappings on a node at startup
+ * @param {string} ip
+ * This nodes ip. Trying to remove a mapping for a host ip that doens't belong to this host, will error.
+ */
+async function cleanOldMappings(ip) {
+  const toRemove = [];
+  const mappings = await client.getMappings();
+
+  // await in loop so we can bail early if we get an error
+  /* eslint-enable no-await-in-loop */
+  for (const mapping of mappings) {
+    if (mapping.private === ip) {
+      try {
+        await client.removeMapping(mapping.public, mapping.protocol)
+      } catch {
+        log.error(error);
+        return;
+      }
+    }
   }
 }
 
@@ -393,6 +469,7 @@ module.exports = {
   isUPNP,
   verifyUPNPsupport,
   setupUPNP,
+  cleanOldMappings,
   mapUpnpPort,
   removeMapUpnpPort,
   mapPortApi,
@@ -401,4 +478,6 @@ module.exports = {
   getIpApi,
   getGatewayApi,
   adjustFirewallForUPNP,
+  ufwAllowSsdpforInit,
+  ufwRemoveAllowSsdpforInit,
 };

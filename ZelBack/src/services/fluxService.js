@@ -553,8 +553,8 @@ function getBlockedPorts(req, res) {
  * @returns {object} Message.
  */
 function getAPIPort(req, res) {
-  const routerIP = userconfig.initial.apiport || '16127';
-  const message = messageHelper.createDataMessage(routerIP);
+  const apiPort = userconfig.computed.apiPort;
+  const message = messageHelper.createDataMessage(apiPort);
   return res ? res.json(message) : message;
 }
 
@@ -1069,7 +1069,7 @@ async function adjustCruxID(req, res) {
           kadena: '${userconfig.initial.kadena || ''}',
           testnet: ${userconfig.initial.testnet || false},
           development: ${userconfig.initial.development || false},
-          apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
+          apiport: '${userconfig.initial.apiport || ''}',
           routerIP: '${userconfig.initial.routerIP || ''}',
           pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
           pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
@@ -1125,7 +1125,7 @@ async function adjustKadenaAccount(req, res) {
     kadena: '${kadenaURI}',
     testnet: ${userconfig.initial.testnet || false},
     development: ${userconfig.initial.development || false},
-    apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
+    apiport: '${userconfig.initial.apiport || ''}',
     routerIP: '${userconfig.initial.routerIP || ''}',
     pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
     pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
@@ -1168,7 +1168,7 @@ async function adjustRouterIP(req, res) {
           kadena: '${userconfig.initial.kadena || ''}',
           testnet: ${userconfig.initial.testnet || false},
           development: ${userconfig.initial.development || false},
-          apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
+          apiport: '${userconfig.initial.apiport || ''}',
           routerIP: '${routerip}',
           pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
           pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
@@ -1223,7 +1223,7 @@ async function adjustBlockedPorts(req, res) {
               kadena: '${userconfig.initial.kadena || ''}',
               testnet: ${userconfig.initial.testnet || false},
               development: ${userconfig.initial.development || false},
-              apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
+              apiport: '${userconfig.initial.apiport || ''}',
               routerIP: '${userconfig.initial.routerIP || ''}',
               pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
               pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
@@ -1348,7 +1348,7 @@ async function adjustBlockedRepositories(req, res) {
               kadena: '${userconfig.initial.kadena || ''}',
               testnet: ${userconfig.initial.testnet || false},
               development: ${userconfig.initial.development || false},
-              apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
+              apiport: '${userconfig.initial.apiport || ''}',
               routerIP: '${userconfig.initial.routerIP || ''}',
               pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
               pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,

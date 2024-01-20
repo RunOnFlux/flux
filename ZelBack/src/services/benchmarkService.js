@@ -246,8 +246,8 @@ async function executeUpnpBench() {
     log.info('executeUpnpBench - Flux not yet synced');
     return;
   }
-  const isUPNP = upnpService.isUPNP();
-  if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+
+  if (upnpService.isUPNP()) {
     log.info('Calling FluxBench startMultiPortBench');
     log.info(await startMultiPortBench());
   }

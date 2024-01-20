@@ -1,5 +1,6 @@
 /* global userconfig */
 global.userconfig = require('./config/userconfig');
+global.userconfig.computed = {};
 
 process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
 // Flux configuration
@@ -16,28 +17,60 @@ const serviceManager = require('./ZelBack/src/services/serviceManager');
 const upnpService = require('./ZelBack/src/services/upnpService');
 const hash = require('object-hash');
 const { watch } = require('fs/promises');
+const { startGossipServer, getApiPort } = require('./ZelBack/src/services/fluxportControllerService')
 
 const cmdAsync = util.promisify(nodecmd.get);
-const apiPort = userconfig.initial.apiport || config.server.apiport;
-const apiPortHttps = +apiPort + 1;
+
+const autoUpnp = userconfig.initial.upnp || false;
+
 let initialHash = hash(fs.readFileSync(path.join(__dirname, '/config/userconfig.js')));
+
+async function runPortAndUpnpSetup() {
+  apiPort = await waitForApiPort();
+
+  if (!config.server.allowedPorts.includes(+apiPort)) {
+    log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
+    process.exit();
+  }
+
+  userconfig.computed.homePort = apiPort - 1;
+  userconfig.computed.apiPort = apiPort;
+  userconfig.computed.apiPortSsl = apiPort + 1;
+  userconfig.computed.syncthingPort = apiPort + 2;
+
+  await loadUpnpIfRequired();
+}
+
+async function waitForApiPort() {
+  if (!autoUpnp) {
+    // if initial is undefined or empty string, user server.apiport
+    return +userconfig.initial.apiport || +config.server.apiport;
+  }
+
+  if (await startGossipServer()) {
+    return await getApiPort();
+  } else {
+    log.error("Error starting GossipServer for autoUPnP. Shutting down");
+    process.exit();
+  }
+}
 
 async function loadUpnpIfRequired() {
   let verifyUpnp = false;
   let setupUpnp = false;
-  if (userconfig.initial.apiport) {
+  if (autoUpnp || userconfig.initial.apiport) {
     verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
     if (verifyUpnp) {
       setupUpnp = await upnpService.setupUPNP(apiPort);
     }
   }
-  if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || userconfig.initial.routerIP) {
+  if (autoUpnp || userconfig.initial.routerIP || (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport)) {
     if (verifyUpnp !== true) {
-      log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to verify support. Shutting down.`);
+      log.error(`Flux port ${apiPort} specified but UPnP failed to verify support. Shutting down.`);
       process.exit();
     }
     if (setupUpnp !== true) {
-      log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to map to api or home port. Shutting down.`);
+      log.error(`Flux port ${apiPort} specified but UPnP failed to map to api or home port. Shutting down.`);
       process.exit();
     }
   }
@@ -58,7 +91,7 @@ async function configReload() {
         delete require.cache[require.resolve('./config/userconfig')];
         // eslint-disable-next-line
         userconfig = require('./config/userconfig');
-        await loadUpnpIfRequired();
+        await runPortAndUpnpSetup();
       }
     }
   } catch (error) {
@@ -71,12 +104,9 @@ async function configReload() {
  * @returns {Promise<String>}
  */
 async function initiate() {
-  if (!config.server.allowedPorts.includes(+apiPort)) {
-    log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
-    process.exit();
-  }
+  await runPortAndUpnpSetup();
 
-  await loadUpnpIfRequired();
+  process.exit();
 
   setInterval(async () => {
     configReload();

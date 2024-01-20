@@ -34,7 +34,7 @@ function getCollateralInfo(collateralOutpoint) {
 
 /**
  * To return a transaction hash and index of our node collateral
- * @returns {object} Collateral info object.
+ * @returns {Promise<object>} Collateral info object.
  * @property {string} txhash Transaction hash.
  * @property {number} txindex Transaction index.
  */
@@ -45,8 +45,7 @@ async function obtainNodeCollateralInformation() {
   if (nodeStatus.status === 'error') {
     throw nodeStatus.data;
   }
-  const collateralInformation = getCollateralInfo(nodeStatus.data.collateral);
-  return collateralInformation;
+  return getCollateralInfo(nodeStatus.data.collateral);
 }
 
 /**
@@ -178,7 +177,7 @@ async function isNodeStatusConfirmed() {
 
 /**
  * Checks if a node's FluxOS database is synced with the node's daemon database.
- * @returns {boolean} True if FluxOS databse height is within 1 of the daemon database height. False if not within 1 of the height or if there is an error.
+ * @returns {Promise<boolean>} True if FluxOS databse height is within 1 of the daemon database height. False if not within 1 of the height or if there is an error.
  */
 async function checkSynced() {
   try {

@@ -2123,8 +2123,7 @@ async function adjustSyncthing() {
     }
     const currentConfigOptions = await getConfigOptions();
     const currentDefaultsFolderOptions = await getConfigDefaultsFolder();
-    const apiPort = userconfig.initial.apiport || config.server.apiport;
-    const myPort = +apiPort + 2; // end with 9 eg 16139
+    const myPort = userconfig.computed.syncthingPort; // end with 9 eg 16139
     // adjust configuration
     const newConfig = {
       globalAnnounceEnabled: false,
