@@ -1705,8 +1705,17 @@ export default {
   display: inline;
   padding-left: 5px;
 }
+.loginRow {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-around;
+  align-items: center;
+  margin-bottom: 10px;
+}
 .zelidLogin {
-  height: 100px;
+  margin-left: 5px;
+  height: 90px;
+  padding: 10px;
 }
 .zelidLogin img {
   -webkit-app-region: no-drag;

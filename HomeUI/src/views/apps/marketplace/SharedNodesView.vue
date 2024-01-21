@@ -368,16 +368,12 @@
           v-else
           class=""
         >
-          <b-col
-            class="d-xxl-none d-xl-flex d-lg-flex d-md-flex d-sm-flex"
-          >
+          <b-col class="d-xxl-none d-xl-flex d-lg-flex d-md-flex d-sm-flex">
             <b-card
               no-body
               class="flex-grow-1"
             >
-              <b-card-title
-                class="stakes-title"
-              >
+              <b-card-title class="stakes-title">
                 Redeem Flux
               </b-card-title>
               <b-card-body>
@@ -439,9 +435,7 @@
                     active
                     title="Active"
                   >
-                    <ul
-                      class="marketplace-media-list"
-                    >
+                    <ul class="marketplace-media-list">
                       <b-media
                         v-for="stake in myStakes"
                         :key="stake.uuid"
@@ -552,9 +546,7 @@
                     v-if="myExpiredStakes.length > 0"
                     title="Expired"
                   >
-                    <ul
-                      class="marketplace-media-list"
-                    >
+                    <ul class="marketplace-media-list">
                       <b-media
                         v-for="stake in myExpiredStakes"
                         :key="stake.uuid"
@@ -625,9 +617,7 @@
                     </ul>
                   </b-tab>
                   <b-tab title="Payments">
-                    <ul
-                      class="marketplace-media-list"
-                    >
+                    <ul class="marketplace-media-list">
                       <b-table
                         class="payments-table"
                         striped
@@ -686,9 +676,7 @@
               no-body
               class="flex-grow-1"
             >
-              <b-card-title
-                class="stakes-title"
-              >
+              <b-card-title class="stakes-title">
                 Redeem Flux
               </b-card-title>
               <b-card-body>
@@ -800,9 +788,7 @@
       ok-only
       @ok="() => aprModalShowing = false"
     >
-      <b-card
-        title="APR Calculations"
-      >
+      <b-card title="APR Calculations">
         <p class="text-center">
           The APR for a Titan Shared Nodes lockup is dependent on the number of active Stratus nodes on the Flux network and the current block reward.
         </p>
@@ -852,9 +838,7 @@
         class="wizard-vertical mb-3"
         @on-complete="confirmRedeemDialogFinish()"
       >
-        <tab-content
-          title="Redeem Amount"
-        >
+        <tab-content title="Redeem Amount">
           <b-card
             title="Redeem Amount"
             class="text-center wizard-card"
@@ -1091,9 +1075,7 @@
         class="wizard-vertical mb-3"
         @on-complete="reinvestDialogFinish()"
       >
-        <tab-content
-          title="Update"
-        >
+        <tab-content title="Update">
           <b-card
             title="Update"
             class="text-center wizard-card"
@@ -1268,9 +1250,7 @@
         class="wizard-vertical mb-3"
         @on-complete="editStakeModalShowing = false; getMyStakes(true);"
       >
-        <tab-content
-          title="Update"
-        >
+        <tab-content title="Update">
           <b-card
             title="Update"
             class="text-center wizard-card"
@@ -1380,23 +1360,17 @@
         class="wizard-vertical mb-3"
         @on-complete="confirmStakeDialogFinish()"
       >
-        <tab-content
-          title="Flux Amount"
-        >
+        <tab-content title="Flux Amount">
           <b-card
             v-if="reinvestingNewStake"
             title="Re-investing Funds"
             class="text-center wizard-card"
           >
             <div>
-              <h5
-                class="mt-3"
-              >
+              <h5 class="mt-3">
                 A new Titan slot will be created using your available rewards:
               </h5>
-              <h2
-                class="mt-3"
-              >
+              <h2 class="mt-3">
                 {{ toFixedLocaleString(totalReward, 2) }} Flux
               </h2>
               <div
@@ -1564,9 +1538,7 @@
           v-if="!reinvestingNewStake"
           title="Send Funds"
         >
-          <div
-            v-if="titanConfig && signatureHash"
-          >
+          <div v-if="titanConfig && signatureHash">
             <b-card
               title="Send Funds"
               class="text-center wizard-card"
@@ -1970,29 +1942,39 @@ export default {
     };
 
     const getMyStakes = async (force = false) => {
-      if (userZelid.value.length > 0) {
-        const response = await axios.get(`${apiURL}/stakes/${userZelid.value}${force ? `?timestamp=${Date.now()}` : ''}`);
-        const activeStakes = [];
-        const expiredStakes = [];
-        const now = Date.now() / 1000;
-        totalReward.value = 0;
-        totalRewardForFee.value = 0;
-        response.data.forEach((stake) => {
-          if (stake.expiry < now) {
-            if (stake.state >= 4) { // ensure that only expired or completed stakes are in the Expired list
-              expiredStakes.push(stake);
-              if (stake.state === 4) { // include the expired stake's actual reward for fee calculation
-                totalRewardForFee.value += (stake.reward - stake.collateral);
-              }
-            }
-          } else {
-            activeStakes.push(stake);
-            totalRewardForFee.value += stake.reward;
+      try {
+        if (userZelid.value.length > 0) {
+          // TODO TITAN does not support eth addresses
+          const response = await axios.get(`${apiURL}/stakes/${userZelid.value}${force ? `?timestamp=${Date.now()}` : ''}`);
+          if (response.data && response.data.status === 'error') {
+            return;
           }
-          totalReward.value += stake.reward;
-        });
-        myStakes.value = activeStakes;
-        myExpiredStakes.value = expiredStakes;
+          const activeStakes = [];
+          const expiredStakes = [];
+          const now = Date.now() / 1000;
+          totalReward.value = 0;
+          totalRewardForFee.value = 0;
+          console.log(response.data);
+          response.data.forEach((stake) => {
+            if (stake.expiry < now) {
+              if (stake.state >= 4) { // ensure that only expired or completed stakes are in the Expired list
+                expiredStakes.push(stake);
+                if (stake.state === 4) { // include the expired stake's actual reward for fee calculation
+                  totalRewardForFee.value += (stake.reward - stake.collateral);
+                }
+              }
+            } else {
+              activeStakes.push(stake);
+              totalRewardForFee.value += stake.reward;
+            }
+            totalReward.value += stake.reward;
+          });
+          myStakes.value = activeStakes;
+          myExpiredStakes.value = expiredStakes;
+        }
+      } catch (error) {
+        showToast('danger', error.message || error);
+        console.log(error);
       }
     };
 
@@ -2630,8 +2612,7 @@ a:hover img {
 .lockup {
   margin-bottom: 0.5rem;
 }
-
 </style>
 <style lang="scss">
-  @import '@core/scss/vue/libs/vue-wizard.scss';
+@import "@core/scss/vue/libs/vue-wizard.scss";
 </style>
