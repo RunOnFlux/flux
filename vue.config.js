@@ -1,5 +1,6 @@
 const path = require('path');
 const CopyPlugin = require('copy-webpack-plugin');
+const { ProvidePlugin } = require('webpack');
 // const { BundleAnalyzerPlugin } = require('webpack-bundle-analyzer');
 // const CompressionPlugin = require('compression-webpack-plugin');
 // ideally https://github.com/webpack-contrib/compression-webpack-plugin#using-brotli from nodejs 11.7.0
@@ -13,6 +14,9 @@ const plugins = [
     patterns: [
       { from: path.resolve(__dirname, 'HomeUI', 'public') },
     ],
+  }),
+  new ProvidePlugin({
+    Buffer: ['buffer', 'Buffer'],
   }),
   // new BundleAnalyzerPlugin(),
 ];
@@ -58,6 +62,10 @@ module.exports = {
         '@axios': path.resolve(__dirname, './HomeUI/src/libs/axios'),
         ZelBack: path.resolve(__dirname, './ZelBack'),
         Config: path.resolve(__dirname, './config'),
+      },
+      fallback: {
+        buffer: require.resolve('buffer/'),
+        Buffer: require.resolve('buffer/'),
       },
     },
     plugins,
