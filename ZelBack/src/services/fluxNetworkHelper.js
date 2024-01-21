@@ -1341,6 +1341,8 @@ async function removeDockerContainerAccessToHost() {
     await cmdAsync(dropAccessToHostNetwork).catch((error) => log.error(`Error executing dropAccessToHostNetwork command:${error}`));
     const giveHostAccessToDockerNetwork = "sudo iptables -I FORWARD -i DOCKER-USER -d $(ip route | grep \"src $(ip addr show dev $(ip route | awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') -m state --state ESTABLISHED,RELATED -j ACCEPT";
     await cmdAsync(giveHostAccessToDockerNetwork).catch((error) => log.error(`Error executing giveHostAccessToDockerNetwork command:${error}`));
+    const giveContainerAccessToDNS = "sudo iptables -I DOCKER-USER -p udp -d $(ip route | grep \"src $(ip addr show dev $(ip route | awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') --dport 53 -j ACCEPT";
+    await cmdAsync(giveContainerAccessToDNS).catch((error) => log.error(`Error executing giveContainerAccessToDNS command:${error}`));
     log.info('Access to host from containers removed');
   } catch (error) {
     log.error(error);
