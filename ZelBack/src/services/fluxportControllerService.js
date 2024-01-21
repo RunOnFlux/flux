@@ -12,9 +12,6 @@ let routerIp = null;
 let outPoint = null;
 let gossipServer = null;
 
-const logPath = `${userconfig.computed.homeDirPath}debug.log`
-fpcLogController.addLoggerTransport("file", { logLevel: "info", filePath: logPath });
-
 async function getApiPort() {
   return new Promise(async (resolve, reject) => {
     if (apiPort) resolve(apiPort);
@@ -37,6 +34,9 @@ function getRouterIp() {
 
 async function startGossipServer() {
   if (gossipServer) return true;
+
+  const logPath = path.join(userconfig.computed.homeDirPath, "debug.log");
+  fpcLogController.addLoggerTransport("file", { logLevel: "info", filePath: logPath });
 
   try {
     // this is reliant on fluxd running
