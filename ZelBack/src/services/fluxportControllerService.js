@@ -1,26 +1,19 @@
 const path = require('node:path');
-const { existsSync } = require("node:fs")
 const { writeFile, readFile } = require("node:fs/promises");
 
 const log = require('../lib/log');
 const { obtainNodeCollateralInformation } = require("./generalService");
 const { ufwAllowSsdpforInit, ufwRemoveAllowSsdpforInit, cleanOldMappings } = require("./upnpService");
-const { FluxGossipServer } = require("@megachips/fluxport-controller");
+const { FluxGossipServer, logController: fpcLogController } = require("@megachips/fluxport-controller");
 const { executeCall: executeBenchmarkCall } = require("./benchmarkService");
-
-const homeDirPath = path.join(__dirname, '../../../../');
-const newBenchmarkPath = path.join(homeDirPath, '.fluxbenchmark');
-const oldBenchmarkPath = path.join(homeDirPath, '.zelbenchmark');
-const isNewBenchPath = existsSync(newBenchmarkPath)
-
-const benchmarkPath = isNewBenchPath ? newBenchmarkPath : oldBenchmarkPath
-const benchmarkFile = isNewBenchPath ? "fluxbench.conf" : "zelbench.conf"
-const benchmarkConfig = path.join(benchmarkPath, benchmarkFile);
 
 let apiPort = null;
 let routerIp = null;
 let outPoint = null;
 let gossipServer = null;
+
+const logPath = `${userconfig.computed.homeDirPath}debug.log`
+fpcLogController.addLoggerTransport("file", { logLevel: "info", filePath: logPath });
 
 async function getApiPort() {
   return new Promise(async (resolve, reject) => {
@@ -48,6 +41,7 @@ async function startGossipServer() {
   try {
     // this is reliant on fluxd running
     const res = await obtainNodeCollateralInformation();
+    // const res = { txhash: "txtest", txindex: 0 }
     outPoint = { txhash: res.txhash, outidx: res.txindex }
   } catch {
     log.error("Error getting collateral info from daemon.");
@@ -59,7 +53,7 @@ async function startGossipServer() {
     return false;
   }
 
-  // Using the port 16197 is fine here, even if in use. Flux uses tcp
+  // Using the port 16197 is fine here, even if in use. Flux uses TCP
   // whereas this uses UDP. Also, the gossipServer doesn't bind to the interface
   // address, only the multicast address so you won't get EADDRINUSE. Its good as
   // Flux already opens this port.
@@ -74,9 +68,10 @@ async function startGossipServer() {
       log.info(`Gossip server got new apiPort: ${port}, updating`);
       // would be great if bench exposed an api for the apiport, this is brutal
       // or just tried all 8 ports on localhost, until it found one.
-      const priorFile = await readFile(benchmarkConfig, { flag: "a+" });
+      const benchmarkConfigFilePath = userconfig.computed.benchmarkConfigFilePath;
+      const priorFile = await readFile(benchmarkConfigFilePath, { flag: "a+" });
       if (priorFile !== `fluxport=${port}`) {
-        await writeFile(benchmarkConfig, `fluxport=${port}`);
+        await writeFile(benchmarkConfigFilePath, `fluxport=${port}`);
         await executeBenchmarkCall("restartnodebenchmarks");
       }
       apiPort = port;
