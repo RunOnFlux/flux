@@ -1337,7 +1337,7 @@ async function purgeUFW() {
 async function removeDockerContainerAccessToHost() {
   try {
     const cmdAsync = util.promisify(nodecmd.get);
-    const dropAccessToHostNetwork = "sudo iptables -I FORWARD -i docker0 $(ip route | grep \"src $(ip addr show dev $(ip route | awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') -j DROP";
+    const dropAccessToHostNetwork = "sudo iptables -I FORWARD -i docker0 -d $(ip route | grep \"src $(ip addr show dev $(ip route | awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') -j DROP";
     await cmdAsync(dropAccessToHostNetwork).catch((error) => log.error(`Error executing dropAccessToHostNetwork command:${error}`));
     const giveHostAccessToDockerNetwork = "sudo iptables -I FORWARD -i docker0 -d $(ip route | grep \"src $(ip addr show dev $(ip route | awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') -m state --state ESTABLISHED,RELATED -j ACCEPT";
     await cmdAsync(giveHostAccessToDockerNetwork).catch((error) => log.error(`Error executing giveHostAccessToDockerNetwork command:${error}`));
