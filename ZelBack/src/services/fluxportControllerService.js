@@ -37,8 +37,6 @@ async function startGossipServer() {
 
   log.info("Starting GossipServer");
 
-  // this might be breaking nodemon by doing something freaky with the file, moving up a dir
-  // to test
   const logPath = path.join(userconfig.computed.appRootPath, "debug.log");
   fpcLogController.addLoggerTransport("file", { logLevel: "info", filePath: logPath });
 
