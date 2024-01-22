@@ -618,13 +618,8 @@ async function benchmarkDebug(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
-  const homeDirPath = path.join(__dirname, '../../../../');
-  const newBenchmarkPath = path.join(homeDirPath, '.fluxbenchmark');
-  let datadir = `${homeDirPath}.zelbenchmark`;
-  if (fs.existsSync(newBenchmarkPath)) {
-    datadir = newBenchmarkPath;
-  }
-  const filepath = `${datadir}/debug.log`;
+
+  const filepath = path.join(userconfig.computed.benchmarkPath, "debug.log");
 
   return res.download(filepath, 'debug.log');
 }
@@ -664,13 +659,7 @@ async function tailDaemonDebug(req, res) {
 async function tailBenchmarkDebug(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
-    const homeDirPath = path.join(__dirname, '../../../../');
-    const newBenchmarkPath = path.join(homeDirPath, '.fluxbenchmark');
-    let datadir = `${homeDirPath}.zelbenchmark`;
-    if (fs.existsSync(newBenchmarkPath)) {
-      datadir = newBenchmarkPath;
-    }
-    const filepath = `${datadir}/debug.log`;
+    const filepath = path.join(userconfig.computed.benchmarkPath, "debug.log");
     const exec = `tail -n 100 ${filepath}`;
     nodecmd.get(exec, (err, data) => {
       if (err) {
@@ -694,8 +683,7 @@ async function tailBenchmarkDebug(req, res) {
  * @returns {object} FluxOS .log file.
  */
 async function fluxLog(res, filelog) {
-  const homeDirPath = path.join(__dirname, '../../../');
-  const filepath = `${homeDirPath}${filelog}.log`;
+  const filepath = path.join(userconfig.computed.appRootPath, `${filelog}.log`);
 
   return res.download(filepath, `${filelog}.log`);
 }
@@ -789,8 +777,7 @@ async function fluxDebugLog(req, res) {
 async function tailFluxLog(req, res, logfile) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
-    const homeDirPath = path.join(__dirname, '../../../');
-    const filepath = `${homeDirPath}${logfile}.log`;
+    const filepath = path.join(userconfig.computed.appRootPath, `${logfile}.log`);
     const exec = `tail -n 100 ${filepath}`;
     nodecmd.get(exec, (err, data) => {
       if (err) {

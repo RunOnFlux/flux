@@ -25,9 +25,10 @@ let initialHash = hash(fs.readFileSync(path.join(__dirname, '/config/userconfig.
 async function SetupPortsUpnpAndComputed() {
   userconfig.computed = {};
   const autoUpnp = userconfig.initial.upnp || false;
+  const homeDirPath = path.join(__dirname, "../");
 
-  const newBenchmarkPath = path.join(__dirname, '.fluxbenchmark');
-  const oldBenchmarkPath = path.join(__dirname, '.zelbenchmark');
+  const newBenchmarkPath = path.join(homeDirPath, '.fluxbenchmark');
+  const oldBenchmarkPath = path.join(homeDirPath, '.zelbenchmark');
   const isNewBenchPath = fs.existsSync(newBenchmarkPath)
 
   const benchmarkPath = isNewBenchPath ? newBenchmarkPath : oldBenchmarkPath
@@ -35,7 +36,9 @@ async function SetupPortsUpnpAndComputed() {
   const benchmarkConfigFilePath = path.join(benchmarkPath, benchmarkFile);
 
   userconfig.computed.benchmarkConfigFilePath = benchmarkConfigFilePath;
-  userconfig.computed.homeDirPath = __dirname;
+  userconfig.computed.benchmarkPath = benchmarkPath;
+  userconfig.computed.homeDirPath = homeDirPath;
+  userconfig.computed.appRootPath = __dirname;
   userconfig.computed.isNewBenchPath = isNewBenchPath;
 
   apiPort = await waitForApiPort(autoUpnp);
