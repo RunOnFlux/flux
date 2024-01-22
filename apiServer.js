@@ -20,12 +20,11 @@ const { startGossipServer, getApiPort } = require('./ZelBack/src/services/fluxpo
 
 const cmdAsync = util.promisify(nodecmd.get);
 
-let autoUpnp = userconfig.initial.upnp || false;
-
 let initialHash = hash(fs.readFileSync(path.join(__dirname, '/config/userconfig.js')));
 
 async function SetupPortsUpnpAndComputed() {
   userconfig.computed = {};
+  const autoUpnp = userconfig.initial.upnp || false;
 
   const newBenchmarkPath = path.join(__dirname, '.fluxbenchmark');
   const oldBenchmarkPath = path.join(__dirname, '.zelbenchmark');
@@ -39,7 +38,7 @@ async function SetupPortsUpnpAndComputed() {
   userconfig.computed.homeDirPath = __dirname;
   userconfig.computed.isNewBenchPath = isNewBenchPath;
 
-  apiPort = await waitForApiPort();
+  apiPort = await waitForApiPort(autoUpnp);
 
   if (!config.server.allowedPorts.includes(+apiPort)) {
     log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
@@ -51,10 +50,10 @@ async function SetupPortsUpnpAndComputed() {
   userconfig.computed.apiPortSsl = apiPort + 1;
   userconfig.computed.syncthingPort = apiPort + 2;
 
-  await loadUpnpIfRequired();
+  await loadUpnpIfRequired(autoUpnp);
 }
 
-async function waitForApiPort() {
+async function waitForApiPort(autoUpnp) {
   if (!autoUpnp) {
     // if initial is undefined or empty string, user server.apiport
     return +userconfig.initial.apiport || +config.server.apiport;
@@ -68,7 +67,7 @@ async function waitForApiPort() {
   }
 }
 
-async function loadUpnpIfRequired() {
+async function loadUpnpIfRequired(autoUpnp) {
   let verifyUpnp = false;
   let setupUpnp = false;
   if (autoUpnp || userconfig.initial.apiport) {

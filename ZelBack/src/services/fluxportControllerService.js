@@ -40,8 +40,8 @@ async function startGossipServer() {
 
   try {
     // this is reliant on fluxd running
-    const res = await obtainNodeCollateralInformation();
-    // const res = { txhash: "txtest", txindex: 0 }
+    // const res = await obtainNodeCollateralInformation();
+    const res = { txhash: "txtest", txindex: 0 }
     outPoint = { txhash: res.txhash, outidx: res.txindex }
   } catch {
     log.error("Error getting collateral info from daemon.");
