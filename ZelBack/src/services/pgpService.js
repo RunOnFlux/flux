@@ -26,6 +26,7 @@ async function adjustPGPidentity(privateKey, publicKey) {
     kadena: '${userconfig.initial.kadena || ''}',
     testnet: ${userconfig.initial.testnet || false},
     development: ${userconfig.initial.development || false},
+    upnp: ${userconfig.initial.upnp || false},
     apiport: '${userconfig.initial.apiport || ''}',
     routerIP: '${userconfig.initial.routerIP || ''}',
     pgpPrivateKey: \`${privateKey}\`,

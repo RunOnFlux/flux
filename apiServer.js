@@ -1,6 +1,5 @@
 /* global userconfig */
 global.userconfig = require('./config/userconfig');
-global.userconfig.computed = {};
 
 process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
 // Flux configuration
@@ -21,11 +20,25 @@ const { startGossipServer, getApiPort } = require('./ZelBack/src/services/fluxpo
 
 const cmdAsync = util.promisify(nodecmd.get);
 
-const autoUpnp = userconfig.initial.upnp || false;
+let autoUpnp = userconfig.initial.upnp || false;
 
 let initialHash = hash(fs.readFileSync(path.join(__dirname, '/config/userconfig.js')));
 
-async function runPortAndUpnpSetup() {
+async function SetupPortsUpnpAndComputed() {
+  userconfig.computed = {};
+
+  const newBenchmarkPath = path.join(__dirname, '.fluxbenchmark');
+  const oldBenchmarkPath = path.join(__dirname, '.zelbenchmark');
+  const isNewBenchPath = fs.existsSync(newBenchmarkPath)
+
+  const benchmarkPath = isNewBenchPath ? newBenchmarkPath : oldBenchmarkPath
+  const benchmarkFile = isNewBenchPath ? "fluxbench.conf" : "zelbench.conf"
+  const benchmarkConfigFilePath = path.join(benchmarkPath, benchmarkFile);
+
+  userconfig.computed.benchmarkConfigFilePath = benchmarkConfigFilePath;
+  userconfig.computed.homeDirPath = __dirname;
+  userconfig.computed.isNewBenchPath = isNewBenchPath;
+
   apiPort = await waitForApiPort();
 
   if (!config.server.allowedPorts.includes(+apiPort)) {
@@ -91,7 +104,7 @@ async function configReload() {
         delete require.cache[require.resolve('./config/userconfig')];
         // eslint-disable-next-line
         userconfig = require('./config/userconfig');
-        await runPortAndUpnpSetup();
+        await SetupPortsUpnpAndComputed();
       }
     }
   } catch (error) {
@@ -104,20 +117,7 @@ async function configReload() {
  * @returns {Promise<void>}
  */
 async function initiate() {
-  const homeDirPath = path.join(__dirname, '../');
-  const newBenchmarkPath = path.join(homeDirPath, '.fluxbenchmark');
-  const oldBenchmarkPath = path.join(homeDirPath, '.zelbenchmark');
-  const isNewBenchPath = fs.existsSync(newBenchmarkPath)
-
-  const benchmarkPath = isNewBenchPath ? newBenchmarkPath : oldBenchmarkPath
-  const benchmarkFile = isNewBenchPath ? "fluxbench.conf" : "zelbench.conf"
-  const benchmarkConfigFilePath = path.join(benchmarkPath, benchmarkFile);
-
-  userconfig.computed.benchmarkConfigFilePath = benchmarkConfigFilePath;
-  userconfig.computed.homeDirPath = homeDirPath;
-  userconfig.computed.isNewBenchPath = isNewBenchPath;
-
-  await runPortAndUpnpSetup();
+  await SetupPortsUpnpAndComputed();
 
   setInterval(async () => {
     configReload();
