@@ -105,7 +105,6 @@ async function adjustFirewallForUPNP() {
         const execA = 'sudo ufw allow out from any to 239.255.255.250 port 1900 proto udp > /dev/null 2>&1';
         const execB = `sudo ufw allow from ${routerIp} port 1900 to any proto udp > /dev/null 2>&1`;
         const execC = `sudo ufw allow out from any to ${routerIp} proto tcp > /dev/null 2>&1`;
-        // why is this here, it is allowing all udp from the router, I.e. internet (if there is a forward)
         const execD = `sudo ufw allow from ${routerIp} to any proto udp > /dev/null 2>&1`;
         // added this as we are now using multicast and need to be able to receive igmp queries
         const execE = `sudo ufw allow to any proto igmp > /dev/null 2>&1`;
