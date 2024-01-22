@@ -35,13 +35,17 @@ function getRouterIp() {
 async function startGossipServer() {
   if (gossipServer) return true;
 
-  const logPath = path.join(userconfig.computed.homeDirPath, "debug.log");
+  log.info("Starting GossipServer");
+
+  // this might be breaking nodemon by doing something freaky with the file, moving up a dir
+  // to test
+  const logPath = path.join(userconfig.computed.homeDirPath, "../", "fpc_debug.log");
   fpcLogController.addLoggerTransport("file", { logLevel: "info", filePath: logPath });
 
   try {
     // this is reliant on fluxd running
-    // const res = await obtainNodeCollateralInformation();
-    const res = { txhash: "txtest", txindex: 0 }
+    const res = await obtainNodeCollateralInformation();
+    // const res = { txhash: "txtest", txindex: 0 }
     outPoint = { txhash: res.txhash, outidx: res.txindex }
   } catch {
     log.error("Error getting collateral info from daemon.");
