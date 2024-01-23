@@ -3366,7 +3366,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     }
 
     if (!isComponent) {
-      let dockerNetworkAddrValue = Math.floor(Math.random() * 255);
+      let dockerNetworkAddrValue = Math.floor(Math.random() * 256);
       if (appsThatMightBeUsingOldGatewayIpAssignment.includes(appName)) {
         dockerNetworkAddrValue = appName.charCodeAt(appName.length - 1);
       }
@@ -3739,7 +3739,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     }
 
     if (!isComponent) {
-      let dockerNetworkAddrValue = Math.floor(Math.random() * 255);
+      let dockerNetworkAddrValue = Math.floor(Math.random() * 256);
       if (appsThatMightBeUsingOldGatewayIpAssignment.includes(appName)) {
         dockerNetworkAddrValue = appName.charCodeAt(appName.length - 1);
       }
