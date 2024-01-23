@@ -30,7 +30,7 @@ function validateTags() {
     process.exit();
   }
 
-  for (const [key, value] of Object.items(tags)) {
+  for (const [key, value] of Object.entries(tags)) {
     const valuePassed =
       typeof value === 'string' || value instanceof String
       || typeof value === 'number' || value instanceof Number
