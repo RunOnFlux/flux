@@ -303,9 +303,9 @@ export default {
     async getTags() {
       const zelidauth = localStorage.getItem('zelidauth');
       const response = await FluxService.getFluxTags(zelidauth);
-      console.log('Tags response', response);
       if (response.data.status === 'success') {
-        this.tags = response.data.data;
+        const tags = response.data.data;
+        this.tags = Object.keys(tags).map(key => `${key}: ${tags[key]}`).join(", ")
       }
     },
     async getStaticIpInfo() {
@@ -449,7 +449,7 @@ export default {
             this.$store.commit('flux/setZelid', zelidauth.zelid);
             localStorage.setItem('zelidauth', qs.stringify(zelidauth));
             if (response.data.data.privilage === 'admin') {
-              this.getTags().then(() => console.log('TAGS', this.tags));
+              this.getTags();
             }
             this.showToast('success', response.data.data.message);
           } else {
