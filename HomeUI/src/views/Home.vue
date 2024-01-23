@@ -257,6 +257,7 @@ export default {
     this.daemonWelcomeGetFluxNodeStatus();
     this.getZelIdLoginPhrase();
     this.getOwnerZelid();
+    this.getTags();
     this.getStaticIpInfo();
     this.initMMSDK();
   },
@@ -302,10 +303,12 @@ export default {
     },
     async getTags() {
       const zelidauth = localStorage.getItem('zelidauth');
+      if (!zelidauth) return;
       const response = await FluxService.getFluxTags(zelidauth);
       if (response.data.status === 'success') {
         const tags = response.data.data;
-        this.tags = Object.keys(tags).map((key) => `${key}: ${tags[key]}`).join(', ');
+        this.tags = Object.keys(tags).map((key) =>
+          `${key.slice(0,16)}: ${tags[key].slice(0,16)}`).join(', ');
       }
     },
     async getStaticIpInfo() {
