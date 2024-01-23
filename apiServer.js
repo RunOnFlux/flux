@@ -36,7 +36,7 @@ function validateTags() {
       || typeof value === 'number' || value instanceof Number
       || typeof value === 'boolean' || value instanceof Boolean
 
-    if (!key instanceof string && !valuePassed) {
+    if (!(typeof key === 'string' || key instanceof String) || !valuePassed) {
       log.error("Error tags must be a mapping with string keys and values as string, number or boolean");
       process.exit();
     }
