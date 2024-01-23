@@ -60,6 +60,13 @@ export default {
   getFluxVersion() {
     return Api().get('/flux/version');
   },
+  getFluxTags(zelidauthHeader) {
+    return Api().get('/flux/tags', {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
   broadcastMessage(zelidauthHeader, message) {
     const data = message;
     const axiosConfig = {

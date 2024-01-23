@@ -432,6 +432,23 @@ function getNodeJsVersions(req, res) {
 }
 
 /**
+ * To get node operator specified tags. Allows an operator to tag nodes,
+ * and only an operator can view them.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns
+ */
+async function getFluxTags(req, res) {
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
+
+  const message = authorized ?
+    messageHelper.createDataMessage(userconfig.computed.tags) :
+    messageHelper.errUnauthorizedMessage();
+
+  return res ? res.json(message) : message;
+}
+
+/**
  * To show FluxOS IP address.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -1466,6 +1483,7 @@ module.exports = {
   reindexDaemon,
   getFluxVersion,
   getNodeJsVersions,
+  getFluxTags,
   getFluxIP,
   getFluxZelID,
   getFluxPGPidentity,

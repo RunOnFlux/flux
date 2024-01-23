@@ -90,7 +90,7 @@ async function adjustFirewallForUPNP() {
 
   if (userconfig.initial.upnp) {
     // avoid circular
-    const { getRouterIp } = require('./fluxportControllerService')
+    const { getRouterIp } = require('./fluxportControllerService');
     routerIp = await getRouterIp();
   }
   else {

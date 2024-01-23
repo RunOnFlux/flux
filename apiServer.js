@@ -22,8 +22,33 @@ const cmdAsync = util.promisify(nodecmd.get);
 
 let initialHash = hash(fs.readFileSync(path.join(__dirname, '/config/userconfig.js')));
 
+function validateTags() {
+  const tags = userconfig.initial.tags || {};
+
+  if (tags && !tags instanceof object) {
+    log.error("Error tags must be a mapping with string keys and values as string, number or boolean");
+    process.exit();
+  }
+
+  for (const [key, value] of Object.items(tags)) {
+    const valuePassed =
+      value instanceof string
+      || value instanceof number
+      || value instanceof Boolean
+
+    if (!key instanceof string && !valuePassed) {
+      log.error("Error tags must be a mapping with string keys and values as string, number or boolean");
+      process.exit();
+    }
+  }
+  return tags
+}
+
 async function SetupPortsUpnpAndComputed() {
   userconfig.computed = {};
+
+  const tags = validateTags();
+
   const autoUpnp = userconfig.initial.upnp || false;
   const homeDirPath = path.join(__dirname, "../");
 
@@ -40,6 +65,8 @@ async function SetupPortsUpnpAndComputed() {
   userconfig.computed.homeDirPath = homeDirPath;
   userconfig.computed.appRootPath = __dirname;
   userconfig.computed.isNewBenchPath = isNewBenchPath;
+
+  userconfig.computed.tags = tags;
 
   apiPort = await waitForApiPort(autoUpnp);
 
