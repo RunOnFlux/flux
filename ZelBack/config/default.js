@@ -146,7 +146,6 @@ module.exports = {
     maxImageSize: 2000000000, // 2000mb
     minimumInstances: 3,
     maximumInstances: 100,
-    maximumAdditionalInstances: 1, // max instances above subscribed amount. In case of min instances, this is minimumInstances + maximumAdditionalInstances
     minOutgoing: 8,
     minUniqueIpsOutgoing: 7,
     minIncoming: 4,
