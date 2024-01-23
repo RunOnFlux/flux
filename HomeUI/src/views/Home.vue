@@ -307,8 +307,7 @@ export default {
       const response = await FluxService.getFluxTags(zelidauth);
       if (response.data.status === 'success') {
         const tags = response.data.data;
-        this.tags = Object.keys(tags).map((key) =>
-          `${key.slice(0,16)}: ${tags[key].slice(0,16)}`).join(', ');
+        this.tags = Object.keys(tags).map((key) => `${key.slice(0, 16)}: ${tags[key].slice(0, 16)}`).join(', ');
       }
     },
     async getStaticIpInfo() {
