@@ -301,7 +301,7 @@ export default {
       }
     },
     async getTags(zelidauth) {
-      const response = await FluxService.getTags(zelidauth);
+      const response = await FluxService.getFluxTags(zelidauth);
       console.log('Tags response', response);
       if (response.data.status === 'success') {
         this.tags = response.data.data;
