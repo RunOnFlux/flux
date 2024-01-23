@@ -942,7 +942,6 @@ async function getFluxInfo(req, res) {
     if (pgp.status === 'error') {
       throw pgp.data;
     }
-    info.flux.pgp = pgp.data;
     const cruxidRes = await getFluxCruxID();
     if (cruxidRes.status === 'error') {
       throw cruxidRes.data;
