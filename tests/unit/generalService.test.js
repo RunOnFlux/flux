@@ -1035,6 +1035,17 @@ describe('generalService tests', () => {
       expect(result.tag).to.eql('latest');
     });
 
+    it('should parse basic repository correctly B', async () => {
+      const repotag = 'runonflux/web_site:latest';
+
+      const result = generalService.parseDockerTag(repotag);
+
+      expect(result.provider).to.eql('hub.docker.com');
+      expect(result.namespace).to.eql('runonflux');
+      expect(result.repository).to.eql('web_site');
+      expect(result.tag).to.eql('latest');
+    });
+
     it('should parse dockerhub library images correctly', async () => {
       const repotag = 'mysql:latest';
 

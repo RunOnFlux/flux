@@ -563,9 +563,9 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     Tty: false,
     ExposedPorts: exposedPorts,
     HostConfig: {
-      NanoCPUs: appSpecifications.cpu * 1e9,
-      Memory: appSpecifications.ram * 1024 * 1024,
-      MemorySwap: (appSpecifications.ram + (config.fluxapps.defaultSwap * 1000)) * 1024 * 1024, // default 2GB swap
+      NanoCPUs: Math.round(appSpecifications.cpu * 1e9),
+      Memory: Math.round(appSpecifications.ram * 1024 * 1024),
+      MemorySwap: Math.round((appSpecifications.ram + (config.fluxapps.defaultSwap * 1000)) * 1024 * 1024), // default 2GB swap
       // StorageOpt: { size: '5G' }, // root fs has max default 5G size, v8 is 5G + specified as per config.fluxapps.hddFileSystemMinimum
       Binds: constructedVolumes,
       Ulimits: [

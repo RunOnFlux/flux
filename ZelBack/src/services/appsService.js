@@ -99,6 +99,8 @@ let masterSlaveAppsRunning = false;
 
 const hashesNumberOfSearchs = new Map();
 
+const appsThatMightBeUsingOldGatewayIpAssignment = ['HNSDoH', 'dane', 'fdm', 'Jetpack2', 'fdmdedicated', 'isokosse', 'ChainBraryDApp', 'health', 'ethercalc'];
+
 const nodeSpecs = {
   cpuCores: 0,
   ram: 0,
@@ -3364,11 +3366,10 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     }
 
     if (!isComponent) {
-      // last character of appName determines gateway
-      const lastCharCode = appName.charCodeAt(appName.length - 1);
-
-      const dockerNetworkAddrValue = lastCharCode;
-
+      let dockerNetworkAddrValue = Math.floor(Math.random() * 256);
+      if (appsThatMightBeUsingOldGatewayIpAssignment.includes(appName)) {
+        dockerNetworkAddrValue = appName.charCodeAt(appName.length - 1);
+      }
       const fluxNetworkStatus = {
         status: `Checking Flux App network of ${appName}...`,
       };
@@ -3738,11 +3739,10 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     }
 
     if (!isComponent) {
-      // last character of appName determines gateway
-      const lastCharCode = appName.charCodeAt(appName.length - 1);
-
-      const dockerNetworkAddrValue = lastCharCode;
-
+      let dockerNetworkAddrValue = Math.floor(Math.random() * 256);
+      if (appsThatMightBeUsingOldGatewayIpAssignment.includes(appName)) {
+        dockerNetworkAddrValue = appName.charCodeAt(appName.length - 1);
+      }
       const fluxNetworkStatus = {
         status: `Checking Flux App network of ${appName}...`,
       };
@@ -6585,7 +6585,7 @@ async function storeIPChangedMessage(message) {
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   const query = { ip: message.oldIP };
-  const update = { $set: { ip: message.newIP } };
+  const update = { $set: { ip: message.newIP, broadcastedAt: new Date(message.broadcastedAt) } };
   await dbHelper.updateInDatabase(database, globalAppsLocations, query, update);
 
   // all stored, rebroadcast
@@ -8986,8 +8986,32 @@ async function trySpawningGlobalApplication() {
 /**
  * To check and notify peers of running apps. Checks if apps are installed, stopped or running.
  */
+let nodeConfirmedOnLastCheck = true;
 async function checkAndNotifyPeersOfRunningApps() {
   try {
+    const isNodeConfirmed = await generalService.isNodeStatusConfirmed();
+    if (!isNodeConfirmed) {
+      if (!nodeConfirmedOnLastCheck) {
+        const installedAppsRes = await installedApps();
+        if (installedAppsRes.status !== 'success') {
+          throw new Error('Failed to get installed Apps');
+        }
+        const appsInstalled = installedAppsRes.data;
+        // eslint-disable-next-line no-restricted-syntax
+        for (const installedApp of appsInstalled) {
+          log.info(`Application ${installedApp.name} going to be removed from node as the node is not confirmed on the network for more than 2 hours..`);
+          log.warn(`Removing application ${installedApp.name} locally`);
+          // eslint-disable-next-line no-await-in-loop
+          await removeAppLocally(installedApp.name, null, false, true, true);
+          log.warn(`Application ${installedApp.name} locally removed`);
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.delay(config.fluxapps.removal.delay * 1000); // wait for 6 mins so we don't have more removals at the same time
+        }
+      }
+      nodeConfirmedOnLastCheck = false;
+      return;
+    }
+    nodeConfirmedOnLastCheck = true;
     // get my external IP and check that it is longer than 5 in length.
     const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
     let myIP = null;
@@ -9094,8 +9118,6 @@ async function checkAndNotifyPeersOfRunningApps() {
       }
     });
     installedAndRunning.push(...masterSlaveAppsInstalled);
-    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-    const daemonHeight = syncStatus.data.height || 0;
     const apps = [];
     try {
       // eslint-disable-next-line no-restricted-syntax
@@ -9119,7 +9141,7 @@ async function checkAndNotifyPeersOfRunningApps() {
         // store it in local database first
         // eslint-disable-next-line no-await-in-loop
         await storeAppRunningMessage(newAppRunningMessage);
-        if (daemonHeight < config.fluxapps.apprunningv2 || installedAndRunning.length === 1) {
+        if (installedAndRunning.length === 1) {
           // eslint-disable-next-line no-await-in-loop
           await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessage);
           // eslint-disable-next-line no-await-in-loop
@@ -9129,7 +9151,7 @@ async function checkAndNotifyPeersOfRunningApps() {
           // broadcast messages about running apps to all peers
         }
       }
-      if (daemonHeight >= config.fluxapps.apprunningv2 && installedAndRunning.length > 1) {
+      if (installedAndRunning.length > 1) {
         // send v2 unique message instead
         const newAppRunningMessageV2 = {
           type: 'fluxapprunning',
@@ -9150,7 +9172,6 @@ async function checkAndNotifyPeersOfRunningApps() {
       log.error(err);
       // removeAppLocally(stoppedApp);
     }
-
     log.info('Running Apps broadcasted');
   } catch (error) {
     log.error(error);
@@ -9308,21 +9329,43 @@ async function checkAndRemoveApplicationInstance() {
       // eslint-disable-next-line no-await-in-loop
       const runningAppList = await getRunningAppList(installedApp.name);
       const minInstances = installedApp.instances || config.fluxapps.minimumInstances; // introduced in v3 of apps specs
-      if (runningAppList.length > (minInstances + config.fluxapps.maximumAdditionalInstances)) {
+      if (runningAppList.length > minInstances) {
         // eslint-disable-next-line no-await-in-loop
         const appDetails = await getApplicationGlobalSpecifications(installedApp.name);
         if (appDetails) {
-          log.info(`Application ${installedApp.name} is already spawned on ${runningAppList.length} instances. Checking removal availability..`);
-          const randomNumber = Math.floor((Math.random() * config.fluxapps.removal.probability));
-          if (randomNumber === 0) {
+          log.info(`Application ${installedApp.name} is already spawned on ${runningAppList.length} instances. Checking if should be unninstalled from the FluxNode..`);
+          runningAppList.sort((a, b) => {
+            if (!a.runningSince && b.runningSince) {
+              return 1;
+            }
+            if (a.runningSince && !b.runningSince) {
+              return -1;
+            }
+            if (a.runningSince < b.runningSince) {
+              return 1;
+            }
+            if (a.runningSince > b.runningSince) {
+              return -1;
+            }
+            if (a.ip < b.ip) {
+              return 1;
+            }
+            if (a.ip > b.ip) {
+              return -1;
+            }
+            return 0;
+          });
+          // eslint-disable-next-line no-await-in-loop
+          const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+          const index = runningAppList.findIndex((x) => x.ip === myIP);
+          if (index === 0) {
+            log.info(`Application ${installedApp.name} going to be removed from node as it was the latest one running it to install it..`);
             log.warn(`Removing application ${installedApp.name} locally`);
             // eslint-disable-next-line no-await-in-loop
             await removeAppLocally(installedApp.name, null, false, true, true);
             log.warn(`Application ${installedApp.name} locally removed`);
             // eslint-disable-next-line no-await-in-loop
             await serviceHelper.delay(config.fluxapps.removal.delay * 1000); // wait for 6 mins so we don't have more removals at the same time
-          } else {
-            log.info(`Other Fluxes are evaluating application ${installedApp.name} removal.`);
           }
         }
       }
@@ -10331,6 +10374,18 @@ async function syncthingApps() {
                   // eslint-disable-next-line no-await-in-loop
                   const runningAppList = await getRunningAppList(installedApp.name);
                   runningAppList.sort((a, b) => {
+                    if (!a.runningSince && b.runningSince) {
+                      return -1;
+                    }
+                    if (a.runningSince && !b.runningSince) {
+                      return 1;
+                    }
+                    if (a.runningSince < b.runningSince) {
+                      return -1;
+                    }
+                    if (a.runningSince > b.runningSince) {
+                      return 1;
+                    }
                     if (a.broadcastedAt < b.broadcastedAt) {
                       return -1;
                     }
@@ -10362,10 +10417,13 @@ async function syncthingApps() {
                 if (cache.numberOfExecutions === cache.numberOfExecutionsRequired) {
                   syncthingFolder.type = 'sendreceive';
                 } else if (cache.numberOfExecutions === cache.numberOfExecutionsRequired + 1) {
-                  log.info(`SyncthingApps starting appIdentifier ${appId}`);
+                  log.info(`SyncthingApps changing syncthing type to sendreceive for appIdentifier ${appId}`);
                   syncthingFolder.type = 'sendreceive';
-                  // eslint-disable-next-line no-await-in-loop
-                  await appDockerRestart(id);
+                  if (containerDataFlags.includes('r')) {
+                    log.info(`SyncthingApps starting appIdentifier ${appId}`);
+                    // eslint-disable-next-line no-await-in-loop
+                    await appDockerRestart(id);
+                  }
                   cache.restarted = true;
                 }
                 receiveOnlySyncthingAppsCache.set(appId, cache);
@@ -10503,6 +10561,18 @@ async function syncthingApps() {
                     const runningAppList = await getRunningAppList(installedApp.name);
                     log.info(`SyncthingApps appIdentifier ${appId} is running on nodes ${JSON.stringify(runningAppList)}`);
                     runningAppList.sort((a, b) => {
+                      if (!a.runningSince && b.runningSince) {
+                        return -1;
+                      }
+                      if (a.runningSince && !b.runningSince) {
+                        return 1;
+                      }
+                      if (a.runningSince < b.runningSince) {
+                        return -1;
+                      }
+                      if (a.runningSince > b.runningSince) {
+                        return 1;
+                      }
                       if (a.broadcastedAt < b.broadcastedAt) {
                         return -1;
                       }
@@ -10538,8 +10608,11 @@ async function syncthingApps() {
                   } else if (cache.numberOfExecutions === cache.numberOfExecutionsRequired + 1) {
                     log.info(`SyncthingApps starting appIdentifier ${appId}`);
                     syncthingFolder.type = 'sendreceive';
-                    // eslint-disable-next-line no-await-in-loop
-                    await appDockerRestart(id);
+                    if (containerDataFlags.includes('r')) {
+                      log.info(`SyncthingApps starting appIdentifier ${appId}`);
+                      // eslint-disable-next-line no-await-in-loop
+                      await appDockerRestart(id);
+                    }
                     cache.restarted = true;
                   }
                   receiveOnlySyncthingAppsCache.set(appId, cache);
