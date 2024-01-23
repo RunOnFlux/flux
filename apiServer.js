@@ -16,7 +16,7 @@ const serviceManager = require('./ZelBack/src/services/serviceManager');
 const upnpService = require('./ZelBack/src/services/upnpService');
 const hash = require('object-hash');
 const { watch } = require('fs/promises');
-const { startGossipServer, getApiPort } = require('./ZelBack/src/services/fluxportControllerService')
+const { startGossipServer, getApiPort } = require('./ZelBack/src/services/fluxportControllerService');
 
 const cmdAsync = util.promisify(nodecmd.get);
 
@@ -26,22 +26,21 @@ function validateTags() {
   const tags = userconfig.initial.tags || {};
 
   if (tags && !(typeof tags === 'object' || tags instanceof Object)) {
-    log.error("Error tags must be a mapping with string keys and values as string, number or boolean");
+    log.error('Error tags must be a mapping with string keys and values as string, number or boolean');
     process.exit();
   }
 
   for (const [key, value] of Object.entries(tags)) {
-    const valuePassed =
-      typeof value === 'string' || value instanceof String
+    const valuePassed = typeof value === 'string' || value instanceof String
       || typeof value === 'number' || value instanceof Number
-      || typeof value === 'boolean' || value instanceof Boolean
+      || typeof value === 'boolean' || value instanceof Boolean;
 
     if (!(typeof key === 'string' || key instanceof String) || !valuePassed) {
-      log.error("Error tags must be a mapping with string keys and values as string, number or boolean");
+      log.error('Error tags must be a mapping with string keys and values as string, number or boolean');
       process.exit();
     }
   }
-  return tags
+  return tags;
 }
 
 async function SetupPortsUpnpAndComputed() {
@@ -50,14 +49,14 @@ async function SetupPortsUpnpAndComputed() {
   const tags = validateTags();
 
   const autoUpnp = userconfig.initial.upnp || false;
-  const homeDirPath = path.join(__dirname, "../");
+  const homeDirPath = path.join(__dirname, '../');
 
   const newBenchmarkPath = path.join(homeDirPath, '.fluxbenchmark');
   const oldBenchmarkPath = path.join(homeDirPath, '.zelbenchmark');
-  const isNewBenchPath = fs.existsSync(newBenchmarkPath)
+  const isNewBenchPath = fs.existsSync(newBenchmarkPath);
 
-  const benchmarkPath = isNewBenchPath ? newBenchmarkPath : oldBenchmarkPath
-  const benchmarkFile = isNewBenchPath ? "fluxbench.conf" : "zelbench.conf"
+  const benchmarkPath = isNewBenchPath ? newBenchmarkPath : oldBenchmarkPath;
+  const benchmarkFile = isNewBenchPath ? 'fluxbench.conf' : 'zelbench.conf';
   const benchmarkConfigFilePath = path.join(benchmarkPath, benchmarkFile);
 
   userconfig.computed.benchmarkConfigFilePath = benchmarkConfigFilePath;
@@ -91,10 +90,9 @@ async function waitForApiPort(autoUpnp) {
 
   if (await startGossipServer()) {
     return await getApiPort();
-  } else {
-    log.error("Error starting GossipServer for autoUPnP. Shutting down");
-    process.exit();
   }
+  log.error('Error starting GossipServer for autoUPnP. Shutting down');
+  process.exit();
 }
 
 async function loadUpnpIfRequired(autoUpnp) {
@@ -170,7 +168,7 @@ async function initiate() {
     const cert = fs.readFileSync(path.join(__dirname, './certs/v1.crt'), 'utf8');
     const credentials = { key, cert };
     const httpsServer = https.createServer(credentials, app);
-    const apiPortSsl = userconfig.computed.apiPortSsl
+    const { apiPortSsl } = userconfig.computed;
     httpsServer.listen(apiPortSsl, () => {
       log.info(`Flux https listening on port ${apiPortSsl}!`);
     });

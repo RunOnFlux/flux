@@ -14,7 +14,7 @@ async function initiate() {
     return;
   }
 
-  const homePort = userconfig.computed.homePort;
+  const { homePort } = userconfig.computed;
   // Flux Home configuration
   const home = path.join(__dirname, './HomeUI/dist');
 

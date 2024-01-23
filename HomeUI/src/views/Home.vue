@@ -302,6 +302,7 @@ export default {
     },
     async getTags(zelidauth) {
       const response = await FluxService.getTags(zelidauth);
+      console.log("Tags response", response)
       if (response.data.status === 'success') {
         this.tags = response.data.data;
       }
@@ -449,6 +450,7 @@ export default {
             if (response.data.data.privilage === 'admin') {
               this.getTags(zelidauth);
             }
+            console.log("TAGS", this.tags);
             this.showToast('success', response.data.data.message);
           } else {
             this.showToast(this.getVariant(response.data.status), response.data.data.message || response.data.data);
