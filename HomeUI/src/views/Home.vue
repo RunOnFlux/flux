@@ -300,7 +300,8 @@ export default {
         this.$store.commit('flux/setUserZelid', obtainedZelid);
       }
     },
-    async getTags(zelidauth) {
+    async getTags() {
+      const zelidauth = localStorage.getItem('zelidauth');
       const response = await FluxService.getFluxTags(zelidauth);
       console.log('Tags response', response);
       if (response.data.status === 'success') {
@@ -367,7 +368,7 @@ export default {
         this.$store.commit('flux/setZelid', zelidauth.zelid);
         localStorage.setItem('zelidauth', qs.stringify(zelidauth));
         if (data.data.privilage === 'admin') {
-          this.getTags(zelidauth);
+          this.getTags();
         }
         this.showToast('success', data.data.message);
       }
@@ -448,9 +449,8 @@ export default {
             this.$store.commit('flux/setZelid', zelidauth.zelid);
             localStorage.setItem('zelidauth', qs.stringify(zelidauth));
             if (response.data.data.privilage === 'admin') {
-              this.getTags(zelidauth);
+              this.getTags().then(() => console.log('TAGS', this.tags));
             }
-            console.log('TAGS', this.tags);
             this.showToast('success', response.data.data.message);
           } else {
             this.showToast(this.getVariant(response.data.status), response.data.data.message || response.data.data);
@@ -490,7 +490,7 @@ export default {
         this.$store.commit('flux/setZelid', zelidauth.zelid);
         localStorage.setItem('zelidauth', qs.stringify(zelidauth));
         if (response.data.data.privilage === 'admin') {
-          this.getTags(zelidauth);
+          this.getTags();
         }
         this.showToast('success', response.data.data.message);
       } else {
@@ -575,7 +575,7 @@ export default {
           this.$store.commit('flux/setZelid', zelidauth.zelid);
           localStorage.setItem('zelidauth', qs.stringify(zelidauth));
           if (response.data.data.privilage === 'admin') {
-            this.getTags(zelidauth);
+            this.getTags();
           }
           this.showToast('success', response.data.data.message);
         } else {
@@ -629,7 +629,7 @@ export default {
           this.$store.commit('flux/setZelid', zelidauth.zelid);
           localStorage.setItem('zelidauth', qs.stringify(zelidauth));
           if (response.data.data.privilage === 'admin') {
-            this.getTags(zelidauth);
+            this.getTags();
           }
           this.showToast('success', response.data.data.message);
         } else {
