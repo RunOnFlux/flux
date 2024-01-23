@@ -25,16 +25,16 @@ let initialHash = hash(fs.readFileSync(path.join(__dirname, '/config/userconfig.
 function validateTags() {
   const tags = userconfig.initial.tags || {};
 
-  if (tags && !tags instanceof object) {
+  if (tags && !(typeof tags === 'object' || tags instanceof Object)) {
     log.error("Error tags must be a mapping with string keys and values as string, number or boolean");
     process.exit();
   }
 
   for (const [key, value] of Object.items(tags)) {
     const valuePassed =
-      value instanceof string
-      || value instanceof number
-      || value instanceof Boolean
+      typeof value === 'string' || value instanceof String
+      || typeof value === 'number' || value instanceof Number
+      || typeof value === 'boolean' || value instanceof Boolean
 
     if (!key instanceof string && !valuePassed) {
       log.error("Error tags must be a mapping with string keys and values as string, number or boolean");
