@@ -1289,7 +1289,7 @@
           <b-card no-body>
             <b-tabs pills card>
               <b-tab title="Backup">
-                <div class="mb-3" style="border: 1px solid #ccc; padding: 10px">
+                <div class="mb-2" style="border: 1px solid #ccc; padding: 10px">
                   <b-icon class="mr-2" scale="1.2" icon="back" />
                   Immediate Backup
                 </div>
@@ -1444,8 +1444,8 @@
                       <div class="d-flex justify-content-center align-items-center">
                         <b-button
                           variant="danger"
-                          class="d-flex justify-content-center align-items-center mr-2"
-                          style="width: 25px; height: 25px"
+                          class="d-flex justify-content-center align-items-center mr-1"
+                          style="width: 15px; height: 25px"
 
                           @click="deleteItem(row.index, backupList)"
                         >
@@ -1458,13 +1458,13 @@
                         <b-button
                           variant="primary"
                           class="d-flex justify-content-center align-items-center"
-                          style="width: 25px; height: 25px"
+                          style="width: 15px; height: 25px"
 
                           @click="removeAllBackup"
                         >
                           <b-icon
                             class="d-flex justify-content-center align-items-center"
-                            scale="0.9"
+                            scale="1"
                             icon="cloud-arrow-down"
                           />
                         </b-button>
@@ -1474,7 +1474,7 @@
 
                   <div v-if="backupToUpload.length > 0" class="mt-2">
                     <div
-                      class="mb-3 mt-3"
+                      class="mb-2 mt-2"
                       style="
                   border: 1px solid #ccc;
                   height: 45px;
@@ -1710,12 +1710,12 @@
                 </div>
               </b-tab>
               <b-tab title="Restore">
-                <div class="mb-3" style="border: 1px solid #ccc; padding: 10px">
+                <div class="mb-2" style="border: 1px solid #ccc; padding: 10px">
                   <b-icon class="mr-2" scale="1.2" icon="cloud-download" />
                   Select restore method
                 </div>
 
-                <b-form-group class="mb-3">
+                <b-form-group class="mb-2">
                   <b-row>
                     <!-- First Column for Radio Group -->
                     <b-col>
@@ -1741,7 +1741,7 @@
                 <div v-if="selectedRestoreOption === 'FluxDrive'">
                   <b-card
                     v-if="sigInPrivilage === false"
-                    class="mb-3 justify-content-center align-items-center"
+                    class="mb-2 justify-content-center align-items-center"
                   >
                     <b-card-text>
                       <div
@@ -1891,7 +1891,7 @@
                     <!-- Main table element -->
 
                     <div>
-                      <b-input-group class="mb-3">
+                      <b-input-group class="mb-2">
                         <b-input-group-prepend is-text>
                           <b-icon icon="funnel-fill" />
                         </b-input-group-prepend>
@@ -1931,8 +1931,8 @@
                         <div class="d-flex justify-content-center align-items-center">
                           <b-button
                             variant="danger"
-                            class="d-flex justify-content-center align-items-center mr-2"
-                            style="width: 25px; height: 25px"
+                            class="d-flex justify-content-center align-items-center mr-1"
+                            style="width: 15px; height: 25px"
 
                             @click="deleteRestoreBackup(row.item.component_name, checkpoints, row.item.timestamp)"
                           >
@@ -1945,7 +1945,7 @@
                           <b-button
                             variant="primary"
                             class="d-flex justify-content-center align-items-center"
-                            style="width: 25px; height: 25px"
+                            style="width: 15px; height: 25px"
 
                             @click="addAllBackupComponents(row.item.timestamp)"
                           >
@@ -1984,7 +1984,7 @@
                               class="d-flex justify-content-center align-items-center"
                               style="
                           margin: auto;
-                          width: 25px;
+                          width: 15px;
                           height: 25px;
                           display: flex;
                         "
@@ -2012,7 +2012,7 @@
                       show-empty
                       bordered
                       hover
-                      head-variant="light"
+                      head-variant="dark"
                       small
                     >
                       <template #thead-top>
@@ -2035,7 +2035,7 @@
                           <b-button
                             variant="danger"
                             class="d-flex justify-content-center align-items-center"
-                            style="width: 25px; height: 25px"
+                            style="width: 15px; height: 25px"
 
                             @click="deleteItem(row.index, newComponents)"
                           >
@@ -2060,7 +2060,6 @@
                             style="
                         text-align: center;
                         vertical-align: middle;
-                        font-size: 16px;
                       "
                           >
                             <b-icon class="mr-2" icon="hdd" scale="1.4" /> {{ totalArchiveFileSize(newComponents).toFixed(0) }} MB
@@ -2076,7 +2075,7 @@
                       <b-icon
                         icon="arrow-clockwise"
                         scale="1.2"
-                        class="mr-2"
+                        class="mr-2 mt-2"
                       />Restore
                     </b-button>
                   </div>
@@ -2120,7 +2119,7 @@
 
                   <div
                     v-if="items1?.length > 0"
-                    class="d-flex justify-content-between mt-3"
+                    class="d-flex justify-content-between mt-2"
                   >
                     <b-table
                       class="b-table"
@@ -2163,7 +2162,7 @@
                           <b-button
                             variant="danger"
                             class="d-flex justify-content-center align-items-center"
-                            style="width: 25px; height: 25px"
+                            style="width: 15px; height: 25px"
                             @click="deleteItem(data.index, items1)"
                           >
                             <b-icon
@@ -2187,7 +2186,6 @@
                             style="
                         text-align: center;
                         vertical-align: middle;
-                        font-size: 16px;
                       "
                           >
                             <b-icon class="mr-2" icon="hdd" scale="1.4" />{{ totalArchiveFileSize(items1).toFixed(0) }} MB
@@ -2253,7 +2251,7 @@
 
                   <div
                     v-if="restoreRemoteUrlItems?.length > 0"
-                    class="d-flex justify-content-between mt-3"
+                    class="d-flex justify-content-between mt-2"
                   >
                     <b-table
                       class="b-table"
@@ -2319,7 +2317,6 @@
                             style="
                         text-align: center;
                         vertical-align: middle;
-                        font-size: 16px;
                       "
                           >
                             <b-icon class="mr-2" icon="hdd" scale="1.4" />{{ totalArchiveFileSize(restoreRemoteUrlItems).toFixed(0) }} MB
@@ -2330,6 +2327,7 @@
                   </div>
                   <b-button
                     v-if="restoreRemoteUrlItems?.length > 0"
+                    class="mr-2 mt-2"
                     block
                     variant="outline-primary"
                   >
