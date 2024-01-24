@@ -1,4 +1,3 @@
-/* global userconfig */
 global.userconfig = require('./config/userconfig');
 
 process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
@@ -26,8 +25,9 @@ function validIpv4Address(ip) {
   const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
   if (ipv4Regex.test(ip)) {
     const parts = ip.split('.');
+    // eslint-disable-next-line no-restricted-syntax
     for (const part of parts) {
-      if (parseInt(part) > 255) {
+      if (parseInt(part, 10) > 255) {
         return false;
       }
     }
@@ -44,7 +44,7 @@ function validateTags() {
     process.exit();
   }
 
-  for (const [key, value] of Object.entries(tags)) {
+  Object.entries(tags).forEach((key, value) => {
     const valuePassed = typeof value === 'string' || value instanceof String
       || typeof value === 'number' || value instanceof Number
       || typeof value === 'boolean' || value instanceof Boolean;
@@ -53,8 +53,58 @@ function validateTags() {
       log.error('Error tags must be a mapping with string keys and values as string, number or boolean');
       process.exit();
     }
-  }
+  });
   return tags;
+}
+
+async function waitForApiPortAndRouterIp(autoUpnp) {
+  if (!autoUpnp) {
+    // if initial is undefined or empty string, user server.apiport
+    const apiPort = +userconfig.initial.apiport || +config.server.apiport;
+    const routerIp = userconfig.initial.routerIP;
+    if (routerIp && !validIpv4Address(routerIp)) {
+      log.error(`Router IP: ${routerIp} must be a valid ipv4 address`);
+      process.exit();
+    }
+    return [apiPort, routerIp];
+  }
+
+  if (await startGossipServer()) {
+    const apiPort = getApiPort();
+    const routerIp = getRouterIp();
+    return Promise.all([apiPort, routerIp]);
+  }
+
+  log.error('Error starting GossipServer for autoUPnP. Unable to get collateral '
+    + 'information, or unable to adjust firewall. Shutting down');
+  return process.exit();
+}
+
+async function loadUpnpIfRequired(autoUpnp) {
+  let verifyUpnp = false;
+  let setupUpnp = false;
+
+  const upnpRequested = autoUpnp
+    || userconfig.initial.routerIP
+    || (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport);
+
+  if (autoUpnp || userconfig.initial.apiport) {
+    verifyUpnp = await upnpService.verifyUPNPsupport();
+    if (verifyUpnp) {
+      setupUpnp = await upnpService.setupUPNP();
+    }
+  }
+
+  if (upnpRequested) {
+    if (verifyUpnp !== true) {
+      log.error(`Flux port ${userconfig.computed.apiPort} specified but UPnP failed to verify support. Shutting down.`);
+      process.exit();
+    }
+    if (setupUpnp !== true) {
+      log.error(`Flux port ${userconfig.computed.apiPort} specified but UPnP failed to map to api or home port. Shutting down.`);
+      process.exit();
+    }
+  }
 }
 
 async function SetupPortsUpnpAndComputed() {
@@ -95,56 +145,6 @@ async function SetupPortsUpnpAndComputed() {
   userconfig.computed.routerIp = routerIp;
 
   await loadUpnpIfRequired(autoUpnp);
-}
-
-async function waitForApiPortAndRouterIp(autoUpnp) {
-  if (!autoUpnp) {
-    // if initial is undefined or empty string, user server.apiport
-    const apiPort = +userconfig.initial.apiport || +config.server.apiport;
-    const routerIp = userconfig.initial.routerIP;
-    if (routerIp && !validIpv4Address(routerIp)) {
-      log.error(`Router IP: ${routerIp} must be a valid ipv4 address`);
-      process.exit();
-    }
-    return [apiPort, routerIp];
-  }
-
-  if (await startGossipServer()) {
-    const apiPort = getApiPort();
-    const routerIp = getRouterIp();
-    return await Promise.all([apiPort, routerIp])
-  }
-
-  log.error('Error starting GossipServer for autoUPnP. Unable to get collateral ' +
-    'information, or unable to adjust firewall. Shutting down');
-  process.exit();
-}
-
-async function loadUpnpIfRequired(autoUpnp) {
-  let verifyUpnp = false;
-  let setupUpnp = false;
-
-  const upnpRequested = autoUpnp
-    || userconfig.initial.routerIP
-    || (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport);
-
-  if (autoUpnp || userconfig.initial.apiport) {
-    verifyUpnp = await upnpService.verifyUPNPsupport();
-    if (verifyUpnp) {
-      setupUpnp = await upnpService.setupUPNP();
-    }
-  }
-
-  if (upnpRequested) {
-    if (verifyUpnp !== true) {
-      log.error(`Flux port ${userconfig.computed.apiPort} specified but UPnP failed to verify support. Shutting down.`);
-      process.exit();
-    }
-    if (setupUpnp !== true) {
-      log.error(`Flux port ${userconfig.computed.apiPort} specified but UPnP failed to map to api or home port. Shutting down.`);
-      process.exit();
-    }
-  }
 }
 
 async function configReload() {

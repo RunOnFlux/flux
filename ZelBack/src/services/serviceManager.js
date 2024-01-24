@@ -1,4 +1,3 @@
-/* global userconfig */
 const config = require('config');
 const log = require('../lib/log');
 
@@ -21,7 +20,7 @@ const development = userconfig.initial.development || false;
  * To start FluxOS. A series of checks are performed on port and UPnP (Universal Plug and Play) support and mapping. Database connections are established. The other relevant functions required to start FluxOS services are called.
  */
 async function startFluxFunctions() {
-  const apiPort = userconfig.computed.apiPort;
+  const { apiPort } = userconfig.computed;
   try {
     if (!config.server.allowedPorts.includes(+apiPort)) {
       log.error(`Flux port ${apiPort} is not supported. Shutting down.`);

@@ -1,4 +1,3 @@
-/* global userconfig */
 const nodecmd = require('node-cmd');
 const path = require('path');
 const config = require('config');
@@ -441,9 +440,9 @@ function getNodeJsVersions(req, res) {
 async function getFluxTags(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
 
-  const message = authorized ?
-    messageHelper.createDataMessage(userconfig.computed.tags) :
-    messageHelper.errUnauthorizedMessage();
+  const message = authorized
+    ? messageHelper.createDataMessage(userconfig.computed.tags)
+    : messageHelper.errUnauthorizedMessage();
 
   return res ? res.json(message) : message;
 }
@@ -570,7 +569,7 @@ function getBlockedPorts(req, res) {
  * @returns {object} Message.
  */
 function getAPIPort(req, res) {
-  const apiPort = userconfig.computed.apiPort;
+  const { apiPort } = userconfig.computed;
   const message = messageHelper.createDataMessage(apiPort);
   return res ? res.json(message) : message;
 }
@@ -636,7 +635,7 @@ async function benchmarkDebug(req, res) {
     return res.json(errMessage);
   }
 
-  const filepath = path.join(userconfig.computed.benchmarkPath, "debug.log");
+  const filepath = path.join(userconfig.computed.benchmarkPath, 'debug.log');
 
   return res.download(filepath, 'debug.log');
 }
@@ -676,7 +675,7 @@ async function tailDaemonDebug(req, res) {
 async function tailBenchmarkDebug(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
-    const filepath = path.join(userconfig.computed.benchmarkPath, "debug.log");
+    const filepath = path.join(userconfig.computed.benchmarkPath, 'debug.log');
     const exec = `tail -n 100 ${filepath}`;
     nodecmd.get(exec, (err, data) => {
       if (err) {

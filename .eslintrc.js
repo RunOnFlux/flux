@@ -14,6 +14,9 @@ module.exports = {
   plugins: [
     'vue',
   ],
+  globals: {
+    userconfig: true,
+  },
   rules: {
     'max-len': [
       'error',

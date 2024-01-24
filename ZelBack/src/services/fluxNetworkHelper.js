@@ -1,12 +1,9 @@
-/* global userconfig */
-/* eslint-disable no-underscore-dangle */
 const config = require('config');
 const zeltrezjs = require('zeltrezjs');
 const nodecmd = require('node-cmd');
 const fs = require('fs').promises;
 const path = require('path');
 const os = require('os');
-// eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
 const { LRUCache } = require('lru-cache');
 const log = require('../lib/log');
@@ -449,7 +446,7 @@ async function getRandomConnection() {
   }
   const randomNode = Math.floor((Math.random() * zlLength)); // we do not really need a 'random'
   const ip = nodeList[randomNode].ip || nodeList[randomNode].ipaddress;
-  const apiPort = userconfig.computed.apiPort;
+  const { apiPort } = userconfig.computed;
 
   if (!ip || !myFluxIP || ip === userconfig.initial.ipaddress || ip === myFluxIP || ip === `${userconfig.initial.ipaddress}:${apiPort}` || ip.split(':')[0] === myFluxIP.split(':')[0]) {
     return null;
@@ -737,7 +734,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   const axiosConfigAux = {
     timeout: 7000,
   };
-  const apiPort = userconfig.computed.apiPort;
+  const { apiPort } = userconfig.computed;
   const resMyAvailability = await serviceHelper.axiosGet(`http://${askingIP}:${askingIpPort}/flux/checkfluxavailability?ip=${myIP}&port=${apiPort}`, axiosConfigAux).catch((error) => {
     log.error(`${askingIP} is not reachable`);
     log.error(error);
@@ -1269,10 +1266,10 @@ async function isFirewallActive() {
 async function adjustFirewall() {
   try {
     const cmdAsync = util.promisify(nodecmd.get);
-    const apiPort = userconfig.computed.apiPort;
-    const homePort = userconfig.computed.homePort;
-    const apiPortSsl = userconfig.computed.apiPortSsl;
-    const syncthingPort = userconfig.computed.syncthingPort;
+    const { apiPort } = userconfig.computed;
+    const { homePort } = userconfig.computed;
+    const { apiPortSsl } = userconfig.computed;
+    const { syncthingPort } = userconfig.computed;
     let ports = [apiPort, homePort, apiPortSsl, syncthingPort, 80, 443, 16125];
     const fluxCommunicationPorts = config.server.allowedPorts;
     ports = ports.concat(fluxCommunicationPorts);

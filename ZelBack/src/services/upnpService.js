@@ -1,11 +1,8 @@
-/* global userconfig */
-const config = require('config');
 const natUpnp = require('@megachips/nat-upnp');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
 const nodecmd = require('node-cmd');
-// eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
 
 const log = require('../lib/log');
@@ -53,11 +50,11 @@ async function ufwAllowSsdpforInit() {
 
   const cmdAsync = util.promisify(nodecmd.get);
   // allow from any address as we are looking for a router IP.
-  const allowSsdpCmd = "sudo ufw allow from any port 1900 to any proto udp > /dev/null 2>&1";
+  const allowSsdpCmd = 'sudo ufw allow from any port 1900 to any proto udp > /dev/null 2>&1';
   try {
     await cmdAsync(allowSsdpCmd);
     return true;
-  } catch {
+  } catch (error) {
     log.error(error);
     return false;
   }
@@ -72,11 +69,11 @@ async function ufwRemoveAllowSsdpforInit() {
 
   const cmdAsync = util.promisify(nodecmd.get);
   // allow from any address as are looking for a router IP.
-  const removeAllowSsdpCmd = "sudo ufw delete allow from any port 1900 to any proto udp > /dev/null 2>&1";
+  const removeAllowSsdpCmd = 'sudo ufw delete allow from any port 1900 to any proto udp > /dev/null 2>&1';
   try {
     await cmdAsync(removeAllowSsdpCmd);
     return true;
-  } catch {
+  } catch (error) {
     log.error(error);
     return false;
   }
@@ -86,7 +83,7 @@ async function ufwRemoveAllowSsdpforInit() {
  *  * To adjust a firewall to allow comms between host and router.
  */
 async function adjustFirewallForUPNP() {
-  const routerIp = userconfig.computed.routerIp;
+  const { routerIp } = userconfig.computed;
 
   try {
     if (routerIp) {
@@ -100,7 +97,7 @@ async function adjustFirewallForUPNP() {
         const execC = `sudo ufw allow out from any to ${routerIp} proto tcp > /dev/null 2>&1`;
         const execD = `sudo ufw allow from ${routerIp} to any proto udp > /dev/null 2>&1`;
         // added this as we are now using multicast and need to be able to receive igmp queries
-        const execE = `sudo ufw allow to any proto igmp > /dev/null 2>&1`;
+        const execE = 'sudo ufw allow to any proto igmp > /dev/null 2>&1';
         await cmdAsync(execA);
         await cmdAsync(execB);
         await cmdAsync(execC);
@@ -121,8 +118,8 @@ async function adjustFirewallForUPNP() {
  * @returns {Promise<boolean>} True if port mappings can be set. Otherwise false.
  */
 async function verifyUPNPsupport() {
-  const routerIp = userconfig.computed.routerIp;
-  const apiPort = userconfig.computed.apiPort;
+  const { routerIp } = userconfig.computed;
+  const { apiPort } = userconfig.computed;
   const testPort = apiPort + 3;
 
   try {
@@ -274,16 +271,16 @@ async function removeMapUpnpPort(port) {
  * This nodes ip. Trying to remove a mapping for a host ip that doens't belong to this host, will error.
  */
 async function cleanOldMappings(ip) {
-  const toRemove = [];
   const mappings = await client.getMappings();
 
   // await in loop so we can bail early if we get an error
-  /* eslint-enable no-await-in-loop */
+  // eslint-disable-next-line no-restricted-syntax
   for (const mapping of mappings) {
     if (mapping.private === ip) {
       try {
-        await client.removeMapping(mapping.public, mapping.protocol)
-      } catch {
+        // eslint-disable-next-line no-await-in-loop
+        await client.removeMapping(mapping.public, mapping.protocol);
+      } catch (error) {
         log.error(error);
         return;
       }

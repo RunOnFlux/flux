@@ -1,11 +1,11 @@
 const path = require('node:path');
-const { writeFile, readFile } = require("node:fs/promises");
+const { writeFile, readFile } = require('node:fs/promises');
 
 const log = require('../lib/log');
-const { obtainNodeCollateralInformation } = require("./generalService");
-const { ufwAllowSsdpforInit, ufwRemoveAllowSsdpforInit, cleanOldMappings } = require("./upnpService");
-const { FluxGossipServer, logController: fpcLogController } = require("@megachips/fluxport-controller");
-const { executeCall: executeBenchmarkCall } = require("./benchmarkService");
+const { obtainNodeCollateralInformation } = require('./generalService');
+const { ufwAllowSsdpforInit, ufwRemoveAllowSsdpforInit, cleanOldMappings } = require('./upnpService');
+const { FluxGossipServer, logController: fpcLogController } = require('@megachips/fluxport-controller');
+const { executeCall: executeBenchmarkCall } = require('./benchmarkService');
 
 let apiPort = null;
 let routerIp = null;
@@ -13,45 +13,45 @@ let outPoint = null;
 let gossipServer = null;
 
 async function getApiPort() {
-  return new Promise(async (resolve, reject) => {
+  return new Promise((resolve, reject) => {
     if (apiPort) resolve(apiPort);
 
-    if (!(gossipServer)) reject("gossipServer not ready");
+    if (!(gossipServer)) reject(new Error('gossipServer not ready'));
 
-    gossipServer.once("portConfirmed", (apiPort) => resolve(apiPort));
+    gossipServer.once('portConfirmed', (port) => resolve(port));
   });
 }
 
 function getRouterIp() {
-  return new Promise(async (resolve, reject) => {
+  return new Promise((resolve, reject) => {
     if (routerIp) resolve(routerIp);
 
-    if (!(gossipServer)) reject("gossipServer not ready");
+    if (!(gossipServer)) reject(new Error('gossipServer not ready'));
 
-    gossipServer.once("portConfirmed", (routerIp) => resolve(routerIp));
+    gossipServer.once('routerIpConfirmed', (ip) => resolve(ip));
   });
 }
 
 async function startGossipServer() {
   if (gossipServer) return true;
 
-  log.info("Starting GossipServer");
+  log.info('Starting GossipServer');
 
-  const logPath = path.join(userconfig.computed.appRootPath, "debug.log");
-  fpcLogController.addLoggerTransport("file", { logLevel: "info", filePath: logPath });
+  const logPath = path.join(userconfig.computed.appRootPath, 'debug.log');
+  fpcLogController.addLoggerTransport('file', { logLevel: 'info', filePath: logPath });
 
   try {
     // this is reliant on fluxd running
     const res = await obtainNodeCollateralInformation();
     // const res = { txhash: "txtest", txindex: 0 }
-    outPoint = { txhash: res.txhash, outidx: res.txindex }
+    outPoint = { txhash: res.txhash, outidx: res.txindex };
   } catch {
-    log.error("Error getting collateral info from daemon.");
+    log.error('Error getting collateral info from daemon.');
     return false;
   }
 
   if (!(await ufwAllowSsdpforInit())) {
-    log.error("Error adjusting firewallfor SSDP.")
+    log.error('Error adjusting firewallfor SSDP.');
     return false;
   }
 
@@ -61,26 +61,26 @@ async function startGossipServer() {
   // Flux already opens this port.
   gossipServer = new FluxGossipServer(outPoint, {
     // seems as good as any multicast address
-    multicastGroup: "239.19.38.57",
+    multicastGroup: '239.19.38.57',
     port: 16197,
   });
 
-  gossipServer.on("portConfirmed", async (port) => {
+  gossipServer.on('portConfirmed', async (port) => {
     if (port && port !== apiPort) {
       log.info(`Gossip server got new apiPort: ${port}, updating`);
       // would be great if bench exposed an api for the apiport, this is brutal
       // or just tried all 8 ports on localhost, until it found one.
-      const benchmarkConfigFilePath = userconfig.computed.benchmarkConfigFilePath;
-      const priorFile = await readFile(benchmarkConfigFilePath, { flag: "a+" });
+      const { benchmarkConfigFilePath } = userconfig.computed;
+      const priorFile = await readFile(benchmarkConfigFilePath, { flag: 'a+' });
       if (priorFile !== `fluxport=${port}`) {
         await writeFile(benchmarkConfigFilePath, `fluxport=${port}`);
-        await executeBenchmarkCall("restartnodebenchmarks");
+        await executeBenchmarkCall('restartnodebenchmarks');
       }
       apiPort = port;
     }
   });
 
-  gossipServer.on("routerIpConfirmed", async (ip) => {
+  gossipServer.on('routerIpConfirmed', async (ip) => {
     if (ip && ip !== routerIp) {
       log.info(`Gossip server got new routerIp: ${ip}, updating`);
       await ufwRemoveAllowSsdpforInit();
@@ -88,10 +88,10 @@ async function startGossipServer() {
       await cleanOldMappings(ip);
       routerIp = ip;
     }
-  })
+  });
 
-  gossipServer.on("startError", () => {
-    log.error("Upnp error starting gossipserver, starting again in 2 minutes...");
+  gossipServer.on('startError', () => {
+    log.error('Upnp error starting gossipserver, starting again in 2 minutes...');
     setTimeout(() => gossipServer.start(), 2 * 60 * 1000);
   });
 
@@ -102,5 +102,5 @@ async function startGossipServer() {
 module.exports = {
   getApiPort,
   startGossipServer,
-  getRouterIp
-}
+  getRouterIp,
+};
