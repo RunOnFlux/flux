@@ -1,7 +1,4 @@
-const isDevelopment = userconfig.initial.development || false;
-
 module.exports = {
-  development: isDevelopment,
   loglevel: 'debug', // severity ordering specified by RFC5424
   server: {
     allowedPorts: [16127, 16137, 16147, 16157, 16167, 16177, 16187, 16197],
