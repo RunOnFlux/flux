@@ -86,16 +86,8 @@ async function ufwRemoveAllowSsdpforInit() {
  *  * To adjust a firewall to allow comms between host and router.
  */
 async function adjustFirewallForUPNP() {
-  let routerIp;
+  const routerIp = userconfig.computed.routerIp;
 
-  if (userconfig.initial.upnp) {
-    // avoid circular
-    const { getRouterIp } = require('./fluxportControllerService');
-    routerIp = await getRouterIp();
-  }
-  else {
-    routerIp = serviceHelper.ensureString(userconfig.initial.routerIp);
-  }
   try {
     if (routerIp) {
       const cmdAsync = util.promisify(nodecmd.get);
@@ -103,6 +95,7 @@ async function adjustFirewallForUPNP() {
       if (firewallActive) {
         // why allow outbound?!? There is a default allow
         const execA = 'sudo ufw allow out from any to 239.255.255.250 port 1900 proto udp > /dev/null 2>&1';
+        // this is superfulous as there is an allow for allow udp below
         const execB = `sudo ufw allow from ${routerIp} port 1900 to any proto udp > /dev/null 2>&1`;
         const execC = `sudo ufw allow out from any to ${routerIp} proto tcp > /dev/null 2>&1`;
         const execD = `sudo ufw allow from ${routerIp} to any proto udp > /dev/null 2>&1`;
@@ -115,7 +108,7 @@ async function adjustFirewallForUPNP() {
         await cmdAsync(execE);
         log.info('Firewall adjusted for UPNP');
       } else {
-        log.info('RouterIP is set but firewall is not active. Adjustment not applied for UPNP');
+        log.info(`Router IP: ${routerIp} set but firewall is not active. Adjustment not applied for UPNP`);
       }
     }
   } catch (error) {
@@ -125,15 +118,17 @@ async function adjustFirewallForUPNP() {
 
 /**
  * To verify that a port has UPnP (Universal Plug and Play) support.
- * @param {number} apiport Port number.
  * @returns {Promise<boolean>} True if port mappings can be set. Otherwise false.
  */
-async function verifyUPNPsupport(apiport = config.server.apiport) {
+async function verifyUPNPsupport() {
+  const routerIp = userconfig.computed.routerIp;
+  const apiPort = userconfig.computed.apiPort;
+  const testPort = apiPort + 3;
+
   try {
-    if (userconfig.initial.routerIP) {
+    if (routerIp) {
       await adjustFirewallForUPNP();
     }
-    // run test on apiport + 1
     await client.getPublicIp();
   } catch (error) {
     log.error(error);
@@ -151,8 +146,8 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
   }
   try {
     await client.createMapping({
-      public: +apiport + 3,
-      private: +apiport + 3,
+      public: testPort,
+      private: testPort,
       ttl: 0,
       description: 'Flux_UPNP_Mapping_Test',
     });
@@ -172,7 +167,7 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
   }
   try {
     await client.removeMapping({
-      public: +apiport + 3,
+      public: testPort,
     });
   } catch (error) {
     log.error(error);
@@ -187,32 +182,31 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
 
 /**
  * To set up UPnP (Universal Plug and Play) support.
- * @param {number} apiport Port number.
  * @returns {Promise<boolean>} True if port mappings can be set. Otherwise false.
  */
-async function setupUPNP(apiport = config.server.apiport) {
+async function setupUPNP() {
   try {
     await client.createMapping({
-      public: +apiport,
-      private: +apiport,
-      ttl: 0, // Some routers force low ttl if 0, indefinite/default is used. Flux refreshes this every 6 blocks ~ 12 minutes
-      description: 'Flux_Backend_API',
-    });
-    await client.createMapping({
-      public: +apiport + 1,
-      private: +apiport + 1,
-      ttl: 0, // Some routers force low ttl if 0, indefinite/default is used. Flux refreshes this every 6 blocks ~ 12 minutes
-      description: 'Flux_Backend_API_SSL',
-    });
-    await client.createMapping({
-      public: +apiport - 1,
-      private: +apiport - 1,
+      public: userconfig.computed.homePort,
+      private: userconfig.computed.homePort,
       ttl: 0,
       description: 'Flux_Home_UI',
     });
     await client.createMapping({
-      public: +apiport + 2,
-      private: +apiport + 2,
+      public: userconfig.computed.apiPort,
+      private: userconfig.computed.apiPort,
+      ttl: 0, // Some routers force low ttl if 0, indefinite/default is used. Flux refreshes this every 6 blocks ~ 12 minutes
+      description: 'Flux_Backend_API',
+    });
+    await client.createMapping({
+      public: userconfig.computed.apiPortSsl,
+      private: userconfig.computed.apiPortSsl,
+      ttl: 0, // Some routers force low ttl if 0, indefinite/default is used. Flux refreshes this every 6 blocks ~ 12 minutes
+      description: 'Flux_Backend_API_SSL',
+    });
+    await client.createMapping({
+      public: userconfig.computed.syncthingPort,
+      private: userconfig.computed.syncthingPort,
       ttl: 0,
       description: 'Flux_Syncthing',
     });

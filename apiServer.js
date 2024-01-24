@@ -16,11 +16,25 @@ const serviceManager = require('./ZelBack/src/services/serviceManager');
 const upnpService = require('./ZelBack/src/services/upnpService');
 const hash = require('object-hash');
 const { watch } = require('fs/promises');
-const { startGossipServer, getApiPort } = require('./ZelBack/src/services/fluxportControllerService');
+const { startGossipServer, getApiPort, getRouterIp } = require('./ZelBack/src/services/fluxportControllerService');
 
 const cmdAsync = util.promisify(nodecmd.get);
 
 let initialHash = hash(fs.readFileSync(path.join(__dirname, '/config/userconfig.js')));
+
+function validIpv4Address(ip) {
+  const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
+  if (ipv4Regex.test(ip)) {
+    const parts = ip.split('.');
+    for (const part of parts) {
+      if (parseInt(part) > 255) {
+        return false;
+      }
+    }
+    return true;
+  }
+  return false;
+}
 
 function validateTags() {
   const tags = userconfig.initial.tags || {};
@@ -47,29 +61,28 @@ async function SetupPortsUpnpAndComputed() {
   userconfig.computed = {};
 
   const tags = validateTags();
-
   const autoUpnp = userconfig.initial.upnp || false;
-  const homeDirPath = path.join(__dirname, '../');
 
+  const homeDirPath = path.join(__dirname, '../');
   const newBenchmarkPath = path.join(homeDirPath, '.fluxbenchmark');
   const oldBenchmarkPath = path.join(homeDirPath, '.zelbenchmark');
   const isNewBenchPath = fs.existsSync(newBenchmarkPath);
-
   const benchmarkPath = isNewBenchPath ? newBenchmarkPath : oldBenchmarkPath;
   const benchmarkFile = isNewBenchPath ? 'fluxbench.conf' : 'zelbench.conf';
   const benchmarkConfigFilePath = path.join(benchmarkPath, benchmarkFile);
 
   userconfig.computed.benchmarkConfigFilePath = benchmarkConfigFilePath;
   userconfig.computed.benchmarkPath = benchmarkPath;
+  userconfig.computed.isNewBenchPath = isNewBenchPath;
+
   userconfig.computed.homeDirPath = homeDirPath;
   userconfig.computed.appRootPath = __dirname;
-  userconfig.computed.isNewBenchPath = isNewBenchPath;
 
   userconfig.computed.tags = tags;
 
-  apiPort = await waitForApiPort(autoUpnp);
+  const [apiPort, routerIp] = await waitForApiPortAndRouterIp(autoUpnp);
 
-  if (!config.server.allowedPorts.includes(+apiPort)) {
+  if (!config.server.allowedPorts.includes(apiPort)) {
     log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
     process.exit();
   }
@@ -79,38 +92,56 @@ async function SetupPortsUpnpAndComputed() {
   userconfig.computed.apiPortSsl = apiPort + 1;
   userconfig.computed.syncthingPort = apiPort + 2;
 
+  userconfig.computed.routerIp = routerIp;
+
   await loadUpnpIfRequired(autoUpnp);
 }
 
-async function waitForApiPort(autoUpnp) {
+async function waitForApiPortAndRouterIp(autoUpnp) {
   if (!autoUpnp) {
     // if initial is undefined or empty string, user server.apiport
-    return +userconfig.initial.apiport || +config.server.apiport;
+    const apiPort = +userconfig.initial.apiport || +config.server.apiport;
+    const routerIp = userconfig.initial.routerIP;
+    if (routerIp && !validIpv4Address(routerIp)) {
+      log.error(`Router IP: ${routerIp} must be a valid ipv4 address`);
+      process.exit();
+    }
+    return [apiPort, routerIp];
   }
 
   if (await startGossipServer()) {
-    return await getApiPort();
+    const apiPort = getApiPort();
+    const routerIp = getRouterIp();
+    return await Promise.all([apiPort, routerIp])
   }
-  log.error('Error starting GossipServer for autoUPnP. Shutting down');
+
+  log.error('Error starting GossipServer for autoUPnP. Unable to get collateral ' +
+    'information, or unable to adjust firewall. Shutting down');
   process.exit();
 }
 
 async function loadUpnpIfRequired(autoUpnp) {
   let verifyUpnp = false;
   let setupUpnp = false;
+
+  const upnpRequested = autoUpnp
+    || userconfig.initial.routerIP
+    || (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport);
+
   if (autoUpnp || userconfig.initial.apiport) {
-    verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
+    verifyUpnp = await upnpService.verifyUPNPsupport();
     if (verifyUpnp) {
-      setupUpnp = await upnpService.setupUPNP(apiPort);
+      setupUpnp = await upnpService.setupUPNP();
     }
   }
-  if (autoUpnp || userconfig.initial.routerIP || (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport)) {
+
+  if (upnpRequested) {
     if (verifyUpnp !== true) {
-      log.error(`Flux port ${apiPort} specified but UPnP failed to verify support. Shutting down.`);
+      log.error(`Flux port ${userconfig.computed.apiPort} specified but UPnP failed to verify support. Shutting down.`);
       process.exit();
     }
     if (setupUpnp !== true) {
-      log.error(`Flux port ${apiPort} specified but UPnP failed to map to api or home port. Shutting down.`);
+      log.error(`Flux port ${userconfig.computed.apiPort} specified but UPnP failed to map to api or home port. Shutting down.`);
       process.exit();
     }
   }
@@ -150,6 +181,7 @@ async function initiate() {
     configReload();
   }, 2 * 1000);
 
+  const { apiPort } = userconfig.computed;
   const server = app.listen(apiPort, () => {
     log.info(`Flux listening on port ${apiPort}!`);
     serviceManager.startFluxFunctions();
