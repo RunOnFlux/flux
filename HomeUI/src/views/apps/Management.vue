@@ -3546,10 +3546,7 @@
             >
               <b-card title="Sign with">
                 <div class="loginRow">
-                  <a
-                    :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue}`"
-                    @click="initiateSignWSUpdate"
-                  >
+                  <a @click="initiateSignWSUpdate">
                     <img
                       class="zelidLogin"
                       src="@/assets/images/zelID.svg"
@@ -4726,7 +4723,23 @@ export default {
     goBackToApps() {
       this.$emit('back');
     },
-    initiateSignWSUpdate() {
+    async initiateSignWSUpdate() {
+      if (this.dataToSign.length > 1800) {
+        const message = this.dataToSign;
+        // upload to flux storage
+        const data = {
+          publicid: Math.floor((Math.random() * 999999999999999)).toString(),
+          public: message,
+        };
+        await axios.post(
+          'https://storage.runonflux.io/v1/public',
+          data,
+        );
+        const zelProtocol = `zel:?action=sign&message=FLUX_URL=https://storage.runonflux.io/v1/public/${data.publicid}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${this.callbackValue}`;
+        window.location.href = zelProtocol;
+      } else {
+        window.location.href = `zel:?action=sign&message=${this.dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${this.callbackValue}`;
+      }
       const self = this;
       const { protocol, hostname, port } = window.location;
       let mybackend = '';
