@@ -4921,6 +4921,16 @@ import {
   BTabs,
   BTab,
   BTable,
+  BTd,
+  BTr,
+  BDropdown,
+  BDropdownItem,
+  BFormTag,
+  BFormTags,
+  BIcon,
+  BInputGroup,
+  BInputGroupPrepend,
+  BInputGroupAppend,
   BCol,
   BCard,
   BCardText,
@@ -4932,18 +4942,16 @@ import {
   BFormRadioGroup,
   BFormTextarea,
   BFormGroup,
-  BIcon,
-  BFormTags,
   BFormInput,
   BFormCheckbox,
   BFormSelect,
   BFormSelectOption,
-  BInputGroup,
-  BInputGroupAppend,
   BPagination,
   VBTooltip,
+  BootstrapVueIcons,
 } from 'bootstrap-vue';
 
+import { Vue } from 'vue';
 import VueApexCharts from 'vue-apexcharts';
 import Ripple from 'vue-ripple-directive';
 import { mapState } from 'vuex';
@@ -4964,6 +4972,8 @@ import { WebLinksAddon } from 'xterm-addon-web-links';
 import { Unicode11Addon } from 'xterm-addon-unicode11';
 import { SerializeAddon } from 'xterm-addon-serialize';
 import io from 'socket.io-client';
+
+Vue.use(BootstrapVueIcons);
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
 
@@ -4998,14 +5008,22 @@ export default {
     BTabs,
     BTab,
     BTable,
+    BTd,
+    BTr,
+    BDropdown,
+    BDropdownItem,
+    BFormTag,
+    BFormTags,
+    BIcon,
+    BInputGroup,
+    BInputGroupPrepend,
+    BInputGroupAppend,
     BCol,
     BCard,
     BCardText,
     BCardTitle,
     BCardGroup,
-    BIcon,
     BRow,
-    BFormTags,
     BButton,
     BSpinner,
     BFormRadioGroup,
@@ -5015,8 +5033,6 @@ export default {
     BFormCheckbox,
     BFormSelect,
     BFormSelectOption,
-    BInputGroup,
-    BInputGroupAppend,
     BPagination,
     ConfirmDialog,
     ListEntry,
