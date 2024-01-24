@@ -107,8 +107,8 @@
               :number="callResponse.data.height + (callResponse.data.expire || 22000)"
             />
             <list-entry
-              title="Period"
-              :data="getExpireLabel || (callResponse.data.expire ? `${callResponse.data.expire} blocks` : '1 month')"
+              title="Expires in"
+              :data="getNewExpireLabel"
             />
             <list-entry
               title="Enterprise Nodes"
@@ -392,8 +392,8 @@
               :number="callBResponse.data.height + (callBResponse.data.expire || 22000)"
             />
             <list-entry
-              title="Period"
-              :data="getExpireLabel || (callBResponse.data.expire ? `${callBResponse.data.expire} blocks` : '1 month')"
+              title="Expires in"
+              :data="getNewExpireLabel"
             />
             <list-entry
               title="Enterprise Nodes"
@@ -1510,8 +1510,8 @@
               :number="callBResponse.data.height + (callBResponse.data.expire || 22000)"
             />
             <list-entry
-              title="Period"
-              :data="getExpireLabel || (callBResponse.data.expire ? `${callBResponse.data.expire} blocks` : '1 month')"
+              title="Expires in"
+              :data="getNewExpireLabel"
             />
             <list-entry
               title="Enterprise Nodes"
@@ -2336,13 +2336,40 @@
                   />
                 </b-form-group>
                 <br>
-                <b-form-group
+                <div
                   v-if="appUpdateSpecification.version >= 6"
-                  label-cols="2"
-                  label-cols-lg="1"
-                  label="Period"
-                  label-for="period"
+                  class="form-row form-group"
                 >
+                  <label class="col-form-label">
+                    Extend Subscription
+                    <v-icon
+                      v-b-tooltip.hover.top="'Select if you want to extend your subscription period'"
+                      name="info-circle"
+                      class="mr-1"
+                    />
+                  </label>
+                  <div class="col">
+                    <b-form-checkbox
+                      id="extendSubscription"
+                      v-model="extendSubscription"
+                      switch
+                      class="custom-control-primary inline"
+                    />
+                  </div>
+                </div>
+                <br>
+                <div
+                  v-if="extendSubscription"
+                  class="form-row form-group"
+                >
+                  <label class="col-form-label">
+                    Period
+                    <v-icon
+                      v-b-tooltip.hover.top="'Time you want to extend your subscription from today'"
+                      name="info-circle"
+                      class="mr-1"
+                    />
+                  </label>
                   <div class="mx-1">
                     {{ getExpireLabel || (appUpdateSpecification.expire ? `${appUpdateSpecification.expire} blocks` : '1 month') }}
                   </div>
@@ -2355,7 +2382,7 @@
                     :max="5"
                     :step="1"
                   />
-                </b-form-group>
+                </div>
                 <br>
                 <div
                   v-if="appUpdateSpecification.version >= 7"
@@ -4102,7 +4129,10 @@ export default {
       numberOfNegativeGeolocations: 1,
       minExpire: 5000,
       maxExpire: 264000,
+      extendSubscription: false,
+      daemonBlockCount: -1,
       expirePosition: 2,
+      minutesRemaining: 0,
       expireOptions: [
         {
           value: 5000,
@@ -4380,6 +4410,34 @@ export default {
       }
       return null;
     },
+    minutesToString() {
+      let value = this.minutesRemaining * 60;
+      const units = {
+        day: 24 * 60 * 60,
+        hour: 60 * 60,
+        minute: 60,
+        second: 1,
+      };
+      const result = [];
+      // eslint-disable-next-line no-restricted-syntax, guard-for-in
+      for (const name in units) {
+        const p = Math.floor(value / units[name]);
+        if (p === 1) result.push(` ${p} ${name}`);
+        if (p >= 2) result.push(` ${p} ${name}s`);
+        value %= units[name];
+      }
+      return result;
+    },
+    getNewExpireLabel() {
+      if (this.daemonBlockCount === -1) {
+        return 'Not possible to calculate expiration';
+      }
+      const expires = this.callBResponse.data.expire || 22000;
+      // eslint-disable-next-line vue/no-side-effects-in-computed-properties
+      this.minutesRemaining = (this.callBResponse.data.height + expires - this.daemonBlockCount) * 2;
+      const result = this.minutesToString;
+      return `${result[0]}, ${result[1]}, ${result[2]}`;
+    },
   },
   watch: {
     isComposeSingle(value) {
@@ -4463,6 +4521,7 @@ export default {
     this.getMarketPlace();
     this.getMultiplier();
     this.getEnterpriseNodes();
+    this.getDaemonBlockCount();
   },
   methods: {
     async initMMSDK() {
@@ -4950,6 +5009,15 @@ export default {
       }
     },
     convertExpire() {
+      if (!this.extendSubscription) {
+        const expires = this.callBResponse.data.expire || 22000;
+        const blocksToExpire = this.callBResponse.data.height + expires - this.daemonBlockCount;
+        if (blocksToExpire < 5000) {
+          throw new Error('your app will expire in less than one week, you need to extend subscription to be able to update specifications');
+        } else {
+          return Math.ceil(blocksToExpire / 1000) * 1000;
+        }
+      }
       if (this.expireOptions[this.expirePosition]) {
         return this.expireOptions[this.expirePosition].value;
       }
@@ -5042,6 +5110,7 @@ export default {
           appSpecification.geolocation = this.generateGeolocations();
         }
         if (appSpecification.version >= 6) {
+          await this.getDaemonBlockCount();
           appSpecification.expire = this.convertExpire();
         }
         // call api for verification of app registration specifications that returns formatted specs
@@ -6339,6 +6408,12 @@ export default {
         }
       } catch (error) {
         console.log(error);
+      }
+    },
+    async getDaemonBlockCount() {
+      const response = await DaemonService.getBlockCount();
+      if (response.data.status === 'success') {
+        this.daemonBlockCount = response.data.data;
       }
     },
     async fetchEnterpriseKey(nodeip) { // we must have at least +5 nodes or up to 10% of spare keys

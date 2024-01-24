@@ -1511,51 +1511,32 @@ export default {
     this.getDaemonBlockCount();
   },
   methods: {
-    labelForExpire(expire, height) {
-      let label = '';
-      const expires = expire || 22000;
-      const blocksRemaining = height + expires - this.daemonBlockCount;
-      console.log(this.daemonBlockCount);
-      console.log(height);
-      console.log(expires);
-      if (blocksRemaining === -1) {
-        label = 'Not possible to calculate expiration';
-      } else if (blocksRemaining < 0) {
-        label = 'Already expired';
-      } else if (blocksRemaining < 720) {
-        label = 'Less than 24 hours';
-      } else if (blocksRemaining < 5000) {
-        label = 'Less than one week';
-      } else if (blocksRemaining < 11000) {
-        label = 'Less than two weeks';
-      } else if (blocksRemaining < 22000) {
-        label = 'Less than one month';
-      } else if (blocksRemaining >= 22000 && blocksRemaining < 44000) {
-        label = 'Over one month';
-      } else if (blocksRemaining >= 44000 && blocksRemaining < 66000) {
-        label = 'Over two months';
-      } else if (blocksRemaining >= 66000 && blocksRemaining < 88000) {
-        label = 'Over three months';
-      } else if (blocksRemaining >= 88000 && blocksRemaining < 100000) {
-        label = 'Over four months';
-      } else if (blocksRemaining >= 110000 && blocksRemaining < 132000) {
-        label = 'Over five months';
-      } else if (blocksRemaining >= 132000 && blocksRemaining < 154000) {
-        label = 'Over six months';
-      } else if (blocksRemaining >= 154000 && blocksRemaining < 176000) {
-        label = 'Over seven months';
-      } else if (blocksRemaining >= 176000 && blocksRemaining < 198000) {
-        label = 'Over oight months';
-      } else if (blocksRemaining >= 198000 && blocksRemaining < 220000) {
-        label = 'Over nine months';
-      } else if (blocksRemaining >= 220000 && blocksRemaining < 244000) {
-        label = 'Over ten months';
-      } else if (blocksRemaining >= 244000 && blocksRemaining < 264000) {
-        label = 'Over eleven months';
-      } else if (blocksRemaining === 264000) {
-        label = 'Twelve months';
+    minutesToString(minutes) {
+      let value = minutes * 60;
+      const units = {
+        day: 24 * 60 * 60,
+        hour: 60 * 60,
+        minute: 60,
+        second: 1,
+      };
+      const result = [];
+      // eslint-disable-next-line no-restricted-syntax, guard-for-in
+      for (const name in units) {
+        const p = Math.floor(value / units[name]);
+        if (p === 1) result.push(` ${p} ${name}`);
+        if (p >= 2) result.push(` ${p} ${name}s`);
+        value %= units[name];
       }
-      return label;
+      return result;
+    },
+    labelForExpire(expire, height) {
+      if (this.daemonBlockCount === -1) {
+        return 'Not possible to calculate expiration';
+      }
+      const expires = expire || 22000;
+      const minutesRemaining = (height + expires - this.daemonBlockCount) * 2;
+      const result = this.minutesToString(minutesRemaining);
+      return `${result[0]}, ${result[1]}, ${result[2]}`;
     },
     async getDaemonBlockCount() {
       const response = await DaemonService.getBlockCount();
