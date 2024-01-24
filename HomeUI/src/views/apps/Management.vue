@@ -5013,7 +5013,7 @@ export default {
         const expires = this.callBResponse.data.expire || 22000;
         const blocksToExpire = this.callBResponse.data.height + expires - this.daemonBlockCount;
         if (blocksToExpire < 5000) {
-          throw new Error('your app will expire in less than one week, you need to extend subscription to be able to update specifications');
+          throw new Error('Your application will expire in less than one week, you need to extend subscription to be able to update specifications');
         } else {
           return Math.ceil(blocksToExpire / 1000) * 1000;
         }
