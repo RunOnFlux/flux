@@ -1,4 +1,5 @@
 let { isDevelopment } = require('../../config/userconfig');
+
 isDevelopment = isDevelopment || false;
 
 module.exports = {
