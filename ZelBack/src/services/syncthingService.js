@@ -2164,7 +2164,7 @@ async function adjustSyncthing() {
       }
     }
     // enable gui debugging for development nodes only
-    if (userconfig.computed.development) {
+    if (config.development) {
       const currentGUIOptions = await getConfigGui();
       if (currentGUIOptions.status === 'success') {
         const newGUIOptions = currentGUIOptions.data;
