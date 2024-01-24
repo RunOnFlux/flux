@@ -4975,7 +4975,6 @@ import {
   BootstrapVueIcons,
 } from 'bootstrap-vue';
 
-import { Vue } from 'vue';
 import VueApexCharts from 'vue-apexcharts';
 import Ripple from 'vue-ripple-directive';
 import { mapState } from 'vuex';
@@ -4996,8 +4995,6 @@ import { WebLinksAddon } from 'xterm-addon-web-links';
 import { Unicode11Addon } from 'xterm-addon-unicode11';
 import { SerializeAddon } from 'xterm-addon-serialize';
 import io from 'socket.io-client';
-
-Vue.use(BootstrapVueIcons);
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
 
@@ -5060,6 +5057,8 @@ export default {
     BPagination,
     ConfirmDialog,
     ListEntry,
+    // eslint-disable-next-line vue/no-unused-components
+    BootstrapVueIcons,
     // eslint-disable-next-line vue/no-unused-components
     ToastificationContent,
     // eslint-disable-next-line vue/no-unused-components
