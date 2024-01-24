@@ -1339,7 +1339,7 @@
                     </b-form-tags>
                   </b-form-group>
                 </div>
-                <b-button v-if="components?.length > 1" variant="outline-primary" @click="addAllTags">
+                <b-button v-if="components?.length > 1" class="mr-1" variant="outline-primary" @click="addAllTags">
                   <b-icon scale="0.9" icon="check2-square" class="mr-1" />
                   Select all
                 </b-button>
@@ -1351,9 +1351,9 @@
 
                 <br />
                 <div v-if="backupList?.length > 0">
-                  <div class="mb-2 text-right">
+                  <div class="mb-1 text-right">
                     <!-- Select Dropdown -->
-                    <b-dropdown text="Select">
+                    <b-dropdown class="mr-1" text="Select">
                       <template #button-content>
                         <b-icon scale="0.9" icon="check2-square" class="mr-1" />
                         Select
@@ -1369,7 +1369,7 @@
                     </b-dropdown>
 
                     <!-- Download Dropdown -->
-                    <b-dropdown text="Download" variant="primary">
+                    <b-dropdown class="mr-1" text="Download" variant="primary">
                       <template #button-content>
                         <b-icon scale="0.9" icon="download" class="mr-1" />
                         Download
@@ -1410,7 +1410,7 @@
                   >
                     <template #thead-top>
                       <b-tr>
-                        <b-td colspan="6" variant="secondary" class="text-center">
+                        <b-td colspan="6" class="text-center">
                           <b>
                             Explore Your Local Backup Options (backup will be removed 24 hours after creation)
                           </b>
@@ -4972,7 +4972,6 @@ import {
   BFormSelectOption,
   BPagination,
   VBTooltip,
-  BootstrapVueIcons,
 } from 'bootstrap-vue';
 
 import VueApexCharts from 'vue-apexcharts';
@@ -5057,8 +5056,6 @@ export default {
     BPagination,
     ConfirmDialog,
     ListEntry,
-    // eslint-disable-next-line vue/no-unused-components
-    BootstrapVueIcons,
     // eslint-disable-next-line vue/no-unused-components
     ToastificationContent,
     // eslint-disable-next-line vue/no-unused-components
@@ -5736,6 +5733,9 @@ export default {
         this.websocket = null;
       }
     },
+  },
+  created() {
+    this.applyFilter();
   },
   mounted() {
     this.initMMSDK();
