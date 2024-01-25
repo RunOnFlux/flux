@@ -1444,34 +1444,21 @@
                       <div class="d-flex justify-content-center align-items-center">
                         <b-button
                           variant="outline-danger"
-                          class="d-flex justify-content-center align-items-center mr-1"
-                          style="width: 15px; height: 25px"
-
+                          class="custom-button"
                           @click="deleteItem(row.index, backupList)"
                         >
-                          <b-icon
-                            class="d-flex justify-content-center align-items-center"
-                            scale="0.9"
-                            icon="trash"
-                          />
+                          <b-icon class="d-flex justify-content-center align-items-center" scale="0.9" icon="trash" />
                         </b-button>
                         <b-button
                           variant="outline-primary"
-                          class="d-flex justify-content-center align-items-center"
-                          style="width: 15px; height: 25px"
-
+                          class="custom-button"
                           @click="removeAllBackup"
                         >
-                          <b-icon
-                            class="d-flex justify-content-center align-items-center"
-                            scale="1"
-                            icon="cloud-arrow-down"
-                          />
+                          <b-icon class="d-flex justify-content-center align-items-center" scale="1" icon="cloud-arrow-down" />
                         </b-button>
                       </div>
                     </template>
                   </b-table>
-
                   <div v-if="backupToUpload.length > 0" class="mt-2">
                     <div
                       class="mb-2 mt-2"
@@ -7829,6 +7816,11 @@ export default {
 </script>
 
 <style>
+.custom-button {
+  width: 15px;
+  height: 25px;
+  overflow: hidden;
+}
 .button-cell {
   display: flex;
   align-items: center;
