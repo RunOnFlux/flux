@@ -1454,7 +1454,7 @@
                           class="d-flex justify-content-center align-items-center custom-button"
                           @click="addAllBackupComponents(row.item.timestamp)"
                         >
-                          <b-icon class="d-flex justify-content-center align-items-center" scale="0.9" icon="save" />
+                          <b-icon class="d-flex justify-content-center align-items-center" scale="1" icon="cloud-arrow-down" />
                         </b-button>
                       </div>
                     </template>
