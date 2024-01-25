@@ -54,6 +54,9 @@ export default {
       },
     });
   },
+  getBlockCount() {
+    return Api().get('/daemon/getBlockCount');
+  },
   getBlockchainInfo() {
     return Api().get('/daemon/getblockchaininfo');
   },

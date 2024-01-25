@@ -575,7 +575,7 @@ export default {
     };
 
     const initiateSignWS = async () => {
-      if (dataToSign.value.length > 1800) {
+      if (dataToSign.value.length > 180000) {
         const message = dataToSign.value;
         // upload to flux storage
         const data = {
