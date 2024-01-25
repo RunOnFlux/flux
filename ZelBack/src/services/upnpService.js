@@ -7,7 +7,7 @@ const util = require('util');
 
 const log = require('../lib/log');
 
-const client = new natUpnp.Client();
+const client = new natUpnp.Client({ cacheGateway: true });
 
 let upnpMachine = false;
 
