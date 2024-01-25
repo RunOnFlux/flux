@@ -2047,7 +2047,7 @@
                           <b-button
                             variant="danger"
                             class="d-flex justify-content-center align-items-center"
-                            style="width: 15px; height: 25px"
+                            style="width: 95px; height: 25px"
 
                             @click="deleteItem(row.index, newComponents)"
                           >
@@ -5441,7 +5441,9 @@ export default {
         { key: 'component_name', label: 'Component Name', thStyle: { width: '30%' } },
         { key: 'file_url', label: 'File URL', thStyle: { width: '55%' } },
         { key: 'file_size', label: 'File Size', thStyle: { width: '10%' } },
-        { key: 'actions', label: 'Actions', thStyle: { width: '5%' } },
+        {
+          key: 'actions', label: 'Actions', thStyle: { width: '5%' }, class: 'text-center',
+        },
       ];
     },
     // eslint-disable-next-line vue/no-dupe-keys
