@@ -1444,17 +1444,17 @@
                       <div class="d-flex justify-content-center align-items-center">
                         <b-button
                           variant="outline-danger"
-                          class="custom-button"
-                          @click="deleteItem(row.index, backupList)"
+                          class="d-flex justify-content-center align-items-center mr-1 custom-button"
+                          @click="deleteRestoreBackup(row.item.component_name, checkpoints, row.item.timestamp)"
                         >
                           <b-icon class="d-flex justify-content-center align-items-center" scale="0.9" icon="trash" />
                         </b-button>
                         <b-button
                           variant="outline-primary"
-                          class="custom-button"
-                          @click="removeAllBackup"
+                          class="d-flex justify-content-center align-items-center custom-button"
+                          @click="addAllBackupComponents(row.item.timestamp)"
                         >
-                          <b-icon class="d-flex justify-content-center align-items-center" scale="1" icon="cloud-arrow-down" />
+                          <b-icon class="d-flex justify-content-center align-items-center" scale="0.9" icon="save" />
                         </b-button>
                       </div>
                     </template>
@@ -7817,9 +7817,8 @@ export default {
 
 <style>
 .custom-button {
-  width: 15px;
-  height: 25px;
-  overflow: hidden;
+  width: 15px !important;
+  height: 25px !important;
 }
 .button-cell {
   display: flex;
