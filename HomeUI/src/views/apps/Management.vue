@@ -5750,6 +5750,7 @@ export default {
           row._showDetails = true;
         });
       });
+      console.log(this.appSpecification.compose);
       this.components = this.appSpecification.compose.map((container) => container.name);
     },
     onFilteredBackup(filteredItems) {
@@ -6040,10 +6041,12 @@ export default {
       if (index !== 10) {
         this.disconnectTerminal();
       }
+
       switch (index) {
         case 1:
           this.getInstalledApplicationSpecifics();
           this.getGlobalApplicationSpecifics();
+          this.applyFilter();
           break;
         case 2:
           this.getApplicationInspect();
