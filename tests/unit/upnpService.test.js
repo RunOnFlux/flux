@@ -20,7 +20,6 @@ const generateResponse = () => {
   return res;
 };
 
-
 describe('upnpService tests', () => {
   describe('verifyUPNPsupport tests', () => {
     let logSpy;
@@ -33,9 +32,9 @@ describe('upnpService tests', () => {
           homePort: 16136,
           apiPort: 16137,
           apiPortSsl: 16138,
-          syncthingPort: 16139
-        }
-      }
+          syncthingPort: 16139,
+        },
+      };
     });
 
     afterEach(() => {
@@ -139,9 +138,9 @@ describe('upnpService tests', () => {
           homePort: 122,
           apiPort: 123,
           apiPortSsl: 124,
-          syncthingPort: 125
-        }
-      }
+          syncthingPort: 125,
+        },
+      };
     });
 
     afterEach(() => {
