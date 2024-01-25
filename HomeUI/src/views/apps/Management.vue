@@ -1396,13 +1396,14 @@
                     class="mb-0"
                     :items="backupList"
                     :fields="[...localBackupTableFields, {
-                      key: 'actions', label: 'Actions', thStyle: { width: '6%' }, class: 'text-center',
+                      key: 'actions', label: 'Actions', thStyle: { width: '5%' }, class: 'text-center',
                     }]"
                     stacked="md"
                     show-empty
                     bordered
                     select-mode="multi"
                     selectable
+                    selected-variant="primary"
                     hover
                     small
                     @row-selected="onRowSelected"
@@ -1502,7 +1503,7 @@
                               :src="option.image"
                               alt="Image"
                               class="img-fluid"
-                              style="width: 130px; height: 35px; margin-right: 5px;"
+                              style="width: 120px; height: 30px; margin-right: 5px;"
                             />
                             <div
                               v-if="option.text"
@@ -1516,7 +1517,6 @@
                                 text-align: center;
                                 color: black;
                                 background: rgba(255, 255, 255, 0.5);
-                                padding: 5px;
                                 font-weight: bold;
                               "
                             >
@@ -1528,7 +1528,7 @@
                     </b-form-group>
                     <div v-if="selectedStorageMethod === 'flux'">
                       <b-card
-                        v-if="sigInPrivilage === false"
+                        v-if="sigInPrivilage === true"
                         class="mb-3 justify-content-center align-items-center"
                       >
                         <b-card-text>
@@ -2014,7 +2014,6 @@
                       show-empty
                       bordered
                       hover
-                      head-variant="dark"
                       small
                     >
                       <template #thead-top>
