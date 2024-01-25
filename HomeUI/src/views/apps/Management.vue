@@ -1967,7 +1967,7 @@
                               class="d-flex justify-content-center align-items-center"
                               style="
                           margin: auto;
-                          width: 15px;
+                          width: 95px;
                           height: 25px;
                           display: flex;
                         "
@@ -7825,7 +7825,6 @@ export default {
   align-items: center;
   min-width: 150px;
 }
-
 .xterm {
   padding: 10px;
 }
