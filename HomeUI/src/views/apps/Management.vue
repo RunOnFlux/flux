@@ -4129,7 +4129,7 @@ export default {
       numberOfNegativeGeolocations: 1,
       minExpire: 5000,
       maxExpire: 264000,
-      extendSubscription: false,
+      extendSubscription: true,
       daemonBlockCount: -1,
       expirePosition: 2,
       minutesRemaining: 0,
