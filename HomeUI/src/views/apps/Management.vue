@@ -1450,9 +1450,14 @@
 
 =======
                           variant="outline-danger"
+<<<<<<< HEAD
                           class="custom-button"
 >>>>>>> cff33231 (added custom-butto and build UI)
                           @click="deleteItem(row.index, backupList)"
+=======
+                          class="d-flex justify-content-center align-items-center mr-1 custom-button"
+                          @click="deleteRestoreBackup(row.item.component_name, checkpoints, row.item.timestamp)"
+>>>>>>> af0f5154 (Build UI)
                         >
                           <b-icon class="d-flex justify-content-center align-items-center" scale="0.9" icon="trash" />
                         </b-button>
@@ -1464,11 +1469,16 @@
 
 =======
                           variant="outline-primary"
+<<<<<<< HEAD
                           class="custom-button"
 >>>>>>> cff33231 (added custom-butto and build UI)
                           @click="removeAllBackup"
+=======
+                          class="d-flex justify-content-center align-items-center custom-button"
+                          @click="addAllBackupComponents(row.item.timestamp)"
+>>>>>>> af0f5154 (Build UI)
                         >
-                          <b-icon class="d-flex justify-content-center align-items-center" scale="1" icon="cloud-arrow-down" />
+                          <b-icon class="d-flex justify-content-center align-items-center" scale="0.9" icon="save" />
                         </b-button>
                       </div>
                     </template>
@@ -7943,9 +7953,8 @@ export default {
 
 <style>
 .custom-button {
-  width: 15px;
-  height: 25px;
-  overflow: hidden;
+  width: 15px !important;
+  height: 25px !important;
 }
 .button-cell {
   display: flex;
