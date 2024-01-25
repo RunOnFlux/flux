@@ -5661,9 +5661,6 @@ export default {
       }
     },
   },
-  created() {
-    this.applyFilter();
-  },
   mounted() {
     this.initMMSDK();
     this.callBResponse.data = '';
@@ -5686,6 +5683,7 @@ export default {
     this.getMarketPlace();
     this.getMultiplier();
     this.getEnterpriseNodes();
+    this.applyFilter();
   },
   methods: {
     removeAllBackup() {
