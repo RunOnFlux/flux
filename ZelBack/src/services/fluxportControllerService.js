@@ -2,8 +2,9 @@ const path = require('node:path');
 const { writeFile, readFile } = require('node:fs/promises');
 
 const log = require('../lib/log');
-const { obtainNodeCollateralInformation } = require('./generalService');
-const { ufwAllowSsdpforInit, ufwRemoveAllowSsdpforInit, cleanOldMappings } = require('./upnpService');
+const generalService = require('./generalService');
+const upnpService = require('./upnpService');
+
 const { FluxGossipServer, logController: fpcLogController } = require('@megachips/fluxport-controller');
 const { executeCall: executeBenchmarkCall } = require('./benchmarkService');
 
@@ -32,8 +33,13 @@ function getRouterIp() {
   });
 }
 
+function stopGossipServer() {
+  gossipServer.stop();
+  gossipServer = null;
+}
+
 async function startGossipServer() {
-  if (gossipServer) return true;
+  if (gossipServer) return gossipServer;
 
   log.info('Starting GossipServer');
 
@@ -42,17 +48,17 @@ async function startGossipServer() {
 
   try {
     // this is reliant on fluxd running
-    const res = await obtainNodeCollateralInformation();
+    const res = await generalService.obtainNodeCollateralInformation();
     // const res = { txhash: "txtest", txindex: 0 }
     outPoint = { txhash: res.txhash, outidx: res.txindex };
   } catch {
     log.error('Error getting collateral info from daemon.');
-    return false;
+    return null;
   }
 
-  if (!(await ufwAllowSsdpforInit())) {
+  if (!(await upnpService.ufwAllowSsdpforInit())) {
     log.error('Error adjusting firewallfor SSDP.');
-    return false;
+    return null;
   }
 
   // Using the port 16197 is fine here, even if in use. Flux uses TCP
@@ -83,9 +89,9 @@ async function startGossipServer() {
   gossipServer.on('routerIpConfirmed', async (ip) => {
     if (ip && ip !== routerIp) {
       log.info(`Gossip server got new routerIp: ${ip}, updating`);
-      await ufwRemoveAllowSsdpforInit();
+      await upnpService.ufwRemoveAllowSsdpforInit();
       // This is just good hygiene
-      await cleanOldMappings(ip);
+      await upnpService.cleanOldMappings(ip);
       routerIp = ip;
     }
   });
@@ -96,11 +102,17 @@ async function startGossipServer() {
   });
 
   gossipServer.start();
-  return true;
+  return gossipServer;
+}
+
+function getGossipServer() {
+  return gossipServer;
 }
 
 module.exports = {
   getApiPort,
-  startGossipServer,
   getRouterIp,
+  startGossipServer,
+  stopGossipServer,
+  getGossipServer,
 };

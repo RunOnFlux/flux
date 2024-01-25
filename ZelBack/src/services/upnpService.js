@@ -276,10 +276,10 @@ async function cleanOldMappings(ip) {
   // await in loop so we can bail early if we get an error
   // eslint-disable-next-line no-restricted-syntax
   for (const mapping of mappings) {
-    if (mapping.private === ip) {
+    if (mapping.private.host === ip) {
       try {
         // eslint-disable-next-line no-await-in-loop
-        await client.removeMapping(mapping.public, mapping.protocol);
+        await client.removeMapping(mapping.public.port, mapping.protocol);
       } catch (error) {
         log.error(error);
         return;
