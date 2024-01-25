@@ -1443,35 +1443,36 @@
                     <template #cell(actions)="row">
                       <div class="d-flex justify-content-center align-items-center">
                         <b-button
+<<<<<<< HEAD
                           variant="danger"
                           class="d-flex justify-content-center align-items-center mr-1"
                           style="width: 15px; height: 25px"
 
+=======
+                          variant="outline-danger"
+                          class="custom-button"
+>>>>>>> cff33231 (added custom-butto and build UI)
                           @click="deleteItem(row.index, backupList)"
                         >
-                          <b-icon
-                            class="d-flex justify-content-center align-items-center"
-                            scale="0.9"
-                            icon="trash"
-                          />
+                          <b-icon class="d-flex justify-content-center align-items-center" scale="0.9" icon="trash" />
                         </b-button>
                         <b-button
+<<<<<<< HEAD
                           variant="primary"
                           class="d-flex justify-content-center align-items-center"
                           style="width: 15px; height: 25px"
 
+=======
+                          variant="outline-primary"
+                          class="custom-button"
+>>>>>>> cff33231 (added custom-butto and build UI)
                           @click="removeAllBackup"
                         >
-                          <b-icon
-                            class="d-flex justify-content-center align-items-center"
-                            scale="1"
-                            icon="cloud-arrow-down"
-                          />
+                          <b-icon class="d-flex justify-content-center align-items-center" scale="1" icon="cloud-arrow-down" />
                         </b-button>
                       </div>
                     </template>
                   </b-table>
-
                   <div v-if="backupToUpload.length > 0" class="mt-2">
                     <div
                       class="mb-2 mt-2"
@@ -7941,6 +7942,11 @@ export default {
 </script>
 
 <style>
+.custom-button {
+  width: 15px;
+  height: 25px;
+  overflow: hidden;
+}
 .button-cell {
   display: flex;
   align-items: center;
