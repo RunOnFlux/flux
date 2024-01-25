@@ -1403,7 +1403,7 @@
                     bordered
                     select-mode="multi"
                     selectable
-                    selected-variant="primary"
+                    selected-variant="dark"
                     hover
                     small
                     @row-selected="onRowSelected"
@@ -1529,27 +1529,27 @@
                     <div v-if="selectedStorageMethod === 'flux'">
                       <b-card
                         v-if="sigInPrivilage === true"
-                        class="mb-3 justify-content-center align-items-center"
+                        class="mb-2 justify-content-center align-items-center"
                       >
                         <b-card-text>
                           <div
                             style="
-                      max-width: 500px;
-                      margin: 0 auto;
-                      padding: 10px;
-                      border: 1px solid #eaeaea;
-                      border-radius: 8px;
-                      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-
-                      text-align: center;
-                    "
+                              max-width: 500px;
+                              margin: 0 auto;
+                              padding: 10px;
+                              border: 1px solid #eaeaea;
+                              border-radius: 8px;
+                              box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                              text-align: center;
+                              background-color: #333; /* Set background color for dark theme */
+                              color: #; /* Set text color for dark theme */
+                            "
                           >
                             <h5
-                              style="color: #333; font-size: 16px; margin-bottom: 5px"
+                              style="font-size: 16px; margin-bottom: 5px;"
                             >
-                              Sig in to enable FluxDrive functionality
+                              Sign in to enable FluxDrive functionality
                             </h5>
-                            <!-- Your sign-in form and activation components go here -->
                           </div>
                         </b-card-text>
 
@@ -1677,7 +1677,7 @@
                         </dl>
                       </b-card>
                       <b-button
-                        v-if="sigInPrivilage === true"
+                        v-if="sigInPrivilage === false"
                         variant="outline-primary"
                         class="mt-1 w-100"
                         @click="removeAllBackup"
