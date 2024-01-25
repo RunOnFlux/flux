@@ -1290,7 +1290,7 @@
             <b-tabs pills card>
               <b-tab title="Backup">
                 <div class="mb-2" style="border: 1px solid #ccc; padding: 10px">
-                  <b-icon class="mr-2" scale="1.2" icon="back" />
+                  <b-icon class="mr-1" scale="1.2" icon="back" />
                   Immediate Backup
                 </div>
 
@@ -1353,7 +1353,7 @@
                 <div v-if="backupList?.length > 0">
                   <div class="mb-1 text-right">
                     <!-- Select Dropdown -->
-                    <b-dropdown class="mr-1" text="Select">
+                    <b-dropdown class="mr-1" text="Select" variant="outline-primary">
                       <template #button-content>
                         <b-icon scale="0.9" icon="check2-square" class="mr-1" />
                         Select
@@ -1369,7 +1369,7 @@
                     </b-dropdown>
 
                     <!-- Download Dropdown -->
-                    <b-dropdown class="mr-1" text="Download" variant="primary">
+                    <b-dropdown class="mr-1" text="Download" variant="outline-primary">
                       <template #button-content>
                         <b-icon scale="0.9" icon="download" class="mr-1" />
                         Download
@@ -1385,7 +1385,7 @@
                     </b-dropdown>
 
                     <!-- Remove Button -->
-                    <b-button variant="danger" @click="removeAllBackup">
+                    <b-button variant="outline-danger" @click="removeAllBackup">
                       <b-icon scale="0.9" icon="trash" class="mr-1" />
                       Remove all
                     </b-button>
@@ -1443,7 +1443,7 @@
                     <template #cell(actions)="row">
                       <div class="d-flex justify-content-center align-items-center">
                         <b-button
-                          variant="danger"
+                          variant="outline-danger"
                           class="d-flex justify-content-center align-items-center mr-1"
                           style="width: 15px; height: 25px"
 
@@ -1456,7 +1456,7 @@
                           />
                         </b-button>
                         <b-button
-                          variant="primary"
+                          variant="outline-primary"
                           class="d-flex justify-content-center align-items-center"
                           style="width: 15px; height: 25px"
 
@@ -1515,7 +1515,6 @@
                                 width: 100%;
                                 height: 100%;
                                 text-align: center;
-                                color: black;
                                 background: rgba(255, 255, 255, 0.5);
                                 padding: 5px;
                                 font-weight: bold;
@@ -1686,7 +1685,7 @@
                         <b-icon
                           scale="1.5"
                           icon="cloud-arrow-up"
-                          class="mr-2"
+                          class="mr-1"
                         />
                         Export
                       </b-button>
@@ -1701,7 +1700,7 @@
                         <b-icon
                           scale="1.5"
                           icon="cloud-arrow-up"
-                          class="mr-2"
+                          class="mr-1"
                         />
                         Export
                       </b-button>
@@ -1711,7 +1710,7 @@
               </b-tab>
               <b-tab title="Restore">
                 <div class="mb-2" style="border: 1px solid #ccc; padding: 10px">
-                  <b-icon class="mr-2" scale="1.2" icon="cloud-download" />
+                  <b-icon class="mr-1" scale="1.2" icon="cloud-download" />
                   Select restore method
                 </div>
 
@@ -1752,7 +1751,6 @@
                     border: 1px solid #eaeaea;
                     border-radius: 8px;
                     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-
                     text-align: center;
                   "
                       >
@@ -1930,7 +1928,7 @@
                       <template #cell(actions)="row">
                         <div class="d-flex justify-content-center align-items-center">
                           <b-button
-                            variant="danger"
+                            variant="outline-danger"
                             class="d-flex justify-content-center align-items-center mr-1"
                             style="width: 15px; height: 25px"
 
@@ -1943,7 +1941,7 @@
                             />
                           </b-button>
                           <b-button
-                            variant="primary"
+                            variant="outline-primary"
                             class="d-flex justify-content-center align-items-center"
                             style="width: 15px; height: 25px"
 
@@ -1971,7 +1969,7 @@
                           bordered
                           hover
                           small
-                          head-variant="light"
+                          head-variant="dark"
                           :items="row.item.components.filter(component =>
                             Object.values(component).some(value =>
                               String(value).toLowerCase().includes(nestedTableFilter.toLowerCase()),
@@ -1988,7 +1986,7 @@
                           height: 25px;
                           display: flex;
                         "
-                              variant="primary"
+                              variant="outline-primary"
 
                               @click="addComponent(nestedRow.item, row.item.timestamp)"
                             >
@@ -2033,7 +2031,7 @@
                       <template #cell(actions)="row">
                         <div class="d-flex justify-content-center align-items-center">
                           <b-button
-                            variant="danger"
+                            variant="outline-danger"
                             class="d-flex justify-content-center align-items-center"
                             style="width: 15px; height: 25px"
 
@@ -2069,13 +2067,14 @@
                     </b-table>
                     <b-button
                       v-if="newComponents?.length > 0"
+                      class="mt-2"
                       block
                       variant="outline-primary"
                     >
                       <b-icon
                         icon="arrow-clockwise"
                         scale="1.2"
-                        class="mr-2 mt-2"
+                        class="mr-1"
                       />Restore
                     </b-button>
                   </div>
@@ -2083,7 +2082,7 @@
 
                 <div v-if="selectedRestoreOption === 'Upload File'">
                   <div>
-                    <b-input-group class="mb-3">
+                    <b-input-group class="mb-2">
                       <b-input-group-prepend is-text>
                         <b-icon icon="folder-plus" />
                       </b-input-group-prepend>
@@ -2126,7 +2125,7 @@
                       small
                       hover
                       bordered
-                      head-variant="light"
+                      head-variant="dark"
                       size="sm"
                       :items="items1"
                       :fields="computedRestoreUploadFileFields"
@@ -2160,7 +2159,7 @@
                       <template #cell(actions)="data">
                         <div class="d-flex justify-content-center align-items-center">
                           <b-button
-                            variant="danger"
+                            variant="outline-danger"
                             class="d-flex justify-content-center align-items-center"
                             style="width: 15px; height: 25px"
                             @click="deleteItem(data.index, items1)"
@@ -2199,7 +2198,7 @@
                     block
                     variant="outline-primary"
                   >
-                    <b-icon icon="arrow-clockwise" scale="1.1" class="mr-2" />Restore
+                    <b-icon icon="arrow-clockwise" scale="1.1" class="mr-1 mt-2" />Restore
                   </b-button>
                 </div>
                 <div v-if="selectedRestoreOption === 'Remote URL'">
@@ -2217,7 +2216,7 @@
                         required
                       />
 
-                      <b-input-group-append class="ml-0.5">
+                      <b-input-group-append class="ml-1">
                         <b-form-select
                           v-model="restoreRemoteUrlComponent"
                           :options="components"
@@ -2258,7 +2257,7 @@
                       small
                       hover
                       bordered
-                      head-variant="light"
+                      head-variant="dark"
                       size="sm"
                       :items="restoreRemoteUrlItems"
                       :fields="computedRestoreRemoteURLFields"
@@ -2291,9 +2290,9 @@
                       <template #cell(actions)="data">
                         <div class="d-flex justify-content-center align-items-center">
                           <b-button
-                            variant="danger"
+                            variant="outline-danger"
                             class="d-flex justify-content-center align-items-center"
-                            style="width: 25px; height: 25px"
+                            style="width: 15px; height: 25px"
                             @click="deleteItem(data.index, restoreRemoteUrlItems)"
                           >
                             <b-icon
@@ -2327,11 +2326,11 @@
                   </div>
                   <b-button
                     v-if="restoreRemoteUrlItems?.length > 0"
-                    class="mr-2 mt-2"
+                    class="mt-2"
                     block
                     variant="outline-primary"
                   >
-                    <b-icon icon="arrow-clockwise" scale="1.1" class="mr-2" />Restore
+                    <b-icon icon="arrow-clockwise" scale="1.1" class="mr-1" />Restore
                   </b-button>
                 </div>
               </b-tab>
