@@ -1403,7 +1403,6 @@
                     bordered
                     select-mode="multi"
                     selectable
-                    head-variant="dark"
                     hover
                     small
                     @row-selected="onRowSelected"
@@ -1971,7 +1970,10 @@
                           bordered
                           hover
                           small
+<<<<<<< HEAD
                           head-variant="light"
+=======
+>>>>>>> df119299 (UI correction and build)
                           :items="row.item.components.filter(component =>
                             Object.values(component).some(value =>
                               String(value).toLowerCase().includes(nestedTableFilter.toLowerCase()),
@@ -2126,7 +2128,10 @@
                       small
                       hover
                       bordered
+<<<<<<< HEAD
                       head-variant="light"
+=======
+>>>>>>> df119299 (UI correction and build)
                       size="sm"
                       :items="items1"
                       :fields="computedRestoreUploadFileFields"
@@ -2196,10 +2201,15 @@
                   </div>
                   <b-button
                     v-if="items1?.length > 0"
+                    class="mt-2"
                     block
                     variant="outline-primary"
                   >
+<<<<<<< HEAD
                     <b-icon icon="arrow-clockwise" scale="1.1" class="mr-2" />Restore
+=======
+                    <b-icon icon="arrow-clockwise" scale="1.1" class="mr-1" />Restore
+>>>>>>> df119299 (UI correction and build)
                   </b-button>
                 </div>
                 <div v-if="selectedRestoreOption === 'Remote URL'">
@@ -2217,7 +2227,11 @@
                         required
                       />
 
+<<<<<<< HEAD
                       <b-input-group-append class="ml-0.5">
+=======
+                      <b-input-group-append>
+>>>>>>> df119299 (UI correction and build)
                         <b-form-select
                           v-model="restoreRemoteUrlComponent"
                           :options="components"
@@ -2258,7 +2272,10 @@
                       small
                       hover
                       bordered
+<<<<<<< HEAD
                       head-variant="light"
+=======
+>>>>>>> df119299 (UI correction and build)
                       size="sm"
                       :items="restoreRemoteUrlItems"
                       :fields="computedRestoreRemoteURLFields"
