@@ -2066,7 +2066,7 @@
 
                 <div v-if="selectedRestoreOption === 'Upload File'">
                   <div>
-                    <b-input-group class="mb-2">
+                    <b-input-group class="mb-1">
                       <b-input-group-prepend is-text>
                         <b-icon icon="folder-plus" />
                       </b-input-group-prepend>
@@ -5752,6 +5752,7 @@ export default {
           row._showDetails = true;
         });
       });
+      this.components = this.appSpecification.compose.map((container) => container.name);
     },
     onFilteredBackup(filteredItems) {
       this.totalRows = filteredItems.length;
