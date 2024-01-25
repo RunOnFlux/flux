@@ -1403,7 +1403,6 @@
                     bordered
                     select-mode="multi"
                     selectable
-                    head-variant="dark"
                     hover
                     small
                     @row-selected="onRowSelected"
@@ -1969,7 +1968,6 @@
                           bordered
                           hover
                           small
-                          head-variant="dark"
                           :items="row.item.components.filter(component =>
                             Object.values(component).some(value =>
                               String(value).toLowerCase().includes(nestedTableFilter.toLowerCase()),
@@ -2125,7 +2123,6 @@
                       small
                       hover
                       bordered
-                      head-variant="dark"
                       size="sm"
                       :items="items1"
                       :fields="computedRestoreUploadFileFields"
@@ -2195,10 +2192,11 @@
                   </div>
                   <b-button
                     v-if="items1?.length > 0"
+                    class="mt-2"
                     block
                     variant="outline-primary"
                   >
-                    <b-icon icon="arrow-clockwise" scale="1.1" class="mr-1 mt-2" />Restore
+                    <b-icon icon="arrow-clockwise" scale="1.1" class="mr-1" />Restore
                   </b-button>
                 </div>
                 <div v-if="selectedRestoreOption === 'Remote URL'">
@@ -2216,7 +2214,7 @@
                         required
                       />
 
-                      <b-input-group-append class="ml-1">
+                      <b-input-group-append>
                         <b-form-select
                           v-model="restoreRemoteUrlComponent"
                           :options="components"
@@ -2257,7 +2255,6 @@
                       small
                       hover
                       bordered
-                      head-variant="dark"
                       size="sm"
                       :items="restoreRemoteUrlItems"
                       :fields="computedRestoreRemoteURLFields"
