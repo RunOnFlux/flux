@@ -5683,7 +5683,6 @@ export default {
     this.getMarketPlace();
     this.getMultiplier();
     this.getEnterpriseNodes();
-    this.applyFilter();
   },
   methods: {
     removeAllBackup() {
@@ -6046,7 +6045,6 @@ export default {
         case 1:
           this.getInstalledApplicationSpecifics();
           this.getGlobalApplicationSpecifics();
-          this.applyFilter();
           break;
         case 2:
           this.getApplicationInspect();
@@ -6066,6 +6064,9 @@ export default {
           break;
         case 7:
           this.getApplicationLogs();
+          break;
+        case 10:
+          this.applyFilter();
           break;
         case 12:
           this.getGlobalApplicationSpecifics();
