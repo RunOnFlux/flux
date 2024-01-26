@@ -1,4 +1,5 @@
-const df = require('node-df').promises;
+const df = require('node-df');
+const util = require('util');
 const log = require('../lib/log');
 const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
@@ -21,7 +22,8 @@ async function getAvailableSpaceOfApp(req, res) {
         isDisplayPrefixMultiplier: false,
         precision: 0,
       };
-      const dfData = await df(options);
+      const dfAsync = util.promisify(df);
+      const dfData = await dfAsync(options);
 
       if (component === null) {
         regex = new RegExp(`_${appname}$`);
