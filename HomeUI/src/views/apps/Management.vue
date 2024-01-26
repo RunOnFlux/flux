@@ -5840,7 +5840,7 @@ export default {
         }
         this.FileSizeInMB = this.response.data.data;
         console.log(this.FileSizeInMB);
-        this.spaceA = await this.appsAvailableSpace(appname, component);
+        this.spaceA = await this.appsAvailableSpace(appname, component, 'MB', 2);
         console.log(this.spaceA);
         if (this.FileSizeInMB > this.spaceA) {
           this.showToast('danger', 'File is too big...');

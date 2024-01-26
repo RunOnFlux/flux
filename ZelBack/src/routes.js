@@ -611,7 +611,7 @@ module.exports = (app, expressWs) => {
     syncthingService.debugFile(req, res);
   });
   // BACKUP & RESTORE
-  app.get('/backup/getavailablespaceofapp/:appname?/:component?', cache('30 seconds'), (req, res) => {
+  app.get('/backup/getavailablespaceofapp/:appname?/:component?/:multiplier?/:decimal?', cache('30 seconds'), (req, res) => {
     backupRestoreService.getAvailableSpaceOfApp(req, res);
   });
 

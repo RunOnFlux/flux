@@ -12,6 +12,10 @@ async function getAvailableSpaceOfApp(req, res) {
     appname = appname || req.query.appname;
     let { component } = req.params;
     component = component || req.query.component;
+    let { multiplier } = req.params;
+    multiplier = multiplier || req.query.multiplier || 'MB';
+    let { decimal } = req.params;
+    decimal = decimal || req.query.decimal || 0;
     if (!appname || !component) {
       throw new Error('Both the appname and component parameters are required');
     }
@@ -19,9 +23,9 @@ async function getAvailableSpaceOfApp(req, res) {
     if (authorized === true) {
       const regex = new RegExp(`${component}_${appname}$`);
       const options = {
-        prefixMultiplier: 'MB',
+        prefixMultiplier: multiplier,
         isDisplayPrefixMultiplier: false,
-        precision: 0,
+        precision: decimal,
       };
       const dfAsync = util.promisify(df);
       const dfData = await dfAsync(options);
@@ -65,9 +69,9 @@ async function getRemoteFileSize(req, res) {
     let { fileurl } = req.params;
     fileurl = fileurl || req.query.fileurl;
     let { multiplier } = req.params;
-    multiplier = multiplier || req.query.multiplier;
+    multiplier = multiplier || req.query.multiplier || 'MB';
     let { decimal } = req.params;
-    decimal = decimal || req.query.decimal;
+    decimal = decimal || req.query.decimal || 0;
     if (!fileurl) {
       throw new Error('fileurl parameter is mandatory');
     }
