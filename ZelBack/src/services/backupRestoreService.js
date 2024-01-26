@@ -93,9 +93,7 @@ async function getRemoteFileSize(req, res) {
     if (authorized === true) {
       const sizeResult = await checkRemoteFileSize(fileurl, multiplier, decimal);
       console.log(sizeResult);
-      if (!Number.isFinite(sizeResult)) {
-        throw new Error('Error fetching file size');
-      }
+      console.log(Number.isFinite(+sizeResult));
       const response = messageHelper.createDataMessage(sizeResult);
       return res ? res.json(response) : response;
     // eslint-disable-next-line no-else-return

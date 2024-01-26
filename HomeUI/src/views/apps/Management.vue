@@ -5833,7 +5833,12 @@ export default {
 
       if (this.restoreRemoteUrl.trim() !== '' && this.restoreRemoteUrlComponent !== null) {
         const zelidauth = localStorage.getItem('zelidauth');
-        this.FileSizeInMB = await BackupRestoreService.getRemoteFileSize(zelidauth, encodeURIComponent(this.restoreRemoteUrl.trim()), 'MB', 0);
+        this.response = await BackupRestoreService.getRemoteFileSize(zelidauth, encodeURIComponent(this.restoreRemoteUrl.trim()), 'MB', 0);
+        if (this.response.data.status !== 'success') {
+          this.showToast('danger', this.response.data.data.message || this.response.data.data);
+          return;
+        }
+        this.FileSizeInMB = this.response.data.data;
         console.log(this.FileSizeInMB);
         this.spaceA = await this.appsAvailableSpace(appname, component);
         console.log(this.spaceA);
