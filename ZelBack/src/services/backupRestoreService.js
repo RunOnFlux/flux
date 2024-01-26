@@ -95,6 +95,7 @@ async function getRemoteFileSize(req, res) {
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
     if (authorized === true) {
       const sizeResult = await checkRemoteFileSize(fileurl, multiplier, decimal);
+      console.log(sizeResult);
       if (!Number.isFinite(sizeResult)) {
         throw new Error('Error fetching file size');
       }
