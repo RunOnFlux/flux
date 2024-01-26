@@ -24,6 +24,7 @@ const upnpService = require('./services/upnpService');
 const syncthingService = require('./services/syncthingService');
 const fluxNetworkHelper = require('./services/fluxNetworkHelper');
 const enterpriseNodesService = require('./services/enterpriseNodesService');
+const backupRestoreService = require('./services/backupRestoreService');
 
 function isLocal(req, res, next) {
   const remote = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || req.headers['x-forwarded-for'];
@@ -605,6 +606,10 @@ module.exports = (app, expressWs) => {
   });
   app.get('/syncthing/debug/file', cache('30 seconds'), (req, res) => {
     syncthingService.debugFile(req, res);
+  });
+  // BACKUP & RESTORE
+  app.get('/backup/getavailablespaceofapp/:appname?/:component?', cache('30 seconds'), (req, res) => {
+    backupRestoreService.getAvailableSpaceOfApp(req, res);
   });
 
   // GET PROTECTED API - Fluxnode Owner

@@ -2184,7 +2184,7 @@
                             variant="dark"
                             style="text-align: center; vertical-align: middle;"
                           >
-                            <b-icon class="mr-2" icon="hdd" scale="1.4" />{{ totalArchiveFileSize(items1).toFixed(0) }} MB
+                            <b-icon class="mr-1" icon="hdd" scale="1.4" />{{ totalArchiveFileSize(items1).toFixed(0) }} MB
                           </b-td>
                         </b-tr>
                       </template>
@@ -2311,7 +2311,7 @@
                             variant="dark"
                             style="text-align: center; vertical-align: middle;"
                           >
-                            <b-icon class="mr-2" icon="hdd" scale="1.4" />{{ totalArchiveFileSize(restoreRemoteUrlItems).toFixed(0) }} MB
+                            <b-icon class="mr-1" icon="hdd" scale="1.4" />{{ totalArchiveFileSize(restoreRemoteUrlItems).toFixed(0) }} MB
                           </b-td>
                         </b-tr>
                       </template>
@@ -5700,8 +5700,8 @@ export default {
     },
     RestoreTableBuilder(value) {
       return [
-        { key: value.toString().toLowerCase(), label: value.toString(), thStyle: { width: '55%' } },
-        { key: 'component', label: 'Component', thStyle: { width: '35%' } },
+        { key: 'component', label: 'Component Name', thStyle: { width: '25%' } },
+        { key: value.toString().toLowerCase(), label: value.toString(), thStyle: { width: '65%' } },
         { key: 'file_size', label: 'File Size', thStyle: { width: '15%' } },
         { key: 'actions', label: 'Action', thStyle: { width: '5%' } },
       ];
@@ -5806,9 +5806,9 @@ export default {
       if (this.restoreRemoteFile !== null) {
         const existingItemIndex = this.items1.findIndex((item) => item.component === this.restoreRemoteFile);
         if (existingItemIndex !== -1) {
-          this.items1[existingItemIndex].file_size = 300;
+          this.items1[existingItemIndex].file_size = 74.93;
         } else {
-          this.items1.push({ file: `backup_${this.restoreRemoteFile.toLowerCase()}.tar.gz`, component: this.restoreRemoteFile, file_size: 500 });
+          this.items1.push({ file: `backup_${this.restoreRemoteFile.toLowerCase()}.tar.gz`, component: this.restoreRemoteFile, file_size: 75.93 });
         }
       }
     },
