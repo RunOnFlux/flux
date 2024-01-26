@@ -10,7 +10,7 @@ async function getAvailableSpaceOfApp(req, res) {
     appname = appname || req.query.appname;
     let { component } = req.params;
     component = component || req.query.component;
-    if (appname) {
+    if (!appname) {
       throw new Error('appname parameter is mandatory');
     }
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
