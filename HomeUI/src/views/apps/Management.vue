@@ -5691,9 +5691,9 @@ export default {
   },
   methods: {
 
-    async appsAvailableSpace(appname, componentname) {
+    async appsAvailableSpace(appname, componentname, multiplier, decimal) {
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await BackupRestoreService.getAvailableSpaceOfApp(zelidauth, appname, componentname);
+      const response = await BackupRestoreService.getAvailableSpaceOfApp(zelidauth, appname, componentname, multiplier, decimal);
       const { data } = response.data;
       if (response.data.status === 'success') {
         this.AvailableSpace = data;
@@ -5835,14 +5835,14 @@ export default {
         const zelidauth = localStorage.getItem('zelidauth');
         this.response = await BackupRestoreService.getRemoteFileSize(zelidauth, encodeURIComponent(this.restoreRemoteUrl.trim()), 'MB', 2);
         this.mount = await BackupRestoreService.getComponentPath(zelidauth, appname, component);
-        console.log(`Path: ${this.mount}`);
+        console.log(JSON.stringify(this.mount.data.data));
         if (this.response.data?.status !== 'success') {
           this.showToast('danger', this.response.data.data.message || this.response.data.data);
           return;
         }
         this.FileSizeInMB = this.response.data.data;
         console.log(this.FileSizeInMB);
-        this.spaceA = await BackupRestoreService.getAvailableSpaceOfApp(zelidauth, appname, component, 'MB', 2);
+        this.spaceA = await this.appsAvailableSpace(appname, component, 'MB', 2);
         console.log(this.spaceA);
         if (this.FileSizeInMB > this.spaceA) {
           this.showToast('danger', 'File is too big...');

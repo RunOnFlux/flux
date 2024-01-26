@@ -66,7 +66,7 @@ async function getAvailableSpaceOfApp(req, res) {
       const options = {
         prefixMultiplier: multiplier,
         isDisplayPrefixMultiplier: false,
-        precision: decimal,
+        precision: +decimal,
       };
       const dfAsync = util.promisify(df);
       const dfData = await dfAsync(options);
