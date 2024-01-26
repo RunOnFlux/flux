@@ -5834,6 +5834,8 @@ export default {
       if (this.restoreRemoteUrl.trim() !== '' && this.restoreRemoteUrlComponent !== null) {
         const zelidauth = localStorage.getItem('zelidauth');
         this.response = await BackupRestoreService.getRemoteFileSize(zelidauth, encodeURIComponent(this.restoreRemoteUrl.trim()), 'MB', 2);
+        this.mount = await BackupRestoreService.getComponentPath(zelidauth, appname, component);
+        console.log(this.mount);
         if (this.response.data?.status !== 'success') {
           this.showToast('danger', this.response.data.data.message || this.response.data.data);
           return;

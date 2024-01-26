@@ -1,13 +1,13 @@
 import Api from '@/services/Api';
 
 export default {
-  getAvailableSpaceOfApp(zelidauthHeader, appname, componentname) {
+  getAvailableSpaceOfApp(zelidauthHeader, appname, componentname, multiplier, decimal) {
     const axiosConfig = {
       headers: {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().get(`/backup/getavailablespaceofapp/${appname}/${componentname}`, axiosConfig);
+    return Api().get(`/backup/getavailablespaceofapp/${appname}/${componentname}/${multiplier}/${decimal}`, axiosConfig);
   },
   getRemoteFileSize(zelidauthHeader, fileurl, multiplier, decimal) {
     const axiosConfig = {

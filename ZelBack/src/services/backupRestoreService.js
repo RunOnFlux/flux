@@ -23,8 +23,10 @@ async function getComponentPath(req, res) {
         .filter((entry) => regex.test(entry.mount))
         .map((entry) => entry.mount);
       if (mounts.length === 0) {
+        console.log('No matching mount found');
         throw new Error('No matching mount found');
       }
+      console.log(`Path: ${mounts[0]}`);
       const response = messageHelper.createDataMessage(mounts[0]);
       return res ? res.json(response) : response;
       // eslint-disable-next-line no-else-return
