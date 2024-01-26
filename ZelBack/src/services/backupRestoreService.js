@@ -59,24 +59,6 @@ function convertFileSize(sizeInBytes, multiplier) {
   return sizeInBytes / multiplierMap[multiplier.toUpperCase()];
 }
 
-async function checkRemoteFileSize(fileurl, multiplier = 'MB', decimal = 0) {
-  try {
-    const validMultipliers = ['B', 'KB', 'MB', 'GB', 'TB'];
-    if (!validMultipliers.includes(multiplier.toUpperCase())) {
-      throw new Error('Invalid multiplier. Supported types: B, KB, MB, GB, TB.');
-    }
-    const response = await axios.head(fileurl);
-    const contentLengthHeader = response.headers['content-length'] || response.headers['Content-Length'];
-    const fileSizeInBytes = parseInt(contentLengthHeader, 10);
-    const fileSize = convertFileSize(fileSizeInBytes, multiplier);
-    const roundedFileSize = fileSize.toFixed(decimal);
-    return roundedFileSize;
-  } catch (error) {
-    log.error('Error fetching file size:', error);
-    return error;
-  }
-}
-
 async function getRemoteFileSize(req, res) {
   try {
     console.log(req.params);
@@ -91,10 +73,16 @@ async function getRemoteFileSize(req, res) {
     }
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
     if (authorized === true) {
-      const sizeResult = await checkRemoteFileSize(fileurl, multiplier, decimal);
-      console.log(sizeResult);
-      console.log(Number.isFinite(+sizeResult));
-      const response = messageHelper.createDataMessage(sizeResult);
+      const head = await axios.head(fileurl);
+      const contentLengthHeader = head.headers['content-length'] || head.headers['Content-Length'];
+      const fileSizeInBytes = parseInt(contentLengthHeader, 10);
+      console.log(fileSizeInBytes);
+      if (!Number.isFinite(fileSizeInBytes)) {
+        throw new Error('Error fetching file size');
+      }
+      const fileSize = convertFileSize(fileSizeInBytes, multiplier);
+      const roundedFileSize = fileSize.toFixed(decimal);
+      const response = messageHelper.createDataMessage(roundedFileSize);
       return res ? res.json(response) : response;
     // eslint-disable-next-line no-else-return
     } else {
@@ -115,6 +103,5 @@ async function getRemoteFileSize(req, res) {
 module.exports = {
   getAvailableSpaceOfApp,
   convertFileSize,
-  checkRemoteFileSize,
   getRemoteFileSize,
 };
