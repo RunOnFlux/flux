@@ -1290,7 +1290,7 @@
             <b-tabs pills card>
               <b-tab title="Backup">
                 <div
-                  class="mb-2 mt-2"
+                  class="mb-2"
                   style="
                     border: 1px solid #ccc;
                     border-radius: 8px;
@@ -1299,7 +1299,7 @@
                     line-height: 0px;
                   "
                 >
-                  <h5><b-icon icon="back" /> Immediate Backup</h5>
+                  <h5><b-icon class="mr-1" icon="back" /> Immediate Backup</h5>
                 </div>
 
                 <div class="mb-2">
@@ -1708,11 +1708,18 @@
                 </div>
               </b-tab>
               <b-tab title="Restore">
-                <div class="mb-2" style="border: 1px solid #ccc; padding: 10px">
-                  <b-icon class="mr-1" scale="1.2" icon="cloud-download" />
-                  Select restore method
+                <div
+                  class="mb-2"
+                  style="
+                    border: 1px solid #ccc;
+                    border-radius: 8px;
+                    height: 45px;
+                    padding: 12px;
+                    line-height: 0px;
+                  "
+                >
+                  <h5><b-icon class="mr-1" scale="1.4" icon="cloud-download" /> Select restore method</h5>
                 </div>
-
                 <b-form-group class="mb-2">
                   <b-row>
                     <b-col style="height: 38px;">
