@@ -110,8 +110,8 @@
                         :data="row.item.instances.toString()"
                       />
                       <list-entry
-                        title="Period"
-                        :data="labelForExpire(row.item.expire)"
+                        title="Expires in"
+                        :data="labelForExpire(row.item.expire, row.item.height)"
                       />
                       <list-entry
                         title="Enterprise Nodes"
@@ -443,8 +443,8 @@
                         :data="row.item.instances.toString()"
                       />
                       <list-entry
-                        title="Period"
-                        :data="labelForExpire(row.item.expire)"
+                        title="Expires in"
+                        :data="labelForExpire(row.item.expire, row.item.height)"
                       />
                       <list-entry
                         title="Enterprise Nodes"
@@ -780,8 +780,8 @@
                         :data="row.item.instances.toString()"
                       />
                       <list-entry
-                        title="Period"
-                        :data="labelForExpire(row.item.expire)"
+                        title="Expires in"
+                        :data="labelForExpire(row.item.expire, row.item.height)"
                       />
                       <list-entry
                         title="Enterprise Nodes"
@@ -1135,8 +1135,8 @@
                         :data="row.item.instances.toString()"
                       />
                       <list-entry
-                        title="Period"
-                        :data="labelForExpire(row.item.expire)"
+                        title="Expires in"
+                        :data="labelForExpire(row.item.expire, row.item.height)"
                       />
                       <list-entry
                         title="Enterprise Nodes"
@@ -1403,6 +1403,7 @@ import ListEntry from '@/views/components/ListEntry.vue';
 import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
 import Management from '@/views/apps/Management.vue';
 import AppsService from '@/services/AppsService';
+import DaemonService from '@/services/DaemonService';
 
 const qs = require('qs');
 
@@ -1432,6 +1433,7 @@ export default {
   data() {
     return {
       managedApplication: '',
+      daemonBlockCount: -1,
       appLocations: [],
       appLocationFields: [
         { key: 'ip', label: 'IP Address' },
@@ -1484,38 +1486,6 @@ export default {
         },
       },
       allApps: [],
-      expireOptions: [
-        {
-          value: 5000,
-          label: '1 week',
-          time: 7 * 24 * 60 * 60 * 1000,
-        },
-        {
-          value: 11000,
-          label: '2 weeks',
-          time: 14 * 24 * 60 * 60 * 1000,
-        },
-        {
-          value: 22000,
-          label: '1 month',
-          time: 30 * 24 * 60 * 60 * 1000,
-        },
-        {
-          value: 66000,
-          label: '3 months',
-          time: 90 * 24 * 60 * 60 * 1000,
-        },
-        {
-          value: 132000,
-          label: '6 months',
-          time: 180 * 24 * 60 * 60 * 1000,
-        },
-        {
-          value: 264000,
-          label: '1 year',
-          time: 365 * 24 * 60 * 60 * 1000,
-        },
-      ],
     };
   },
   computed: {
@@ -1538,17 +1508,41 @@ export default {
   },
   mounted() {
     this.appsGetListGlobalApps();
+    this.getDaemonBlockCount();
   },
   methods: {
-    labelForExpire(expire) {
-      const position = this.expireOptions.find((opt) => opt.value === expire);
-      if (position) {
-        return position.label;
+    minutesToString(minutes) {
+      let value = minutes * 60;
+      const units = {
+        day: 24 * 60 * 60,
+        hour: 60 * 60,
+        minute: 60,
+        second: 1,
+      };
+      const result = [];
+      // eslint-disable-next-line no-restricted-syntax, guard-for-in
+      for (const name in units) {
+        const p = Math.floor(value / units[name]);
+        if (p === 1) result.push(` ${p} ${name}`);
+        if (p >= 2) result.push(` ${p} ${name}s`);
+        value %= units[name];
       }
-      if (expire) {
-        return `${expire} blocks`;
+      return result;
+    },
+    labelForExpire(expire, height) {
+      if (this.daemonBlockCount === -1) {
+        return 'Not possible to calculate expiration';
       }
-      return '1 month';
+      const expires = expire || 22000;
+      const minutesRemaining = (height + expires - this.daemonBlockCount) * 2;
+      const result = this.minutesToString(minutesRemaining);
+      return `${result[0]}, ${result[1]}, ${result[2]}`;
+    },
+    async getDaemonBlockCount() {
+      const response = await DaemonService.getBlockCount();
+      if (response.data.status === 'success') {
+        this.daemonBlockCount = response.data.data;
+      }
     },
     openAppManagement(appName) {
       this.managedApplication = appName;
