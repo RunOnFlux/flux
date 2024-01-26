@@ -5,6 +5,44 @@ const log = require('../lib/log');
 const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
 
+async function getComponentPath(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+    let { component } = req.params;
+    component = component || req.query.component;
+    if (!appname || !component) {
+      throw new Error('Both the appname and component parameters are required');
+    }
+    const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
+    if (authorized === true) {
+      const dfAsync = util.promisify(df);
+      const dfData = await dfAsync();
+      const regex = new RegExp(`${component}_${appname}$`);
+      const mounts = dfData
+        .filter((entry) => regex.test(entry.mount))
+        .map((entry) => entry.mount);
+      if (mounts.length === 0) {
+        throw new Error('No matching mount found');
+      }
+      const response = messageHelper.createDataMessage(mounts[0]);
+      return res ? res.json(response) : response;
+      // eslint-disable-next-line no-else-return
+    } else {
+      const errorResponse = messageHelper.errUnauthorizedMessage();
+      return res ? res.json(errorResponse) : errorResponse;
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
 async function getAvailableSpaceOfApp(req, res) {
   try {
     console.log(req.params);
@@ -108,4 +146,5 @@ module.exports = {
   getAvailableSpaceOfApp,
   convertFileSize,
   getRemoteFileSize,
+  getComponentPath,
 };

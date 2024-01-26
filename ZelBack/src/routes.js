@@ -614,9 +614,11 @@ module.exports = (app, expressWs) => {
   app.get('/backup/getavailablespaceofapp/:appname?/:component?/:multiplier?/:decimal?', cache('30 seconds'), (req, res) => {
     backupRestoreService.getAvailableSpaceOfApp(req, res);
   });
-
   app.get('/backup/getremotefilesize/:fileurl?/:multiplier?/:decimal?', cache('30 seconds'), (req, res) => {
     backupRestoreService.getRemoteFileSize(req, res);
+  });
+  app.get('/backup/getcomponentpath/:appname?/:component?', cache('30 seconds'), (req, res) => {
+    backupRestoreService.getComponentPath(req, res);
   });
 
   // GET PROTECTED API - Fluxnode Owner

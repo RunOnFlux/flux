@@ -2061,7 +2061,7 @@
                             variant="dark"
                             style="text-align: center; vertical-align: middle;"
                           >
-                            <b-icon class="mr-2" icon="hdd" scale="1.4" /> {{ totalArchiveFileSize(newComponents).toFixed(0) }} MB
+                            <b-icon class="mr-2" icon="hdd" scale="1.4" /> {{ totalArchiveFileSize(newComponents).toFixed(2) }} MB
                           </b-td>
                         </b-tr>
                       </template>
@@ -2184,7 +2184,7 @@
                             variant="dark"
                             style="text-align: center; vertical-align: middle;"
                           >
-                            <b-icon class="mr-1" icon="hdd" scale="1.4" />{{ totalArchiveFileSize(items1).toFixed(0) }} MB
+                            <b-icon class="mr-1" icon="hdd" scale="1.4" />{{ totalArchiveFileSize(items1).toFixed(2) }} MB
                           </b-td>
                         </b-tr>
                       </template>
@@ -2310,7 +2310,7 @@
                             variant="dark"
                             style="text-align: center; vertical-align: middle;"
                           >
-                            <b-icon class="mr-1" icon="hdd" scale="1.4" />{{ totalArchiveFileSize(restoreRemoteUrlItems).toFixed(0) }} MB
+                            <b-icon class="mr-1" icon="hdd" scale="1.4" />{{ totalArchiveFileSize(restoreRemoteUrlItems).toFixed(2) }} MB
                           </b-td>
                         </b-tr>
                       </template>
