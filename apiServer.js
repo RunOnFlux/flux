@@ -42,9 +42,10 @@ function validateTags() {
 
   if (tags && tags.constructor !== Object) {
     log.error('Error tags must be a mapping with string keys and values as string, number or boolean.');
-    return {}
+    return {};
   }
 
+  // eslint-disable-next-line no-restricted-syntax
   for (const [key, value] of Object.entries(tags)) {
     const valuePassed = typeof value === 'string' || value instanceof String
       || typeof value === 'number' || value instanceof Number
@@ -54,7 +55,7 @@ function validateTags() {
       log.error('Tag must be a string and value must be a boolean, string or number, Skipping.');
       delete tags[key];
     }
-  };
+  }
 
   return tags;
 }
@@ -89,7 +90,7 @@ async function loadUpnpIfSupported(autoUpnp) {
   const upnpRequested = Boolean(
     autoUpnp
     || userconfig.initial.routerIP
-    || (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport)
+    || (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport),
   );
 
   // Prior, this would run if `apiport` was set in config file. However, even if this
@@ -106,8 +107,7 @@ async function loadUpnpIfSupported(autoUpnp) {
 
   if (!upnpSupported) {
     log.error(`Flux port ${userconfig.computed.apiPort} specified but UPnP failed to verify support. Shutting down.`);
-  }
-  else if (!upnpSetupComplete) {
+  } else if (!upnpSetupComplete) {
     log.error(`Flux port ${userconfig.computed.apiPort} specified but UPnP failed to map to api or home port. Shutting down.`);
   }
 
