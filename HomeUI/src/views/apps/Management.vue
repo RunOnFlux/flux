@@ -2213,7 +2213,6 @@
                         placeholder="Enter the URL for your remote backup archive"
                         required
                       />
-
                       <b-input-group-append>
                         <b-form-select
                           v-model="restoreRemoteUrlComponent"
@@ -2235,7 +2234,7 @@
                         <b-button
                           size="sm"
                           variant="outline-primary"
-                          @click="addRemoteUrlItem"
+                          @click="addRemoteUrlItem(appName, restoreRemoteUrlComponent)"
                         >
                           <b-icon scale="0.8" icon="plus-lg" />
                         </b-button>
@@ -4950,6 +4949,7 @@ import JsonViewer from 'vue-json-viewer';
 
 import AppsService from '@/services/AppsService';
 import DaemonService from '@/services/DaemonService';
+import BackupRestoreService from '@/services/BackupRestoreService';
 
 import SignClient from '@walletconnect/sign-client';
 import { MetaMaskSDK } from '@metamask/sdk';
@@ -5691,6 +5691,17 @@ export default {
   },
   methods: {
 
+    async appsAvailableSpace(appname, componentname) {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const response = await BackupRestoreService.getAvailableSpaceOfApp(zelidauth, appname, componentname);
+      const { data } = response.data;
+      if (response.data.status === 'success') {
+        this.AvailableSpace = data;
+        console.log(this.AvailableSpace);
+      } else {
+        this.showToast('danger', response.data.data.message || response.data.data);
+      }
+    },
     removeAllBackup() {
       this.backupList = [];
       this.backupToUpload = [];
@@ -5826,10 +5837,11 @@ export default {
         return this.fileSize;
       }
     },
-    async addRemoteUrlItem() {
+    async addRemoteUrlItem(appname, component) {
       if (!this.isValidUrl) {
         return;
       }
+      this.appsAvailableSpace(appname, component);
       if (
         this.restoreRemoteUrl.trim() !== ''
         && this.restoreRemoteUrlComponent !== null
