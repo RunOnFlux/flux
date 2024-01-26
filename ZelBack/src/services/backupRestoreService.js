@@ -65,9 +65,6 @@ async function checkRemoteFileSize(fileurl, multiplier = 'MB', decimal = 0) {
     if (!validMultipliers.includes(multiplier.toUpperCase())) {
       throw new Error('Invalid multiplier. Supported types: B, KB, MB, GB, TB.');
     }
-    if (!Number.isInteger(decimal) || decimal < 0) {
-      throw new Error('Invalid decimal. It must be a non-negative integer.');
-    }
     const response = await axios.head(fileurl);
     const contentLengthHeader = response.headers['content-length'] || response.headers['Content-Length'];
     const fileSizeInBytes = parseInt(contentLengthHeader, 10);
@@ -75,7 +72,7 @@ async function checkRemoteFileSize(fileurl, multiplier = 'MB', decimal = 0) {
     const roundedFileSize = fileSize.toFixed(decimal);
     return roundedFileSize;
   } catch (error) {
-    log.error('Error fetching file size:', error.message);
+    log.error('Error fetching file size:', error);
     return error;
   }
 }
