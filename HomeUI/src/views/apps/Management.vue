@@ -5326,7 +5326,7 @@ export default {
       numberOfNegativeGeolocations: 1,
       minExpire: 5000,
       maxExpire: 264000,
-      extendSubscription: false,
+      extendSubscription: true,
       daemonBlockCount: -1,
       expirePosition: 2,
       minutesRemaining: 0,
@@ -6192,7 +6192,7 @@ export default {
       this.$emit('back');
     },
     async initiateSignWSUpdate() {
-      if (this.dataToSign.length > 1800) {
+      if (this.dataToSign.length > 180000) {
         const message = this.dataToSign;
         // upload to flux storage
         const data = {
