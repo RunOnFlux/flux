@@ -7,6 +7,7 @@ const verificationHelper = require('./verificationHelper');
 
 async function getComponentPath(req, res) {
   try {
+    console.log(req.params);
     let { appname } = req.params;
     appname = appname || req.query.appname;
     let { component } = req.params;
