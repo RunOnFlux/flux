@@ -1282,6 +1282,1091 @@
         </b-card>
       </b-tab>
       <b-tab
+        title="Backup/Restore"
+        :disabled="!isApplicationInstalledLocally"
+      >
+        <div>
+          <b-card no-body>
+            <b-tabs pills card>
+              <b-tab title="Backup">
+                <div class="mb-2" style="border: 1px solid #ccc; padding: 10px">
+                  <b-icon class="mr-2" scale="1.2" icon="back" />
+                  Immediate Backup
+                </div>
+
+                <div>
+                  <b-form-group>
+                    <b-form-tags
+                      id="tags-component-select"
+                      v-model="selectedBackupComponents"
+                      size="lg"
+                      add-on-change
+                      no-outer-focus
+                    >
+                      <template
+                        #default="{
+                          tags, inputAttrs, inputHandlers, disabled, removeTag,
+                        }"
+                      >
+                        <ul
+                          v-if="tags.length > 0"
+                          class="list-inline d-inline-block mb-2"
+                        >
+                          <li v-for="tag in tags" :key="tag" class="list-inline-item">
+                            <b-form-tag
+                              :title="tag"
+                              :disabled="disabled"
+                              variant="primary"
+                              @remove="removeTag(tag)"
+                            >
+                              {{ tag }}
+                            </b-form-tag>
+                          </li>
+                        </ul>
+                        <b-form-select
+                          v-bind="inputAttrs"
+                          :disabled="disabled || componentAvailableOptions?.length === 0 || components?.length === 1"
+                          :options="componentAvailableOptions"
+                          v-on="inputHandlers"
+                        >
+                          <template #first>
+                            <option disabled value="">
+                              Choose a component for backup...
+                            </option>
+                          </template>
+                        </b-form-select>
+                      </template>
+                    </b-form-tags>
+                  </b-form-group>
+                </div>
+                <b-button v-if="components?.length > 1" class="mr-1" variant="outline-primary" @click="addAllTags">
+                  <b-icon scale="0.9" icon="check2-square" class="mr-1" />
+                  Select all
+                </b-button>
+
+                <b-button variant="outline-primary" @click="createBackup(selectedBackupComponents)">
+                  <b-icon scale="0.9" icon="back" class="mr-1" />
+                  Create backup
+                </b-button>
+
+                <br />
+                <div v-if="backupList?.length > 0">
+                  <div class="mb-1 text-right">
+                    <!-- Select Dropdown -->
+                    <b-dropdown class="mr-1" text="Select">
+                      <template #button-content>
+                        <b-icon scale="0.9" icon="check2-square" class="mr-1" />
+                        Select
+                      </template>
+                      <b-dropdown-item :disabled="backupToUpload?.length === backupList?.length" @click="selectAllRows">
+                        <b-icon scale="0.9" icon="check2-circle" class="mr-1" />
+                        Select all
+                      </b-dropdown-item>
+                      <b-dropdown-item :disabled="backupToUpload?.length === 0" @click="clearSelected">
+                        <b-icon scale="0.7" icon="square" class="mr-1" />
+                        Select none
+                      </b-dropdown-item>
+                    </b-dropdown>
+
+                    <!-- Download Dropdown -->
+                    <b-dropdown class="mr-1" text="Download" variant="primary">
+                      <template #button-content>
+                        <b-icon scale="0.9" icon="download" class="mr-1" />
+                        Download
+                      </template>
+                      <b-dropdown-item :disabled="backupToUpload?.length === 0" @click="removeAllBackup">
+                        <b-icon scale="0.7" icon="download" class="mr-1" />
+                        Download selected
+                      </b-dropdown-item>
+                      <b-dropdown-item @click="removeAllBackup">
+                        <b-icon scale="0.7" icon="download" class="mr-1" />
+                        Download all
+                      </b-dropdown-item>
+                    </b-dropdown>
+
+                    <!-- Remove Button -->
+                    <b-button variant="danger" @click="removeAllBackup">
+                      <b-icon scale="0.9" icon="trash" class="mr-1" />
+                      Remove all
+                    </b-button>
+                  </div>
+                  <b-table
+                    v-if="backupList?.length > 0"
+                    ref="selectableTable"
+                    class="mb-0"
+                    :items="backupList"
+                    :fields="[...localBackupTableFields, {
+                      key: 'actions', label: 'Actions', thStyle: { width: '5%' }, class: 'text-center',
+                    }]"
+                    stacked="md"
+                    show-empty
+                    bordered
+                    select-mode="multi"
+                    selectable
+                    selected-variant="dark"
+                    hover
+                    small
+                    @row-selected="onRowSelected"
+                  >
+                    <template #thead-top>
+                      <b-tr>
+                        <b-td colspan="6" class="text-center">
+                          <b>
+                            Explore Your Local Backup Options (backup will be removed 24 hours after creation)
+                          </b>
+                        </b-td>
+                      </b-tr>
+                    </template>
+
+                    <template #cell(create)="row">
+                      {{ formatDateTime(row.item.create) }}
+                    </template>
+                    <template #cell(expire)="row">
+                      {{ formatDateTime(row.item.create, true) }}
+                    </template>
+                    <template #cell(isActive)="{ rowSelected }">
+                      <template v-if="rowSelected">
+                        <span style="color: green" aria-hidden="true">
+                          <b-icon
+                            icon="calendar2-check-fill"
+                            scale="1"
+                            variant="success"
+                          /></span>
+                        <span class="sr-only">Selected</span>
+                      </template>
+                      <template v-else>
+                        <span aria-hidden="true">&nbsp;</span>
+                        <span class="sr-only">Not selected</span>
+                      </template>
+                    </template>
+
+                    <template #cell(actions)="row">
+                      <div class="d-flex justify-content-center align-items-center">
+                        <b-button
+<<<<<<< HEAD
+                          variant="danger"
+                          class="d-flex justify-content-center align-items-center mr-1"
+                          style="width: 15px; height: 25px"
+
+=======
+                          variant="outline-danger"
+<<<<<<< HEAD
+                          class="custom-button"
+>>>>>>> cff33231 (added custom-butto and build UI)
+                          @click="deleteItem(row.index, backupList)"
+=======
+                          class="d-flex justify-content-center align-items-center mr-1 custom-button"
+                          @click="deleteRestoreBackup(row.item.component_name, checkpoints, row.item.timestamp)"
+>>>>>>> af0f5154 (Build UI)
+                        >
+                          <b-icon class="d-flex justify-content-center align-items-center" scale="0.9" icon="trash" />
+                        </b-button>
+                        <b-button
+<<<<<<< HEAD
+                          variant="primary"
+                          class="d-flex justify-content-center align-items-center"
+                          style="width: 15px; height: 25px"
+
+=======
+                          variant="outline-primary"
+<<<<<<< HEAD
+                          class="custom-button"
+>>>>>>> cff33231 (added custom-butto and build UI)
+                          @click="removeAllBackup"
+=======
+                          class="d-flex justify-content-center align-items-center custom-button"
+                          @click="addAllBackupComponents(row.item.timestamp)"
+>>>>>>> af0f5154 (Build UI)
+                        >
+                          <b-icon class="d-flex justify-content-center align-items-center" scale="1" icon="cloud-arrow-down" />
+                        </b-button>
+                      </div>
+                    </template>
+                  </b-table>
+                  <div v-if="backupToUpload.length > 0" class="mt-2">
+                    <div
+                      class="mb-2 mt-2"
+                      style="
+                  border: 1px solid #ccc;
+                  height: 45px;
+                  padding: 10px;
+                  line-height: 0px;
+                "
+                    >
+                      <h5>
+                        <b-icon icon="gear-fill" /> Choose your storage method
+                      </h5>
+                    </div>
+
+                    <b-form-group>
+                      <div class="btn-group">
+                        <button
+                          v-for="option in storageMethod"
+                          :key="option.value"
+                          :class="['btn', 'btn-outline-primary', { active: selectedStorageMethod === option.value }]"
+                          :disabled="option.disabled"
+                          type="button"
+                          @click="selectStorageOption(option.value)"
+                        >
+                          <div style="position: relative; display: inline-block;">
+                            <img
+                              v-if="option.image"
+                              :src="option.image"
+                              alt="Image"
+                              class="img-fluid"
+                              style="width: 120px; height: 30px; margin-right: 5px;"
+                            />
+                            <div
+                              v-if="option.text"
+                              class="image-text"
+                              style="
+                                position: absolute;
+                                bottom: 0;
+                                left: 0;
+                                width: 100%;
+                                height: 100%;
+                                text-align: center;
+                                color: black;
+                                background: rgba(255, 255, 255, 0.5);
+                                font-weight: bold;
+                              "
+                            >
+                              {{ option.text }}
+                            </div>
+                          </div>
+                        </button>
+                      </div>
+                    </b-form-group>
+                    <div v-if="selectedStorageMethod === 'flux'">
+                      <b-card
+                        v-if="sigInPrivilage === true"
+                        class="mb-2 justify-content-center align-items-center"
+                      >
+                        <b-card-text>
+                          <div
+                            style="
+                              max-width: 500px;
+                              margin: 0 auto;
+                              padding: 10px;
+                              border: 1px solid #eaeaea;
+                              border-radius: 8px;
+                              box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                              text-align: center;
+                              background-color: #333; /* Set background color for dark theme */
+                              color: #; /* Set text color for dark theme */
+                            "
+                          >
+                            <h5
+                              style="font-size: 16px; margin-bottom: 5px;"
+                            >
+                              Sign in to enable FluxDrive functionality
+                            </h5>
+                          </div>
+                        </b-card-text>
+
+                        <dl class="row">
+                          <dd class="col-sm-4">
+                            <b-card-text class="text-center">
+                              Please log in using
+                            </b-card-text>
+                            <div
+                              style="
+                        display: flex;
+                        flex-direction: row;
+                        justify-content: space-around;
+                        align-items: center;
+                        margin-bottom: 10px;
+                      "
+                            >
+                              <a href="" @click="removeAllBackup">
+                                <img
+                                  style="margin-left: 5px; height: 90px; padding: 10px"
+                                  src="https://home.runonflux.io/img/zelID.svg"
+                                  alt="Zel ID"
+                                  height="100%"
+                                  width="100%"
+                                />
+                              </a>
+                              <a @click="removeAllBackup">
+                                <img
+                                  style="height: 100px; padding: 10px"
+                                  src="https://home.runonflux.io/img/ssp-logo-white.svg"
+                                  alt="SSP"
+                                  height="100%"
+                                  width="100%"
+                                />
+                              </a>
+                            </div>
+                            <div
+                              style="
+                        display: flex;
+                        flex-direction: row;
+                        justify-content: space-around;
+                        align-items: center;
+                        margin-bottom: 10px;
+                      "
+                            >
+                              <a @click="removeAllBackup">
+                                <img
+                                  style="height: 100px; padding: 10px"
+                                  src="https://home.runonflux.io/img/walletconnect.svg"
+                                  alt="WalletConnect"
+                                  height="100%"
+                                  width="100%"
+                                />
+                              </a>
+                              <a @click="removeAllBackup">
+                                <img
+                                  style="height: 80px; padding: 10px"
+                                  src="https://home.runonflux.io/img/metamask.svg"
+                                  alt="Metamask"
+                                  height="100%"
+                                  width="100%"
+                                />
+                              </a>
+                            </div>
+                          </dd>
+                          <dd class="col-sm-8">
+                            <b-card-text class="text-center">
+                              or sign the following message with any ZelID / SSP Wallet
+                              ID / Bitcoin address / Ethereum address
+                            </b-card-text>
+                            <br /><br />
+                            <b-form class="mx-5">
+                              <b-row>
+                                <b-col cols="12">
+                                  <b-form-group
+                                    label="Message"
+                                    label-for="h-message"
+                                    label-cols-md="3"
+                                  >
+                                    <b-form-input
+                                      id="h-message"
+                                      placeholder="Insert Login Phrase"
+                                    />
+                                  </b-form-group>
+                                </b-col>
+                                <b-col cols="12">
+                                  <b-form-group
+                                    label="Address"
+                                    label-for="h-address"
+                                    label-cols-md="3"
+                                  >
+                                    <b-form-input
+                                      id="h-address"
+                                      placeholder="Insert ZelID / SSP Wallet ID / Bitcoin address / Ethereum address"
+                                    />
+                                  </b-form-group>
+                                </b-col>
+                                <b-col cols="12">
+                                  <b-form-group
+                                    label="Signature"
+                                    label-for="h-signature"
+                                    label-cols-md="3"
+                                  >
+                                    <b-form-input
+                                      id="h-signature"
+                                      placeholder="Insert Signature"
+                                    />
+                                  </b-form-group>
+                                </b-col>
+
+                                <b-col cols="12">
+                                  <b-form-group label-cols-md="3">
+                                    <b-button
+                                      type="submit"
+                                      variant="primary"
+                                      class="w-100"
+                                    >
+                                      Login
+                                    </b-button>
+                                  </b-form-group>
+                                </b-col>
+                              </b-row>
+                            </b-form>
+                          </dd>
+                        </dl>
+                      </b-card>
+                      <b-button
+                        v-if="sigInPrivilage === false"
+                        variant="outline-primary"
+                        class="mt-1 w-100"
+                        @click="removeAllBackup"
+                      >
+                        <b-icon
+                          scale="1.5"
+                          icon="cloud-arrow-up"
+                          class="mr-2"
+                        />
+                        Export
+                      </b-button>
+                    </div>
+
+                    <div v-if="selectedStorageMethod === 'google'">
+                      <b-button
+                        variant="outline-primary"
+                        class="mt-1 w-100"
+                        @click="removeAllBackup"
+                      >
+                        <b-icon
+                          scale="1.5"
+                          icon="cloud-arrow-up"
+                          class="mr-2"
+                        />
+                        Export
+                      </b-button>
+                    </div>
+                  </div>
+                </div>
+              </b-tab>
+              <b-tab title="Restore">
+                <div class="mb-2" style="border: 1px solid #ccc; padding: 10px">
+                  <b-icon class="mr-2" scale="1.2" icon="cloud-download" />
+                  Select restore method
+                </div>
+
+                <b-form-group class="mb-2">
+                  <b-row>
+                    <!-- First Column for Radio Group -->
+                    <b-col>
+                      <b-form-radio-group
+                        id="btn-radios-2"
+                        v-model="selectedRestoreOption"
+                        :options="restoreOptions"
+                        button-variant="outline-primary"
+                        name="radio-btn-outline"
+                        buttons
+                      />
+                    </b-col>
+
+                    <!-- Second Column for Refresh Button -->
+                    <b-col class="text-right">
+                      <b-button v-if="selectedRestoreOption === 'FluxDrive'" variant="outline-success">
+                        <b-icon class="mr-2" scale="1.2" icon="arrow-repeat" />Refresh
+                      </b-button>
+                    </b-col>
+                  </b-row>
+                </b-form-group>
+
+                <div v-if="selectedRestoreOption === 'FluxDrive'">
+                  <b-card
+                    v-if="sigInPrivilage === false"
+                    class="mb-2 justify-content-center align-items-center"
+                  >
+                    <b-card-text>
+                      <div
+                        style="
+                    max-width: 500px;
+                    margin: 0 auto;
+                    padding: 10px;
+                    border: 1px solid #eaeaea;
+                    border-radius: 8px;
+                    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+
+                    text-align: center;
+                  "
+                      >
+                        <h5 style="color: #333; font-size: 16px; margin-bottom: 5px">
+                          Sig in to enable FluxDrive functionality
+                        </h5>
+                        <!-- Your sign-in form and activation components go here -->
+                      </div>
+                    </b-card-text>
+
+                    <dl class="row">
+                      <dd class="col-sm-4">
+                        <b-card-text class="text-center">
+                          Please log in using
+                        </b-card-text>
+                        <div
+                          style="
+                      display: flex;
+                      flex-direction: row;
+                      justify-content: space-around;
+                      align-items: center;
+                      margin-bottom: 10px;
+                    "
+                        >
+                          <a href="" @click="removeAllBackup">
+                            <img
+                              style="margin-left: 5px; height: 90px; padding: 10px"
+                              src="https://home.runonflux.io/img/zelID.svg"
+                              alt="Zel ID"
+                              height="100%"
+                              width="100%"
+                            />
+                          </a>
+                          <a @click="removeAllBackup">
+                            <img
+                              style="height: 100px; padding: 10px"
+                              src="https://home.runonflux.io/img/ssp-logo-white.svg"
+                              alt="SSP"
+                              height="100%"
+                              width="100%"
+                            />
+                          </a>
+                        </div>
+                        <div
+                          style="
+                      display: flex;
+                      flex-direction: row;
+                      justify-content: space-around;
+                      align-items: center;
+                      margin-bottom: 10px;
+                    "
+                        >
+                          <a @click="removeAllBackup">
+                            <img
+                              style="height: 100px; padding: 10px"
+                              src="https://home.runonflux.io/img/walletconnect.svg"
+                              alt="WalletConnect"
+                              height="100%"
+                              width="100%"
+                            />
+                          </a>
+                          <a @click="removeAllBackup">
+                            <img
+                              style="height: 80px; padding: 10px"
+                              src="https://home.runonflux.io/img/metamask.svg"
+                              alt="Metamask"
+                              height="100%"
+                              width="100%"
+                            />
+                          </a>
+                        </div>
+                      </dd>
+                      <dd class="col-sm-8">
+                        <b-card-text class="text-center">
+                          or sign the following message with any ZelID / SSP Wallet ID
+                          / Bitcoin address / Ethereum address
+                        </b-card-text>
+                        <br /><br />
+                        <b-form class="mx-5">
+                          <b-row>
+                            <b-col cols="12">
+                              <b-form-group
+                                label="Message"
+                                label-for="h-message"
+                                label-cols-md="3"
+                              >
+                                <b-form-input
+                                  id="h-message"
+                                  placeholder="Insert Login Phrase"
+                                />
+                              </b-form-group>
+                            </b-col>
+                            <b-col cols="12">
+                              <b-form-group
+                                label="Address"
+                                label-for="h-address"
+                                label-cols-md="3"
+                              >
+                                <b-form-input
+                                  id="h-address"
+                                  placeholder="Insert ZelID / SSP Wallet ID / Bitcoin address / Ethereum address"
+                                />
+                              </b-form-group>
+                            </b-col>
+                            <b-col cols="12">
+                              <b-form-group
+                                label="Signature"
+                                label-for="h-signature"
+                                label-cols-md="3"
+                              >
+                                <b-form-input
+                                  id="h-signature"
+                                  placeholder="Insert Signature"
+                                />
+                              </b-form-group>
+                            </b-col>
+
+                            <b-col cols="12">
+                              <b-form-group label-cols-md="3">
+                                <b-button
+                                  type="submit"
+                                  variant="primary"
+                                  block
+                                >
+                                  Login
+                                </b-button>
+                              </b-form-group>
+                            </b-col>
+                          </b-row>
+                        </b-form>
+                      </dd>
+                    </dl>
+                  </b-card>
+
+                  <div v-if="sigInPrivilage === true">
+                    <!-- Main table element -->
+
+                    <div>
+                      <b-input-group class="mb-2">
+                        <b-input-group-prepend is-text>
+                          <b-icon icon="funnel-fill" />
+                        </b-input-group-prepend>
+
+                        <b-form-select
+                          v-model="nestedTableFilter"
+                          :options="restoreComponents"
+                        />
+                      </b-input-group>
+                    </div>
+
+                    <b-table
+                      :items="checkpoints"
+                      :fields="backupTableFields"
+                      stacked="md"
+                      show-empty
+                      bordered
+                      small
+                      empty-text="No records available. Please export your backup to FluxDrive."
+                      :sort-by.sync="sortbackupTableKey"
+                      :sort-desc.sync="sortbackupTableDesc"
+                      @filtered="onFilteredBackup"
+                    >
+                      <template #thead-top>
+                        <b-tr>
+                          <b-td
+                            colspan="6"
+                            variant="dark"
+                            class="text-center"
+                          >
+                            <b-icon scale="1.2" icon="back" class="mr-2" /><b>Backups Inventory</b>
+                          </b-td>
+                        </b-tr>
+                      </template>
+
+                      <template #cell(actions)="row">
+                        <div class="d-flex justify-content-center align-items-center">
+                          <b-button
+                            variant="danger"
+                            class="d-flex justify-content-center align-items-center mr-1"
+                            style="width: 15px; height: 25px"
+
+                            @click="deleteRestoreBackup(row.item.component_name, checkpoints, row.item.timestamp)"
+                          >
+                            <b-icon
+                              class="d-flex justify-content-center align-items-center"
+                              scale="0.9"
+                              icon="trash"
+                            />
+                          </b-button>
+                          <b-button
+                            variant="primary"
+                            class="d-flex justify-content-center align-items-center"
+                            style="width: 15px; height: 25px"
+
+                            @click="addAllBackupComponents(row.item.timestamp)"
+                          >
+                            <b-icon
+                              class="d-flex justify-content-center align-items-center"
+                              scale="0.9"
+                              icon="save"
+                            />
+                          </b-button>
+                        </div>
+                      </template>
+                      <template #cell(timestamp)="row">
+                        <kbd>backup_{{ row.item.timestamp }}</kbd>
+                      </template>
+                      <template #cell(time)="row">
+                        {{ formatDateTime(row.item.timestamp) }}
+                      </template>
+
+                      <template #row-details="row">
+                        <b-table
+                          stacked="md"
+                          show-empty
+                          bordered
+                          hover
+                          small
+<<<<<<< HEAD
+                          head-variant="light"
+=======
+>>>>>>> df119299 (UI correction and build)
+                          :items="row.item.components.filter(component =>
+                            Object.values(component).some(value =>
+                              String(value).toLowerCase().includes(nestedTableFilter.toLowerCase()),
+                            ),
+                          )"
+                          :fields="componentsTable1"
+                        >
+                          <template #cell(actions)="nestedRow">
+                            <b-button
+                              class="d-flex justify-content-center align-items-center"
+                              style="
+                          margin: auto;
+                          width: 15px;
+                          height: 25px;
+                          display: flex;
+                        "
+                              variant="primary"
+
+                              @click="addComponent(nestedRow.item, row.item.timestamp)"
+                            >
+                              <b-icon
+                                class="d-flex justify-content-center align-items-center"
+                                scale="0.7"
+                                icon="plus-lg"
+                              />
+                            </b-button>
+                          </template>
+                        </b-table>
+                      </template>
+                    </b-table>
+                    <b-table
+                      v-if="newComponents.length > 0"
+                      :items="newComponents"
+                      :fields="[...newComponentsTableFields, {
+                        key: 'actions', label: 'Actions', thStyle: { width: '20%' }, class: 'text-center',
+                      }]"
+                      stacked="md"
+                      show-empty
+                      bordered
+                      hover
+                      small
+                    >
+                      <template #thead-top>
+                        <b-tr>
+                          <b-td
+                            colspan="6"
+                            variant="dark"
+                            class="text-center"
+                          >
+                            <b-icon
+                              scale="1.2"
+                              icon="life-preserver"
+                              class="mr-2"
+                            /><b>Restore Overview</b>
+                          </b-td>
+                        </b-tr>
+                      </template>
+                      <template #cell(actions)="row">
+                        <div class="d-flex justify-content-center align-items-center">
+                          <b-button
+                            variant="danger"
+                            class="d-flex justify-content-center align-items-center"
+                            style="width: 95px; height: 25px"
+
+                            @click="deleteItem(row.index, newComponents)"
+                          >
+                            <b-icon
+                              class="d-flex justify-content-center align-items-center"
+                              scale="0.9"
+                              icon="trash"
+                            />
+                          </b-button>
+                        </div>
+                      </template>
+                      <template #custom-foot>
+                        <b-tr>
+                          <b-td
+                            colspan="3"
+                            variant="dark"
+                            class="text-right"
+                          />
+                          <b-td
+                            colspan="2"
+                            variant="dark"
+                            style="
+                        text-align: center;
+                        vertical-align: middle;
+                      "
+                          >
+                            <b-icon class="mr-2" icon="hdd" scale="1.4" /> {{ totalArchiveFileSize(newComponents).toFixed(0) }} MB
+                          </b-td>
+                        </b-tr>
+                      </template>
+                    </b-table>
+                    <b-button
+                      v-if="newComponents?.length > 0"
+                      block
+                      variant="outline-primary"
+                    >
+                      <b-icon
+                        icon="arrow-clockwise"
+                        scale="1.2"
+                        class="mr-2 mt-2"
+                      />Restore
+                    </b-button>
+                  </div>
+                </div>
+
+                <div v-if="selectedRestoreOption === 'Upload File'">
+                  <div>
+                    <b-input-group class="mb-3">
+                      <b-input-group-prepend is-text>
+                        <b-icon icon="folder-plus" />
+                      </b-input-group-prepend>
+
+                      <b-form-select
+                        v-model="restoreRemoteFile"
+                        :options="components"
+                        style="border-radius: 0"
+                        :disabled="remoteFileComponents"
+                      >
+                        <template #first>
+                          <b-form-select-option
+                            :value="null"
+                            disabled
+                          >
+                            - Select component -
+                          </b-form-select-option>
+                        </template>
+                      </b-form-select>
+
+                      <b-input-group-append>
+                        <b-button
+                          text="Button"
+                          size="sm"
+                          variant="outline-primary"
+                          @click="addRemoteFile"
+                        >
+                          <b-icon icon="cloud-arrow-up" scale="1.5" />
+                        </b-button>
+                      </b-input-group-append>
+                    </b-input-group>
+                  </div>
+
+                  <div
+                    v-if="items1?.length > 0"
+                    class="d-flex justify-content-between mt-2"
+                  >
+                    <b-table
+                      class="b-table"
+                      small
+                      hover
+                      bordered
+<<<<<<< HEAD
+                      head-variant="light"
+=======
+>>>>>>> df119299 (UI correction and build)
+                      size="sm"
+                      :items="items1"
+                      :fields="computedRestoreUploadFileFields"
+                    >
+                      <template #thead-top>
+                        <b-tr>
+                          <b-td
+                            colspan="6"
+                            variant="dark"
+                            class="text-center"
+                          >
+                            <b-icon
+                              scale="1.2"
+                              icon="life-preserver"
+                              class="mr-2"
+                            /><b>Restore Overview</b>
+                          </b-td>
+                        </b-tr>
+                      </template>
+                      <template #cell(file)="data">
+                        <div class="table-cell">
+                          {{ data.value }}
+                        </div>
+                      </template>
+                      <template #cell(component)="data">
+                        <div class="table-cell">
+                          {{ data.value }}
+                        </div>
+                      </template>
+
+                      <template #cell(actions)="data">
+                        <div class="d-flex justify-content-center align-items-center">
+                          <b-button
+                            variant="danger"
+                            class="d-flex justify-content-center align-items-center"
+                            style="width: 15px; height: 25px"
+                            @click="deleteItem(data.index, items1)"
+                          >
+                            <b-icon
+                              class="d-flex justify-content-center align-items-center"
+                              scale="0.9"
+                              icon="trash"
+                            />
+                          </b-button>
+                        </div>
+                      </template>
+                      <template #custom-foot>
+                        <b-tr>
+                          <b-td
+                            colspan="2"
+                            variant="dark"
+                            class="text-right"
+                          />
+                          <b-td
+                            colspan="2"
+                            variant="dark"
+                            style="
+                        text-align: center;
+                        vertical-align: middle;
+                      "
+                          >
+                            <b-icon class="mr-1" icon="hdd" scale="1.4" />{{ totalArchiveFileSize(items1).toFixed(0) }} MB
+                          </b-td>
+                        </b-tr>
+                      </template>
+                    </b-table>
+                  </div>
+                  <b-button
+                    v-if="items1?.length > 0"
+                    class="mt-2"
+                    block
+                    variant="outline-primary"
+                  >
+<<<<<<< HEAD
+                    <b-icon icon="arrow-clockwise" scale="1.1" class="mr-2" />Restore
+=======
+                    <b-icon icon="arrow-clockwise" scale="1.1" class="mr-1" />Restore
+>>>>>>> df119299 (UI correction and build)
+                  </b-button>
+                </div>
+                <div v-if="selectedRestoreOption === 'Remote URL'">
+                  <div>
+                    <b-input-group class="mb-0">
+                      <b-input-group-prepend is-text>
+                        <b-icon icon="globe" />
+                      </b-input-group-prepend>
+
+                      <b-form-input
+                        v-model="restoreRemoteUrl"
+                        :state="urlValidationState"
+                        type="url"
+                        placeholder="Enter the URL for your remote backup archive"
+                        required
+                      />
+
+<<<<<<< HEAD
+                      <b-input-group-append class="ml-0.5">
+=======
+                      <b-input-group-append>
+>>>>>>> df119299 (UI correction and build)
+                        <b-form-select
+                          v-model="restoreRemoteUrlComponent"
+                          :options="components"
+                          :disabled="remoteUrlComponents"
+                          style="border-radius: 0"
+                        >
+                          <template #first>
+                            <b-form-select-option
+                              :value="null"
+                              disabled
+                            >
+                              - Select component -
+                            </b-form-select-option>
+                          </template>
+                        </b-form-select>
+                      </b-input-group-append>
+                      <b-input-group-append>
+                        <b-button
+                          size="sm"
+                          variant="outline-primary"
+                          @click="addRemoteUrlItem"
+                        >
+                          <b-icon scale="0.8" icon="plus-lg" />
+                        </b-button>
+                      </b-input-group-append>
+                    </b-input-group>
+                    <b-form-invalid-feedback class="mb-2" :state="urlValidationState">
+                      {{ urlValidationMessage }}
+                    </b-form-invalid-feedback>
+                  </div>
+
+                  <div
+                    v-if="restoreRemoteUrlItems?.length > 0"
+                    class="d-flex justify-content-between mt-2"
+                  >
+                    <b-table
+                      class="b-table"
+                      small
+                      hover
+                      bordered
+<<<<<<< HEAD
+                      head-variant="light"
+=======
+>>>>>>> df119299 (UI correction and build)
+                      size="sm"
+                      :items="restoreRemoteUrlItems"
+                      :fields="computedRestoreRemoteURLFields"
+                    >
+                      <template #thead-top>
+                        <b-tr>
+                          <b-td
+                            colspan="6"
+                            variant="dark"
+                            class="text-center"
+                          >
+                            <b-icon
+                              scale="1.2"
+                              icon="life-preserver"
+                              class="mr-2"
+                            /><b>Restore Overview</b>
+                          </b-td>
+                        </b-tr>
+                      </template>
+                      <template #cell(url)="data">
+                        <div class="table-cell">
+                          {{ data.value }}
+                        </div>
+                      </template>
+                      <template #cell(component)="data">
+                        <div class="table-cell">
+                          {{ data.value }}
+                        </div>
+                      </template>
+                      <template #cell(actions)="data">
+                        <div class="d-flex justify-content-center align-items-center">
+                          <b-button
+                            variant="danger"
+                            class="d-flex justify-content-center align-items-center"
+                            style="width: 25px; height: 25px"
+                            @click="deleteItem(data.index, restoreRemoteUrlItems)"
+                          >
+                            <b-icon
+                              class="d-flex justify-content-center align-items-center"
+                              scale="0.9"
+                              icon="trash"
+                            />
+                          </b-button>
+                        </div>
+                      </template>
+                      <template #custom-foot>
+                        <b-tr>
+                          <b-td
+                            colspan="2"
+                            variant="dark"
+                            class="text-right"
+                          />
+                          <b-td
+                            colspan="2"
+                            variant="dark"
+                            style="
+                        text-align: center;
+                        vertical-align: middle;
+                      "
+                          >
+                            <b-icon class="mr-1" icon="hdd" scale="1.4" />{{ totalArchiveFileSize(restoreRemoteUrlItems).toFixed(0) }} MB
+                          </b-td>
+                        </b-tr>
+                      </template>
+                    </b-table>
+                  </div>
+                  <b-button
+                    v-if="restoreRemoteUrlItems?.length > 0"
+                    class="mr-2 mt-2"
+                    block
+                    variant="outline-primary"
+                  >
+                    <b-icon icon="arrow-clockwise" scale="1.1" class="mr-2" />Restore
+                  </b-button>
+                </div>
+              </b-tab>
+            </b-tabs>
+          </b-card>
+        </div>
+      </b-tab>
+      <b-tab
         title="Execute Commands"
         :disabled="!isApplicationInstalledLocally"
       >
@@ -3885,6 +4970,16 @@ import {
   BTabs,
   BTab,
   BTable,
+  BTd,
+  BTr,
+  BDropdown,
+  BDropdownItem,
+  BFormTag,
+  BFormTags,
+  BIcon,
+  BInputGroup,
+  BInputGroupPrepend,
+  BInputGroupAppend,
   BCol,
   BCard,
   BCardText,
@@ -3893,14 +4988,13 @@ import {
   BRow,
   BButton,
   BSpinner,
+  BFormRadioGroup,
   BFormTextarea,
   BFormGroup,
   BFormInput,
   BFormCheckbox,
   BFormSelect,
   BFormSelectOption,
-  BInputGroup,
-  BInputGroupAppend,
   BPagination,
   VBTooltip,
 } from 'bootstrap-vue';
@@ -3959,6 +5053,16 @@ export default {
     BTabs,
     BTab,
     BTable,
+    BTd,
+    BTr,
+    BDropdown,
+    BDropdownItem,
+    BFormTag,
+    BFormTags,
+    BIcon,
+    BInputGroup,
+    BInputGroupPrepend,
+    BInputGroupAppend,
     BCol,
     BCard,
     BCardText,
@@ -3967,14 +5071,13 @@ export default {
     BRow,
     BButton,
     BSpinner,
+    BFormRadioGroup,
     BFormTextarea,
     BFormGroup,
     BFormInput,
     BFormCheckbox,
     BFormSelect,
     BFormSelectOption,
-    BInputGroup,
-    BInputGroupAppend,
     BPagination,
     ConfirmDialog,
     ListEntry,
@@ -4003,6 +5106,100 @@ export default {
   },
   data() {
     return {
+      storageMethod: [
+        {
+          value: 'flux',
+          image: 'https://help.runonflux.io/wp-content/uploads/2023/11/flux_drive-100x31.png',
+          disabled: false,
+          text: '',
+        },
+        {
+          value: 'google',
+          image: 'https://upload.wikimedia.org/wikipedia/commons/f/fb/Google_Drive_-_New_Logo.png',
+          disabled: true,
+          text: 'Coming Soon..',
+        },
+        {
+          value: 'as3',
+          image: 'https://www.nicepng.com/png/detail/142-1424243_amazon-s-amazon-web-services-s3.png',
+          disabled: true,
+          text: 'Coming Soon..',
+        },
+      ],
+      components: ['apple', 'orange', 'banana', 'lime', 'peach', 'chocolate', 'strawberry'],
+      restoreOptions: ['FluxDrive', 'Remote URL', 'Upload File'],
+      selectedRestoreOption: null,
+      selectedStorageMethod: null,
+      selectedBackupComponents: [],
+      items: [],
+      items1: [],
+      checkpoints: [
+        {
+          timestamp: 1705483856,
+          components: [
+            { component_name: 'lime', file_url: 'http//...', file_size: '133' },
+            { component_name: 'orange', file_url: 'http//...', file_size: '123' },
+          ],
+        },
+        {
+          timestamp: 1705485856,
+          components: [
+            { component_name: 'lime', file_url: 'http//...', file_size: '143' },
+            { component_name: 'orange', file_url: 'http//...', file_size: '123' },
+          ],
+        },
+      ],
+      sigInPrivilage: true,
+      backupList: [],
+      backupToUpload: [],
+      restoreRemoteUrl: '',
+      restoreRemoteFile: null,
+      restoreRemoteUrlComponent: null,
+      restoreRemoteUrlItems: [],
+      newComponents: [],
+      itemKey: [],
+      expandedDetails: [],
+      itemValue: [],
+      sortbackupTableKey: 'timestamp',
+      sortbackupTableDesc: true,
+      nestedTableFilter: '',
+      backupTableFields: [
+        { key: 'timestamp', label: 'Name', thStyle: { width: '65%' } },
+        { key: 'time', label: 'Time', thStyle: { width: '25%' } },
+        {
+          key: 'actions', label: 'Actions', thStyle: { width: '5%' }, class: 'text-center',
+        },
+      ],
+      restoreComponents: [
+        { value: '', text: 'all' },
+        { value: 'lime', text: 'lime' },
+        { value: 'orange', text: 'orange' },
+      ],
+      localBackupTableFields: [
+        {
+          key: 'isActive', label: '', thStyle: { width: '5%' }, class: 'text-center',
+        },
+        { key: 'component_name', label: 'Component Name', thStyle: { width: '40%' } },
+        { key: 'create', label: 'CreateAt', thStyle: { width: '17%' } },
+        { key: 'expire', label: 'ExpireAt', thStyle: { width: '17%' } },
+        { key: 'file_size', label: 'File Size', thStyle: { width: '8%' } },
+      ],
+      newComponentsTableFields: [
+        { key: 'component_name', label: 'Component Name', thStyle: { width: '25%' } },
+        { key: 'file_url', label: 'File URL', thStyle: { width: '55%' } },
+        { key: 'timestamp', label: 'Timestamp', thStyle: { width: '6%' } },
+        { key: 'file_size', label: 'File Size', thStyle: { width: '9%' } },
+      ],
+      componentsTable() {
+        return [
+          { key: 'component_name', label: 'Component Name', thStyle: { width: '30%' } },
+          { key: 'file_url', label: 'File URL', thStyle: { width: '55%' } },
+          { key: 'file_size', label: 'File Size', thStyle: { width: '10%' } },
+          {
+            key: 'actions', label: 'Actions', thStyle: { width: '5%' }, class: 'text-center',
+          },
+        ];
+      },
       socket: null,
       terminal: null,
       selectedCmd: null,
@@ -4215,6 +5412,71 @@ export default {
     };
   },
   computed: {
+    isValidUrl() {
+      const urlRegex = /^(http|https):\/\/[^ "]+$/;
+      // eslint-disable-next-line no-mixed-operators
+      return this.restoreRemoteUrl === '' || this.restoreRemoteUrl.endsWith('.tar.gz') && urlRegex.test(this.restoreRemoteUrl);
+    },
+    urlValidationState() {
+      return this.isValidUrl ? null : false;
+    },
+    urlValidationMessage() {
+      return this.isValidUrl ? null : 'Please enter a valid URL ending with .tar.gz';
+    },
+    computedRestoreRemoteURLFields() {
+      return this.RestoreTableBuilder('URL');
+    },
+    computedRestoreUploadFileFields() {
+      return this.RestoreTableBuilder('File');
+    },
+    checkpointsTable() {
+      return [
+        { key: 'name', label: 'Name', thStyle: { width: '70%' } },
+        { key: 'date', label: 'Date', thStyle: { width: '20%' } },
+        { key: 'action', label: 'Action', thStyle: { width: '5%' } },
+      ];
+    },
+    componentsTable1() {
+      return [
+        { key: 'component_name', label: 'Component Name', thStyle: { width: '30%' } },
+        { key: 'file_url', label: 'File URL', thStyle: { width: '55%' } },
+        { key: 'file_size', label: 'File Size', thStyle: { width: '10%' } },
+        {
+          key: 'actions', label: 'Actions', thStyle: { width: '5%' }, class: 'text-center',
+        },
+      ];
+    },
+    // eslint-disable-next-line vue/no-dupe-keys
+    componentsTable() {
+      return [
+        { key: 'component_name', label: 'Component Name', thStyle: { width: '50%' } },
+        { key: 'file_url', label: 'File URL', thStyle: { width: '30%' } },
+        { key: 'file_size', label: 'File Size', thStyle: { width: '20%' } },
+      ];
+    },
+    componentAvailableOptions() {
+      if (this.components.length === 1) {
+        // eslint-disable-next-line vue/no-side-effects-in-computed-properties
+        this.selectedBackupComponents = this.components;
+      }
+      return this.components.filter((opt) => this.selectedBackupComponents.indexOf(opt) === -1);
+    },
+    remoteFileComponents() {
+      if (this.components.length === 1) {
+        // eslint-disable-next-line vue/no-side-effects-in-computed-properties
+        this.restoreRemoteFile = this.components[0];
+        return true;
+      }
+      return false;
+    },
+    remoteUrlComponents() {
+      if (this.components.length === 1) {
+        // eslint-disable-next-line vue/no-side-effects-in-computed-properties
+        this.restoreRemoteUrlComponent = this.components[0];
+        return true;
+      }
+      return false;
+    },
     isComposeSingle() {
       if (this.appSpecification.version <= 3) {
         return true;
@@ -4499,6 +5761,9 @@ export default {
       }
     },
   },
+  created() {
+    this.applyFilter();
+  },
   mounted() {
     this.initMMSDK();
     this.callBResponse.data = '';
@@ -4524,6 +5789,150 @@ export default {
     this.getDaemonBlockCount();
   },
   methods: {
+    removeAllBackup() {
+      this.backupList = [];
+      this.backupToUpload = [];
+    },
+    totalArchiveFileSize(item) {
+      return item.reduce((total, component) => total + parseFloat(component.file_size), 0);
+    },
+    RestoreTableBuilder(value) {
+      return [
+        { key: 'component', label: 'Component Name', thStyle: { width: '25%' } },
+        { key: value.toString().toLowerCase(), label: value.toString(), thStyle: { width: '65%' } },
+        { key: 'file_size', label: 'File Size', thStyle: { width: '15%' } },
+        { key: 'actions', label: 'Action', thStyle: { width: '5%' } },
+      ];
+    },
+    addAllTags() {
+      this.selectedBackupComponents = [...this.selectedBackupComponents, ...this.components];
+    },
+    clearSelected() {
+      this.$refs.selectableTable.clearSelected();
+    },
+    selectAllRows() {
+      this.$refs.selectableTable.selectAllRows();
+    },
+    selectStorageOption(value) {
+      this.selectedStorageMethod = value;
+    },
+    createBackup(componentNames) {
+      const timestamp = Math.floor(Date.now() / 1000);
+
+      // eslint-disable-next-line no-restricted-syntax
+      for (const componentName of componentNames) {
+        const existingBackupIndex = this.backupList.findIndex((item) => item.component_name === componentName);
+        console.log(existingBackupIndex);
+        if (existingBackupIndex !== -1) {
+          this.$set(this.backupList, existingBackupIndex, {
+            isActive: false,
+            component_name: componentName,
+            create: timestamp,
+            file_size: 200,
+          });
+          console.log(JSON.stringify(this.backupList[existingBackupIndex]));
+        } else {
+          const newBackupItem = {
+            isActive: false,
+            component_name: componentName,
+            create: timestamp,
+            file_size: 200,
+          };
+          this.backupList.push(newBackupItem);
+        }
+      }
+      // console.log(JSON.stringify(this.backupList));
+    },
+    onRowSelected(itemOnRow) {
+      this.backupToUpload = itemOnRow.map((item) => item.component_name);
+    },
+    applyFilter() {
+      this.$nextTick(() => {
+        this.checkpoints.forEach((row) => {
+          // eslint-disable-next-line no-underscore-dangle, no-param-reassign
+          row._showDetails = true;
+        });
+      });
+    },
+    onFilteredBackup(filteredItems) {
+      this.totalRows = filteredItems.length;
+      this.currentPage = 1;
+    },
+    addAllBackupComponents(timestamp) {
+      const checkpoint = this.checkpoints.find((cp) => cp.timestamp === timestamp);
+      const filteredComponents = checkpoint.components.map((component) => ({
+        component_name: component.component_name,
+        file_url: component.file_url,
+        timestamp: checkpoint.timestamp,
+        file_size: component.file_size,
+      }));
+      this.newComponents = filteredComponents;
+    },
+    addComponent(selected, timestamp) {
+      const existingIndex = this.newComponents.findIndex(
+        (item) => item.component_name === selected.component_name,
+      );
+      if (existingIndex !== -1) {
+        this.$set(this.newComponents, existingIndex, {
+          timestamp,
+          component_name: selected.component_name,
+          file_url: selected.file_url,
+          file_size: selected.file_size,
+        });
+      } else {
+        this.newComponents.push({
+          component_name: selected.component_name,
+          timestamp,
+          file_url: selected.file_url,
+          file_size: selected.file_size,
+        });
+      }
+    },
+    formatName(checkpoint) {
+      return `backup_${checkpoint.timestamp}`;
+    },
+    formatDateTime(timestamp, add24Hours = false) {
+      const date = new Date(timestamp * 1000);
+      if (add24Hours) {
+        date.setHours(date.getHours() + 24);
+      }
+      return date.toLocaleString();
+    },
+    addRemoteFile() {
+      if (this.restoreRemoteFile !== null) {
+        const existingItemIndex = this.items1.findIndex((item) => item.component === this.restoreRemoteFile);
+        if (existingItemIndex !== -1) {
+          this.items1[existingItemIndex].file_size = 74.93;
+        } else {
+          this.items1.push({ file: `backup_${this.restoreRemoteFile.toLowerCase()}.tar.gz`, component: this.restoreRemoteFile, file_size: 75.93 });
+        }
+      }
+    },
+    addRemoteUrlItem() {
+      if (!this.isValidUrl) {
+        return;
+      }
+      if (this.restoreRemoteUrl.trim() !== '' && this.restoreRemoteUrlComponent !== null) {
+        const existingItemIndex = this.restoreRemoteUrlItems.findIndex((item) => item.component === this.restoreRemoteUrlComponent);
+        if (existingItemIndex !== -1) {
+          this.restoreRemoteUrlItems[existingItemIndex].url = this.restoreRemoteUrl;
+          this.restoreRemoteUrlItems[existingItemIndex].file_size = 400;
+        } else {
+          this.restoreRemoteUrlItems.push({ url: this.restoreRemoteUrl, component: this.restoreRemoteUrlComponent, file_size: 300 });
+        }
+      }
+    },
+    deleteItem(index, item) {
+      item.splice(index, 1);
+    },
+
+    deleteRestoreBackup(name, restoreItem, timestamp = 0) {
+      const backupIndex = restoreItem.findIndex((item) => item.timestamp === timestamp);
+      restoreItem.splice(backupIndex, 1);
+      if (timestamp !== 0) {
+        this.newComponents = this.newComponents.filter((item) => item.timestamp !== timestamp);
+      }
+    },
     async initMMSDK() {
       try {
         await MMSDK.init();
@@ -6545,6 +7954,10 @@ export default {
 </script>
 
 <style>
+.custom-button {
+  width: 15px !important;
+  height: 25px !important;
+}
 .button-cell {
   display: flex;
   align-items: center;

@@ -4,6 +4,8 @@ import {
   LayoutPlugin,
   ToastPlugin,
   ModalPlugin,
+  BootstrapVue,
+  IconsPlugin,
 } from 'bootstrap-vue';
 
 import router from './router';
@@ -26,6 +28,8 @@ Vue.use(BVConfigPlugin, {
 Vue.use(LayoutPlugin);
 Vue.use(ToastPlugin);
 Vue.use(ModalPlugin);
+Vue.use(BootstrapVue);
+Vue.use(IconsPlugin);
 
 // import core styles
 require('@core/scss/core.scss');
