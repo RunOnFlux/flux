@@ -13,9 +13,10 @@ const log = require('./ZelBack/src/lib/log');
 const socket = require('./ZelBack/src/lib/socket');
 const serviceManager = require('./ZelBack/src/services/serviceManager');
 const upnpService = require('./ZelBack/src/services/upnpService');
+const fpcService = require('./ZelBack/src/services/fluxportControllerService');
+
 const hash = require('object-hash');
 const { watch } = require('fs/promises');
-const { startGossipServer, getApiPort, getRouterIp } = require('./ZelBack/src/services/fluxportControllerService');
 
 const cmdAsync = util.promisify(nodecmd.get);
 
@@ -39,21 +40,22 @@ function validIpv4Address(ip) {
 function validateTags() {
   const tags = userconfig.initial.tags || {};
 
-  if (tags && !(typeof tags === 'object' || tags instanceof Object)) {
-    log.error('Error tags must be a mapping with string keys and values as string, number or boolean');
-    process.exit();
+  if (tags && tags.constructor !== Object) {
+    log.error('Error tags must be a mapping with string keys and values as string, number or boolean.');
+    return {}
   }
 
-  Object.entries(tags).forEach((key, value) => {
+  for (const [key, value] of Object.entries(tags)) {
     const valuePassed = typeof value === 'string' || value instanceof String
       || typeof value === 'number' || value instanceof Number
       || typeof value === 'boolean' || value instanceof Boolean;
 
     if (!(typeof key === 'string' || key instanceof String) || !valuePassed) {
-      log.error('Error tags must be a mapping with string keys and values as string, number or boolean');
-      process.exit();
+      log.error('Tag must be a string and value must be a boolean, string or number, Skipping.');
+      delete tags[key];
     }
-  });
+  };
+
   return tags;
 }
 
@@ -63,15 +65,15 @@ async function waitForApiPortAndRouterIp(autoUpnp) {
     const apiPort = +userconfig.initial.apiport || +config.server.apiport;
     const routerIp = userconfig.initial.routerIP;
     if (routerIp && !validIpv4Address(routerIp)) {
-      log.error(`Router IP: ${routerIp} must be a valid ipv4 address`);
+      log.error(`Router IP: ${routerIp} must be a valid ipv4 address.`);
       process.exit();
     }
     return [apiPort, routerIp];
   }
 
-  if (await startGossipServer()) {
-    const apiPort = getApiPort();
-    const routerIp = getRouterIp();
+  if (await fpcService.startGossipServer()) {
+    const apiPort = fpcService.getApiPort();
+    const routerIp = fpcService.getRouterIp();
     return Promise.all([apiPort, routerIp]);
   }
 
@@ -80,31 +82,36 @@ async function waitForApiPortAndRouterIp(autoUpnp) {
   return process.exit();
 }
 
-async function loadUpnpIfRequired(autoUpnp) {
-  let verifyUpnp = false;
-  let setupUpnp = false;
+async function loadUpnpIfSupported(autoUpnp) {
+  let upnpSupported = false;
+  let upnpSetupComplete = false;
 
-  const upnpRequested = autoUpnp
+  const upnpRequested = Boolean(
+    autoUpnp
     || userconfig.initial.routerIP
-    || (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport);
+    || (userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport)
+  );
 
-  if (autoUpnp || userconfig.initial.apiport) {
-    verifyUpnp = await upnpService.verifyUPNPsupport();
-    if (verifyUpnp) {
-      setupUpnp = await upnpService.setupUPNP();
-    }
+  // Prior, this would run if `apiport` was set in config file. However, even if this
+  // wasn't set, after flux uppdated pgp or something, it would write the server default of 16127 to
+  // the config file, effectively making this always run as apiport was always true. So lets just
+  // run it by default
+  upnpSupported = await upnpService.verifyUPNPsupport();
+
+  if (upnpSupported) {
+    upnpSetupComplete = await upnpService.setupUPNP();
   }
 
-  if (upnpRequested) {
-    if (verifyUpnp !== true) {
-      log.error(`Flux port ${userconfig.computed.apiPort} specified but UPnP failed to verify support. Shutting down.`);
-      process.exit();
-    }
-    if (setupUpnp !== true) {
-      log.error(`Flux port ${userconfig.computed.apiPort} specified but UPnP failed to map to api or home port. Shutting down.`);
-      process.exit();
-    }
+  if (upnpSetupComplete || !upnpRequested) return;
+
+  if (!upnpSupported) {
+    log.error(`Flux port ${userconfig.computed.apiPort} specified but UPnP failed to verify support. Shutting down.`);
   }
+  else if (!upnpSetupComplete) {
+    log.error(`Flux port ${userconfig.computed.apiPort} specified but UPnP failed to map to api or home port. Shutting down.`);
+  }
+
+  process.exit();
 }
 
 async function SetupPortsUpnpAndComputed() {
@@ -145,7 +152,7 @@ async function SetupPortsUpnpAndComputed() {
 
   userconfig.computed.routerIp = routerIp;
 
-  await loadUpnpIfRequired(autoUpnp);
+  await loadUpnpIfSupported(autoUpnp);
 }
 
 async function configReload() {
@@ -212,4 +219,8 @@ async function initiate() {
 
 module.exports = {
   initiate,
+  validIpv4Address,
+  validateTags,
+  waitForApiPortAndRouterIp,
+  loadUpnpIfSupported,
 };
