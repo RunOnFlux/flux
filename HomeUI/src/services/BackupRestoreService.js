@@ -9,4 +9,12 @@ export default {
     };
     return Api().get(`/backup/getavailablespaceofapp/${appname}/${componentname}`, axiosConfig);
   },
+  getRemoteFileSize(zelidauthHeader, fileurl, multiplier, decimal) {
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    };
+    return Api().get(`/backup/getremotefilesize/${fileurl}/${multiplier}/${decimal}`, axiosConfig);
+  },
 };

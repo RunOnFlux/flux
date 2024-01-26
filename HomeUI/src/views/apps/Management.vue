@@ -5697,9 +5697,11 @@ export default {
       const { data } = response.data;
       if (response.data.status === 'success') {
         this.AvailableSpace = data;
-        console.log(this.AvailableSpace);
+        return this.AvailableSpace;
+      // eslint-disable-next-line no-else-return
       } else {
         this.showToast('danger', response.data.data.message || response.data.data);
+        return null;
       }
     },
     removeAllBackup() {
@@ -5823,34 +5825,25 @@ export default {
         }
       }
     },
-    async checkRemoteFileSize(fileUrl) {
-      const corsAnywhereUrl = 'https://corsanywhere.app.runonflux.io/';
-      try {
-        const response = await axios.head(corsAnywhereUrl + fileUrl);
-        const contentLengthHeader = response.headers['content-length'] || response.headers['Content-Length'];
-        this.fileSize = parseInt(contentLengthHeader, 10) / (1024 * 1024);
-        this.fileSize = this.fileSize.toFixed(2);
-        return this.fileSize;
-      } catch (error) {
-        console.error('Error fetching file size:', error.message);
-        this.fileSize = null;
-        return this.fileSize;
-      }
-    },
+
     async addRemoteUrlItem(appname, component) {
       if (!this.isValidUrl) {
         return;
       }
-      this.appsAvailableSpace(appname, component);
-      if (
-        this.restoreRemoteUrl.trim() !== ''
-        && this.restoreRemoteUrlComponent !== null
-      ) {
+
+      if (this.restoreRemoteUrl.trim() !== '' && this.restoreRemoteUrlComponent !== null) {
+        this.FileSizeInMB = await BackupRestoreService.getRemoteFileSize(this.restoreRemoteUrl.trim(), 'MB', 0);
+        console.log(this.FileSizeInMB);
+        this.spaceA = await this.appsAvailableSpace(appname, component);
+        console.log(this.spaceA);
+        if (this.FileSizeInMB > this.spaceA) {
+          this.showToast('danger', 'File is too big...');
+          return;
+        }
         const existingItemIndex = this.restoreRemoteUrlItems.findIndex(
           (item) => item.component === this.restoreRemoteUrlComponent,
         );
-        this.FileSizeInMB = await this.checkRemoteFileSize(this.restoreRemoteUrl.trim());
-        console.log(this.FileSizeInMB);
+
         if (this.FileSizeInMB === 0 || this.FileSizeInMB === null) {
           return;
         }
