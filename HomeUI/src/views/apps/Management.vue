@@ -5842,7 +5842,7 @@ export default {
         }
         this.FileSizeInMB = this.response.data.data;
         console.log(this.FileSizeInMB);
-        this.spaceA = await this.getAvailableSpaceOfApp(zelidauth, appname, component, 'MB', 2);
+        this.spaceA = await BackupRestoreService.getAvailableSpaceOfApp(zelidauth, appname, component, 'MB', 2);
         console.log(this.spaceA);
         if (this.FileSizeInMB > this.spaceA) {
           this.showToast('danger', 'File is too big...');
