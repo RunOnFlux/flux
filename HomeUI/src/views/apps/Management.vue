@@ -107,8 +107,8 @@
               :number="callResponse.data.height + (callResponse.data.expire || 22000)"
             />
             <list-entry
-              title="Expires in"
-              :data="getNewExpireLabel"
+              title="Period"
+              :data="getExpireLabel || (callResponse.data.expire ? `${callResponse.data.expire} blocks` : '1 month')"
             />
             <list-entry
               title="Enterprise Nodes"
@@ -392,8 +392,8 @@
               :number="callBResponse.data.height + (callBResponse.data.expire || 22000)"
             />
             <list-entry
-              title="Expires in"
-              :data="getNewExpireLabel"
+              title="Period"
+              :data="getExpireLabel || (callBResponse.data.expire ? `${callBResponse.data.expire} blocks` : '1 month')"
             />
             <list-entry
               title="Enterprise Nodes"
@@ -2560,8 +2560,8 @@
               :number="callBResponse.data.height + (callBResponse.data.expire || 22000)"
             />
             <list-entry
-              title="Expires in"
-              :data="getNewExpireLabel"
+              title="Period"
+              :data="getExpireLabel || (callBResponse.data.expire ? `${callBResponse.data.expire} blocks` : '1 month')"
             />
             <list-entry
               title="Enterprise Nodes"
@@ -3386,40 +3386,13 @@
                   />
                 </b-form-group>
                 <br>
-                <div
+                <b-form-group
                   v-if="appUpdateSpecification.version >= 6"
-                  class="form-row form-group"
+                  label-cols="2"
+                  label-cols-lg="1"
+                  label="Period"
+                  label-for="period"
                 >
-                  <label class="col-form-label">
-                    Extend Subscription
-                    <v-icon
-                      v-b-tooltip.hover.top="'Select if you want to extend your subscription period'"
-                      name="info-circle"
-                      class="mr-1"
-                    />
-                  </label>
-                  <div class="col">
-                    <b-form-checkbox
-                      id="extendSubscription"
-                      v-model="extendSubscription"
-                      switch
-                      class="custom-control-primary inline"
-                    />
-                  </div>
-                </div>
-                <br>
-                <div
-                  v-if="extendSubscription"
-                  class="form-row form-group"
-                >
-                  <label class="col-form-label">
-                    Period
-                    <v-icon
-                      v-b-tooltip.hover.top="'Time you want to extend your subscription from today'"
-                      name="info-circle"
-                      class="mr-1"
-                    />
-                  </label>
                   <div class="mx-1">
                     {{ getExpireLabel || (appUpdateSpecification.expire ? `${appUpdateSpecification.expire} blocks` : '1 month') }}
                   </div>
@@ -3432,7 +3405,7 @@
                     :max="5"
                     :step="1"
                   />
-                </div>
+                </b-form-group>
                 <br>
                 <div
                   v-if="appUpdateSpecification.version >= 7"
@@ -3698,7 +3671,7 @@
                     <label class="col-3 col-form-label">
                       Cont. Data
                       <v-icon
-                        v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with r: for synced data between instances. Ex. r:/data. Prepend with g: for synced data and master/slave solution. Ex. g:/data'"
+                        v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with r: for synced data between instances. Eg. r:/data'"
                         name="info-circle"
                         class="mr-1"
                       />
@@ -4334,7 +4307,7 @@
                   <label class="col-3 col-form-label">
                     Cont. Data
                     <v-icon
-                      v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with r: for synced data between instances. Ex. r:/data. Prepend with g: for synced data and master/slave solution. Ex. g:/data'"
+                      v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with r: for synced data between instances. Eg. r:/data'"
                       name="info-circle"
                       class="mr-1"
                     />
@@ -4623,7 +4596,10 @@
             >
               <b-card title="Sign with">
                 <div class="loginRow">
-                  <a @click="initiateSignWSUpdate">
+                  <a
+                    :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue}`"
+                    @click="initiateSignWSUpdate"
+                  >
                     <img
                       class="zelidLogin"
                       src="@/assets/images/zelID.svg"
@@ -5291,10 +5267,7 @@ export default {
       numberOfNegativeGeolocations: 1,
       minExpire: 5000,
       maxExpire: 264000,
-      extendSubscription: true,
-      daemonBlockCount: -1,
       expirePosition: 2,
-      minutesRemaining: 0,
       expireOptions: [
         {
           value: 5000,
@@ -5632,34 +5605,6 @@ export default {
       }
       return null;
     },
-    minutesToString() {
-      let value = this.minutesRemaining * 60;
-      const units = {
-        day: 24 * 60 * 60,
-        hour: 60 * 60,
-        minute: 60,
-        second: 1,
-      };
-      const result = [];
-      // eslint-disable-next-line no-restricted-syntax, guard-for-in
-      for (const name in units) {
-        const p = Math.floor(value / units[name]);
-        if (p === 1) result.push(` ${p} ${name}`);
-        if (p >= 2) result.push(` ${p} ${name}s`);
-        value %= units[name];
-      }
-      return result;
-    },
-    getNewExpireLabel() {
-      if (this.daemonBlockCount === -1) {
-        return 'Not possible to calculate expiration';
-      }
-      const expires = this.callBResponse.data.expire || 22000;
-      // eslint-disable-next-line vue/no-side-effects-in-computed-properties
-      this.minutesRemaining = (this.callBResponse.data.height + expires - this.daemonBlockCount) * 2;
-      const result = this.minutesToString;
-      return `${result[0]}, ${result[1]}, ${result[2]}`;
-    },
   },
   watch: {
     isComposeSingle(value) {
@@ -5743,7 +5688,6 @@ export default {
     this.getMarketPlace();
     this.getMultiplier();
     this.getEnterpriseNodes();
-    this.getDaemonBlockCount();
   },
   methods: {
 
@@ -6183,23 +6127,7 @@ export default {
     goBackToApps() {
       this.$emit('back');
     },
-    async initiateSignWSUpdate() {
-      if (this.dataToSign.length > 180000) {
-        const message = this.dataToSign;
-        // upload to flux storage
-        const data = {
-          publicid: Math.floor((Math.random() * 999999999999999)).toString(),
-          public: message,
-        };
-        await axios.post(
-          'https://storage.runonflux.io/v1/public',
-          data,
-        );
-        const zelProtocol = `zel:?action=sign&message=FLUX_URL=https://storage.runonflux.io/v1/public/${data.publicid}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${this.callbackValue}`;
-        window.location.href = zelProtocol;
-      } else {
-        window.location.href = `zel:?action=sign&message=${this.dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${this.callbackValue}`;
-      }
+    initiateSignWSUpdate() {
       const self = this;
       const { protocol, hostname, port } = window.location;
       let mybackend = '';
@@ -6410,15 +6338,6 @@ export default {
       }
     },
     convertExpire() {
-      if (!this.extendSubscription) {
-        const expires = this.callBResponse.data.expire || 22000;
-        const blocksToExpire = this.callBResponse.data.height + expires - this.daemonBlockCount;
-        if (blocksToExpire < 5000) {
-          throw new Error('Your application will expire in less than one week, you need to extend subscription to be able to update specifications');
-        } else {
-          return Math.ceil(blocksToExpire / 1000) * 1000;
-        }
-      }
       if (this.expireOptions[this.expirePosition]) {
         return this.expireOptions[this.expirePosition].value;
       }
@@ -6473,9 +6392,6 @@ export default {
           // time to encrypt
           // eslint-disable-next-line no-restricted-syntax
           for (const component of this.appUpdateSpecification.compose) {
-            component.environmentParameters = component.environmentParameters.replace('\\“', '\\"');
-            component.commands = component.commands.replace('\\“', '\\"');
-            component.domains = component.domains.replace('\\“', '\\"');
             if (component.secrets && !component.secrets.startsWith('-----BEGIN PGP MESSAGE')) {
               // need encryption
               // eslint-disable-next-line no-await-in-loop
@@ -6511,7 +6427,6 @@ export default {
           appSpecification.geolocation = this.generateGeolocations();
         }
         if (appSpecification.version >= 6) {
-          await this.getDaemonBlockCount();
           appSpecification.expire = this.convertExpire();
         }
         // call api for verification of app registration specifications that returns formatted specs
