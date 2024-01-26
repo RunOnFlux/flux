@@ -116,7 +116,6 @@ async function loadUpnpIfSupported(autoUpnp) {
 
 async function SetupPortsUpnpAndComputed() {
   userconfig.computed = {};
-  userconfig.computed.development = userconfig.initial.development || false;
 
   const tags = validateTags();
   const autoUpnp = userconfig.initial.upnp || false;
