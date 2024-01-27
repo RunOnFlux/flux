@@ -5,6 +5,35 @@ const log = require('../lib/log');
 const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
 
+async function dfInfo(appname, component, multiplier, decimal, fields) {
+  try {
+    const options = {
+      prefixMultiplier: multiplier,
+      isDisplayPrefixMultiplier: false,
+      precision: +decimal,
+    };
+    const dfAsync = util.promisify(df);
+    const dfData = await dfAsync(options);
+    const regex = new RegExp(`${component}_${appname}$`);
+    const allowedFields = fields ? fields.split(',') : null;
+    const dfSorted = dfData
+      .filter((entry) => regex.test(entry.mount))
+      .map((entry) => {
+        const filteredEntry = allowedFields
+          ? Object.fromEntries(Object.entries(entry).filter(([key]) => allowedFields.includes(key)))
+          : entry;
+        return filteredEntry;
+      });
+    if (dfSorted.length === 0) {
+      return null;
+    }
+    return dfSorted;
+  } catch (error) {
+    log.error(error);
+    return null;
+  }
+}
+
 async function getVolumeDataOfComponent(req, res) {
   try {
     console.log(req.params);
@@ -23,27 +52,31 @@ async function getVolumeDataOfComponent(req, res) {
     }
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
     if (authorized === true) {
-      const dfAsync = util.promisify(df);
-      const options = {
-        prefixMultiplier: multiplier,
-        isDisplayPrefixMultiplier: false,
-        precision: +decimal,
-      };
-      const dfData = await dfAsync(options);
-      const regex = new RegExp(`${component}_${appname}$`);
-      const allowedFields = fields ? fields.split(',') : null;
-      const dfInfo = dfData
-        .filter((entry) => regex.test(entry.mount))
-        .map((entry) => {
-          const filteredEntry = allowedFields
-            ? Object.fromEntries(Object.entries(entry).filter(([key]) => allowedFields.includes(key)))
-            : entry;
-          return filteredEntry;
-        });
-      if (dfInfo.length === 0) {
+      // const dfAsync = util.promisify(df);
+      // const options = {
+      //   prefixMultiplier: multiplier,
+      //   isDisplayPrefixMultiplier: false,
+      //   precision: +decimal,
+      // };
+      // const dfData = await dfAsync(options);
+      // const regex = new RegExp(`${component}_${appname}$`);
+      // const allowedFields = fields ? fields.split(',') : null;
+      // const dfInfo = dfData
+      //   .filter((entry) => regex.test(entry.mount))
+      //   .map((entry) => {
+      //     const filteredEntry = allowedFields
+      //       ? Object.fromEntries(Object.entries(entry).filter(([key]) => allowedFields.includes(key)))
+      //       : entry;
+      //     return filteredEntry;
+      //   });
+      // if (dfInfo.length === 0) {
+      //   throw new Error('No matching mount found');
+      // }
+      const dfInfoData = await dfInfo(appname, component, multiplier, decimal, fields);
+      if (dfInfoData === null) {
         throw new Error('No matching mount found');
       }
-      const response = messageHelper.createDataMessage(dfInfo[0]);
+      const response = messageHelper.createDataMessage(dfInfoData[0]);
       return res ? res.json(response) : response;
       // eslint-disable-next-line no-else-return
     } else {
@@ -67,7 +100,6 @@ function convertFileSize(sizeInBytes, multiplier) {
     KB: 1024,
     MB: 1024 * 1024,
     GB: 1024 * 1024 * 1024,
-    TB: 1024 * 1024 * 1024 * 1024,
   };
   return sizeInBytes / multiplierMap[multiplier.toUpperCase()];
 }
@@ -116,4 +148,5 @@ module.exports = {
   getVolumeDataOfComponent,
   convertFileSize,
   getRemoteFileSize,
+  dfInfo,
 };
