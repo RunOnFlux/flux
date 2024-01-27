@@ -43,7 +43,6 @@ async function getVolumeDataOfComponent(req, res) {
       if (dfInfo.length === 0) {
         throw new Error('No matching mount found');
       }
-      console.log(`Info: ${dfInfo[0]}`);
       const response = messageHelper.createDataMessage(dfInfo[0]);
       return res ? res.json(response) : response;
       // eslint-disable-next-line no-else-return
@@ -79,9 +78,9 @@ async function getRemoteFileSize(req, res) {
     let { fileurl } = req.params;
     fileurl = fileurl || req.query.fileurl;
     let { multiplier } = req.params;
-    multiplier = multiplier || req.query.multiplier || 'MB';
+    multiplier = (multiplier !== undefined && multiplier !== null) ? multiplier : (req.query.multiplier || 'MB');
     let { decimal } = req.params;
-    decimal = decimal || req.query.decimal || 0;
+    decimal = (decimal !== undefined && decimal !== null) ? decimal : (req.query.fields || '0');
     if (!fileurl) {
       throw new Error('fileurl parameter is mandatory');
     }
@@ -90,7 +89,6 @@ async function getRemoteFileSize(req, res) {
       const head = await axios.head(fileurl);
       const contentLengthHeader = head.headers['content-length'] || head.headers['Content-Length'];
       const fileSizeInBytes = parseInt(contentLengthHeader, 10);
-      console.log(fileSizeInBytes);
       if (!Number.isFinite(fileSizeInBytes)) {
         throw new Error('Error fetching file size');
       }

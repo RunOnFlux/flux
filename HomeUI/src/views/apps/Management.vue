@@ -5836,17 +5836,17 @@ export default {
         const existingItemIndex = this.restoreRemoteUrlItems.findIndex(
           (item) => item.component === this.restoreRemoteUrlComponent,
         );
-        if (this.FileSizeInMB === 0 || this.FileSizeInMB === null) {
+        if (this.remoteFileSizeResponse.data.data === 0 || this.remoteFileSizeResponse.data.data === null) {
           return;
         }
         if (existingItemIndex !== -1) {
           this.restoreRemoteUrlItems[existingItemIndex].url = this.restoreRemoteUrl;
-          this.restoreRemoteUrlItems[existingItemIndex].file_size = this.FileSizeInMB;
+          this.restoreRemoteUrlItems[existingItemIndex].file_size = this.remoteFileSizeResponse.data.data;
         } else {
           this.restoreRemoteUrlItems.push({
             url: this.restoreRemoteUrl,
             component: this.restoreRemoteUrlComponent,
-            file_size: this.FileSizeInMB,
+            file_size: this.remoteFileSizeResponse.data.data,
           });
         }
       }
