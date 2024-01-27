@@ -90,8 +90,11 @@ async function startGossipServer() {
     if (ip && ip !== routerIp) {
       log.info(`Gossip server got new routerIp: ${ip}, updating`);
       await upnpService.ufwRemoveAllowSsdpforInit();
-      // This is just good hygiene
-      await upnpService.cleanOldMappings(ip);
+      // removed this. Regarding control plane / data plane. If Flux
+      // control plane goes down, it shouldn't interfere with the data plane.
+      // This was more aimed at if we have mappings that don't belong to this node.
+      // Maybe look up the descriptions? or just let them time out...
+      // await upnpService.cleanOldMappings(ip);
       routerIp = ip;
     }
   });

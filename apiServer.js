@@ -115,7 +115,7 @@ async function loadUpnpIfSupported(autoUpnp) {
 }
 
 async function SetupPortsUpnpAndComputed() {
-  userconfig.computed = {};
+  if (!userconfig.computed) userconfig.computed = {};
 
   const tags = validateTags();
   const autoUpnp = userconfig.initial.upnp || false;
@@ -167,8 +167,10 @@ async function configReload() {
         initialHash = hashCurrent;
         log.info(`Config file changed, reloading ${event.filename}...`);
         delete require.cache[require.resolve('./config/userconfig')];
+        // only reimport initial - so we don't overwrite computed as other
+        //routines may be using this
         // eslint-disable-next-line
-        userconfig = require('./config/userconfig');
+        userconfig.initial = require('./config/userconfig').initial;
         await SetupPortsUpnpAndComputed();
       }
     }

@@ -74,6 +74,7 @@ async function ufwRemoveAllowSsdpforInit() {
     await cmdAsync(removeAllowSsdpCmd);
     return true;
   } catch (error) {
+    // above rule returns 0 for non existent rule so this shouldn't fire unless actual error
     log.error(error);
     return false;
   }
