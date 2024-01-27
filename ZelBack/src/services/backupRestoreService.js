@@ -4,6 +4,7 @@ const util = require('util');
 const axios = require('axios');
 const log = require('../lib/log');
 const messageHelper = require('./messageHelper');
+const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
 
 /**
@@ -154,43 +155,50 @@ async function getRemoteFileSize(req, res) {
   }
 }
 
+// eslint-disable-next-line consistent-return
 async function getRemoteFile(req, res) {
-  try {
-    const bodyData = req.body;
-    console.log(`Data: ${JSON.stringify(bodyData)}`);
-    if (!bodyData || bodyData.length === 0) {
-      throw new Error('Request body must contain data (body parameters are required)');
-    }
-    const isValidData = bodyData.every((item) => 'url' in item && 'component' in item && 'appname' in item);
-    if (!isValidData) {
-      throw new Error('Each object in bodyData must have "url", "component", and "appname" properties');
-    }
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-    if (authorized === true) {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const { url, component, appname } of bodyData) {
-        // eslint-disable-next-line no-await-in-loop
-        const volumePath = await getVolumeInfo(appname, component, 'MB', 0, 'mount');
-        console.log(volumePath[0]);
-        console.log(url);
-        // eslint-disable-next-line no-await-in-loop
-        await fs.mkdir(`${volumePath[0]}/backup/remotefile`, { recursive: true });
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  if (authorized === true) {
+    let body = '';
+    req.on('data', (data) => {
+      body += data;
+    });
+    req.on('end', async () => {
+      try {
+        const bodyData = serviceHelper.ensureObject(body);
+        console.log(`Data: ${JSON.stringify(bodyData)}`);
+        if (!bodyData || bodyData.length === 0) {
+          throw new Error('Request body must contain data (body parameters are required)');
+        }
+        const isValidData = bodyData.every((item) => 'url' in item && 'component' in item && 'appname' in item);
+        if (!isValidData) {
+          throw new Error('Each object in bodyData must have "url", "component", and "appname" properties');
+        }
+        // eslint-disable-next-line no-restricted-syntax
+        for (const { url, component, appname } of bodyData) {
+          // eslint-disable-next-line no-await-in-loop
+          const volumePath = await getVolumeInfo(appname, component, 'MB', 0, 'mount');
+          console.log(volumePath[0]);
+          console.log(url);
+          // eslint-disable-next-line no-await-in-loop
+          await fs.mkdir(`${volumePath[0]}/backup/remotefile`, { recursive: true });
+        }
+        const response = messageHelper.createDataMessage('successful!');
+        return res ? res.json(response) : response;
+        // eslint-disable-next-line no-else-return
+      } catch (error) {
+        log.error(error);
+        const errorResponse = messageHelper.createErrorMessage(
+          error.message || error,
+          error.name,
+          error.code,
+        );
+        return res ? res.json(errorResponse) : errorResponse;
       }
-      const response = messageHelper.createDataMessage('successful!');
-      return res ? res.json(response) : response;
-      // eslint-disable-next-line no-else-return
-    } else {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      return res.json(errMessage);
-    }
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    return res ? res.json(errorResponse) : errorResponse;
+    });
+  } else {
+    const errMessage = messageHelper.errUnauthorizedMessage();
+    return res.json(errMessage);
   }
 }
 
