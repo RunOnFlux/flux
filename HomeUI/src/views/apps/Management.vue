@@ -1886,6 +1886,14 @@
         </div>
       </b-tab>
       <b-tab title="Running Instances">
+        <div v-if="masterSlaveApp">
+          <b-card title="Master/Slave App Information">
+            <list-entry
+              title="Current IP selected as Master running your application"
+              :data="masterIP"
+            />
+          </b-card>
+        </div>
         <b-row>
           <b-col
             md="4"
@@ -4212,6 +4220,8 @@ export default {
       chooseEnterpriseDialog: false,
       isPrivateApp: false,
       signClient: null,
+      masterIP: '',
+      masterSlaveApp: false,
     };
   },
   computed: {
@@ -4899,6 +4909,9 @@ export default {
           this.appUpdateSpecification.commands = this.ensureString(specs.commands);
           this.appUpdateSpecification.containerPorts = specs.containerPort || this.ensureString(specs.containerPorts); // v1 compatibility
         } else {
+          if (this.appUpdateSpecification.version > 3 && this.appUpdateSpecification.compose.find((comp) => comp.containerData.includes('g:'))) {
+            this.masterSlaveApp = true;
+          }
           if (this.appUpdateSpecification.version <= 7) {
             this.appUpdateSpecification.version = 7;
           }
@@ -5515,6 +5528,28 @@ export default {
       } else {
         this.instances.data = response.data.data;
         this.instances.totalRows = this.instances.data.length;
+        if (this.masterSlaveApp) {
+          const url = `https://${this.appName}.app.runonflux.io/fluxstatistics?scope=${this.appName};json;norefresh`;
+          let errorFdm = false;
+          let fdmData = await axios.get(url).catch((error) => {
+            errorFdm = true;
+            console.log(`UImasterSlave: Failed to reach FDM with error: ${error}`);
+            this.masterIP = 'Failed to Check';
+          });
+          if (errorFdm) {
+            return;
+          }
+          fdmData = fdmData.data;
+          if (fdmData && fdmData.length > 0) {
+            console.log('FDM_Data_Received');
+            const ipElement = fdmData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
+            if (ipElement) {
+              this.masterIP = ipElement.value.value.split(':')[0];
+              return;
+            }
+          }
+          this.masterIP = 'Defining New Master In Progress';
+        }
       }
     },
     async getAppOwner() {
