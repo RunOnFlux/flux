@@ -16,9 +16,8 @@ async function getVolumeDataOfComponent(req, res) {
     multiplier = (multiplier !== undefined && multiplier !== null) ? multiplier : (req.query.multiplier || 'MB');
     let { decimal } = req.params;
     decimal = (decimal !== undefined && decimal !== null) ? decimal : (req.query.fields || '0');
-    let fields = req.params;
+    let { fields } = req.params;
     fields = (fields !== undefined && fields !== null) ? fields : (req.query.fields || '');
-    console.log(`Fields: ${fields}`);
     if (!appname || !component) {
       throw new Error('Both the appname and component parameters are required');
     }
