@@ -611,16 +611,15 @@ module.exports = (app, expressWs) => {
     syncthingService.debugFile(req, res);
   });
   // BACKUP & RESTORE
-  app.get('/backup/getavailablespaceofapp/:appname?/:component?/:multiplier?/:decimal?', cache('30 seconds'), (req, res) => {
-    backupRestoreService.getAvailableSpaceOfApp(req, res);
+  app.get('/backup/getcomponentpath/:appname?/:component?', cache('30 seconds'), (req, res) => {
+    backupRestoreService.getComponentPath(req, res);
+  });
+  app.get('/backup/getcomponentstoragespace/:appname?/:component?/:multiplier?/:decimal?', cache('30 seconds'), (req, res) => {
+    backupRestoreService.getComponentStorageSpace(req, res);
   });
   app.get('/backup/getremotefilesize/:fileurl?/:multiplier?/:decimal?', cache('30 seconds'), (req, res) => {
     backupRestoreService.getRemoteFileSize(req, res);
   });
-  app.get('/backup/getcomponentpath/:appname?/:component?', cache('30 seconds'), (req, res) => {
-    backupRestoreService.getComponentPath(req, res);
-  });
-
   // GET PROTECTED API - Fluxnode Owner
   app.get('/daemon/stop', (req, res) => {
     daemonServiceControlRpcs.stop(req, res);

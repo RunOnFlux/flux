@@ -1722,7 +1722,7 @@
                 </div>
                 <b-form-group class="mb-2">
                   <b-row>
-                    <b-col style="height: 38px;">
+                    <b-col class="d-flex align-items-center" style="height: 38px;">
                       <b-form-radio-group
                         id="btn-radios-2"
                         v-model="selectedRestoreOption"
@@ -1730,7 +1730,7 @@
                         button-variant="outline-primary"
                         name="radio-btn-outline"
                         buttons
-                        style="height: 100%;"
+                        style="max-height: 38px; min-width: 100px; white-space: nowrap;"
                       />
                     </b-col>
 
@@ -1738,7 +1738,7 @@
                       <b-button
                         v-if="selectedRestoreOption === 'FluxDrive'"
                         variant="outline-success"
-                        style="height: 100%;"
+                        style="max-height: 38px; min-width: 100px; white-space: nowrap;"
                       >
                         <b-icon class="mr-1" scale="1.2" icon="arrow-repeat" />Refresh
                       </b-button>
@@ -5693,7 +5693,7 @@ export default {
 
     async appsAvailableSpace(appname, componentname, multiplier, decimal) {
       const zelidauth = localStorage.getItem('zelidauth');
-      const response = await BackupRestoreService.getAvailableSpaceOfApp(zelidauth, appname, componentname, multiplier, decimal);
+      const response = await BackupRestoreService.getComponentStorageSpace(zelidauth, appname, componentname, multiplier, decimal);
       const { data } = response.data;
       if (response.data.status === 'success') {
         this.AvailableSpace = data;
@@ -5845,7 +5845,7 @@ export default {
         this.spaceA = await this.appsAvailableSpace(appname, component, 'MB', 2);
         console.log(this.spaceA);
         if (this.FileSizeInMB > this.spaceA) {
-          this.showToast('danger', 'File is too big...');
+          this.showToast('danger', `File is too large (${this.FileSizeInMB} MB)...`);
           return;
         }
         const existingItemIndex = this.restoreRemoteUrlItems.findIndex(

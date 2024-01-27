@@ -46,7 +46,7 @@ async function getComponentPath(req, res) {
   }
 }
 
-async function getAvailableSpaceOfApp(req, res) {
+async function getComponentStorageSpace(req, res) {
   try {
     console.log(req.params);
     let { appname } = req.params;
@@ -146,7 +146,7 @@ async function getRemoteFileSize(req, res) {
 }
 
 module.exports = {
-  getAvailableSpaceOfApp,
+  getComponentStorageSpace,
   convertFileSize,
   getRemoteFileSize,
   getComponentPath,
