@@ -178,10 +178,10 @@ async function getRemoteFile(req, res) {
         for (const { url, component, appname } of bodyData) {
           // eslint-disable-next-line no-await-in-loop
           const volumePath = await getVolumeInfo(appname, component, 'MB', 0, 'mount');
-          console.log(volumePath[0]);
+          console.log(volumePath[0].mount);
           console.log(url);
           // eslint-disable-next-line no-await-in-loop
-          await fs.mkdir(`${volumePath[0]}/backup/remotefile`, { recursive: true });
+          await fs.mkdir(`${volumePath[0].mount}/backup/remotefile`, { recursive: true });
         }
         const response = messageHelper.createDataMessage('successful!');
         return res ? res.json(response) : response;
