@@ -2202,6 +2202,7 @@
                 </div>
                 <div v-if="selectedRestoreOption === 'Remote URL'">
                   <div>
+                    {{ restoreRemoteUrlItems }}
                     <b-input-group class="mb-0">
                       <b-input-group-prepend is-text>
                         <b-icon icon="globe" />
@@ -2322,6 +2323,7 @@
                     class="mt-2"
                     block
                     variant="outline-primary"
+                    @click="restoreFromRemoteFile(appName)"
                   >
                     <b-icon icon="arrow-clockwise" scale="1.1" class="mr-1" />Restore
                   </b-button>
@@ -5811,6 +5813,16 @@ export default {
           this.items1.push({ file: `backup_${this.restoreRemoteFile.toLowerCase()}.tar.gz`, component: this.restoreRemoteFile, file_size: 75.93 });
         }
       }
+    },
+
+    async restoreFromRemoteFile(name) {
+      const zelidauth = localStorage.getItem('zelidauth');
+      this.newData = this.restoreRemoteUrlItems.map((item) => ({
+        ...item,
+        appname: name,
+      }));
+      console.log(JSON.stringify(this.newData));
+      await BackupRestoreService.getRemoteFile(zelidauth, this.newData);
     },
 
     async addRemoteUrlItem(appname, component) {

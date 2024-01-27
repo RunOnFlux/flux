@@ -618,6 +618,10 @@ module.exports = (app, expressWs) => {
   app.get('/backup/getremotefilesize/:fileurl?/:multiplier?/:decimal?', cache('30 seconds'), (req, res) => {
     backupRestoreService.getRemoteFileSize(req, res);
   });
+
+  app.post('/backup/getremotefile', (req, res) => {
+    backupRestoreService.getRemoteFile(req, res);
+  });
   // GET PROTECTED API - Fluxnode Owner
   app.get('/daemon/stop', (req, res) => {
     daemonServiceControlRpcs.stop(req, res);

@@ -17,4 +17,12 @@ export default {
     };
     return Api().get(`/backup/getremotefilesize/${fileurl}/${multiplier}/${decimal}`, axiosConfig);
   },
+  getRemoteFile(zelidauthHeader, data) {
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    };
+    return Api().post('/backup/getremotefile', JSON.stringify(data), axiosConfig);
+  },
 };

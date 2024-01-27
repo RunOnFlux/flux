@@ -155,16 +155,42 @@ async function getRemoteFileSize(req, res) {
 }
 
 async function getRemoteFile(req, res) {
-  const { urls } = req.body;
-  const { appname } = req.body;
-  const { component } = req.body;
-  if (!appname || !component || !urls) {
-    throw new Error('Both the appname and component parameters are required');
+  try {
+    const bodyData = req.body;
+    if (!bodyData || bodyData.length === 0) {
+      throw new Error('Request body must contain data (body parameters are required)');
+    }
+    const isValidData = bodyData.every((item) => 'url' in item && 'component' in item && 'appname' in item);
+    if (!isValidData) {
+      throw new Error('Each object in bodyData must have "url", "component", and "appname" properties');
+    }
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized === true) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const { url, component, appname } of bodyData) {
+        // eslint-disable-next-line no-await-in-loop
+        const volumePath = await getVolumeInfo(appname, component, 'MB', 0, 'mount');
+        console.log(volumePath[0]);
+        console.log(url);
+        // eslint-disable-next-line no-await-in-loop
+        await fs.mkdir(`${volumePath[0]}/backup/remotefile`, { recursive: true });
+      }
+      const response = messageHelper.createDataMessage('successful!');
+      return res ? res.json(response) : response;
+      // eslint-disable-next-line no-else-return
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      return res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
   }
-  const volumePath = await getVolumeInfo(appname, component, 'MB', 0, 'mount');
-  await fs.mkdir(`${volumePath[0]}/backup/remotefile`, { recursive: true });
-  const response = messageHelper.createDataMessage(urls, volumePath[0]);
-  return res ? res.json(response) : response;
 }
 
 module.exports = {
