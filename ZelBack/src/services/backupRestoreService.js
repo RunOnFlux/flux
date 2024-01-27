@@ -5,48 +5,7 @@ const log = require('../lib/log');
 const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
 
-async function getComponentPath(req, res) {
-  try {
-    console.log(req.params);
-    let { appname } = req.params;
-    appname = appname || req.query.appname;
-    let { component } = req.params;
-    component = component || req.query.component;
-    if (!appname || !component) {
-      throw new Error('Both the appname and component parameters are required');
-    }
-    const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
-    if (authorized === true) {
-      const dfAsync = util.promisify(df);
-      const dfData = await dfAsync();
-      const regex = new RegExp(`${component}_${appname}$`);
-      const mounts = dfData
-        .filter((entry) => regex.test(entry.mount))
-        .map((entry) => entry.mount);
-      if (mounts.length === 0) {
-        console.log('No matching mount found');
-        throw new Error('No matching mount found');
-      }
-      console.log(`Path: ${mounts[0]}`);
-      const response = messageHelper.createDataMessage(mounts[0]);
-      return res ? res.json(response) : response;
-      // eslint-disable-next-line no-else-return
-    } else {
-      const errorResponse = messageHelper.errUnauthorizedMessage();
-      return res ? res.json(errorResponse) : errorResponse;
-    }
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    return res ? res.json(errorResponse) : errorResponse;
-  }
-}
-
-async function getComponentStorageSpace(req, res) {
+async function getVolumeDataOfComponent(req, res) {
   try {
     console.log(req.params);
     let { appname } = req.params;
@@ -54,30 +13,40 @@ async function getComponentStorageSpace(req, res) {
     let { component } = req.params;
     component = component || req.query.component;
     let { multiplier } = req.params;
-    multiplier = multiplier || req.query.multiplier || 'MB';
+    multiplier = (multiplier !== undefined && multiplier !== null) ? multiplier : (req.query.multiplier || 'MB');
     let { decimal } = req.params;
-    decimal = decimal || req.query.decimal || 0;
+    decimal = (decimal !== undefined && decimal !== null) ? decimal : (req.query.fields || '0');
+    let fields = req.params;
+    fields = (fields !== undefined && fields !== null) ? fields : (req.query.fields || '');
     if (!appname || !component) {
       throw new Error('Both the appname and component parameters are required');
     }
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
     if (authorized === true) {
-      const regex = new RegExp(`${component}_${appname}$`);
+      const dfAsync = util.promisify(df);
       const options = {
         prefixMultiplier: multiplier,
         isDisplayPrefixMultiplier: false,
         precision: +decimal,
       };
-      const dfAsync = util.promisify(df);
       const dfData = await dfAsync(options);
-      const matchingEntry = dfData.find((entry) => regex.test(entry.mount));
-      if (matchingEntry) {
-        const appsResponse = messageHelper.createDataMessage(matchingEntry.available);
-        return res ? res.json(appsResponse) : appsResponse;
+      const regex = new RegExp(`${component}_${appname}$`);
+      const allowedFields = fields ? fields.split(',') : null;
+      const dfInfo = dfData
+        .filter((entry) => regex.test(entry.mount))
+        .map((entry) => {
+          const filteredEntry = allowedFields
+            ? Object.fromEntries(Object.entries(entry).filter(([key]) => allowedFields.includes(key)))
+            : entry;
+          return filteredEntry;
+        });
+      if (dfInfo.length === 0) {
+        throw new Error('No matching mount found');
       }
-      const errorResponse = messageHelper.createErrorMessage('No matching entry found');
-      return res ? res.json(errorResponse) : errorResponse;
-    // eslint-disable-next-line no-else-return
+      console.log(`Info: ${dfInfo[0]}`);
+      const response = messageHelper.createDataMessage(dfInfo[0]);
+      return res ? res.json(response) : response;
+      // eslint-disable-next-line no-else-return
     } else {
       const errorResponse = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errorResponse) : errorResponse;
@@ -146,8 +115,7 @@ async function getRemoteFileSize(req, res) {
 }
 
 module.exports = {
-  getComponentStorageSpace,
+  getVolumeDataOfComponent,
   convertFileSize,
   getRemoteFileSize,
-  getComponentPath,
 };

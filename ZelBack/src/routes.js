@@ -611,11 +611,9 @@ module.exports = (app, expressWs) => {
     syncthingService.debugFile(req, res);
   });
   // BACKUP & RESTORE
-  app.get('/backup/getcomponentpath/:appname?/:component?', cache('30 seconds'), (req, res) => {
-    backupRestoreService.getComponentPath(req, res);
-  });
-  app.get('/backup/getcomponentstoragespace/:appname?/:component?/:multiplier?/:decimal?', cache('30 seconds'), (req, res) => {
-    backupRestoreService.getComponentStorageSpace(req, res);
+
+  app.get('/backup/getvolumedataofcomponent/:appname?/:component?/:multiplier?/:decimal?/:fields?', cache('30 seconds'), (req, res) => {
+    backupRestoreService.getVolumeDataOfComponent(req, res);
   });
   app.get('/backup/getremotefilesize/:fileurl?/:multiplier?/:decimal?', cache('30 seconds'), (req, res) => {
     backupRestoreService.getRemoteFileSize(req, res);

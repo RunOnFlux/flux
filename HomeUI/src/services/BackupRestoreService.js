@@ -1,13 +1,13 @@
 import Api from '@/services/Api';
 
 export default {
-  getComponentStorageSpace(zelidauthHeader, appname, componentname, multiplier, decimal) {
+  getVolumeDataOfComponent(zelidauthHeader, appname, componentname, multiplier, decimal, fields) {
     const axiosConfig = {
       headers: {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().get(`/backup/getcomponentstoragespace/${appname}/${componentname}/${multiplier}/${decimal}`, axiosConfig);
+    return Api().get(`/backup/getvolumedataofcomponent/${appname}/${componentname}/${multiplier}/${decimal}/${fields}`, axiosConfig);
   },
   getRemoteFileSize(zelidauthHeader, fileurl, multiplier, decimal) {
     const axiosConfig = {
@@ -16,13 +16,5 @@ export default {
       },
     };
     return Api().get(`/backup/getremotefilesize/${fileurl}/${multiplier}/${decimal}`, axiosConfig);
-  },
-  getComponentPath(zelidauthHeader, appname, componentname) {
-    const axiosConfig = {
-      headers: {
-        zelidauth: zelidauthHeader,
-      },
-    };
-    return Api().get(`/backup/getcomponentpath/${appname}/${componentname}`, axiosConfig);
   },
 };

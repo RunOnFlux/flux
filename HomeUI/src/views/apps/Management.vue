@@ -1288,7 +1288,7 @@
         <div>
           <b-card no-body>
             <b-tabs pills card>
-              <b-tab title="Backup">
+              <b-tab title="Backup" style="margin: 0; padding-top: 0px;">
                 <div
                   class="mb-2"
                   style="
@@ -1358,6 +1358,7 @@
 
                 <b-button
                   variant="outline-primary"
+                  style="max-height: 38px; min-width: 100px; white-space: nowrap;"
                   @click="createBackup(selectedBackupComponents)"
                 >
                   <b-icon scale="0.9" icon="back" class="mr-1" />
@@ -1368,7 +1369,7 @@
                 <div v-if="backupList?.length > 0">
                   <div class="mb-1 text-right">
                     <!-- Select Dropdown -->
-                    <b-dropdown class="mr-1" text="Select" variant="outline-primary">
+                    <b-dropdown class="mr-1" text="Select" variant="outline-primary" style="max-height: 38px; min-width: 100px; white-space: nowrap;">
                       <template #button-content>
                         <b-icon scale="0.9" icon="check2-square" class="mr-1" />
                         Select
@@ -1390,7 +1391,7 @@
                     </b-dropdown>
 
                     <!-- Download Dropdown -->
-                    <b-dropdown class="mr-1" text="Download" variant="outline-primary">
+                    <b-dropdown class="mr-1" text="Download" variant="outline-primary" style="max-height: 38px; min-width: 100px; white-space: nowrap;">
                       <template #button-content>
                         <b-icon scale="0.9" icon="download" class="mr-1" />
                         Download
@@ -1408,7 +1409,7 @@
                       </b-dropdown-item>
                     </b-dropdown>
 
-                    <b-button variant="outline-danger" @click="removeAllBackup">
+                    <b-button variant="outline-danger" style="max-height: 38px; min-width: 100px; white-space: nowrap;" @click="removeAllBackup">
                       <b-icon scale="0.9" icon="trash" class="mr-1" />
                       Remove all
                     </b-button>
@@ -1707,7 +1708,7 @@
                   </div>
                 </div>
               </b-tab>
-              <b-tab title="Restore">
+              <b-tab title="Restore" style="margin: 0; padding-top: 0px;">
                 <div
                   class="mb-2"
                   style="
@@ -2083,7 +2084,7 @@
 
                 <div v-if="selectedRestoreOption === 'Upload File'">
                   <div>
-                    <b-input-group class="mb-1">
+                    <b-input-group class="mb-0">
                       <b-input-group-prepend is-text>
                         <b-icon icon="folder-plus" />
                       </b-input-group-prepend>
@@ -5690,20 +5691,6 @@ export default {
     this.getEnterpriseNodes();
   },
   methods: {
-
-    async appsAvailableSpace(appname, componentname, multiplier, decimal) {
-      const zelidauth = localStorage.getItem('zelidauth');
-      const response = await BackupRestoreService.getComponentStorageSpace(zelidauth, appname, componentname, multiplier, decimal);
-      const { data } = response.data;
-      if (response.data.status === 'success') {
-        this.AvailableSpace = data;
-        return this.AvailableSpace;
-      // eslint-disable-next-line no-else-return
-      } else {
-        this.showToast('danger', response.data.data.message || response.data.data);
-        return null;
-      }
-    },
     removeAllBackup() {
       this.backupList = [];
       this.backupToUpload = [];
@@ -5833,25 +5820,22 @@ export default {
 
       if (this.restoreRemoteUrl.trim() !== '' && this.restoreRemoteUrlComponent !== null) {
         const zelidauth = localStorage.getItem('zelidauth');
-        this.response = await BackupRestoreService.getRemoteFileSize(zelidauth, encodeURIComponent(this.restoreRemoteUrl.trim()), 'MB', 2);
-        this.mount = await BackupRestoreService.getComponentPath(zelidauth, appname, component);
+        this.remoteFileSizeResponse = await BackupRestoreService.getRemoteFileSize(zelidauth, encodeURIComponent(this.restoreRemoteUrl.trim()), 'MB', 2);
+        this.volumeInfoResponse = await BackupRestoreService.getVolumeDataOfComponent(zelidauth, appname, component, 'MB', 2, 'size,available,mount');
         console.log(JSON.stringify(this.mount.data.data));
-        if (this.response.data?.status !== 'success') {
-          this.showToast('danger', this.response.data.data.message || this.response.data.data);
+        if (this.volumeInfoResponse.data?.status !== 'success') {
+          this.showToast('danger', this.volumeInfoResponse.data.data.message || this.volumeInfoResponse.data.data);
           return;
         }
-        this.FileSizeInMB = this.response.data.data;
-        console.log(this.FileSizeInMB);
-        this.spaceA = await this.appsAvailableSpace(appname, component, 'MB', 2);
-        console.log(this.spaceA);
-        if (this.FileSizeInMB > this.spaceA) {
-          this.showToast('danger', `File is too large (${this.FileSizeInMB} MB)...`);
+        console.log(this.remoteFileSizeResponse.data.data);
+        console.log(this.volumeInfoResponse.data.data.available);
+        if (this.remoteFileSizeResponse.data.data > this.volumeInfoResponse.data.data.available) {
+          this.showToast('danger', `File is too large (${this.remoteFileSizeResponse.data.data} MB)...`);
           return;
         }
         const existingItemIndex = this.restoreRemoteUrlItems.findIndex(
           (item) => item.component === this.restoreRemoteUrlComponent,
         );
-
         if (this.FileSizeInMB === 0 || this.FileSizeInMB === null) {
           return;
         }
