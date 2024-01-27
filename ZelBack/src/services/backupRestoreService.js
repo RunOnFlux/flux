@@ -157,7 +157,7 @@ async function getRemoteFileSize(req, res) {
 async function getRemoteFile(req, res) {
   try {
     const bodyData = req.body;
-    console.log(`Data: ${bodyData}`);
+    console.log(`Data: ${JSON.stringify(bodyData)}`);
     if (!bodyData || bodyData.length === 0) {
       throw new Error('Request body must contain data (body parameters are required)');
     }
