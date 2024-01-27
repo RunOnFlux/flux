@@ -15,7 +15,7 @@ async function getVolumeDataOfComponent(req, res) {
     let { multiplier } = req.params;
     multiplier = (multiplier !== undefined && multiplier !== null) ? multiplier : (req.query.multiplier || 'MB');
     let { decimal } = req.params;
-    decimal = (decimal !== undefined && decimal !== null) ? decimal : (req.query.fields || '0');
+    decimal = (decimal !== undefined && decimal !== null) ? decimal : (req.query.decimal || '0');
     let { fields } = req.params;
     fields = (fields !== undefined && fields !== null) ? fields : (req.query.fields || '');
     if (!appname || !component) {
@@ -80,7 +80,7 @@ async function getRemoteFileSize(req, res) {
     let { multiplier } = req.params;
     multiplier = (multiplier !== undefined && multiplier !== null) ? multiplier : (req.query.multiplier || 'MB');
     let { decimal } = req.params;
-    decimal = (decimal !== undefined && decimal !== null) ? decimal : (req.query.fields || '0');
+    decimal = (decimal !== undefined && decimal !== null) ? decimal : (req.query.decimal || '0');
     if (!fileurl) {
       throw new Error('fileurl parameter is mandatory');
     }
