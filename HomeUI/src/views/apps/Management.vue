@@ -5822,11 +5822,11 @@ export default {
         const zelidauth = localStorage.getItem('zelidauth');
         this.remoteFileSizeResponse = await BackupRestoreService.getRemoteFileSize(zelidauth, encodeURIComponent(this.restoreRemoteUrl.trim()), 'MB', 2);
         this.volumeInfoResponse = await BackupRestoreService.getVolumeDataOfComponent(zelidauth, appname, component, 'MB', 2, 'size,available,mount');
-        console.log(JSON.stringify(this.mount.data.data));
         if (this.volumeInfoResponse.data?.status !== 'success') {
           this.showToast('danger', this.volumeInfoResponse.data.data.message || this.volumeInfoResponse.data.data);
           return;
         }
+        console.log(JSON.stringify(this.volumeInfoResponse.data.data));
         console.log(this.remoteFileSizeResponse.data.data);
         console.log(this.volumeInfoResponse.data.data.available);
         if (this.remoteFileSizeResponse.data.data > this.volumeInfoResponse.data.data.available) {
