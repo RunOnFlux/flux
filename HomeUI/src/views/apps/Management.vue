@@ -5821,9 +5821,13 @@ export default {
       if (this.restoreRemoteUrl.trim() !== '' && this.restoreRemoteUrlComponent !== null) {
         const zelidauth = localStorage.getItem('zelidauth');
         this.remoteFileSizeResponse = await BackupRestoreService.getRemoteFileSize(zelidauth, encodeURIComponent(this.restoreRemoteUrl.trim()), 'MB', 2);
+        if (this.remoteFileSizeResponse.data?.status !== 'success') {
+          this.showToast('danger', this.remoteFileSizeResponse.data?.data.message || this.remoteFileSizeResponse.data?.massage);
+          return;
+        }
         this.volumeInfoResponse = await BackupRestoreService.getVolumeDataOfComponent(zelidauth, appname, component, 'MB', 2, 'size,available,mount');
         if (this.volumeInfoResponse.data?.status !== 'success') {
-          this.showToast('danger', this.volumeInfoResponse.data.data.message || this.volumeInfoResponse.data.data);
+          this.showToast('danger', this.volumeInfoResponse.data?.data.message || this.volumeInfoResponse.data?.data);
           return;
         }
         console.log(JSON.stringify(this.volumeInfoResponse.data.data));

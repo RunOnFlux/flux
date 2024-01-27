@@ -1,11 +1,21 @@
 const df = require('node-df');
+const fs = require('fs').promises;
 const util = require('util');
 const axios = require('axios');
 const log = require('../lib/log');
 const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
 
-async function dfInfo(appname, component, multiplier, decimal, fields) {
+/**
+ * Get volume information for a specific application component.
+ * @param {string} appname - Name of the application.
+ * @param {string} component - Name of the component.
+ * @param {string} multiplier - Unit multiplier for displaying sizes (B, KB, MB, GB).
+ * @param {number} decimal - Number of decimal places for precision.
+ * @param {string} fields - Optional comma-separated list of fields to include in the response.
+ * @returns {Array|null} - Array of objects containing volume information for the specified component, or null if no matching mount is found.
+ */
+async function getVolumeInfo(appname, component, multiplier, decimal, fields) {
   try {
     const options = {
       prefixMultiplier: multiplier,
@@ -34,6 +44,13 @@ async function dfInfo(appname, component, multiplier, decimal, fields) {
   }
 }
 
+/**
+ * Get volume data of an application component.
+ * @param {object} req - Request object.
+ * @param {object} res - Response object.
+ * @returns {object} - JSON response containing the volume data of the specified application component.
+ * @throws {object} - JSON error response if an error occurs.
+ */
 async function getVolumeDataOfComponent(req, res) {
   try {
     console.log(req.params);
@@ -52,27 +69,7 @@ async function getVolumeDataOfComponent(req, res) {
     }
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
     if (authorized === true) {
-      // const dfAsync = util.promisify(df);
-      // const options = {
-      //   prefixMultiplier: multiplier,
-      //   isDisplayPrefixMultiplier: false,
-      //   precision: +decimal,
-      // };
-      // const dfData = await dfAsync(options);
-      // const regex = new RegExp(`${component}_${appname}$`);
-      // const allowedFields = fields ? fields.split(',') : null;
-      // const dfInfo = dfData
-      //   .filter((entry) => regex.test(entry.mount))
-      //   .map((entry) => {
-      //     const filteredEntry = allowedFields
-      //       ? Object.fromEntries(Object.entries(entry).filter(([key]) => allowedFields.includes(key)))
-      //       : entry;
-      //     return filteredEntry;
-      //   });
-      // if (dfInfo.length === 0) {
-      //   throw new Error('No matching mount found');
-      // }
-      const dfInfoData = await dfInfo(appname, component, multiplier, decimal, fields);
+      const dfInfoData = await getVolumeInfo(appname, component, multiplier, decimal, fields);
       if (dfInfoData === null) {
         throw new Error('No matching mount found');
       }
@@ -94,6 +91,12 @@ async function getVolumeDataOfComponent(req, res) {
   }
 }
 
+/**
+ * Convert file size from bytes to the specified unit.
+ * @param {number} sizeInBytes - Size of the file in bytes.
+ * @param {string} multiplier - Unit to convert to (B, KB, MB, GB).
+ * @returns {number} - Converted file size.
+ */
 function convertFileSize(sizeInBytes, multiplier) {
   const multiplierMap = {
     B: 1,
@@ -104,6 +107,13 @@ function convertFileSize(sizeInBytes, multiplier) {
   return sizeInBytes / multiplierMap[multiplier.toUpperCase()];
 }
 
+/**
+ * Get the size of a remote file.
+ * @param {object} req - Request object.
+ * @param {object} res - Response object.
+ * @returns {object} - JSON response containing the file size.
+ * @throws {object} - JSON error response if an error occurs.
+ */
 async function getRemoteFileSize(req, res) {
   try {
     console.log(req.params);
@@ -144,9 +154,23 @@ async function getRemoteFileSize(req, res) {
   }
 }
 
+async function getRemoteFile(req, res) {
+  const { urls } = req.body;
+  const { appname } = req.body;
+  const { component } = req.body;
+  if (!appname || !component || !urls) {
+    throw new Error('Both the appname and component parameters are required');
+  }
+  const volumePath = await getVolumeInfo(appname, component, 'MB', 0, 'mount');
+  await fs.mkdir(`${volumePath[0]}/backup/remotefile`, { recursive: true });
+  const response = messageHelper.createDataMessage(urls, volumePath[0]);
+  return res ? res.json(response) : response;
+}
+
 module.exports = {
+  getVolumeInfo,
   getVolumeDataOfComponent,
-  convertFileSize,
   getRemoteFileSize,
-  dfInfo,
+  getRemoteFile,
+  convertFileSize,
 };
