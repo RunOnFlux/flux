@@ -160,7 +160,7 @@ async function getPathFileList(path, multiplier, decimal, filterKeywords = []) {
         const roundedFileSize = fileSize.toFixed(decimal);
         const fileInfo = {
           name: file,
-          createat: stats.birthtimeMs.toFixed(0),
+          create: stats.birthtimeMs.toFixed(0),
           size: roundedFileSize,
         };
         filesArray.push(fileInfo);
