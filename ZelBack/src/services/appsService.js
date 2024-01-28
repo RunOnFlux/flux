@@ -10873,7 +10873,7 @@ async function masterSlaveApps() {
               if (index === 0 && !mastersRunningGSyncthingApps.has(identifier)) {
                 appDockerRestart(installedApp.name);
                 log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
-              } else if (!timeTostartNewMasterApp.has(identifier) && mastersRunningGSyncthingApps.has(identifier) && mastersRunningGSyncthingApps.get(identifier) !== myIP) {
+              } else if (!timeTostartNewMasterApp.has(identifier) && mastersRunningGSyncthingApps.has(identifier) && mastersRunningGSyncthingApps.get(identifier) !== myIP.split(':')[0]) {
                 // if it was running before on this node was removed from fdm, app was stopped or node rebooted, we will only start the app on a different node
                 if (index === 0) {
                   appDockerRestart(installedApp.name);
