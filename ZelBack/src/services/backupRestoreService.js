@@ -143,9 +143,9 @@ function convertFileSize(sizeInBytes, multiplier) {
  * @param {string} path - The path of the directory.
  * @param {string} multiplier - Unit to convert file sizes (B, KB, MB, GB).
  * @param {number} decimal - Number of decimal places for file sizes.
- * @returns {Array|null} - An array of file information or null if there's an issue reading the directory or obtaining file information.
+ * @returns {Array} An array of file information or returns an empty array if there's an issue reading the directory or obtaining file information.
  */
-async function getPathFileList(path, multiplier, decimal) {
+async function getPathFileList(path, multiplier, decimal, filterKeywords = []) {
   try {
     const files = await fs.readdir(path);
     const filesArray = [];
@@ -154,21 +154,23 @@ async function getPathFileList(path, multiplier, decimal) {
       const filePath = `${path}/${file}`;
       // eslint-disable-next-line no-await-in-loop
       const stats = await fs.stat(filePath);
-      const fileSize = convertFileSize(stats.size, multiplier);
-      const roundedFileSize = fileSize.toFixed(decimal);
-      const fileInfo = {
-        name: file,
-        createat: stats.birthtimeMs.toFixed(0),
-        size: roundedFileSize,
-
-      };
-      filesArray.push(fileInfo);
+      const passesFilter = filterKeywords.length === 0 || filterKeywords.some((keyword) => file.includes(keyword));
+      if (passesFilter) {
+        const fileSize = convertFileSize(stats.size, multiplier);
+        const roundedFileSize = fileSize.toFixed(decimal);
+        const fileInfo = {
+          name: file,
+          createat: stats.birthtimeMs.toFixed(0),
+          size: roundedFileSize,
+        };
+        filesArray.push(fileInfo);
+      }
     }
     log.info(filesArray);
     return filesArray;
   } catch (err) {
     log.error('Error reading directory:', err);
-    return null;
+    return [];
   }
 }
 
