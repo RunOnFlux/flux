@@ -155,6 +155,19 @@ async function getRemoteFileSize(req, res) {
   }
 }
 
+async function downloadFile(url, path, component, appname) {
+  try {
+    const response = await axios.get(url, { responseType: 'arraybuffer' });
+    const fileData = Buffer.from(response.data, 'binary');
+    await fs.writeFile(`${path}/backup/remotefile/${component}_${appname}.tar.gz`, fileData);
+    console.log(`File ${path}/backup/remotefile/${component}_${appname}.tar.gz saved!`);
+    return `File ${path}/backup/remotefile/${component}_${appname}.tar.gz saved!`;
+  } catch (err) {
+    console.error(err);
+    return null;
+  }
+}
+
 // eslint-disable-next-line consistent-return
 async function getRemoteFile(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -182,6 +195,8 @@ async function getRemoteFile(req, res) {
           console.log(url);
           // eslint-disable-next-line no-await-in-loop
           await fs.mkdir(`${volumePath[0].mount}/backup/remotefile`, { recursive: true });
+          // eslint-disable-next-line no-await-in-loop
+          await downloadFile(url, `${volumePath[0].mount}/backup/remotefile`, component, appname);
         }
         const response = messageHelper.createDataMessage('successful!');
         return res ? res.json(response) : response;
@@ -208,4 +223,5 @@ module.exports = {
   getRemoteFileSize,
   getRemoteFile,
   convertFileSize,
+  downloadFile,
 };
