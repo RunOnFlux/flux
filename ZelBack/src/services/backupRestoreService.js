@@ -139,6 +139,40 @@ function convertFileSize(sizeInBytes, multiplier) {
 }
 
 /**
+ * Get a list of file information for the specified path.
+ * @param {string} path - The path of the directory.
+ * @param {string} multiplier - Unit to convert file sizes (B, KB, MB, GB).
+ * @param {number} decimal - Number of decimal places for file sizes.
+ * @returns {Array|null} - An array of file information or null if there's an issue reading the directory or obtaining file information.
+ */
+async function getPathFileList(path, multiplier, decimal) {
+  try {
+    const files = await fs.readdir(path);
+    const filesArray = [];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const file of files) {
+      const filePath = `${path}/${file}`;
+      // eslint-disable-next-line no-await-in-loop
+      const stats = await fs.stat(filePath);
+      const fileSize = convertFileSize(stats.size, multiplier);
+      const roundedFileSize = fileSize.toFixed(decimal);
+      const fileInfo = {
+        name: file,
+        createat: stats.birthtimeMs.toFixed(0),
+        size: roundedFileSize,
+
+      };
+      filesArray.push(fileInfo);
+    }
+    log.info(filesArray);
+    return filesArray;
+  } catch (err) {
+    log.error('Error reading directory:', err);
+    return null;
+  }
+}
+
+/**
  * Get the size of a remote file.
  * @param {object} req - Request object.
  * @param {object} res - Response object.
@@ -272,6 +306,7 @@ module.exports = {
   getVolumeDataOfComponent,
   getRemoteFileSize,
   getRemoteFile,
+  getPathFileList,
   checkFileExists,
   removeFile,
   convertFileSize,

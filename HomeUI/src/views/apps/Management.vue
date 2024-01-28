@@ -2202,7 +2202,6 @@
                 </div>
                 <div v-if="selectedRestoreOption === 'Remote URL'">
                   <div>
-                    {{ restoreRemoteUrlItems }}
                     <b-input-group class="mb-0">
                       <b-input-group-prepend is-text>
                         <b-icon icon="globe" />
