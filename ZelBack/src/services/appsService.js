@@ -8939,6 +8939,25 @@ async function trySpawningGlobalApplication() {
       return;
     }
 
+    let syncthingApp = false;
+    if (appSpecifications.version <= 3) {
+      syncthingApp = appSpecifications.containerData.includes('g:') || appSpecifications.containerData.includes('r:') || appSpecifications.containerData.includes('s:');
+    } else {
+      syncthingApp = appSpecifications.compose.find((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:') || comp.containerData.includes('s:'));
+    }
+
+    if (syncthingApp) {
+      const myIpWithoutPort = myIP.split(':')[0];
+      const lastIndex = myIpWithoutPort.lastIndexOf('.');
+      const sameIpRangeNode = runningAppList.find((location) => location.ip.includes(myIpWithoutPort.substring(0, lastIndex - 1)));
+      if (sameIpRangeNode) {
+        log.info(`Application ${appToRun} uses syncthing and it already spawned on Fluxnode with same ip range`);
+        await serviceHelper.delay(adjustedDelay);
+        trySpawningGlobalApplication();
+        return;
+      }
+    }
+
     // an application was selected and checked that it can run on this node. try to install and run it locally
     // install the app
     const registerOk = await registerAppLocally(appSpecifications); // can throw
