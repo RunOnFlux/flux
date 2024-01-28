@@ -10743,7 +10743,7 @@ async function masterSlaveApps() {
     };
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled.data) {
-      let fdmOk = false;
+      let fdmOk = true;
       let identifier;
       let needsToBeChecked = false;
       let appId;
@@ -10774,43 +10774,51 @@ async function masterSlaveApps() {
         // eslint-disable-next-line no-await-in-loop
         let fdmEUData = await serviceHelper.axiosGet(`https://fdm-fn-1-${fdmIndex}.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
           log.error(`masterSlaveApps: Failed to reach EU FDM with error: ${error}`);
+          fdmOk = false;
         });
-        fdmEUData = fdmEUData.data;
-        fdmOk = true;
-        if (fdmEUData && fdmEUData.length > 0) {
-          const ipElement = fdmEUData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
-          if (ipElement) {
-            ip = ipElement.value.value.split(':')[0];
-            serverStatus = fdmEUData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
-          }
-        }
-        if (!ip || !serverStatus) {
-          // eslint-disable-next-line no-await-in-loop
-          let fdmUSAData = await serviceHelper.axiosGet(`https://fdm-usa-1-${fdmIndex}.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
-            log.error(`masterSlaveApps: Failed to reach USA FDM with error: ${error}`);
-          });
-          fdmUSAData = fdmUSAData.data;
-          fdmOk = true;
-          if (fdmUSAData && fdmUSAData.length > 0) {
-            const ipElement = fdmUSAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
+        if (fdmOk) {
+          fdmEUData = fdmEUData.data;
+          if (fdmEUData && fdmEUData.length > 0) {
+            const ipElement = fdmEUData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
             if (ipElement) {
               ip = ipElement.value.value.split(':')[0];
-              serverStatus = fdmUSAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
+              serverStatus = fdmEUData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
             }
           }
         }
         if (!ip || !serverStatus) {
+          fdmOk = true;
+          // eslint-disable-next-line no-await-in-loop
+          let fdmUSAData = await serviceHelper.axiosGet(`https://fdm-usa-1-${fdmIndex}.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
+            log.error(`masterSlaveApps: Failed to reach USA FDM with error: ${error}`);
+            fdmOk = false;
+          });
+          if (fdmOk) {
+            fdmUSAData = fdmUSAData.data;
+            if (fdmUSAData && fdmUSAData.length > 0) {
+              const ipElement = fdmUSAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
+              if (ipElement) {
+                ip = ipElement.value.value.split(':')[0];
+                serverStatus = fdmUSAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
+              }
+            }
+          }
+        }
+        if (!ip || !serverStatus) {
+          fdmOk = true;
           // eslint-disable-next-line no-await-in-loop
           let fdmASIAData = await serviceHelper.axiosGet(`https://fdm-sg-1-${fdmIndex}.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
             log.error(`masterSlaveApps: Failed to reach ASIA FDM with error: ${error}`);
+            fdmOk = false;
           });
-          fdmASIAData = fdmASIAData.data;
-          fdmOk = true;
-          if (fdmASIAData && fdmASIAData.length > 0) {
-            const ipElement = fdmASIAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
-            if (ipElement) {
-              ip = ipElement.value.value.split(':')[0];
-              serverStatus = fdmASIAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
+          if (fdmOk) {
+            fdmASIAData = fdmASIAData.data;
+            if (fdmASIAData && fdmASIAData.length > 0) {
+              const ipElement = fdmASIAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
+              if (ipElement) {
+                ip = ipElement.value.value.split(':')[0];
+                serverStatus = fdmASIAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
+              }
             }
           }
         }
