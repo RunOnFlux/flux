@@ -8951,7 +8951,7 @@ async function trySpawningGlobalApplication() {
     if (syncthingApp) {
       const myIpWithoutPort = myIP.split(':')[0];
       const lastIndex = myIpWithoutPort.lastIndexOf('.');
-      const sameIpRangeNode = runningAppList.find((location) => location.ip.includes(myIpWithoutPort.substring(0, lastIndex - 1)));
+      const sameIpRangeNode = runningAppList.find((location) => location.ip.includes(myIpWithoutPort.substring(0, lastIndex)));
       if (sameIpRangeNode) {
         log.info(`Application ${appToRun} uses syncthing and it is already spawned on Fluxnode with same ip range`);
         await serviceHelper.delay(adjustedDelay);
