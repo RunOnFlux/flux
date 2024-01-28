@@ -93,6 +93,36 @@ async function getVolumeDataOfComponent(req, res) {
 }
 
 /**
+ * Check if a file exists at the specified filePath.
+ * @param {string} filePath - The path to the file.
+ * @returns {boolean} - True if the file exists, false otherwise.
+ */
+async function checkFileExists(filePath) {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch (error) {
+    log.error(error);
+    return false;
+  }
+}
+
+/**
+ * Remove a file at the specified filePath.
+ * @param {string} filePath - The path to the file to be removed.
+ * @returns {boolean} - True if the file is removed successfully, false otherwise.
+ */
+async function removeFile(filePath) {
+  try {
+    await fs.unlink(filePath);
+    return true;
+  } catch (error) {
+    log.error(error);
+    return false;
+  }
+}
+
+/**
  * Convert file size from bytes to the specified unit.
  * @param {number} sizeInBytes - Size of the file in bytes.
  * @param {string} multiplier - Unit to convert to (B, KB, MB, GB).
@@ -155,6 +185,15 @@ async function getRemoteFileSize(req, res) {
   }
 }
 
+/**
+ * Downloads a file from a remote URL and saves it locally.
+ *
+ * @param {string} url - The URL of the file to download.
+ * @param {string} path - The local path to save the downloaded file.
+ * @param {string} component - The component name for identification.
+ * @param {string} appname - The application name for identification.
+ * @returns {string|null} - A success message if the file is downloaded and saved, or null on failure.
+ */
 async function downloadFile(url, path, component, appname) {
   try {
     const response = await axios.get(url, { responseType: 'arraybuffer' });
@@ -163,11 +202,19 @@ async function downloadFile(url, path, component, appname) {
     console.log(`File ${path}/${component}_${appname}.tar.gz saved!`);
     return `File ${path}/${component}_${appname}.tar.gz saved!`;
   } catch (err) {
-    console.error(err);
+    log.error(err);
     return null;
   }
 }
 
+/**
+ * Handles a request to retrieve remote files.
+ *
+ * @param {object} req - Request object.
+ * @param {object} res - Response object.
+ * @returns {object} - JSON response indicating the success or failure.
+ * @throws {object} - JSON error response if an error occurs.
+ */
 // eslint-disable-next-line consistent-return
 async function getRemoteFile(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -191,8 +238,6 @@ async function getRemoteFile(req, res) {
         for (const { url, component, appname } of bodyData) {
           // eslint-disable-next-line no-await-in-loop
           const volumePath = await getVolumeInfo(appname, component, 'MB', 0, 'mount');
-          console.log(volumePath[0].mount);
-          console.log(url);
           // eslint-disable-next-line no-await-in-loop
           await fs.mkdir(`${volumePath[0].mount}/backup/remotefile`, { recursive: true });
           // eslint-disable-next-line no-await-in-loop
@@ -222,6 +267,8 @@ module.exports = {
   getVolumeDataOfComponent,
   getRemoteFileSize,
   getRemoteFile,
+  checkFileExists,
+  removeFile,
   convertFileSize,
   downloadFile,
 };
