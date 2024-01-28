@@ -1887,9 +1887,9 @@
       </b-tab>
       <b-tab title="Running Instances">
         <div v-if="masterSlaveApp">
-          <b-card title="Master/Slave App Information">
+          <b-card title="Primary/Standby App Information">
             <list-entry
-              title="Current IP selected as Master running your application"
+              title="Current IP selected as Primary running your application"
               :data="masterIP"
             />
           </b-card>
