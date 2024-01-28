@@ -10877,7 +10877,7 @@ async function masterSlaveApps() {
                 // if it was running before on this node was removed from fdm, app was stopped or node rebooted, we will only start the app on a different node
                 if (index === 0) {
                   appDockerRestart(installedApp.name);
-                  log.info(`masterSlaveApps: starting docker app:${installedApp.name}`);
+                  log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
                 } else {
                   const previousMasterIndex = runningAppList.findIndex((x) => x.ip === mastersRunningGSyncthingApps.get(identifier));
                   let timetoStartApp = new Date().getTime();
@@ -10890,11 +10890,16 @@ async function masterSlaveApps() {
                   } else {
                     timetoStartApp += index * 5 * 60 * 1000;
                   }
-                  timeTostartNewMasterApp.set(identifier, timetoStartApp);
+                  if (timetoStartApp <= new Date().getTime()) {
+                    appDockerRestart(installedApp.name);
+                    log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
+                  } else {
+                    timeTostartNewMasterApp.set(identifier, timetoStartApp);
+                  }
                 }
-              } else if (timeTostartNewMasterApp.has(identifier) && timeTostartNewMasterApp.get(identifier) >= new Date().getTime()) {
+              } else if (timeTostartNewMasterApp.has(identifier) && timeTostartNewMasterApp.get(identifier) <= new Date().getTime()) {
                 appDockerRestart(installedApp.name);
-                log.info(`masterSlaveApps: starting docker app:${installedApp.name}`);
+                log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
               }
             }
           } else {
