@@ -239,6 +239,11 @@ async function getRemoteFile(req, res) {
           // eslint-disable-next-line no-await-in-loop
           const volumePath = await getVolumeInfo(appname, component, 'MB', 0, 'mount');
           // eslint-disable-next-line no-await-in-loop
+          if (await checkFileExists(`${volumePath[0].mount}/backup/remotefile/${component}_${appname}.tar.gz`)) {
+            // eslint-disable-next-line no-await-in-loop
+            await removeFile(`${volumePath[0].mount}/backup/remotefile/${component}_${appname}.tar.gz`);
+          }
+          // eslint-disable-next-line no-await-in-loop
           await fs.mkdir(`${volumePath[0].mount}/backup/remotefile`, { recursive: true });
           // eslint-disable-next-line no-await-in-loop
           await downloadFile(url, `${volumePath[0].mount}/backup/remotefile`, component, appname);
