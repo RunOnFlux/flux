@@ -159,9 +159,9 @@ async function downloadFile(url, path, component, appname) {
   try {
     const response = await axios.get(url, { responseType: 'arraybuffer' });
     const fileData = Buffer.from(response.data, 'binary');
-    await fs.writeFile(`${path}/backup/remotefile/${component}_${appname}.tar.gz`, fileData);
-    console.log(`File ${path}/backup/remotefile/${component}_${appname}.tar.gz saved!`);
-    return `File ${path}/backup/remotefile/${component}_${appname}.tar.gz saved!`;
+    await fs.writeFile(`${path}/${component}_${appname}.tar.gz`, fileData);
+    console.log(`File ${path}/${component}_${appname}.tar.gz saved!`);
+    return `File ${path}/${component}_${appname}.tar.gz saved!`;
   } catch (err) {
     console.error(err);
     return null;
