@@ -1481,7 +1481,6 @@
                               row.item.component_name,
                               backupList,
                               backupList[row.index].file,
-                              row.item.timestamp,
                             )
                           "
                         >
@@ -5878,22 +5877,20 @@ export default {
       // eslint-disable-next-line no-restricted-syntax
       for (const component of this.components) {
         // eslint-disable-next-line no-await-in-loop
-        console.log(component);
-        console.log(name);
+        this.volumeInfo = await BackupRestoreService.getVolumeDataOfComponent(zelidauth, name, component, 'MB', 2, 'mount');
+        this.volumePath = this.volumeInfo.data?.data;
         // eslint-disable-next-line no-await-in-loop
-        this.volumeInfoResponse = await BackupRestoreService.getVolumeDataOfComponent(zelidauth, name, component, 'MB', 2, 'mount');
-        console.log(JSON.stringify(this.volumeInfoResponse.data.data));
-        // eslint-disable-next-line no-await-in-loop
-        this.list = await BackupRestoreService.getBackupList(zelidauth, encodeURIComponent(`${this.volumeInfoResponse.data.data.mount}/backup/local`), 'MB', 2);
-        if (Array.isArray(this.list.data?.data)) {
-          const newBackupItem = {
+        this.backupFile = await BackupRestoreService.getBackupList(zelidauth, encodeURIComponent(`${this.volumePath}/backup/local`), 'MB', 2);
+        this.backupItem = this.backupFile.data?.data;
+        if (Array.isArray(this.backupItem)) {
+          this.BackupItem = {
             isActive: false,
             component_name: component,
-            create: +this.list.data.data[0].create,
-            file_size: this.list.data.data[0].size,
-            file: `${this.volumeInfoResponse.data.data.mount}/backup/local/${this.list.data.data[0].name}`,
+            create: +this.backupItem[0].create,
+            file_size: this.backupItem[0].size,
+            file: `${this.volumePath}/backup/local/${this.backupItem[0].name}`,
           };
-          backupListTmp.push(newBackupItem);
+          backupListTmp.push(this.BackupItem);
         }
       }
       this.backupList = backupListTmp;
@@ -5905,17 +5902,12 @@ export default {
         this.newComponents = this.newComponents.filter((item) => item.timestamp !== timestamp);
       }
     },
-    async deleteLocalBackup(name, restoreItem, filepath, timestamp = 0) {
+    async deleteLocalBackup(name, restoreItem, filepath) {
       const zelidauth = localStorage.getItem('zelidauth');
-      console.log(filepath);
-      console.log(timestamp);
       this.anser = await BackupRestoreService.removeBackupFile(zelidauth, encodeURIComponent(filepath));
-      console.log(JSON.stringify(this.anser.data.data));
-      const backupIndex = restoreItem.findIndex((item) => item.timestamp === timestamp);
+      console.log(JSON.stringify(this.anser.data.data.message));
+      const backupIndex = restoreItem.findIndex((item) => item.component_name === name);
       restoreItem.splice(backupIndex, 1);
-      if (timestamp !== 0) {
-        this.newComponents = this.newComponents.filter((item) => item.timestamp !== timestamp);
-      }
     },
     async initMMSDK() {
       try {
