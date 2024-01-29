@@ -198,7 +198,7 @@ async function getBackupleList(req, res) {
     }
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
     if (authorized === true) {
-      const listData = await getPathFileList(path, multiplier, decimal, '.tar.gz');
+      const listData = await getPathFileList(path, multiplier, decimal, ['.tar.gz']);
       if (listData.length === 0) {
         throw new Error('No matching mount found');
       }
