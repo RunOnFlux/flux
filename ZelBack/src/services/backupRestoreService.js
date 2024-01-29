@@ -154,10 +154,11 @@ async function getPathFileList(path, multiplier, decimal, filterKeywords = []) {
     // eslint-disable-next-line no-restricted-syntax
     for (const file of files) {
       const filePath = `${path}/${file}`;
-      console.log(filterKeywords.some((keyword) => file.includes(keyword)));
+      console.log(file);
       // eslint-disable-next-line no-await-in-loop
       const stats = await fs.stat(filePath);
       const passesFilter = filterKeywords.length === 0 || filterKeywords.some((keyword) => file.includes(keyword));
+      console.log(passesFilter);
       if (passesFilter) {
         const fileSize = convertFileSize(stats.size, multiplier);
         const roundedFileSize = fileSize.toFixed(decimal);
