@@ -1165,7 +1165,6 @@ export default {
           if (selectedGeolocation.value) {
             appSpecification.geolocation.push(selectedGeolocation.value);
           }
-          console.log(contact.value);
           if (contact.value) {
             const contacts = [contact.value];
             const contactsid = Math.floor((Math.random() * 999999999999999)).toString();
@@ -1752,7 +1751,7 @@ export default {
 
       userZelid,
       dataToSign,
-      selectedGeolocation: null,
+      selectedGeolocation,
       contact,
       signClient,
       signature,
