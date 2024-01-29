@@ -17,6 +17,14 @@ export default {
     };
     return Api().get(`/backup/getremotefilesize/${fileurl}/${multiplier}/${decimal}`, axiosConfig);
   },
+  getBackupList(zelidauthHeader, path, multiplier, decimal) {
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    };
+    return Api().get(`/backup/getbackuplist/${path}/${multiplier}/${decimal}`, axiosConfig);
+  },
   getRemoteFile(zelidauthHeader, data) {
     const axiosConfig = {
       headers: {

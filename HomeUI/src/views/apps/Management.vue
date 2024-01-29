@@ -5744,6 +5744,7 @@ export default {
           this.backupList.push(newBackupItem);
         }
       }
+      this.setBackupList();
       // console.log(JSON.stringify(this.backupList));
     },
     onRowSelected(itemOnRow) {
@@ -5869,7 +5870,17 @@ export default {
     deleteItem(index, item) {
       item.splice(index, 1);
     },
-
+    async setBackupList() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      // eslint-disable-next-line no-restricted-syntax
+      for (const component of this.components) {
+        // eslint-disable-next-line no-await-in-loop
+        this.volumeInfoResponse = await BackupRestoreService.getVolumeDataOfComponent(zelidauth, this.appame, component, 'MB', 2, 'mount');
+        // eslint-disable-next-line no-await-in-loop
+        this.list = await BackupRestoreService.getBackupList(zelidauth, `${this.volumeInfoResponse.data.data[0]}/backup/local`, 'MB', 2);
+        console.log(this.list.data.data);
+      }
+    },
     deleteRestoreBackup(name, restoreItem, timestamp = 0) {
       const backupIndex = restoreItem.findIndex((item) => item.timestamp === timestamp);
       restoreItem.splice(backupIndex, 1);

@@ -174,6 +174,42 @@ async function getPathFileList(path, multiplier, decimal, filterKeywords = []) {
   }
 }
 
+async function getBackupleList(req, res) {
+  try {
+    console.log(req.params);
+    let { path } = req.params;
+    path = path || req.query.path;
+    let { multiplier } = req.params;
+    multiplier = (multiplier !== undefined && multiplier !== null) ? multiplier : (req.query.multiplier || 'MB');
+    let { decimal } = req.params;
+    decimal = (decimal !== undefined && decimal !== null) ? decimal : (req.query.decimal || '0');
+    if (!path) {
+      throw new Error('path parameter is required');
+    }
+    const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
+    if (authorized === true) {
+      const listData = await getPathFileList(path, multiplier, decimal, '.tar.gz');
+      if (listData.length === 0) {
+        throw new Error('No matching mount found');
+      }
+      const response = messageHelper.createDataMessage(listData);
+      return res ? res.json(response) : response;
+      // eslint-disable-next-line no-else-return
+    } else {
+      const errorResponse = messageHelper.errUnauthorizedMessage();
+      return res ? res.json(errorResponse) : errorResponse;
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
 /**
  * Get the size of a remote file.
  * @param {object} req - Request object.
@@ -309,6 +345,7 @@ module.exports = {
   getRemoteFileSize,
   getRemoteFile,
   getPathFileList,
+  getBackupleList,
   checkFileExists,
   removeFile,
   convertFileSize,
