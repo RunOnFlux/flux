@@ -153,6 +153,7 @@ async function getPathFileList(path, multiplier, decimal, filterKeywords = []) {
     // eslint-disable-next-line no-restricted-syntax
     for (const file of files) {
       const filePath = `${path}/${file}`;
+      console.log(filePath);
       // eslint-disable-next-line no-await-in-loop
       const stats = await fs.stat(filePath);
       const passesFilter = filterKeywords.length === 0 || filterKeywords.some((keyword) => file.includes(keyword));
