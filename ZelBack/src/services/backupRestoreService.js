@@ -158,7 +158,12 @@ async function getPathFileList(path, multiplier, decimal, filterKeywords = []) {
       // eslint-disable-next-line no-await-in-loop
       const stats = await fs.stat(filePath);
       console.log(JSON.stringify(stats));
-      const passesFilter = filterKeywords.length === 0 || filterKeywords.some((keyword) => file.includes(keyword));
+      // eslint-disable-next-line no-await-in-loop
+      const passesFilter = filterKeywords.length === 0 || filterKeywords.some((keyword) => {
+        const includes = file.includes(keyword);
+        console.log(`Filter Check for ${keyword}: ${includes}`);
+        return includes;
+      });
       console.log(passesFilter);
       if (passesFilter) {
         const fileSize = convertFileSize(stats.size, multiplier);
