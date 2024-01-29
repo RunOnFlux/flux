@@ -5885,7 +5885,6 @@ export default {
         console.log(JSON.stringify(this.volumeInfoResponse.data.data));
         // eslint-disable-next-line no-await-in-loop
         this.list = await BackupRestoreService.getBackupList(zelidauth, encodeURIComponent(`${this.volumeInfoResponse.data.data.mount}/backup/local`), 'MB', 2);
-        console.log(this.list.data.data);
         if (Array.isArray(this.list.data?.data)) {
           const newBackupItem = {
             isActive: false,
@@ -5909,6 +5908,7 @@ export default {
     async deleteLocalBackup(name, restoreItem, filepath, timestamp = 0) {
       const zelidauth = localStorage.getItem('zelidauth');
       console.log(filepath);
+      console.log(timestamp);
       this.anser = await BackupRestoreService.removeBackupFile(zelidauth, encodeURIComponent(filepath));
       console.log(JSON.stringify(this.anser.data.data));
       const backupIndex = restoreItem.findIndex((item) => item.timestamp === timestamp);

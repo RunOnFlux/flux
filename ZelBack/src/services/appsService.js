@@ -9359,7 +9359,7 @@ async function checkAndRemoveApplicationInstance() {
             log.info(`Application ${installedApp.name} going to be removed from node as it was the latest one running it to install it..`);
             log.warn(`Removing application ${installedApp.name} locally`);
             // eslint-disable-next-line no-await-in-loop
-            await removeAppLocally(installedApp.name, null, false, true, true);
+            // await removeAppLocally(installedApp.name, null, false, true, true);
             log.warn(`Application ${installedApp.name} locally removed`);
             // eslint-disable-next-line no-await-in-loop
             await serviceHelper.delay(config.fluxapps.removal.delay * 1000); // wait for 6 mins so we don't have more removals at the same time
