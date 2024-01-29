@@ -5719,7 +5719,7 @@ export default {
     selectStorageOption(value) {
       this.selectedStorageMethod = value;
     },
-    createBackup(componentNames) {
+    async createBackup(componentNames) {
       const timestamp = Math.floor(Date.now() / 1000);
 
       // eslint-disable-next-line no-restricted-syntax
@@ -5744,7 +5744,7 @@ export default {
           this.backupList.push(newBackupItem);
         }
       }
-      this.setBackupList();
+      await this.setBackupList();
       // console.log(JSON.stringify(this.backupList));
     },
     onRowSelected(itemOnRow) {
@@ -5870,14 +5870,15 @@ export default {
     deleteItem(index, item) {
       item.splice(index, 1);
     },
-    async setBackupList() {
+    async setBackupList(name = this.appName) {
       const zelidauth = localStorage.getItem('zelidauth');
       // eslint-disable-next-line no-restricted-syntax
       for (const component of this.components) {
         // eslint-disable-next-line no-await-in-loop
-        this.volumeInfoResponse = await BackupRestoreService.getVolumeDataOfComponent(zelidauth, this.appame, component, 'MB', 2, 'mount');
+        this.volumeInfoResponse = await BackupRestoreService.getVolumeDataOfComponent(zelidauth, name, component, 'MB', 2, 'mount');
+        console.log(JSON.stringify(this.volumeInfoResponse.data.data));
         // eslint-disable-next-line no-await-in-loop
-        this.list = await BackupRestoreService.getBackupList(zelidauth, `${this.volumeInfoResponse.data.data[0]}/backup/local`, 'MB', 2);
+        this.list = await BackupRestoreService.getBackupList(zelidauth, encodeURIComponent(`${this.volumeInfoResponse.data.data.mount}/backup/local`), 'MB', 2);
         console.log(this.list.data.data);
       }
     },

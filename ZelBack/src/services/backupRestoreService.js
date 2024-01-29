@@ -149,6 +149,7 @@ async function getPathFileList(path, multiplier, decimal, filterKeywords = []) {
   try {
     const files = await fs.readdir(path);
     const filesArray = [];
+    console.log(files);
     // eslint-disable-next-line no-restricted-syntax
     for (const file of files) {
       const filePath = `${path}/${file}`;
