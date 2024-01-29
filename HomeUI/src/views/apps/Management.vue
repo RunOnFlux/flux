@@ -5905,7 +5905,9 @@ export default {
       }
     },
     async deleteLocalBackup(name, restoreItem, filepath, timestamp = 0) {
-      await BackupRestoreService.removeBackupFile(encodeURIComponent(filepath));
+      console.log(filepath);
+      this.anser = await BackupRestoreService.removeBackupFile(encodeURIComponent(filepath));
+      console.log(JSON.stringify(this.anser));
       const backupIndex = restoreItem.findIndex((item) => item.timestamp === timestamp);
       restoreItem.splice(backupIndex, 1);
       if (timestamp !== 0) {

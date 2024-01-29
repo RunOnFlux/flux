@@ -359,8 +359,8 @@ async function removeBackupFile(req, res) {
     }
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
     if (authorized === true) {
-      await fs.promises.unlink(filepath);
-      const response = messageHelper.createSuccessMessage('File Removed');
+      const output = await removeFile(filepath);
+      const response = messageHelper.createSuccessMessage(output);
       return res.json(response);
     // eslint-disable-next-line no-else-return
     } else {
