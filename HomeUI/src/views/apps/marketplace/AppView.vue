@@ -38,6 +38,53 @@
               :value="appData.description"
               class="description-text"
             />
+            <br>
+            <div
+              v-if="appData.contacts"
+              class="form-row form-group"
+            >
+              <label class="col-3 col-form-label">
+                Contact
+                <v-icon
+                  v-b-tooltip.hover.top="'Add your email contact to get notifications ex. app about to expire, app spawns. Your contact will be uploaded to Flux Storage to not be public visible'"
+                  name="info-circle"
+                  class="mr-1"
+                />
+              </label>
+              <div class="col">
+                <b-form-input
+                  id="contact"
+                  v-model="contact"
+                />
+              </div>
+            </div>
+            <br>
+            <div
+              v-if="appData.geolocationOptions"
+            >
+              <b-form-group
+                label-cols="3"
+                label-cols-lg="20"
+                :label="`Deployment Location`"
+                label-for="geolocation"
+              >
+                <b-form-select
+                  id="geolocation"
+                  v-model="selectedGeolocation"
+                  :options="appData.geolocationOptions"
+                >
+                  <template #first>
+                    <b-form-select-option
+                      :value="null"
+                      disabled
+                    >
+                      Worldwide
+                    </b-form-select-option>
+                  </template>
+                </b-form-select>
+              </b-form-group>
+            </div>
+
             <b-card
               class="mt-1"
               no-body
@@ -554,6 +601,9 @@ import {
   VBModal,
   VBToggle,
   VBTooltip,
+  BFormSelect,
+  BFormSelectOption,
+  BFormGroup,
 } from 'bootstrap-vue';
 import {
   FormWizard,
@@ -619,7 +669,9 @@ export default {
     BRow,
     BTabs,
     BTab,
-
+    BFormSelect,
+    BFormSelectOption,
+    BFormGroup,
     FormWizard,
     TabContent,
 
@@ -703,6 +755,8 @@ export default {
     const websocket = ref(null);
     const selectedEnterpriseNodes = ref([]);
     const enterprisePublicKeys = ref([]);
+    const selectedGeolocation = ref(null);
+    const contact = ref(null);
 
     const config = computed(() => vm.$store.state.flux.config);
     const validTill = computed(() => timestamp.value + 60 * 60 * 1000); // 1 hour
@@ -1108,6 +1162,25 @@ export default {
         if (props.appData.version >= 5) {
           appSpecification.contacts = [];
           appSpecification.geolocation = [];
+          if (selectedGeolocation.value) {
+            appSpecification.geolocation.push(selectedGeolocation.value);
+          }
+          console.log(contact.value);
+          if (contact.value) {
+            const contacts = [contact.value];
+            const contactsid = Math.floor((Math.random() * 999999999999999)).toString();
+            const data = {
+              contactsid,
+              contacts,
+            };
+            // eslint-disable-next-line no-await-in-loop
+            const resp = await axios.post('https://storage.runonflux.io/v1/contacts', data);
+            if (resp.data.status === 'error') {
+              throw new Error(resp.data.message || resp.data);
+            }
+            showToast('success', 'Successful upload of Contact Parameter to Flux Storage');
+            appSpecification.contacts = [`F_S_CONTACTS==https://storage.runonflux.io/v1/contacts/${contactsid}`];
+          }
         }
         if (props.appData.version >= 6) {
           appSpecification.expire = props.appData.expire || 22000;
@@ -1679,6 +1752,8 @@ export default {
 
       userZelid,
       dataToSign,
+      selectedGeolocation: null,
+      contact,
       signClient,
       signature,
       appPricePerMonth,
