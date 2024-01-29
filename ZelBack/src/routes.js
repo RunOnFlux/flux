@@ -612,13 +612,13 @@ module.exports = (app, expressWs) => {
   });
   // BACKUP & RESTORE
 
-  app.get('/backup/getvolumedataofcomponent/:appname?/:component?/:multiplier?/:decimal?/:fields?', cache('30 seconds'), (req, res) => {
+  app.get('/backup/getvolumedataofcomponent/:appname?/:component?/:multiplier?/:decimal?/:fields?', (req, res) => {
     backupRestoreService.getVolumeDataOfComponent(req, res);
   });
-  app.get('/backup/getremotefilesize/:fileurl?/:multiplier?/:decimal?', cache('30 seconds'), (req, res) => {
+  app.get('/backup/getremotefilesize/:fileurl?/:multiplier?/:decimal?', (req, res) => {
     backupRestoreService.getRemoteFileSize(req, res);
   });
-  app.get('/backup/getbackuplist/:path?/:multiplier?/:decimal?', cache('15 seconds'), (req, res) => {
+  app.get('/backup/getbackuplist/:path?/:multiplier?/:decimal?', (req, res) => {
     backupRestoreService.getBackupleList(req, res);
   });
   app.get('/backup/removebackupfile/:filepath?', (req, res) => {

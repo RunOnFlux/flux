@@ -1480,7 +1480,7 @@
                             deleteLocalBackup(
                               row.item.component_name,
                               backupList,
-                              row.file,
+                              backupList[row.index].file,
                               row.item.timestamp,
                             )
                           "
@@ -5886,14 +5886,16 @@ export default {
         // eslint-disable-next-line no-await-in-loop
         this.list = await BackupRestoreService.getBackupList(zelidauth, encodeURIComponent(`${this.volumeInfoResponse.data.data.mount}/backup/local`), 'MB', 2);
         console.log(this.list.data.data);
-        const newBackupItem = {
-          isActive: false,
-          component_name: component,
-          create: +this.list.data.data[0].create,
-          file_size: this.list.data.data[0].size,
-          file: `${this.volumeInfoResponse.data.data.mount}/backup/local/${this.list.data.data[0].name}`,
-        };
-        backupListTmp.push(newBackupItem);
+        if (Array.isArray(this.list.data?.data)) {
+          const newBackupItem = {
+            isActive: false,
+            component_name: component,
+            create: +this.list.data.data[0].create,
+            file_size: this.list.data.data[0].size,
+            file: `${this.volumeInfoResponse.data.data.mount}/backup/local/${this.list.data.data[0].name}`,
+          };
+          backupListTmp.push(newBackupItem);
+        }
       }
       this.backupList = backupListTmp;
     },
@@ -5905,9 +5907,10 @@ export default {
       }
     },
     async deleteLocalBackup(name, restoreItem, filepath, timestamp = 0) {
+      const zelidauth = localStorage.getItem('zelidauth');
       console.log(filepath);
-      this.anser = await BackupRestoreService.removeBackupFile(encodeURIComponent(filepath));
-      console.log(JSON.stringify(this.anser));
+      this.anser = await BackupRestoreService.removeBackupFile(zelidauth, encodeURIComponent(filepath));
+      console.log(JSON.stringify(this.anser.data.data));
       const backupIndex = restoreItem.findIndex((item) => item.timestamp === timestamp);
       restoreItem.splice(backupIndex, 1);
       if (timestamp !== 0) {
