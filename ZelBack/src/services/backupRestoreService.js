@@ -150,13 +150,13 @@ async function getPathFileList(path, multiplier, decimal, filterKeywords = []) {
     const files = await fs.readdir(path);
     const filesArray = [];
     console.log(files);
+    console.log(`Filters: ${filterKeywords}`);
     // eslint-disable-next-line no-restricted-syntax
     for (const file of files) {
       const filePath = `${path}/${file}`;
       console.log(filterKeywords.some((keyword) => file.includes(keyword)));
       // eslint-disable-next-line no-await-in-loop
       const stats = await fs.stat(filePath);
-      console.log(filterKeywords);
       const passesFilter = filterKeywords.length === 0 || filterKeywords.some((keyword) => file.includes(keyword));
       if (passesFilter) {
         const fileSize = convertFileSize(stats.size, multiplier);
