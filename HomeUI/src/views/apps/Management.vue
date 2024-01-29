@@ -1414,6 +1414,7 @@
                       Remove all
                     </b-button>
                   </div>
+                  {{ backupList }}
                   <b-table
                     v-if="backupList?.length > 0"
                     ref="selectableTable"
@@ -1476,9 +1477,10 @@
                           variant="outline-danger"
                           class="d-flex justify-content-center align-items-center mr-1 custom-button"
                           @click="
-                            deleteRestoreBackup(
+                            deleteLocalBackup(
                               row.item.component_name,
                               backupList,
+                              row.file,
                               row.item.timestamp,
                             )
                           "
@@ -5744,7 +5746,6 @@ export default {
           this.backupList.push(newBackupItem);
         }
       }
-      await this.setBackupList();
       // console.log(JSON.stringify(this.backupList));
     },
     onRowSelected(itemOnRow) {
@@ -5798,7 +5799,8 @@ export default {
       return `backup_${checkpoint.timestamp}`;
     },
     formatDateTime(timestamp, add24Hours = false) {
-      const date = new Date(timestamp * 1000);
+      const isMilliseconds = timestamp > 1e12;
+      const date = isMilliseconds ? new Date(timestamp) : new Date(timestamp * 1000);
       if (add24Hours) {
         date.setHours(date.getHours() + 24);
       }
@@ -5870,19 +5872,40 @@ export default {
     deleteItem(index, item) {
       item.splice(index, 1);
     },
-    async setBackupList(name = this.appName) {
+    async loadBackupList(name = this.appName) {
       const zelidauth = localStorage.getItem('zelidauth');
+      const backupListTmp = [];
       // eslint-disable-next-line no-restricted-syntax
       for (const component of this.components) {
+        // eslint-disable-next-line no-await-in-loop
+        console.log(component);
+        console.log(name);
         // eslint-disable-next-line no-await-in-loop
         this.volumeInfoResponse = await BackupRestoreService.getVolumeDataOfComponent(zelidauth, name, component, 'MB', 2, 'mount');
         console.log(JSON.stringify(this.volumeInfoResponse.data.data));
         // eslint-disable-next-line no-await-in-loop
         this.list = await BackupRestoreService.getBackupList(zelidauth, encodeURIComponent(`${this.volumeInfoResponse.data.data.mount}/backup/local`), 'MB', 2);
         console.log(this.list.data.data);
+        const newBackupItem = {
+          isActive: false,
+          component_name: component,
+          create: +this.list.data.data[0].create,
+          file_size: this.list.data.data[0].size,
+          file: `${this.volumeInfoResponse.data.data.mount}/backup/local/${this.list.data.data[0].name}`,
+        };
+        backupListTmp.push(newBackupItem);
       }
+      this.backupList = backupListTmp;
     },
     deleteRestoreBackup(name, restoreItem, timestamp = 0) {
+      const backupIndex = restoreItem.findIndex((item) => item.timestamp === timestamp);
+      restoreItem.splice(backupIndex, 1);
+      if (timestamp !== 0) {
+        this.newComponents = this.newComponents.filter((item) => item.timestamp !== timestamp);
+      }
+    },
+    async deleteLocalBackup(name, restoreItem, filepath, timestamp = 0) {
+      await BackupRestoreService.removeBackupFile(encodeURIComponent(filepath));
       const backupIndex = restoreItem.findIndex((item) => item.timestamp === timestamp);
       restoreItem.splice(backupIndex, 1);
       if (timestamp !== 0) {
@@ -6125,6 +6148,7 @@ export default {
           break;
         case 10:
           this.applyFilter();
+          this.loadBackupList();
           break;
         case 12:
           this.getGlobalApplicationSpecifics();

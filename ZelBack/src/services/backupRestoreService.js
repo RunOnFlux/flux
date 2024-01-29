@@ -349,6 +349,35 @@ async function getRemoteFile(req, res) {
   }
 }
 
+async function removeBackupFile(req, res) {
+  try {
+    console.log(req.params);
+    let { filepath } = req.params;
+    filepath = filepath || req.query.filepath;
+    if (!filepath) {
+      throw new Error('filepath parameter is mandatory');
+    }
+    const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
+    if (authorized === true) {
+      await fs.promises.unlink(filepath);
+      const response = messageHelper.createSuccessMessage('File Removed');
+      return res.json(response);
+    // eslint-disable-next-line no-else-return
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      return res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
 module.exports = {
   getVolumeInfo,
   getVolumeDataOfComponent,
@@ -356,6 +385,7 @@ module.exports = {
   getRemoteFile,
   getPathFileList,
   getBackupleList,
+  removeBackupFile,
   checkFileExists,
   removeFile,
   convertFileSize,
