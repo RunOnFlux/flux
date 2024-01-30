@@ -1886,6 +1886,14 @@
         </div>
       </b-tab>
       <b-tab title="Running Instances">
+        <div v-if="masterSlaveApp">
+          <b-card title="Primary/Standby App Information">
+            <list-entry
+              title="Current IP selected as Primary running your application"
+              :data="masterIP"
+            />
+          </b-card>
+        </div>
         <b-row>
           <b-col
             md="4"
@@ -2648,7 +2656,7 @@
                     <label class="col-3 col-form-label">
                       Cont. Data
                       <v-icon
-                        v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with r: for synced data between instances. Ex. r:/data. Prepend with g: for synced data and master/slave solution. Ex. g:/data'"
+                        v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with r: for synced data between instances. Ex. r:/data. Prepend with g: for synced data and primary/standby solution. Ex. g:/data'"
                         name="info-circle"
                         class="mr-1"
                       />
@@ -3284,7 +3292,7 @@
                   <label class="col-3 col-form-label">
                     Cont. Data
                     <v-icon
-                      v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with r: for synced data between instances. Ex. r:/data. Prepend with g: for synced data and master/slave solution. Ex. g:/data'"
+                      v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with r: for synced data between instances. Ex. r:/data. Prepend with g: for synced data and primary/standby solution. Ex. g:/data'"
                       name="info-circle"
                       class="mr-1"
                     />
@@ -4089,9 +4097,10 @@ export default {
         data: [],
         fields: [
           { key: 'show_details', label: '' },
-          { key: 'name', label: 'Name', sortable: true },
           { key: 'ip', label: 'IP Address', sortable: true },
-          { key: 'hash', label: 'Hash', sortable: true },
+          { key: 'continent', label: 'Continent', sortable: true },
+          { key: 'country', label: 'Country', sortable: true },
+          { key: 'region', label: 'Region', sortable: true },
           { key: 'visit', label: 'Visit' },
         ],
         perPage: 10,
@@ -4212,6 +4221,8 @@ export default {
       chooseEnterpriseDialog: false,
       isPrivateApp: false,
       signClient: null,
+      masterIP: '',
+      masterSlaveApp: false,
     };
   },
   computed: {
@@ -4899,6 +4910,9 @@ export default {
           this.appUpdateSpecification.commands = this.ensureString(specs.commands);
           this.appUpdateSpecification.containerPorts = specs.containerPort || this.ensureString(specs.containerPorts); // v1 compatibility
         } else {
+          if (this.appUpdateSpecification.version > 3 && this.appUpdateSpecification.compose.find((comp) => comp.containerData.includes('g:'))) {
+            this.masterSlaveApp = true;
+          }
           if (this.appUpdateSpecification.version <= 7) {
             this.appUpdateSpecification.version = 7;
           }
@@ -5514,7 +5528,53 @@ export default {
         this.showToast('danger', response.data.data.message || response.data.data);
       } else {
         this.instances.data = response.data.data;
+        // eslint-disable-next-line no-restricted-syntax
+        for (const node of this.instances.data) {
+          const ip = node.ip.split(':')[0];
+          const port = node.ip.split(':')[1] || 16127;
+          const url = `http://${ip}:${port}/flux/geolocation`;
+          let errorFluxOs = false;
+          // eslint-disable-next-line no-await-in-loop
+          const fluxGeo = await axios.get(url).catch((error) => {
+            errorFluxOs = true;
+            console.log(`Error geting geolocation from ${ip}:${port} : ${error}`);
+            node.continent = 'N/A';
+            node.country = 'N/A';
+            node.region = 'N/A';
+          });
+          if (!errorFluxOs && fluxGeo.data.status === 'success' && fluxGeo.data.data.continent) {
+            node.continent = fluxGeo.data.data.continent;
+            node.country = fluxGeo.data.data.country;
+            node.region = fluxGeo.data.data.regionName;
+          } else {
+            node.continent = 'N/A';
+            node.country = 'N/A';
+            node.region = 'N/A';
+          }
+        }
         this.instances.totalRows = this.instances.data.length;
+        if (this.masterSlaveApp) {
+          const url = `https://${this.appName}.app.runonflux.io/fluxstatistics?scope=${this.appName};json;norefresh`;
+          let errorFdm = false;
+          let fdmData = await axios.get(url).catch((error) => {
+            errorFdm = true;
+            console.log(`UImasterSlave: Failed to reach FDM with error: ${error}`);
+            this.masterIP = 'Failed to Check';
+          });
+          if (errorFdm) {
+            return;
+          }
+          fdmData = fdmData.data;
+          if (fdmData && fdmData.length > 0) {
+            console.log('FDM_Data_Received');
+            const ipElement = fdmData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
+            if (ipElement) {
+              this.masterIP = ipElement.value.value.split(':')[0];
+              return;
+            }
+          }
+          this.masterIP = 'Defining New Primary In Progress';
+        }
       }
     },
     async getAppOwner() {
