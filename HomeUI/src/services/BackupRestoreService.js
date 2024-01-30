@@ -41,12 +41,7 @@ export default {
     };
     return Api().post('/backup/getremotefile', JSON.stringify(data), axiosConfig);
   },
-  getLocalFile(zelidauthHeader, filepath) {
-    const axiosConfig = {
-      headers: {
-        zelidauth: zelidauthHeader,
-      },
-    };
-    return Api().get(`/backup/downloadlocalfile/${filepath}`, axiosConfig);
+  justAPI() {
+    return Api();
   },
 };

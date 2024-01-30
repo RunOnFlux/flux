@@ -1414,7 +1414,6 @@
                       Remove all
                     </b-button>
                   </div>
-                  {{ backupList }}
                   <b-table
                     v-if="backupList?.length > 0"
                     ref="selectableTable"
@@ -1488,7 +1487,7 @@
                         <b-button
                           variant="outline-primary"
                           class="d-flex justify-content-center align-items-center custom-button"
-                          @click="downloadLocalBackup(backupList[row.index].file)"
+                          @click="downloadBackupFile(backupList[row.index].file)"
                         >
                           <b-icon
                             class="d-flex justify-content-center align-items-center"
@@ -1499,6 +1498,19 @@
                       </div>
                     </template>
                   </b-table>
+                  <b-card-text v-if="total && downloaded && showProgressBar">
+                    <div class="mt-1">
+                      <!-- <b-progress
+                        :value="`${((downloaded / total) * 100).toFixed(2)}%`"
+                        :max="100"
+                        show-progress
+                        animated
+                      /> -->
+                      <b-progress :max="100" show-progress>
+                        <b-progress-bar :value="((downloaded / total) * 100).toFixed(2)" :label="downloadLabel" show-progress animated />
+                      </b-progress>
+                    </div>
+                  </b-card-text>
                   <div v-if="backupToUpload.length > 0" class="mt-2">
                     <div
                       class="mb-2 mt-3"
@@ -4934,6 +4946,8 @@ import {
   BFormSelect,
   BFormSelectOption,
   BPagination,
+  BProgress,
+  BProgressBar,
   VBTooltip,
 } from 'bootstrap-vue';
 
@@ -5018,6 +5032,9 @@ export default {
     BFormSelect,
     BFormSelectOption,
     BPagination,
+    BProgress,
+    // eslint-disable-next-line vue/no-unused-components
+    BProgressBar,
     ConfirmDialog,
     ListEntry,
     // eslint-disable-next-line vue/no-unused-components
@@ -5045,6 +5062,7 @@ export default {
   },
   data() {
     return {
+      showProgressBar: false,
       storageMethod: [
         {
           value: 'flux',
@@ -5348,6 +5366,17 @@ export default {
     };
   },
   computed: {
+    downloadLabel() {
+      const progressMB = (this.downloaded / (1024 * 1024)).toFixed(2);
+      const totalMB = (this.total / (1024 * 1024)).toFixed(2);
+      if (progressMB === totalMB) {
+        // eslint-disable-next-line vue/no-async-in-computed-properties
+        setTimeout(() => {
+          this.showProgressBar = false;
+        }, 5000);
+      }
+      return `${progressMB} / ${totalMB} MB`;
+    },
     isValidUrl() {
       const urlRegex = /^(http|https):\/\/[^ "]+$/;
       // eslint-disable-next-line no-mixed-operators
@@ -5743,7 +5772,14 @@ export default {
       // console.log(JSON.stringify(this.backupList));
     },
     onRowSelected(itemOnRow) {
-      this.backupToUpload = itemOnRow.map((item) => item.component_name);
+      this.backupToUpload = itemOnRow.map((item) => {
+        const selectedComponentName = item.component_name;
+        const selectedFile = this.backupList.find((file) => file.component_name === selectedComponentName);
+        return {
+          component: selectedComponentName,
+          file: selectedFile ? selectedFile.file : null,
+        };
+      }).filter((item) => item.file !== null);
     },
     applyFilter() {
       this.$nextTick(() => {
@@ -5915,8 +5951,32 @@ export default {
       }
     },
     async downloadBackupFile(path) {
+      const self = this;
+      this.downloaded = '';
+      this.total = '';
+      // this.abortToken = DaemonService.cancelToken();
       const zelidauth = localStorage.getItem('zelidauth');
-      await BackupRestoreService.getLocalFile(zelidauth, encodeURIComponent(path));
+      const axiosConfig = {
+        headers: {
+          zelidauth,
+        },
+        responseType: 'blob',
+        onDownloadProgress(progressEvent) {
+          self.downloaded = progressEvent.loaded;
+          self.total = progressEvent.total;
+        },
+        // cancelToken: self.abortToken.token,
+      };
+      this.showProgressBar = true;
+      const fileNameArray = path.split('/');
+      const fileName = fileNameArray[fileNameArray.length - 1];
+      const response = await BackupRestoreService.justAPI().get(`/backup/downloadlocalfile/${encodeURIComponent(path)}`, axiosConfig);
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', fileName);
+      document.body.appendChild(link);
+      link.click();
     },
     async initMMSDK() {
       try {
