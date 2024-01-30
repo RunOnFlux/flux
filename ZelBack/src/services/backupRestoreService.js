@@ -1,49 +1,9 @@
-const df = require('node-df');
 const fs = require('fs').promises;
-const util = require('util');
-const axios = require('axios');
 const log = require('../lib/log');
 const messageHelper = require('./messageHelper');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
-
-/**
- * Get volume information for a specific application component.
- * @param {string} appname - Name of the application.
- * @param {string} component - Name of the component.
- * @param {string} multiplier - Unit multiplier for displaying sizes (B, KB, MB, GB).
- * @param {number} decimal - Number of decimal places for precision.
- * @param {string} fields - Optional comma-separated list of fields to include in the response.
- * @returns {Array|null} - Array of objects containing volume information for the specified component, or null if no matching mount is found.
- */
-async function getVolumeInfo(appname, component, multiplier, decimal, fields) {
-  try {
-    const options = {
-      prefixMultiplier: multiplier,
-      isDisplayPrefixMultiplier: false,
-      precision: +decimal,
-    };
-    const dfAsync = util.promisify(df);
-    const dfData = await dfAsync(options);
-    const regex = new RegExp(`${component}_${appname}$`);
-    const allowedFields = fields ? fields.split(',') : null;
-    const dfSorted = dfData
-      .filter((entry) => regex.test(entry.mount))
-      .map((entry) => {
-        const filteredEntry = allowedFields
-          ? Object.fromEntries(Object.entries(entry).filter(([key]) => allowedFields.includes(key)))
-          : entry;
-        return filteredEntry;
-      });
-    if (dfSorted.length === 0) {
-      return null;
-    }
-    return dfSorted;
-  } catch (error) {
-    log.error(error);
-    return null;
-  }
-}
+const IOService = require('./IOService');
 
 /**
  * Get volume data of an application component.
@@ -70,7 +30,7 @@ async function getVolumeDataOfComponent(req, res) {
     }
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
     if (authorized === true) {
-      const dfInfoData = await getVolumeInfo(appname, component, multiplier, decimal, fields);
+      const dfInfoData = await IOService.getVolumeInfo(appname, component, multiplier, decimal, fields);
       if (dfInfoData === null) {
         throw new Error('No matching mount found');
       }
@@ -92,98 +52,6 @@ async function getVolumeDataOfComponent(req, res) {
   }
 }
 
-/**
- * Check if a file exists at the specified filePath.
- * @param {string} filePath - The path to the file.
- * @returns {boolean} - True if the file exists, false otherwise.
- */
-async function checkFileExists(filePath) {
-  try {
-    await fs.access(filePath);
-    return true;
-  } catch (error) {
-    log.error(error);
-    return false;
-  }
-}
-
-/**
- * Remove a file at the specified filePath.
- * @param {string} filePath - The path to the file to be removed.
- * @returns {boolean} - True if the file is removed successfully, false otherwise.
- */
-async function removeFile(filePath) {
-  try {
-    await fs.unlink(filePath);
-    return true;
-  } catch (error) {
-    log.error(error);
-    return false;
-  }
-}
-
-/**
- * Convert file size from bytes to the specified unit.
- * @param {number} sizeInBytes - Size of the file in bytes.
- * @param {string} multiplier - Unit to convert to (B, KB, MB, GB).
- * @returns {number} - Converted file size.
- */
-function convertFileSize(sizeInBytes, multiplier) {
-  const multiplierMap = {
-    B: 1,
-    KB: 1024,
-    MB: 1024 * 1024,
-    GB: 1024 * 1024 * 1024,
-  };
-  return sizeInBytes / multiplierMap[multiplier.toUpperCase()];
-}
-
-/**
- * Get a list of file information for the specified path.
- * @param {string} path - The path of the directory.
- * @param {string} multiplier - Unit to convert file sizes (B, KB, MB, GB).
- * @param {number} decimal - Number of decimal places for file sizes.
- * @returns {Array} An array of file information or returns an empty array if there's an issue reading the directory or obtaining file information.
- */
-async function getPathFileList(path, multiplier, decimal, filterKeywords = []) {
-  try {
-    const files = await fs.readdir(path);
-    const filesArray = [];
-    console.log(files);
-    console.log(`Filters: ${filterKeywords}`);
-    // eslint-disable-next-line no-restricted-syntax
-    for (const file of files) {
-      const filePath = `${path}/${file}`;
-      console.log(filePath);
-      // eslint-disable-next-line no-await-in-loop
-      const stats = await fs.stat(filePath);
-      console.log(JSON.stringify(stats));
-      // eslint-disable-next-line no-await-in-loop
-      const passesFilter = filterKeywords.length === 0 || filterKeywords.some((keyword) => {
-        const includes = file.includes(keyword);
-        console.log(`Filter Check for ${keyword}: ${includes}`);
-        return includes;
-      });
-      console.log(passesFilter);
-      if (passesFilter) {
-        const fileSize = convertFileSize(stats.size, multiplier);
-        const roundedFileSize = fileSize.toFixed(decimal);
-        const fileInfo = {
-          name: file,
-          create: stats.birthtimeMs.toFixed(0),
-          size: roundedFileSize,
-        };
-        filesArray.push(fileInfo);
-      }
-    }
-    log.info(filesArray);
-    return filesArray;
-  } catch (err) {
-    log.error('Error reading directory:', err);
-    return [];
-  }
-}
-
 async function getBackupleList(req, res) {
   try {
     console.log(req.params);
@@ -198,7 +66,7 @@ async function getBackupleList(req, res) {
     }
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
     if (authorized === true) {
-      const listData = await getPathFileList(path, multiplier, decimal, ['.tar.gz']);
+      const listData = await IOService.getPathFileList(path, multiplier, decimal, ['.tar.gz']);
       if (listData.length === 0) {
         throw new Error('No matching mount found');
       }
@@ -241,15 +109,19 @@ async function getRemoteFileSize(req, res) {
     }
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
     if (authorized === true) {
-      const head = await axios.head(fileurl);
-      const contentLengthHeader = head.headers['content-length'] || head.headers['Content-Length'];
-      const fileSizeInBytes = parseInt(contentLengthHeader, 10);
-      if (!Number.isFinite(fileSizeInBytes)) {
-        throw new Error('Error fetching file size');
+      // const head = await axios.head(fileurl);
+      // const contentLengthHeader = head.headers['content-length'] || head.headers['Content-Length'];
+      // const fileSizeInBytes = parseInt(contentLengthHeader, 10);
+      // if (!Number.isFinite(fileSizeInBytes)) {
+      //   throw new Error('Error fetching file size');
+      // }
+      // const fileSize = IOService.convertFileSize(fileSizeInBytes, multiplier);
+      // const roundedFileSize = fileSize.toFixed(decimal);
+      // const response = messageHelper.createDataMessage(roundedFileSize);
+      const response = await IOService.getRemoteFileSize(fileurl, multiplier, decimal);
+      if (response === false) {
+        throw new Error('Error fetching file size...');
       }
-      const fileSize = convertFileSize(fileSizeInBytes, multiplier);
-      const roundedFileSize = fileSize.toFixed(decimal);
-      const response = messageHelper.createDataMessage(roundedFileSize);
       return res ? res.json(response) : response;
     // eslint-disable-next-line no-else-return
     } else {
@@ -264,28 +136,6 @@ async function getRemoteFileSize(req, res) {
       error.code,
     );
     return res ? res.json(errorResponse) : errorResponse;
-  }
-}
-
-/**
- * Downloads a file from a remote URL and saves it locally.
- *
- * @param {string} url - The URL of the file to download.
- * @param {string} path - The local path to save the downloaded file.
- * @param {string} component - The component name for identification.
- * @param {string} appname - The application name for identification.
- * @returns {string|null} - A success message if the file is downloaded and saved, or null on failure.
- */
-async function downloadFile(url, path, component, appname) {
-  try {
-    const response = await axios.get(url, { responseType: 'arraybuffer' });
-    const fileData = Buffer.from(response.data, 'binary');
-    await fs.writeFile(`${path}/${component}_${appname}.tar.gz`, fileData);
-    console.log(`File ${path}/${component}_${appname}.tar.gz saved!`);
-    return `File ${path}/${component}_${appname}.tar.gz saved!`;
-  } catch (err) {
-    log.error(err);
-    return null;
   }
 }
 
@@ -319,16 +169,16 @@ async function getRemoteFile(req, res) {
         // eslint-disable-next-line no-restricted-syntax
         for (const { url, component, appname } of bodyData) {
           // eslint-disable-next-line no-await-in-loop
-          const volumePath = await getVolumeInfo(appname, component, 'MB', 0, 'mount');
+          const volumePath = await IOService.getVolumeInfo(appname, component, 'MB', 0, 'mount');
           // eslint-disable-next-line no-await-in-loop
-          if (await checkFileExists(`${volumePath[0].mount}/backup/remote/${component}_${appname}.tar.gz`)) {
+          if (await IOService.checkFileExists(`${volumePath[0].mount}/backup/remote/${component}_${appname}.tar.gz`)) {
             // eslint-disable-next-line no-await-in-loop
-            await removeFile(`${volumePath[0].mount}/backup/remote/${component}_${appname}.tar.gz`);
+            await IOService.removeFile(`${volumePath[0].mount}/backup/remote/${component}_${appname}.tar.gz`);
           }
           // eslint-disable-next-line no-await-in-loop
           await fs.mkdir(`${volumePath[0].mount}/backup/remote`, { recursive: true });
           // eslint-disable-next-line no-await-in-loop
-          await downloadFile(url, `${volumePath[0].mount}/backup/remote`, component, appname);
+          await IOService.downloadFileFromUrl(url, `${volumePath[0].mount}/backup/remote`, component, appname, true);
         }
         const response = messageHelper.createDataMessage('successful!');
         return res ? res.json(response) : response;
@@ -359,7 +209,7 @@ async function removeBackupFile(req, res) {
     }
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
     if (authorized === true) {
-      const output = await removeFile(filepath);
+      const output = await IOService.removeFile(filepath);
       const response = messageHelper.createSuccessMessage(output);
       return res.json(response);
     // eslint-disable-next-line no-else-return
@@ -408,16 +258,10 @@ async function downloadLocalFile(req, res) {
 }
 
 module.exports = {
-  getVolumeInfo,
   getVolumeDataOfComponent,
   getRemoteFileSize,
   getRemoteFile,
-  getPathFileList,
   getBackupleList,
   removeBackupFile,
-  checkFileExists,
-  removeFile,
-  convertFileSize,
-  downloadFile,
   downloadLocalFile,
 };

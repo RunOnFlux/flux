@@ -6184,6 +6184,7 @@ export default {
       this.appExec.cmd = '';
       this.appExec.env = '';
       this.output = '';
+      this.backupToUpload = [];
       if (index !== 10) {
         this.disconnectTerminal();
       }
