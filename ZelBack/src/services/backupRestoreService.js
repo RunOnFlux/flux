@@ -3,7 +3,7 @@ const log = require('../lib/log');
 const messageHelper = require('./messageHelper');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
-const IOService = require('./IOService');
+const IOUtils = require('./IOUtils');
 
 /**
  * Get volume data of an application component.
@@ -30,7 +30,7 @@ async function getVolumeDataOfComponent(req, res) {
     }
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
     if (authorized === true) {
-      const dfInfoData = await IOService.getVolumeInfo(appname, component, multiplier, decimal, fields);
+      const dfInfoData = await IOUtils.getVolumeInfo(appname, component, multiplier, decimal, fields);
       if (dfInfoData === null) {
         throw new Error('No matching mount found');
       }
@@ -66,7 +66,7 @@ async function getLocalBackupList(req, res) {
     }
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
     if (authorized === true) {
-      const listData = await IOService.getPathFileList(path, multiplier, decimal, ['.tar.gz']);
+      const listData = await IOUtils.getPathFileList(path, multiplier, decimal, ['.tar.gz']);
       if (listData.length === 0) {
         throw new Error('No matching mount found');
       }
@@ -118,7 +118,7 @@ async function getRemoteFileSize(req, res) {
       // const fileSize = IOService.convertFileSize(fileSizeInBytes, multiplier);
       // const roundedFileSize = fileSize.toFixed(decimal);
       // const response = messageHelper.createDataMessage(roundedFileSize);
-      const fileSize = await IOService.getRemoteFileSize(fileurl, multiplier, decimal);
+      const fileSize = await IOUtils.getRemoteFileSize(fileurl, multiplier, decimal);
       if (fileSize === false) {
         throw new Error('Error fetching file size');
       }
@@ -170,16 +170,16 @@ async function getRemoteFile(req, res) {
         // eslint-disable-next-line no-restricted-syntax
         for (const { url, component, appname } of bodyData) {
           // eslint-disable-next-line no-await-in-loop
-          const volumePath = await IOService.getVolumeInfo(appname, component, 'MB', 0, 'mount');
+          const volumePath = await IOUtils.getVolumeInfo(appname, component, 'MB', 0, 'mount');
           // eslint-disable-next-line no-await-in-loop
-          if (await IOService.checkFileExists(`${volumePath[0].mount}/backup/remote/${component}_${appname}.tar.gz`)) {
+          if (await IOUtils.checkFileExists(`${volumePath[0].mount}/backup/remote/${component}_${appname}.tar.gz`)) {
             // eslint-disable-next-line no-await-in-loop
-            await IOService.removeFile(`${volumePath[0].mount}/backup/remote/${component}_${appname}.tar.gz`);
+            await IOUtils.removeFile(`${volumePath[0].mount}/backup/remote/${component}_${appname}.tar.gz`);
           }
           // eslint-disable-next-line no-await-in-loop
           await fs.mkdir(`${volumePath[0].mount}/backup/remote`, { recursive: true });
           // eslint-disable-next-line no-await-in-loop
-          await IOService.downloadFileFromUrl(url, `${volumePath[0].mount}/backup/remote`, component, appname, true);
+          await IOUtils.downloadFileFromUrl(url, `${volumePath[0].mount}/backup/remote`, component, appname, true);
         }
         const response = messageHelper.createDataMessage('successful!');
         return res ? res.json(response) : response;
@@ -210,7 +210,7 @@ async function removeBackupFile(req, res) {
     }
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
     if (authorized === true) {
-      const output = await IOService.removeFile(filepath);
+      const output = await IOUtils.removeFile(filepath);
       const response = messageHelper.createSuccessMessage(output);
       return res.json(response);
     // eslint-disable-next-line no-else-return
