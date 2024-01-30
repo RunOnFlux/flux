@@ -415,5 +415,6 @@
    "creepto/minesweeper",
    "jammsen",
    "rp91",
-   "thijsvanloef/palworld-server-docker"
+   "thijsvanloef/palworld-server-docker",
+   "ghcr.io/jsdelivr/globalping-probe"
 ]
