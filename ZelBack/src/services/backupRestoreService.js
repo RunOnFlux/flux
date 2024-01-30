@@ -378,6 +378,35 @@ async function removeBackupFile(req, res) {
   }
 }
 
+async function downloadLocalFile(req, res) {
+  try {
+    console.log(req.params);
+    let { filepath } = req.params;
+    filepath = filepath || req.query.filepath;
+    if (!filepath) {
+      throw new Error('filepath parameter is mandatory');
+    }
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized) {
+      const fileNameArray = filepath.split('/');
+      const fileName = fileNameArray[fileNameArray.length - 1];
+      return res.download(filepath, fileName);
+    // eslint-disable-next-line no-else-return
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      return res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
 module.exports = {
   getVolumeInfo,
   getVolumeDataOfComponent,
@@ -390,4 +419,5 @@ module.exports = {
   removeFile,
   convertFileSize,
   downloadFile,
+  downloadLocalFile,
 };

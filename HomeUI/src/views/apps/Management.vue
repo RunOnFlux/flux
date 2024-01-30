@@ -1409,7 +1409,7 @@
                       </b-dropdown-item>
                     </b-dropdown>
 
-                    <b-button variant="outline-danger" style="max-height: 38px; min-width: 100px; white-space: nowrap;" @click="removeAllBackup">
+                    <b-button variant="outline-danger" style="max-height: 38px; min-width: 100px; white-space: nowrap;" @click="deleteLocalBackup(null, backupList)">
                       <b-icon scale="0.9" icon="trash" class="mr-1" />
                       Remove all
                     </b-button>
@@ -1477,12 +1477,7 @@
                           variant="outline-danger"
                           class="d-flex justify-content-center align-items-center mr-1 custom-button"
                           @click="
-                            deleteLocalBackup(
-                              row.item.component_name,
-                              backupList,
-                              backupList[row.index].file,
-                            )
-                          "
+                            deleteLocalBackup(row.item.component_name, backupList, backupList[row.index].file)"
                         >
                           <b-icon
                             class="d-flex justify-content-center align-items-center"
@@ -1493,7 +1488,7 @@
                         <b-button
                           variant="outline-primary"
                           class="d-flex justify-content-center align-items-center custom-button"
-                          @click="addAllBackupComponents(row.item.timestamp)"
+                          @click="downloadLocalBackup(backupList[row.index].file)"
                         >
                           <b-icon
                             class="d-flex justify-content-center align-items-center"
@@ -5880,7 +5875,7 @@ export default {
         this.volumeInfo = await BackupRestoreService.getVolumeDataOfComponent(zelidauth, name, component, 'MB', 2, 'mount');
         this.volumePath = this.volumeInfo.data?.data;
         // eslint-disable-next-line no-await-in-loop
-        this.backupFile = await BackupRestoreService.getBackupList(zelidauth, encodeURIComponent(`${this.volumePath}/backup/local`), 'MB', 2);
+        this.backupFile = await BackupRestoreService.getBackupList(zelidauth, encodeURIComponent(`${this.volumePath.mount}/backup/local`), 'MB', 2);
         this.backupItem = this.backupFile.data?.data;
         if (Array.isArray(this.backupItem)) {
           this.BackupItem = {
@@ -5888,7 +5883,7 @@ export default {
             component_name: component,
             create: +this.backupItem[0].create,
             file_size: this.backupItem[0].size,
-            file: `${this.volumePath}/backup/local/${this.backupItem[0].name}`,
+            file: `${this.volumePath.mount}/backup/local/${this.backupItem[0].name}`,
           };
           backupListTmp.push(this.BackupItem);
         }
@@ -5902,12 +5897,26 @@ export default {
         this.newComponents = this.newComponents.filter((item) => item.timestamp !== timestamp);
       }
     },
-    async deleteLocalBackup(name, restoreItem, filepath) {
+    async deleteLocalBackup(name, restoreItem, filepath = 0) {
       const zelidauth = localStorage.getItem('zelidauth');
-      this.anser = await BackupRestoreService.removeBackupFile(zelidauth, encodeURIComponent(filepath));
-      console.log(JSON.stringify(this.anser.data.data.message));
-      const backupIndex = restoreItem.findIndex((item) => item.component_name === name);
-      restoreItem.splice(backupIndex, 1);
+      if (filepath === 0) {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const fileData of restoreItem) {
+          const filePath = fileData.file;
+          // eslint-disable-next-line no-await-in-loop
+          await BackupRestoreService.removeBackupFile(zelidauth, encodeURIComponent(filePath));
+        }
+        this.backupList = [];
+        this.backupToUpload = [];
+      } else {
+        this.status = await BackupRestoreService.removeBackupFile(zelidauth, encodeURIComponent(filepath));
+        const backupIndex = restoreItem.findIndex((item) => item.component_name === name);
+        restoreItem.splice(backupIndex, 1);
+      }
+    },
+    async downloadBackupFile(path) {
+      const zelidauth = localStorage.getItem('zelidauth');
+      await BackupRestoreService.getLocalFile(zelidauth, encodeURIComponent(path));
     },
     async initMMSDK() {
       try {
