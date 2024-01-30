@@ -23,7 +23,7 @@ export default {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().get(`/backup/getbackuplist/${path}/${multiplier}/${decimal}`, axiosConfig);
+    return Api().get(`/backup/getlocalbackuplist/${path}/${multiplier}/${decimal}`, axiosConfig);
   },
   removeBackupFile(zelidauthHeader, filepath) {
     const axiosConfig = {

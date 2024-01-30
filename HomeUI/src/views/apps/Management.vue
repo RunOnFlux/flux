@@ -1358,7 +1358,7 @@
 
                 <b-button
                   variant="outline-primary"
-                  style="max-height: 38px; min-width: 100px; white-space: nowrap;"
+                  style="white-space: nowrap;"
                   @click="createBackup(selectedBackupComponents)"
                 >
                   <b-icon scale="0.9" icon="back" class="mr-1" />
@@ -1522,7 +1522,7 @@
                         line-height: 0px;
                       "
                     >
-                      <h5><b-icon icon="gear-fill" /> Choose your storage method</h5>
+                      <h5><b-icon icon="gear-fill" /> Choose your storage method (coming soon)</h5>
                     </div>
 
                     <b-form-radio-group
@@ -1736,6 +1736,7 @@
                         id="btn-radios-2"
                         v-model="selectedRestoreOption"
                         :options="restoreOptions"
+                        :disable="restoreOptions"
                         button-variant="outline-primary"
                         name="radio-btn-outline"
                         buttons
@@ -5067,7 +5068,7 @@ export default {
         {
           value: 'flux',
           image: 'https://help.runonflux.io/wp-content/uploads/2023/11/flux_drive-100x31.png',
-          disabled: false,
+          disabled: true,
           text: 'FluxDrive',
         },
         {
@@ -5083,8 +5084,24 @@ export default {
           text: 'AS3Storage',
         },
       ],
-      components: ['apple', 'orange', 'banana', 'lime', 'peach', 'chocolate', 'strawberry'],
-      restoreOptions: ['FluxDrive', 'Remote URL', 'Upload File'],
+      components: [],
+      restoreOptions: [
+        {
+          value: 'FluxDrive',
+          text: 'FluxDrive',
+          disabled: true,
+        },
+        {
+          value: 'Remote URL',
+          text: 'Remote URL',
+          disabled: false,
+        },
+        {
+          value: 'Upload File',
+          text: 'Upload File',
+          disabled: false,
+        },
+      ],
       selectedRestoreOption: null,
       selectedStorageMethod: null,
       selectedBackupComponents: [],

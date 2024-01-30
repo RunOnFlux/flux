@@ -52,7 +52,7 @@ async function getVolumeDataOfComponent(req, res) {
   }
 }
 
-async function getBackupleList(req, res) {
+async function getLocalBackupList(req, res) {
   try {
     console.log(req.params);
     let { path } = req.params;
@@ -262,7 +262,7 @@ module.exports = {
   getVolumeDataOfComponent,
   getRemoteFileSize,
   getRemoteFile,
-  getBackupleList,
+  getLocalBackupList,
   removeBackupFile,
   downloadLocalFile,
 };
