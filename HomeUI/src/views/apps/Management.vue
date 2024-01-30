@@ -4097,9 +4097,10 @@ export default {
         data: [],
         fields: [
           { key: 'show_details', label: '' },
-          { key: 'name', label: 'Name', sortable: true },
           { key: 'ip', label: 'IP Address', sortable: true },
-          { key: 'hash', label: 'Hash', sortable: true },
+          { key: 'continent', label: 'Continent', sortable: true },
+          { key: 'country', label: 'Country', sortable: true },
+          { key: 'region', label: 'Region', sortable: true },
           { key: 'visit', label: 'Visit' },
         ],
         perPage: 10,
@@ -5527,6 +5528,30 @@ export default {
         this.showToast('danger', response.data.data.message || response.data.data);
       } else {
         this.instances.data = response.data.data;
+        // eslint-disable-next-line no-restricted-syntax
+        for (const node of this.instances.data) {
+          const ip = node.ip.split(':')[0];
+          const port = node.ip.split(':')[1] || 16127;
+          const url = `http://${ip}:${port}/flux/geolocation`;
+          let errorFluxOs = false;
+          // eslint-disable-next-line no-await-in-loop
+          const fluxGeo = await axios.get(url).catch((error) => {
+            errorFluxOs = true;
+            console.log(`Error geting geolocation from ${ip}:${port} : ${error}`);
+            node.continent = 'N/A';
+            node.country = 'N/A';
+            node.region = 'N/A';
+          });
+          if (!errorFluxOs && fluxGeo.data.status === 'success' && fluxGeo.data.data.continent) {
+            node.continent = fluxGeo.data.data.continent;
+            node.country = fluxGeo.data.data.country;
+            node.region = fluxGeo.data.data.regionName;
+          } else {
+            node.continent = 'N/A';
+            node.country = 'N/A';
+            node.region = 'N/A';
+          }
+        }
         this.instances.totalRows = this.instances.data.length;
         if (this.masterSlaveApp) {
           const url = `https://${this.appName}.app.runonflux.io/fluxstatistics?scope=${this.appName};json;norefresh`;
