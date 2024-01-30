@@ -119,8 +119,9 @@ async function getRemoteFileSize(req, res) {
       // const roundedFileSize = fileSize.toFixed(decimal);
       // const response = messageHelper.createDataMessage(roundedFileSize);
       const response = await IOService.getRemoteFileSize(fileurl, multiplier, decimal);
+      console.log(response);
       if (response === false) {
-        throw new Error('Error fetching file size...');
+        throw new Error('Error fetching file size');
       }
       return res ? res.json(response) : response;
     // eslint-disable-next-line no-else-return
