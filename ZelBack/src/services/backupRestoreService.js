@@ -5,6 +5,7 @@ const messageHelper = require('./messageHelper');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
 const IOUtils = require('./IOUtils');
+const { PassThrough } = require('stream');
 
 /**
  * Get volume data of an application component.
@@ -273,14 +274,15 @@ async function tarDirectory(req, res) {
       const pathComponents = path.split('/');
       const target = `${path}/backup/local/${pathComponents[pathComponents.length - 1]}.tar.gz`;
       console.log(target);
-      const progressStream = tar.c(
+      const progressStream = new PassThrough();
+      const tarStream = tar.c(
         {
           gzip: true,
           cwd: `${path}/appdata1`,
-          file: target,
         },
         ['.'],
       );
+      tarStream.pipe(progressStream);
       // Listen for progress events
       progressStream.on('entry', (entry) => {
         console.log(`Adding ${entry.path}`);
@@ -296,6 +298,7 @@ async function tarDirectory(req, res) {
         console.error('Error creating tarball:', err);
         res.status(500).end(JSON.stringify({ error: 'Internal server error' }));
       });
+      tarStream.pipe(fs.createWriteStream(target));
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;

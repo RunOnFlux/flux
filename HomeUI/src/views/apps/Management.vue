@@ -5991,6 +5991,8 @@ export default {
         const zelidauth = localStorage.getItem('zelidauth');
         console.log(`Name: ${name}`);
         this.volumeInfo = await BackupRestoreService.getVolumeDataOfComponent(zelidauth, name, component, 'MB', 2, 'mount');
+        this.volumePath = this.volumeInfo.data?.data;
+        console.log(this.volumeInfo.data?.data);
         // eslint-disable-next-line no-unused-vars
         const axiosConfig = {
           responseType: 'blob',
@@ -5998,9 +6000,8 @@ export default {
             zelidauth,
           },
         };
-        console.log(name);
-        console.log(JSON.stringify(this.volumeInfo.data?.data));
-        const response = await BackupRestoreService.justAPI().get(`/backup/tardirectory/${encodeURIComponent(this.volumeInfo.data?.data)}`, axiosConfig);
+        console.log(`Mount: ${this.volumePath.mount}`);
+        const response = await BackupRestoreService.justAPI().get(`/backup/tardirectory/${encodeURIComponent(this.volumePath.mount)}`, axiosConfig);
         const reader = response.data.getReader();
         const decoder = new TextDecoder();
         return reader.read().then(async ({ done, value }) => {
