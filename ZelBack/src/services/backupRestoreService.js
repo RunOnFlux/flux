@@ -265,17 +265,18 @@ async function tarDirectory(req, res) {
     console.log(req.params);
     let { path } = req.params;
     path = path || req.query.path;
-    const { target } = req.params;
-    path = target || req.query.target;
-    if (!path || !target) {
-      throw new Error('filepath and target parameters are mandatory');
+    if (!path) {
+      throw new Error('path parameter is mandatory');
     }
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
     if (authorized === true) {
+      const pathComponents = path.split('/');
+      const target = `${path}/backup/local/${pathComponents[pathComponents.length - 1]}.tar.gz`;
+      console.log(target);
       const progressStream = tar.c(
         {
           gzip: true,
-          cwd: path,
+          cwd: `${path}/appdata1`,
           file: target,
         },
         ['.'],

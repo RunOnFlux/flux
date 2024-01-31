@@ -1414,6 +1414,7 @@
                       Remove all
                     </b-button>
                   </div>
+                  {{ backupList }}
                   <b-table
                     v-if="backupList?.length > 0"
                     ref="selectableTable"
@@ -5309,7 +5310,6 @@ export default {
         currentPage: 1,
       },
       total: '',
-      totalSizeMB: '',
       downloaded: '',
       downloadedSize: '',
       abortToken: {},
@@ -5982,6 +5982,41 @@ export default {
         }
       }
       this.backupList = backupListTmp;
+    },
+    async tarDirectory(name, component) {
+      try {
+        const zelidauth = localStorage.getItem('zelidauth');
+        this.volumeInfo = await BackupRestoreService.getVolumeDataOfComponent(zelidauth, name, component, 'MB', 2, 'mount');
+        const axiosConfig = {
+          responseType: 'stream',
+          headers: {
+            zelidauth,
+          },
+        };
+        const response = await BackupRestoreService.justAPI().get(`/backup/tardirectory/${encodeURIComponent(this.volumeInfo.data?.data)}`, axiosConfig);
+        const reader = response.data.getReader();
+        const decoder = new TextDecoder();
+        return reader.read().then(async ({ done, value }) => {
+          if (done) {
+            return;
+          }
+
+          const progressData = decoder.decode(value, { stream: true });
+          const progressObject = JSON.parse(progressData);
+
+          if (progressObject.progress === 'complete') {
+            this.progress = 'complete';
+          } else {
+            this.progress = `Adding ${progressObject.progress}`;
+          }
+
+          // Update the progress bar
+          this.currentProgress += 10;
+        });
+      } catch (error) {
+        console.log(error);
+        return false;
+      }
     },
     allDownloadsCompleted() {
       return this.computedFileProgress.every((item) => item.progress === 100);
