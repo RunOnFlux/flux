@@ -1359,7 +1359,7 @@
                 <b-button
                   variant="outline-primary"
                   style="white-space: nowrap;"
-                  @click="createBackup(selectedBackupComponents)"
+                  @click="createBackup(appName, selectedBackupComponents)"
                 >
                   <b-icon scale="0.9" icon="back" class="mr-1" />
                   Create backup
@@ -5801,13 +5801,16 @@ export default {
     selectStorageOption(value) {
       this.selectedStorageMethod = value;
     },
-    async createBackup(componentNames) {
+    async createBackup(appname, componentNames) {
       const timestamp = Math.floor(Date.now() / 1000);
 
       // eslint-disable-next-line no-restricted-syntax
       for (const componentName of componentNames) {
         const existingBackupIndex = this.backupList.findIndex((item) => item.component_name === componentName);
-        console.log(existingBackupIndex);
+        console.log(componentName);
+        console.log(appname);
+        // eslint-disable-next-line no-await-in-loop
+        await this.tarDirectory(appname, componentName);
         if (existingBackupIndex !== -1) {
           this.$set(this.backupList, existingBackupIndex, {
             isActive: false,
@@ -5986,13 +5989,17 @@ export default {
     async tarDirectory(name, component) {
       try {
         const zelidauth = localStorage.getItem('zelidauth');
+        console.log(`Name: ${name}`);
         this.volumeInfo = await BackupRestoreService.getVolumeDataOfComponent(zelidauth, name, component, 'MB', 2, 'mount');
+        // eslint-disable-next-line no-unused-vars
         const axiosConfig = {
-          responseType: 'stream',
+          responseType: 'blob',
           headers: {
             zelidauth,
           },
         };
+        console.log(name);
+        console.log(JSON.stringify(this.volumeInfo.data?.data));
         const response = await BackupRestoreService.justAPI().get(`/backup/tardirectory/${encodeURIComponent(this.volumeInfo.data?.data)}`, axiosConfig);
         const reader = response.data.getReader();
         const decoder = new TextDecoder();
@@ -6009,7 +6016,6 @@ export default {
           } else {
             this.progress = `Adding ${progressObject.progress}`;
           }
-
           // Update the progress bar
           this.currentProgress += 10;
         });

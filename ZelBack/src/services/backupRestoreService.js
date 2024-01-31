@@ -262,7 +262,7 @@ async function downloadLocalFile(req, res) {
 // eslint-disable-next-line consistent-return
 async function tarDirectory(req, res) {
   try {
-    console.log(req.params);
+    console.log(JSON.stringify(req.params));
     let { path } = req.params;
     path = path || req.query.path;
     if (!path) {
