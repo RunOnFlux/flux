@@ -5,7 +5,6 @@ const messageHelper = require('./messageHelper');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
 const IOUtils = require('./IOUtils');
-const { PassThrough } = require('stream');
 
 /**
  * Get volume data of an application component.
@@ -273,49 +272,25 @@ async function tarDirectory(req, res) {
     if (authorized === true) {
       const pathComponents = path.split('/');
       const target = `${path}/backup/local/${pathComponents[pathComponents.length - 1]}.tar.gz`;
-      console.log(target);
-      const progressStream = new PassThrough();
       const tarStream = tar.c(
         {
           gzip: true,
-          cwd: `${path}/appdata1`,
+          file: target,
         },
-        ['.'],
+        [`${path}/appdata1`],
       );
-      tarStream.pipe(progressStream);
-
-      progressStream.on('progress', (progress) => {
-        res.write(`${JSON.stringify({ progress })}\n`);
+      tarStream.on('progress', (progress) => {
+        console.log(`Progress: ${progress.percent}%`);
       });
-
-      progressStream.on('end', () => {
-        console.log('Tarball created successfully');
-        res.end(JSON.stringify({ progress: 'complete' }));
-      });
-
-      progressStream.on('error', (err) => {
-        console.error('Error creating tarball:', err);
-        res.status(500).end(JSON.stringify({ error: 'Internal server error' }));
-      });
-
-      tarStream.on('end', () => {
-        progressStream.emit('end');
-        res.end(); // End the response when the tarball is complete
-      });
-
-      tarStream.on('error', (err) => {
-        progressStream.emit('error', err);
-        res.status(500).end(JSON.stringify({ error: 'Internal server error' }));
-      });
-
-      tarStream.on('entry', (entry) => {
-        progressStream.emit('progress', entry.path);
-      });
-
-      tarStream.pipe(fs.createWriteStream(target)); // Save the tarball to the specified path
+      // Pipe the tar stream directly to the file using fs.promises.writeFile
+      await tarStream.pipe(await fs.writeFile(target));
+      console.log(`Archive created successfully at: ${target}`);
+      const response = messageHelper.createSuccessMessage(target);
+      return res.json(response);
+    // eslint-disable-next-line no-else-return
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
-      return res ? res.json(errMessage) : errMessage;
+      return res.json(errMessage);
     }
   } catch (error) {
     log.error(error);

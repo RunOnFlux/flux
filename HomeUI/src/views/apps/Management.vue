@@ -5988,34 +5988,22 @@ export default {
     },
     async tarDirectory(name, component) {
       try {
+        this.tarProgress = true;
         const zelidauth = localStorage.getItem('zelidauth');
-        console.log(`Name: ${name}`);
         this.volumeInfo = await BackupRestoreService.getVolumeDataOfComponent(zelidauth, name, component, 'MB', 2, 'mount');
         this.volumePath = this.volumeInfo.data?.data;
-        console.log(this.volumeInfo.data?.data);
         // eslint-disable-next-line no-unused-vars
         const axiosConfig = {
-          responseType: 'blob',
           headers: {
             zelidauth,
           },
         };
-        console.log(`Mount: ${this.volumePath.mount}`);
-        const response = await BackupRestoreService.justAPI().get(`/backup/tardirectory/${encodeURIComponent(this.volumePath.mount)}`, axiosConfig);
-        const lines = response.data.trim().split('\n');
-        lines.forEach((line) => {
-          const progressObject = JSON.parse(line);
-          if (progressObject.progress === 'complete') {
-            this.progress = 'complete';
-          } else {
-            this.progress = `Adding ${progressObject.progress}`;
-          }
-          // Update the progress bar
-          this.currentProgress += 10;
-        });
+        await BackupRestoreService.justAPI().post(`/backup/tardirectory/${encodeURIComponent(this.volumePath.mount)}`, axiosConfig);
+        this.tarProgress = false;
         return true;
       } catch (error) {
-        console.log(error);
+        console.error('Error:', error.message);
+        this.tarProgress = false;
         return false;
       }
     },
