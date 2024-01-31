@@ -8099,24 +8099,6 @@ export default {
 </script>
 
 <style>
-.loading-dots {
-      display: inline-block;
-      animation: loading 1.5s infinite;
-  }
-
-  .loading-dots::before,
-  .loading-dots::after {
-      content: ' . ';
-  }
-
-  @keyframes loading {
-      0%, 100% {
-          opacity: 0.5;
-      }
-      50% {
-          opacity: 1;
-      }
-  }
 .custom-button {
   width: 15px !important;
   height: 25px !important;
