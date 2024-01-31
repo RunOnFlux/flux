@@ -1514,20 +1514,6 @@
                           {{ item?.fileName }} - {{ item?.progress }}%
                         </div>
                       </div> -->
-                      <!-- <b-progress v-if="showProgressBar" ref="progressBar" :max="100" :value="updateOverallProgress()" /> -->
-
-                      <!-- {{ computedFileProgress }}
-                      <b-progress v-if="fileProgress.length > 0" :max="100">
-                        <b-progress-bar
-                          v-for="(item, index) in computedFileProgress"
-                          ref="progressBar"
-                          :key="index"
-                          :value="item?.progress || 0"
-                          :label="`File ${index + 1} - ${item?.progress}%`"
-                          show-progress
-                          animated
-                        />
-                      </b-progress> -->
                       <div
                         v-if="fileProgress.length > 0"
                         class="mb-2 mt-2 w-100"
