@@ -1,4 +1,5 @@
 const fs = require('fs').promises;
+const tar = require('tar');
 const log = require('../lib/log');
 const messageHelper = require('./messageHelper');
 const serviceHelper = require('./serviceHelper');
@@ -258,6 +259,57 @@ async function downloadLocalFile(req, res) {
   }
 }
 
+// eslint-disable-next-line consistent-return
+async function tarDirectory(req, res) {
+  try {
+    console.log(req.params);
+    let { path } = req.params;
+    path = path || req.query.path;
+    const { target } = req.params;
+    path = target || req.query.target;
+    if (!path || !target) {
+      throw new Error('filepath and target parameters are mandatory');
+    }
+    const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
+    if (authorized === true) {
+      const progressStream = tar.c(
+        {
+          gzip: true,
+          cwd: path,
+          file: target,
+        },
+        ['.'],
+      );
+      // Listen for progress events
+      progressStream.on('entry', (entry) => {
+        console.log(`Adding ${entry.path}`);
+        // Emit progress information to the client (Vue.js)
+        res.write(`${JSON.stringify({ progress: entry.path })}\n`);
+      });
+      progressStream.on('end', () => {
+        console.log('Tarball created successfully');
+        // Notify the client (Vue.js) that the process is complete
+        res.end(JSON.stringify({ progress: 'complete' }));
+      });
+      progressStream.on('error', (err) => {
+        console.error('Error creating tarball:', err);
+        res.status(500).end(JSON.stringify({ error: 'Internal server error' }));
+      });
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      return res ? res.json(errMessage) : errMessage;
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
 module.exports = {
   getVolumeDataOfComponent,
   getRemoteFileSize,
@@ -265,4 +317,5 @@ module.exports = {
   getLocalBackupList,
   removeBackupFile,
   downloadLocalFile,
+  tarDirectory,
 };

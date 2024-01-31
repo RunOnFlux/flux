@@ -1398,12 +1398,12 @@
                       </template>
                       <b-dropdown-item
                         :disabled="backupToUpload?.length === 0"
-                        @click="removeAllBackup"
+                        @click="downloadAllBackupFiles(backupToUpload)"
                       >
                         <b-icon scale="0.7" icon="download" class="mr-1" />
                         Download selected
                       </b-dropdown-item>
-                      <b-dropdown-item @click="removeAllBackup">
+                      <b-dropdown-item @click="downloadAllBackupFiles(backupList)">
                         <b-icon scale="0.7" icon="download" class="mr-1" />
                         Download all
                       </b-dropdown-item>
@@ -1487,7 +1487,7 @@
                         <b-button
                           variant="outline-primary"
                           class="d-flex justify-content-center align-items-center custom-button"
-                          @click="downloadBackupFile(backupList[row.index].file)"
+                          @click="downloadAllBackupFiles([{ component_name: row.item.component_name, file: backupList[row.index].file }])"
                         >
                           <b-icon
                             class="d-flex justify-content-center align-items-center"
@@ -1498,7 +1498,7 @@
                       </div>
                     </template>
                   </b-table>
-                  <b-card-text v-if="total && downloaded && showProgressBar">
+                  <b-card-text v-if="showProgressBar">
                     <div class="mt-1">
                       <!-- <b-progress
                         :value="`${((downloaded / total) * 100).toFixed(2)}%`"
@@ -1506,9 +1506,57 @@
                         show-progress
                         animated
                       /> -->
-                      <b-progress :max="100" show-progress>
-                        <b-progress-bar :value="((downloaded / total) * 100).toFixed(2)" :label="downloadLabel" show-progress animated />
-                      </b-progress>
+                      <!-- <b-progress :max="100" show-progress>
+                        <b-progress-bar :value="((downloadedSize / (totalSizeMB * 1024 * 1024)) * 100).toFixed(2)" :label="downloadLabel" show-progress animated />
+                      </b-progress> -->
+                      <!-- <div v-if="fileProgress.length > 0">
+                        <div v-for="(item, index) in computedFileProgress" :key="index">
+                          {{ item?.fileName }} - {{ item?.progress }}%
+                        </div>
+                      </div> -->
+                      <!-- <b-progress v-if="showProgressBar" ref="progressBar" :max="100" :value="updateOverallProgress()" /> -->
+
+                      <!-- {{ computedFileProgress }}
+                      <b-progress v-if="fileProgress.length > 0" :max="100">
+                        <b-progress-bar
+                          v-for="(item, index) in computedFileProgress"
+                          ref="progressBar"
+                          :key="index"
+                          :value="item?.progress || 0"
+                          :label="`File ${index + 1} - ${item?.progress}%`"
+                          show-progress
+                          animated
+                        />
+                      </b-progress> -->
+                      <div
+                        v-if="fileProgress.length > 0"
+                        class="mb-2 mt-2 w-100"
+                        style="
+                              margin: 0 auto;
+                              padding: 12px;
+                              border: 1px solid #eaeaea;
+                              border-radius: 8px;
+                              box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                              text-align: center;
+
+                            "
+                      >
+                        <h5 style="font-size: 16px; margin-bottom: 5px;">
+                          <span v-if="!allDownloadsCompleted()">
+                            <b-spinner small /> Downloading...
+                          </span>
+                          <span v-else>
+                            Download Completed
+                          </span>
+                        </h5>
+                        <b-progress v-for="(item, index) in computedFileProgress" v-if="item.progress > 0" :key="index" class="mt-1" style="height: 16px;" :max="100">
+                          <b-progress-bar
+                            :value="item.progress"
+                            :label="`${item.fileName} - ${item.progress.toFixed(2)}%`"
+                            style="font-size: 14px;"
+                          />
+                        </b-progress>
+                      </div>
                     </div>
                   </b-card-text>
                   <div v-if="backupToUpload.length > 0" class="mt-2">
@@ -5033,6 +5081,7 @@ export default {
     BFormSelect,
     BFormSelectOption,
     BPagination,
+    // eslint-disable-next-line vue/no-unused-components
     BProgress,
     // eslint-disable-next-line vue/no-unused-components
     BProgressBar,
@@ -5063,28 +5112,8 @@ export default {
   },
   data() {
     return {
+      fileProgress: [],
       showProgressBar: false,
-      storageMethod: [
-        {
-          value: 'flux',
-          image: 'https://help.runonflux.io/wp-content/uploads/2023/11/flux_drive-100x31.png',
-          disabled: true,
-          text: 'FluxDrive',
-        },
-        {
-          value: 'google',
-          image: 'https://upload.wikimedia.org/wikipedia/commons/f/fb/Google_Drive_-_New_Logo.png',
-          disabled: true,
-          text: 'GoogleDrive',
-        },
-        {
-          value: 'as3',
-          image: 'https://www.nicepng.com/png/detail/142-1424243_amazon-s-amazon-web-services-s3.png',
-          disabled: true,
-          text: 'AS3Storage',
-        },
-      ],
-      components: [],
       restoreOptions: [
         {
           value: 'FluxDrive',
@@ -5102,6 +5131,24 @@ export default {
           disabled: false,
         },
       ],
+      storageMethod: [
+        {
+          value: 'flux',
+          disabled: true,
+          text: 'FluxDrive',
+        },
+        {
+          value: 'google',
+          disabled: true,
+          text: 'GoogleDrive',
+        },
+        {
+          value: 'as3',
+          disabled: true,
+          text: 'AS3Storage',
+        },
+      ],
+      components: [],
       selectedRestoreOption: null,
       selectedStorageMethod: null,
       selectedBackupComponents: [],
@@ -5276,7 +5323,9 @@ export default {
         currentPage: 1,
       },
       total: '',
+      totalSizeMB: '',
       downloaded: '',
+      downloadedSize: '',
       abortToken: {},
       deploymentAddress: '',
       appPricePerSpecs: 0,
@@ -5383,16 +5432,21 @@ export default {
     };
   },
   computed: {
+    computedFileProgress() {
+      return this.fileProgress;
+    },
     downloadLabel() {
-      const progressMB = (this.downloaded / (1024 * 1024)).toFixed(2);
-      const totalMB = (this.total / (1024 * 1024)).toFixed(2);
-      if (progressMB === totalMB) {
+      // eslint-disable-next-line vue/no-side-effects-in-computed-properties
+      this.totalMB = this.backupList.reduce((acc, backup) => acc + parseFloat(backup.file_size), 2);
+      const progressMB = (this.downloadedSize / (1024 * 1024)).toFixed(2);
+      // const totalMB = (this.total / (1024 * 1024)).toFixed(2);
+      if (progressMB === this.totalMB) {
         // eslint-disable-next-line vue/no-async-in-computed-properties
         setTimeout(() => {
           this.showProgressBar = false;
         }, 5000);
       }
-      return `${progressMB} / ${totalMB} MB`;
+      return `${progressMB} / ${this.totalMB} MB`;
     },
     isValidUrl() {
       const urlRegex = /^(http|https):\/\/[^ "]+$/;
@@ -5943,6 +5997,27 @@ export default {
       }
       this.backupList = backupListTmp;
     },
+    allDownloadsCompleted() {
+      return this.computedFileProgress.every((item) => item.progress === 100);
+    },
+    // updateOverallProgress(downloadedMB) {
+    //   // Calculate and update the overall progress for the BootstrapVue progress bar
+    //   this.overallProgress = (downloadedMB / this.totalSizeMB) * 100;
+    // },
+    // calculateOverallProgress() {
+    //   // Calculate the overall progress for the BootstrapVue progress bar
+    //   return (this.downloadedSize / this.totalSizeMB) * 100;
+    // },
+    updateFileProgress(currentFileName, currentFileProgress, loaded, total, name) {
+      this.$nextTick(() => {
+        const currentIndex = this.fileProgress.findIndex((entry) => entry.fileName === name);
+        if (currentIndex !== -1) {
+          this.$set(this.fileProgress, currentIndex, { fileName: name, progress: currentFileProgress });
+        } else {
+          this.fileProgress.push({ fileName: name, progress: currentFileProgress });
+        }
+      });
+    },
     deleteRestoreBackup(name, restoreItem, timestamp = 0) {
       const backupIndex = restoreItem.findIndex((item) => item.timestamp === timestamp);
       restoreItem.splice(backupIndex, 1);
@@ -5967,33 +6042,70 @@ export default {
         restoreItem.splice(backupIndex, 1);
       }
     },
-    async downloadBackupFile(path) {
-      const self = this;
-      this.downloaded = '';
-      this.total = '';
-      // this.abortToken = DaemonService.cancelToken();
-      const zelidauth = localStorage.getItem('zelidauth');
-      const axiosConfig = {
-        headers: {
-          zelidauth,
-        },
-        responseType: 'blob',
-        onDownloadProgress(progressEvent) {
-          self.downloaded = progressEvent.loaded;
-          self.total = progressEvent.total;
-        },
-        // cancelToken: self.abortToken.token,
-      };
-      this.showProgressBar = true;
-      const fileNameArray = path.split('/');
-      const fileName = fileNameArray[fileNameArray.length - 1];
-      const response = await BackupRestoreService.justAPI().get(`/backup/downloadlocalfile/${encodeURIComponent(path)}`, axiosConfig);
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', fileName);
-      document.body.appendChild(link);
-      link.click();
+    async downloadAllBackupFiles(backupList) {
+      try {
+        this.showProgressBar = true;
+        const zelidauth = localStorage.getItem('zelidauth');
+        const self = this;
+        const axiosConfig = {
+          headers: {
+            zelidauth,
+          },
+          responseType: 'blob',
+          onDownloadProgress(progressEvent) {
+            const { loaded, total, target } = progressEvent;
+            const decodedUrl = decodeURIComponent(target.responseURL);
+            const currentFileName = decodedUrl.split('/').pop();
+            const currentFileProgress = (loaded / total) * 100;
+            const foundFile = self.backupList.find((file) => file.file.endsWith(currentFileName));
+            self.updateFileProgress(currentFileName, currentFileProgress, loaded, total, foundFile.component_name);
+          },
+        };
+
+        // eslint-disable-next-line no-restricted-syntax
+        const downloadPromises = backupList.map(async (backup) => {
+          try {
+            const { file } = backup;
+            const fileNameArray = file.split('/');
+            const fileName = fileNameArray[fileNameArray.length - 1];
+            const response = await BackupRestoreService.justAPI().get(`/backup/downloadlocalfile/${encodeURIComponent(file)}`, axiosConfig);
+            const blob = new Blob([response.data]);
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', fileName);
+            document.body.appendChild(link);
+
+            link.click();
+
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(url);
+
+            // Indicate successful download for this file
+            console.log(`File: ${fileName} downloaded successfully`);
+            return true;
+          } catch (error) {
+            console.error('Error downloading file:', error);
+            return false;
+          }
+        });
+
+        const downloadResults = await Promise.all(downloadPromises);
+        // Check if all downloads were successful
+        if (downloadResults.every((result) => result)) {
+          console.log('All downloads completed successfully');
+        } else {
+          console.error('Some downloads failed. Check the console for details.');
+        }
+      } catch (error) {
+        console.error('Error downloading files:', error);
+        // Handle the error appropriately
+      } finally {
+        setTimeout(() => {
+          this.showProgressBar = false;
+          this.fileProgress = [];
+        }, 5000);
+      }
     },
     async initMMSDK() {
       try {
@@ -7987,6 +8099,24 @@ export default {
 </script>
 
 <style>
+.loading-dots {
+      display: inline-block;
+      animation: loading 1.5s infinite;
+  }
+
+  .loading-dots::before,
+  .loading-dots::after {
+      content: ' . ';
+  }
+
+  @keyframes loading {
+      0%, 100% {
+          opacity: 0.5;
+      }
+      50% {
+          opacity: 1;
+      }
+  }
 .custom-button {
   width: 15px !important;
   height: 25px !important;

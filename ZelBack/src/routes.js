@@ -627,6 +627,9 @@ module.exports = (app, expressWs) => {
   app.get('/backup/downloadlocalfile/:filepath?', (req, res) => {
     backupRestoreService.downloadLocalFile(req, res);
   });
+  app.get('/backup/tardirectory/:path?/:target?', (req, res) => {
+    backupRestoreService.tarDirectory(req, res);
+  });
 
   app.post('/backup/getremotefile', (req, res) => {
     backupRestoreService.getRemoteFile(req, res);

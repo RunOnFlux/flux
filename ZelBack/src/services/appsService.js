@@ -34,8 +34,9 @@ const geolocationService = require('./geolocationService');
 const syncthingService = require('./syncthingService');
 const pgpService = require('./pgpService');
 const signatureVerifier = require('./signatureVerifier');
+// eslint-disable-next-line no-unused-vars
+const backupRestoreService = require('./backupRestoreService');
 const log = require('../lib/log');
-
 const { invalidMessages } = require('./invalidMessages');
 
 const fluxDirPath = path.join(__dirname, '../../../');
@@ -96,6 +97,7 @@ let removalInProgress = false;
 let installationInProgress = false;
 let reinstallationOfOldAppsInProgress = false;
 let masterSlaveAppsRunning = false;
+const backupInProgress = [];
 
 const hashesNumberOfSearchs = new Map();
 
@@ -10266,6 +10268,13 @@ async function syncthingApps() {
     const allDevicesResp = await syncthingService.getConfigDevices();
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled.data) {
+      // eslint-disable-next-line no-shadow
+      const backupCheck = backupInProgress.some((backupInProgress) => installedApp.name === backupInProgress);
+      if (backupCheck) {
+        log.info(`Backup is running for ${installedApp.name}, syncthing disabled for that app`);
+        // eslint-disable-next-line no-continue
+        continue;
+      }
       if (installedApp.version <= 3) {
         const containersData = installedApp.containerData.split('|');
         // eslint-disable-next-line no-restricted-syntax
@@ -11577,6 +11586,51 @@ function setInstallationInProgressTrue() {
   installationInProgress = true;
 }
 
+async function appendBackupTask(req, res) {
+  let appname;
+  try {
+    console.log(req.params);
+    // eslint-disable-next-line prefer-destructuring
+    appname = req.params.appname;
+    appname = appname || req.query.appname;
+    let { component } = req.params;
+    // eslint-disable-next-line no-unused-vars
+    component = component || req.query.component;
+    let { apppath } = req.params;
+    // eslint-disable-next-line no-unused-vars
+    apppath = apppath || req.query.apppath;
+    let { target } = req.params;
+    target = target || req.query.target;
+    if (!appname || !path || !target) {
+      throw new Error('name, component, filepath and target parameters are mandatory');
+    }
+    const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
+    if (authorized === true) {
+      backupInProgress.push(appname);
+      await dockerService.appDockerStop(appname);
+      await stopSyncthingApp(appname, res);
+      // await BackupRestoreService.appBackup(appname, component, apppath);
+      const indexToRemove = backupInProgress.indexOf(appname);
+      backupInProgress.splice(indexToRemove, 1);
+      return true;
+    // eslint-disable-next-line no-else-return
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      return res.json(errMessage);
+    }
+  } catch (error) {
+    const indexToRemove = backupInProgress.indexOf(appname);
+    backupInProgress.splice(indexToRemove, 1);
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
 module.exports = {
   listRunningApps,
   listAllApps,
@@ -11674,6 +11728,7 @@ module.exports = {
   checkApplicationsCompliance,
   testAppMount,
   checkStorageSpaceForApps,
+  appendBackupTask,
 
   // exports for testing purposes
   setAppsMonitored,
