@@ -272,7 +272,7 @@ async function tarDirectory(req, res) {
     if (authorized === true) {
       const pathComponents = path.split('/');
       const target = `${path}/backup/local/${pathComponents[pathComponents.length - 1]}.tar.gz`;
-      const output = fs.createWriteStream(target);
+      const output = await fs.createWriteStream(target);
       // Initialize progress variables
       let totalEntries = 0;
       let processedEntries = 0;
