@@ -283,22 +283,36 @@ async function tarDirectory(req, res) {
         ['.'],
       );
       tarStream.pipe(progressStream);
-      // Listen for progress events
-      progressStream.on('entry', (entry) => {
-        console.log(`Adding ${entry.path}`);
-        // Emit progress information to the client (Vue.js)
-        res.write(`${JSON.stringify({ progress: entry.path })}\n`);
+
+      progressStream.on('progress', (progress) => {
+        res.write(`${JSON.stringify({ progress })}\n`);
       });
+
       progressStream.on('end', () => {
         console.log('Tarball created successfully');
-        // Notify the client (Vue.js) that the process is complete
         res.end(JSON.stringify({ progress: 'complete' }));
       });
+
       progressStream.on('error', (err) => {
         console.error('Error creating tarball:', err);
         res.status(500).end(JSON.stringify({ error: 'Internal server error' }));
       });
-      tarStream.pipe(fs.createWriteStream(target));
+
+      tarStream.on('end', () => {
+        progressStream.emit('end');
+        res.end(); // End the response when the tarball is complete
+      });
+
+      tarStream.on('error', (err) => {
+        progressStream.emit('error', err);
+        res.status(500).end(JSON.stringify({ error: 'Internal server error' }));
+      });
+
+      tarStream.on('entry', (entry) => {
+        progressStream.emit('progress', entry.path);
+      });
+
+      tarStream.pipe(fs.createWriteStream(target)); // Save the tarball to the specified path
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;

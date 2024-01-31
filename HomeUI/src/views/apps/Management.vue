@@ -6002,16 +6002,9 @@ export default {
         };
         console.log(`Mount: ${this.volumePath.mount}`);
         const response = await BackupRestoreService.justAPI().get(`/backup/tardirectory/${encodeURIComponent(this.volumePath.mount)}`, axiosConfig);
-        const reader = response.data.getReader();
-        const decoder = new TextDecoder();
-        return reader.read().then(async ({ done, value }) => {
-          if (done) {
-            return;
-          }
-
-          const progressData = decoder.decode(value, { stream: true });
-          const progressObject = JSON.parse(progressData);
-
+        const lines = response.data.trim().split('\n');
+        lines.forEach((line) => {
+          const progressObject = JSON.parse(line);
           if (progressObject.progress === 'complete') {
             this.progress = 'complete';
           } else {
@@ -6020,6 +6013,7 @@ export default {
           // Update the progress bar
           this.currentProgress += 10;
         });
+        return true;
       } catch (error) {
         console.log(error);
         return false;
