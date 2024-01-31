@@ -5998,7 +5998,7 @@ export default {
             zelidauth,
           },
         };
-        await BackupRestoreService.justAPI().post(`/backup/tardirectory/${encodeURIComponent(this.volumePath.mount)}`, axiosConfig);
+        await BackupRestoreService.justAPI().get(`/backup/tardirectory/${encodeURIComponent(this.volumePath.mount)}`, axiosConfig);
         this.tarProgress = false;
         return true;
       } catch (error) {

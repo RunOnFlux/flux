@@ -272,26 +272,39 @@ async function tarDirectory(req, res) {
     if (authorized === true) {
       const pathComponents = path.split('/');
       const target = `${path}/backup/local/${pathComponents[pathComponents.length - 1]}.tar.gz`;
-      const tarStream = tar.c(
+      const output = fs.createWriteStream(target);
+      // Initialize progress variables
+      let totalEntries = 0;
+      let processedEntries = 0;
+      // Create the tar.gz archive with progress reporting
+      await tar.c(
         {
           gzip: true,
           file: target,
+          // eslint-disable-next-line no-unused-vars
+          onentry: (entry) => {
+            // eslint-disable-next-line no-plusplus
+            totalEntries++;
+          },
+          onend: () => {
+            console.log('Tarball created successfully');
+          },
         },
         [`${path}/appdata1`],
-      );
-      tarStream.on('progress', (progress) => {
-        console.log(`Progress: ${progress.percent}%`);
-      });
-      // Pipe the tar stream directly to the file using fs.promises.writeFile
-      await tarStream.pipe(await fs.writeFile(target));
-      console.log(`Archive created successfully at: ${target}`);
-      const response = messageHelper.createSuccessMessage(target);
+      )
+      // eslint-disable-next-line no-unused-vars
+        .on('entry', (entry) => {
+          // eslint-disable-next-line indent, no-plusplus
+          processedEntries++;
+          const progress = (processedEntries / totalEntries) * 100;
+          console.log(`Progress: ${progress.toFixed(2)}%`);
+        })
+        .pipe(output);
+      const response = messageHelper.createSuccessMessage(true);
       return res.json(response);
-    // eslint-disable-next-line no-else-return
-    } else {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      return res.json(errMessage);
     }
+    const errMessage = messageHelper.errUnauthorizedMessage();
+    return res.json(errMessage);
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
