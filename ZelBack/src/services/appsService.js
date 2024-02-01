@@ -11589,7 +11589,7 @@ function setInstallationInProgressTrue() {
 
 async function appendBackupTask(req, res) {
   let appname;
-  let pathComponents;
+  let pathComponents = [];
   try {
     console.log(req.params);
     // eslint-disable-next-line prefer-destructuring
@@ -11610,6 +11610,7 @@ async function appendBackupTask(req, res) {
         throw new Error('Backup in progress...');
       }
       backupInProgress.push(appname);
+      console.log(path);
       pathComponents = path.split('/');
       console.log(pathComponents);
       const target = `${path}/backup/local/${pathComponents[pathComponents.length - 1]}.tar.gz`;
