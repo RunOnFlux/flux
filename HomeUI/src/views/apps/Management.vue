@@ -1366,7 +1366,36 @@
                 </b-button>
 
                 <br />
-                <div v-if="backupList?.length > 0">
+                <div class="mt-1">
+                  <div
+                    v-if="backupProgress === true"
+                    class="mb-2 mt-2 w-100"
+                    style="
+                              margin: 0 auto;
+                              padding: 12px;
+                              border: 1px solid #eaeaea;
+                              border-radius: 8px;
+                              box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                              text-align: center;
+
+                            "
+                  >
+                    <h5 style="font-size: 16px; margin-bottom: 5px;">
+                      <span v-if="backupProgress === true">
+                        <b-spinner small /> Backuping {{ tarProgress[0] }}...
+                      </span>
+                    </h5>
+                    <b-progress v-for="(item, index) in computedFileProgress" v-if="item.progress > 0" :key="index" class="mt-1" style="height: 16px;" :max="100">
+                      <b-progress-bar
+                        :value="item.progress"
+                        :label="`${item.fileName} - ${item.progress.toFixed(2)}%`"
+                        style="font-size: 14px;"
+                      />
+                    </b-progress>
+                  </div>
+                </div>
+
+                <div v-if="backupList?.length > 0 && backupProgress === false">
                   <div class="mb-1 text-right">
                     <!-- Select Dropdown -->
                     <b-dropdown class="mr-1" text="Select" variant="outline-primary" style="max-height: 38px; min-width: 100px; white-space: nowrap;">
@@ -1414,7 +1443,6 @@
                       Remove all
                     </b-button>
                   </div>
-                  {{ backupList }}
                   <b-table
                     v-if="backupList?.length > 0"
                     ref="selectableTable"
@@ -5099,6 +5127,7 @@ export default {
   },
   data() {
     return {
+      backupProgress: false,
       tarProgress: [],
       fileProgress: [],
       showProgressBar: false,
@@ -5803,7 +5832,19 @@ export default {
       this.selectedStorageMethod = value;
     },
     async createBackup(appname, componentNames) {
+      if (this.backupList?.length === 0) {
+        return;
+      }
+      this.backupProgress = true;
       const timestamp = Math.floor(Date.now() / 1000);
+      const zelidauth = localStorage.getItem('zelidauth');
+      // eslint-disable-next-line no-unused-vars
+      const axiosConfig = {
+        headers: {
+          zelidauth,
+        },
+      };
+      await AppsService.stopApp(zelidauth, appname);
       // eslint-disable-next-line no-restricted-syntax
       for (const componentName of componentNames) {
         const existingBackupIndex = this.backupList.findIndex((item) => item.component_name === componentName);
@@ -5812,13 +5853,17 @@ export default {
           skip = false;
         }
         // eslint-disable-next-line no-await-in-loop
-        const size = await this.tarDirectory(appname, componentName, skip);
+        this.volumeInfo = await BackupRestoreService.getVolumeDataOfComponent(zelidauth, appname, componentName, 'MB', 2, 'mount');
+        this.volumePath = this.volumeInfo.data?.data;
+        // eslint-disable-next-line no-await-in-loop
+        const size = await this.tarDirectory(appname, componentName, skip, this.volumePath);
         if (existingBackupIndex !== -1) {
           this.$set(this.backupList, existingBackupIndex, {
             isActive: false,
             component_name: componentName,
             create: timestamp,
             file_size: size,
+            file: `${this.volumePath.mount}/backup/local/flux${componentName}_${appname}.tar.gz`,
           });
           console.log(JSON.stringify(this.backupList[existingBackupIndex]));
         } else {
@@ -5827,11 +5872,13 @@ export default {
             component_name: componentName,
             create: timestamp,
             file_size: size,
+            file: `${this.volumePath.mount}/backup/local/flux${componentName}_${appname}.tar.gz`,
           };
           this.backupList.push(newBackupItem);
         }
       }
-      // console.log(JSON.stringify(this.backupList));
+      await AppsService.startApp(zelidauth, appname);
+      this.backupProgress = false;// console.log(JSON.stringify(this.backupList));
     },
     onRowSelected(itemOnRow) {
       this.backupToUpload = itemOnRow.map((item) => {
@@ -5988,7 +6035,7 @@ export default {
       }
       this.backupList = backupListTmp;
     },
-    async tarDirectory(name, component, skip) {
+    async tarDirectory(name, component, skip, volume) {
       try {
         let indexToRemove = this.tarProgress.indexOf(component);
         if (indexToRemove !== -1) {
@@ -5996,15 +6043,13 @@ export default {
         }
         this.tarProgress.push(component);
         const zelidauth = localStorage.getItem('zelidauth');
-        this.volumeInfo = await BackupRestoreService.getVolumeDataOfComponent(zelidauth, name, component, 'MB', 2, 'mount');
-        this.volumePath = this.volumeInfo.data?.data;
         // eslint-disable-next-line no-unused-vars
         const axiosConfig = {
           headers: {
             zelidauth,
           },
         };
-        const backupSize = await BackupRestoreService.justAPI().get(`/apps/appendbackuptask/${name}/${encodeURIComponent(this.volumePath.mount)}/${skip}`, axiosConfig);
+        const backupSize = await BackupRestoreService.justAPI().get(`/apps/appendbackuptask/${name}/${encodeURIComponent(volume.mount)}/${skip}`, axiosConfig);
         indexToRemove = this.tarProgress.indexOf(component);
         if (indexToRemove !== -1) {
           this.tarProgress.splice(indexToRemove, 1);

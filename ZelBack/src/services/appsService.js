@@ -11619,8 +11619,8 @@ async function appendBackupTask(req, res) {
       const fullName = `${pathComponents[pathComponents.length - 1]}`;
       log.info(`Full: ${fullName}`);
       const target = `${sourcepath}/backup/local/${fullName}.tar.gz`;
-      console.log('Stopping docker...');
-      await dockerService.appDockerStop(`${fullName}`);
+      // console.log('Stopping docker...');
+      // await appDockerStop(`${appname}`);
       console.log('Stopping syncthing...');
       await stopSyncthingApp(`${fullName}`, res);
       console.log('Checking file...');
@@ -11634,11 +11634,11 @@ async function appendBackupTask(req, res) {
       if (status === false) {
         throw new Error('Error creating tarball archive');
       }
-      console.log(skip);
-      if (skip === 'false') {
-        console.log('Starting docker...');
-        await dockerService.appDockerStart(`${fullName}`);
-      }
+      // console.log(skip);
+      // if (skip === 'false') {
+      //   console.log('Starting docker...');
+      //   await appDockerStart(`${appname}`);
+      // }
       const indexToRemove = backupInProgress.indexOf(appname);
       backupInProgress.splice(indexToRemove, 1);
       console.log('FileSize...');
@@ -11654,7 +11654,7 @@ async function appendBackupTask(req, res) {
   } catch (error) {
     log.error(error);
     if (error.message !== 'Backup in progress...') {
-      await dockerService.appDockerStart(`${pathComponents[pathComponents.length - 1]}`);
+      // await appDockerStart(`${appname}`);
       const indexToRemove = backupInProgress.indexOf(appname);
       backupInProgress.splice(indexToRemove, 1);
     }

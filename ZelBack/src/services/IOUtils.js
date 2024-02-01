@@ -1,3 +1,4 @@
+/* eslint-disable no-shadow */
 const df = require('node-df');
 const fs = require('fs').promises;
 const util = require('util');
