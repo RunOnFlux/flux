@@ -11635,9 +11635,9 @@ async function appendBackupTask(req, res) {
       return res.json(errMessage);
     }
   } catch (error) {
+    await dockerService.appDockerStart(appname);
     const indexToRemove = backupInProgress.indexOf(appname);
     backupInProgress.splice(indexToRemove, 1);
-    await dockerService.appDockerStart(appname);
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
