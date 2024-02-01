@@ -6004,7 +6004,7 @@ export default {
             zelidauth,
           },
         };
-        const backupSize = await BackupRestoreService.justAPI().get(`/apps/appendbackuptask/${name}/${encodeURIComponent(this.volumePath.mount)}/${skip}`, axiosConfig);
+        const backupSize = await BackupRestoreService.justAPI().get(`/apps/appendbackuptask/flux${component}_${name}/${encodeURIComponent(this.volumePath.mount)}/${skip}`, axiosConfig);
         indexToRemove = this.tarProgress.indexOf(component);
         if (indexToRemove !== -1) {
           this.tarProgress.splice(indexToRemove, 1);

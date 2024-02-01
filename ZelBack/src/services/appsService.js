@@ -11589,6 +11589,7 @@ function setInstallationInProgressTrue() {
 
 async function appendBackupTask(req, res) {
   let appname;
+  let pathComponents;
   try {
     console.log(req.params);
     // eslint-disable-next-line prefer-destructuring
@@ -11609,10 +11610,11 @@ async function appendBackupTask(req, res) {
         throw new Error('Backup in progress...');
       }
       backupInProgress.push(appname);
-      await dockerService.appDockerStop(appname);
-      await stopSyncthingApp(appname, res);
-      const pathComponents = path.split('/');
+      pathComponents = path.split('/');
       const target = `${path}/backup/local/${pathComponents[pathComponents.length - 1]}.tar.gz`;
+      await dockerService.appDockerStop(`${pathComponents[pathComponents.length - 1]}`);
+      await stopSyncthingApp(`${pathComponents[pathComponents.length - 1]}`, res);
+
       const existStatus = await IOUtils.checkFileExists(`${path}/backup/local/${pathComponents[pathComponents.length - 1]}.tar.gz`);
       if (existStatus === true) {
         await IOUtils.removeFile(`${path}/backup/local/${pathComponents[pathComponents.length - 1]}.tar.gz`);
@@ -11622,7 +11624,7 @@ async function appendBackupTask(req, res) {
         throw new Error('Error creating tarball archive');
       }
       if (skip === false) {
-        await dockerService.appDockerStart(appname);
+        await dockerService.appDockerStart(`${pathComponents[pathComponents.length - 1]}`);
       }
       const indexToRemove = backupInProgress.indexOf(appname);
       backupInProgress.splice(indexToRemove, 1);
@@ -11635,9 +11637,11 @@ async function appendBackupTask(req, res) {
       return res.json(errMessage);
     }
   } catch (error) {
-    await dockerService.appDockerStart(appname);
-    const indexToRemove = backupInProgress.indexOf(appname);
-    backupInProgress.splice(indexToRemove, 1);
+    if (error.message !== 'Backup in progress...') {
+      await dockerService.appDockerStart(`${pathComponents[pathComponents.length - 1]}`);
+      const indexToRemove = backupInProgress.indexOf(appname);
+      backupInProgress.splice(indexToRemove, 1);
+    }
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
