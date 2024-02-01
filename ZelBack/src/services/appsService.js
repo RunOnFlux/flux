@@ -11596,12 +11596,12 @@ async function appendBackupTask(req, res) {
     appname = req.params.appname;
     appname = appname || req.query.appname;
     // eslint-disable-next-line no-shadow
-    let { path } = req.params;
-    path = path || req.query.path;
+    let { sourcepath } = req.params;
+    sourcepath = sourcepath || req.query.sourcepath;
     let { skip } = req.params;
     skip = skip || req.query.skip;
-    if (!appname || !path) {
-      throw new Error('appname and path target parameters are mandatory');
+    if (!appname || !sourcepath) {
+      throw new Error('appname and sourcepath target parameters are mandatory');
     }
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
     if (authorized === true) {
@@ -11610,18 +11610,18 @@ async function appendBackupTask(req, res) {
         throw new Error('Backup in progress...');
       }
       backupInProgress.push(appname);
-      console.log(`Path ${path}`);
-      pathComponents = path.split('/');
+      console.log(`Path ${sourcepath}`);
+      pathComponents = sourcepath.split('/');
       console.log(`Split: ${pathComponents}`);
-      const target = `${path}/backup/local/${pathComponents[pathComponents.length - 1]}.tar.gz`;
+      const target = `${sourcepath}/backup/local/${pathComponents[pathComponents.length - 1]}.tar.gz`;
       await dockerService.appDockerStop(`${pathComponents[pathComponents.length - 1]}`);
       await stopSyncthingApp(`${pathComponents[pathComponents.length - 1]}`, res);
 
       const existStatus = await IOUtils.checkFileExists(`${path}/backup/local/${pathComponents[pathComponents.length - 1]}.tar.gz`);
       if (existStatus === true) {
-        await IOUtils.removeFile(`${path}/backup/local/${pathComponents[pathComponents.length - 1]}.tar.gz`);
+        await IOUtils.removeFile(`${sourcepath}/backup/local/${pathComponents[pathComponents.length - 1]}.tar.gz`);
       }
-      const status = await IOUtils.createTarGz(`${path}/appdata`, target);
+      const status = await IOUtils.createTarGz(`${sourcepath}/appdata`, target);
       if (status === false) {
         throw new Error('Error creating tarball archive');
       }
@@ -11630,7 +11630,7 @@ async function appendBackupTask(req, res) {
       }
       const indexToRemove = backupInProgress.indexOf(appname);
       backupInProgress.splice(indexToRemove, 1);
-      const backapSize = IOUtils.getFileSize(`${path}/backup/local/${pathComponents[pathComponents.length - 1]}.tar.gz`, 'MB', 2);
+      const backapSize = IOUtils.getFileSize(`${sourcepath}/backup/local/${pathComponents[pathComponents.length - 1]}.tar.gz`, 'MB', 2);
       const response = messageHelper.createSuccessMessage(backapSize);
       return res.json(response);
     // eslint-disable-next-line no-else-return

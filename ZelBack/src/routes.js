@@ -627,7 +627,7 @@ module.exports = (app, expressWs) => {
   app.get('/backup/downloadlocalfile/:filepath?', (req, res) => {
     backupRestoreService.downloadLocalFile(req, res);
   });
-  app.get('/apps/appendbackuptask/:appname?/:path?/:skip?', (req, res) => {
+  app.get('/apps/appendbackuptask/:appname?/:sourcepath?/:skip?', (req, res) => {
     appsService.appendBackupTask(req, res);
   });
 
