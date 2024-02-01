@@ -11635,7 +11635,7 @@ async function appendBackupTask(req, res) {
         throw new Error('Error creating tarball archive');
       }
       console.log(skip);
-      if (skip === false) {
+      if (!!skip === false) {
         console.log('Starting docker...');
         await dockerService.appDockerStart(`${fullName}`);
       }
