@@ -11611,6 +11611,7 @@ async function appendBackupTask(req, res) {
       }
       backupInProgress.push(appname);
       pathComponents = path.split('/');
+      console.log(pathComponents);
       const target = `${path}/backup/local/${pathComponents[pathComponents.length - 1]}.tar.gz`;
       await dockerService.appDockerStop(`${pathComponents[pathComponents.length - 1]}`);
       await stopSyncthingApp(`${pathComponents[pathComponents.length - 1]}`, res);
