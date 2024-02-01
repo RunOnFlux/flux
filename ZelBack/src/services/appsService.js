@@ -11619,23 +11619,30 @@ async function appendBackupTask(req, res) {
       const fullName = `${pathComponents[pathComponents.length - 1]}`;
       log.info(`Full: ${fullName}`);
       const target = `${sourcepath}/backup/local/${fullName}.tar.gz`;
+      console.log('Stopping docker...');
       await dockerService.appDockerStop(`${fullName}`);
+      console.log('Stopping syncthing...');
       await stopSyncthingApp(`${fullName}`, res);
-
+      console.log('Checking file...');
       const existStatus = await IOUtils.checkFileExists(`${sourcepath}/backup/local/${fullName}.tar.gz`);
       if (existStatus === true) {
+        console.log('Removing file...');
         await IOUtils.removeFile(`${sourcepath}/backup/local/${fullName}.tar.gz`);
       }
+      console.log(`Create ${target}`);
       const status = await IOUtils.createTarGz(`${sourcepath}/appdata`, target);
       if (status === false) {
         throw new Error('Error creating tarball archive');
       }
       if (skip === false) {
+        console.log('Starting docker...');
         await dockerService.appDockerStart(`${fullName}`);
       }
       const indexToRemove = backupInProgress.indexOf(appname);
       backupInProgress.splice(indexToRemove, 1);
+      console.log('FileSize...');
       const backapSize = IOUtils.getFileSize(`${sourcepath}/backup/local/${fullName}.tar.gz`, 'MB', 2);
+      console.log(backapSize);
       const response = messageHelper.createSuccessMessage(backapSize);
       return res.json(response);
     // eslint-disable-next-line no-else-return

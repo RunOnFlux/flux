@@ -265,9 +265,9 @@ async function createTarGz(sourceDirectory, outputFileName) {
   }
 }
 
-async function removeDirectory(path) {
+async function removeDirectory(rpath) {
   try {
-    const execFinal = `sudo rm -rf ${path}`;
+    const execFinal = `sudo rm -rf ${rpath}`;
     await cmdAsync(execFinal);
     return true;
   } catch (error) {
