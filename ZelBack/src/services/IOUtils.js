@@ -26,6 +26,13 @@ function convertFileSize(sizeInBytes, multiplier) {
   return sizeInBytes / multiplierMap[multiplier.toUpperCase()];
 }
 
+/**
+ * Get the total size of a folder, including its subdirectories and files.
+ * @param {string} folderPath - The path to the folder.
+ * @param {string} multiplier - Unit multiplier for displaying sizes (B, KB, MB, GB).
+ * @param {number} decimal - Number of decimal places for precision.
+ * @returns {string|boolean} - The total size of the folder formatted with the specified multiplier and decimal places, or false if an error occurs.
+ */
 async function getFolderSize(folderPath, multiplier, decimal) {
   try {
     let totalSize = 0;
@@ -55,6 +62,14 @@ async function getFolderSize(folderPath, multiplier, decimal) {
   }
 }
 
+/**
+ * Retrieves the size of the file at the specified path and formats it with an optional multiplier and decimal places.
+ *
+ * @param {string} filePath - The path of the file for which the size will be retrieved.
+ * @param {number} multiplier - Optional multiplier to convert file size (e.g., 1024 for kilobytes).
+ * @param {number} decimal - Optional number of decimal places for the formatted file size.
+ * @returns {string|boolean} - The formatted file size as a string if successful, false on failure.
+ */
 async function getFileSize(filePath, multiplier, decimal) {
   try {
     const stats = await fs.stat(filePath);
@@ -99,7 +114,7 @@ async function getRemoteFileSize(fileurl, multiplier, decimal) {
  * @param {string} component - Name of the component.
  * @param {string} multiplier - Unit multiplier for displaying sizes (B, KB, MB, GB).
  * @param {number} decimal - Number of decimal places for precision.
- * @param {string} fields - Optional comma-separated list of fields to include in the response.
+ * @param {string} fields - Optional comma-separated list of fields to include in the response. Possible fields: 'mount', 'size', 'used', 'available', 'capacity', 'filesystem'.
  * @param {string|false} path - Optional path to filter results. If provided, only entries matching the specified path will be included. Pass `false` to use the default component and appname-based filtering.
  * @returns {Array|boolean} - Array of objects containing volume information for the specified component, or false if no matching mount is found.
  */
@@ -116,7 +131,7 @@ async function getVolumeInfo(appname, component, multiplier, decimal, fields, pa
     if (path) {
       regex = new RegExp(`${path}`);
     } else {
-      regex = new RegExp(`${component}_${appname}$`);
+      regex = new RegExp(`flux${component}_${appname}$`);
     }
     const allowedFields = fields ? fields.split(',') : null;
     const dfSorted = dfData
@@ -235,6 +250,13 @@ async function downloadFileFromUrl(url, path, component, appname, rename = false
   }
 }
 
+/**
+ * Extracts the contents of a tarball (tar.gz) file to the specified extraction path.
+ *
+ * @param {string} extractPath - The path where the contents of the tarball will be extracted.
+ * @param {string} tarFilePath - The path of the tarball (tar.gz) file to be extracted.
+ * @returns {boolean} - True if the extraction is successful, false on failure.
+ */
 async function untarFile(extractPath, tarFilePath) {
   try {
     await fs.mkdir(extractPath, { recursive: true });
@@ -249,6 +271,13 @@ async function untarFile(extractPath, tarFilePath) {
   }
 }
 
+/**
+ * Creates a tarball (tar.gz) archive from the specified source directory.
+ *
+ * @param {string} sourceDirectory - The path of the directory to be archived.
+ * @param {string} outputFileName - The name of the tarball archive file to be created.
+ * @returns {boolean} - True if the tarball is successfully created, false on failure.
+ */
 async function createTarGz(sourceDirectory, outputFileName) {
   try {
     const outputDirectory = outputFileName.substring(0, outputFileName.lastIndexOf('/'));
@@ -268,9 +297,21 @@ async function createTarGz(sourceDirectory, outputFileName) {
   }
 }
 
-async function removeDirectory(rpath) {
+/**
+ * Removes the specified directory and its contents or only the contents.
+ *
+ * @param {string} rpath - The path of the directory to be removed.
+ * @param {boolean} directory - Flag indicating whether to remove only the directory contents (true) or the entire directory (false).
+ * @returns {boolean} - True if the directory or its contents are removed successfully, false on failure.
+ */
+async function removeDirectory(rpath, directory = false) {
   try {
-    const execFinal = `sudo rm -rf ${rpath}`;
+    let execFinal;
+    if (directory === 'false') {
+      execFinal = `sudo rm -rf ${rpath}`;
+    } else {
+      execFinal = `sudo rm -rf ${rpath}/*`;
+    }
     await cmdAsync(execFinal);
     return true;
   } catch (error) {

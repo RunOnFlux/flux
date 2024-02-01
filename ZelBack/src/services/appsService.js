@@ -11668,6 +11668,87 @@ async function appendBackupTask(req, res) {
   }
 }
 
+// async function appendRestoreTask(req, res) {
+//   let appname;
+//   let pathComponents = [];
+//   try {
+//     log.info(req.params);
+//     // eslint-disable-next-line prefer-destructuring
+//     appname = req.params.appname;
+//     appname = appname || req.query.appname;
+//     // eslint-disable-next-line no-shadow
+//     let { sourcepath } = req.params;
+//     sourcepath = sourcepath || req.query.sourcepath;
+//     let { skip } = req.params;
+//     // eslint-disable-next-line no-unused-vars
+//     skip = skip || req.query.skip;
+//     if (!appname || !sourcepath) {
+//       throw new Error('appname and sourcepath target parameters are mandatory');
+//     }
+//     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
+//     if (authorized === true) {
+//       const indexBackup = backupInProgress.indexOf(appname);
+//       if (indexBackup !== -1) {
+//         throw new Error('Backup in progress...');
+//       }
+//       console.log('Checking,....');
+//       log.info(`App: ${appname}`);
+//       backupInProgress.push(appname);
+//       log.info(`Path ${sourcepath}`);
+//       pathComponents = sourcepath.split('/');
+//       log.info(`Split: ${pathComponents}`);
+//       const fullName = `${pathComponents[pathComponents.length - 1]}`;
+//       log.info(`Full: ${fullName}`);
+//       const target = `${sourcepath}/backup/local/${fullName}.tar.gz`;
+//       // console.log('Stopping docker...');
+//       // await appDockerStop(`${appname}`);
+//       console.log('Stopping syncthing...');
+//       await stopSyncthingApp(`${fullName}`, res);
+//       console.log('Checking file...');
+//       const existStatus = await IOUtils.checkFileExists(`${sourcepath}/backup/local/${fullName}.tar.gz`);
+//       if (existStatus === true) {
+//         console.log('Removing file...');
+//         await IOUtils.removeFile(`${sourcepath}/backup/local/${fullName}.tar.gz`);
+//       }
+//       console.log(`Create ${target}`);
+//       const status = await IOUtils.createTarGz(`${sourcepath}/appdata`, target);
+//       if (status === false) {
+//         throw new Error('Error creating tarball archive');
+//       }
+//       // console.log(skip);
+//       // if (skip === 'false') {
+//       //   console.log('Starting docker...');
+//       //   await appDockerStart(`${appname}`);
+//       // }
+//       const indexToRemove = backupInProgress.indexOf(appname);
+//       backupInProgress.splice(indexToRemove, 1);
+//       console.log('FileSize...');
+//       const backapSize = await IOUtils.getFileSize(`${sourcepath}/backup/local/${fullName}.tar.gz`, 'MB', 2);
+//       console.log(backapSize);
+//       const response = messageHelper.createSuccessMessage(backapSize);
+//       return res.json(response);
+//     // eslint-disable-next-line no-else-return
+//     } else {
+//       const errMessage = messageHelper.errUnauthorizedMessage();
+//       return res.json(errMessage);
+//     }
+//   } catch (error) {
+//     log.error(error);
+//     if (error.message !== 'Backup in progress...') {
+//       // await appDockerStart(`${appname}`);
+//       const indexToRemove = backupInProgress.indexOf(appname);
+//       backupInProgress.splice(indexToRemove, 1);
+//     }
+//     log.error(error);
+//     const errorResponse = messageHelper.createErrorMessage(
+//       error.message || error,
+//       error.name,
+//       error.code,
+//     );
+//     return res ? res.json(errorResponse) : errorResponse;
+//   }
+// }
+
 module.exports = {
   listRunningApps,
   listAllApps,
@@ -11766,6 +11847,7 @@ module.exports = {
   testAppMount,
   checkStorageSpaceForApps,
   appendBackupTask,
+  // appendRestoreTask,
 
   // exports for testing purposes
   setAppsMonitored,
