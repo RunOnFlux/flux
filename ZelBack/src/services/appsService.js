@@ -11588,7 +11588,6 @@ function setInstallationInProgressTrue() {
 }
 
 async function appendBackupTask(req, res) {
-  console.log('Starting....');
   let appname;
   let pathComponents = [];
   try {
@@ -11605,10 +11604,9 @@ async function appendBackupTask(req, res) {
     if (!appname || !sourcepath) {
       throw new Error('appname and sourcepath target parameters are mandatory');
     }
-    console.log('Params....');
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
     if (authorized === true) {
-      const indexBackup = this.tarProgress.indexOf(appname);
+      const indexBackup = backupInProgress.indexOf(appname);
       if (indexBackup !== -1) {
         throw new Error('Backup in progress...');
       }
@@ -11620,24 +11618,24 @@ async function appendBackupTask(req, res) {
       log.info(`Split: ${pathComponents}`);
       const fullName = `${pathComponents[pathComponents.length - 1]}`;
       log.info(`Full: ${fullName}`);
-      // const target = `${sourcepath}/backup/local/${fullName}.tar.gz`;
-      // await dockerService.appDockerStop(`${fullName}`);
-      // await stopSyncthingApp(`${pathComponents[pathComponents.length - 1]}`, res);
+      const target = `${sourcepath}/backup/local/${fullName}.tar.gz`;
+      await dockerService.appDockerStop(`${fullName}`);
+      await stopSyncthingApp(`${fullName}`, res);
 
-      // const existStatus = await IOUtils.checkFileExists(`${path}/backup/local/${fullName}.tar.gz`);
-      // if (existStatus === true) {
-      //   await IOUtils.removeFile(`${sourcepath}/backup/local/${fullName}.tar.gz`);
-      // }
-      // const status = await IOUtils.createTarGz(`${sourcepath}/appdata`, target);
-      // if (status === false) {
-      //   throw new Error('Error creating tarball archive');
-      // }
-      // if (skip === false) {
-      //   // await dockerService.appDockerStart(`${fullName}`);
-      // }
+      const existStatus = await IOUtils.checkFileExists(`${path}/backup/local/${fullName}.tar.gz`);
+      if (existStatus === true) {
+        await IOUtils.removeFile(`${sourcepath}/backup/local/${fullName}.tar.gz`);
+      }
+      const status = await IOUtils.createTarGz(`${sourcepath}/appdata`, target);
+      if (status === false) {
+        throw new Error('Error creating tarball archive');
+      }
+      if (skip === false) {
+        await dockerService.appDockerStart(`${fullName}`);
+      }
       const indexToRemove = backupInProgress.indexOf(appname);
       backupInProgress.splice(indexToRemove, 1);
-      // const backapSize = IOUtils.getFileSize(`${sourcepath}/backup/local/${pathComponents[pathComponents.length - 1]}.tar.gz`, 'MB', 2);
+      const backapSize = IOUtils.getFileSize(`${sourcepath}/backup/local/${fullName}.tar.gz`, 'MB', 2);
       const response = messageHelper.createSuccessMessage(backapSize);
       return res.json(response);
     // eslint-disable-next-line no-else-return
