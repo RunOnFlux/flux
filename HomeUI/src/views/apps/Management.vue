@@ -6009,6 +6009,7 @@ export default {
         if (indexToRemove !== -1) {
           this.tarProgress.splice(indexToRemove, 1);
         }
+        console.log(JSON.stringify(backupSize));
         // eslint-disable-next-line consistent-return
         return backupSize.data?.data;
       } catch (error) {

@@ -11622,7 +11622,7 @@ async function appendBackupTask(req, res) {
       await dockerService.appDockerStop(`${fullName}`);
       await stopSyncthingApp(`${fullName}`, res);
 
-      const existStatus = await IOUtils.checkFileExists(`${path}/backup/local/${fullName}.tar.gz`);
+      const existStatus = await IOUtils.checkFileExists(`${sourcepath}/backup/local/${fullName}.tar.gz`);
       if (existStatus === true) {
         await IOUtils.removeFile(`${sourcepath}/backup/local/${fullName}.tar.gz`);
       }
