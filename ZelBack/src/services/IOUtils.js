@@ -250,6 +250,8 @@ async function untarFile(extractPath, tarFilePath) {
 
 async function createTarGz(sourceDirectory, outputFileName) {
   try {
+    const outputDirectory = outputFileName.substring(0, outputFileName.lastIndexOf('/'));
+    await fs.mkdir(outputDirectory, { recursive: true });
     await tar.c(
       {
         gzip: true,
