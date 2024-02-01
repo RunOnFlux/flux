@@ -11591,7 +11591,7 @@ async function appendBackupTask(req, res) {
   let appname;
   let pathComponents = [];
   try {
-    console.log(req.params);
+    log.info(req.params);
     // eslint-disable-next-line prefer-destructuring
     appname = req.params.appname;
     appname = appname || req.query.appname;
@@ -11609,24 +11609,26 @@ async function appendBackupTask(req, res) {
       if (indexBackup !== -1) {
         throw new Error('Backup in progress...');
       }
+      log.info(`App: ${appname}`);
       backupInProgress.push(appname);
-      console.log(`Path ${sourcepath}`);
+      log.info(`Path ${sourcepath}`);
       pathComponents = sourcepath.split('/');
-      console.log(`Split: ${pathComponents}`);
-      const target = `${sourcepath}/backup/local/${pathComponents[pathComponents.length - 1]}.tar.gz`;
-      await dockerService.appDockerStop(`${pathComponents[pathComponents.length - 1]}`);
+      const fullName = `${pathComponents[pathComponents.length - 1]}`;
+      log.info(`Split: ${pathComponents}`);
+      const target = `${sourcepath}/backup/local/${fullName}.tar.gz`;
+      await dockerService.appDockerStop(`${fullName}`);
       await stopSyncthingApp(`${pathComponents[pathComponents.length - 1]}`, res);
 
-      const existStatus = await IOUtils.checkFileExists(`${path}/backup/local/${pathComponents[pathComponents.length - 1]}.tar.gz`);
+      const existStatus = await IOUtils.checkFileExists(`${path}/backup/local/${fullName}.tar.gz`);
       if (existStatus === true) {
-        await IOUtils.removeFile(`${sourcepath}/backup/local/${pathComponents[pathComponents.length - 1]}.tar.gz`);
+        await IOUtils.removeFile(`${sourcepath}/backup/local/${fullName}.tar.gz`);
       }
       const status = await IOUtils.createTarGz(`${sourcepath}/appdata`, target);
       if (status === false) {
         throw new Error('Error creating tarball archive');
       }
       if (skip === false) {
-        await dockerService.appDockerStart(`${pathComponents[pathComponents.length - 1]}`);
+        await dockerService.appDockerStart(`${fullName}`);
       }
       const indexToRemove = backupInProgress.indexOf(appname);
       backupInProgress.splice(indexToRemove, 1);
@@ -11639,6 +11641,7 @@ async function appendBackupTask(req, res) {
       return res.json(errMessage);
     }
   } catch (error) {
+    log.error(error);
     if (error.message !== 'Backup in progress...') {
       await dockerService.appDockerStart(`${pathComponents[pathComponents.length - 1]}`);
       const indexToRemove = backupInProgress.indexOf(appname);
