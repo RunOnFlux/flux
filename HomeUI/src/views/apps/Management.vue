@@ -6011,7 +6011,7 @@ export default {
         }
         console.log(JSON.stringify(backupSize));
         // eslint-disable-next-line consistent-return
-        return backupSize.data?.data;
+        return backupSize.data?.data.message;
       } catch (error) {
         console.error('Error:', error.message);
         const indexToRemove = this.tarProgress.indexOf(component);
