@@ -5,6 +5,7 @@ const log = require('../lib/log');
 const axios = require('axios');
 const tar = require('tar');
 const nodecmd = require('node-cmd');
+const path = require('path');
 
 const cmdAsync = util.promisify(nodecmd.get);
 
@@ -22,6 +23,35 @@ function convertFileSize(sizeInBytes, multiplier) {
     GB: 1024 * 1024 * 1024,
   };
   return sizeInBytes / multiplierMap[multiplier.toUpperCase()];
+}
+
+async function getFolderSize(folderPath, multiplier, decimal) {
+  try {
+    let totalSize = 0;
+    const calculateSize = async (filePath) => {
+      const stats = await fs.stat(filePath);
+
+      if (stats.isFile()) {
+        return stats.size;
+      // eslint-disable-next-line no-else-return
+      } else if (stats.isDirectory()) {
+        const files = await fs.readdir(filePath);
+        const sizes = await Promise.all(files.map((file) => calculateSize(path.join(filePath, file))));
+        return sizes.reduce((acc, size) => acc + size, 0);
+      }
+
+      return 0; // Unknown file type
+    };
+
+    totalSize = await calculateSize(folderPath);
+
+    const fileSize = convertFileSize(totalSize, multiplier);
+    const roundedFileSize = fileSize.toFixed(decimal);
+    return roundedFileSize;
+  } catch (err) {
+    console.error(`Error getting folder size: ${err}`);
+    return false;
+  }
 }
 
 async function getFileSize(filePath, multiplier, decimal) {
@@ -258,4 +288,5 @@ module.exports = {
   untarFile,
   createTarGz,
   removeDirectory,
+  getFolderSize,
 };
