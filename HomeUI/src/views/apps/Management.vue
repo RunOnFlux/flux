@@ -1301,7 +1301,6 @@
                 >
                   <h5><b-icon class="mr-1" icon="back" /> Immediate Backup</h5>
                 </div>
-
                 <div class="mb-2">
                   <b-form-group>
                     <b-form-tags
@@ -5832,7 +5831,7 @@ export default {
       this.selectedStorageMethod = value;
     },
     async createBackup(appname, componentNames) {
-      if (this.backupList?.length === 0) {
+      if (this.selectedBackupComponents?.length === 0) {
         return;
       }
       this.backupProgress = true;
