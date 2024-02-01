@@ -11641,7 +11641,7 @@ async function appendBackupTask(req, res) {
       const indexToRemove = backupInProgress.indexOf(appname);
       backupInProgress.splice(indexToRemove, 1);
       console.log('FileSize...');
-      const backapSize = IOUtils.getFileSize(`${sourcepath}/backup/local/${fullName}.tar.gz`, 'MB', 2);
+      const backapSize = await IOUtils.getFileSize(`${sourcepath}/backup/local/${fullName}.tar.gz`, 'MB', 2);
       console.log(backapSize);
       const response = messageHelper.createSuccessMessage(backapSize);
       return res.json(response);
