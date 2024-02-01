@@ -36,6 +36,7 @@ const pgpService = require('./pgpService');
 const signatureVerifier = require('./signatureVerifier');
 // eslint-disable-next-line no-unused-vars
 const backupRestoreService = require('./backupRestoreService');
+const IOUtils = require('./IOUtils');
 const log = require('../lib/log');
 const { invalidMessages } = require('./invalidMessages');
 
@@ -11593,26 +11594,41 @@ async function appendBackupTask(req, res) {
     // eslint-disable-next-line prefer-destructuring
     appname = req.params.appname;
     appname = appname || req.query.appname;
-    let { component } = req.params;
-    // eslint-disable-next-line no-unused-vars
-    component = component || req.query.component;
-    let { apppath } = req.params;
-    // eslint-disable-next-line no-unused-vars
-    apppath = apppath || req.query.apppath;
-    let { target } = req.params;
-    target = target || req.query.target;
-    if (!appname || !path || !target) {
-      throw new Error('name, component, filepath and target parameters are mandatory');
+    // eslint-disable-next-line no-shadow
+    let { path } = req.params;
+    path = path || req.query.path;
+    let { skip } = req.params;
+    skip = skip || req.query.skip;
+    if (!appname || !path) {
+      throw new Error('appname and path target parameters are mandatory');
     }
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
     if (authorized === true) {
+      const indexBackup = this.tarProgress.indexOf(appname);
+      if (indexBackup !== -1) {
+        throw new Error('Backup in progress...');
+      }
       backupInProgress.push(appname);
       await dockerService.appDockerStop(appname);
       await stopSyncthingApp(appname, res);
-      // await BackupRestoreService.appBackup(appname, component, apppath);
+      const pathComponents = path.split('/');
+      const target = `${path}/backup/local/${pathComponents[pathComponents.length - 1]}.tar.gz`;
+      const existStatus = await IOUtils.checkFileExists(`${path}/backup/local/${pathComponents[pathComponents.length - 1]}.tar.gz`);
+      if (existStatus === true) {
+        await IOUtils.removeFile(`${path}/backup/local/${pathComponents[pathComponents.length - 1]}.tar.gz`);
+      }
+      const status = await IOUtils.createTarGz(`${path}/appdata`, target);
+      if (status === false) {
+        throw new Error('Error creating tarball archive');
+      }
+      if (skip === false) {
+        await dockerService.appDockerStart(appname);
+      }
       const indexToRemove = backupInProgress.indexOf(appname);
       backupInProgress.splice(indexToRemove, 1);
-      return true;
+      const backapSize = IOUtils.getFileSize(`${path}/backup/local/${pathComponents[pathComponents.length - 1]}.tar.gz`, 'MB', 2);
+      const response = messageHelper.createSuccessMessage(backapSize);
+      return res.json(response);
     // eslint-disable-next-line no-else-return
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
@@ -11621,6 +11637,7 @@ async function appendBackupTask(req, res) {
   } catch (error) {
     const indexToRemove = backupInProgress.indexOf(appname);
     backupInProgress.splice(indexToRemove, 1);
+    await dockerService.appDockerStart(appname);
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
       error.message || error,

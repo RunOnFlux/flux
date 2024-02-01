@@ -1,5 +1,4 @@
 const fs = require('fs').promises;
-const tar = require('tar');
 const log = require('../lib/log');
 const messageHelper = require('./messageHelper');
 const serviceHelper = require('./serviceHelper');
@@ -259,63 +258,6 @@ async function downloadLocalFile(req, res) {
   }
 }
 
-// eslint-disable-next-line consistent-return
-async function tarDirectory(req, res) {
-  try {
-    console.log(JSON.stringify(req.params));
-    let { path } = req.params;
-    path = path || req.query.path;
-    if (!path) {
-      throw new Error('path parameter is mandatory');
-    }
-    const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
-    if (authorized === true) {
-      const pathComponents = path.split('/');
-      const target = `${path}/backup/local/${pathComponents[pathComponents.length - 1]}.tar.gz`;
-      const output = await fs.createWriteStream(target);
-      // Initialize progress variables
-      let totalEntries = 0;
-      let processedEntries = 0;
-      // Create the tar.gz archive with progress reporting
-      await tar.c(
-        {
-          gzip: true,
-          file: target,
-          // eslint-disable-next-line no-unused-vars
-          onentry: (entry) => {
-            // eslint-disable-next-line no-plusplus
-            totalEntries++;
-          },
-          onend: () => {
-            console.log('Tarball created successfully');
-          },
-        },
-        [`${path}/appdata1`],
-      )
-      // eslint-disable-next-line no-unused-vars
-        .on('entry', (entry) => {
-          // eslint-disable-next-line indent, no-plusplus
-          processedEntries++;
-          const progress = (processedEntries / totalEntries) * 100;
-          console.log(`Progress: ${progress.toFixed(2)}%`);
-        })
-        .pipe(output);
-      const response = messageHelper.createSuccessMessage(true);
-      return res.json(response);
-    }
-    const errMessage = messageHelper.errUnauthorizedMessage();
-    return res.json(errMessage);
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    return res ? res.json(errorResponse) : errorResponse;
-  }
-}
-
 module.exports = {
   getVolumeDataOfComponent,
   getRemoteFileSize,
@@ -323,5 +265,4 @@ module.exports = {
   getLocalBackupList,
   removeBackupFile,
   downloadLocalFile,
-  tarDirectory,
 };

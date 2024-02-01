@@ -3,6 +3,10 @@ const fs = require('fs').promises;
 const util = require('util');
 const log = require('../lib/log');
 const axios = require('axios');
+const tar = require('tar');
+const nodecmd = require('node-cmd');
+
+const cmdAsync = util.promisify(nodecmd.get);
 
 /**
  * Convert file size from bytes to the specified unit.
@@ -18,6 +22,19 @@ function convertFileSize(sizeInBytes, multiplier) {
     GB: 1024 * 1024 * 1024,
   };
   return sizeInBytes / multiplierMap[multiplier.toUpperCase()];
+}
+
+async function getFileSize(filePath, multiplier, decimal) {
+  try {
+    const stats = await fs.stat(filePath);
+    const fileSizeInBytes = stats.size;
+    const fileSize = convertFileSize(fileSizeInBytes, multiplier);
+    const roundedFileSize = fileSize.toFixed(decimal);
+    return roundedFileSize;
+  } catch (err) {
+    console.error(`Error getting file size: ${err}`);
+    return false;
+  }
 }
 
 /**
@@ -187,12 +204,58 @@ async function downloadFileFromUrl(url, path, component, appname, rename = false
   }
 }
 
+async function untarFile(extractPath, tarFilePath) {
+  try {
+    await fs.mkdir(extractPath, { recursive: true });
+    await tar.x({
+      file: tarFilePath,
+      C: extractPath,
+    });
+    return true;
+  } catch (err) {
+    log.error('Error during extraction:', err);
+    return false;
+  }
+}
+
+async function createTarGz(sourceDirectory, outputFileName) {
+  try {
+    await tar.c(
+      {
+        gzip: true,
+        file: outputFileName,
+        cwd: sourceDirectory,
+      },
+      ['.'],
+    );
+    return true;
+  } catch (error) {
+    log.error('Error creating tarball:', error);
+    return false;
+  }
+}
+
+async function removeDirectory(path) {
+  try {
+    const execFinal = `sudo rm -rf ${path}`;
+    await cmdAsync(execFinal);
+    return true;
+  } catch (error) {
+    log.error(error);
+    return false;
+  }
+}
+
 module.exports = {
   getVolumeInfo,
   getPathFileList,
   getRemoteFileSize,
+  getFileSize,
   checkFileExists,
   removeFile,
   convertFileSize,
   downloadFileFromUrl,
+  untarFile,
+  createTarGz,
+  removeDirectory,
 };

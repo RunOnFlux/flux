@@ -5099,6 +5099,7 @@ export default {
   },
   data() {
     return {
+      tarProgress: [],
       fileProgress: [],
       showProgressBar: false,
       restoreOptions: [
@@ -5803,20 +5804,21 @@ export default {
     },
     async createBackup(appname, componentNames) {
       const timestamp = Math.floor(Date.now() / 1000);
-
       // eslint-disable-next-line no-restricted-syntax
       for (const componentName of componentNames) {
         const existingBackupIndex = this.backupList.findIndex((item) => item.component_name === componentName);
-        console.log(componentName);
-        console.log(appname);
+        let skip = true;
+        if (componentName === componentNames[componentNames.length - 1]) {
+          skip = false;
+        }
         // eslint-disable-next-line no-await-in-loop
-        await this.tarDirectory(appname, componentName);
+        const size = await this.tarDirectory(appname, componentName, skip);
         if (existingBackupIndex !== -1) {
           this.$set(this.backupList, existingBackupIndex, {
             isActive: false,
             component_name: componentName,
             create: timestamp,
-            file_size: 200,
+            file_size: size,
           });
           console.log(JSON.stringify(this.backupList[existingBackupIndex]));
         } else {
@@ -5824,7 +5826,7 @@ export default {
             isActive: false,
             component_name: componentName,
             create: timestamp,
-            file_size: 200,
+            file_size: size,
           };
           this.backupList.push(newBackupItem);
         }
@@ -5986,9 +5988,13 @@ export default {
       }
       this.backupList = backupListTmp;
     },
-    async tarDirectory(name, component) {
+    async tarDirectory(name, component, skip) {
       try {
-        this.tarProgress = true;
+        let indexToRemove = this.tarProgress.indexOf(component);
+        if (indexToRemove !== -1) {
+          return;
+        }
+        this.tarProgress.push(component);
         const zelidauth = localStorage.getItem('zelidauth');
         this.volumeInfo = await BackupRestoreService.getVolumeDataOfComponent(zelidauth, name, component, 'MB', 2, 'mount');
         this.volumePath = this.volumeInfo.data?.data;
@@ -5998,12 +6004,20 @@ export default {
             zelidauth,
           },
         };
-        await BackupRestoreService.justAPI().get(`/backup/tardirectory/${encodeURIComponent(this.volumePath.mount)}`, axiosConfig);
-        this.tarProgress = false;
-        return true;
+        const backupSize = await BackupRestoreService.justAPI().get(`/backup/appendbackuptask/${name}/${encodeURIComponent(this.volumePath.mount)}/${skip}`, axiosConfig);
+        indexToRemove = this.tarProgress.indexOf(component);
+        if (indexToRemove !== -1) {
+          this.tarProgress.splice(indexToRemove, 1);
+        }
+        // eslint-disable-next-line consistent-return
+        return backupSize.data?.data;
       } catch (error) {
         console.error('Error:', error.message);
-        this.tarProgress = false;
+        const indexToRemove = this.tarProgress.indexOf(component);
+        if (indexToRemove !== -1) {
+          this.tarProgress.splice(indexToRemove, 1);
+        }
+        // eslint-disable-next-line consistent-return
         return false;
       }
     },
