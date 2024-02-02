@@ -5222,7 +5222,7 @@ export default {
         { key: 'component_name', label: 'Component Name', thStyle: { width: '40%' } },
         { key: 'create', label: 'CreateAt', thStyle: { width: '17%' } },
         { key: 'expire', label: 'ExpireAt', thStyle: { width: '17%' } },
-        { key: 'file_size', label: 'File (MB)', thStyle: { width: '8%' } },
+        { key: 'file_size', label: 'Size (MB)', thStyle: { width: '8%' } },
       ],
       newComponentsTableFields: [
         { key: 'component_name', label: 'Component Name', thStyle: { width: '25%' } },
@@ -5234,7 +5234,7 @@ export default {
         return [
           { key: 'component_name', label: 'Component Name', thStyle: { width: '30%' } },
           { key: 'file_url', label: 'File URL', thStyle: { width: '55%' } },
-          { key: 'file_size', label: 'File (MB)', thStyle: { width: '10%' } },
+          { key: 'file_size', label: 'Size (MB)', thStyle: { width: '10%' } },
           {
             key: 'actions', label: 'Actions', thStyle: { width: '5%' }, class: 'text-center',
           },
