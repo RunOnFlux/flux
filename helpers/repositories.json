@@ -416,5 +416,6 @@
    "jammsen",
    "rp91",
    "thijsvanloef/palworld-server-docker",
-   "ghcr.io/jsdelivr/globalping-probe"
+   "ghcr.io/jsdelivr/globalping-probe",
+   "jwilder/nginx-proxy"
 ]
