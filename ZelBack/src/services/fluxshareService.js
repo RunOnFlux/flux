@@ -824,7 +824,7 @@ async function fluxShareUpload(req, res) {
     }
     // eslint-disable-next-line no-bitwise
     await fs.promises.access(uploadDir, fs.constants.F_OK | fs.constants.W_OK); // check folder exists and write ability
-    const formidable = await import('formidable');
+    const { formidable } = await import('formidable');
     const form = formidable(options);
     form
       .on('progress', (bytesReceived, bytesExpected) => {
