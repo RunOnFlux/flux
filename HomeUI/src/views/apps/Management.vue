@@ -1299,10 +1299,13 @@
                     line-height: 0px;
                   "
                 >
-                  <h5><b-icon class="mr-1" icon="back" /> Immediate Backup</h5>
+                  <h5><b-icon class="mr-1" icon="back" /> Manual Triggered Backup</h5>
                 </div>
                 <div class="mb-2">
                   <b-form-group>
+                    <h7 class="mr-1">
+                      Select the application component(s) you would like to backup:
+                    </h7>
                     <b-form-tags
                       id="tags-component-select"
                       v-model="selectedBackupComponents"
@@ -1381,7 +1384,7 @@
                   >
                     <h5 style="font-size: 16px; margin-bottom: 5px;">
                       <span v-if="backupProgress === true">
-                        <b-spinner small /> Backuping {{ tarProgress[0] }}...
+                        <b-spinner small /> Backing up {{ tarProgress[0] }}...
                       </span>
                     </h5>
                     <b-progress v-for="(item, index) in computedFileProgress" v-if="item.progress > 0" :key="index" class="mt-1" style="height: 16px;" :max="100">
@@ -1470,7 +1473,7 @@
                       <b-tr>
                         <b-td colspan="6" class="text-center">
                           <b>
-                            Explore Your Local Backup Options (backup will be removed 24 hours after creation)
+                            List of available backups on the local machine (backups are automatically deleted 24 hours after creation)
                           </b>
                         </b-td>
                       </b-tr>
@@ -5270,19 +5273,19 @@ export default {
         { key: 'component_name', label: 'Component Name', thStyle: { width: '40%' } },
         { key: 'create', label: 'CreateAt', thStyle: { width: '17%' } },
         { key: 'expire', label: 'ExpireAt', thStyle: { width: '17%' } },
-        { key: 'file_size', label: 'File Size', thStyle: { width: '8%' } },
+        { key: 'file_size', label: 'Size (MB)', thStyle: { width: '8%' } },
       ],
       newComponentsTableFields: [
         { key: 'component_name', label: 'Component Name', thStyle: { width: '25%' } },
         { key: 'file_url', label: 'File URL', thStyle: { width: '55%' } },
         { key: 'timestamp', label: 'Timestamp', thStyle: { width: '6%' } },
-        { key: 'file_size', label: 'File Size', thStyle: { width: '9%' } },
+        { key: 'file_size', label: 'Size (MB)', thStyle: { width: '9%' } },
       ],
       componentsTable() {
         return [
           { key: 'component_name', label: 'Component Name', thStyle: { width: '30%' } },
           { key: 'file_url', label: 'File URL', thStyle: { width: '55%' } },
-          { key: 'file_size', label: 'File Size', thStyle: { width: '10%' } },
+          { key: 'file_size', label: 'Size (MB)', thStyle: { width: '10%' } },
           {
             key: 'actions', label: 'Actions', thStyle: { width: '5%' }, class: 'text-center',
           },
