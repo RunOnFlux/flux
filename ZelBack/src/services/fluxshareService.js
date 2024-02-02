@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const path = require('path');
 const df = require('node-df');
 const fs = require('fs');
-const formidable = require('formidable');
+const { formidable } = require('formidable');
 const archiver = require('archiver');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
@@ -795,20 +795,27 @@ async function fluxShareUpload(req, res) {
     if (!authorized) {
       throw new Error('Unauthorized. Access denied.');
     }
+
     let { folder } = req.params;
     folder = folder || req.query.folder || '';
     if (folder) {
       folder += '/';
     }
+
     const dirpath = path.join(__dirname, '../../../');
     const uploadDir = `${dirpath}ZelApps/ZelShare/${folder}`;
     const options = {
       multiples: true,
       uploadDir,
       maxFileSize: 5 * 1024 * 1024 * 1024, // 5gb
-      hash: true,
+      hashAlgorithm: false,
       keepExtensions: true,
+      filename: (part) => {
+        const { originalFilename } = part;
+        return originalFilename;
+      },
     };
+
     const spaceAvailableForFluxShare = await getSpaceAvailableForFluxShare();
     let spaceUsedByFluxShare = getFluxShareSize();
     spaceUsedByFluxShare = Number(spaceUsedByFluxShare.toFixed(6));
@@ -819,20 +826,9 @@ async function fluxShareUpload(req, res) {
     // eslint-disable-next-line no-bitwise
     await fs.promises.access(uploadDir, fs.constants.F_OK | fs.constants.W_OK); // check folder exists and write ability
     const form = formidable(options);
-    form.parse(req)
-      .on('fileBegin', (name, file) => {
-        try {
-          res.write(serviceHelper.ensureString(file.name));
-          const filepath = `${dirpath}ZelApps/ZelShare/${folder}${file.name}`;
-          // eslint-disable-next-line no-param-reassign
-          file.path = filepath;
-        } catch (error) {
-          log.error(error);
-        }
-      })
+    form
       .on('progress', (bytesReceived, bytesExpected) => {
         try {
-          // console.log('PROGRESS');
           res.write(serviceHelper.ensureString([bytesReceived, bytesExpected]));
         } catch (error) {
           log.error(error);
@@ -840,14 +836,10 @@ async function fluxShareUpload(req, res) {
       })
       .on('field', (name, field) => {
         console.log('Field', name, field);
-        // console.log(name);
-        // console.log(field);
-        // res.write(serviceHelper.ensureString(field));
       })
       .on('file', (name, file) => {
         try {
-          // console.log('Uploaded file', name, file);
-          res.write(serviceHelper.ensureString(file));
+          res.write(serviceHelper.ensureString(file.name));
         } catch (error) {
           log.error(error);
         }
@@ -876,10 +868,11 @@ async function fluxShareUpload(req, res) {
           log.error(error);
         }
       });
+
+    form.parse(req);
   } catch (error) {
     log.error(error);
     if (res) {
-      // res.set('Connection', 'close');
       try {
         res.connection.destroy();
       } catch (e) {

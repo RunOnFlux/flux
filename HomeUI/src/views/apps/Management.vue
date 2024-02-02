@@ -2189,6 +2189,56 @@
                     </b-input-group>
                   </div>
 
+                  <div>
+                    <!-- Replace drag and drop area with a button -->
+
+                    <button class="flux-share-upload-button" type="button" @click="addRemoteFile">
+                      <v-icon name="cloud-upload-alt" />
+                      <p>Click to upload</p>
+                    </button>
+
+                    <!-- Keep the input file element hidden -->
+                    <input
+                      id="file-selector"
+                      ref="fileselector"
+                      class="flux-share-upload-input"
+                      type="file"
+                      style="display: none;"
+                      @change="handleFiles"
+                    >
+                    <!-- Remaining content -->
+                    <!-- ... -->
+
+                    <!-- Display selected file -->
+                    <div
+                      v-for="file in files"
+                      :key="file.file.name"
+                      class="upload-item mb-1"
+                    >
+                      <p>{{ file.file.name }} {{ (file.file.size / 1024 / 1024).toFixed(2) }}</p>
+                      <b-button
+                        class="delete"
+                        variant="outline-primary"
+                        size="sm"
+                        aria-label="Close"
+                        :disabled="file.uploading"
+                        @click="removeFile(file)"
+                      >
+                        <span
+                          class="d-inline-block text-white"
+                          aria-hidden="true"
+                        >&times;</span>
+                      </b-button>
+                      <b-progress
+                        :value="file.progress"
+                        max="100"
+                        striped
+                        height="3px"
+                        :class="file.uploading || file.uploaded ? '' : 'hidden'"
+                      />
+                    </div>
+                  </div>
+
                   <div
                     v-if="items1?.length > 0"
                     class="d-flex justify-content-between mt-2"
@@ -5126,6 +5176,7 @@ export default {
   },
   data() {
     return {
+      files: [],
       backupProgress: false,
       tarProgress: [],
       fileProgress: [],
@@ -5447,6 +5498,9 @@ export default {
     };
   },
   computed: {
+    filesToUpload() {
+      return this.files.length > 0 && this.files.some((file) => !file.uploading && !file.uploaded && file.progress === 0);
+    },
     computedFileProgress() {
       return this.fileProgress;
     },
@@ -5803,6 +5857,118 @@ export default {
     this.getEnterpriseNodes();
   },
   methods: {
+    selectFiles() {
+      console.log('select files');
+      this.$refs.fileselector.click();
+    },
+    handleFiles(ev) {
+      const { files } = ev.target;
+      if (!files) return;
+      console.log(files);
+      files[0].name = 'ddddddd';
+      if (this.restoreRemoteFile !== null) {
+        const existingItemIndex = this.items1.findIndex((item) => item.component === this.restoreRemoteFile);
+        if (existingItemIndex !== -1) {
+          this.items1[existingItemIndex].file_size = (files[0].size / 1024 / 1024).toFixed(2);
+        } else {
+          this.items1.push({ file: `backup_${this.restoreRemoteFile.toLowerCase()}.tar.gz`, component: this.restoreRemoteFile, file_size: (files[0].size / 1024 / 1024).toFixed(2) });
+        }
+      }
+
+      this.addFiles(([...files]));
+    },
+    addFile(e) {
+      const droppedFiles = e.dataTransfer.files;
+      if (!droppedFiles) return;
+      this.addFiles(([...droppedFiles]));
+    },
+    addFiles(filesToAdd) {
+      filesToAdd.forEach((f) => {
+        const existingFiles = this.files.some((file) => file.file.name === f.name);
+        console.log(existingFiles);
+        if (existingFiles) {
+          this.showToast('warning', `'${f.name}' is already in the upload queue`);
+        } else {
+          this.files.push({
+            file: f,
+            uploading: false,
+            uploaded: false,
+            progress: 0,
+          });
+        }
+      });
+    },
+    removeFile(file) {
+      this.files = this.files.filter((f) => f.file.name !== file.file.name);
+    },
+    startUpload() {
+      console.log(this.uploadFolder);
+      console.log(this.files);
+      this.files.forEach((f) => {
+        console.log(f);
+        if (!f.uploaded && !f.uploading) {
+          this.upload(f);
+        }
+      });
+    },
+    /* eslint no-param-reassign: ["error", { "props": false }] */
+    upload(file) {
+      const self = this;
+      if (typeof XMLHttpRequest === 'undefined') {
+        return;
+      }
+
+      const xhr = new XMLHttpRequest();
+      const action = this.uploadFolder;
+
+      if (xhr.upload) {
+        xhr.upload.onprogress = function progress(e) {
+          console.log(e);
+          if (e.total > 0) {
+            e.percent = (e.loaded / e.total) * 100;
+          }
+          file.progress = e.percent;
+        };
+      }
+
+      const formData = new FormData();
+
+      formData.append(file.file.name, file.file);
+      file.uploading = true;
+
+      xhr.onerror = function error(e) {
+        console.log(e);
+        self.showToast('danger', `An error occurred while uploading '${file.file.name}' - ${e}`);
+      };
+
+      xhr.onload = function onload() {
+        if (xhr.status < 200 || xhr.status >= 300) {
+          console.log('error');
+          console.log(xhr.status);
+          self.showToast('danger', `An error occurred while uploading '${file.file.name}' - Status code: ${xhr.status}`);
+          return;
+        }
+
+        file.uploaded = true;
+        file.uploading = false;
+        self.$emit('complete');
+
+        self.showToast('success', `'${file.file.name}' has been uploaded`);
+      };
+
+      xhr.open('post', action, true);
+
+      const headers = this.headers || {};
+
+      const headerKeys = Object.keys(headers);
+      for (let i = 0; i < headerKeys.length; i += 1) {
+        const item = headerKeys[i];
+        if (Object.prototype.hasOwnProperty.call(headers, item) && headers[item] !== null) {
+          xhr.setRequestHeader(item, headers[item]);
+        }
+      }
+      xhr.send(formData);
+    },
     removeAllBackup() {
       this.backupList = [];
       this.backupToUpload = [];
@@ -5945,14 +6111,17 @@ export default {
       return date.toLocaleString();
     },
     addRemoteFile() {
-      if (this.restoreRemoteFile !== null) {
-        const existingItemIndex = this.items1.findIndex((item) => item.component === this.restoreRemoteFile);
-        if (existingItemIndex !== -1) {
-          this.items1[existingItemIndex].file_size = 74.93;
-        } else {
-          this.items1.push({ file: `backup_${this.restoreRemoteFile.toLowerCase()}.tar.gz`, component: this.restoreRemoteFile, file_size: 75.93 });
-        }
-      }
+      this.selectFiles();
+      // console.log('test');
+      // console.log(this.files);
+      // if (this.restoreRemoteFile !== null) {
+      //   const existingItemIndex = this.items1.findIndex((item) => item.component === this.restoreRemoteFile);
+      //   if (existingItemIndex !== -1) {
+      //     this.items1[existingItemIndex].file_size = 74.93;
+      //   } else {
+      //     this.items1.push({ file: `backup_${this.restoreRemoteFile.toLowerCase()}.tar.gz`, component: this.restoreRemoteFile, file_size: 75.93 });
+      //   }
+      // }
     },
 
     async restoreFromRemoteFile(name) {

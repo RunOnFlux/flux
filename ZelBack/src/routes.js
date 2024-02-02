@@ -1,4 +1,5 @@
 const apicache = require('apicache');
+const express = require('express');
 
 const daemonServiceAddressRpcs = require('./services/daemonService/daemonServiceAddressRpcs');
 const daemonServiceTransactionRpcs = require('./services/daemonService/daemonServiceTransactionRpcs');
@@ -25,6 +26,7 @@ const syncthingService = require('./services/syncthingService');
 const fluxNetworkHelper = require('./services/fluxNetworkHelper');
 const enterpriseNodesService = require('./services/enterpriseNodesService');
 const backupRestoreService = require('./services/backupRestoreService');
+const IOUtils = require('./services/IOUtils');
 
 function isLocal(req, res, next) {
   const remote = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || req.headers['x-forwarded-for'];
@@ -631,7 +633,11 @@ module.exports = (app, expressWs) => {
     appsService.appendBackupTask(req, res);
   });
 
-  app.post('/backup/getremotefile', (req, res) => {
+  app.post('/ioutils/fileupload/:folder?/:type?', (req, res) => {
+    IOUtils.fileUpload(req, res);
+  });
+
+  app.post('/backup/getremotefile', express.json({ type: '*/*' }), (req, res) => {
     backupRestoreService.getRemoteFile(req, res);
   });
   // GET PROTECTED API - Fluxnode Owner

@@ -303,35 +303,29 @@ async function broadcastMessageToOutgoingFromUser(req, res) {
  * @param {object} res Response.
  */
 async function broadcastMessageToOutgoingFromUserPost(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      if (body === undefined || body === '') {
-        throw new Error('No message to broadcast attached.');
-      }
-      const processedBody = serviceHelper.ensureObject(body);
-      const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-      if (authorized === true) {
-        await broadcastMessageToOutgoing(processedBody);
-        const message = messageHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
-        response = message;
-      } else {
-        response = messageHelper.errUnauthorizedMessage();
-      }
-      res.json(response);
-    } catch (error) {
-      log.error(error);
-      const errorResponse = messageHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
-      );
-      res.json(errorResponse);
+  try {
+    if (req.body === undefined || req.body === '') {
+      throw new Error('No message to broadcast attached.');
     }
-  });
+    const processedBody = serviceHelper.ensureObject(req.body);
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized === true) {
+      await broadcastMessageToOutgoing(processedBody);
+      const message = messageHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
+      response = message;
+    } else {
+      response = messageHelper.errUnauthorizedMessage();
+    }
+    res.json(response);
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
 }
 
 /**
@@ -373,35 +367,29 @@ async function broadcastMessageToIncomingFromUser(req, res) {
  * @param {object} res Response.
  */
 async function broadcastMessageToIncomingFromUserPost(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      if (body === undefined || body === '') {
-        throw new Error('No message to broadcast attached.');
-      }
-      const processedBody = serviceHelper.ensureObject(body);
-      const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-      if (authorized === true) {
-        await broadcastMessageToIncoming(processedBody);
-        const message = messageHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
-        response = message;
-      } else {
-        response = messageHelper.errUnauthorizedMessage();
-      }
-      res.json(response);
-    } catch (error) {
-      log.error(error);
-      const errorResponse = messageHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
-      );
-      res.json(errorResponse);
+  try {
+    if (req.body === undefined || req.body === '') {
+      throw new Error('No message to broadcast attached.');
     }
-  });
+    const processedBody = serviceHelper.ensureObject(req.body);
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized === true) {
+      await broadcastMessageToIncoming(processedBody);
+      const message = messageHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
+      response = message;
+    } else {
+      response = messageHelper.errUnauthorizedMessage();
+    }
+    res.json(response);
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
 }
 
 /**
@@ -444,36 +432,30 @@ async function broadcastMessageFromUser(req, res) {
  * @param {object} res Response.
  */
 async function broadcastMessageFromUserPost(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      if (body === undefined || body === '') {
-        throw new Error('No message to broadcast attached.');
-      }
-      const processedBody = serviceHelper.ensureObject(body);
-      const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-      if (authorized === true) {
-        await broadcastMessageToOutgoing(processedBody);
-        await broadcastMessageToIncoming(processedBody);
-        const message = messageHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
-        response = message;
-      } else {
-        response = messageHelper.errUnauthorizedMessage();
-      }
-      res.json(response);
-    } catch (error) {
-      log.error(error);
-      const errorResponse = messageHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
-      );
-      res.json(errorResponse);
+  try {
+    if (req.body === undefined || req.body === '') {
+      throw new Error('No message to broadcast attached.');
     }
-  });
+    const processedBody = serviceHelper.ensureObject(req.body);
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized === true) {
+      await broadcastMessageToOutgoing(processedBody);
+      await broadcastMessageToIncoming(processedBody);
+      const message = messageHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
+      response = message;
+    } else {
+      response = messageHelper.errUnauthorizedMessage();
+    }
+    res.json(response);
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
 }
 
 // how long can this take?

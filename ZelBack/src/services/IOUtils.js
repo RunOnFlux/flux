@@ -7,6 +7,10 @@ const axios = require('axios');
 const tar = require('tar');
 const nodecmd = require('node-cmd');
 const path = require('path');
+const { formidable } = require('formidable');
+const serviceHelper = require('./serviceHelper');
+const messageHelper = require('./messageHelper');
+const verificationHelper = require('./verificationHelper');
 
 const cmdAsync = util.promisify(nodecmd.get);
 
@@ -320,6 +324,106 @@ async function removeDirectory(rpath, directory = false) {
   }
 }
 
+/**
+ * To upload a specified folder to FluxShare. Checks that there is enough space available. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function fileUpload(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    if (!authorized) {
+      throw new Error('Unauthorized. Access denied.');
+    }
+
+    let { folder } = req.params;
+    folder = folder || req.query.folder || '';
+    if (folder) {
+      folder += '/';
+    }
+    let { type } = req.params;
+    type = (type !== undefined && type !== null) ? type : (req.query.type || false);
+
+    // const dirpath = path.join(__dirname, '../../../');
+    const uploadDir = `${folder}`;
+    const options = {
+      multiples: type,
+      uploadDir,
+      maxFileSize: 5 * 1024 * 1024 * 1024, // 5gb
+      hashAlgorithm: false,
+      keepExtensions: true,
+      filename: (part) => {
+        const { originalFilename } = part;
+        return originalFilename;
+      },
+    };
+
+    // const spaceAvailableForFluxShare = await getSpaceAvailableForFluxShare();
+    // let spaceUsedByFluxShare = getFluxShareSize();
+    // spaceUsedByFluxShare = Number(spaceUsedByFluxShare.toFixed(6));
+    // const available = spaceAvailableForFluxShare - spaceUsedByFluxShare;
+    // if (available <= 0) {
+    //   throw new Error('FluxShare Storage is full');
+    // }
+    // eslint-disable-next-line no-bitwise
+    await fs.promises.access(uploadDir, fs.constants.F_OK | fs.constants.W_OK); // check folder exists and write ability
+    const form = formidable(options);
+    form
+      .on('progress', (bytesReceived, bytesExpected) => {
+        try {
+          res.write(serviceHelper.ensureString([bytesReceived, bytesExpected]));
+        } catch (error) {
+          log.error(error);
+        }
+      })
+      .on('field', (name, field) => {
+        console.log('Field', name, field);
+      })
+      .on('file', (file) => {
+        try {
+          res.write(serviceHelper.ensureString(file.name));
+        } catch (error) {
+          log.error(error);
+        }
+      })
+      .on('aborted', () => {
+        console.error('Request aborted by the user');
+      })
+      .on('error', (error) => {
+        log.error(error);
+        const errorResponse = messageHelper.createErrorMessage(
+          error.message || error,
+          error.name,
+          error.code,
+        );
+        try {
+          res.write(serviceHelper.ensureString(errorResponse));
+          res.end();
+        } catch (e) {
+          log.error(e);
+        }
+      })
+      .on('end', () => {
+        try {
+          res.end();
+        } catch (error) {
+          log.error(error);
+        }
+      });
+
+    form.parse(req);
+  } catch (error) {
+    log.error(error);
+    if (res) {
+      try {
+        res.connection.destroy();
+      } catch (e) {
+        log.error(e);
+      }
+    }
+  }
+}
+
 module.exports = {
   getVolumeInfo,
   getPathFileList,
@@ -333,4 +437,5 @@ module.exports = {
   createTarGz,
   removeDirectory,
   getFolderSize,
+  fileUpload,
 };

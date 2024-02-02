@@ -152,48 +152,42 @@ async function getRemoteFileSize(req, res) {
 async function getRemoteFile(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
-    let body = '';
-    req.on('data', (data) => {
-      body += data;
-    });
-    req.on('end', async () => {
-      try {
-        const bodyData = serviceHelper.ensureObject(body);
-        console.log(`Data: ${JSON.stringify(bodyData)}`);
-        if (!bodyData || bodyData.length === 0) {
-          throw new Error('Request body must contain data (body parameters are required)');
-        }
-        const isValidData = bodyData.every((item) => 'url' in item && 'component' in item && 'appname' in item);
-        if (!isValidData) {
-          throw new Error('Each object in bodyData must have "url", "component", and "appname" properties');
-        }
-        // eslint-disable-next-line no-restricted-syntax
-        for (const { url, component, appname } of bodyData) {
-          // eslint-disable-next-line no-await-in-loop
-          const volumePath = await IOUtils.getVolumeInfo(appname, component, 'MB', 0, 'mount');
-          // eslint-disable-next-line no-await-in-loop
-          if (await IOUtils.checkFileExists(`${volumePath[0].mount}/backup/remote/${component}_${appname}.tar.gz`)) {
-            // eslint-disable-next-line no-await-in-loop
-            await IOUtils.removeFile(`${volumePath[0].mount}/backup/remote/${component}_${appname}.tar.gz`);
-          }
-          // eslint-disable-next-line no-await-in-loop
-          await fs.mkdir(`${volumePath[0].mount}/backup/remote`, { recursive: true });
-          // eslint-disable-next-line no-await-in-loop
-          await IOUtils.downloadFileFromUrl(url, `${volumePath[0].mount}/backup/remote`, component, appname, true);
-        }
-        const response = messageHelper.createDataMessage('successful!');
-        return res ? res.json(response) : response;
-        // eslint-disable-next-line no-else-return
-      } catch (error) {
-        log.error(error);
-        const errorResponse = messageHelper.createErrorMessage(
-          error.message || error,
-          error.name,
-          error.code,
-        );
-        return res ? res.json(errorResponse) : errorResponse;
+    try {
+      const bodyData = serviceHelper.ensureObject(req.body);
+      console.log(`Data: ${JSON.stringify(bodyData)}`);
+      if (!bodyData || bodyData.length === 0) {
+        throw new Error('Request body must contain data (body parameters are required)');
       }
-    });
+      const isValidData = bodyData.every((item) => 'url' in item && 'component' in item && 'appname' in item);
+      if (!isValidData) {
+        throw new Error('Each object in bodyData must have "url", "component", and "appname" properties');
+      }
+      // eslint-disable-next-line no-restricted-syntax
+      for (const { url, component, appname } of bodyData) {
+        // eslint-disable-next-line no-await-in-loop
+        const volumePath = await IOUtils.getVolumeInfo(appname, component, 'MB', 0, 'mount');
+        // eslint-disable-next-line no-await-in-loop
+        if (await IOUtils.checkFileExists(`${volumePath[0].mount}/backup/remote/${component}_${appname}.tar.gz`)) {
+          // eslint-disable-next-line no-await-in-loop
+          await IOUtils.removeFile(`${volumePath[0].mount}/backup/remote/${component}_${appname}.tar.gz`);
+        }
+        // eslint-disable-next-line no-await-in-loop
+        await fs.mkdir(`${volumePath[0].mount}/backup/remote`, { recursive: true });
+        // eslint-disable-next-line no-await-in-loop
+        await IOUtils.downloadFileFromUrl(url, `${volumePath[0].mount}/backup/remote`, component, appname, true);
+      }
+      const response = messageHelper.createDataMessage('successful!');
+      return res ? res.json(response) : response;
+      // eslint-disable-next-line no-else-return
+    } catch (error) {
+      log.error(error);
+      const errorResponse = messageHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      return res ? res.json(errorResponse) : errorResponse;
+    }
   } else {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
