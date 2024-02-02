@@ -810,10 +810,6 @@ async function fluxShareUpload(req, res) {
       uploadDir,
       maxFileSize: 5 * 1024 * 1024 * 1024, // 5gb
       keepExtensions: true,
-      filename: (part) => {
-        const { originalFilename } = part;
-        return originalFilename;
-      },
     };
     const spaceAvailableForFluxShare = await getSpaceAvailableForFluxShare();
     let spaceUsedByFluxShare = getFluxShareSize();
