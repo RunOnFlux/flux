@@ -803,12 +803,14 @@ async function fluxShareUpload(req, res) {
     }
 
     const dirpath = path.join(__dirname, '../../../');
+    console.log(dirpath);
     const uploadDir = `${dirpath}ZelApps/ZelShare/${folder}`;
+    console.log(uploadDir);
     const options = {
       multiples: true,
       uploadDir,
       maxFileSize: 5 * 1024 * 1024 * 1024, // 5gb
-      hashAlgorithm: false,
+      hash: false,
       keepExtensions: true,
       filename: (part) => {
         const { originalFilename } = part;
@@ -837,7 +839,7 @@ async function fluxShareUpload(req, res) {
       .on('field', (name, field) => {
         console.log('Field', name, field);
       })
-      .on('file', (name, file) => {
+      .on('file', (file) => {
         try {
           res.write(serviceHelper.ensureString(file.name));
         } catch (error) {
