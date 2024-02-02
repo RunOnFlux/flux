@@ -197,7 +197,7 @@ export default {
       const formData = new FormData();
 
       formData.append(file.file.name, file.file);
-      // formData.append('customPaths[]', 'custom_folder/file1.txt');
+      formData.append('customPaths[]', 'custom_folder/file1.txt');
       // formData.append('customPaths[]', 'custom_folder/file2.txt');
       file.uploading = true;
 

@@ -791,6 +791,7 @@ async function fluxShareStorageStats(req, res) {
  */
 async function fluxShareUpload(req, res) {
   try {
+    console.log(req.body.customPaths);
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (!authorized) {
       throw new Error('Unauthorized. Access denied.');
@@ -810,6 +811,10 @@ async function fluxShareUpload(req, res) {
       uploadDir,
       maxFileSize: 5 * 1024 * 1024 * 1024, // 5gb
       keepExtensions: true,
+      filename(part) {
+        const { originalFilename } = part;
+        return originalFilename;
+      },
     };
     const spaceAvailableForFluxShare = await getSpaceAvailableForFluxShare();
     let spaceUsedByFluxShare = getFluxShareSize();
@@ -824,8 +829,7 @@ async function fluxShareUpload(req, res) {
     form.parse(req)
       .on('fileBegin', (name, file) => {
         try {
-          res.write(serviceHelper.ensureString(file.name));
-          const filepath = `${dirpath}ZelApps/ZelShare/${folder}${file.name}`;
+          const filepath = `${dirpath}ZelApps/ZelShare/${folder}`;
           // eslint-disable-next-line no-param-reassign
           file.path = filepath;
         } catch (error) {
@@ -846,10 +850,10 @@ async function fluxShareUpload(req, res) {
         // console.log(field);
         // res.write(serviceHelper.ensureString(field));
       })
-      .on('file', (name, file) => {
+      .on('file', (name) => {
         try {
-          // console.log('Uploaded file', name, file);
-          res.write(serviceHelper.ensureString(file.name));
+          console.log('Uploaded file', name);
+          res.write(serviceHelper.ensureString(name));
         } catch (error) {
           log.error(error);
         }
