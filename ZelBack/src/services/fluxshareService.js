@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const path = require('path');
 const df = require('node-df');
 const fs = require('fs');
-const { formidable } = require('formidable');
+const formidable = require('formidable');
 const archiver = require('archiver');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
@@ -801,6 +801,7 @@ async function fluxShareUpload(req, res) {
       folder += '/';
     }
     const dirpath = path.join(__dirname, '../../../');
+    console.log(dirpath);
     const uploadDir = `${dirpath}ZelApps/ZelShare/${folder}`;
     const options = {
       multiples: true,
