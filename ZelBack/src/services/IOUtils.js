@@ -7,6 +7,7 @@ const axios = require('axios');
 const tar = require('tar');
 const nodecmd = require('node-cmd');
 const path = require('path');
+const { formidable } = require('formidable');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
@@ -366,7 +367,6 @@ async function fileUpload(req, res) {
     // }
     // eslint-disable-next-line no-bitwise
     await fs.promises.access(uploadDir, fs.constants.F_OK | fs.constants.W_OK); // check folder exists and write ability
-    const { formidable } = await import('formidable');
     const form = formidable(options);
     form
       .on('progress', (bytesReceived, bytesExpected) => {

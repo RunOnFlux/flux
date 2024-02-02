@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const path = require('path');
 const df = require('node-df');
 const fs = require('fs');
+const { formidable } = require('formidable');
 const archiver = require('archiver');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
@@ -824,7 +825,6 @@ async function fluxShareUpload(req, res) {
     }
     // eslint-disable-next-line no-bitwise
     await fs.promises.access(uploadDir, fs.constants.F_OK | fs.constants.W_OK); // check folder exists and write ability
-    const { formidable } = await import('formidable');
     const form = formidable(options);
     form
       .on('progress', (bytesReceived, bytesExpected) => {
