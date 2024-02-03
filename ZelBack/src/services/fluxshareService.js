@@ -803,7 +803,7 @@ async function fluxShareUpload(req, res) {
       folder += '/';
     }
     const dirpath = path.join(__dirname, '../../../');
-    const uploadDir = `${dirpath}ZelApps/ZelShare/`;
+    const uploadDir = `${dirpath}ZelApps/ZelShare${folder}`;
     const options = {
       multiples: true,
       uploadDir,
@@ -831,7 +831,8 @@ async function fluxShareUpload(req, res) {
     form
       // eslint-disable-next-line no-unused-vars
       .on('fileBegin', (name, file) => {
-
+        // eslint-disable-next-line no-param-reassign
+        file.filepath = `${uploadDir}/${name}`;
       })
       .on('progress', (bytesReceived, bytesExpected) => {
         try {

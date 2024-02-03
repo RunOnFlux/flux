@@ -103,10 +103,6 @@ export default {
     ToastificationContent,
   },
   props: {
-    isDark: {
-      type: String,
-      required: true,
-    },
     uploadFolder: {
       type: String,
       required: true,
