@@ -13,6 +13,7 @@ const dbHelper = require('./dbHelper');
 const verificationHelper = require('./verificationHelper');
 const generalService = require('./generalService');
 const log = require('../lib/log');
+const IOUtils = require('./IOUtils');
 
 /**
  * Delete a specific FluxShare file.
@@ -546,8 +547,8 @@ async function fluxShareRemoveFolder(req, res) {
 
       const dirpath = path.join(__dirname, '../../../');
       const filepath = `${dirpath}ZelApps/ZelShare/${folder}`;
-      await fs.promises.rmdir(filepath);
-
+      // await fs.promises.rmdir(filepath);
+      await IOUtils.removeDirectory(filepath);
       const response = messageHelper.createSuccessMessage('Folder Removed');
       res.json(response);
     } else {
@@ -791,31 +792,31 @@ async function fluxShareStorageStats(req, res) {
  */
 async function fluxShareUpload(req, res) {
   try {
-    console.log(req.body.customPaths);
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
     if (!authorized) {
       throw new Error('Unauthorized. Access denied.');
     }
     let { folder } = req.params;
     folder = folder || req.query.folder || '';
+
+    folder = folder.split(',');
     if (folder) {
       folder += '/';
     }
-
     const dirpath = path.join(__dirname, '../../../');
-    console.log(dirpath);
-    const uploadDir = `${dirpath}ZelApps/ZelShare/${folder}`;
-    console.log(uploadDir);
+    const uploadDir = `${dirpath}ZelApps/ZelShare/`;
     const options = {
       multiples: true,
       uploadDir,
       maxFileSize: 5 * 1024 * 1024 * 1024, // 5gb
+      hashAlgorithm: false,
       keepExtensions: true,
-      filename(part) {
+      filename: (part) => {
         const { originalFilename } = part;
         return originalFilename;
       },
     };
+
     const spaceAvailableForFluxShare = await getSpaceAvailableForFluxShare();
     let spaceUsedByFluxShare = getFluxShareSize();
     spaceUsedByFluxShare = Number(spaceUsedByFluxShare.toFixed(6));
@@ -823,36 +824,30 @@ async function fluxShareUpload(req, res) {
     if (available <= 0) {
       throw new Error('FluxShare Storage is full');
     }
+
     // eslint-disable-next-line no-bitwise
     await fs.promises.access(uploadDir, fs.constants.F_OK | fs.constants.W_OK); // check folder exists and write ability
     const form = formidable(options);
-    form.parse(req)
+
+    form
+      // eslint-disable-next-line no-unused-vars
       .on('fileBegin', (name, file) => {
-        try {
-          const filepath = `${dirpath}ZelApps/ZelShare/${folder}`;
-          // eslint-disable-next-line no-param-reassign
-          file.path = filepath;
-        } catch (error) {
-          log.error(error);
-        }
+
       })
       .on('progress', (bytesReceived, bytesExpected) => {
         try {
-          // console.log('PROGRESS');
           res.write(serviceHelper.ensureString([bytesReceived, bytesExpected]));
         } catch (error) {
           log.error(error);
         }
       })
+      // eslint-disable-next-line no-unused-vars
       .on('field', (name, field) => {
-        console.log('Field', name, field);
-        // console.log(name);
-        // console.log(field);
-        // res.write(serviceHelper.ensureString(field));
+
       })
-      .on('file', (name) => {
+      // eslint-disable-next-line no-unused-vars
+      .on('file', (name, file) => {
         try {
-          console.log('Uploaded file', name);
           res.write(serviceHelper.ensureString(name));
         } catch (error) {
           log.error(error);
@@ -870,7 +865,6 @@ async function fluxShareUpload(req, res) {
         );
         try {
           res.write(serviceHelper.ensureString(errorResponse));
-          res.end();
         } catch (e) {
           log.error(e);
         }
@@ -882,10 +876,11 @@ async function fluxShareUpload(req, res) {
           log.error(error);
         }
       });
+
+    form.parse(req);
   } catch (error) {
     log.error(error);
     if (res) {
-      // res.set('Connection', 'close');
       try {
         res.connection.destroy();
       } catch (e) {

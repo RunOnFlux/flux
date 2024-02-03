@@ -5164,6 +5164,10 @@ export default {
     Ripple,
   },
   props: {
+    isDark: {
+      type: String,
+      required: true,
+    },
     appName: {
       type: String,
       required: true,
