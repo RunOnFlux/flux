@@ -417,6 +417,7 @@
    "rp91",
    "thijsvanloef/palworld-server-docker",
    "ghcr.io/jsdelivr/globalping-probe",
+   "aukilabs",
    "jwilder/nginx-proxy",
    "nginxproxy/acme-companion"
 ]
