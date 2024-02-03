@@ -810,7 +810,8 @@ async function fluxShareUpload(req, res) {
       maxFileSize: 5 * 1024 * 1024 * 1024, // 5gb
       hashAlgorithm: false,
       keepExtensions: true,
-      filename: (part) => {
+      // eslint-disable-next-line no-unused-vars
+      filename: (name, ext, part, form) => {
         const { originalFilename } = part;
         return originalFilename;
       },
