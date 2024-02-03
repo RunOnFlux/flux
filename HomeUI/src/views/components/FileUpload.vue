@@ -170,23 +170,18 @@ export default {
       this.files = this.files.filter((f) => f.file.name !== file.file.name);
     },
     startUpload() {
-      // eslint-disable-next-line no-unused-vars
-      let indexof = 0;
-      const destpath = ['red', 'blue'];
       console.log(this.uploadFolder);
       console.log(this.files);
       this.files.forEach((f) => {
         console.log(f);
         if (!f.uploaded && !f.uploading) {
-          console.log(destpath[indexof]);
-          this.upload(f, destpath[indexof]);
+          this.upload(f);
         }
         // eslint-disable-next-line no-plusplus
-        indexof++;
       });
     },
     /* eslint no-param-reassign: ["error", { "props": false }] */
-    upload(file, destpath) {
+    upload(file) {
       const self = this;
       if (typeof XMLHttpRequest === 'undefined') {
         return;
@@ -207,7 +202,6 @@ export default {
 
       const formData = new FormData();
       formData.append(file.file.name, file.file);
-      formData.append('path', destpath);
       file.uploading = true;
 
       xhr.onerror = function error(e) {

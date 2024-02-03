@@ -799,7 +799,6 @@ async function fluxShareUpload(req, res) {
     let { folder } = req.params;
     folder = folder || req.query.folder || '';
 
-    folder = folder.split(',');
     if (folder) {
       folder += '/';
     }
