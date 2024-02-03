@@ -311,7 +311,7 @@ async function createTarGz(sourceDirectory, outputFileName) {
 async function removeDirectory(rpath, directory = false) {
   try {
     let execFinal;
-    if (directory === 'false') {
+    if (directory === false) {
       execFinal = `sudo rm -rf ${rpath}`;
     } else {
       execFinal = `sudo rm -rf ${rpath}/*`;
