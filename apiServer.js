@@ -28,12 +28,7 @@ function validIpv4Address(ip) {
   if (!ipv4Regex.test(ip)) return false;
 
   const parts = ip.split('.');
-
-  const isValid = parts.every((part) => {
-    if (parseInt(part, 10) > 255) return false;
-    return true;
-  });
-
+  const isValid = parts.every((part) => parseInt(part, 10) < 256);
   return isValid;
 }
 
@@ -62,7 +57,7 @@ function validateTags() {
 
 async function waitForApiPortAndRouterIp(autoUpnp) {
   if (!autoUpnp) {
-    // if initial is undefined or empty string, user server.apiport
+    // if initial is undefined or empty string, use server.apiport
     const apiPort = +userconfig.initial.apiport || +config.server.apiport;
     const routerIp = userconfig.initial.routerIP;
     if (routerIp && !validIpv4Address(routerIp)) {
