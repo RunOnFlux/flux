@@ -15,14 +15,14 @@ const verificationHelper = require('./verificationHelper');
 const cmdAsync = util.promisify(nodecmd.get);
 
 /**
- * Converts file sizes to a specified unit.
- *
- * @param {Array|number} sizes - An array of file information objects or a single number representing the total size in bytes.
- * @param {string} targetUnit - The unit to convert the file sizes to ('B', 'KB', 'MB', 'GB'). Defaults to 'auto' for automatic selection.
- * @param {number} decimal - The number of decimal places to round the result. Defaults to 2.
- * @returns {string} - The formatted result with the converted size and unit.
+ * Converts file sizes to a specified unit or the most appropriate unit based on the total size.
+ * @param {number | Array<{ file_size: number }>} sizes - Total size in bytes or an array of file sizes.
+ * @param {string} [targetUnit='auto'] - The desired unit for the result. Use 'auto' to determine the best unit automatically.
+ * @param {number} [decimal=2] - The number of decimal places to round the result.
+ * @param {boolean} [returnNumber=false] - If true, returns the numeric value only without formatting.
+ * @returns {string | number | false} - The formatted result (string), numeric result, or false if input is invalid.
  */
-function convertFileSize(sizes, targetUnit = 'auto', decimal = 2) {
+function convertFileSize(sizes, targetUnit = 'auto', decimal = 2, returnNumber = false) {
   const multiplierMap = {
     B: 1,
     KB: 1024,
@@ -41,7 +41,6 @@ function convertFileSize(sizes, targetUnit = 'auto', decimal = 2) {
   } else {
     return false;
   }
-
   if (targetUnit === 'auto') {
     let bestMatchUnit;
     let bestMatchResult = totalSizeInBytes;
@@ -53,11 +52,21 @@ function convertFileSize(sizes, targetUnit = 'auto', decimal = 2) {
         bestMatchUnit = unit;
       }
     });
-    return formatResult(bestMatchResult, bestMatchUnit);
+    if (returnNumber) {
+      return bestMatchResult;
+    // eslint-disable-next-line no-else-return
+    } else {
+      return formatResult(bestMatchResult, bestMatchUnit);
+    }
   // eslint-disable-next-line no-else-return
   } else {
     const result = getSizeWithMultiplier(totalSizeInBytes, targetUnit);
-    return formatResult(result, targetUnit);
+    if (returnNumber) {
+      return result;
+    // eslint-disable-next-line no-else-return
+    } else {
+      return formatResult(result, targetUnit);
+    }
   }
 }
 

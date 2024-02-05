@@ -58,7 +58,7 @@ async function getLocalBackupList(req, res) {
     let { path } = req.params;
     path = path || req.query.path;
     let { multiplier } = req.params;
-    multiplier = (multiplier !== undefined && multiplier !== null) ? multiplier : (req.query.multiplier || 'MB');
+    multiplier = (multiplier !== undefined && multiplier !== null) ? multiplier : (req.query.multiplier || 'B');
     let { decimal } = req.params;
     decimal = (decimal !== undefined && decimal !== null) ? decimal : (req.query.decimal || '0');
     if (!path) {
