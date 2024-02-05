@@ -633,7 +633,7 @@ module.exports = (app, expressWs) => {
     appsService.appendBackupTask(req, res);
   });
 
-  app.post('/ioutils/fileupload/:folder?/:type?', (req, res) => {
+  app.post('/ioutils/fileupload/:fullpath?/:filename?', (req, res) => {
     IOUtils.fileUpload(req, res);
   });
 

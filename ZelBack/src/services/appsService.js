@@ -11649,6 +11649,7 @@ async function appendRestoreTask(req, res) {
       if (indexBackup !== -1) {
         throw new Error('Backup in progress...');
       }
+      res.write('Checking...');
       console.log('Checking,....');
       log.info(`App: ${appname}`);
       backupInProgress.push(appname);

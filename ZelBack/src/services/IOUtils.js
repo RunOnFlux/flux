@@ -15,19 +15,50 @@ const verificationHelper = require('./verificationHelper');
 const cmdAsync = util.promisify(nodecmd.get);
 
 /**
- * Convert file size from bytes to the specified unit.
- * @param {number} sizeInBytes - Size of the file in bytes.
- * @param {string} multiplier - Unit to convert to (B, KB, MB, GB).
- * @returns {number} - Converted file size.
+ * Converts file sizes to a specified unit.
+ *
+ * @param {Array|number} sizes - An array of file information objects or a single number representing the total size in bytes.
+ * @param {string} targetUnit - The unit to convert the file sizes to ('B', 'KB', 'MB', 'GB'). Defaults to 'auto' for automatic selection.
+ * @param {number} decimal - The number of decimal places to round the result. Defaults to 2.
+ * @returns {string} - The formatted result with the converted size and unit.
  */
-function convertFileSize(sizeInBytes, multiplier) {
+function convertFileSize(sizes, targetUnit = 'auto', decimal = 2) {
   const multiplierMap = {
     B: 1,
     KB: 1024,
     MB: 1024 * 1024,
     GB: 1024 * 1024 * 1024,
   };
-  return sizeInBytes / multiplierMap[multiplier.toUpperCase()];
+
+  const getSizeWithMultiplier = (size, multiplier) => size / multiplierMap[multiplier.toUpperCase()];
+  const formatResult = (result, unit) => `${result.toFixed(decimal)} ${unit}`;
+  let totalSizeInBytes;
+
+  if (Array.isArray(sizes)) {
+    totalSizeInBytes = sizes.reduce((total, fileInfo) => total + fileInfo.file_size, 0);
+  } else if (typeof sizes === 'number') {
+    totalSizeInBytes = sizes;
+  } else {
+    return false;
+  }
+
+  if (targetUnit === 'auto') {
+    let bestMatchUnit;
+    let bestMatchResult = totalSizeInBytes;
+
+    Object.keys(multiplierMap).forEach((unit) => {
+      const result = getSizeWithMultiplier(totalSizeInBytes, unit);
+      if (result >= 1 && result < bestMatchResult) {
+        bestMatchResult = result;
+        bestMatchUnit = unit;
+      }
+    });
+    return formatResult(bestMatchResult, bestMatchUnit);
+  // eslint-disable-next-line no-else-return
+  } else {
+    const result = getSizeWithMultiplier(totalSizeInBytes, targetUnit);
+    return formatResult(result, targetUnit);
+  }
 }
 
 /**
@@ -335,24 +366,24 @@ async function fileUpload(req, res) {
     if (!authorized) {
       throw new Error('Unauthorized. Access denied.');
     }
+    let { fullpath } = req.params;
+    fullpath = fullpath || req.query.fullpath;
 
-    let { folder } = req.params;
-    folder = folder || req.query.folder || '';
-    if (folder) {
-      folder += '/';
+    let { filename } = req.params;
+    filename = filename || req.query.filename || '';
+
+    if (!fullpath) {
+      throw new Error('fullpath parameter is mandatory');
     }
-    let { type } = req.params;
-    type = (type !== undefined && type !== null) ? type : (req.query.type || false);
 
-    // const dirpath = path.join(__dirname, '../../../');
-    const uploadDir = `${folder}`;
     const options = {
-      multiples: type,
-      uploadDir,
+      multiples: true,
+      uploadDir: `${fullpath}/`,
       maxFileSize: 5 * 1024 * 1024 * 1024, // 5gb
       hashAlgorithm: false,
       keepExtensions: true,
-      filename: (part) => {
+      // eslint-disable-next-line no-unused-vars
+      filename: (name, ext, part, form) => {
         const { originalFilename } = part;
         return originalFilename;
       },
@@ -363,12 +394,25 @@ async function fileUpload(req, res) {
     // spaceUsedByFluxShare = Number(spaceUsedByFluxShare.toFixed(6));
     // const available = spaceAvailableForFluxShare - spaceUsedByFluxShare;
     // if (available <= 0) {
-    //   throw new Error('FluxShare Storage is full');
+    //  throw new Error('FluxShare Storage is full');
     // }
+
     // eslint-disable-next-line no-bitwise
-    await fs.promises.access(uploadDir, fs.constants.F_OK | fs.constants.W_OK); // check folder exists and write ability
+    // await fs.promises.access(uploadDir, fs.constants.F_OK | fs.constants.W_OK); // check folder exists and write ability
+    await fs.mkdir(fullpath, { recursive: true });
     const form = formidable(options);
+
     form
+      // eslint-disable-next-line no-unused-vars
+      .on('fileBegin', (name, file) => {
+        if (!filename) {
+          // eslint-disable-next-line no-param-reassign
+          file.filepath = `${fullpath}${name}`;
+        } else {
+          // eslint-disable-next-line no-param-reassign
+          file.filepath = `${fullpath}${filename}`;
+        }
+      })
       .on('progress', (bytesReceived, bytesExpected) => {
         try {
           res.write(serviceHelper.ensureString([bytesReceived, bytesExpected]));
@@ -376,12 +420,14 @@ async function fileUpload(req, res) {
           log.error(error);
         }
       })
+      // eslint-disable-next-line no-unused-vars
       .on('field', (name, field) => {
-        console.log('Field', name, field);
+
       })
-      .on('file', (file) => {
+      // eslint-disable-next-line no-unused-vars
+      .on('file', (name, file) => {
         try {
-          res.write(serviceHelper.ensureString(file.name));
+          res.write(serviceHelper.ensureString(name));
         } catch (error) {
           log.error(error);
         }
@@ -398,7 +444,6 @@ async function fileUpload(req, res) {
         );
         try {
           res.write(serviceHelper.ensureString(errorResponse));
-          res.end();
         } catch (e) {
           log.error(e);
         }
