@@ -23,7 +23,7 @@ const cmdAsync = util.promisify(nodecmd.get);
 let initialHash = hash(fs.readFileSync(path.join(__dirname, '/config/userconfig.js')));
 
 function validIpv4Address(ip) {
-  const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
+  const ipv4Regex = /^([1-9]\d{0,2}\.){3}[1-9]\d{0,2}$/;
 
   if (!ipv4Regex.test(ip)) return false;
 
@@ -32,7 +32,7 @@ function validIpv4Address(ip) {
   const isValid = parts.every((part) => {
     if (parseInt(part, 10) > 255) return false;
     return true;
-  })
+  });
 
   return isValid;
 }
@@ -168,7 +168,7 @@ async function configReload() {
         log.info(`Config file changed, reloading ${event.filename}...`);
         delete require.cache[require.resolve('./config/userconfig')];
         // only reimport initial - so we don't overwrite computed as other
-        //routines may be using this
+        // routines may be using this
         // eslint-disable-next-line
         userconfig.initial = require('./config/userconfig').initial;
         await SetupPortsUpnpAndComputed();
