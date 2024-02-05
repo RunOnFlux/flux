@@ -77,7 +77,7 @@ function convertFileSize(sizes, targetUnit = 'auto', decimal = 2, returnNumber =
  * @param {number} decimal - Number of decimal places for precision.
  * @returns {string|boolean} - The total size of the folder formatted with the specified multiplier and decimal places, or false if an error occurs.
  */
-async function getFolderSize(folderPath, multiplier, decimal) {
+async function getFolderSize(folderPath, multiplier, decimal, number = false) {
   try {
     let totalSize = 0;
     const calculateSize = async (filePath) => {
@@ -97,7 +97,7 @@ async function getFolderSize(folderPath, multiplier, decimal) {
 
     totalSize = await calculateSize(folderPath);
 
-    const fileSize = convertFileSize(totalSize, multiplier, decimal);
+    const fileSize = convertFileSize(totalSize, multiplier, decimal, number);
     return fileSize;
   } catch (err) {
     console.error(`Error getting folder size: ${err}`);
@@ -113,11 +113,11 @@ async function getFolderSize(folderPath, multiplier, decimal) {
  * @param {number} decimal - Optional number of decimal places for the formatted file size.
  * @returns {string|boolean} - The formatted file size as a string if successful, false on failure.
  */
-async function getFileSize(filePath, multiplier, decimal) {
+async function getFileSize(filePath, multiplier, decimal, number = false) {
   try {
     const stats = await fs.stat(filePath);
     const fileSizeInBytes = stats.size;
-    const fileSize = convertFileSize(fileSizeInBytes, multiplier, decimal);
+    const fileSize = convertFileSize(fileSizeInBytes, multiplier, decimal, number);
     return fileSize;
   } catch (err) {
     console.error(`Error getting file size: ${err}`);
@@ -133,7 +133,7 @@ async function getFileSize(filePath, multiplier, decimal) {
  * @param {number} decimal - The number of decimal places to round the file size.
  * @returns {string|boolean} - The rounded file size as a string with specified decimal places, or false on failure.
  */
-async function getRemoteFileSize(fileurl, multiplier, decimal) {
+async function getRemoteFileSize(fileurl, multiplier, decimal, number = false) {
   try {
     const head = await axios.head(fileurl);
     const contentLengthHeader = head.headers['content-length'] || head.headers['Content-Length'];
@@ -141,7 +141,7 @@ async function getRemoteFileSize(fileurl, multiplier, decimal) {
     if (!Number.isFinite(fileSizeInBytes)) {
       throw new Error('Error fetching file size');
     }
-    const fileSize = convertFileSize(fileSizeInBytes, multiplier, decimal);
+    const fileSize = convertFileSize(fileSizeInBytes, multiplier, decimal, number);
     return fileSize;
   } catch (error) {
     log.error(error);
@@ -205,7 +205,7 @@ async function getVolumeInfo(appname, component, multiplier, decimal, fields, pa
  * @param {number} decimal - Number of decimal places for file sizes.
  * @returns {Array} An array of file information or returns an empty array if there's an issue reading the directory or obtaining file information.
  */
-async function getPathFileList(path, multiplier, decimal, filterKeywords = []) {
+async function getPathFileList(path, multiplier, decimal, filterKeywords = [], number = false) {
   try {
     const files = await fs.readdir(path);
     const filesArray = [];
@@ -220,7 +220,7 @@ async function getPathFileList(path, multiplier, decimal, filterKeywords = []) {
         return includes;
       });
       if (passesFilter) {
-        const fileSize = convertFileSize(stats.size, multiplier, decimal);
+        const fileSize = convertFileSize(stats.size, multiplier, decimal, number);
         const fileInfo = {
           name: file,
           create: stats.birthtimeMs.toFixed(0),

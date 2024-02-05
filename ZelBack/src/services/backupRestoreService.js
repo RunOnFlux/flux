@@ -61,12 +61,14 @@ async function getLocalBackupList(req, res) {
     multiplier = (multiplier !== undefined && multiplier !== null) ? multiplier : (req.query.multiplier || 'B');
     let { decimal } = req.params;
     decimal = (decimal !== undefined && decimal !== null) ? decimal : (req.query.decimal || '0');
+    let { number } = req.params;
+    number = (number !== undefined && number !== null) ? number : (req.query.number || 'false');
     if (!path) {
       throw new Error('path parameter is required');
     }
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
     if (authorized === true) {
-      const listData = await IOUtils.getPathFileList(path, multiplier, decimal, ['.tar.gz']);
+      const listData = await IOUtils.getPathFileList(path, multiplier, decimal, ['.tar.gz'], number);
       if (listData.length === 0) {
         throw new Error('No matching mount found');
       }
@@ -101,9 +103,11 @@ async function getRemoteFileSize(req, res) {
     let { fileurl } = req.params;
     fileurl = fileurl || req.query.fileurl;
     let { multiplier } = req.params;
-    multiplier = (multiplier !== undefined && multiplier !== null) ? multiplier : (req.query.multiplier || 'MB');
+    multiplier = (multiplier !== undefined && multiplier !== null) ? multiplier : (req.query.multiplier || 'B');
     let { decimal } = req.params;
     decimal = (decimal !== undefined && decimal !== null) ? decimal : (req.query.decimal || '0');
+    let { number } = req.params;
+    number = (number !== undefined && number !== null) ? number : (req.query.number || 'false');
     if (!fileurl) {
       throw new Error('fileurl parameter is mandatory');
     }
@@ -118,7 +122,7 @@ async function getRemoteFileSize(req, res) {
       // const fileSize = IOService.convertFileSize(fileSizeInBytes, multiplier);
       // const roundedFileSize = fileSize.toFixed(decimal);
       // const response = messageHelper.createDataMessage(roundedFileSize);
-      const fileSize = await IOUtils.getRemoteFileSize(fileurl, multiplier, decimal);
+      const fileSize = await IOUtils.getRemoteFileSize(fileurl, multiplier, decimal, number);
       if (fileSize === false) {
         throw new Error('Error fetching file size');
       }
@@ -165,7 +169,7 @@ async function getRemoteFile(req, res) {
       // eslint-disable-next-line no-restricted-syntax
       for (const { url, component, appname } of bodyData) {
         // eslint-disable-next-line no-await-in-loop
-        const volumePath = await IOUtils.getVolumeInfo(appname, component, 'MB', 0, 'mount');
+        const volumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 0, 'mount');
         // eslint-disable-next-line no-await-in-loop
         if (await IOUtils.checkFileExists(`${volumePath[0].mount}/backup/remote/${component}_${appname}.tar.gz`)) {
           // eslint-disable-next-line no-await-in-loop

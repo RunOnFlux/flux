@@ -617,10 +617,10 @@ module.exports = (app, expressWs) => {
   app.get('/backup/getvolumedataofcomponent/:appname?/:component?/:multiplier?/:decimal?/:fields?', (req, res) => {
     backupRestoreService.getVolumeDataOfComponent(req, res);
   });
-  app.get('/backup/getremotefilesize/:fileurl?/:multiplier?/:decimal?', (req, res) => {
+  app.get('/backup/getremotefilesize/:fileurl?/:multiplier?/:decimal?/:number?', (req, res) => {
     backupRestoreService.getRemoteFileSize(req, res);
   });
-  app.get('/backup/getlocalbackuplist/:path?/:multiplier?/:decimal?', (req, res) => {
+  app.get('/backup/getlocalbackuplist/:path?/:multiplier?/:decimal?/:number?', (req, res) => {
     backupRestoreService.getLocalBackupList(req, res);
   });
   app.get('/backup/removebackupfile/:filepath?', (req, res) => {

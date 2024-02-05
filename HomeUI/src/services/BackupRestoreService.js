@@ -9,21 +9,21 @@ export default {
     };
     return Api().get(`/backup/getvolumedataofcomponent/${appname}/${componentname}/${multiplier}/${decimal}/${fields}`, axiosConfig);
   },
-  getRemoteFileSize(zelidauthHeader, fileurl, multiplier, decimal) {
+  getRemoteFileSize(zelidauthHeader, fileurl, multiplier, decimal, number) {
     const axiosConfig = {
       headers: {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().get(`/backup/getremotefilesize/${fileurl}/${multiplier}/${decimal}`, axiosConfig);
+    return Api().get(`/backup/getremotefilesize/${fileurl}/${multiplier}/${decimal}/${number}`, axiosConfig);
   },
-  getBackupList(zelidauthHeader, path, multiplier, decimal) {
+  getBackupList(zelidauthHeader, path, multiplier, decimal, number) {
     const axiosConfig = {
       headers: {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().get(`/backup/getlocalbackuplist/${path}/${multiplier}/${decimal}`, axiosConfig);
+    return Api().get(`/backup/getlocalbackuplist/${path}/${multiplier}/${decimal}/${number}`, axiosConfig);
   },
   removeBackupFile(zelidauthHeader, filepath) {
     const axiosConfig = {
