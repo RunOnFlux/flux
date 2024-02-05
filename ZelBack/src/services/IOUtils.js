@@ -88,9 +88,8 @@ async function getFolderSize(folderPath, multiplier, decimal) {
 
     totalSize = await calculateSize(folderPath);
 
-    const fileSize = convertFileSize(totalSize, multiplier);
-    const roundedFileSize = fileSize.toFixed(decimal);
-    return roundedFileSize;
+    const fileSize = convertFileSize(totalSize, multiplier, decimal);
+    return fileSize;
   } catch (err) {
     console.error(`Error getting folder size: ${err}`);
     return false;
@@ -109,9 +108,8 @@ async function getFileSize(filePath, multiplier, decimal) {
   try {
     const stats = await fs.stat(filePath);
     const fileSizeInBytes = stats.size;
-    const fileSize = convertFileSize(fileSizeInBytes, multiplier);
-    const roundedFileSize = fileSize.toFixed(decimal);
-    return roundedFileSize;
+    const fileSize = convertFileSize(fileSizeInBytes, multiplier, decimal);
+    return fileSize;
   } catch (err) {
     console.error(`Error getting file size: ${err}`);
     return false;
@@ -134,9 +132,8 @@ async function getRemoteFileSize(fileurl, multiplier, decimal) {
     if (!Number.isFinite(fileSizeInBytes)) {
       throw new Error('Error fetching file size');
     }
-    const fileSize = convertFileSize(fileSizeInBytes, multiplier);
-    const roundedFileSize = fileSize.toFixed(decimal);
-    return roundedFileSize;
+    const fileSize = convertFileSize(fileSizeInBytes, multiplier, decimal);
+    return fileSize;
   } catch (error) {
     log.error(error);
     return false;
@@ -209,12 +206,11 @@ async function getPathFileList(path, multiplier, decimal, filterKeywords = []) {
         return includes;
       });
       if (passesFilter) {
-        const fileSize = convertFileSize(stats.size, multiplier);
-        const roundedFileSize = fileSize.toFixed(decimal);
+        const fileSize = convertFileSize(stats.size, multiplier, decimal);
         const fileInfo = {
           name: file,
           create: stats.birthtimeMs.toFixed(0),
-          size: roundedFileSize,
+          size: fileSize,
         };
         filesArray.push(fileInfo);
       }
