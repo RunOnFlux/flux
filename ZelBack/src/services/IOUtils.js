@@ -175,23 +175,24 @@ async function getVolumeInfo(appname, component, multiplier, decimal, fields, pa
       regex = new RegExp(`flux${component}_${appname}$`);
     }
     const allowedFields = fields ? fields.split(',') : null;
+    const adjustValue = (value) => (multiplier.toLowerCase() === 'b' ? value * 1024 : value);
     const dfSorted = dfData
       .filter((entry) => regex.test(entry.mount))
       .map((entry) => {
-        let sizeValue = entry.size;
-        if (multiplier.toLowerCase() === 'b') {
-          sizeValue *= 1024;
-        }
         const filteredEntry = allowedFields
           ? Object.fromEntries(Object.entries(entry).filter(([key]) => allowedFields.includes(key)))
           : entry;
-        filteredEntry.size = sizeValue;
+
+        ['size', 'available', 'used'].forEach((property) => {
+          if (filteredEntry[property] !== undefined) {
+            filteredEntry[property] = adjustValue(filteredEntry[property]);
+          }
+        });
+
         return filteredEntry;
-      });
-    if (dfSorted.length === 0) {
-      return false;
-    }
-    return dfSorted;
+      })
+      .filter((entry) => ['size', 'available', 'used'].some((property) => entry[property] !== undefined));
+    return dfSorted.length > 0 ? dfSorted : false;
   } catch (error) {
     log.error(error);
     return false;
