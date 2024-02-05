@@ -55,14 +55,6 @@ function initIO(httpServer) {
           exec.resize({ h: rows, w: cols }, () => {
           });
         });
-        /* eslint-disable no-shadow, no-unused-vars */
-        container.wait((err, data) => {
-          socket.emit('end', 'ended');
-        });
-
-        if (err) {
-          return;
-        }
         /* eslint-disable no-shadow */
         exec.start(options, (err, stream) => {
           if (err) {
