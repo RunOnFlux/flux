@@ -429,10 +429,10 @@ async function fileUpload(req, res) {
       .on('fileBegin', (name, file) => {
         if (!filename) {
           // eslint-disable-next-line no-param-reassign
-          file.filepath = `${fullpath}${name}`;
+          file.filepath = `${fullpath}/${name}`;
         } else {
           // eslint-disable-next-line no-param-reassign
-          file.filepath = `${fullpath}${filename}`;
+          file.filepath = `${fullpath}/${filename}`;
         }
       })
       .on('progress', (bytesReceived, bytesExpected) => {
