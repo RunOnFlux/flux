@@ -24,17 +24,17 @@ let initialHash = hash(fs.readFileSync(path.join(__dirname, '/config/userconfig.
 
 function validIpv4Address(ip) {
   const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
-  if (ipv4Regex.test(ip)) {
-    const parts = ip.split('.');
-    // eslint-disable-next-line no-restricted-syntax
-    for (const part of parts) {
-      if (parseInt(part, 10) > 255) {
-        return false;
-      }
-    }
+
+  if (!ipv4Regex.test(ip)) return false;
+
+  const parts = ip.split('.');
+
+  const isValid = parts.every((part) => {
+    if (parseInt(part, 10) > 255) return false;
     return true;
-  }
-  return false;
+  })
+
+  return isValid;
 }
 
 function validateTags() {
