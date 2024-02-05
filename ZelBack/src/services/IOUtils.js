@@ -169,9 +169,14 @@ async function getVolumeInfo(appname, component, multiplier, decimal, fields, pa
     const dfSorted = dfData
       .filter((entry) => regex.test(entry.mount))
       .map((entry) => {
+        let sizeValue = entry.size;
+        if (multiplier.toLowerCase() === 'b') {
+          sizeValue *= 1024;
+        }
         const filteredEntry = allowedFields
           ? Object.fromEntries(Object.entries(entry).filter(([key]) => allowedFields.includes(key)))
           : entry;
+        filteredEntry.size = sizeValue;
         return filteredEntry;
       });
     if (dfSorted.length === 0) {
