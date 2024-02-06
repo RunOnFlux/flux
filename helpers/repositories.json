@@ -419,5 +419,6 @@
    "ghcr.io/jsdelivr/globalping-probe",
    "aukilabs",
    "jwilder/nginx-proxy",
-   "nginxproxy/acme-companion"
+   "nginxproxy/acme-companion",
+   "tmart1010/streamlit_music-server"
 ]
