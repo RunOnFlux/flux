@@ -27,8 +27,8 @@ function validIpv4Address(ip) {
 
   if (!ipv4Regex.test(ip)) return false;
 
-  const parts = ip.split('.');
-  const isValid = parts.every((part) => parseInt(part, 10) < 256);
+  const octets = ip.split('.');
+  const isValid = octets.every((octet) => parseInt(octet, 10) < 256);
   return isValid;
 }
 
@@ -132,7 +132,16 @@ async function SetupPortsUpnpAndComputed() {
 
   userconfig.computed.tags = tags;
 
-  const [apiPort, routerIp] = await waitForApiPortAndRouterIp(autoUpnp);
+  let apiPort;
+  let routerIp;
+
+  try {
+    [apiPort, routerIp] = await waitForApiPortAndRouterIp(autoUpnp);
+  } catch (err) {
+    log.error("Error waiting for ip and port, Shutting down.");
+    log.error(err);
+    process.exit();
+  }
 
   if (!config.server.allowedPorts.includes(apiPort)) {
     log.error(`Flux port ${apiPort} is not supported. Shutting down.`);

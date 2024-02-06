@@ -8,6 +8,8 @@ const upnpService = require('./upnpService');
 const { FluxGossipServer, logController: fpcLogController } = require('@megachips/fluxport-controller');
 const { executeCall: executeBenchmarkCall } = require('./benchmarkService');
 
+const GOSSIPSERVER_TIMEOUT = 90
+
 let apiPort = null;
 let routerIp = null;
 let outPoint = null;
@@ -19,7 +21,12 @@ async function getApiPort() {
 
     if (!(gossipServer)) reject(new Error('gossipServer not ready'));
 
-    gossipServer.once('portConfirmed', (port) => resolve(port));
+    const timeout = setTimeout(() => reject(new Error('Timeout waiting for port'), GOSSIPSERVER_TIMEOUT * 1000));
+
+    gossipServer.once('portConfirmed', (port) => {
+      clearTimeout(timeout);
+      resolve(port);
+    });
   });
 }
 
@@ -29,7 +36,12 @@ function getRouterIp() {
 
     if (!(gossipServer)) reject(new Error('gossipServer not ready'));
 
-    gossipServer.once('routerIpConfirmed', (ip) => resolve(ip));
+    const timeout = setTimeout(() => reject(new Error('Timeout waiting for ip'), GOSSIPSERVER_TIMEOUT * 1000));
+
+    gossipServer.once('routerIpConfirmed', (ip) => {
+      clearTimeout(timeout);
+      resolve(ip);
+    });
   });
 }
 
