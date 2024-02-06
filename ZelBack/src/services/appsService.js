@@ -10159,7 +10159,7 @@ async function appDockerStart(appname) {
     const isComponent = appname.includes('_'); // it is a component restart. Proceed with restarting just component
     if (isComponent) {
       await dockerService.appDockerStart(appname);
-      startAppMonitoring(appname, false);
+      startAppMonitoring(appname);
     } else {
       // ask for restarting entire composed application
       // eslint-disable-next-line no-use-before-define
@@ -10169,13 +10169,13 @@ async function appDockerStart(appname) {
       }
       if (appSpecs.version <= 3) {
         await dockerService.appDockerStart(appname);
-        startAppMonitoring(appname, false);
+        startAppMonitoring(appname);
       } else {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecs.compose) {
           // eslint-disable-next-line no-await-in-loop
           await dockerService.appDockerStart(`${appComponent.name}_${appSpecs.name}`);
-          startAppMonitoring(`${appComponent.name}_${appSpecs.name}`, false);
+          startAppMonitoring(`${appComponent.name}_${appSpecs.name}`);
         }
       }
     }
