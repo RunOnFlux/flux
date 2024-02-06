@@ -157,8 +157,9 @@ async function getRemoteFile(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
     try {
+      console.log();
       const bodyData = serviceHelper.ensureObject(req.body);
-      console.log(`Data: ${JSON.stringify(bodyData)}`);
+      console.log(bodyData);
       if (!bodyData || bodyData.length === 0) {
         throw new Error('Request body must contain data (body parameters are required)');
       }
@@ -180,7 +181,7 @@ async function getRemoteFile(req, res) {
         // eslint-disable-next-line no-await-in-loop
         await IOUtils.downloadFileFromUrl(url, `${volumePath[0].mount}/backup/remote`, component, appname, true);
       }
-      const response = messageHelper.createDataMessage('successful!');
+      const response = messageHelper.createDataMessage(true);
       return res ? res.json(response) : response;
       // eslint-disable-next-line no-else-return
     } catch (error) {

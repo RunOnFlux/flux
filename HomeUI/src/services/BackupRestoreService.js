@@ -36,6 +36,7 @@ export default {
   getRemoteFile(zelidauthHeader, data) {
     const axiosConfig = {
       headers: {
+        'Content-Type': 'application/json',
         zelidauth: zelidauthHeader,
       },
     };

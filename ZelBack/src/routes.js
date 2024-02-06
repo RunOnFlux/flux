@@ -1,5 +1,4 @@
 const apicache = require('apicache');
-const express = require('express');
 
 const daemonServiceAddressRpcs = require('./services/daemonService/daemonServiceAddressRpcs');
 const daemonServiceTransactionRpcs = require('./services/daemonService/daemonServiceTransactionRpcs');
@@ -633,11 +632,17 @@ module.exports = (app, expressWs) => {
     appsService.appendBackupTask(req, res);
   });
 
+  app.post('/apps/appendrestoretask', (req, res) => {
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Transfer-Encoding', 'chunked');
+    appsService.appendRestoreTask(req, res);
+  });
+
   app.post('/ioutils/fileupload/:fullpath?/:filename?', (req, res) => {
     IOUtils.fileUpload(req, res);
   });
 
-  app.post('/backup/getremotefile', express.json({ type: '*/*' }), (req, res) => {
+  app.post('/backup/getremotefile', (req, res) => {
     backupRestoreService.getRemoteFile(req, res);
   });
   // GET PROTECTED API - Fluxnode Owner

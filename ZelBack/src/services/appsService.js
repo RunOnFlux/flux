@@ -99,6 +99,7 @@ let installationInProgress = false;
 let reinstallationOfOldAppsInProgress = false;
 let masterSlaveAppsRunning = false;
 const backupInProgress = [];
+const restoreInProgress = [];
 
 const hashesNumberOfSearchs = new Map();
 
@@ -10149,6 +10150,41 @@ async function appDockerRestart(appname) {
 }
 
 /**
+ * To start an app. Start each component if the app is using Docker Compose.
+ * @param {string} appname Request.
+ */
+async function appDockerStart(appname) {
+  try {
+    const mainAppName = appname.split('_')[1] || appname;
+    const isComponent = appname.includes('_'); // it is a component restart. Proceed with restarting just component
+    if (isComponent) {
+      await dockerService.appDockerStart(appname);
+      startAppMonitoring(appname, false);
+    } else {
+      // ask for restarting entire composed application
+      // eslint-disable-next-line no-use-before-define
+      const appSpecs = await getApplicationSpecifications(mainAppName);
+      if (!appSpecs) {
+        throw new Error('Application not found');
+      }
+      if (appSpecs.version <= 3) {
+        await dockerService.appDockerStart(appname);
+        startAppMonitoring(appname, false);
+      } else {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of appSpecs.compose) {
+          // eslint-disable-next-line no-await-in-loop
+          await dockerService.appDockerStart(`${appComponent.name}_${appSpecs.name}`);
+          startAppMonitoring(`${appComponent.name}_${appSpecs.name}`, false);
+        }
+      }
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
  * To stop an app. Stop each component if the app is using Docker Compose.
  * Function to ba called before starting synthing in r: mode.
  * @param {string} appname Request.
@@ -11628,50 +11664,69 @@ async function appendBackupTask(req, res) {
 
 async function appendRestoreTask(req, res) {
   let appname;
-  let pathComponents = [];
   try {
-    log.info(req.params);
+    const processedBody = serviceHelper.ensureObject(req.body);
+    console.log(processedBody);
     // eslint-disable-next-line prefer-destructuring
-    appname = req.params.appname;
-    appname = appname || req.query.appname;
-    // eslint-disable-next-line no-shadow
-    let { sourcepath } = req.params;
-    sourcepath = sourcepath || req.query.sourcepath;
-    let { skip } = req.params;
-    // eslint-disable-next-line no-unused-vars
-    skip = skip || req.query.skip;
-    if (!appname || !sourcepath) {
-      throw new Error('appname and sourcepath target parameters are mandatory');
+    appname = processedBody.appname;
+    const { restore } = processedBody;
+    if (!appname && !restore) {
+      throw new Error('appname and restore parameters are mandatory');
     }
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
     if (authorized === true) {
-      const indexBackup = backupInProgress.indexOf(appname);
-      if (indexBackup !== -1) {
-        throw new Error('Backup in progress...');
+      const indexRestore = restoreInProgress.indexOf(appname);
+      if (indexRestore !== -1) {
+        throw new Error(`Restore for app ${appname} is running...`);
       }
-      backupInProgress.push(appname);
-      pathComponents = sourcepath.split('/');
-      const fullName = `${pathComponents[pathComponents.length - 1]}`;
-      const target = `${sourcepath}/backup/local/${fullName}.tar.gz`;
-      // await appDockerStop(`${appname}`);
-      await stopSyncthingApp(`${fullName}`, res);
-      const existStatus = await IOUtils.checkFileExists(`${sourcepath}/backup/local/${fullName}.tar.gz`);
-      if (existStatus === true) {
-        await IOUtils.removeFile(`${sourcepath}/backup/local/${fullName}.tar.gz`);
+
+      const componentItem = restore.map((restoreItem) => restoreItem);
+      // eslint-disable-next-line no-restricted-syntax
+      for (const restoreItem of componentItem) {
+        console.log(restoreItem.path);
+        // eslint-disable-next-line no-await-in-loop
+        const existStatus = await IOUtils.checkFileExists(restoreItem.path);
+        if (existStatus !== true) {
+          throw new Error('Backup archive file not exists...');
+        }
       }
-      const status = await IOUtils.createTarGz(`${sourcepath}/appdata`, target);
-      if (status === false) {
-        throw new Error('Error creating tarball archive');
+      restoreInProgress.push(appname);
+      res.write('Stopping application...\n');
+      await appDockerStop(appname);
+      // eslint-disable-next-line no-restricted-syntax
+      for (const itemOfRestore of componentItem) {
+        console.log(`${itemOfRestore.component}, syncthing: ${itemOfRestore.syncthing}`);
+        if (itemOfRestore.syncthing === true) {
+          res.write(`Stopping syncthing for ${itemOfRestore.component}\n`);
+          console.log(`Stopping syncthing for ${itemOfRestore.component}`);
+          // eslint-disable-next-line no-await-in-loop
+          await stopSyncthingApp(`${itemOfRestore.component}`, res);
+        }
       }
-      // if (skip === 'false') {
-      //   console.log('Starting docker...');
-      //   await appDockerStart(`${appname}`);
-      // }
-      const indexToRemove = backupInProgress.indexOf(appname);
+      // eslint-disable-next-line no-restricted-syntax
+      for (const itemOfRestore of componentItem) {
+        res.write(`Restoring component ${itemOfRestore.component}...\n`);
+        const backupIndex = itemOfRestore.path.lastIndexOf('backup');
+        const pathBeforeBackup = backupIndex !== -1 ? itemOfRestore.path.substring(0, backupIndex) : itemOfRestore.path;
+        const restoreDirectory = `${pathBeforeBackup}appdata`;
+        console.log(restoreDirectory);
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(1 * 60 * 1000);
+        // eslint-disable-next-line no-await-in-loop
+        // await IOUtils.removeDirectory(restoreDirectory, true);
+        // eslint-disable-next-line no-await-in-loop
+        // await IOUtils.untarFile(restoreDirectory, itemOfRestore.path);
+      }
+
+      await appDockerStart(appname);
+      await serviceHelper.delay(1 * 60 * 1000);
+      const indexToRemove = restoreInProgress.indexOf(appname);
       backupInProgress.splice(indexToRemove, 1);
-      const backapSize = await IOUtils.getFileSize(`${sourcepath}/backup/local/${fullName}.tar.gz`);
-      const response = messageHelper.createSuccessMessage(backapSize);
-      return res.json(response);
+      res.write('successful\n');
+      res.end();
+      return true;
+      // const response = messageHelper.createSuccessMessage('successful');
+      // return res.json(response);
     // eslint-disable-next-line no-else-return
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
@@ -11679,10 +11734,11 @@ async function appendRestoreTask(req, res) {
     }
   } catch (error) {
     log.error(error);
-    if (error.message !== 'Backup in progress...') {
-      // await appDockerStart(`${appname}`);
-      const indexToRemove = backupInProgress.indexOf(appname);
-      backupInProgress.splice(indexToRemove, 1);
+    console.log(error);
+    if (error.message !== 'Restore in progress...') {
+      await appDockerStart(`${appname}`);
+      const indexToRemove = restoreInProgress.indexOf(appname);
+      restoreInProgress.splice(indexToRemove, 1);
     }
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
@@ -11693,7 +11749,6 @@ async function appendRestoreTask(req, res) {
     return res ? res.json(errorResponse) : errorResponse;
   }
 }
-
 module.exports = {
   listRunningApps,
   listAllApps,
