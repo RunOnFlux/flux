@@ -21,7 +21,7 @@ async function getApiPort() {
 
     if (!(gossipServer)) reject(new Error('gossipServer not ready'));
 
-    const timeout = setTimeout(() => reject(new Error('Timeout waiting for port'), GOSSIPSERVER_TIMEOUT * 1000));
+    const timeout = setTimeout(() => reject(new Error('Timeout waiting for port')), GOSSIPSERVER_TIMEOUT * 1000);
 
     gossipServer.once('portConfirmed', (port) => {
       clearTimeout(timeout);
@@ -36,7 +36,7 @@ function getRouterIp() {
 
     if (!(gossipServer)) reject(new Error('gossipServer not ready'));
 
-    const timeout = setTimeout(() => reject(new Error('Timeout waiting for ip'), GOSSIPSERVER_TIMEOUT * 1000));
+    const timeout = setTimeout(() => reject(new Error('Timeout waiting for ip')), GOSSIPSERVER_TIMEOUT * 1000);
 
     gossipServer.once('routerIpConfirmed', (ip) => {
       clearTimeout(timeout);
