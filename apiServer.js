@@ -138,7 +138,7 @@ async function SetupPortsUpnpAndComputed() {
   try {
     [apiPort, routerIp] = await waitForApiPortAndRouterIp(autoUpnp);
   } catch (err) {
-    log.error("Error waiting for ip and port, Shutting down.");
+    log.error('Error waiting for ip and port, Shutting down.');
     log.error(err);
     process.exit();
   }

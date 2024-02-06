@@ -8,7 +8,7 @@ const upnpService = require('./upnpService');
 const { FluxGossipServer, logController: fpcLogController } = require('@megachips/fluxport-controller');
 const { executeCall: executeBenchmarkCall } = require('./benchmarkService');
 
-const GOSSIPSERVER_TIMEOUT = 90
+const GOSSIPSERVER_TIMEOUT = 90;
 
 let apiPort = null;
 let routerIp = null;
