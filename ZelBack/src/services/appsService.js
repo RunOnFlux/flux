@@ -11649,41 +11649,27 @@ async function appendRestoreTask(req, res) {
       if (indexBackup !== -1) {
         throw new Error('Backup in progress...');
       }
-      res.write('Checking...');
-      console.log('Checking,....');
-      log.info(`App: ${appname}`);
       backupInProgress.push(appname);
-      log.info(`Path ${sourcepath}`);
       pathComponents = sourcepath.split('/');
-      log.info(`Split: ${pathComponents}`);
       const fullName = `${pathComponents[pathComponents.length - 1]}`;
-      log.info(`Full: ${fullName}`);
       const target = `${sourcepath}/backup/local/${fullName}.tar.gz`;
-      // console.log('Stopping docker...');
       // await appDockerStop(`${appname}`);
-      console.log('Stopping syncthing...');
       await stopSyncthingApp(`${fullName}`, res);
-      console.log('Checking file...');
       const existStatus = await IOUtils.checkFileExists(`${sourcepath}/backup/local/${fullName}.tar.gz`);
       if (existStatus === true) {
-        console.log('Removing file...');
         await IOUtils.removeFile(`${sourcepath}/backup/local/${fullName}.tar.gz`);
       }
-      console.log(`Create ${target}`);
       const status = await IOUtils.createTarGz(`${sourcepath}/appdata`, target);
       if (status === false) {
         throw new Error('Error creating tarball archive');
       }
-      // console.log(skip);
       // if (skip === 'false') {
       //   console.log('Starting docker...');
       //   await appDockerStart(`${appname}`);
       // }
       const indexToRemove = backupInProgress.indexOf(appname);
       backupInProgress.splice(indexToRemove, 1);
-      console.log('FileSize...');
-      const backapSize = await IOUtils.getFileSize(`${sourcepath}/backup/local/${fullName}.tar.gz`, 'MB', 2);
-      console.log(backapSize);
+      const backapSize = await IOUtils.getFileSize(`${sourcepath}/backup/local/${fullName}.tar.gz`);
       const response = messageHelper.createSuccessMessage(backapSize);
       return res.json(response);
     // eslint-disable-next-line no-else-return

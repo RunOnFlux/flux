@@ -73,11 +73,9 @@ function convertFileSize(sizes, targetUnit = 'auto', decimal = 2, returnNumber =
 /**
  * Get the total size of a folder, including its subdirectories and files.
  * @param {string} folderPath - The path to the folder.
- * @param {string} multiplier - Unit multiplier for displaying sizes (B, KB, MB, GB).
- * @param {number} decimal - Number of decimal places for precision.
  * @returns {string|boolean} - The total size of the folder formatted with the specified multiplier and decimal places, or false if an error occurs.
  */
-async function getFolderSize(folderPath, multiplier, decimal, number = false) {
+async function getFolderSize(folderPath) {
   try {
     let totalSize = 0;
     const calculateSize = async (filePath) => {
@@ -96,9 +94,7 @@ async function getFolderSize(folderPath, multiplier, decimal, number = false) {
     };
 
     totalSize = await calculateSize(folderPath);
-
-    const fileSize = convertFileSize(totalSize, multiplier, decimal, number);
-    return fileSize;
+    return totalSize;
   } catch (err) {
     console.error(`Error getting folder size: ${err}`);
     return false;
@@ -109,16 +105,13 @@ async function getFolderSize(folderPath, multiplier, decimal, number = false) {
  * Retrieves the size of the file at the specified path and formats it with an optional multiplier and decimal places.
  *
  * @param {string} filePath - The path of the file for which the size will be retrieved.
- * @param {number} multiplier - Optional multiplier to convert file size (e.g., 1024 for kilobytes).
- * @param {number} decimal - Optional number of decimal places for the formatted file size.
  * @returns {string|boolean} - The formatted file size as a string if successful, false on failure.
  */
-async function getFileSize(filePath, multiplier, decimal, number = false) {
+async function getFileSize(filePath) {
   try {
     const stats = await fs.stat(filePath);
     const fileSizeInBytes = stats.size;
-    const fileSize = convertFileSize(fileSizeInBytes, multiplier, decimal, number);
-    return fileSize;
+    return fileSizeInBytes;
   } catch (err) {
     console.error(`Error getting file size: ${err}`);
     return false;
