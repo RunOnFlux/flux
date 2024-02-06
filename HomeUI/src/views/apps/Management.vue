@@ -4444,8 +4444,12 @@ export default {
         return 'Not possible to calculate expiration';
       }
       const expires = this.callBResponse.data.expire || 22000;
+      const blocksToExpire = this.callBResponse.data.height + expires - this.daemonBlockCount;
+      if (blocksToExpire < 1) {
+        return 'Application Expired';
+      }
       // eslint-disable-next-line vue/no-side-effects-in-computed-properties
-      this.minutesRemaining = (this.callBResponse.data.height + expires - this.daemonBlockCount) * 2;
+      this.minutesRemaining = blocksToExpire * 2;
       const result = this.minutesToString;
       return `${result[0]}, ${result[1]}, ${result[2]}`;
     },
@@ -5532,7 +5536,7 @@ export default {
         for (const node of this.instances.data) {
           const ip = node.ip.split(':')[0];
           const port = node.ip.split(':')[1] || 16127;
-          const url = `http://${ip}:${port}/flux/geolocation`;
+          const url = `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/flux/geolocation`;
           let errorFluxOs = false;
           // eslint-disable-next-line no-await-in-loop
           const fluxGeo = await axios.get(url).catch((error) => {
