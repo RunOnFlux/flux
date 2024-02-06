@@ -1534,7 +1534,11 @@ export default {
         return 'Not possible to calculate expiration';
       }
       const expires = expire || 22000;
-      const minutesRemaining = (height + expires - this.daemonBlockCount) * 2;
+      const blocksToExpire = height + expires - this.daemonBlockCount;
+      if (blocksToExpire < 1) {
+        return 'Application Expired';
+      }
+      const minutesRemaining = blocksToExpire * 2;
       const result = this.minutesToString(minutesRemaining);
       return `${result[0]}, ${result[1]}, ${result[2]}`;
     },
