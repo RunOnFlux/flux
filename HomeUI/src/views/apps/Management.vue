@@ -2329,7 +2329,7 @@
                     class="mt-2"
                     block
                     variant="outline-primary"
-                    @click="startUpload(upload)"
+                    @click="startUpload('upload')"
                   >
                     <b-icon icon="arrow-clockwise" scale="1.1" class="mr-1" />Restore
                   </b-button>
@@ -6047,7 +6047,7 @@ export default {
             uploading: false,
             uploaded: false,
             progress: 0,
-            path: `${this.volumePath}/upload`,
+            path: `${this.volumePath}/backup/upload`,
             component: this.restoreRemoteFile,
             file: `backup_${this.restoreRemoteFile.toLowerCase()}.tar.gz`,
             file_size: f.size,
@@ -6058,7 +6058,7 @@ export default {
             uploading: false,
             uploaded: false,
             progress: 0,
-            path: `${this.volumePath}/upload`,
+            path: `${this.volumePath}/backup/upload`,
             component: this.restoreRemoteFile,
             file: `backup_${this.restoreRemoteFile.toLowerCase()}.tar.gz`,
             file_size: f.size,
@@ -6077,16 +6077,79 @@ export default {
       });
       return objectToUpdate;
     },
+    // eslint-disable-next-line consistent-return
+    async fetchData() {
+      this.restoreFromUploadStatus = 'Restoring tiggered...';
+      const restoreObject = {
+        appname: this.appName,
+        restore: this.files.map((item) => ({
+          component: item.component,
+          path: `${item.path}/${item.file}`,
+          syncthing: false,
+        })),
+      };
+      console.log(restoreObject);
+      const postData = this.getSyncthingStatus(restoreObject);
+      const port = this.config.apiPort;
+      try {
+        const response = await fetch(`${this.ipAddress}:${port}/apps/appendrestoretask`, {
+          method: 'POST',
+          headers: this.zelidHeader,
+          body: JSON.stringify(postData),
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+
+        const reader = response.body.getReader();
+
+        return new ReadableStream({
+          async start(controller) {
+            async function push() {
+              const { done, value } = await reader.read();
+
+              if (done) {
+                controller.close();
+                return;
+              }
+
+              const chunkText = new TextDecoder('utf-8').decode(value);
+              console.log('New message received...');
+              console.log(chunkText);
+              // controller.enqueue(value);
+              push();
+            }
+
+            push();
+          },
+        });
+      } catch (error) {
+        console.error('Error fetching data:', error.message);
+      }
+    },
     removeFile(file) {
       // eslint-disable-next-line camelcase
       this.files = this.files.filter((selected_file) => selected_file.selected_file.name !== file.selected_file.name);
     },
-    startUpload(type) {
+    async processChunks(chunks) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const chunk of chunks) {
+        if (chunk !== '') {
+          this.restoreFromUploadStatus = chunk;
+        }
+        // eslint-disable-next-line no-await-in-loop, no-promise-executor-return
+        await new Promise((resolve) => setTimeout(resolve, 2000)); // Adjust the delay as needed
+      }
+    },
+    startUpload() {
+      const self = this;
       // eslint-disable-next-line no-async-promise-executor
       return new Promise(async (resolve, reject) => {
         try {
           this.restoreFromUpload = true;
           this.restoreFromUploadStatus = 'Uploading...';
+
           // eslint-disable-next-line no-async-promise-executor
           const uploadPromises = this.files.map((f) => new Promise(async (resolveFile, rejectFile) => {
             if (!f.uploaded && !f.uploading) {
@@ -6097,10 +6160,11 @@ export default {
                 rejectFile(error);
               }
             } else {
-              resolveFile(); // If file is already uploaded or uploading, resolve immediately.
+              resolveFile(); // If the file is already uploaded or uploading, resolve immediately.
             }
           }));
           await Promise.all(uploadPromises);
+
           this.files.forEach((entry) => {
             entry.uploading = false;
             entry.uploaded = false;
@@ -6108,33 +6172,59 @@ export default {
           });
 
           this.restoreFromUploadStatus = 'Restoring...';
+
           const restoreObject = {
             appname: this.appName,
             restore: this.files.map((item) => ({
               component: item.component,
-              path: `${item.path}/${type}/${item.file}`,
+              path: `${item.path}/${item.file}`,
               syncthing: false,
             })),
           };
+
           console.log(restoreObject);
+
           const postData = this.getSyncthingStatus(restoreObject);
           const port = this.config.apiPort;
-          axios({
+          const zelidauth = localStorage.getItem('zelidauth');
+          const headers = {
+            zelidauth,
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          };
+
+          const response = await fetch(`${this.ipAddress}:${port}/apps/appendrestoretask`, {
             method: 'POST',
-            url: `${this.ipAddress}:${port}/apps/appendrestoretask`,
-            data: postData,
-            responseType: 'stream',
-            headers: this.zelidHeader,
-          }).then((response) => {
-            response.data.on('data', (chunk) => {
-              console.log(chunk.toString()); // Update UI with this data
-            });
+            body: JSON.stringify(postData),
+            headers,
           });
 
-          setTimeout(() => {
-            this.restoreFromUpload = false;
-            resolve(); // Resolve the outer promise when all uploads are complete
-          }, 10000);
+          const reader = response.body.getReader();
+
+          // Read the response stream
+          // eslint-disable-next-line no-unused-vars
+          await new Promise((streamResolve, streamReject) => {
+            function push() {
+              reader.read().then(async ({ done, value }) => {
+                if (done) {
+                  streamResolve(); // Resolve the stream promise when the response stream is complete
+                  return;
+                }
+
+                // Process each chunk of data separately
+                const chunkText = new TextDecoder('utf-8').decode(value);
+                const chunks = chunkText.split('\n');
+                // eslint-disable-next-line no-restricted-globals
+                await self.processChunks(chunks);
+
+                // Check for new data immediately after processing each chunk
+                push();
+              });
+            }
+            push();
+          });
+          this.restoreFromUpload = false;
+          resolve(); // Resolve the outer promise when all uploads and response stream processing are complete
         } catch (error) {
           reject(error); // Reject the outer promise if any error occurs during the process
         }

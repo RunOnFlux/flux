@@ -11581,6 +11581,51 @@ function setInstallationInProgressTrue() {
   installationInProgress = true;
 }
 
+async function sendChunk(res, chunk) {
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      res.write(`${chunk}\n`);
+      resolve();
+    }, 4000); // Adjust the delay as needed
+  });
+}
+
+function backupPathValidation(objectData) {
+  objectData.forEach((entry) => {
+    // eslint-disable-next-line no-shadow
+    const { path } = entry;
+    const pathStart = path.startsWith(appsFolder);
+    let filename = null;
+    let uploadType = null;
+
+    if (pathStart) {
+      const lastSlashIndex = path.lastIndexOf('/');
+      if (lastSlashIndex !== -1) {
+        filename = path.substring(lastSlashIndex + 1);
+      }
+
+      const types = ['/backup/upload/', '/backup/local/', '/backup/remote/'];
+      // eslint-disable-next-line no-restricted-syntax
+      for (const type of types) {
+        const typeIndex = path.indexOf(type);
+        if (typeIndex !== -1 && typeIndex < lastSlashIndex) {
+          uploadType = type.replace('/backup/', '').replace('/', '');
+          break;
+        }
+      }
+    }
+    // Return true if a valid type is found before the filename, otherwise return false
+    const result = pathStart && uploadType !== null;
+    console.log(`Appname: ${objectData.appname}`);
+    console.log(`Path: ${entry.path}`);
+    console.log(`Filename: ${filename}`);
+    console.log(`Type: ${uploadType || 'Not a valid type'}`);
+    console.log(`Result: ${result}`);
+    console.log('------------------------');
+    return result;
+  });
+}
+
 async function appendBackupTask(req, res) {
   let appname;
   let pathComponents = [];
@@ -11679,10 +11724,13 @@ async function appendRestoreTask(req, res) {
       if (indexRestore !== -1) {
         throw new Error(`Restore for app ${appname} is running...`);
       }
-
       const componentItem = restore.map((restoreItem) => restoreItem);
       // eslint-disable-next-line no-restricted-syntax
       for (const restoreItem of componentItem) {
+        const pathCheck = backupPathValidation(restoreItem);
+        if (pathCheck === false) {
+          throw new Error(`Path: ${restoreItem.path} is not allowed`);
+        }
         console.log(restoreItem.path);
         // eslint-disable-next-line no-await-in-loop
         const existStatus = await IOUtils.checkFileExists(restoreItem.path);
@@ -11691,13 +11739,16 @@ async function appendRestoreTask(req, res) {
         }
       }
       restoreInProgress.push(appname);
-      res.write('Stopping application...\n');
+      await sendChunk(res, 'Stopping application...\n');
       await appDockerStop(appname);
       // eslint-disable-next-line no-restricted-syntax
       for (const itemOfRestore of componentItem) {
+        // eslint-disable-next-line no-await-in-loop
+        await sendChunk(res, `Checking if ${itemOfRestore.component} using syncthing...\n`);
         console.log(`${itemOfRestore.component}, syncthing: ${itemOfRestore.syncthing}`);
         if (itemOfRestore.syncthing === true) {
-          res.write(`Stopping syncthing for ${itemOfRestore.component}\n`);
+          // eslint-disable-next-line no-await-in-loop
+          await sendChunk(res, `Stopping syncthing for ${itemOfRestore.component}\n`);
           console.log(`Stopping syncthing for ${itemOfRestore.component}`);
           // eslint-disable-next-line no-await-in-loop
           await stopSyncthingApp(`${itemOfRestore.component}`, res);
@@ -11705,24 +11756,24 @@ async function appendRestoreTask(req, res) {
       }
       // eslint-disable-next-line no-restricted-syntax
       for (const itemOfRestore of componentItem) {
-        res.write(`Restoring component ${itemOfRestore.component}...\n`);
+        // eslint-disable-next-line no-await-in-loop
+        await sendChunk(res, `Restoring component ${itemOfRestore.component}...\n`);
         const backupIndex = itemOfRestore.path.lastIndexOf('backup');
         const pathBeforeBackup = backupIndex !== -1 ? itemOfRestore.path.substring(0, backupIndex) : itemOfRestore.path;
         const restoreDirectory = `${pathBeforeBackup}appdata`;
         console.log(restoreDirectory);
         // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(1 * 60 * 1000);
+        await serviceHelper.delay(1 * 20 * 1000);
         // eslint-disable-next-line no-await-in-loop
         // await IOUtils.removeDirectory(restoreDirectory, true);
         // eslint-disable-next-line no-await-in-loop
         // await IOUtils.untarFile(restoreDirectory, itemOfRestore.path);
       }
-
+      await sendChunk(res, 'Starting application...\n');
       await appDockerStart(appname);
-      await serviceHelper.delay(1 * 60 * 1000);
+      await serviceHelper.delay(1 * 15 * 1000);
       const indexToRemove = restoreInProgress.indexOf(appname);
-      backupInProgress.splice(indexToRemove, 1);
-      res.write('successful\n');
+      restoreInProgress.splice(indexToRemove, 1);
       res.end();
       return true;
       // const response = messageHelper.createSuccessMessage('successful');
@@ -11749,6 +11800,7 @@ async function appendRestoreTask(req, res) {
     return res ? res.json(errorResponse) : errorResponse;
   }
 }
+
 module.exports = {
   listRunningApps,
   listAllApps,
@@ -11848,7 +11900,8 @@ module.exports = {
   checkStorageSpaceForApps,
   appendBackupTask,
   appendRestoreTask,
-
+  backupPathValidation,
+  sendChunk,
   // exports for testing purposes
   setAppsMonitored,
   getAppsMonitored,
