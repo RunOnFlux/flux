@@ -2379,7 +2379,6 @@
                       {{ urlValidationMessage }}
                     </b-form-invalid-feedback>
                   </div>
-                  {{ restoreRemoteUrlItems }}
                   <div
                     v-if="restoreRemoteUrlItems?.length > 0"
                     class="d-flex justify-content-between mt-2"
@@ -5578,9 +5577,13 @@ export default {
       return `${progressMB} / ${this.totalMB} MB`;
     },
     isValidUrl() {
-      const urlRegex = /^(http|https):\/\/[^ "]+$/;
+      const urlRegex = /^(http|https):\/\/[^\s]+$/;
+
+      const urlParts = this.restoreRemoteUrl.split('?');
+      const firstPart = urlParts[0];
+
       // eslint-disable-next-line no-mixed-operators
-      return this.restoreRemoteUrl === '' || this.restoreRemoteUrl.endsWith('.tar.gz') && urlRegex.test(this.restoreRemoteUrl);
+      return this.restoreRemoteUrl === '' || (firstPart.endsWith('.tar.gz') && urlRegex.test(firstPart));
     },
     urlValidationState() {
       return this.isValidUrl ? null : false;
@@ -5977,25 +5980,9 @@ export default {
       }
     },
     selectFiles() {
-      console.log('select files');
       this.$refs.fileselector.value = '';
       this.$refs.fileselector.click();
     },
-    // handleFiles(ev) {
-    //   const { files } = ev.target;
-    //   if (!files) return;
-    //   if (this.restoreRemoteFile !== null) {
-    //     const existingItemIndex = this.items1.findIndex((item) => item.component === this.restoreRemoteFile);
-    //     if (existingItemIndex !== -1) {
-    //       // this.$set.items1[existingItemIndex].file_size = (files[0].size / 1024 / 1024).toFixed(2);
-    //       // this.$set(this.fileProgress, currentIndex, { fileName: name, progress: currentFileProgress });
-    //     } else {
-    //       this.items1.push({ file: `backup_${this.restoreRemoteFile.toLowerCase()}.tar.gz`, component: this.restoreRemoteFile, file_size: (files[0].size / 1024 / 1024).toFixed(2) });
-    //     }
-    //   }
-
-    //   this.addFiles(([...files]));
-    // },
     handleFiles(ev) {
       if (this.restoreRemoteFile === null) {
         this.showToast('warning', 'Select component');
@@ -6012,25 +5999,6 @@ export default {
       if (!droppedFiles) return;
       this.addFiles(([...droppedFiles]));
     },
-    // async addFiles(filesToAdd) {
-    //    const zelidauth = localStorage.getItem('zelidauth');
-    //   filesToAdd.forEach((f) => {
-    //     this.volumeInfo = await BackupRestoreService.getVolumeDataOfComponent(zelidauth, name, component, 'MB', 2, 'mount');
-    //     this.volumePath = this.volumeInfo.data?.data;
-    //     const existingFiles = this.files.some((selectedfile) => selectedfile.file.name === f.name);
-    //     console.log(existingFiles);
-    //     if (existingFiles) {
-    //       this.showToast('warning', `'${f.name}' is already in the upload queue`);
-    //     } else {
-    //       this.files.push({
-    //         selectedfile: f,
-    //         uploading: false,
-    //         uploaded: false,
-    //         progress: 0,
-    //       });
-    //     }
-    //   });
-    // },
     async addFiles(filesToAdd) {
       const zelidauth = localStorage.getItem('zelidauth');
       // eslint-disable-next-line no-restricted-syntax
@@ -6108,26 +6076,21 @@ export default {
         if (!response.ok) {
           throw new Error(`HTTP error! Status: ${response.status}`);
         }
-
         const reader = response.body.getReader();
-
         return new ReadableStream({
           async start(controller) {
             async function push() {
               const { done, value } = await reader.read();
-
               if (done) {
                 controller.close();
                 return;
               }
-
               const chunkText = new TextDecoder('utf-8').decode(value);
               console.log('New message received...');
               console.log(chunkText);
               // controller.enqueue(value);
               push();
             }
-
             push();
           },
         });
@@ -6152,7 +6115,6 @@ export default {
           if (type === 'backup') {
             this.tarProgress = chunk;
           }
-          console.log(chunk);
         }
         // eslint-disable-next-line no-await-in-loop, no-promise-executor-return
         await new Promise((resolve) => setTimeout(resolve, 2000)); // Adjust the delay as needed
@@ -6221,14 +6183,10 @@ export default {
                   streamResolve(); // Resolve the stream promise when the response stream is complete
                   return;
                 }
-
-                // Process each chunk of data separately
                 const chunkText = new TextDecoder('utf-8').decode(value);
                 const chunks = chunkText.split('\n');
                 // eslint-disable-next-line no-restricted-globals
                 await self.processChunks(chunks, 'restore_upload');
-
-                // Check for new data immediately after processing each chunk
                 push();
               });
             }
@@ -6251,6 +6209,7 @@ export default {
           return;
         }
         const xhr = new XMLHttpRequest();
+        console.log(file);
         console.log(file.path);
         const action = this.getUploadFolder(file.path, file.file);
         if (xhr.upload) {
@@ -6486,16 +6445,6 @@ export default {
     },
     addRemoteFile() {
       this.selectFiles();
-      // console.log('test');
-      // console.log(this.files);
-      // if (this.restoreRemoteFile !== null) {
-      //   const existingItemIndex = this.items1.findIndex((item) => item.component === this.restoreRemoteFile);
-      //   if (existingItemIndex !== -1) {
-      //     this.items1[existingItemIndex].file_size = 74.93;
-      //   } else {
-      //     this.items1.push({ file: `backup_${this.restoreRemoteFile.toLowerCase()}.tar.gz`, component: this.restoreRemoteFile, file_size: 75.93 });
-      //   }
-      // }
     },
 
     async restoreFromRemoteFile() {
@@ -6572,7 +6521,6 @@ export default {
           this.showToast('danger', `File is too large (${this.addAndConvertFileSizes(this.remoteFileSizeResponse.data.data)})...`);
           return;
         }
-
         const existingURL = this.restoreRemoteUrlItems.findIndex((item) => item.url === this.restoreRemoteUrl);
         if (existingURL !== -1) {
           this.showToast('warning', `'${this.restoreRemoteUrl}' is already in the download queue for other component.`);
@@ -6645,14 +6593,6 @@ export default {
     allDownloadsCompleted() {
       return this.computedFileProgress.every((item) => item.progress === 100);
     },
-    // updateOverallProgress(downloadedMB) {
-    //   // Calculate and update the overall progress for the BootstrapVue progress bar
-    //   this.overallProgress = (downloadedMB / this.totalSizeMB) * 100;
-    // },
-    // calculateOverallProgress() {
-    //   // Calculate the overall progress for the BootstrapVue progress bar
-    //   return (this.downloadedSize / this.totalSizeMB) * 100;
-    // },
     updateFileProgress(currentFileName, currentFileProgress, loaded, total, name) {
       this.$nextTick(() => {
         const currentIndex = this.fileProgress.findIndex((entry) => entry.fileName === name);
