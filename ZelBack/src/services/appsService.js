@@ -11779,10 +11779,10 @@ async function appendRestoreTask(req, res) {
       if (syncthingEnable) {
         await sendChunk(res, 'Redeploying other instances...\n');
         executeAppGlobalCommand(appname, 'redeploy', req.headers.zelidauth, true);
+        await serviceHelper.delay(1 * 60 * 1000);
       }
-      await serviceHelper.delay(2 * 60 * 1000);
       await sendChunk(res, 'Restore Complited!\n');
-      await serviceHelper.delay(1 * 15 * 1000);
+      await serviceHelper.delay(1 * 5 * 1000);
       const indexToRemove = restoreInProgress.indexOf(appname);
       restoreInProgress.splice(indexToRemove, 1);
       res.end();
