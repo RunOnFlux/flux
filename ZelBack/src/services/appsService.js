@@ -11711,12 +11711,9 @@ async function appendBackupTask(req, res) {
       const indexToRemove = backupInProgress.indexOf(appname);
       backupInProgress.splice(indexToRemove, 1);
     }
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    return res.json(errorResponse);
+    await sendChunk(res, `${error}\n`);
+    res.end();
+    return false;
   }
 }
 
@@ -11783,16 +11780,6 @@ async function appendRestoreTask(req, res) {
           const componentPath = await IOUtils.getVolumeInfo(appname, component.component, 'B', 0, 'mount');
           const targetPath = `${componentPath[0].mount}/appdata`;
           const tarGzPath = `${componentPath[0].mount}/backup/${type}/backup_${component.component}.tar.gz`;
-          console.log(targetPath);
-          console.log(componentPath);
-          // eslint-disable-next-line no-await-in-loop
-          const existStatus = await IOUtils.checkFileExists(`${componentPath[0].mount}/backup/${type}/backup_${component.component}.tar.gz`);
-          if (existStatus === true) {
-            // eslint-disable-next-line no-await-in-loop
-            await sendChunk(res, `Removing exists backup archive for ${component.component}...\n`);
-            // eslint-disable-next-line no-await-in-loop
-            await IOUtils.removeFile(`${componentPath[0].mount}/backup/${type}/backup_${component.component}.tar.gz`);
-          }
           // eslint-disable-next-line no-await-in-loop
           await sendChunk(res, `Unpacking backup archive for ${component.component}...\n`);
           // eslint-disable-next-line no-await-in-loop
@@ -11826,12 +11813,9 @@ async function appendRestoreTask(req, res) {
       const indexToRemove = restoreInProgress.indexOf(appname);
       restoreInProgress.splice(indexToRemove, 1);
     }
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    return res.json(errorResponse);
+    await sendChunk(res, `${error}\n`);
+    res.end();
+    return false;
   }
 }
 
