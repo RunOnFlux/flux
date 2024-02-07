@@ -6355,6 +6355,7 @@ export default {
         return;
       }
       this.backupProgress = true;
+      this.tarProgress = 'Initializing backup jobes...';
       const zelidauth = localStorage.getItem('zelidauth');
       // eslint-disable-next-line no-unused-vars
       const port = this.config.apiPort;

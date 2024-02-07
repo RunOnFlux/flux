@@ -9052,7 +9052,12 @@ async function checkAndNotifyPeersOfRunningApps() {
             log.warn(`${stoppedApp} is stopped but should be running. Starting...`);
             // it is a stopped global app. Try to run it.
             // check if some removal is in progress and if it is don't start it!
-            if (!removalInProgress && !installationInProgress && !reinstallationOfOldAppsInProgress) {
+            const backupSkip = backupInProgress.some((backupItem) => stoppedApp === backupItem);
+            const restoreSkip = restoreInProgress.some((backupItem) => stoppedApp === backupItem);
+            if (backupSkip || restoreSkip) {
+              log.warn(`Application${stoppedApp} backup/restore is in progress...`);
+            }
+            if (!removalInProgress && !installationInProgress && !reinstallationOfOldAppsInProgress && !restoreSkip && !backupSkip) {
               log.warn(`${stoppedApp} is stopped, starting`);
               if (!appsStopedCache.has(stoppedApp)) {
                 appsStopedCache.set(stoppedApp, stoppedApp);
@@ -9062,7 +9067,7 @@ async function checkAndNotifyPeersOfRunningApps() {
                 startAppMonitoring(stoppedApp);
               }
             } else {
-              log.warn(`Not starting ${stoppedApp} as application removal or installation is in progress`);
+              log.warn(`Not starting ${stoppedApp} as application removal or installation or backup/restore is in progress`);
             }
           }
         } catch (err) {
@@ -11666,8 +11671,6 @@ async function appendBackupTask(req, res) {
       for (const component of backup) {
         if (component.backup) {
           // eslint-disable-next-line no-await-in-loop
-          await sendChunk(res, `Creating backup archive for ${component.component}...\n`);
-          // eslint-disable-next-line no-await-in-loop
           const componentPath = await IOUtils.getVolumeInfo(appname, component.component, 'B', 0, 'mount');
           const targetPath = `${componentPath[0].mount}/appdata`;
           const tarGzPath = `${componentPath[0].mount}/backup/local/backup_${component.component}.tar.gz`;
@@ -11680,16 +11683,20 @@ async function appendBackupTask(req, res) {
             await IOUtils.removeFile(`${componentPath[0].mount}/backup/local/backup_${component.component}.tar.gz`);
           }
           // eslint-disable-next-line no-await-in-loop
+          await sendChunk(res, `Creating backup archive for ${component.component}...\n`);
+          // eslint-disable-next-line no-await-in-loop
           const tarStatus = await IOUtils.createTarGz(targetPath, tarGzPath);
           if (tarStatus === false) {
             throw new Error('Error creating tarball archive');
           }
         }
       }
-      await serviceHelper.delay(5 * 60 * 1000);
+      await serviceHelper.delay(5 * 1000);
       await sendChunk(res, 'Starting application...\n');
       await appDockerStart(appname);
-      await serviceHelper.delay(5 * 60 * 1000);
+      await serviceHelper.delay(5 * 1000);
+      const indexToRemove = backupInProgress.indexOf(appname);
+      backupInProgress.splice(indexToRemove, 1);
       res.end();
       return true;
     // eslint-disable-next-line no-else-return
@@ -11699,7 +11706,7 @@ async function appendBackupTask(req, res) {
     }
   } catch (error) {
     log.error(error);
-    if (error.message !== 'Backup in progress...') {
+    if (error?.message !== 'Backup in progress...') {
       // await appDockerStart(`${appname}`);
       const indexToRemove = backupInProgress.indexOf(appname);
       backupInProgress.splice(indexToRemove, 1);
@@ -11802,8 +11809,7 @@ async function appendRestoreTask(req, res) {
   } catch (error) {
     log.error(error);
     console.log(error);
-    if (error.message !== 'Restore in progress...') {
-      await appDockerStart(`${appname}`);
+    if (error?.message !== 'Restore in progress...') {
       const indexToRemove = restoreInProgress.indexOf(appname);
       restoreInProgress.splice(indexToRemove, 1);
     }
