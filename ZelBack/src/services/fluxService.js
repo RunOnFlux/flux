@@ -29,7 +29,7 @@ const geolocationService = require('./geolocationService');
 const zlib = require('node:zlib');
 const tar = require('tar-fs');
 const stream = require('node:stream/promises');
-const { stat } = require('node:fs/promises')
+const { stat } = require('node:fs/promises');
 
 let lock = false;
 
@@ -574,8 +574,8 @@ async function streamChain(req, res) {
   ];
 
   const folderPromises = folders.map(async (f) => {
-    const stats = await stat(base);
-    return stats.isDirectory()
+    const stats = await stat(f);
+    return stats.isDirectory();
   });
 
   const foldersExist = await Promise.all(folderPromises);
@@ -583,9 +583,9 @@ async function streamChain(req, res) {
 
   if (!chainExists) {
     res.statusMessage = `Unable to find chain at: ${base}.`;
-    res.status(500).end()
+    res.status(500).end();
     lock = false;
-    return
+    return;
   }
 
   let fluxdRunning = null;
@@ -597,7 +597,7 @@ async function streamChain(req, res) {
   if (processedBody) {
     // use unsafe for the client end to illistrate that they should think twice before using
     // it, and use safe here for readability
-    safe = processedBody.unsafe === true ? false : true
+    safe = processedBody.unsafe !== true;
     compress = processedBody.compress || false;
   }
 
