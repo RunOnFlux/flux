@@ -648,7 +648,7 @@ async function streamChain(req, res) {
     return;
   }
 
-  log.info('Stream chain request received from:', ip);
+  log.info(`Stream chain request received from: ${ip}`);
 
   const workflow = [];
 
@@ -668,7 +668,7 @@ async function streamChain(req, res) {
   try {
     await work;
   } catch (err) {
-    log.warn('Stream error:', err.code);
+    log.warn(`Stream error: ${err.code}`);
   }
 
   lock = false;
