@@ -2329,7 +2329,7 @@
                     class="mt-2"
                     block
                     variant="outline-primary"
-                    @click="startUpload('upload')"
+                    @click="startUpload()"
                   >
                     <b-icon icon="arrow-clockwise" scale="1.1" class="mr-1" />Restore
                   </b-button>
@@ -2379,6 +2379,7 @@
                       {{ urlValidationMessage }}
                     </b-form-invalid-feedback>
                   </div>
+                  {{ restoreRemoteUrlItems }}
                   <div
                     v-if="restoreRemoteUrlItems?.length > 0"
                     class="d-flex justify-content-between mt-2"
@@ -6145,6 +6146,9 @@ export default {
           if (type === 'restore_upload') {
             this.restoreFromUploadStatus = chunk;
           }
+          if (type === 'restore_remote') {
+            this.restoreFromRemoteURLStatus = chunk;
+          }
           if (type === 'backup') {
             this.tarProgress = chunk;
           }
@@ -6183,20 +6187,15 @@ export default {
             entry.progress = 0;
           });
 
-          this.restoreFromUploadStatus = 'Restoring...';
-
-          const restoreObject = {
-            appname: this.appName,
-            restore: this.files.map((item) => ({
-              component: item.component,
-              path: `${item.path}/${item.file}`,
-              syncthing: false,
-            })),
-          };
-
-          console.log(restoreObject);
-
-          const postData = this.getSyncthingStatus(restoreObject);
+          this.restoreFromUploadStatus = 'Initializing restore jobes...';
+          const postLayout = this.buildBackupBody(this.appSpecification, 'restore', 'upload');
+          console.log(postLayout);
+          let postRestoreData;
+          // eslint-disable-next-line no-restricted-syntax
+          for (const componentName of this.files) {
+            postRestoreData = this.updateJobeStatus(postLayout, componentName.component, 'restore');
+          }
+          console.log(postRestoreData);
           const port = this.config.apiPort;
           const zelidauth = localStorage.getItem('zelidauth');
           const headers = {
@@ -6207,7 +6206,7 @@ export default {
 
           const response = await fetch(`${this.ipAddress}:${port}/apps/appendrestoretask`, {
             method: 'POST',
-            body: JSON.stringify(postData),
+            body: JSON.stringify(postRestoreData),
             headers,
           });
 
@@ -6325,29 +6324,43 @@ export default {
     selectStorageOption(value) {
       this.selectedStorageMethod = value;
     },
-    buildBackupBody(appSpecification) {
+    buildBackupBody(appSpecification, jobType, restoreType = '') {
       console.log(appSpecification);
       const shouldSetGlobalSyncthing = appSpecification.compose.some((item) => item.containerData.includes('r:') || item.containerData.includes('s:') || item.containerData.includes('g:'));
       const updatedObject = {
         appname: appSpecification.name,
         syncthing: shouldSetGlobalSyncthing,
-        backup: appSpecification.compose.map((item) => ({
+        ...(jobType === 'restore' ? { type: restoreType } : {}),
+        [jobType]: appSpecification.compose.map((item) => ({
           component: item.name,
           syncthing: item.containerData.includes('r:') || item.containerData.includes('s:') || item.containerData.includes('g:'),
-          backup: false,
+          [jobType]: false,
+          ...(jobType === 'restore' && restoreType === 'remote' ? { url: '' } : {}),
         })),
       };
-      console.log(updatedObject);
       return updatedObject;
     },
-    updateBackupStatus(appConfig, component) {
-      const targetComponent = appConfig.backup.find((item) => item.component === component);
+    updateJobeStatus(appConfig, component, jobeType, urlInfoArray = []) {
+      const targetComponent = appConfig[jobeType].find((item) => item.component === component);
+
       if (targetComponent) {
-        targetComponent.backup = true;
-        console.log(`Backup status for ${component} set to true.`);
+        targetComponent[jobeType] = true;
+
+        if (jobeType === 'restore' && appConfig?.type === 'remote') {
+          const urlInfo = urlInfoArray.find((info) => info.component === component);
+          if (urlInfo) {
+            targetComponent.url = urlInfo.url || ''; // Set default value if url doesn't exist
+            console.log(`${urlInfo.url}`);
+          } else {
+            console.log(`URL info not found for component ${component}.`);
+          }
+        }
+
+        console.log(`Status for ${component} set to true for ${jobeType}.`);
       } else {
-        console.log(`Component ${component} not found in the backup array.`);
+        console.log(`Component ${component} not found in the ${jobeType} array.`);
       }
+
       return appConfig;
     },
     async createBackup(appname, componentNames) {
@@ -6365,11 +6378,11 @@ export default {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
       };
-      const postLayout = this.buildBackupBody(this.appSpecification);
+      const postLayout = this.buildBackupBody(this.appSpecification, 'backup');
       let postBackupData;
       // eslint-disable-next-line no-restricted-syntax
       for (const componentName of componentNames) {
-        postBackupData = this.updateBackupStatus(postLayout, componentName);
+        postBackupData = this.updateJobeStatus(postLayout, componentName, 'backup');
       }
       console.log(postBackupData);
       const response = await fetch(`${this.ipAddress}:${port}/apps/appendbackuptask`, {
@@ -6484,23 +6497,57 @@ export default {
       // }
     },
 
-    async restoreFromRemoteFile(name) {
+    async restoreFromRemoteFile() {
       const zelidauth = localStorage.getItem('zelidauth');
-      this.newData = this.restoreRemoteUrlItems.map((item) => ({
-        ...item,
-        appname: name,
-      }));
       this.downloadingFromUrl = true;
-      this.restoreFromRemoteURLStatus = 'Downloading...';
-      const downloadStatus = await BackupRestoreService.getRemoteFile(zelidauth, this.newData);
-      console.log(JSON.stringify(downloadStatus.data?.data));
-      if (downloadStatus.data.data === true) {
-        console.log('download complited!');
+      this.restoreFromRemoteURLStatus = 'Initializing restore jobes...';
+      // eslint-disable-next-line no-unused-vars
+      const port = this.config.apiPort;
+      // eslint-disable-next-line no-unused-vars
+      const headers = {
+        zelidauth,
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      };
+      const postLayout = this.buildBackupBody(this.appSpecification, 'restore', 'remote');
+      console.log(postLayout);
+      let postBackupData;
+      // eslint-disable-next-line no-restricted-syntax
+      for (const componentName of this.restoreRemoteUrlItems) {
+        postBackupData = this.updateJobeStatus(postLayout, componentName.component, 'restore', this.restoreRemoteUrlItems);
       }
-      this.downloadingFromUrl = false;
-      this.restoreFromRemoteURLStatus = '';
-    },
+      console.log(postBackupData);
+      const response = await fetch(`${this.ipAddress}:${port}/apps/appendrestoretask`, {
+        method: 'POST',
+        body: JSON.stringify(postBackupData),
+        headers,
+      });
+      const self = this;
+      const reader = response.body.getReader();
+      // eslint-disable-next-line no-unused-vars
+      await new Promise((streamResolve, streamReject) => {
+        function push() {
+          reader.read().then(async ({ done, value }) => {
+            if (done) {
+              streamResolve(); // Resolve the stream promise when the response stream is complete
+              return;
+            }
+            // Process each chunk of data separately
+            const chunkText = new TextDecoder('utf-8').decode(value);
+            const chunks = chunkText.split('\n');
+            // eslint-disable-next-line no-restricted-globals
+            await self.processChunks(chunks, 'restore_remote');
+            // Check for new data immediately after processing each chunk
+            push();
+          });
+        }
+        push();
+      });
 
+      setTimeout(() => {
+        this.downloadingFromUrl = false;
+      }, 5000);
+    },
     async addRemoteUrlItem(appname, component) {
       if (!this.isValidUrl) {
         return;

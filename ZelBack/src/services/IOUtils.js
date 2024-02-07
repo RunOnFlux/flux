@@ -276,16 +276,15 @@ async function checkFileExists(filePath) {
  * @param {string} url - The URL of the file to download.
  * @param {string} localpath - The local path to save the downloaded file.
  * @param {string} component - The component name for identification.
- * @param {string} appname - The application name for identification.
  * @param {boolean} rename - Flag indicating whether to rename the downloaded file.
  * @returns {boolean} - True if the file is downloaded and saved successfully, false on failure.
  */
-async function downloadFileFromUrl(url, localpath, component, appname, rename = false) {
+async function downloadFileFromUrl(url, localpath, component, rename = false) {
   try {
     const response = await axios.get(url, { responseType: 'arraybuffer' });
     const fileData = Buffer.from(response.data, 'binary');
     if (rename === true) {
-      await fs.writeFile(`${localpath}/${component}_${appname}.tar.gz`, fileData);
+      await fs.writeFile(`${localpath}/backup_${component}.tar.gz`, fileData);
     } else {
       const fileNameArray = url.split('/');
       const fileName = fileNameArray[fileNameArray.length - 1];

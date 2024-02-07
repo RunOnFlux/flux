@@ -11706,12 +11706,11 @@ async function appendBackupTask(req, res) {
     }
   } catch (error) {
     log.error(error);
-    if (error?.message !== 'Backup in progress...') {
+    if (!error.toString().includes('Backup in progress...') && !error.toString().includes('appname and restore parameters are mandatory')) {
       // await appDockerStart(`${appname}`);
       const indexToRemove = backupInProgress.indexOf(appname);
       backupInProgress.splice(indexToRemove, 1);
     }
-    log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
@@ -11728,8 +11727,9 @@ async function appendRestoreTask(req, res) {
     // eslint-disable-next-line prefer-destructuring
     appname = processedBody.appname;
     const { restore } = processedBody;
-    if (!appname || !restore) {
-      throw new Error('appname and restore parameters are mandatory');
+    const { type } = processedBody;
+    if (!appname || !restore || !type) {
+      throw new Error('appname, restore and type parameters are mandatory');
     }
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
     if (authorized === true) {
@@ -11737,61 +11737,73 @@ async function appendRestoreTask(req, res) {
       if (indexRestore !== -1) {
         throw new Error(`Restore for app ${appname} is running...`);
       }
+
+      const hasTrueRestore = restore.some((restoreitem) => restoreitem.restore);
+      if (hasTrueRestore === false) {
+        throw new Error('No restore jobs...');
+      }
+
       const componentItem = restore.map((restoreItem) => restoreItem);
-      // eslint-disable-next-line no-restricted-syntax
-      for (const restoreItem of componentItem) {
-        const pathCheck = backupPathValidation(restoreItem);
-        if (pathCheck === false) {
-          throw new Error(`Path: ${restoreItem.path} is not allowed`);
-        }
-        console.log(restoreItem.path);
-        // eslint-disable-next-line no-await-in-loop
-        const existStatus = await IOUtils.checkFileExists(restoreItem.path);
-        if (existStatus !== true) {
-          throw new Error('Backup archive file not exists...');
+      if (type === 'remote') {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const restoreItem of componentItem) {
+          if (restoreItem?.url !== '') {
+            // eslint-disable-next-line no-await-in-loop
+            const componentPath = await IOUtils.getVolumeInfo(appname, restoreItem.component, 'B', 0, 'mount');
+            // eslint-disable-next-line no-await-in-loop
+            await sendChunk(res, `Downloading ${restoreItem.url}...\n`);
+            // eslint-disable-next-line no-await-in-loop
+            const downloadStatus = await IOUtils.downloadFileFromUrl(restoreItem.url, `${componentPath[0].mount}/backup/remote`, restoreItem.component, true);
+            if (downloadStatus === 'false') {
+              throw new Error(`Downloading ${restoreItem.url} failed...`);
+            }
+          }
         }
       }
+
       restoreInProgress.push(appname);
       await sendChunk(res, 'Stopping application...\n');
       await appDockerStop(appname);
-      let syncthingEnable = false;
-      // eslint-disable-next-line no-restricted-syntax
-      for (const itemOfRestore of componentItem) {
-        // eslint-disable-next-line no-await-in-loop
-        await sendChunk(res, `Checking if ${itemOfRestore.component} using syncthing...\n`);
-        console.log(`${itemOfRestore.component}, syncthing: ${itemOfRestore.syncthing}`);
-        if (itemOfRestore.syncthing === true) {
-          syncthingEnable = true;
-          // eslint-disable-next-line no-await-in-loop
-          await sendChunk(res, `Stopping syncthing for ${itemOfRestore.component}\n`);
-          console.log(`Stopping syncthing for ${itemOfRestore.component}`);
-          // eslint-disable-next-line no-await-in-loop
-          await stopSyncthingApp(`${itemOfRestore.component}_${appname}`, res);
+
+      if (processedBody.syncthing) {
+        await sendChunk(res, 'Stopping syncthing...\n');
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of componentItem) {
+          if (component.syncthing === true) {
+            console.log(`Performing action for ${component.component}`);
+            // eslint-disable-next-line no-await-in-loop
+            await stopSyncthingApp(`${component.component}_${appname}`, res);
+          }
         }
       }
       // eslint-disable-next-line no-restricted-syntax
-      for (const itemOfRestore of componentItem) {
-        // eslint-disable-next-line no-await-in-loop
-        await sendChunk(res, `Restoring component ${itemOfRestore.component}...\n`);
-        const firstBackupIndex = itemOfRestore.path.indexOf('/backup/');
-        const secondBackupIndex = itemOfRestore.path.indexOf('/backup/', firstBackupIndex + 8);
-        const backupIndex = secondBackupIndex !== -1 ? secondBackupIndex : firstBackupIndex;
-        const pathBeforeBackup = backupIndex !== -1 ? itemOfRestore.path.substring(0, backupIndex) : itemOfRestore.path;
-        const restoreDirectory = `${pathBeforeBackup}/appdata`;
-        console.log(restoreDirectory);
-        // eslint-disable-next-line no-await-in-loop
-        await sendChunk(res, `Removing appdata of component ${itemOfRestore.component}...\n`);
-        // eslint-disable-next-line no-await-in-loop
-        await IOUtils.removeDirectory(restoreDirectory, true);
-        // eslint-disable-next-line no-await-in-loop
-        await sendChunk(res, `Unpacking backup archive for component ${itemOfRestore.component}...\n`);
-        // eslint-disable-next-line no-await-in-loop
-        await IOUtils.untarFile(restoreDirectory, itemOfRestore.path);
+      for (const component of restore) {
+        if (component.restore) {
+          // eslint-disable-next-line no-await-in-loop
+          const componentPath = await IOUtils.getVolumeInfo(appname, component.component, 'B', 0, 'mount');
+          const targetPath = `${componentPath[0].mount}/appdata`;
+          const tarGzPath = `${componentPath[0].mount}/backup/${type}/backup_${component.component}.tar.gz`;
+          // eslint-disable-next-line no-await-in-loop
+          const existStatus = await IOUtils.checkFileExists(`${componentPath[0].mount}/backup/${type}/backup_${component.component}.tar.gz`);
+          if (existStatus === true) {
+            // eslint-disable-next-line no-await-in-loop
+            await sendChunk(res, `Removing exists backup archive for ${component.component}...\n`);
+            // eslint-disable-next-line no-await-in-loop
+            await IOUtils.removeFile(`${componentPath[0].mount}/backup/${type}/backup_${component.component}.tar.gz`);
+          }
+          // eslint-disable-next-line no-await-in-loop
+          await sendChunk(res, `Unpacking backup archive for ${component.component}...\n`);
+          // eslint-disable-next-line no-await-in-loop
+          const tarStatus = await IOUtils.untarFile(targetPath, tarGzPath);
+          if (tarStatus === false) {
+            throw new Error(`Error unpacking tarball archive for ${component.component}`);
+          }
+        }
       }
       await serviceHelper.delay(1 * 15 * 1000);
       await sendChunk(res, 'Starting application...\n');
       await appDockerStart(appname);
-      if (syncthingEnable) {
+      if (processedBody.syncthing) {
         await sendChunk(res, 'Redeploying other instances...\n');
         executeAppGlobalCommand(appname, 'redeploy', req.headers.zelidauth, true);
         await serviceHelper.delay(1 * 60 * 1000);
@@ -11808,12 +11820,10 @@ async function appendRestoreTask(req, res) {
     }
   } catch (error) {
     log.error(error);
-    console.log(error);
-    if (error?.message !== 'Restore in progress...') {
+    if (!error.toString().includes('Restore in progress...') && !error.toString().includes('appname, restore and type parameters are mandatory')) {
       const indexToRemove = restoreInProgress.indexOf(appname);
       restoreInProgress.splice(indexToRemove, 1);
     }
-    log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
