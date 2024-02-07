@@ -514,6 +514,7 @@ function isPrivateAddress(ip) {
  * Streams the blockchain via http at breakneck speeds.
  *
  * Designed for UPnP nodes.
+ *
  * Leverages the fact that a lot of nodes run on the same hypervisor, where
  * they share a brige or v-switch. In this case - the transfer is as fast as your
  * SSD. Real life testing showed speeds of 3.2Gbps on an Evo 980+ SSD. Able to
@@ -527,7 +528,7 @@ function isPrivateAddress(ip) {
  * and WITHOUT compression, as long as the chain transfer is reasonably fast, there is
  * minimal risk of a db compaction happening, and corrupting the new data.
  *
- * This method can trasnfer data compressed (using gzip) or uncompressed. It is recommended
+ * This method can transfer data compressed (using gzip) or uncompressed. It is recommended
  * to only stream the data uncompressed. If using compression on the fly, this uses a lot of
  * CPU and will slow the transfers down by 10-20 times, while only saving ~30% on file size.
  * If the daemon is still running during this time, IT WILL CORRUPT THE NEW DATA. (tested)
@@ -536,6 +537,8 @@ function isPrivateAddress(ip) {
  * There is an unsafe mode, where a user can transfer the chain while the daemon is still
  * running, USE AT YOUR OWN RISK. Of note, the data being copied will not be corrupted,
  * only the new chain.
+ *
+ * Only allows one stream at a time - will return 503 if stream in progress.
  *
  *  Able to be used by curl. Result is a tarfile.
  *
