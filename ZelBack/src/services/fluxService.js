@@ -604,8 +604,12 @@ async function streamChain(req, res) {
   ];
 
   const folderPromises = folders.map(async (f) => {
-    const stats = await stat(path.join(base, f));
-    return stats.isDirectory();
+    try {
+      const stats = await stat(path.join(base, f));
+      return stats.isDirectory();
+    } catch {
+      return false;
+    }
   });
 
   const foldersExist = await Promise.all(folderPromises);
@@ -657,7 +661,7 @@ async function streamChain(req, res) {
   }));
 
   if (compress) {
-    console.log('Compression requested... adding gzip. This can be 10-20x slower than sending uncompressed');
+    log.info('Compression requested... adding gzip. This can be 10-20x slower than sending uncompressed');
     workflow.push(zlib.createGzip());
   }
 
