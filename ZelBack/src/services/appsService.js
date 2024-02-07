@@ -9055,7 +9055,7 @@ async function checkAndNotifyPeersOfRunningApps() {
             const backupSkip = backupInProgress.some((backupItem) => stoppedApp === backupItem);
             const restoreSkip = restoreInProgress.some((backupItem) => stoppedApp === backupItem);
             if (backupSkip || restoreSkip) {
-              log.warn(`Application${stoppedApp} backup/restore is in progress...`);
+              log.warn(`Application ${stoppedApp} backup/restore is in progress...`);
             }
             if (!removalInProgress && !installationInProgress && !reinstallationOfOldAppsInProgress && !restoreSkip && !backupSkip) {
               log.warn(`${stoppedApp} is stopped, starting`);
