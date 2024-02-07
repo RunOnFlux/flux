@@ -4,7 +4,6 @@ const fs = require('fs').promises;
 const util = require('util');
 const log = require('../lib/log');
 const axios = require('axios');
-const tar = require('tar');
 const nodecmd = require('node-cmd');
 const path = require('path');
 const { formidable } = require('formidable');
@@ -310,10 +309,8 @@ async function downloadFileFromUrl(url, path, component, appname, rename = false
 async function untarFile(extractPath, tarFilePath) {
   try {
     await fs.mkdir(extractPath, { recursive: true });
-    await tar.x({
-      file: tarFilePath,
-      C: extractPath,
-    });
+    const unpackCmd = `sudo tar -xvzf ${tarFilePath} -C ${extractPath}`;
+    await cmdAsync(unpackCmd);
     return true;
   } catch (err) {
     log.error('Error during extraction:', err);
@@ -332,14 +329,8 @@ async function createTarGz(sourceDirectory, outputFileName) {
   try {
     const outputDirectory = outputFileName.substring(0, outputFileName.lastIndexOf('/'));
     await fs.mkdir(outputDirectory, { recursive: true });
-    await tar.c(
-      {
-        gzip: true,
-        file: outputFileName,
-        cwd: sourceDirectory,
-      },
-      ['.'],
-    );
+    const packCmd = `sudo tar -czvf ${outputFileName} -C ${sourceDirectory} .`;
+    await cmdAsync(packCmd);
     return true;
   } catch (error) {
     log.error('Error creating tarball:', error);
