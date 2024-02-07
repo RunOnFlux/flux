@@ -5578,10 +5578,8 @@ export default {
     },
     isValidUrl() {
       const urlRegex = /^(http|https):\/\/[^\s]+$/;
-
       const urlParts = this.restoreRemoteUrl.split('?');
       const firstPart = urlParts[0];
-
       // eslint-disable-next-line no-mixed-operators
       return this.restoreRemoteUrl === '' || (firstPart.endsWith('.tar.gz') && urlRegex.test(firstPart));
     },
@@ -5933,15 +5931,12 @@ export default {
         MB: 1024 * 1024,
         GB: 1024 * 1024 * 1024,
       };
-
       const getSizeWithMultiplier = (size, multiplier) => size / multiplierMap[multiplier.toUpperCase()];
       const formatResult = (result, unit) => {
         const formattedResult = unit === 'B' ? result.toFixed(0) : result.toFixed(decimal);
         return `${formattedResult} ${unit}`;
       };
-
       let totalSizeInBytes;
-
       if (Array.isArray(sizes) && sizes.length > 0) {
         totalSizeInBytes = +sizes.reduce((total, fileInfo) => total + (fileInfo.file_size || 0), 0);
       } else if (typeof +sizes === 'number') {
@@ -5950,17 +5945,14 @@ export default {
         console.error('Invalid sizes parameter');
         return 'N/A';
       }
-
       // eslint-disable-next-line no-restricted-globals
       if (isNaN(totalSizeInBytes)) {
         console.error('Total size is not a valid number');
         return 'N/A';
       }
-
       if (targetUnit === 'auto') {
         let bestMatchUnit;
         let bestMatchResult = totalSizeInBytes;
-
         Object.keys(multiplierMap).forEach((unit) => {
           const result = getSizeWithMultiplier(totalSizeInBytes, unit);
           if (result >= 1 && (bestMatchResult === undefined || result < bestMatchResult)) {
@@ -5968,10 +5960,8 @@ export default {
             bestMatchUnit = unit;
           }
         });
-
         // If bestMatchUnit is still undefined, set it to 'B' (Bytes)
         bestMatchUnit = bestMatchUnit || 'B';
-
         return formatResult(bestMatchResult, bestMatchUnit);
       // eslint-disable-next-line no-else-return
       } else {
@@ -5988,10 +5978,8 @@ export default {
         this.showToast('warning', 'Select component');
         return;
       }
-      console.log('enter');
       const { files } = ev.target;
       if (!files) return;
-      console.log(files);
       this.addFiles(([...files]));
     },
     addFile(e) {
@@ -6072,7 +6060,6 @@ export default {
           headers: this.zelidHeader,
           body: JSON.stringify(postData),
         });
-
         if (!response.ok) {
           throw new Error(`HTTP error! Status: ${response.status}`);
         }
@@ -6127,7 +6114,6 @@ export default {
         try {
           this.restoreFromUpload = true;
           this.restoreFromUploadStatus = 'Uploading...';
-
           // eslint-disable-next-line no-async-promise-executor
           const uploadPromises = this.files.map((f) => new Promise(async (resolveFile, rejectFile) => {
             if (!f.uploaded && !f.uploading) {
@@ -6142,22 +6128,19 @@ export default {
             }
           }));
           await Promise.all(uploadPromises);
-
           this.files.forEach((entry) => {
             entry.uploading = false;
             entry.uploaded = false;
             entry.progress = 0;
           });
-
           this.restoreFromUploadStatus = 'Initializing restore jobes...';
-          const postLayout = this.buildBackupBody(this.appSpecification, 'restore', 'upload');
+          const postLayout = this.buildPostBody(this.appSpecification, 'restore', 'upload');
           console.log(postLayout);
           let postRestoreData;
           // eslint-disable-next-line no-restricted-syntax
           for (const componentName of this.files) {
             postRestoreData = this.updateJobeStatus(postLayout, componentName.component, 'restore');
           }
-          console.log(postRestoreData);
           const port = this.config.apiPort;
           const zelidauth = localStorage.getItem('zelidauth');
           const headers = {
@@ -6165,15 +6148,12 @@ export default {
             'Content-Type': 'application/json',
             'Access-Control-Allow-Origin': '*',
           };
-
           const response = await fetch(`${this.ipAddress}:${port}/apps/appendrestoretask`, {
             method: 'POST',
             body: JSON.stringify(postRestoreData),
             headers,
           });
-
           const reader = response.body.getReader();
-
           // Read the response stream
           // eslint-disable-next-line no-unused-vars
           await new Promise((streamResolve, streamReject) => {
@@ -6209,8 +6189,6 @@ export default {
           return;
         }
         const xhr = new XMLHttpRequest();
-        console.log(file);
-        console.log(file.path);
         const action = this.getUploadFolder(file.path, file.file);
         if (xhr.upload) {
           xhr.upload.onprogress = function progress(e) {
@@ -6239,14 +6217,11 @@ export default {
           file.uploaded = true;
           file.uploading = false;
           self.$emit('complete');
-          self.showToast('success', `'${file.file}' has been uploaded`);
+          // self.showToast('success', `'${file.file}' has been uploaded`);
           resolve(); // Resolve the promise when the upload is successful.
         };
-
         xhr.open('post', action, true);
-
         const headers = this.zelidHeader || {};
-
         const headerKeys = Object.keys(headers);
         for (let i = 0; i < headerKeys.length; i += 1) {
           const item = headerKeys[i];
@@ -6284,8 +6259,7 @@ export default {
     selectStorageOption(value) {
       this.selectedStorageMethod = value;
     },
-    buildBackupBody(appSpecification, jobType, restoreType = '') {
-      console.log(appSpecification);
+    buildPostBody(appSpecification, jobType, restoreType = '') {
       const shouldSetGlobalSyncthing = appSpecification.compose.some((item) => item.containerData.includes('r:') || item.containerData.includes('s:') || item.containerData.includes('g:'));
       const updatedObject = {
         appname: appSpecification.name,
@@ -6302,7 +6276,6 @@ export default {
     },
     updateJobeStatus(appConfig, component, jobeType, urlInfoArray = []) {
       const targetComponent = appConfig[jobeType].find((item) => item.component === component);
-
       if (targetComponent) {
         targetComponent[jobeType] = true;
 
@@ -6315,12 +6288,10 @@ export default {
             console.log(`URL info not found for component ${component}.`);
           }
         }
-
         console.log(`Status for ${component} set to true for ${jobeType}.`);
       } else {
         console.log(`Component ${component} not found in the ${jobeType} array.`);
       }
-
       return appConfig;
     },
     async createBackup(appname, componentNames) {
@@ -6338,7 +6309,7 @@ export default {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
       };
-      const postLayout = this.buildBackupBody(this.appSpecification, 'backup');
+      const postLayout = this.buildPostBody(this.appSpecification, 'backup');
       let postBackupData;
       // eslint-disable-next-line no-restricted-syntax
       for (const componentName of componentNames) {
@@ -6357,7 +6328,7 @@ export default {
         function push() {
           reader.read().then(async ({ done, value }) => {
             if (done) {
-              streamResolve(); // Resolve the stream promise when the response stream is complete
+              streamResolve();
               return;
             }
             // Process each chunk of data separately
@@ -6371,12 +6342,10 @@ export default {
         }
         push();
       });
-
       setTimeout(() => {
         this.backupProgress = false;
       }, 5000);
       this.loadBackupList();
-      // this.backupProgress = false;// console.log(JSON.stringify(this.backupList));
     },
     onRowSelected(itemOnRow) {
       this.backupToUpload = itemOnRow.map((item) => {
@@ -6459,7 +6428,7 @@ export default {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
       };
-      const postLayout = this.buildBackupBody(this.appSpecification, 'restore', 'remote');
+      const postLayout = this.buildPostBody(this.appSpecification, 'restore', 'remote');
       console.log(postLayout);
       let postBackupData;
       // eslint-disable-next-line no-restricted-syntax
@@ -6514,9 +6483,6 @@ export default {
           this.showToast('danger', this.volumeInfoResponse.data?.data.message || this.volumeInfoResponse.data?.data);
           return;
         }
-        console.log(JSON.stringify(this.volumeInfoResponse.data.data));
-        console.log(this.remoteFileSizeResponse.data.data);
-        console.log(this.volumeInfoResponse.data.data.available);
         if (this.remoteFileSizeResponse.data.data > this.volumeInfoResponse.data.data.available) {
           this.showToast('danger', `File is too large (${this.addAndConvertFileSizes(this.remoteFileSizeResponse.data.data)})...`);
           return;
@@ -6570,25 +6536,6 @@ export default {
         }
       }
       this.backupList = backupListTmp;
-    },
-    async tarDirectory(name, component, skip, volume) {
-      try {
-        this.tarProgress = `Creating a backup archive for component ${component}...`;
-        const zelidauth = localStorage.getItem('zelidauth');
-        // eslint-disable-next-line no-unused-vars
-        const axiosConfig = {
-          headers: {
-            zelidauth,
-          },
-        };
-        const backupSize = await BackupRestoreService.justAPI().get(`/apps/appendbackuptask/${name}/${encodeURIComponent(volume.mount)}/${skip}`, axiosConfig);
-        // eslint-disable-next-line consistent-return
-        return backupSize.data?.data.message;
-      } catch (error) {
-        console.error('Error:', error.message);
-        // eslint-disable-next-line consistent-return
-        return false;
-      }
     },
     allDownloadsCompleted() {
       return this.computedFileProgress.every((item) => item.progress === 100);

@@ -1,9 +1,33 @@
 const fs = require('fs').promises;
 const log = require('../lib/log');
+const path = require('path');
 const messageHelper = require('./messageHelper');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
 const IOUtils = require('./IOUtils');
+
+const fluxDirPath = path.join(__dirname, '../../../');
+const appsFolder = `${fluxDirPath}ZelApps/`;
+
+function pathValidation(filepath) {
+  const pathStart = filepath.startsWith(appsFolder);
+  // let filename = null;
+  let uploadType = null;
+  if (pathStart) {
+    const lastSlashIndex = filepath.lastIndexOf('/');
+    const types = ['/backup/upload/', '/backup/local/', '/backup/remote/'];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const type of types) {
+      const typeIndex = filepath.indexOf(type);
+      if (typeIndex !== -1 && typeIndex < lastSlashIndex) {
+        uploadType = type.replace('/backup/', '').replace('/', '');
+        break;
+      }
+    }
+  }
+  const result = pathStart && uploadType !== null;
+  return result;
+}
 
 /**
  * Get volume data of an application component.
@@ -55,8 +79,8 @@ async function getVolumeDataOfComponent(req, res) {
 async function getLocalBackupList(req, res) {
   try {
     console.log(req.params);
-    let { path } = req.params;
-    path = path || req.query.path;
+    let { path: vPath } = req.params;
+    vPath = vPath || req.query.path;
     let { multiplier } = req.params;
     multiplier = (multiplier !== undefined && multiplier !== null) ? multiplier : (req.query.multiplier || 'B');
     let { decimal } = req.params;
@@ -66,9 +90,14 @@ async function getLocalBackupList(req, res) {
     if (!path) {
       throw new Error('path parameter is required');
     }
+
+    if (!pathValidation(vPath)) {
+      throw new Error('Path validation failed..');
+    }
+
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
     if (authorized === true) {
-      const listData = await IOUtils.getPathFileList(path, multiplier, decimal, ['.tar.gz'], number);
+      const listData = await IOUtils.getPathFileList(vPath, multiplier, decimal, ['.tar.gz'], number);
       if (listData.length === 0) {
         throw new Error('No matching mount found');
       }
@@ -113,15 +142,6 @@ async function getRemoteFileSize(req, res) {
     }
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
     if (authorized === true) {
-      // const head = await axios.head(fileurl);
-      // const contentLengthHeader = head.headers['content-length'] || head.headers['Content-Length'];
-      // const fileSizeInBytes = parseInt(contentLengthHeader, 10);
-      // if (!Number.isFinite(fileSizeInBytes)) {
-      //   throw new Error('Error fetching file size');
-      // }
-      // const fileSize = IOService.convertFileSize(fileSizeInBytes, multiplier);
-      // const roundedFileSize = fileSize.toFixed(decimal);
-      // const response = messageHelper.createDataMessage(roundedFileSize);
       const fileSize = await IOUtils.getRemoteFileSize(fileurl, multiplier, decimal, number);
       if (fileSize === false) {
         throw new Error('Error fetching file size');
@@ -207,6 +227,9 @@ async function removeBackupFile(req, res) {
     if (!filepath) {
       throw new Error('filepath parameter is mandatory');
     }
+    if (!pathValidation(filepath)) {
+      throw new Error('Path validation failed..');
+    }
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
     if (authorized === true) {
       const output = await IOUtils.removeFile(filepath);
@@ -235,6 +258,9 @@ async function downloadLocalFile(req, res) {
     filepath = filepath || req.query.filepath;
     if (!filepath) {
       throw new Error('filepath parameter is mandatory');
+    }
+    if (!pathValidation(filepath)) {
+      throw new Error('Path validation failed..');
     }
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized) {

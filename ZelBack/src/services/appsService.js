@@ -11597,37 +11597,8 @@ async function sendChunk(res, chunk) {
     setTimeout(() => {
       res.write(`${chunk}\n`);
       resolve();
-    }, 4000); // Adjust the delay as needed
+    }, 3000); // Adjust the delay as needed
   });
-}
-
-function backupPathValidation(objectData) {
-  const { path: vPath } = objectData;
-  const pathStart = vPath.startsWith(appsFolder);
-  // let filename = null;
-  let uploadType = null;
-  if (pathStart) {
-    const lastSlashIndex = vPath.lastIndexOf('/');
-    // if (lastSlashIndex !== -1) {
-    //   filename = vPath.substring(lastSlashIndex + 1);
-    // }
-    const types = ['/backup/upload/', '/backup/local/', '/backup/remote/'];
-    // eslint-disable-next-line no-restricted-syntax
-    for (const type of types) {
-      const typeIndex = vPath.indexOf(type);
-      if (typeIndex !== -1 && typeIndex < lastSlashIndex) {
-        uploadType = type.replace('/backup/', '').replace('/', '');
-        break;
-      }
-    }
-  }
-  // Return true if a valid type is found before the filename, otherwise return false
-  const result = pathStart && uploadType !== null;
-  // console.log(`Path: ${vPath}`);
-  // console.log(`Filename: ${filename}`);
-  // console.log(`Type: ${uploadType || 'Not a valid type'}`);
-  // console.log(`Result: ${result}`);
-  return result;
 }
 
 // eslint-disable-next-line no-unused-vars
@@ -11648,7 +11619,6 @@ async function appendBackupTask(req, res) {
       if (indexBackup !== -1) {
         throw new Error('Backup in progress...');
       }
-
       const hasTrueBackup = backup.some((backupitem) => backupitem.backup);
       if (hasTrueBackup === false) {
         throw new Error('No backup jobs...');
@@ -11659,7 +11629,8 @@ async function appendBackupTask(req, res) {
         // eslint-disable-next-line no-restricted-syntax
         for (const component of backup) {
           if (component.syncthing === true) {
-            console.log(`Performing action for ${component.component}`);
+            // eslint-disable-next-line no-await-in-loop
+            await sendChunk(res, `Stopping syncthing for ${component.component}\n`);
             // eslint-disable-next-line no-await-in-loop
             await stopSyncthingApp(`${component.component}_${appname}`, res);
           }
@@ -11711,7 +11682,7 @@ async function appendBackupTask(req, res) {
       const indexToRemove = backupInProgress.indexOf(appname);
       backupInProgress.splice(indexToRemove, 1);
     }
-    await sendChunk(res, `${error}\n`);
+    await sendChunk(res, `${error?.message}\n`);
     res.end();
     return false;
   }
@@ -11734,12 +11705,10 @@ async function appendRestoreTask(req, res) {
       if (indexRestore !== -1) {
         throw new Error(`Restore for app ${appname} is running...`);
       }
-
       const hasTrueRestore = restore.some((restoreitem) => restoreitem.restore);
       if (hasTrueRestore === false) {
         throw new Error('No restore jobs...');
       }
-
       const componentItem = restore.map((restoreItem) => restoreItem);
       if (type === 'remote') {
         // eslint-disable-next-line no-restricted-syntax
@@ -11757,11 +11726,9 @@ async function appendRestoreTask(req, res) {
           }
         }
       }
-
       restoreInProgress.push(appname);
       await sendChunk(res, 'Stopping application...\n');
       await appDockerStop(appname);
-
       if (processedBody.syncthing) {
         await sendChunk(res, 'Stopping syncthing...\n');
         // eslint-disable-next-line no-restricted-syntax
@@ -11813,7 +11780,7 @@ async function appendRestoreTask(req, res) {
       const indexToRemove = restoreInProgress.indexOf(appname);
       restoreInProgress.splice(indexToRemove, 1);
     }
-    await sendChunk(res, `${error}\n`);
+    await sendChunk(res, `${error?.message}\n`);
     res.end();
     return false;
   }
@@ -11918,7 +11885,6 @@ module.exports = {
   checkStorageSpaceForApps,
   appendBackupTask,
   appendRestoreTask,
-  backupPathValidation,
   sendChunk,
   // exports for testing purposes
   setAppsMonitored,
