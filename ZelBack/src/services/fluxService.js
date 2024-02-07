@@ -567,6 +567,12 @@ async function streamChain(req, res) {
 
   const base = path.join(__dirname, '../../../../.flux');
 
+  const folders = [
+    'blocks',
+    'chainstate',
+    'determ_zelnodes',
+  ];
+
   const folderPromises = folders.map(async (f) => {
     const stats = await stat(base);
     return stats.isDirectory()
@@ -581,12 +587,6 @@ async function streamChain(req, res) {
     lock = false;
     return
   }
-
-  const folders = [
-    'blocks',
-    'chainstate',
-    'determ_zelnodes',
-  ];
 
   let fluxdRunning = null;
   let compress = false;
