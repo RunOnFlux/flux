@@ -5931,7 +5931,10 @@ export default {
       };
 
       const getSizeWithMultiplier = (size, multiplier) => size / multiplierMap[multiplier.toUpperCase()];
-      const formatResult = (result, unit) => `${result.toFixed(decimal)} ${unit}`;
+      const formatResult = (result, unit) => {
+        const formattedResult = unit === 'B' ? result.toFixed(0) : result.toFixed(decimal);
+        return `${formattedResult} ${unit}`;
+      };
 
       let totalSizeInBytes;
 
@@ -5941,13 +5944,13 @@ export default {
         totalSizeInBytes = +sizes;
       } else {
         console.error('Invalid sizes parameter');
-        return 'N/A'; // Provide a default value or handle the error accordingly
+        return 'N/A';
       }
 
       // eslint-disable-next-line no-restricted-globals
       if (isNaN(totalSizeInBytes)) {
         console.error('Total size is not a valid number');
-        return 'N/A'; // Provide a default value or handle the error accordingly
+        return 'N/A';
       }
 
       if (targetUnit === 'auto') {
@@ -5956,11 +5959,14 @@ export default {
 
         Object.keys(multiplierMap).forEach((unit) => {
           const result = getSizeWithMultiplier(totalSizeInBytes, unit);
-          if (result >= 1 && result < bestMatchResult) {
+          if (result >= 1 && (bestMatchResult === undefined || result < bestMatchResult)) {
             bestMatchResult = result;
             bestMatchUnit = unit;
           }
         });
+
+        // If bestMatchUnit is still undefined, set it to 'B' (Bytes)
+        bestMatchUnit = bestMatchUnit || 'B';
 
         return formatResult(bestMatchResult, bestMatchUnit);
       // eslint-disable-next-line no-else-return
@@ -6132,11 +6138,17 @@ export default {
       // eslint-disable-next-line camelcase
       this.files = this.files.filter((selected_file) => selected_file.selected_file.name !== file.selected_file.name);
     },
-    async processChunks(chunks) {
+    async processChunks(chunks, type) {
       // eslint-disable-next-line no-restricted-syntax
       for (const chunk of chunks) {
         if (chunk !== '') {
-          this.restoreFromUploadStatus = chunk;
+          if (type === 'restore_upload') {
+            this.restoreFromUploadStatus = chunk;
+          }
+          if (type === 'backup') {
+            this.tarProgress = chunk;
+          }
+          console.log(chunk);
         }
         // eslint-disable-next-line no-await-in-loop, no-promise-executor-return
         await new Promise((resolve) => setTimeout(resolve, 2000)); // Adjust the delay as needed
@@ -6215,7 +6227,7 @@ export default {
                 const chunkText = new TextDecoder('utf-8').decode(value);
                 const chunks = chunkText.split('\n');
                 // eslint-disable-next-line no-restricted-globals
-                await self.processChunks(chunks);
+                await self.processChunks(chunks, 'restore_upload');
 
                 // Check for new data immediately after processing each chunk
                 push();
@@ -6313,58 +6325,83 @@ export default {
     selectStorageOption(value) {
       this.selectedStorageMethod = value;
     },
+    buildBackupBody(appSpecification) {
+      console.log(appSpecification);
+      const shouldSetGlobalSyncthing = appSpecification.compose.some((item) => item.containerData.includes('r:') || item.containerData.includes('s:') || item.containerData.includes('g:'));
+      const updatedObject = {
+        appname: appSpecification.name,
+        syncthing: shouldSetGlobalSyncthing,
+        backup: appSpecification.compose.map((item) => ({
+          component: item.name,
+          syncthing: item.containerData.includes('r:') || item.containerData.includes('s:') || item.containerData.includes('g:'),
+          backup: false,
+        })),
+      };
+      console.log(updatedObject);
+      return updatedObject;
+    },
+    updateBackupStatus(appConfig, component) {
+      const targetComponent = appConfig.backup.find((item) => item.component === component);
+      if (targetComponent) {
+        targetComponent.backup = true;
+        console.log(`Backup status for ${component} set to true.`);
+      } else {
+        console.log(`Component ${component} not found in the backup array.`);
+      }
+      return appConfig;
+    },
     async createBackup(appname, componentNames) {
       if (this.selectedBackupComponents?.length === 0) {
         return;
       }
       this.backupProgress = true;
-      const timestamp = Math.floor(Date.now() / 1000);
       const zelidauth = localStorage.getItem('zelidauth');
       // eslint-disable-next-line no-unused-vars
-      const axiosConfig = {
-        headers: {
-          zelidauth,
-        },
+      const port = this.config.apiPort;
+      // eslint-disable-next-line no-unused-vars
+      const headers = {
+        zelidauth,
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
       };
-      this.tarProgress = 'Stopping application...';
-      await AppsService.stopApp(zelidauth, appname);
+      const postLayout = this.buildBackupBody(this.appSpecification);
+      let postBackupData;
       // eslint-disable-next-line no-restricted-syntax
       for (const componentName of componentNames) {
-        const existingBackupIndex = this.backupList.findIndex((item) => item.component_name === componentName);
-        let skip = true;
-        if (componentName === componentNames[componentNames.length - 1]) {
-          skip = false;
-        }
-        // eslint-disable-next-line no-await-in-loop
-        this.volumeInfo = await BackupRestoreService.getVolumeDataOfComponent(zelidauth, appname, componentName, 'MB', 2, 'mount');
-        this.volumePath = this.volumeInfo.data?.data;
-        // eslint-disable-next-line no-await-in-loop
-        const size = await this.tarDirectory(appname, componentName, skip, this.volumePath);
-        if (existingBackupIndex !== -1) {
-          this.$set(this.backupList, existingBackupIndex, {
-            isActive: false,
-            component_name: componentName,
-            create: timestamp,
-            file_size: size,
-            file: `${this.volumePath.mount}/backup/local/flux${componentName}_${appname}.tar.gz`,
-          });
-          console.log(JSON.stringify(this.backupList[existingBackupIndex]));
-        } else {
-          const newBackupItem = {
-            isActive: false,
-            component_name: componentName,
-            create: timestamp,
-            file_size: size,
-            file: `${this.volumePath.mount}/backup/local/flux${componentName}_${appname}.tar.gz`,
-          };
-          this.backupList.push(newBackupItem);
-        }
+        postBackupData = this.updateBackupStatus(postLayout, componentName);
       }
-      this.tarProgress = 'Starting application...';
-      await AppsService.startApp(zelidauth, appname);
+      console.log(postBackupData);
+      const response = await fetch(`${this.ipAddress}:${port}/apps/appendbackuptask`, {
+        method: 'POST',
+        body: JSON.stringify(postBackupData),
+        headers,
+      });
+      const self = this;
+      const reader = response.body.getReader();
+      // eslint-disable-next-line no-unused-vars
+      await new Promise((streamResolve, streamReject) => {
+        function push() {
+          reader.read().then(async ({ done, value }) => {
+            if (done) {
+              streamResolve(); // Resolve the stream promise when the response stream is complete
+              return;
+            }
+            // Process each chunk of data separately
+            const chunkText = new TextDecoder('utf-8').decode(value);
+            const chunks = chunkText.split('\n');
+            // eslint-disable-next-line no-restricted-globals
+            await self.processChunks(chunks, 'backup');
+            // Check for new data immediately after processing each chunk
+            push();
+          });
+        }
+        push();
+      });
+
       setTimeout(() => {
         this.backupProgress = false;
       }, 5000);
+      this.loadBackupList();
       // this.backupProgress = false;// console.log(JSON.stringify(this.backupList));
     },
     onRowSelected(itemOnRow) {

@@ -11625,22 +11625,17 @@ function backupPathValidation(objectData) {
   return result;
 }
 
+// eslint-disable-next-line no-unused-vars
 async function appendBackupTask(req, res) {
   let appname;
-  let pathComponents = [];
   try {
-    log.info(req.params);
+    const processedBody = serviceHelper.ensureObject(req.body);
+    console.log(processedBody);
     // eslint-disable-next-line prefer-destructuring
-    appname = req.params.appname;
-    appname = appname || req.query.appname;
-    // eslint-disable-next-line no-shadow
-    let { sourcepath } = req.params;
-    sourcepath = sourcepath || req.query.sourcepath;
-    let { skip } = req.params;
-    // eslint-disable-next-line no-unused-vars
-    skip = skip || req.query.skip;
-    if (!appname || !sourcepath) {
-      throw new Error('appname and sourcepath target parameters are mandatory');
+    appname = processedBody.appname;
+    const { backup } = processedBody;
+    if (!appname || !backup) {
+      throw new Error('appname and restore parameters are mandatory');
     }
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
     if (authorized === true) {
@@ -11648,42 +11643,55 @@ async function appendBackupTask(req, res) {
       if (indexBackup !== -1) {
         throw new Error('Backup in progress...');
       }
-      console.log('Checking,....');
-      log.info(`App: ${appname}`);
+
+      const hasTrueBackup = backup.some((backupitem) => backupitem.backup);
+      if (hasTrueBackup === false) {
+        throw new Error('No backup jobs...');
+      }
       backupInProgress.push(appname);
-      log.info(`Path ${sourcepath}`);
-      pathComponents = sourcepath.split('/');
-      log.info(`Split: ${pathComponents}`);
-      const fullName = `${pathComponents[pathComponents.length - 1]}`;
-      log.info(`Full: ${fullName}`);
-      const target = `${sourcepath}/backup/local/${fullName}.tar.gz`;
-      // console.log('Stopping docker...');
-      // await appDockerStop(`${appname}`);
-      console.log('Stopping syncthing...');
-      await stopSyncthingApp(`${fullName}`, res);
-      console.log('Checking file...');
-      const existStatus = await IOUtils.checkFileExists(`${sourcepath}/backup/local/${fullName}.tar.gz`);
-      if (existStatus === true) {
-        console.log('Removing file...');
-        await IOUtils.removeFile(`${sourcepath}/backup/local/${fullName}.tar.gz`);
+      // Check if app using syncthing, stop syncthing for all component that using it
+      if (processedBody.syncthing) {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of backup) {
+          if (component.syncthing === true) {
+            console.log(`Performing action for ${component.component}`);
+            // eslint-disable-next-line no-await-in-loop
+            await stopSyncthingApp(`${component.component}_${appname}`, res);
+          }
+        }
       }
-      console.log(`Create ${target}`);
-      const status = await IOUtils.createTarGz(`${sourcepath}/appdata`, target);
-      if (status === false) {
-        throw new Error('Error creating tarball archive');
+      await sendChunk(res, 'Stopping application...\n');
+      await appDockerStop(appname);
+      // eslint-disable-next-line no-restricted-syntax
+      for (const component of backup) {
+        if (component.backup) {
+          // eslint-disable-next-line no-await-in-loop
+          await sendChunk(res, `Creating backup archive for ${component.component}...\n`);
+          // eslint-disable-next-line no-await-in-loop
+          const componentPath = await IOUtils.getVolumeInfo(appname, component.component, 'B', 0, 'mount');
+          const targetPath = `${componentPath[0].mount}/appdata`;
+          const tarGzPath = `${componentPath[0].mount}/backup/local/backup_${component.component}.tar.gz`;
+          // eslint-disable-next-line no-await-in-loop
+          const existStatus = await IOUtils.checkFileExists(`${componentPath[0].mount}/backup/local/backup_${component.component}.tar.gz`);
+          if (existStatus === true) {
+            // eslint-disable-next-line no-await-in-loop
+            await sendChunk(res, `Removing exists backup archive for ${component.component}...\n`);
+            // eslint-disable-next-line no-await-in-loop
+            await IOUtils.removeFile(`${componentPath[0].mount}/backup/local/backup_${component.component}.tar.gz`);
+          }
+          // eslint-disable-next-line no-await-in-loop
+          const tarStatus = await IOUtils.createTarGz(targetPath, tarGzPath);
+          if (tarStatus === false) {
+            throw new Error('Error creating tarball archive');
+          }
+        }
       }
-      // console.log(skip);
-      // if (skip === 'false') {
-      //   console.log('Starting docker...');
-      //   await appDockerStart(`${appname}`);
-      // }
-      const indexToRemove = backupInProgress.indexOf(appname);
-      backupInProgress.splice(indexToRemove, 1);
-      console.log('FileSize...');
-      const backapSize = await IOUtils.getFileSize(`${sourcepath}/backup/local/${fullName}.tar.gz`, 'MB', 2);
-      console.log(backapSize);
-      const response = messageHelper.createSuccessMessage(backapSize);
-      return res.json(response);
+      await serviceHelper.delay(5 * 60 * 1000);
+      await sendChunk(res, 'Starting application...\n');
+      await appDockerStart(appname);
+      await serviceHelper.delay(5 * 60 * 1000);
+      res.end();
+      return true;
     // eslint-disable-next-line no-else-return
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
@@ -11713,7 +11721,7 @@ async function appendRestoreTask(req, res) {
     // eslint-disable-next-line prefer-destructuring
     appname = processedBody.appname;
     const { restore } = processedBody;
-    if (!appname && !restore) {
+    if (!appname || !restore) {
       throw new Error('appname and restore parameters are mandatory');
     }
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
@@ -11751,7 +11759,7 @@ async function appendRestoreTask(req, res) {
           await sendChunk(res, `Stopping syncthing for ${itemOfRestore.component}\n`);
           console.log(`Stopping syncthing for ${itemOfRestore.component}`);
           // eslint-disable-next-line no-await-in-loop
-          await stopSyncthingApp(`${itemOfRestore.component}`, res);
+          await stopSyncthingApp(`${itemOfRestore.component}_${appname}`, res);
         }
       }
       // eslint-disable-next-line no-restricted-syntax
@@ -11781,8 +11789,7 @@ async function appendRestoreTask(req, res) {
         executeAppGlobalCommand(appname, 'redeploy', req.headers.zelidauth, true);
         await serviceHelper.delay(1 * 60 * 1000);
       }
-      await sendChunk(res, 'Restore Complited!\n');
-      await serviceHelper.delay(1 * 5 * 1000);
+      await sendChunk(res, 'Finalizing...\n');
       const indexToRemove = restoreInProgress.indexOf(appname);
       restoreInProgress.splice(indexToRemove, 1);
       res.end();
