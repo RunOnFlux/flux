@@ -1,4 +1,3 @@
-/* eslint-disable no-shadow */
 const df = require('node-df');
 const fs = require('fs').promises;
 const util = require('util');
@@ -148,10 +147,10 @@ async function getRemoteFileSize(fileurl, multiplier, decimal, number = false) {
  * @param {string} multiplier - Unit multiplier for displaying sizes (B, KB, MB, GB).
  * @param {number} decimal - Number of decimal places for precision.
  * @param {string} fields - Optional comma-separated list of fields to include in the response. Possible fields: 'mount', 'size', 'used', 'available', 'capacity', 'filesystem'.
- * @param {string|false} path - Optional path to filter results. If provided, only entries matching the specified path will be included. Pass `false` to use the default component and appname-based filtering.
+ * @param {string|false} pathfilter - Optional path to filter results. If provided, only entries matching the specified path will be included. Pass `false` to use the default component and appname-based filtering.
  * @returns {Array|boolean} - Array of objects containing volume information for the specified component, or false if no matching mount is found.
  */
-async function getVolumeInfo(appname, component, multiplier, decimal, fields, path = false) {
+async function getVolumeInfo(appname, component, multiplier, decimal, fields, pathfilter = false) {
   try {
     const options = {
       prefixMultiplier: multiplier,
@@ -161,8 +160,8 @@ async function getVolumeInfo(appname, component, multiplier, decimal, fields, pa
     const dfAsync = util.promisify(df);
     const dfData = await dfAsync(options);
     let regex;
-    if (path) {
-      regex = new RegExp(`${path}`);
+    if (pathfilter) {
+      regex = new RegExp(`${pathfilter}`);
     } else {
       regex = new RegExp(`flux${component}_${appname}$`);
     }
@@ -204,18 +203,18 @@ async function getVolumeInfo(appname, component, multiplier, decimal, fields, pa
 
 /**
  * Get a list of file information for the specified path.
- * @param {string} path - The path of the directory.
+ * @param {string} targetpath - The path of the directory.
  * @param {string} multiplier - Unit to convert file sizes (B, KB, MB, GB).
  * @param {number} decimal - Number of decimal places for file sizes.
  * @returns {Array} An array of file information or returns an empty array if there's an issue reading the directory or obtaining file information.
  */
-async function getPathFileList(path, multiplier, decimal, filterKeywords = [], number = false) {
+async function getPathFileList(targetpath, multiplier, decimal, filterKeywords = [], number = false) {
   try {
-    const files = await fs.readdir(path);
+    const files = await fs.readdir(targetpath);
     const filesArray = [];
     // eslint-disable-next-line no-restricted-syntax
     for (const file of files) {
-      const filePath = `${path}/${file}`;
+      const filePath = `${targetpath}/${file}`;
       // eslint-disable-next-line no-await-in-loop
       const stats = await fs.stat(filePath);
       // eslint-disable-next-line no-await-in-loop
@@ -275,22 +274,22 @@ async function checkFileExists(filePath) {
  * Downloads a file from a remote URL and saves it locally.
  *
  * @param {string} url - The URL of the file to download.
- * @param {string} path - The local path to save the downloaded file.
+ * @param {string} localpath - The local path to save the downloaded file.
  * @param {string} component - The component name for identification.
  * @param {string} appname - The application name for identification.
  * @param {boolean} rename - Flag indicating whether to rename the downloaded file.
  * @returns {boolean} - True if the file is downloaded and saved successfully, false on failure.
  */
-async function downloadFileFromUrl(url, path, component, appname, rename = false) {
+async function downloadFileFromUrl(url, localpath, component, appname, rename = false) {
   try {
     const response = await axios.get(url, { responseType: 'arraybuffer' });
     const fileData = Buffer.from(response.data, 'binary');
     if (rename === true) {
-      await fs.writeFile(`${path}/${component}_${appname}.tar.gz`, fileData);
+      await fs.writeFile(`${localpath}/${component}_${appname}.tar.gz`, fileData);
     } else {
       const fileNameArray = url.split('/');
       const fileName = fileNameArray[fileNameArray.length - 1];
-      await fs.writeFile(`${path}/${fileName}`, fileData);
+      await fs.writeFile(`${localpath}/${fileName}`, fileData);
     }
     return true;
   } catch (err) {
