@@ -574,7 +574,7 @@ async function streamChain(req, res) {
   ];
 
   const folderPromises = folders.map(async (f) => {
-    const stats = await stat(f);
+    const stats = await stat(path.join(base, f));
     return stats.isDirectory();
   });
 
