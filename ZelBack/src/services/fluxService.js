@@ -616,7 +616,7 @@ async function streamChain(req, res) {
   const chainExists = foldersExist.every((x) => x);
 
   if (!chainExists) {
-    res.statusMessage = `Unable to find chain at: ${base}.`;
+    res.statusMessage = "Unable to find chain at $HOME/.flux";
     res.status(500).end();
     lock = false;
     return;
