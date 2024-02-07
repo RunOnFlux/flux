@@ -9,6 +9,11 @@ const IOUtils = require('./IOUtils');
 const fluxDirPath = path.join(__dirname, '../../../');
 const appsFolder = `${fluxDirPath}ZelApps/`;
 
+/**
+ * Validates if a file path belongs to a specific set of upload types within the appsFolder.
+ * @param {string} filepath - The file path to be validated.
+ * @returns {boolean} - True if the filepath is valid, otherwise false.
+ */
 function pathValidation(filepath) {
   const pathStart = filepath.startsWith(appsFolder);
   // let filename = null;
@@ -76,6 +81,14 @@ async function getVolumeDataOfComponent(req, res) {
   }
 }
 
+/**
+ * Get the list of local backups based on the provided path.
+ * @async
+ * @param {object} req - Request object.
+ * @param {object} res - Response object.
+ * @returns {object} - JSON response containing the list of local backups.
+ * @throws {object} - JSON error response if an error occurs.
+ */
 async function getLocalBackupList(req, res) {
   try {
     console.log(req.params);
@@ -166,7 +179,6 @@ async function getRemoteFileSize(req, res) {
 
 /**
  * Handles a request to retrieve remote files.
- *
  * @param {object} req - Request object.
  * @param {object} res - Response object.
  * @returns {object} - JSON response indicating the success or failure.
@@ -219,6 +231,13 @@ async function getRemoteFile(req, res) {
   }
 }
 
+/**
+ * Remove a backup file specified by the filepath.
+ * @param {object} req - Request object.
+ * @param {object} res - Response object.
+ * @returns {object} - JSON response indicating the success of the file removal.
+ * @throws {object} - JSON error response if an error occurs.
+ */
 async function removeBackupFile(req, res) {
   try {
     console.log(req.params);
@@ -251,6 +270,13 @@ async function removeBackupFile(req, res) {
   }
 }
 
+/**
+ * Download a local file specified by the filepath.
+ * @param {object} req - Request object.
+ * @param {object} res - Response object.
+ * @returns {object} - File download response or JSON error response if an error occurs.
+ * @throws {object} - JSON error response if an error occurs.
+ */
 async function downloadLocalFile(req, res) {
   try {
     console.log(req.params);
