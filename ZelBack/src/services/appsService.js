@@ -11592,6 +11592,13 @@ function setInstallationInProgressTrue() {
   installationInProgress = true;
 }
 
+/**
+ * Send a chunk of data as a response to the client with a delay.
+ * @async
+ * @param {object} res - Response object.
+ * @param {string} chunk - Data chunk to be sent.
+ * @returns {Promise<void>} - A Promise that resolves after sending the chunk with a delay.
+ */
 async function sendChunk(res, chunk) {
   return new Promise((resolve) => {
     setTimeout(() => {
@@ -11601,7 +11608,14 @@ async function sendChunk(res, chunk) {
   });
 }
 
-// eslint-disable-next-line no-unused-vars
+/**
+ * Append a backup task based on the provided parameters.
+ * @async
+ * @param {object} req - Request object.
+ * @param {object} res - Response object.
+ * @returns {boolean} - True if the backup task is successfully appended, otherwise false.
+ * @throws {object} - JSON error response if an error occurs.
+ */
 async function appendBackupTask(req, res) {
   let appname;
   try {
@@ -11688,6 +11702,14 @@ async function appendBackupTask(req, res) {
   }
 }
 
+/**
+ * Append a restore task based on the provided parameters.
+ * @async
+ * @param {object} req - Request object.
+ * @param {object} res - Response object.
+ * @returns {boolean} - True if the restore task is successfully appended, otherwise false.
+ * @throws {object} - JSON error response if an error occurs.
+ */
 async function appendRestoreTask(req, res) {
   let appname;
   try {

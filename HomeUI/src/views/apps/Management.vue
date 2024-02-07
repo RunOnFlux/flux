@@ -6030,61 +6030,6 @@ export default {
       }
       return true;
     },
-    getSyncthingStatus(objectToUpdate) {
-      this.appSpecification.compose.forEach((item) => {
-        const shouldSetSyncthing = item.containerData.includes('r:') || item.containerData.includes('s:') || item.containerData.includes('g:');
-        const restoreSpec = objectToUpdate.restore.find((restore) => restore.component === item.name);
-        if (restoreSpec) {
-          restoreSpec.syncthing = shouldSetSyncthing;
-        }
-      });
-      return objectToUpdate;
-    },
-    // eslint-disable-next-line consistent-return
-    async fetchData() {
-      this.restoreFromUploadStatus = 'Restoring tiggered...';
-      const restoreObject = {
-        appname: this.appName,
-        restore: this.files.map((item) => ({
-          component: item.component,
-          path: `${item.path}/${item.file}`,
-          syncthing: false,
-        })),
-      };
-      console.log(restoreObject);
-      const postData = this.getSyncthingStatus(restoreObject);
-      const port = this.config.apiPort;
-      try {
-        const response = await fetch(`${this.ipAddress}:${port}/apps/appendrestoretask`, {
-          method: 'POST',
-          headers: this.zelidHeader,
-          body: JSON.stringify(postData),
-        });
-        if (!response.ok) {
-          throw new Error(`HTTP error! Status: ${response.status}`);
-        }
-        const reader = response.body.getReader();
-        return new ReadableStream({
-          async start(controller) {
-            async function push() {
-              const { done, value } = await reader.read();
-              if (done) {
-                controller.close();
-                return;
-              }
-              const chunkText = new TextDecoder('utf-8').decode(value);
-              console.log('New message received...');
-              console.log(chunkText);
-              // controller.enqueue(value);
-              push();
-            }
-            push();
-          },
-        });
-      } catch (error) {
-        console.error('Error fetching data:', error.message);
-      }
-    },
     removeFile(file) {
       // eslint-disable-next-line camelcase
       this.files = this.files.filter((selected_file) => selected_file.selected_file.name !== file.selected_file.name);
@@ -6135,7 +6080,6 @@ export default {
           });
           this.restoreFromUploadStatus = 'Initializing restore jobes...';
           const postLayout = this.buildPostBody(this.appSpecification, 'restore', 'upload');
-          console.log(postLayout);
           let postRestoreData;
           // eslint-disable-next-line no-restricted-syntax
           for (const componentName of this.files) {
@@ -6315,7 +6259,6 @@ export default {
       for (const componentName of componentNames) {
         postBackupData = this.updateJobeStatus(postLayout, componentName, 'backup');
       }
-      console.log(postBackupData);
       const response = await fetch(`${this.ipAddress}:${port}/apps/appendbackuptask`, {
         method: 'POST',
         body: JSON.stringify(postBackupData),
@@ -6429,13 +6372,11 @@ export default {
         'Access-Control-Allow-Origin': '*',
       };
       const postLayout = this.buildPostBody(this.appSpecification, 'restore', 'remote');
-      console.log(postLayout);
       let postBackupData;
       // eslint-disable-next-line no-restricted-syntax
       for (const componentName of this.restoreRemoteUrlItems) {
         postBackupData = this.updateJobeStatus(postLayout, componentName.component, 'restore', this.restoreRemoteUrlItems);
       }
-      console.log(postBackupData);
       const response = await fetch(`${this.ipAddress}:${port}/apps/appendrestoretask`, {
         method: 'POST',
         body: JSON.stringify(postBackupData),
@@ -6613,8 +6554,6 @@ export default {
             document.body.removeChild(link);
             window.URL.revokeObjectURL(url);
 
-            // Indicate successful download for this file
-            console.log(`File: ${fileName} downloaded successfully`);
             return true;
           } catch (error) {
             console.error('Error downloading file:', error);
