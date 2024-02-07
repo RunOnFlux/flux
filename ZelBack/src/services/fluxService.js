@@ -610,7 +610,10 @@ async function streamChain(req, res) {
 
   if (safe) {
     try {
-      fluxdRunning = Boolean(await daemonServiceBlockchainRpcs.getBlockchainInfo());
+      const blockInfoRes = await daemonServiceBlockchainRpcs.getBlockchainInfo();
+      log.info("BLOCKCHAIN RES")
+      log.info(blockInfoRes)
+      fluxdRunning = true;
     } catch {
       fluxdRunning = false;
     }
