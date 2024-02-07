@@ -6251,6 +6251,7 @@ export default {
           return;
         }
         const xhr = new XMLHttpRequest();
+        console.log(file.path);
         const action = this.getUploadFolder(file.path, file.file);
         if (xhr.upload) {
           xhr.upload.onprogress = function progress(e) {

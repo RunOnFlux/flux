@@ -11716,7 +11716,7 @@ async function appendBackupTask(req, res) {
       error.name,
       error.code,
     );
-    return res ? res.json(errorResponse) : errorResponse;
+    return res.json(errorResponse);
   }
 }
 
@@ -11783,6 +11783,8 @@ async function appendRestoreTask(req, res) {
           const componentPath = await IOUtils.getVolumeInfo(appname, component.component, 'B', 0, 'mount');
           const targetPath = `${componentPath[0].mount}/appdata`;
           const tarGzPath = `${componentPath[0].mount}/backup/${type}/backup_${component.component}.tar.gz`;
+          console.log(targetPath);
+          console.log(componentPath);
           // eslint-disable-next-line no-await-in-loop
           const existStatus = await IOUtils.checkFileExists(`${componentPath[0].mount}/backup/${type}/backup_${component.component}.tar.gz`);
           if (existStatus === true) {
@@ -11829,7 +11831,7 @@ async function appendRestoreTask(req, res) {
       error.name,
       error.code,
     );
-    return res ? res.json(errorResponse) : errorResponse;
+    return res.json(errorResponse);
   }
 }
 
