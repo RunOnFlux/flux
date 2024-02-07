@@ -568,6 +568,33 @@ async function streamChain(req, res) {
 
   lock = true;
 
+  /**
+   * Use the remote address here, don't need to worry about x-forwarded-for headers as
+   * we only allow the local network. Also, using the remote address is fine as FluxOS
+   * won't confirm if the upstream is natting behind a private address. I.e public
+   * connections coming in via a private address. (Flux websockets need the remote address
+   * or they think there is only one inbound connnection)
+   */
+  let ip = req.socket.remoteAddress;
+  if (!ip) {
+    res.statusMessage = 'Socket closed.';
+    res.status(400).end();
+    lock = false;
+    return;
+  }
+
+  // convert from IPv4-mapped IPv6 address format to straight IPv4 (from socket)
+  ip = ip.replace(/^.*:/, ''); // this is greedy, so will remove ::ffff:
+
+  if (!isPrivateAddress(ip)) {
+    res.statusMessage = 'Request must be from an address on the same private network as the host';
+    res.status(403).end();
+    lock = false;
+    return;
+  }
+
+  log.info(`Stream chain request received from: ${ip}`);
+
   const base = path.join(__dirname, '../../../../.flux');
 
   const folders = [
@@ -622,33 +649,6 @@ async function streamChain(req, res) {
     lock = false;
     return;
   }
-
-  /**
-   * Use the remote address here, don't need to worry about x-forwarded-for headers as
-   * we only allow the local network. Also, using the remote address is fine as FluxOS
-   * won't confirm if the upstream is natting behind a private address. I.e public
-   * connections coming in via a private address. (Flux websockets need the remote address
-   * or they think there is only one inbound connnection)
-   */
-  let ip = req.socket.remoteAddress;
-  if (!ip) {
-    res.statusMessage = 'Socket closed.';
-    res.status(400).end();
-    lock = false;
-    return;
-  }
-
-  // convert from IPv4-mapped IPv6 address format to straight IPv4 (from socket)
-  ip = ip.replace(/^.*:/, ''); // this is greedy, so will remove ::ffff:
-
-  if (!isPrivateAddress(ip)) {
-    res.statusMessage = 'Request must be from an address on the same private network as the host';
-    res.status(403).end();
-    lock = false;
-    return;
-  }
-
-  log.info(`Stream chain request received from: ${ip}`);
 
   const workflow = [];
 
