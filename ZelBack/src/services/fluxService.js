@@ -609,14 +609,8 @@ async function streamChain(req, res) {
   }
 
   if (safe) {
-    try {
-      const blockInfoRes = await daemonServiceBlockchainRpcs.getBlockchainInfo();
-      log.info("BLOCKCHAIN RES")
-      log.info(blockInfoRes)
-      fluxdRunning = true;
-    } catch {
-      fluxdRunning = false;
-    }
+    const blockInfoRes = await daemonServiceBlockchainRpcs.getBlockchainInfo();
+    fluxdRunning = !(blockInfoRes.status === "error" && blockInfoRes.data.code === "ECONNREFUSED")
   }
 
   if (safe && fluxdRunning) {
