@@ -1508,6 +1508,7 @@
                     <template #cell(actions)="row">
                       <div class="d-flex justify-content-center align-items-center">
                         <b-button
+                          v-b-tooltip.hover.top="'Remove file'"
                           variant="outline-danger"
                           class="d-flex justify-content-center align-items-center mr-1 custom-button"
                           @click="
@@ -1520,6 +1521,7 @@
                           />
                         </b-button>
                         <b-button
+                          v-b-tooltip.hover.top="'Download file'"
                           variant="outline-primary"
                           class="d-flex justify-content-center align-items-center custom-button"
                           @click="downloadAllBackupFiles([{ component_name: row.item.component_name, file: backupList[row.index].file }])"
@@ -2185,6 +2187,8 @@
 
                       <b-input-group-append>
                         <b-button
+                          v-b-tooltip.hover.top="'Choose file to upload'"
+                          :disabled="restoreRemoteFile === null"
                           text="Button"
                           size="sm"
                           variant="outline-primary"
@@ -2258,6 +2262,7 @@
                       <template #cell(actions)="data">
                         <div class="d-flex justify-content-center align-items-center">
                           <b-button
+                            v-b-tooltip.hover.top="'Remove restore job'"
                             variant="outline-danger"
                             class="d-flex justify-content-center align-items-center"
                             style="width: 15px; height: 25px"
@@ -2369,6 +2374,7 @@
                       </b-input-group-append>
                       <b-input-group-append>
                         <b-button
+                          :disabled="restoreRemoteUrlComponent === null"
                           size="sm"
                           variant="outline-primary"
                           @click="addRemoteUrlItem(appName, restoreRemoteUrlComponent)"
@@ -2427,6 +2433,7 @@
                       <template #cell(actions)="data">
                         <div class="d-flex justify-content-center align-items-center">
                           <b-button
+                            v-b-tooltip.hover.top="'Remove restore job'"
                             variant="outline-danger"
                             class="d-flex justify-content-center align-items-center"
                             style="width: 15px; height: 25px"
@@ -6149,7 +6156,6 @@ export default {
         formData.append(file.selected_file.name, file.selected_file);
         file.uploading = true;
         xhr.onerror = function error(e) {
-          console.error(e);
           self.restoreFromUpload = false;
           self.restoreFromUploadStatus = '';
           self.files.forEach((entry) => {
@@ -6162,7 +6168,6 @@ export default {
         };
         xhr.onload = function onload() {
           if (xhr.status < 200 || xhr.status >= 300) {
-            console.error('error');
             console.error(xhr.status);
             self.restoreFromUpload = false;
             self.restoreFromUploadStatus = '';
