@@ -1359,6 +1359,7 @@
                   Select all
                 </b-button>
                 <b-button
+                  :disabled="selectedBackupComponents.length === 0 || backupProgress === true"
                   variant="outline-primary"
                   style="white-space: nowrap;"
                   @click="createBackup(appName, selectedBackupComponents)"
@@ -2309,6 +2310,7 @@
                       </h5>
                       <div
                         v-for="file in files"
+                        v-if="file.uploading"
                         :key="file.file.name"
                         class="upload-item mb-1"
                       >
@@ -2325,7 +2327,7 @@
                     </div>
                   </div>
                   <b-button
-                    v-if="files?.length > 0"
+                    v-if="files?.length > 0 && restoreFromUploadStatus === ''"
                     class="mt-2"
                     block
                     variant="outline-primary"
@@ -2479,7 +2481,7 @@
                     </div>
                   </div>
                   <b-button
-                    v-if="restoreRemoteUrlItems?.length > 0"
+                    v-if="restoreRemoteUrlItems?.length > 0 && restoreFromRemoteURLStatus === ''"
                     class="mt-2"
                     block
                     variant="outline-primary"
@@ -6117,6 +6119,7 @@ export default {
             push();
           });
           this.restoreFromUpload = false;
+          this.restoreFromUploadStatus = '';
           resolve(); // Resolve the outer promise when all uploads and response stream processing are complete
         } catch (error) {
           reject(error); // Reject the outer promise if any error occurs during the process
@@ -6406,6 +6409,7 @@ export default {
 
       setTimeout(() => {
         this.downloadingFromUrl = false;
+        this.restoreFromRemoteURLStatus = '';
       }, 5000);
     },
     async addRemoteUrlItem(appname, component) {
