@@ -6406,11 +6406,8 @@ export default {
         }
         push();
       });
-
-      setTimeout(() => {
-        this.downloadingFromUrl = false;
-        this.restoreFromRemoteURLStatus = '';
-      }, 5000);
+      this.downloadingFromUrl = false;
+      this.restoreFromRemoteURLStatus = '';
     },
     async addRemoteUrlItem(appname, component) {
       if (!this.isValidUrl) {
