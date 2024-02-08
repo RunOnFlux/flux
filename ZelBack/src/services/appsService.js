@@ -11672,7 +11672,9 @@ async function appendBackupTask(req, res) {
           // eslint-disable-next-line no-await-in-loop
           const tarStatus = await IOUtils.createTarGz(targetPath, tarGzPath);
           if (tarStatus === false) {
-            throw new Error('Error creating tarball archive');
+            // eslint-disable-next-line no-await-in-loop
+            await IOUtils.removeFile(`${componentPath[0].mount}/backup/local/backup_${component.component}.tar.gz`);
+            throw new Error(`Error: Failed to create backup archive for ${component.component}`);
           }
         }
       }
@@ -11714,6 +11716,7 @@ async function appendRestoreTask(req, res) {
   let appname;
   try {
     const processedBody = serviceHelper.ensureObject(req.body);
+    console.log(processedBody);
     // eslint-disable-next-line prefer-destructuring
     appname = processedBody.appname;
     const { restore } = processedBody;
@@ -11775,7 +11778,7 @@ async function appendRestoreTask(req, res) {
             // eslint-disable-next-line no-await-in-loop
             const downloadStatus = await IOUtils.downloadFileFromUrl(restoreItem.url, `${componentPath[0].mount}/backup/remote`, restoreItem.component, true);
             if (downloadStatus === 'false') {
-              throw new Error(`Downloading ${restoreItem.url} failed...`);
+              throw new Error(`Error: Failed to download ${restoreItem.url}...`);
             }
           }
         }
@@ -11793,7 +11796,7 @@ async function appendRestoreTask(req, res) {
           // eslint-disable-next-line no-await-in-loop
           const tarStatus = await IOUtils.untarFile(targetPath, tarGzPath);
           if (tarStatus === false) {
-            throw new Error(`Error unpacking tarball archive for ${component.component}`);
+            throw new Error(`Error: Failed to unpack archive file for ${component.component}`);
           }
         }
       }
