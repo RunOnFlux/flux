@@ -6150,13 +6150,27 @@ export default {
         file.uploading = true;
         xhr.onerror = function error(e) {
           console.error(e);
-          self.showToast('danger', `An error occurred while uploading '${file.selected_file.name}' - ${e}`);
+          self.restoreFromUpload = false;
+          self.restoreFromUploadStatus = '';
+          self.files.forEach((entry) => {
+            entry.uploading = false;
+            entry.uploaded = false;
+            entry.progress = 0;
+          });
+          self.showToast('danger', `An error occurred while uploading ${file.selected_file.name}, try to relogin`);
           reject(e);
         };
         xhr.onload = function onload() {
           if (xhr.status < 200 || xhr.status >= 300) {
             console.error('error');
             console.error(xhr.status);
+            self.restoreFromUpload = false;
+            self.restoreFromUploadStatus = '';
+            self.files.forEach((entry) => {
+              entry.uploading = false;
+              entry.uploaded = false;
+              entry.progress = 0;
+            });
             self.showToast('danger', `An error occurred while uploading '${file.selected_file.name}' - Status code: ${xhr.status}`);
             reject(xhr.status);
             return;
