@@ -6384,7 +6384,7 @@ export default {
     async restoreFromRemoteFile() {
       const zelidauth = localStorage.getItem('zelidauth');
       this.downloadingFromUrl = true;
-      this.restoreFromRemoteURLStatus = 'Initializing restore jobes...';
+      this.restoreFromRemoteURLStatus = 'Initializing restore jobs...';
       // eslint-disable-next-line no-unused-vars
       const port = this.config.apiPort;
       // eslint-disable-next-line no-unused-vars
