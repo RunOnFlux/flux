@@ -16,17 +16,21 @@ const appsFolder = `${fluxDirPath}ZelApps/`;
  */
 function pathValidation(filepath) {
   const pathStart = filepath.startsWith(appsFolder);
-  // let filename = null;
   let uploadType = null;
+
   if (pathStart) {
     const lastSlashIndex = filepath.lastIndexOf('/');
-    const types = ['/backup/upload/', '/backup/local/', '/backup/remote/'];
+    const types = ['/backup/upload', '/backup/local', '/backup/remote'];
     // eslint-disable-next-line no-restricted-syntax
     for (const type of types) {
       const typeIndex = filepath.indexOf(type);
       if (typeIndex !== -1 && typeIndex < lastSlashIndex) {
-        uploadType = type.replace('/backup/', '').replace('/', '');
-        break;
+        // Check if the upload type is at the end of the filepath or followed by a slash
+        const nextChar = filepath[typeIndex + type.length];
+        if (nextChar === '/' || nextChar === undefined) {
+          uploadType = type.replace('/backup/', '');
+          break;
+        }
       }
     }
   }
