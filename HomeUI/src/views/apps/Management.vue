@@ -6085,7 +6085,7 @@ export default {
           let postRestoreData;
           // eslint-disable-next-line no-restricted-syntax
           for (const componentName of this.files) {
-            postRestoreData = this.updateJobeStatus(postLayout, componentName.component, 'restore');
+            postRestoreData = this.updateJobStatus(postLayout, componentName.component, 'restore');
           }
           const port = this.config.apiPort;
           const zelidauth = localStorage.getItem('zelidauth');
@@ -6221,7 +6221,7 @@ export default {
       };
       return updatedObject;
     },
-    updateJobeStatus(appConfig, component, jobeType, urlInfoArray = []) {
+    updateJobStatus(appConfig, component, jobeType, urlInfoArray = []) {
       const targetComponent = appConfig[jobeType].find((item) => item.component === component);
       if (targetComponent) {
         targetComponent[jobeType] = true;
@@ -6260,7 +6260,7 @@ export default {
       let postBackupData;
       // eslint-disable-next-line no-restricted-syntax
       for (const componentName of componentNames) {
-        postBackupData = this.updateJobeStatus(postLayout, componentName, 'backup');
+        postBackupData = this.updateJobStatus(postLayout, componentName, 'backup');
       }
       const response = await fetch(`${this.ipAddress}:${port}/apps/appendbackuptask`, {
         method: 'POST',
@@ -6378,7 +6378,7 @@ export default {
       let postBackupData;
       // eslint-disable-next-line no-restricted-syntax
       for (const componentName of this.restoreRemoteUrlItems) {
-        postBackupData = this.updateJobeStatus(postLayout, componentName.component, 'restore', this.restoreRemoteUrlItems);
+        postBackupData = this.updateJobStatus(postLayout, componentName.component, 'restore', this.restoreRemoteUrlItems);
       }
       const response = await fetch(`${this.ipAddress}:${port}/apps/appendrestoretask`, {
         method: 'POST',
