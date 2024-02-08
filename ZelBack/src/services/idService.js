@@ -21,17 +21,12 @@ let syncthingWorking = false;
 
 /**
  * To check if the hardware specification requirements of the node tier are being met by the node (RAM and CPU threads).
- * @returns {boolean} True or an error is thrown.
+ * @returns {Promise<boolean>} True or an error is thrown.
  */
 async function confirmNodeTierHardware() {
   try {
-    const tier = await generalService.nodeTier().catch((error) => {
-      log.error(error);
-    });
-
-    const collateral = await generalService.nodeCollateral().catch((error) => {
-      log.error(error);
-    });
+    const tier = await generalService.nodeTier();
+    const collateral = await generalService.nodeCollateral();
     const nodeRam = os.totalmem() / 1024 / 1024 / 1024;
     const nodeCpuThreads = os.cpus().length;
     log.info(`Node Tier: ${tier}`);
@@ -92,7 +87,7 @@ async function confirmNodeTierHardware() {
  * To return a JSON response with the user's login phrase.
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ * @returns {Promise<void>} Return statement is only used here to interrupt the function and nothing is returned.
  */
 let firstLoginPhraseExecution = true;
 async function loginPhrase(req, res) {
