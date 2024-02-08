@@ -6221,12 +6221,12 @@ export default {
       };
       return updatedObject;
     },
-    updateJobStatus(appConfig, component, jobeType, urlInfoArray = []) {
-      const targetComponent = appConfig[jobeType].find((item) => item.component === component);
+    updateJobStatus(appConfig, component, jobType, urlInfoArray = []) {
+      const targetComponent = appConfig[jobType].find((item) => item.component === component);
       if (targetComponent) {
-        targetComponent[jobeType] = true;
+        targetComponent[jobType] = true;
 
-        if (jobeType === 'restore' && appConfig?.type === 'remote') {
+        if (jobType === 'restore' && appConfig?.type === 'remote') {
           const urlInfo = urlInfoArray.find((info) => info.component === component);
           if (urlInfo) {
             targetComponent.url = urlInfo.url || ''; // Set default value if url doesn't exist
@@ -6235,9 +6235,9 @@ export default {
             console.log(`URL info not found for component ${component}.`);
           }
         }
-        console.log(`Status for ${component} set to true for ${jobeType}.`);
+        console.log(`Status for ${component} set to true for ${jobType}.`);
       } else {
-        console.log(`Component ${component} not found in the ${jobeType} array.`);
+        console.log(`Component ${component} not found in the ${jobType} array.`);
       }
       return appConfig;
     },
