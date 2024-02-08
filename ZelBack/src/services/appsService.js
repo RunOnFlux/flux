@@ -10063,11 +10063,11 @@ async function forceAppRemovals() {
   }
 }
 
-async function stopSyncthingApp(appComponentName, res) {
+async function stopSyncthingApp(appComponentName, res, isBackRestore) {
   try {
     const identifier = appComponentName;
     const appId = dockerService.getAppIdentifier(identifier);
-    if (receiveOnlySyncthingAppsCache.has(appId)) {
+    if (!isBackRestore && receiveOnlySyncthingAppsCache.has(appId)) {
       receiveOnlySyncthingAppsCache.delete(appId);
     }
     const folder = `${appsFolder + appId}`;
@@ -11646,7 +11646,7 @@ async function appendBackupTask(req, res) {
             // eslint-disable-next-line no-await-in-loop
             await sendChunk(res, `Stopping syncthing for ${component.component}\n`);
             // eslint-disable-next-line no-await-in-loop
-            await stopSyncthingApp(`${component.component}_${appname}`, res);
+            await stopSyncthingApp(`${component.component}_${appname}`, res, true);
           }
         }
       }
@@ -11747,7 +11747,7 @@ async function appendRestoreTask(req, res) {
             // eslint-disable-next-line no-await-in-loop
             await sendChunk(res, `Stopping syncthing for ${component.component}\n`);
             // eslint-disable-next-line no-await-in-loop
-            await stopSyncthingApp(`${component.component}_${appname}`, res);
+            await stopSyncthingApp(`${component.component}_${appname}`, res, true);
           }
         }
       }
