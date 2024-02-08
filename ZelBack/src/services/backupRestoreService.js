@@ -107,13 +107,11 @@ async function getLocalBackupList(req, res) {
     if (!path) {
       throw new Error('path parameter is required');
     }
-
-    if (!pathValidation(vPath)) {
-      throw new Error('Path validation failed..');
-    }
-
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
     if (authorized === true) {
+      if (!pathValidation(vPath)) {
+        throw new Error('Path validation failed..');
+      }
       const listData = await IOUtils.getPathFileList(vPath, multiplier, decimal, ['.tar.gz'], number);
       if (listData.length === 0) {
         throw new Error('No matching mount found');
@@ -250,11 +248,11 @@ async function removeBackupFile(req, res) {
     if (!filepath) {
       throw new Error('filepath parameter is mandatory');
     }
-    if (!pathValidation(filepath)) {
-      throw new Error('Path validation failed..');
-    }
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
     if (authorized === true) {
+      if (!pathValidation(filepath)) {
+        throw new Error('Path validation failed..');
+      }
       const output = await IOUtils.removeFile(filepath);
       const response = messageHelper.createSuccessMessage(output);
       return res.json(response);
@@ -289,11 +287,11 @@ async function downloadLocalFile(req, res) {
     if (!filepath) {
       throw new Error('filepath parameter is mandatory');
     }
-    if (!pathValidation(filepath)) {
-      throw new Error('Path validation failed..');
-    }
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized) {
+      if (!pathValidation(filepath)) {
+        throw new Error('Path validation failed..');
+      }
       const fileNameArray = filepath.split('/');
       const fileName = fileNameArray[fileNameArray.length - 1];
       return res.download(filepath, fileName);
