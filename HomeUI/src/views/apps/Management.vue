@@ -6087,7 +6087,7 @@ export default {
             entry.uploaded = false;
             entry.progress = 0;
           });
-          this.restoreFromUploadStatus = 'Initializing restore jobes...';
+          this.restoreFromUploadStatus = 'Initializing restore jobs...';
           const postLayout = this.buildPostBody(this.appSpecification, 'restore', 'upload');
           let postRestoreData;
           // eslint-disable-next-line no-restricted-syntax
