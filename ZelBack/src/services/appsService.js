@@ -11731,7 +11731,39 @@ async function appendRestoreTask(req, res) {
       if (hasTrueRestore === false) {
         throw new Error('No restore jobs...');
       }
+
       const componentItem = restore.map((restoreItem) => restoreItem);
+      restoreInProgress.push(appname);
+      await sendChunk(res, 'Stopping application...\n');
+      await appDockerStop(appname);
+      if (processedBody.syncthing) {
+        await sendChunk(res, 'Stopping syncthing...\n');
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of componentItem) {
+          if (component.syncthing === true) {
+            // eslint-disable-next-line no-await-in-loop
+            await sendChunk(res, `Stopping syncthing for ${component.component}\n`);
+            // eslint-disable-next-line no-await-in-loop
+            await stopSyncthingApp(`${component.component}_${appname}`, res);
+          }
+        }
+      }
+
+      // eslint-disable-next-line no-restricted-syntax
+      for (const component of restore) {
+        if (component.restore) {
+          // eslint-disable-next-line no-await-in-loop
+          const componentVolumeInfo = await IOUtils.getVolumeInfo(appname, component.component, 'B', 0, 'mount');
+          const appDataPath = `${componentVolumeInfo[0].mount}/appdata`;
+          // eslint-disable-next-line no-await-in-loop
+          await sendChunk(res, `Removing ${component.component} component data...\n`);
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.delay(2 * 1000);
+          // eslint-disable-next-line no-await-in-loop
+          await IOUtils.removeDirectory(appDataPath, true);
+        }
+      }
+
       if (type === 'remote') {
         // eslint-disable-next-line no-restricted-syntax
         for (const restoreItem of componentItem) {
@@ -11748,20 +11780,7 @@ async function appendRestoreTask(req, res) {
           }
         }
       }
-      restoreInProgress.push(appname);
-      await sendChunk(res, 'Stopping application...\n');
-      await appDockerStop(appname);
-      if (processedBody.syncthing) {
-        await sendChunk(res, 'Stopping syncthing...\n');
-        // eslint-disable-next-line no-restricted-syntax
-        for (const component of componentItem) {
-          if (component.syncthing === true) {
-            console.log(`Performing action for ${component.component}`);
-            // eslint-disable-next-line no-await-in-loop
-            await stopSyncthingApp(`${component.component}_${appname}`, res);
-          }
-        }
-      }
+
       // eslint-disable-next-line no-restricted-syntax
       for (const component of restore) {
         if (component.restore) {
