@@ -1499,7 +1499,7 @@ async function addAppVerificationIpToLoopback() {
     await cmdAsync(addIp);
     ok = true;
   } catch (err) {
-    if (serviceHelper.ensureString(err).includes('File exists')) {
+    if (err.message.includes('File exists')) {
       ok = true;
     } else {
       log.error(err);
