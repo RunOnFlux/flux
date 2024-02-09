@@ -1278,17 +1278,23 @@ async function allowOnlyDockerNetworksToAppVerification() {
   const allowDockerNetworks = `LANG="en_US.UTF-8" && sudo ufw allow from 172.23.0.0/16 proto tcp to ${appVerificationAddress}/32 port 80`;
   // have to use iptables here as ufw won't filter loopback
   const denyAllElse = `LANG="en_US.UTF-8" && sudo iptables -I INPUT -i lo ! -s 172.23.0.0/16 -d ${appVerificationAddress}/32 -J DROP`;
-  const cmdResA = await cmdAsync(allowDockerNetworks);
-  if (serviceHelper.ensureString(cmdResA).includes('updated') || serviceHelper.ensureString(cmdResA).includes('existing') || serviceHelper.ensureString(cmdResA).includes('added')) {
-    log.info(`Firewall adjusted for network: ${network} to address: ${appVerificationAddress}/32`);
-  } else {
-    log.warn(`Failed to adjust Firewall for network: ${network} to address: ${appVerificationAddress}/32`);
+  const cmdAsync = util.promisify(nodecmd.get);
+  try {
+    const cmdResA = await cmdAsync(allowDockerNetworks);
+    if (serviceHelper.ensureString(cmdResA).includes('updated') || serviceHelper.ensureString(cmdResA).includes('existing') || serviceHelper.ensureString(cmdResA).includes('added')) {
+      log.info(`Firewall adjusted for network: ${network} to address: ${appVerificationAddress}/32`);
+    } else {
+      log.warn(`Failed to adjust Firewall for network: ${network} to address: ${appVerificationAddress}/32`);
+    }
+    const cmdResB = await cmdAsync(denyAllElse);
+    if (serviceHelper.ensureString(cmdResB).includes('updated') || serviceHelper.ensureString(cmdResB).includes('existing') || serviceHelper.ensureString(cmdResB).includes('added')) {
+      log.info(`Firewall adjusted to deny access to: ${appVerificationAddress}/32`);
+    } else {
+      log.warn(`Failed to adjust Firewall access to: ${appVerificationAddress}/32`);
+    }
   }
-  const cmdResB = await cmdAsync(denyAllElse);
-  if (serviceHelper.ensureString(cmdResB).includes('updated') || serviceHelper.ensureString(cmdResB).includes('existing') || serviceHelper.ensureString(cmdResB).includes('added')) {
-    log.info(`Firewall adjusted to deny access to: ${appVerificationAddress}/32`);
-  } else {
-    log.warn(`Failed to adjust Firewall access to: ${appVerificationAddress}/32`);
+  catch (err) {
+    log.error(err)
   }
 }
 

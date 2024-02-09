@@ -11,6 +11,7 @@
  */
 
 const config = require('config');
+const log = require('../lib/log');
 const dockerService = require('./dockerService');
 const serviceHelper = require('./serviceHelper');
 const pgpSerivce = require('./pgpService');
@@ -153,7 +154,7 @@ function start() {
 
   const bindAddress = config.server.appVerificationAddress;
   server = app.listen(80, bindAddress, () => {
-    console.log(`Server listening on port: 80 address: ${bindAddress}`)
+    log.info(`Server listening on port: 80 address: ${bindAddress}`)
   });
 }
 
