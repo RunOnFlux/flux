@@ -1487,16 +1487,29 @@ async function installNetcat() {
  * verification service.
  */
 async function addAppVerificationIpToLoopback() {
+  const cmdAsync = util.promisify(nodecmd.get);
 
+  // could also check exists first with:
+  //   ip -f inet addr show lo | grep 169.254.42.42/32
+  const ip = config.server.appVerificationAddress;
+  const addIp = `sudo ip addr add ${ip}/32 dev lo`;
+
+  let ok = false;
   try {
-    const cmdAsync = util.promisify(nodecmd.get);
-    // redirect stderr to make this idempotent, could also check exists first with:
-    //  ip -f inet addr show lo | grep 169.254.42.42/32
-    const ip = config.server.appVerificationAddress;
-    const exec = `sudo ip addr add ${ip}/32 dev lo 2>/dev/null`;
-    await cmdAsync(exec);
-  } catch (error) {
-    log.error(error);
+    await cmdAsync(addIp);
+    ok = true;
+  } catch (err) {
+    if (serviceHelper.ensureString(err).includes('File exists')) {
+      ok = true;
+    } else {
+      log.error(err);
+    }
+  }
+
+  if (ok) {
+    log.info(`appVerification IP: ${ip} added to loopback interface`);
+  } else {
+    log.warn(`Failed to add appVerification IP ${ip} to loopback interface`);
   }
 }
 
