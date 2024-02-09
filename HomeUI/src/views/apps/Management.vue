@@ -6780,7 +6780,7 @@ export default {
       this.appExec.env = '';
       this.output = '';
       this.backupToUpload = [];
-      if (index !== 10) {
+      if (index !== 11) {
         this.disconnectTerminal();
       }
 
@@ -6812,16 +6812,16 @@ export default {
           this.applyFilter();
           this.loadBackupList();
           break;
-        case 12:
+        case 13:
           this.getGlobalApplicationSpecifics();
           break;
-        case 13:
+        case 14:
           this.getZelidAuthority();
           break;
-        case 14:
+        case 15:
           this.getApplicationLocations();
           break;
-        case 15:
+        case 16:
           this.getGlobalApplicationSpecifics();
           break;
         default:
