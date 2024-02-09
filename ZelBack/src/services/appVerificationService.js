@@ -21,6 +21,7 @@ const generalService = require('./generalService');
 
 const { randomBytes } = require('node:crypto');
 const express = require('express');
+const c = require('config');
 
 let server = null;
 
@@ -28,8 +29,8 @@ async function generateChallengeMessage(req, res) {
   const parsedBody = serviceHelper.ensureObject(req.body);
   const { identity } = parsedBody;
 
-  if (!identity) {
-    res.statusMessage = "Authenticating node identity is required";
+  if (!identity || identity.length !== 64) {
+    res.statusMessage = "Authenticating node identity is required (txid)";
     res.status(422).end();
     return;
   }
@@ -41,13 +42,16 @@ async function generateChallengeMessage(req, res) {
     return;
   }
 
-  const fluxnode = daemonServiceUtils.executeCall("listfluxnodes", [identity.txhash]);
+  const fluxnodeRes = await daemonServiceUtils.executeCall("listfluxnodes", [identity]);
 
-  if (!fluxnode) {
+  if (!fluxnodeRes || fluxnodeRes.status !== "success" || !fluxnodeRes.data.length) {
     res.statusMessage = 'Unable to find node identity in deterministicfluxnodelist'
     res.status(422).end();
     return;
   }
+
+  // check if more than one?!?
+  const fluxnode = fluxnodeRes.data[0];
 
   // this is ridiculous having to do this all the time. The node identity should always include the port
   const [ip, apiport] = fluxnode.ip.includes(":") ? fluxnode.ip.split(":") : [fluxnode.ip, "16127"]
