@@ -3383,7 +3383,6 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
       if (!fluxNet) {
         throw new Error(`Flux App network of ${appName} failed to initiate. Range already assigned to different application.`);
       }
-      await fluxNetworkHelper.allowDockerNetworksToAppVerification(fluxNet.IPAM.Config[0].Subnet);
       log.info(serviceHelper.ensureString(fluxNet));
       const fluxNetResponse = {
         status: `Docker network of ${appName} initiated.`,
