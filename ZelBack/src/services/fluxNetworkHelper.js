@@ -1278,7 +1278,7 @@ async function allowOnlyDockerNetworksToAppVerification() {
   const appVerificationAddress = config.server.appVerificationAddress;
   const allowDockerNetworks = `LANG="en_US.UTF-8" && sudo ufw allow from ${fluxAppDockerNetworks} proto tcp to ${appVerificationAddress}/32 port 80`;
   // have to use iptables here as ufw won't filter loopback
-  const denyAllElse = `LANG="en_US.UTF-8" && sudo iptables -I INPUT -i lo ! -s ${fluxAppDockerNetworks} -d ${appVerificationAddress}/32 -J DROP`;
+  const denyAllElse = `LANG="en_US.UTF-8" && sudo iptables -I INPUT -i lo ! -s ${fluxAppDockerNetworks} -d ${appVerificationAddress}/32 -j DROP`;
   const cmdAsync = util.promisify(nodecmd.get);
   try {
     const cmdResA = await cmdAsync(allowDockerNetworks);
