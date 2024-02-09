@@ -1512,7 +1512,7 @@
                           variant="outline-danger"
                           class="d-flex justify-content-center align-items-center mr-1 custom-button"
                           @click="
-                            deleteLocalBackup(row.item.component_name, backupList, backupList[row.index].file)"
+                            deleteLocalBackup(row.item.component, backupList, backupList[row.index].file)"
                         >
                           <b-icon
                             class="d-flex justify-content-center align-items-center"
@@ -1524,7 +1524,7 @@
                           v-b-tooltip.hover.top="'Download file'"
                           variant="outline-primary"
                           class="d-flex justify-content-center align-items-center custom-button"
-                          @click="downloadAllBackupFiles([{ component_name: row.item.component_name, file: backupList[row.index].file }])"
+                          @click="downloadAllBackupFiles([{ component: row.item.component, file: backupList[row.index].file }])"
                         >
                           <b-icon
                             class="d-flex justify-content-center align-items-center"
@@ -1976,8 +1976,6 @@
                   </b-card>
 
                   <div v-if="sigInPrivilage === true">
-                    <!-- Main table element -->
-
                     <div>
                       <b-input-group class="mb-2">
                         <b-input-group-prepend is-text>
@@ -2022,7 +2020,7 @@
                             class="d-flex justify-content-center align-items-center mr-1"
                             style="width: 15px; height: 25px"
 
-                            @click="deleteRestoreBackup(row.item.component_name, checkpoints, row.item.timestamp)"
+                            @click="deleteRestoreBackup(row.item.component, checkpoints, row.item.timestamp)"
                           >
                             <b-icon
                               class="d-flex justify-content-center align-items-center"
@@ -2200,13 +2198,6 @@
                     </b-input-group>
                   </div>
                   <div>
-                    <!-- Replace drag and drop area with a button -->
-
-                    <!-- <button class="flux-share-upload-button" type="button" @click="addRemoteFile">
-                      <v-icon name="cloud-upload-alt" />
-                      <p>Click to upload</p>
-                    </button> -->
-
                     <!-- Keep the input file element hidden -->
                     <input
                       id="file-selector"
@@ -2216,10 +2207,7 @@
                       style="display: none;"
                       @input="handleFiles"
                     >
-                    <!-- Remaining content -->
-                    <!-- ... -->
                   </div>
-
                   <div
                     v-if="files?.length > 0"
                     class="d-flex justify-content-between mt-2"
@@ -2299,18 +2287,16 @@
                       v-if="restoreFromUpload"
                       class="mb-2 mt-2 w-100"
                       style="
-                              margin: 0 auto;
-                              padding: 12px;
-                              border: 1px solid #eaeaea;
-                              border-radius: 8px;
-                              box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-
-                            "
+                        margin: 0 auto;
+                        padding: 12px;
+                        border: 1px solid #eaeaea;
+                        border-radius: 8px;
+                        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                      "
                     >
                       <h5 style="font-size: 16px; margin-bottom: 5px; text-align: center;">
                         <span v-if="restoreFromUpload">
                           <b-spinner small /> {{ restoreFromUploadStatus }}
-                        <!-- <b-spinner small /> Backing up {{ tarProgress[0] }}... -->
                         </span>
                       </h5>
                       <div
@@ -2470,14 +2456,13 @@
                       v-if="downloadingFromUrl === true"
                       class="mb-2 mt-2 w-100"
                       style="
-                              margin: 0 auto;
-                              padding: 12px;
-                              border: 1px solid #eaeaea;
-                              border-radius: 8px;
-                              box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-                              text-align: center;
-
-                            "
+                        margin: 0 auto;
+                        padding: 12px;
+                        border: 1px solid #eaeaea;
+                        border-radius: 8px;
+                        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                        text-align: center;
+                      "
                     >
                       <h5 style="font-size: 16px; margin-bottom: 5px;">
                         <span v-if="downloadingFromUrl === true">
@@ -5278,15 +5263,15 @@ export default {
         {
           timestamp: 1705483856,
           components: [
-            { component_name: 'lime', file_url: 'http//...', file_size: '133' },
-            { component_name: 'orange', file_url: 'http//...', file_size: '123' },
+            { component: 'lime', file_url: 'http//...', file_size: '133' },
+            { component: 'orange', file_url: 'http//...', file_size: '123' },
           ],
         },
         {
           timestamp: 1705485856,
           components: [
-            { component_name: 'lime', file_url: 'http//...', file_size: '143' },
-            { component_name: 'orange', file_url: 'http//...', file_size: '123' },
+            { component: 'lime', file_url: 'http//...', file_size: '143' },
+            { component: 'orange', file_url: 'http//...', file_size: '123' },
           ],
         },
       ],
@@ -5320,20 +5305,20 @@ export default {
         {
           key: 'isActive', label: '', thStyle: { width: '5%' }, class: 'text-center',
         },
-        { key: 'component_name', label: 'Component Name', thStyle: { width: '40%' } },
+        { key: 'component', label: 'Component Name', thStyle: { width: '40%' } },
         { key: 'create', label: 'CreateAt', thStyle: { width: '17%' } },
         { key: 'expire', label: 'ExpireAt', thStyle: { width: '17%' } },
         { key: 'file_size', label: 'Size', thStyle: { width: '8%' } },
       ],
       newComponentsTableFields: [
-        { key: 'component_name', label: 'Component Name', thStyle: { width: '25%' } },
+        { key: 'component', label: 'Component Name', thStyle: { width: '25%' } },
         { key: 'file_url', label: 'URL', thStyle: { width: '55%' } },
         { key: 'timestamp', label: 'Timestamp', thStyle: { width: '6%' } },
         { key: 'file_size', label: 'Size', thStyle: { width: '9%' } },
       ],
       componentsTable() {
         return [
-          { key: 'component_name', label: 'Component Name', thStyle: { width: '30%' } },
+          { key: 'component', label: 'Component Name', thStyle: { width: '30%' } },
           { key: 'file_url', label: 'URL', thStyle: { width: '55%' } },
           { key: 'file_size', label: 'Size', thStyle: { width: '10%' } },
           {
@@ -5613,7 +5598,7 @@ export default {
     },
     componentsTable1() {
       return [
-        { key: 'component_name', label: 'Component Name', thStyle: { width: '30%' } },
+        { key: 'component', label: 'Component Name', thStyle: { width: '30%' } },
         { key: 'file_url', label: 'URL', thStyle: { width: '55%' } },
         { key: 'file_size', label: 'Size', thStyle: { width: '10%' } },
         {
@@ -6000,8 +5985,9 @@ export default {
       // eslint-disable-next-line no-restricted-syntax
       for (const f of filesToAdd) {
         // eslint-disable-next-line no-await-in-loop
-        this.volumeInfo = await BackupRestoreService.getVolumeDataOfComponent(zelidauth, this.appName, this.restoreRemoteFile, 'MB', 2, 'mount');
+        this.volumeInfo = await BackupRestoreService.getVolumeDataOfComponent(zelidauth, this.appName, this.restoreRemoteFile, 'B', 0, 'mount,available,size');
         this.volumePath = this.volumeInfo.data?.data?.mount;
+
         const existingFile = this.files.findIndex(
           (item) => item.selected_file.name === filesToAdd[0].name && item.component !== this.restoreRemoteFile,
         );
@@ -6305,8 +6291,8 @@ export default {
     },
     onRowSelected(itemOnRow) {
       this.backupToUpload = itemOnRow.map((item) => {
-        const selectedComponentName = item.component_name;
-        const selectedFile = this.backupList.find((file) => file.component_name === selectedComponentName);
+        const selectedComponentName = item.component;
+        const selectedFile = this.backupList.find((file) => file.component === selectedComponentName);
         return {
           component: selectedComponentName,
           file: selectedFile ? selectedFile.file : null,
@@ -6330,7 +6316,7 @@ export default {
     addAllBackupComponents(timestamp) {
       const checkpoint = this.checkpoints.find((cp) => cp.timestamp === timestamp);
       const filteredComponents = checkpoint.components.map((component) => ({
-        component_name: component.component_name,
+        component: component.component,
         file_url: component.file_url,
         timestamp: checkpoint.timestamp,
         file_size: component.file_size,
@@ -6339,18 +6325,18 @@ export default {
     },
     addComponent(selected, timestamp) {
       const existingIndex = this.newComponents.findIndex(
-        (item) => item.component_name === selected.component_name,
+        (item) => item.component === selected.component,
       );
       if (existingIndex !== -1) {
         this.$set(this.newComponents, existingIndex, {
           timestamp,
-          component_name: selected.component_name,
+          component: selected.component,
           file_url: selected.file_url,
           file_size: selected.file_size,
         });
       } else {
         this.newComponents.push({
-          component_name: selected.component_name,
+          component: selected.component,
           timestamp,
           file_url: selected.file_url,
           file_size: selected.file_size,
@@ -6469,9 +6455,9 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth');
       const backupListTmp = [];
       // eslint-disable-next-line no-restricted-syntax
-      for (const component of this.components) {
+      for (const componentItem of this.components) {
         // eslint-disable-next-line no-await-in-loop
-        this.volumeInfo = await BackupRestoreService.getVolumeDataOfComponent(zelidauth, name, component, 'B', 0, 'mount');
+        this.volumeInfo = await BackupRestoreService.getVolumeDataOfComponent(zelidauth, name, componentItem, 'B', 0, 'mount');
         this.volumePath = this.volumeInfo.data?.data;
         // eslint-disable-next-line no-await-in-loop
         this.backupFile = await BackupRestoreService.getBackupList(zelidauth, encodeURIComponent(`${this.volumePath.mount}/backup/local`), 'B', 0, true);
@@ -6479,7 +6465,7 @@ export default {
         if (Array.isArray(this.backupItem)) {
           this.BackupItem = {
             isActive: false,
-            component_name: component,
+            component: componentItem,
             create: +this.backupItem[0].create,
             file_size: this.backupItem[0].size,
             file: `${this.volumePath.mount}/backup/local/${this.backupItem[0].name}`,
@@ -6522,7 +6508,7 @@ export default {
         this.backupToUpload = [];
       } else {
         this.status = await BackupRestoreService.removeBackupFile(zelidauth, encodeURIComponent(filepath));
-        const backupIndex = restoreItem.findIndex((item) => item.component_name === name);
+        const backupIndex = restoreItem.findIndex((item) => item.component === name);
         restoreItem.splice(backupIndex, 1);
       }
     },
@@ -6542,7 +6528,7 @@ export default {
             const currentFileName = decodedUrl.split('/').pop();
             const currentFileProgress = (loaded / total) * 100;
             const foundFile = self.backupList.find((file) => file.file.endsWith(currentFileName));
-            self.updateFileProgress(currentFileName, currentFileProgress, loaded, total, foundFile.component_name);
+            self.updateFileProgress(currentFileName, currentFileProgress, loaded, total, foundFile.component);
           },
         };
 
