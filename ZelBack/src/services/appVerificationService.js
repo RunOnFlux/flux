@@ -21,7 +21,6 @@ const generalService = require('./generalService');
 
 const { randomBytes } = require('node:crypto');
 const express = require('express');
-const c = require('config');
 
 let server = null;
 
