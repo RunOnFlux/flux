@@ -1287,12 +1287,9 @@ async function allowOnlyDockerNetworksToAppVerification() {
     } else {
       log.warn(`Failed to adjust Firewall for network: ${fluxAppDockerNetworks} to address: ${appVerificationAddress}/32`);
     }
-    const cmdResB = await cmdAsync(denyAllElse);
-    if (serviceHelper.ensureString(cmdResB).includes('updated') || serviceHelper.ensureString(cmdResB).includes('existing') || serviceHelper.ensureString(cmdResB).includes('added')) {
-      log.info(`Firewall adjusted to deny access to: ${appVerificationAddress}/32`);
-    } else {
-      log.warn(`Failed to adjust Firewall access to: ${appVerificationAddress}/32`);
-    }
+    // this doesn't give any output
+    await cmdAsync(denyAllElse);
+    log.info(`Firewall adjusted to deny access to: ${appVerificationAddress}/32`);
   }
   catch (err) {
     log.error(err)
