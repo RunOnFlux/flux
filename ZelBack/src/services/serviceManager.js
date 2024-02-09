@@ -14,6 +14,7 @@ const geolocationService = require('./geolocationService');
 const upnpService = require('./upnpService');
 const syncthingService = require('./syncthingService');
 const pgpService = require('./pgpService');
+const appVerificationService = require('./appVerificationService')
 
 const apiPort = userconfig.initial.apiport || config.server.apiport;
 const development = userconfig.initial.development || false;
@@ -34,6 +35,10 @@ async function startFluxFunctions() {
         upnpService.adjustFirewallForUPNP();
       }, 1 * 60 * 60 * 1000); // every 1 hours
     }
+
+    fluxNetworkHelper.addAppVerificationIpToLoopback();
+    fluxNetworkHelper.allowOnlyDockerNetworksToAppVerification();
+    appVerificationService.start();
 
     fluxNetworkHelper.installNetcat();
     log.info('Initiating MongoDB connection');

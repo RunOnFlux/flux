@@ -20,6 +20,7 @@ const daemonServiceWalletRpcs = require('./daemonService/daemonServiceWalletRpcs
 const benchmarkService = require('./benchmarkService');
 const verificationHelper = require('./verificationHelper');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
+const dockerService = require('./dockerService')
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('./utils/establishedConnections');
@@ -1244,7 +1245,7 @@ async function allowPortApi(req, res) {
 
 /**
  * To check if a firewall is active.
- * @returns {boolean} True if a firewall is active. Otherwise false.
+ * @returns {Promise<boolean>} True if a firewall is active. Otherwise false.
  */
 async function isFirewallActive() {
   try {
@@ -1263,6 +1264,35 @@ async function isFirewallActive() {
 }
 
 /**
+ *
+ * @param {string} network
+ * docker network including mask to allow to verification. For example: 172.23.123.0/24
+ * @returns {Promise<void>}
+ */
+async function allowOnlyDockerNetworksToAppVerification() {
+  const firewallActive = await isFirewallActive();
+
+  if (!firewallActive) return;
+
+  const appVerificationAddress = config.server.appVerificationAddress;
+  const allowDockerNetworks = `LANG="en_US.UTF-8" && sudo ufw allow from 172.23.0.0/16 proto tcp to ${appVerificationAddress}/32 port 80`;
+  // have to use iptables here as ufw won't filter loopback
+  const denyAllElse = `LANG="en_US.UTF-8" && sudo iptables -I INPUT -i lo ! -s 172.23.0.0/16 -d ${appVerificationAddress}/32 -J DROP`;
+  const cmdResA = await cmdAsync(allowDockerNetworks);
+  if (serviceHelper.ensureString(cmdResA).includes('updated') || serviceHelper.ensureString(cmdResA).includes('existing') || serviceHelper.ensureString(cmdResA).includes('added')) {
+    log.info(`Firewall adjusted for network: ${network} to address: ${appVerificationAddress}/32`);
+  } else {
+    log.warn(`Failed to adjust Firewall for network: ${network} to address: ${appVerificationAddress}/32`);
+  }
+  const cmdResB = await cmdAsync(denyAllElse);
+  if (serviceHelper.ensureString(cmdResB).includes('updated') || serviceHelper.ensureString(cmdResB).includes('existing') || serviceHelper.ensureString(cmdResB).includes('added')) {
+    log.info(`Firewall adjusted to deny access to: ${appVerificationAddress}/32`);
+  } else {
+    log.warn(`Failed to adjust Firewall access to: ${appVerificationAddress}/32`);
+  }
+}
+
+/**
  * To adjust a firewall to allow ports for Flux.
  */
 async function adjustFirewall() {
@@ -1276,6 +1306,7 @@ async function adjustFirewall() {
     const fluxCommunicationPorts = config.server.allowedPorts;
     ports = ports.concat(fluxCommunicationPorts);
     const firewallActive = await isFirewallActive();
+
     if (firewallActive) {
       // eslint-disable-next-line no-restricted-syntax
       for (const port of ports) {
@@ -1445,6 +1476,24 @@ async function installNetcat() {
   }
 }
 
+/**
+ * Adds the 169.254 adddress to the loopback interface for use with the fluxapp
+ * verification service.
+ */
+async function addAppVerificationIpToLoopback() {
+
+  try {
+    const cmdAsync = util.promisify(nodecmd.get);
+    // redirect stderr to make this idempotent, could also check exists first with:
+    //  ip -f inet addr show lo | grep 169.254.42.42/32
+    const ip = config.server.appVerificationAddress;
+    const exec = `sudo ip addr add ${ip}/32 dev lo 2>/dev/null`;
+    await cmdAsync(exec);
+  } catch (error) {
+    log.error(error);
+  }
+}
+
 module.exports = {
   minVersionSatisfy,
   isFluxAvailable,
@@ -1472,6 +1521,8 @@ module.exports = {
   allowPort,
   allowOutPort,
   isFirewallActive,
+  addAppVerificationIpToLoopback,
+  allowOnlyDockerNetworksToAppVerification,
   // Exports for testing purposes
   setStoredFluxBenchAllowed,
   getStoredFluxBenchAllowed,

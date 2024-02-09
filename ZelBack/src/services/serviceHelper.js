@@ -145,10 +145,10 @@ function isDecimalLimit(value, decimals = 8) {
  * To handle timeouts on axios connection.
  * @param {string} url URL.
  * @param {object} options Options object.
- * @returns {object} Response.
+ * @returns {Promise<object>} Response.
  */
 // helper function for timeout on axios connection
-const axiosGet = (url, options = {}) => {
+const axiosGet = async (url, options = {}) => {
   if (!options.timeout) {
     // eslint-disable-next-line no-param-reassign
     options.timeout = 20000;
@@ -200,6 +200,25 @@ function commandStringToArray(command) {
   return splitargs(command);
 }
 
+/**
+ * To confirm if ip is in subnet
+ * @param {string} ip
+ * @param {string} subnet
+ * @returns {Boolean}
+ */
+function ipInSubnet(ip, subnet) {
+  let [network, mask] = subnet.split("/");
+
+  ip = Number(ip.split('.').reduce(
+    (ipInt, octet) => (ipInt << 8) + parseInt(octet || 0, 10), 0)
+  );
+  network = Number(network.split('.').reduce(
+    (ipInt, octet) => (ipInt << 8) + parseInt(octet || 0, 10), 0)
+  );
+  mask = parseInt('1'.repeat(mask) + '0'.repeat(32 - mask), 2);
+  return (ip & mask) == (network & mask);
+}
+
 module.exports = {
   ensureBoolean,
   ensureNumber,
@@ -212,4 +231,5 @@ module.exports = {
   isDecimalLimit,
   dockerBufferToString,
   commandStringToArray,
+  ipInSubnet,
 };
