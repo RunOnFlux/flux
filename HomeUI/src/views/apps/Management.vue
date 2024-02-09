@@ -2486,18 +2486,26 @@
         </div>
       </b-tab>
       <b-tab
-        title="Execute Commands"
+        title="Interactive Terminal"
         :disabled="!isApplicationInstalledLocally"
       >
         <div class="text-center">
           <div>
             <b-card-group deck>
               <b-card header-tag="header">
-                <template #header>
-                  <h6 class="mb-0">
-                    Browser-based Interactive Terminal
-                  </h6>
-                </template>
+                <div
+                  class="mb-2"
+                  style="
+                    border: 1px solid #ccc;
+                    border-radius: 8px;
+                    height: 45px;
+                    padding: 12px;
+                    text-align: left;
+                    line-height: 0px;
+                  "
+                >
+                  <h5><b-icon class="mr-1" scale="1.2" icon="terminal" /> Browser-based Interactive Terminal</h5>
+                </div>
                 <div class="d-flex align-items-center">
                   <div class="mr-4">
                     <b-form-select
@@ -2542,7 +2550,7 @@
                     v-if="!isVisible && !isConnecting"
                     class="col-2"
                     href="#"
-                    variant="success"
+                    variant="outline-primary"
                     @click="connectTerminal(selectedApp ? `${selectedApp}_${appSpecification.name}` : appSpecification.name)"
                   >
                     Connect
@@ -2550,7 +2558,7 @@
                   <b-button
                     v-if="!!isVisible"
                     class="col-2"
-                    variant="danger"
+                    variant="outline-danger"
                     @click="disconnectTerminal"
                   >
                     Disconnect
@@ -2558,17 +2566,31 @@
                   <b-button
                     v-if="isConnecting"
                     class="col-2"
-                    variant="primary"
+                    variant="outline-primary"
                     disabled
                   >
                     <b-spinner small />
                     Connecting...
                   </b-button>
                   <div class="ml-auto mt-1">
-                    <div class="ml-auto">
+                    <div class="ml-auto d-flex">
+                      <b-form-checkbox
+                        v-model="enableUser"
+                        class="mr-2 d-flex align-items-center justify-content-center"
+                        switch
+                        :disabled="!!isVisible"
+                        @input="onSelectChangeUser"
+                      >
+                        <div
+                          class="d-flex"
+                          style="font-size: 14px;"
+                        >
+                          Custom User
+                        </div>
+                      </b-form-checkbox>
                       <b-form-checkbox
                         v-model="enableEnvironment"
-                        class="ml-4 d-flex align-items-center justify-content-center"
+                        class="ml-2 d-flex align-items-center justify-content-center"
                         switch
                         :disabled="!!isVisible"
                         @input="onSelectChangeEnv"
@@ -2590,6 +2612,16 @@
                   <b-form-input
                     v-model="customValue"
                     placeholder="Enter custom command (string)"
+                    :style="{ width: '100%' }"
+                  />
+                </div>
+                <div
+                  v-if="enableUser && !isVisible"
+                  class="d-flex mt-1"
+                >
+                  <b-form-input
+                    v-model="userInputValue"
+                    placeholder="Enter user. Format is one of: user, user:group, uid, or uid:gid."
                     :style="{ width: '100%' }"
                   />
                 </div>
@@ -5328,6 +5360,8 @@ export default {
       terminal: null,
       selectedCmd: null,
       selectedApp: null,
+      enableUser: false,
+      userInputValue: '',
       customValue: '',
       envInputValue: '',
       enableEnvironment: false,
@@ -6643,10 +6677,16 @@ export default {
 
       const zelidauth = localStorage.getItem('zelidauth');
       this.socket = io.connect(backendURL);
+
+      let userValue = '';
+      if (this.enableUser) {
+        userValue = this.userInputValue;
+      }
+
       if (this.customValue) {
-        this.socket.emit('exec', zelidauth, name, this.customValue, this.envInputValue);
+        this.socket.emit('exec', zelidauth, name, this.customValue, this.envInputValue, userValue);
       } else {
-        this.socket.emit('exec', zelidauth, name, this.selectedCmd, this.envInputValue);
+        this.socket.emit('exec', zelidauth, name, this.selectedCmd, this.envInputValue, userValue);
       }
 
       this.terminal.open(this.$refs.terminalElement);
@@ -6734,6 +6774,11 @@ export default {
     onSelectChangeEnv() {
       if (!this.enableEnvironment) {
         this.envInputValue = '';
+      }
+    },
+    onSelectChangeUser() {
+      if (!this.enableUser) {
+        this.userInputValue = '';
       }
     },
     onFilteredSelection(filteredItems) {
