@@ -11681,6 +11681,7 @@ async function appendBackupTask(req, res) {
       await serviceHelper.delay(5 * 1000);
       await sendChunk(res, 'Starting application...\n');
       await appDockerStart(appname);
+      await sendChunk(res, 'Finalizing...\n');
       await serviceHelper.delay(5 * 1000);
       const indexToRemove = backupInProgress.indexOf(appname);
       backupInProgress.splice(indexToRemove, 1);
@@ -11809,6 +11810,7 @@ async function appendRestoreTask(req, res) {
         await serviceHelper.delay(1 * 60 * 1000);
       }
       await sendChunk(res, 'Finalizing...\n');
+      await serviceHelper.delay(5 * 1000);
       const indexToRemove = restoreInProgress.indexOf(appname);
       restoreInProgress.splice(indexToRemove, 1);
       res.end();
