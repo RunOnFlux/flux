@@ -5969,7 +5969,6 @@ export default {
             bestMatchUnit = unit;
           }
         });
-        // If bestMatchUnit is still undefined, set it to 'B' (Bytes)
         bestMatchUnit = bestMatchUnit || 'B';
         return formatResult(bestMatchResult, bestMatchUnit);
       // eslint-disable-next-line no-else-return
@@ -6076,7 +6075,7 @@ export default {
                 rejectFile(error);
               }
             } else {
-              resolveFile(); // If the file is already uploaded or uploading, resolve immediately.
+              resolveFile();
             }
           }));
           await Promise.all(uploadPromises);
@@ -6105,13 +6104,12 @@ export default {
             headers,
           });
           const reader = response.body.getReader();
-          // Read the response stream
           // eslint-disable-next-line no-unused-vars
           await new Promise((streamResolve, streamReject) => {
             function push() {
               reader.read().then(async ({ done, value }) => {
                 if (done) {
-                  streamResolve(); // Resolve the stream promise when the response stream is complete
+                  streamResolve();
                   return;
                 }
                 const chunkText = new TextDecoder('utf-8').decode(value);
@@ -6125,9 +6123,9 @@ export default {
           });
           this.restoreFromUpload = false;
           this.restoreFromUploadStatus = '';
-          resolve(); // Resolve the outer promise when all uploads and response stream processing are complete
+          resolve();
         } catch (error) {
-          reject(error); // Reject the outer promise if any error occurs during the process
+          reject(error);
         }
       });
     },
@@ -6181,8 +6179,7 @@ export default {
           file.uploaded = true;
           file.uploading = false;
           self.$emit('complete');
-          // self.showToast('success', `'${file.file}' has been uploaded`);
-          resolve(); // Resolve the promise when the upload is successful.
+          resolve();
         };
         xhr.open('post', action, true);
         const headers = this.zelidHeader || {};
@@ -6242,7 +6239,6 @@ export default {
       const targetComponent = appConfig[jobType].find((item) => item.component === component);
       if (targetComponent) {
         targetComponent[jobType] = true;
-
         if (jobType === 'restore' && appConfig?.type === 'remote') {
           const urlInfo = urlInfoArray.find((info) => info.component === component);
           if (urlInfo) {
@@ -6263,7 +6259,7 @@ export default {
         return;
       }
       this.backupProgress = true;
-      this.tarProgress = 'Initializing backup jobes...';
+      this.tarProgress = 'Initializing backup jobs...';
       const zelidauth = localStorage.getItem('zelidauth');
       // eslint-disable-next-line no-unused-vars
       const port = this.config.apiPort;
@@ -6294,12 +6290,9 @@ export default {
               streamResolve();
               return;
             }
-            // Process each chunk of data separately
             const chunkText = new TextDecoder('utf-8').decode(value);
             const chunks = chunkText.split('\n');
-            // eslint-disable-next-line no-restricted-globals
             await self.processChunks(chunks, 'backup');
-            // Check for new data immediately after processing each chunk
             push();
           });
         }
