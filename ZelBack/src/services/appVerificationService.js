@@ -16,7 +16,8 @@ const dockerService = require('./dockerService');
 const serviceHelper = require('./serviceHelper');
 const pgpSerivce = require('./pgpService');
 const messageHelper = require('./messageHelper');
-const daemonServiceUtils = require('./daemonService/daemonServiceUtils')
+const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
+const generalService = require('./generalService');
 
 const { randomBytes } = require('node:crypto');
 const express = require('express');
