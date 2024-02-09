@@ -6044,21 +6044,19 @@ export default {
       this.files = this.files.filter((selected_file) => selected_file.selected_file.name !== file.selected_file.name);
     },
     async processChunks(chunks, type) {
+      const typeToPropertyMap = {
+        restore_upload: 'restoreFromUploadStatus',
+        restore_remote: 'restoreFromRemoteURLStatus',
+        backup: 'tarProgress',
+      };
       // eslint-disable-next-line no-restricted-syntax
       for (const chunk of chunks) {
         if (chunk !== '') {
-          if (type === 'restore_upload') {
-            this.restoreFromUploadStatus = chunk;
-          }
-          if (type === 'restore_remote') {
-            this.restoreFromRemoteURLStatus = chunk;
-          }
-          if (type === 'backup') {
-            this.tarProgress = chunk;
+          const propertyName = typeToPropertyMap[type];
+          if (propertyName) {
+            this[propertyName] = chunk;
           }
         }
-        // eslint-disable-next-line no-await-in-loop, no-promise-executor-return
-        await new Promise((resolve) => setTimeout(resolve, 2000)); // Adjust the delay as needed
       }
     },
     startUpload() {
