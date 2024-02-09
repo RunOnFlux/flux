@@ -2107,7 +2107,7 @@
                             <b-icon
                               scale="1.2"
                               icon="life-preserver"
-                              class="mr-2"
+                              class="mr-1"
                             /><b>Restore Overview</b>
                           </b-td>
                         </b-tr>
@@ -2215,7 +2215,6 @@
                     <b-table
                       class="b-table"
                       small
-                      hover
                       bordered
                       size="sm"
                       :items="files"
@@ -2231,7 +2230,7 @@
                             <b-icon
                               scale="1.2"
                               icon="life-preserver"
-                              class="mr-2"
+                              class="mr-1"
                             /><b>Restore Overview</b>
                           </b-td>
                         </b-tr>
@@ -2380,7 +2379,6 @@
                     <b-table
                       class="b-table"
                       small
-                      hover
                       bordered
                       size="sm"
                       :items="restoreRemoteUrlItems"
@@ -2396,7 +2394,7 @@
                             <b-icon
                               scale="1.2"
                               icon="life-preserver"
-                              class="mr-2"
+                              class="mr-1"
                             /><b>Restore Overview</b>
                           </b-td>
                         </b-tr>
