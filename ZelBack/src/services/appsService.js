@@ -323,18 +323,26 @@ async function listAppsImages(req, res) {
  * @param {string} command What command to execute, api route to be done.
  * @param {object} zelidauth What zelidauth headers to send with request for authentication purposes.
  * @param {(object|boolean|string)} paramA first parameter that a command may need
+ * @param {boolean} bypassMyIp Indicates if method should not be made to the ip of the fluxnode from where the call was made
  */
-async function executeAppGlobalCommand(appname, command, zelidauth, paramA) {
+async function executeAppGlobalCommand(appname, command, zelidauth, paramA, bypassMyIp) {
   try {
     // get a list of the specific app locations
     // eslint-disable-next-line no-use-before-define
     const locations = await appLocation(appname);
+    const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+    const myUrl = myIP.split(':')[0];
+    const myUrlPort = myIP.split(':')[1] || 16127;
     let i = 1;
     // eslint-disable-next-line no-restricted-syntax
     for (const appInstance of locations) {
       // HERE let the node we are connected to handle it
       const ip = appInstance.ip.split(':')[0];
       const port = appInstance.ip.split(':')[1] || 16127;
+      if (bypassMyIp && myUrl === ip && myUrlPort === port) {
+        // eslint-disable-next-line no-continue
+        continue;
+      }
       const axiosConfig = {
         headers: {
           zelidauth,
