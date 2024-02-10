@@ -11705,7 +11705,7 @@ async function appendBackupTask(req, res) {
       if (!syncthing) {
         await appDockerStart(appname);
       } else {
-        const componentsWithoutGSyncthing = appDetails.compose.find((comp) => !comp.containerData.includes('g:'));
+        const componentsWithoutGSyncthing = appDetails.compose.filter((comp) => !comp.containerData.includes('g:'));
         // eslint-disable-next-line no-restricted-syntax
         for (const component of componentsWithoutGSyncthing) {
           // eslint-disable-next-line no-await-in-loop
@@ -11844,7 +11844,7 @@ async function appendRestoreTask(req, res) {
       if (!syncthing) {
         await appDockerStart(appname);
       } else {
-        const componentsWithoutGSyncthing = appDetails.compose.find((comp) => !comp.containerData.includes('g:'));
+        const componentsWithoutGSyncthing = appDetails.compose.filter((comp) => !comp.containerData.includes('g:'));
         // eslint-disable-next-line no-restricted-syntax
         for (const component of componentsWithoutGSyncthing) {
           // eslint-disable-next-line no-await-in-loop
