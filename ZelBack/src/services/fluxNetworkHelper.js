@@ -1382,7 +1382,7 @@ async function removeDockerContainerAccessToHost() {
   const cmdAsync = util.promisify(nodecmd.get);
 
   // check if rules have been created, as iptables is NOT idempotent.
-  const checkDockerUserChain = 'sudo iptables -L DOCKER-USER ';
+  const checkDockerUserChain = 'sudo iptables -L DOCKER-USER';
   const checkJumpChain = 'sudo iptables -C FORWARD -j DOCKER-USER';
 
   let unrecoverable = false;
@@ -1431,39 +1431,35 @@ async function removeDockerContainerAccessToHost() {
   try {
     routes = JSON.parse(rawRoutes);
   } catch (err) {
-    log.error("Error parsing JSON for routes... skipping");
+    log.error('Error parsing JSON for routes... skipping');
     return;
   }
 
-  const defaultRoute = routes.find((route) => route.dst === "default");
+  const defaultRoute = routes.find((route) => route.dst === 'default');
 
   if (!defaultRoute) {
-    log.error("Unable to find default gateway... skipping");
+    log.error('Unable to find default gateway... skipping');
     return;
   }
 
   const localSubnet = routes.find((route) => serviceHelper.ipInSubnet(defaultRoute.gateway, route.dst));
 
   if (!localSubnet) {
-    log.error("Unable to find local subnet... skipping");
+    log.error('Unable to find local subnet... skipping');
   }
 
-  // console.log(defaultRoute)
-  // console.log(localSubnet)
-
-  const fluxSrc = '172.23.0.0/16'
+  const fluxSrc = '172.23.0.0/16';
   const checkAction = '-C';
-  const insertAction = "-I";
-  const appendAction = "-A";
+  const insertAction = '-I';
+  const appendAction = '-A';
 
-  const baseDropCmd = `sudo iptables ### DOCKER-USER -s ${fluxSrc} -d ${localSubnet.dst} -j DROP`
-  const baseAllowEstablishedCmd = `sudo iptables ### DOCKER-USER -s ${fluxSrc} -d ${localSubnet.dst} -m state --state ESTABLISHED,RELATED -j ACCEPT`
-  const baseAllowDnsCmd = `sudo iptables ### DOCKER-USER -s ${fluxSrc} -p udp -d ${localSubnet.dst} --dport 53 -j ACCEPT`
+  const baseDropCmd = `sudo iptables ### DOCKER-USER -s ${fluxSrc} -d ${localSubnet.dst} -j DROP`;
+  const baseAllowEstablishedCmd = `sudo iptables ### DOCKER-USER -s ${fluxSrc} -d ${localSubnet.dst} -m state --state ESTABLISHED,RELATED -j ACCEPT`;
+  const baseAllowDnsCmd = `sudo iptables ### DOCKER-USER -s ${fluxSrc} -p udp -d ${localSubnet.dst} --dport 53 -j ACCEPT`;
 
   const checkDropAccess = baseDropCmd.replace('###', checkAction);
   const checkHostAccess = baseAllowEstablishedCmd.replace('###', checkAction);
   const checkContainerDnsAccess = baseAllowDnsCmd.replace('###', checkAction);
-
 
   if (checkJumpToDockerChain) log.info('jump to DOCKER-USER chain already enabled in iptables');
 
