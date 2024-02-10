@@ -1345,21 +1345,96 @@ async function purgeUFW() {
 }
 
 /**
- * This fix a docker security issue where docker containers can access host network, for example to create port forwarding on hosts
+ * This fix a docker security issue where docker containers can access host network, for example to create port forwarding on hosts.
+ *
+ * Creates a new iptables chain `FLUX`, then jumps to this chain immediately from the FORWARD CHAIN. This allows
+ * rules to be added via -I (insert) and -A (append) to the FLUX chain individually, so we can ALWAYS append the
+ * drop traffic rule, and insert the ACCEPT rules. If no matches are found in the FLUX chain, rule evaluation continues
+ * from the next rule in the FORWARD chain.
+ *
+ * This means if a user or someone was to delete a single rule, we are able to recover correctly from it.
  */
 async function removeDockerContainerAccessToHost() {
-  try {
-    const cmdAsync = util.promisify(nodecmd.get);
-    const dropAccessToHostNetwork = "sudo iptables -I FORWARD -i docker0 -d $(ip route | grep \"src $(ip addr show dev $(ip route | awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') -j DROP";
-    await cmdAsync(dropAccessToHostNetwork).catch((error) => log.error(`Error executing dropAccessToHostNetwork command:${error}`));
-    const giveHostAccessToDockerNetwork = "sudo iptables -I FORWARD -i docker0 -d $(ip route | grep \"src $(ip addr show dev $(ip route | awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') -m state --state ESTABLISHED,RELATED -j ACCEPT";
-    await cmdAsync(giveHostAccessToDockerNetwork).catch((error) => log.error(`Error executing giveHostAccessToDockerNetwork command:${error}`));
-    const giveContainerAccessToDNS = "sudo iptables -I FORWARD -i docker0 -p udp -d $(ip route | grep \"src $(ip addr show dev $(ip route | awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') --dport 53 -j ACCEPT";
-    await cmdAsync(giveContainerAccessToDNS).catch((error) => log.error(`Error executing giveContainerAccessToDNS command:${error}`));
-    log.info('Access to host from containers removed');
-  } catch (error) {
-    log.error(error);
-  }
+  const cmdAsync = util.promisify(nodecmd.get);
+
+  // check if rules have been created, as iptables is NOT idempotent.
+  const checkFluxChain = 'sudo iptables -L FLUX';
+  const checkJumpChain = 'sudo iptables -C FORWARD -j FLUX';
+  const checkDropAccess = "sudo iptables -C FLUX -i docker0 -d $(ip route | grep \"src $(ip addr show dev $(ip route | awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') -j DROP";
+  const checkHostAccess = "sudo iptables -C FLUX -i docker0 -d $(ip route | grep \"src $(ip addr show dev $(ip route | awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') -m state --state ESTABLISHED,RELATED -j ACCEPT";
+  const checkContainerDnsAccess = "sudo iptables -C FLUX -i docker0 -p udp -d $(ip route | grep \"src $(ip addr show dev $(ip route | awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') --dport 53 -j ACCEPT";
+
+  const fluxChainExists = await cmdAsync(checkFluxChain).catch(async () => {
+    try {
+      await cmdAsync('sudo iptables -N FLUX');
+      log.info('Flux iptables chain created');
+    } catch (err) {
+      log.error('Error adding FLUX chain to iptables');
+      // if we can't add chain, we can't proceed
+    }
+  });
+
+  if (fluxChainExists) log.info('Flux iptables chain already created');
+
+  const checkJumpToFluxChain = await cmdAsync(checkJumpChain).catch(async (checkErr) => {
+    if (checkErr.message.includes('Bad rule')) {
+      const jumpToFluxChain = 'sudo iptables -I FORWARD -j FLUX';
+      try {
+        await cmdAsync(jumpToFluxChain);
+        log.info('New FORWARDED inserted to jump to FLUX chain in iptables');
+      } catch (err) {
+        log.error('Error inserting FORWARD jump to FLUX chain');
+        // if we can't jump, we need to bail out
+      }
+    } else {
+      log.error(checkErr);
+    }
+  });
+
+  if (checkJumpToFluxChain) log.info('jump to FLUX chain already enabled in iptables');
+
+  const accessDropped = await cmdAsync(checkDropAccess).catch(async (checkErr) => {
+    if (checkErr.message.includes('Bad rule')) {
+      // This always gets appended, so the drop is at the end
+      const dropAccessToHostNetwork = "sudo iptables -A FLUX -i docker0 -d $(ip route | grep \"src $(ip addr show dev $(ip route | awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') -j DROP";
+      try {
+        await cmdAsync(dropAccessToHostNetwork);
+        log.info('Access to host from containers removed');
+      } catch (err) { log.error(`Error executing dropAccessToHostNetwork command:${err}`); }
+    } else {
+      log.error(checkErr);
+    }
+  });
+
+  if (accessDropped) log.info('Access to host from containers already removed');
+
+  const hostAccess = await cmdAsync(checkHostAccess).catch(async (checkErr) => {
+    if (checkErr.message.includes('Bad rule')) {
+      const giveHostAccessToDockerNetwork = "sudo iptables -I FLUX -i docker0 -d $(ip route | grep \"src $(ip addr show dev $(ip route | awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') -m state --state ESTABLISHED,RELATED -j ACCEPT";
+      try {
+        await cmdAsync(giveHostAccessToDockerNetwork);
+        log.info('Access to containers from host accepted');
+      } catch (err) { log.error(`Error executing giveHostAccessToDockerNetwork command:${err}`); }
+    } else {
+      log.error(checkErr);
+    }
+  });
+
+  if (hostAccess) log.info('Access to containers from host already accepted');
+
+  const containerDns = await cmdAsync(checkContainerDnsAccess).catch(async (checkErr) => {
+    if (checkErr.message.includes('Bad rule')) {
+      const giveContainerAccessToDNS = "sudo iptables -I FLUX -i docker0 -p udp -d $(ip route | grep \"src $(ip addr show dev $(ip route | awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') --dport 53 -j ACCEPT";
+      try {
+        await cmdAsync(giveContainerAccessToDNS);
+        log.info('Access to host DNS from containers accepted');
+      } catch (err) { log.error(`Error executing giveContainerAccessToDNS command:${err}`); }
+    } else {
+      log.error(checkErr);
+    }
+  });
+
+  if (containerDns) log.info('Access to host DNS from containers already accepted');
 }
 
 const lruRateOptions = {
