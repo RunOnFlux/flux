@@ -80,11 +80,6 @@ class TokenBucket {
 }
 
 /**
- * no operation function
- */
-function noop() { }
-
-/**
  * Check if semantic version is bigger or equal to minimum version
  * @param {string} version Version to check
  * @param {string} minimumVersion minimum version that version must meet
@@ -1374,8 +1369,7 @@ async function removeDockerContainerAccessToHost() {
   const fluxChainExists = await cmdAsync(checkFluxChain).catch(async () => {
     try {
       await cmdAsync('sudo iptables -N FLUX');
-      // catch this silently so we are only testing one statement with try
-      log.info('Flux iptables chain created').catch(noop);
+      log.info('Flux iptables chain created');
     } catch (err) {
       log.error('Error adding FLUX chain to iptables');
       // if we can't add chain, we can't proceed
@@ -1392,7 +1386,7 @@ async function removeDockerContainerAccessToHost() {
       const jumpToFluxChain = 'sudo iptables -I FORWARD -j FLUX';
       try {
         await cmdAsync(jumpToFluxChain);
-        log.info('New FORWARDED inserted to jump to FLUX chain in iptables').catch(noop);
+        log.info('New FORWARDED inserted to jump to FLUX chain in iptables');
       } catch (err) {
         log.error('Error inserting FORWARD jump to FLUX chain');
         // if we can't jump, we need to bail out
@@ -1415,7 +1409,7 @@ async function removeDockerContainerAccessToHost() {
       const dropAccessToHostNetwork = "sudo iptables -A FLUX -i docker0 -d $(ip route | grep \"src $(ip addr show dev $(ip route | awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') -j DROP";
       try {
         await cmdAsync(dropAccessToHostNetwork);
-        log.info('Access to host from containers removed').catch(noop);
+        log.info('Access to host from containers removed');
       } catch (err) { log.error(`Error executing dropAccessToHostNetwork command:${err}`); }
     } else {
       log.error(checkErr);
@@ -1429,7 +1423,7 @@ async function removeDockerContainerAccessToHost() {
       const giveHostAccessToDockerNetwork = "sudo iptables -I FLUX -i docker0 -d $(ip route | grep \"src $(ip addr show dev $(ip route | awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') -m state --state ESTABLISHED,RELATED -j ACCEPT";
       try {
         await cmdAsync(giveHostAccessToDockerNetwork);
-        log.info('Access to containers from host accepted').catch(noop);
+        log.info('Access to containers from host accepted');
       } catch (err) { log.error(`Error executing giveHostAccessToDockerNetwork command:${err}`); }
     } else {
       log.error(checkErr);
@@ -1443,7 +1437,7 @@ async function removeDockerContainerAccessToHost() {
       const giveContainerAccessToDNS = "sudo iptables -I FLUX -i docker0 -p udp -d $(ip route | grep \"src $(ip addr show dev $(ip route | awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') --dport 53 -j ACCEPT";
       try {
         await cmdAsync(giveContainerAccessToDNS);
-        log.info('Access to host DNS from containers accepted').catch(noop);
+        log.info('Access to host DNS from containers accepted');
       } catch (err) { log.error(`Error executing giveContainerAccessToDNS command:${err}`); }
     } else {
       log.error(checkErr);
