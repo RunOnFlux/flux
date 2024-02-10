@@ -11626,25 +11626,34 @@ async function sendChunk(res, chunk) {
  */
 async function appendBackupTask(req, res) {
   let appname;
+  let backup;
   try {
     const processedBody = serviceHelper.ensureObject(req.body);
     console.log(processedBody);
     // eslint-disable-next-line prefer-destructuring
     appname = processedBody.appname;
-    const { backup } = processedBody;
+    // eslint-disable-next-line prefer-destructuring
+    backup = processedBody.backup;
     if (!appname || !backup) {
       throw new Error('appname and backup parameters are mandatory');
     }
+    const indexBackup = backupInProgress.indexOf(appname);
+    if (indexBackup !== -1) {
+      throw new Error('Backup in progress...');
+    }
+    const hasTrueBackup = backup.some((backupitem) => backupitem.backup);
+    if (hasTrueBackup === false) {
+      throw new Error('No backup jobs...');
+    }
+  } catch (error) {
+    log.error(error);
+    await sendChunk(res, `${error?.message}\n`);
+    res.end();
+    return false;
+  }
+  try {
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
     if (authorized === true) {
-      const indexBackup = backupInProgress.indexOf(appname);
-      if (indexBackup !== -1) {
-        throw new Error('Backup in progress...');
-      }
-      const hasTrueBackup = backup.some((backupitem) => backupitem.backup);
-      if (hasTrueBackup === false) {
-        throw new Error('No backup jobs...');
-      }
       backupInProgress.push(appname);
       // Check if app using syncthing, stop syncthing for all component that using it
       const appDetails = await getApplicationGlobalSpecifications(appname);
@@ -11745,27 +11754,37 @@ async function appendBackupTask(req, res) {
  */
 async function appendRestoreTask(req, res) {
   let appname;
+  let restore;
+  let type;
   try {
     const processedBody = serviceHelper.ensureObject(req.body);
     console.log(processedBody);
     // eslint-disable-next-line prefer-destructuring
     appname = processedBody.appname;
-    const { restore } = processedBody;
-    const { type } = processedBody;
+    // eslint-disable-next-line prefer-destructuring
+    restore = processedBody.restore;
+    // eslint-disable-next-line prefer-destructuring
+    type = processedBody.type;
     if (!appname || !restore || !type) {
       throw new Error('appname, restore and type parameters are mandatory');
     }
+    const indexRestore = restoreInProgress.indexOf(appname);
+    if (indexRestore !== -1) {
+      throw new Error(`Restore for app ${appname} is running...`);
+    }
+    const hasTrueRestore = restore.some((restoreitem) => restoreitem.restore);
+    if (hasTrueRestore === false) {
+      throw new Error('No restore jobs...');
+    }
+  } catch (error) {
+    log.error(error);
+    await sendChunk(res, `${error?.message}\n`);
+    res.end();
+    return false;
+  }
+  try {
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
     if (authorized === true) {
-      const indexRestore = restoreInProgress.indexOf(appname);
-      if (indexRestore !== -1) {
-        throw new Error(`Restore for app ${appname} is running...`);
-      }
-      const hasTrueRestore = restore.some((restoreitem) => restoreitem.restore);
-      if (hasTrueRestore === false) {
-        throw new Error('No restore jobs...');
-      }
-
       const componentItem = restore.map((restoreItem) => restoreItem);
       restoreInProgress.push(appname);
       const appDetails = await getApplicationGlobalSpecifications(appname);
