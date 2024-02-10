@@ -1478,8 +1478,6 @@ async function removeDockerContainerAccessToHost() {
   if (containerDns) log.info('Access to host DNS from containers already accepted');
 }
 
-removeDockerContainerAccessToHost();
-
 const lruRateOptions = {
   max: 500,
   ttl: 1000 * 15, // 15 seconds
