@@ -146,11 +146,28 @@ async function decryptChallengeMessage(req, res) {
   res.json(dataMessage);
 }
 
+function handleError(middleware, req, res, next) {
+  middleware(req, res, (err) => {
+    if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+      res.statusMessage = err.message;
+      return res.sendStatus(400);
+    }
+    else if (err) {
+      log.error(err);
+      return res.sendStatus(400);
+    }
+
+    next();
+  });
+}
+
 function start() {
   if (server) return;
 
   const app = express();
-  app.use(express.json());
+  app.use((req, res, next) => {
+    handleError(express.json(), req, res, next);
+  });
   app.post('/createchallenge', generateChallengeMessage);
   app.post('/decryptchallenge', decryptChallengeMessage);
   app.get('/nodeidentity', getNodeIdentity);
