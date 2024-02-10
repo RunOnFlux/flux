@@ -1347,31 +1347,57 @@ async function purgeUFW() {
 /**
  * This fix a docker security issue where docker containers can access host network, for example to create port forwarding on hosts.
  *
- * Creates a new iptables chain `FLUX`, then jumps to this chain immediately from the FORWARD CHAIN. This allows
- * rules to be added via -I (insert) and -A (append) to the FLUX chain individually, so we can ALWAYS append the
- * drop traffic rule, and insert the ACCEPT rules. If no matches are found in the FLUX chain, rule evaluation continues
+ * Docker should create a DOCKER-USER chain. If this doesn't exist - we create it, then jump to this chain immediately from the FORWARD CHAIN.
+ * This allows rules to be added via -I (insert) and -A (append) to the DOCKER-USER chain individually, so we can ALWAYS append the
+ * drop traffic rule, and insert the ACCEPT rules. If no matches are found in the DOCKER-USER chain, rule evaluation continues
  * from the next rule in the FORWARD chain.
  *
+ * If needed in the future, we can actually create a JUMP from the DOCKER-USER chain to a custom chain. The reason why we MUST use the DOCKER-USER
+ * chain is that whenever docker creates a new network, it re-jumps the DOCKER-USER chain at the head of the FORWARD chain.
+ *
+ * As can be seen in this example:
+ *
+ * Originally, was using the FLUX chain, but you can see docker inserted the br-72d1725e481c network ahead, as well as the JUMP to DOCKER-USER,
+ * which invalidates any rules in the FLUX chain, as there is basically an accept any.
+ *
+ * ```bash
+ * -A INPUT -j ufw-track-input
+ * -A FORWARD -j DOCKER-USER
+ * -A FORWARD -j DOCKER-ISOLATION-STAGE-1
+ * -A FORWARD -o br-72d1725e481c -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+ * -A FORWARD -o br-72d1725e481c -j DOCKER
+ * -A FORWARD -i br-72d1725e481c ! -o br-72d1725e481c -j ACCEPT
+ * -A FORWARD -i br-72d1725e481c -o br-72d1725e481c -j ACCEPT
+ * -A FORWARD -j FLUX
+ * -A FORWARD -o br-048fde111132 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+ * -A FORWARD -o br-048fde111132 -j DOCKER
+ * -A FORWARD -i br-048fde111132 ! -o br-048fde111132 -j ACCEPT
+ * -A FORWARD -i br-048fde111132 -o br-048fde111132 -j ACCEPT
+ *```
  * This means if a user or someone was to delete a single rule, we are able to recover correctly from it.
  */
 async function removeDockerContainerAccessToHost() {
   const cmdAsync = util.promisify(nodecmd.get);
 
   // check if rules have been created, as iptables is NOT idempotent.
-  const checkFluxChain = 'sudo iptables -L FLUX';
-  const checkJumpChain = 'sudo iptables -C FORWARD -j FLUX';
-  const checkDropAccess = "sudo iptables -C FLUX -i docker0 -d $(ip route | grep \"src $(ip addr show dev $(ip route | awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') -j DROP";
-  const checkHostAccess = "sudo iptables -C FLUX -i docker0 -d $(ip route | grep \"src $(ip addr show dev $(ip route | awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') -m state --state ESTABLISHED,RELATED -j ACCEPT";
-  const checkContainerDnsAccess = "sudo iptables -C FLUX -i docker0 -p udp -d $(ip route | grep \"src $(ip addr show dev $(ip route | awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') --dport 53 -j ACCEPT";
+  const checkDockerUserChain = 'sudo iptables -L DOCKER-USER ';
+  const checkJumpChain = 'sudo iptables -C FORWARD -j DOCKER-USER';
+  // This would be far more readable if extra shell commands were run seperately. They are unmaintainable as-is. Or at least some interpolation.
+  const checkDropAccess = 'sudo iptables -C DOCKER-USER -s 172.23.0.0/16 -d $(ip route | grep "src $(ip addr show dev $(ip route | '
+    + "awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') -j DROP";
+  const checkHostAccess = 'sudo iptables -C DOCKER-USER -s 172.23.0.0/16 -d $(ip route | grep "src $(ip addr show dev $(ip route | '
+    + "awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') -m state --state ESTABLISHED,RELATED -j ACCEPT";
+  const checkContainerDnsAccess = 'sudo iptables -C DOCKER-USER -s 172.23.0.0/16 -p udp -d $(ip route | grep "src $(ip addr show dev $(ip route | '
+    + "awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') --dport 53 -j ACCEPT";
 
   let unrecoverable = false;
 
-  const fluxChainExists = await cmdAsync(checkFluxChain).catch(async () => {
+  const dockerUserChainExists = await cmdAsync(checkDockerUserChain).catch(async () => {
     try {
-      await cmdAsync('sudo iptables -N FLUX');
-      log.info('Flux iptables chain created');
+      await cmdAsync('sudo iptables -N DOCKER-USER');
+      log.info('DOCKER-USER iptables chain created');
     } catch (err) {
-      log.error('Error adding FLUX chain to iptables');
+      log.error('Error adding DOCKER-USER chain to iptables');
       // if we can't add chain, we can't proceed
       unrecoverable = true;
     }
@@ -1379,34 +1405,35 @@ async function removeDockerContainerAccessToHost() {
 
   if (unrecoverable) return;
 
-  if (fluxChainExists) log.info('Flux iptables chain already created');
+  if (dockerUserChainExists) log.info('DOCKER-USER iptables chain already created');
 
-  const checkJumpToFluxChain = await cmdAsync(checkJumpChain).catch(async (checkErr) => {
+  const checkJumpToDockerChain = await cmdAsync(checkJumpChain).catch(async (checkErr) => {
     if (checkErr.message.includes('Bad rule')) {
-      const jumpToFluxChain = 'sudo iptables -I FORWARD -j FLUX';
+      const jumpToFluxChain = 'sudo iptables -I FORWARD -j DOCKER-USER';
       try {
         await cmdAsync(jumpToFluxChain);
-        log.info('New FORWARDED inserted to jump to FLUX chain in iptables');
+        log.info('New FORWARDED inserted to jump to DOCKER-USER chain in iptables');
       } catch (err) {
-        log.error('Error inserting FORWARD jump to FLUX chain');
+        log.error('Error inserting FORWARD jump to DOCKER-USER chain');
         // if we can't jump, we need to bail out
         unrecoverable = true;
       }
     } else {
       // if we can't check if the chain jump is ok, we should bail out
       log.error(checkErr);
-      unrecoverable = true;;
+      unrecoverable = true;
     }
   });
 
   if (unrecoverable) return;
 
-  if (checkJumpToFluxChain) log.info('jump to FLUX chain already enabled in iptables');
+  if (checkJumpToDockerChain) log.info('jump to DOCKER-USER chain already enabled in iptables');
 
   const accessDropped = await cmdAsync(checkDropAccess).catch(async (checkErr) => {
     if (checkErr.message.includes('Bad rule')) {
       // This always gets appended, so the drop is at the end
-      const dropAccessToHostNetwork = "sudo iptables -A FLUX -i docker0 -d $(ip route | grep \"src $(ip addr show dev $(ip route | awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') -j DROP";
+      const dropAccessToHostNetwork = 'sudo iptables -A DOCKER-USER -s 172.23.0.0/16 -d $(ip route | grep "src $(ip addr show dev $(ip route | '
+        + "awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') -j DROP";
       try {
         await cmdAsync(dropAccessToHostNetwork);
         log.info('Access to host from containers removed');
@@ -1420,7 +1447,8 @@ async function removeDockerContainerAccessToHost() {
 
   const hostAccess = await cmdAsync(checkHostAccess).catch(async (checkErr) => {
     if (checkErr.message.includes('Bad rule')) {
-      const giveHostAccessToDockerNetwork = "sudo iptables -I FLUX -i docker0 -d $(ip route | grep \"src $(ip addr show dev $(ip route | awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') -m state --state ESTABLISHED,RELATED -j ACCEPT";
+      const giveHostAccessToDockerNetwork = 'sudo iptables -I DOCKER-USER -s 172.23.0.0/16 -d $(ip route | grep "src $(ip addr show dev $(ip route | '
+        + "awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') -m state --state ESTABLISHED,RELATED -j ACCEPT";
       try {
         await cmdAsync(giveHostAccessToDockerNetwork);
         log.info('Access to containers from host accepted');
@@ -1434,7 +1462,8 @@ async function removeDockerContainerAccessToHost() {
 
   const containerDns = await cmdAsync(checkContainerDnsAccess).catch(async (checkErr) => {
     if (checkErr.message.includes('Bad rule')) {
-      const giveContainerAccessToDNS = "sudo iptables -I FLUX -i docker0 -p udp -d $(ip route | grep \"src $(ip addr show dev $(ip route | awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') --dport 53 -j ACCEPT";
+      const giveContainerAccessToDNS = 'sudo iptables -I DOCKER-USER -s 172.23.0.0/16 -p udp -d $(ip route | grep "src $(ip addr show dev $(ip route | '
+        + "awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') --dport 53 -j ACCEPT";
       try {
         await cmdAsync(giveContainerAccessToDNS);
         log.info('Access to host DNS from containers accepted');
@@ -1446,6 +1475,8 @@ async function removeDockerContainerAccessToHost() {
 
   if (containerDns) log.info('Access to host DNS from containers already accepted');
 }
+
+removeDockerContainerAccessToHost();
 
 const lruRateOptions = {
   max: 500,
