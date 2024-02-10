@@ -587,7 +587,7 @@ export default {
         }
         const responseData = await window.ssp.request('sspwid_sign_message', { message: this.loginPhrase });
         if (responseData.status === 'ERROR') {
-          throw new Error(responseData.data);
+          throw new Error(responseData.data || responseData.result);
         }
         const sspLogin = {
           zelid: responseData.address,

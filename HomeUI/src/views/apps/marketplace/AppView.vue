@@ -59,9 +59,7 @@
               </div>
             </div>
             <br>
-            <div
-              v-if="appData.geolocationOptions"
-            >
+            <div v-if="appData.geolocationOptions">
               <b-form-group
                 label-cols="3"
                 label-cols-lg="20"
@@ -521,7 +519,7 @@
             class="text-center wizard-card"
           >
             <b-card-text>
-              Price: {{ appPricePerMonth }} FLUX
+              Price: {{ appPricePerDeployment }} FLUX
             </b-card-text>
             <b-button
               v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -551,7 +549,7 @@
                 class="text-center wizard-card"
               >
                 <b-card-text>
-                  To finish the application update, please make a transaction of {{ appPricePerMonth }} FLUX to address<br>
+                  To finish the application update, please make a transaction of {{ appPricePerDeployment }} FLUX to address<br>
                   '{{ deploymentAddress }}'<br>
                   with the following message<br>
                   '{{ registrationHash }}'
@@ -567,15 +565,26 @@
                 title="Pay with Zelcore"
                 class="text-center wizard-card"
               >
-                <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${appPricePerMonth}&message=${registrationHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
-                  <img
-                    class="zelidLogin"
-                    src="@/assets/images/zelID.svg"
-                    alt="Zel ID"
-                    height="100%"
-                    width="100%"
-                  >
-                </a>
+                <div class="loginRow">
+                  <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${appPricePerDeployment}&message=${registrationHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
+                    <img
+                      class="zelidLogin"
+                      src="@/assets/images/zelID.svg"
+                      alt="Zel ID"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                  <a @click="initSSPpay">
+                    <img
+                      class="sspLogin"
+                      src="@/assets/images/ssp-logo-white.svg"
+                      alt="SSP"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                </div>
               </b-card>
             </b-col>
           </b-row>
@@ -750,7 +759,7 @@ export default {
     const signClient = ref(null);
     const dataForAppRegistration = ref(null);
     const timestamp = ref(null);
-    const appPricePerMonth = ref(0);
+    const appPricePerDeployment = ref(0);
     const registrationHash = ref(null);
     const websocket = ref(null);
     const selectedEnterpriseNodes = ref([]);
@@ -913,9 +922,32 @@ export default {
         }
         const responseData = await window.ssp.request('sspwid_sign_message', { message: dataToSign.value });
         if (responseData.status === 'ERROR') {
-          throw new Error(responseData.data);
+          throw new Error(responseData.data || responseData.result);
         }
         signature.value = responseData.signature;
+      } catch (error) {
+        showToast('danger', error.message);
+      }
+    };
+
+    const initSSPpay = async () => {
+      try {
+        if (!window.ssp) {
+          this.showToast('danger', 'SSP Wallet not installed');
+          return;
+        }
+        const data = {
+          message: this.registrationHash,
+          amount: (+this.appPricePerDeployment || 0).toString(),
+          address: this.deploymentAddress,
+          chain: 'flux',
+        };
+        const responseData = await window.ssp.request('pay', data);
+        if (responseData.status === 'ERROR') {
+          throw new Error(responseData.data || responseData.result);
+        } else {
+          this.showToast('success', `${responseData.data}: ${responseData.txid}`);
+        }
       } catch (error) {
         showToast('danger', error.message);
       }
@@ -1306,7 +1338,7 @@ export default {
         }
         timestamp.value = new Date().getTime();
         dataForAppRegistration.value = appSpecFormatted;
-        appPricePerMonth.value = props.appData.price;
+        appPricePerDeployment.value = props.appData.price;
         dataToSign.value = `${registrationtype.value}${version.value}${JSON.stringify(appSpecFormatted)}${new Date().getTime()}`;
         registrationHash.value = null;
         signature.value = null;
@@ -1755,7 +1787,7 @@ export default {
       contact,
       signClient,
       signature,
-      appPricePerMonth,
+      appPricePerDeployment,
       registrationHash,
       deploymentAddress,
 
@@ -1767,6 +1799,7 @@ export default {
       initiateSignWS,
       initMetamask,
       initSSP,
+      initSSPpay,
       initWalletConnect,
       onSessionConnect,
       siwe,
