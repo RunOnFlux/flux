@@ -2576,7 +2576,7 @@
                     <div class="ml-auto d-flex">
                       <b-form-checkbox
                         v-model="enableUser"
-                        class="mr-2 d-flex align-items-center justify-content-center"
+                        class="ml-4 mr-2 d-flex align-items-center justify-content-center"
                         switch
                         :disabled="!!isVisible"
                         @input="onSelectChangeUser"
@@ -2645,12 +2645,16 @@
                       <span :style="selectedOptionTextStyle">{{ selectedApp || appSpecification.name }}</span>
                       <span style="font-weight: bold;">using command</span>
                       <span :style="selectedOptionTextStyle">{{ selectedOptionText }}</span>
+                      <span style="font-weight: bold;">as</span>
+                      <span :style="selectedOptionTextStyle">{{ !userInputValue ? 'default user' : userInputValue }}</span>
                     </template>
                     <template v-else>
                       <span style="font-weight: bold;">Exec into container</span>
                       <span :style="selectedOptionTextStyle">{{ selectedApp || appSpecification.name }}</span>
                       <span style="font-weight: bold;">using custom command</span>
                       <span :style="selectedOptionTextStyle">{{ customValue }}</span>
+                      <span style="font-weight: bold;">as</span>
+                      <span :style="selectedOptionTextStyle">{{ !userInputValue ? 'default user' : userInputValue }}</span>
                     </template>
                   </div>
                 </div>
