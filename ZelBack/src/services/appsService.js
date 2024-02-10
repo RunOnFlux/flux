@@ -11635,7 +11635,7 @@ async function appendBackupTask(req, res) {
   let backup;
   try {
     const processedBody = serviceHelper.ensureObject(req.body);
-    console.log(processedBody);
+    log.info(processedBody);
     // eslint-disable-next-line prefer-destructuring
     appname = processedBody.appname;
     // eslint-disable-next-line prefer-destructuring
@@ -11749,7 +11749,7 @@ async function appendRestoreTask(req, res) {
   let type;
   try {
     const processedBody = serviceHelper.ensureObject(req.body);
-    console.log(processedBody);
+    log.info(processedBody);
     // eslint-disable-next-line prefer-destructuring
     appname = processedBody.appname;
     // eslint-disable-next-line prefer-destructuring
