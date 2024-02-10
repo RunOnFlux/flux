@@ -1,17 +1,13 @@
 /* eslint-disable class-methods-use-this */
 /* eslint-disable no-restricted-syntax */
 const chai = require('chai');
-const natUpnp = require('@runonflux/nat-upnp');
+const natUpnp = require('@megachips/nat-upnp');
 const sinon = require('sinon');
-const proxyquire = require('proxyquire');
 const log = require('../../ZelBack/src/lib/log');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+const upnpService = require('../../ZelBack/src/services/upnpService');
 
 const { expect } = chai;
-
-const config = {
-  apiport: '5550',
-};
 
 const generateResponse = () => {
   const res = { test: 'testing' };
@@ -24,17 +20,21 @@ const generateResponse = () => {
   return res;
 };
 
-const upnpService = proxyquire(
-  '../../ZelBack/src/services/upnpService',
-  { config },
-);
-
 describe('upnpService tests', () => {
   describe('verifyUPNPsupport tests', () => {
     let logSpy;
 
     beforeEach(() => {
       logSpy = sinon.spy(log, 'error');
+
+      global.userconfig = {
+        computed: {
+          homePort: 16136,
+          apiPort: 16137,
+          apiPortSsl: 16138,
+          syncthingPort: 16139,
+        },
+      };
     });
 
     afterEach(() => {
@@ -132,6 +132,15 @@ describe('upnpService tests', () => {
     beforeEach(() => {
       logSpy = sinon.spy(log, 'error');
       createMappingSpy = sinon.stub(natUpnp.Client.prototype, 'createMapping');
+
+      global.userconfig = {
+        computed: {
+          homePort: 122,
+          apiPort: 123,
+          apiPortSsl: 124,
+          syncthingPort: 125,
+        },
+      };
     });
 
     afterEach(() => {
@@ -141,11 +150,14 @@ describe('upnpService tests', () => {
     it('should return true if all client responses are valid', async () => {
       createMappingSpy.returns(true);
 
-      const result = await upnpService.setupUPNP(123);
+      const result = await upnpService.setupUPNP();
 
       expect(result).to.equal(true);
       sinon.assert.notCalled(logSpy);
       sinon.assert.callCount(createMappingSpy, 4);
+      sinon.assert.calledWithExactly(createMappingSpy, {
+        public: 122, private: 122, ttl: 0, description: 'Flux_Home_UI',
+      });
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 123, private: 123, ttl: 0, description: 'Flux_Backend_API',
       });
@@ -153,32 +165,7 @@ describe('upnpService tests', () => {
         public: 124, private: 124, ttl: 0, description: 'Flux_Backend_API_SSL',
       });
       sinon.assert.calledWithExactly(createMappingSpy, {
-        public: 122, private: 122, ttl: 0, description: 'Flux_Home_UI',
-      });
-      sinon.assert.calledWithExactly(createMappingSpy, {
         public: 125, private: 125, ttl: 0, description: 'Flux_Syncthing',
-      });
-    });
-
-    it('should return true if all client responses are valid, no parameter passed', async () => {
-      createMappingSpy.returns(true);
-
-      const result = await upnpService.setupUPNP();
-
-      expect(result).to.equal(true);
-      sinon.assert.notCalled(logSpy);
-      sinon.assert.callCount(createMappingSpy, 4);
-      sinon.assert.calledWithExactly(createMappingSpy, {
-        public: 16127, private: 16127, ttl: 0, description: 'Flux_Backend_API',
-      });
-      sinon.assert.calledWithExactly(createMappingSpy, {
-        public: 16128, private: 16128, ttl: 0, description: 'Flux_Backend_API_SSL',
-      });
-      sinon.assert.calledWithExactly(createMappingSpy, {
-        public: 16126, private: 16126, ttl: 0, description: 'Flux_Home_UI',
-      });
-      sinon.assert.calledWithExactly(createMappingSpy, {
-        public: 16129, private: 16129, ttl: 0, description: 'Flux_Syncthing',
       });
     });
 

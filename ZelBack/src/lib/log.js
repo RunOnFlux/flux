@@ -12,7 +12,7 @@ const levels = {
 
 const logLevel = config && config.logLevel ? config.logLevel : levels.debug;
 
-const homeDirPath = path.join(__dirname, '../../../');
+const appRootPath = path.join(__dirname, '../../../');
 
 const fileSizeCache = {};
 
@@ -69,7 +69,7 @@ function debug(args) {
   try {
     console.log(args);
     // write to file
-    const filepath = `${homeDirPath}debug.log`;
+    const filepath = `${appRootPath}debug.log`;
     writeToFile(filepath, args);
   } catch (err) {
     console.error('This should not have happened');
@@ -83,7 +83,7 @@ function error(args) {
   }
   try {
     // write to file
-    const filepath = `${homeDirPath}error.log`;
+    const filepath = `${appRootPath}error.log`;
     writeToFile(filepath, args);
     debug(args);
   } catch (err) {
@@ -98,7 +98,7 @@ function warn(args) {
   }
   try {
     // write to file
-    const filepath = `${homeDirPath}warn.log`;
+    const filepath = `${appRootPath}warn.log`;
     writeToFile(filepath, args);
     debug(args);
   } catch (err) {
@@ -113,7 +113,7 @@ function info(args) {
   }
   try {
     // write to file
-    const filepath = `${homeDirPath}info.log`;
+    const filepath = `${appRootPath}info.log`;
     writeToFile(filepath, args);
     debug(args);
   } catch (err) {

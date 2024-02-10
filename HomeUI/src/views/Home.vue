@@ -11,6 +11,11 @@
         :variant="getNodeStatusResponse.class"
       />
       <list-entry
+        v-if="tags && privilege === 'admin'"
+        title="Tags"
+        :data="tags"
+      />
+      <list-entry
         title="Static Ip ISP/Org"
         :data="staticIp ? 'Yes' : 'No'"
       />
@@ -232,6 +237,7 @@ export default {
       },
       staticIp: false,
       signClient: null,
+      tags: null,
     };
   },
   computed: {
@@ -251,6 +257,7 @@ export default {
     this.daemonWelcomeGetFluxNodeStatus();
     this.getZelIdLoginPhrase();
     this.getOwnerZelid();
+    this.getTags();
     this.getStaticIpInfo();
     this.initMMSDK();
   },
@@ -292,6 +299,15 @@ export default {
       const obtainedZelid = response.data.data;
       if (response.data.status === 'success' && typeof obtainedZelid === 'string') {
         this.$store.commit('flux/setUserZelid', obtainedZelid);
+      }
+    },
+    async getTags() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      if (!zelidauth) return;
+      const response = await FluxService.getFluxTags(zelidauth);
+      if (response.data.status === 'success') {
+        const tags = response.data.data;
+        this.tags = Object.keys(tags).map((key) => `${key.slice(0, 16)}: ${tags[key].slice(0, 16)}`).join(', ');
       }
     },
     async getStaticIpInfo() {
@@ -353,6 +369,9 @@ export default {
         this.$store.commit('flux/setPrivilege', data.data.privilage);
         this.$store.commit('flux/setZelid', zelidauth.zelid);
         localStorage.setItem('zelidauth', qs.stringify(zelidauth));
+        if (data.data.privilage === 'admin') {
+          this.getTags();
+        }
         this.showToast('success', data.data.message);
       }
       console.log(data);
@@ -431,6 +450,9 @@ export default {
             this.$store.commit('flux/setPrivilege', response.data.data.privilage);
             this.$store.commit('flux/setZelid', zelidauth.zelid);
             localStorage.setItem('zelidauth', qs.stringify(zelidauth));
+            if (response.data.data.privilage === 'admin') {
+              this.getTags();
+            }
             this.showToast('success', response.data.data.message);
           } else {
             this.showToast(this.getVariant(response.data.status), response.data.data.message || response.data.data);
@@ -469,6 +491,9 @@ export default {
         this.$store.commit('flux/setPrivilege', response.data.data.privilage);
         this.$store.commit('flux/setZelid', zelidauth.zelid);
         localStorage.setItem('zelidauth', qs.stringify(zelidauth));
+        if (response.data.data.privilage === 'admin') {
+          this.getTags();
+        }
         this.showToast('success', response.data.data.message);
       } else {
         this.showToast(this.getVariant(response.data.status), response.data.data.message || response.data.data);
@@ -551,6 +576,9 @@ export default {
           this.$store.commit('flux/setPrivilege', response.data.data.privilage);
           this.$store.commit('flux/setZelid', zelidauth.zelid);
           localStorage.setItem('zelidauth', qs.stringify(zelidauth));
+          if (response.data.data.privilage === 'admin') {
+            this.getTags();
+          }
           this.showToast('success', response.data.data.message);
         } else {
           this.showToast(this.getVariant(response.data.status), response.data.data.message || response.data.data);
@@ -602,6 +630,9 @@ export default {
           this.$store.commit('flux/setPrivilege', response.data.data.privilage);
           this.$store.commit('flux/setZelid', zelidauth.zelid);
           localStorage.setItem('zelidauth', qs.stringify(zelidauth));
+          if (response.data.data.privilage === 'admin') {
+            this.getTags();
+          }
           this.showToast('success', response.data.data.message);
         } else {
           this.showToast(this.getVariant(response.data.status), response.data.data.message || response.data.data);

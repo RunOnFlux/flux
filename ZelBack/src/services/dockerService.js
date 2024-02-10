@@ -77,7 +77,7 @@ function getAppDockerNameIdentifier(appName) {
         Labels?: { [label: string]: string } | undefined;
 
         abortSignal?: AbortSignal;
- * @returns {object} Network
+ * @returns {Promise<object>} Network
  */
 async function dockerCreateNetwork(options) {
   const network = await docker.createNetwork(options);
@@ -89,7 +89,7 @@ async function dockerCreateNetwork(options) {
  *
  * @param {object} netw - Network object
  *
- * @returns {Buffer}
+ * @returns {Promise<Buffer>}
  */
 async function dockerRemoveNetwork(netw) {
   const network = await netw.remove();
@@ -101,7 +101,7 @@ async function dockerRemoveNetwork(netw) {
  *
  * @param {object} netw - Network object
  *
- * @returns {object} ispect network object
+ * @returns {Promise<object>} ispect network object
  */
 async function dockerNetworkInspect(netw) {
   const network = await netw.inspect();
@@ -116,7 +116,7 @@ async function dockerNetworkInspect(netw) {
  * @param {bool} [size] - Return the size of container as fields SizeRw and SizeRootFs.
  * @param {string} [filter] Filters to process on the container list, encoded as JSON
 
- * @returns {array} containers list
+ * @returns {Promise<array>} containers list
  */
 async function dockerListContainers(all, limit, size, filter) {
   const options = {
@@ -132,7 +132,7 @@ async function dockerListContainers(all, limit, size, filter) {
 /**
  * Returns a list of images on the server.
  *
- * @returns {array} images list
+ * @returns {Promise<array>} images list
  */
 async function dockerListImages() {
   const containers = await docker.listImages();
@@ -142,7 +142,7 @@ async function dockerListImages() {
 /**
  * Returns a docker container found by name or ID
  * @param {string} idOrName
- * @returns {object} dockerContainer from list containers
+ * @returns {Promise<object>} dockerContainer from list containers
  */
 async function getDockerContainerOnly(idOrName) {
   const containers = await dockerListContainers(true);
@@ -157,7 +157,7 @@ async function getDockerContainerOnly(idOrName) {
  * Returns a docker container found by name or ID
  *
  * @param {string} idOrName
- * @returns {object} dockerContainer
+ * @returns {Promise<object>} dockerContainer
  */
 async function getDockerContainerByIdOrName(idOrName) {
   const myContainer = await getDockerContainerOnly(idOrName);
@@ -168,7 +168,7 @@ async function getDockerContainerByIdOrName(idOrName) {
  * Returns low-level information about a container.
  *
  * @param {string} idOrName
- * @returns {object}
+ * @returns {Promise<object>}
  */
 async function dockerContainerInspect(idOrName) {
   // container ID or name
@@ -388,7 +388,7 @@ async function dockerContainerLogsStream(idOrName, res, callback) {
  * @param {string} idOrName
  * @param {number} lines
  *
- * @returns {buffer}
+ * @returns {Promise<buffer>}
  */
 async function dockerContainerLogs(idOrName, lines) {
   // container ID or name
@@ -437,7 +437,7 @@ async function obtainPayloadFromStorage(url, appName) {
  * @param {object} appSpecifications
  * @param {string} appName
  * @param {bool} isComponent
- * @returns {object}
+ * @returns {Promise<object>}
  */
 async function appDockerCreate(appSpecifications, appName, isComponent, fullAppSpecs) {
   const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
@@ -668,7 +668,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
  * Starts app's docker.
  *
  * @param {string} idOrName
- * @returns {string} message
+ * @returns {Promise<string>} message
  */
 async function appDockerStart(idOrName) {
   // container ID or name
@@ -682,7 +682,7 @@ async function appDockerStart(idOrName) {
  * Stops app's docker.
  *
  * @param {string} idOrName
- * @returns {string} message
+ * @returns {Promise<string>} message
  */
 async function appDockerStop(idOrName) {
   // container ID or name
@@ -696,7 +696,7 @@ async function appDockerStop(idOrName) {
  * Restarts app's docker.
  *
  * @param {string} idOrName
- * @returns {string} message
+ * @returns {Prmoise<string>} message
  */
 async function appDockerRestart(idOrName) {
   // container ID or name
@@ -710,7 +710,7 @@ async function appDockerRestart(idOrName) {
  * Kills app's docker.
  *
  * @param {string} idOrName
- * @returns {string} message
+ * @returns {Promise<string>} message
  */
 async function appDockerKill(idOrName) {
   // container ID or name
@@ -724,7 +724,7 @@ async function appDockerKill(idOrName) {
  * Removes app's docker.
  *
  * @param {string} idOrName
- * @returns {string} message
+ * @returns {Prmise<string>} message
  */
 async function appDockerRemove(idOrName) {
   // container ID or name
@@ -738,7 +738,7 @@ async function appDockerRemove(idOrName) {
  * Removes app's docker image.
  *
  * @param {string} idOrName
- * @returns {string} message
+ * @returns {Promise<string>} message
  */
 async function appDockerImageRemove(idOrName) {
   // container ID or name
@@ -751,7 +751,7 @@ async function appDockerImageRemove(idOrName) {
  * Pauses app's docker.
  *
  * @param {string} idOrName
- * @returns {string} message
+ * @returns {Promise<string>} message
  */
 async function appDockerPause(idOrName) {
   // container ID or name
@@ -765,7 +765,7 @@ async function appDockerPause(idOrName) {
  * Unpauses app's docker.
  *
  * @param {string} idOrName
- * @returns {string} message
+ * @returns {Promise<string>} message
  */
 async function appDockerUnpause(idOrName) {
   // container ID or name
@@ -779,7 +779,7 @@ async function appDockerUnpause(idOrName) {
  * Returns app's docker's active processes.
  *
  * @param {string} idOrName
- * @returns {string} message
+ * @returns {Promise<string>} message
  */
 async function appDockerTop(idOrName) {
   // container ID or name
@@ -792,7 +792,7 @@ async function appDockerTop(idOrName) {
 /**
  * Creates flux docker network if doesn't exist
  * OBSOLETE
- * @returns {object} response
+ * @returns {Promise<object>} response
  */
 async function createFluxDockerNetwork() {
   // check if fluxDockerNetwork exists
@@ -823,7 +823,7 @@ async function createFluxDockerNetwork() {
 /**
  * Creates flux application docker network if doesn't exist
  *
- * @returns {object} response
+ * @returns {Promise<object>} response
  */
 async function createFluxAppDockerNetwork(appname, number) {
   // check if fluxDockerNetwork of an appexists
@@ -854,7 +854,7 @@ async function createFluxAppDockerNetwork(appname, number) {
 /**
  * Removes flux application docker network if exists
  *
- * @returns {object} response
+ * @returns {Promise<object>} response
  */
 async function removeFluxAppDockerNetwork(appname) {
   // check if fluxDockerNetwork of an app exists
@@ -905,7 +905,7 @@ async function pruneImages() {
 /**
  * Return docker system information
  *
- * @returns {object}
+ * @returns {Promise<object>}
  */
 async function dockerInfo() {
   const info = await docker.info();
@@ -915,7 +915,7 @@ async function dockerInfo() {
 /**
  * Returns the version of Docker that is running and various information about the system that Docker is running on.
  *
- * @returns {object}
+ * @returns {Promise<object>}
  */
 async function dockerVersion() {
   const version = await docker.version();
@@ -925,7 +925,7 @@ async function dockerVersion() {
 /**
  * Returns docker events
  *
- * @returns {object}
+ * @returns {Promise<object>}
  */
 async function dockerGetEvents() {
   const events = await docker.getEvents();
@@ -935,7 +935,7 @@ async function dockerGetEvents() {
 /**
  * Returns docker usage information
  *
- * @returns {object}
+ * @returns {Promise<object>}
  */
 async function dockerGetUsage() {
   const df = await docker.df();

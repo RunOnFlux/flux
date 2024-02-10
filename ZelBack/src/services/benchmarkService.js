@@ -1,8 +1,5 @@
-/* global userconfig */
 const benchmarkrpc = require('daemonrpc');
 const config = require('config');
-const path = require('path');
-const fs = require('fs');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
@@ -13,9 +10,6 @@ const log = require('../lib/log');
 const isTestnet = userconfig.initial.testnet;
 
 const rpcport = isTestnet === true ? config.benchmark.rpcporttestnet : config.benchmark.rpcport;
-
-const homeDirPath = path.join(__dirname, '../../../../');
-const newBenchmarkPath = path.join(homeDirPath, '.fluxbenchmark');
 
 let response = messageHelper.createErrorMessage();
 
@@ -32,7 +26,7 @@ async function executeCall(rpc, params) {
   try {
     let rpcuser = 'zelbenchuser';
     let rpcpassword = 'zelbenchpassword';
-    if (fs.existsSync(newBenchmarkPath)) {
+    if (userconfig.computed.isNewBenchPath) {
       rpcuser = 'fluxbenchuser';
       rpcpassword = 'fluxbenchpassword';
     }
@@ -246,8 +240,8 @@ async function executeUpnpBench() {
     log.info('executeUpnpBench - Flux not yet synced');
     return;
   }
-  const isUPNP = upnpService.isUPNP();
-  if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+
+  if (upnpService.isUPNP()) {
     log.info('Calling FluxBench startMultiPortBench');
     log.info(await startMultiPortBench());
   }

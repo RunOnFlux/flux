@@ -1,4 +1,3 @@
-/* global userconfig */
 const config = require('config');
 const https = require('https');
 const axios = require('axios');
@@ -5826,17 +5825,17 @@ async function restoreFluxPortsSupport() {
   try {
     const isUPNP = upnpService.isUPNP();
 
-    const apiPort = userconfig.initial.apiport || config.server.apiport;
-    const homePort = +apiPort - 1;
-    const apiPortSSL = +apiPort + 1;
-    const syncthingPort = +apiPort + 2;
+    const { apiPort } = userconfig.computed;
+    const { homePort } = userconfig.computed;
+    const { apiPortSsl } = userconfig.computed;
+    const { syncthingPort } = userconfig.computed;
 
     const firewallActive = await fluxNetworkHelper.isFirewallActive();
     if (firewallActive) {
       // setup UFW if active
       await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(apiPort));
       await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(homePort));
-      await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(apiPortSSL));
+      await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(apiPortSsl));
       await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(syncthingPort));
     }
 

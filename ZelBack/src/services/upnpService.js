@@ -1,16 +1,13 @@
-/* global userconfig */
-const config = require('config');
-const natUpnp = require('@runonflux/nat-upnp');
+const natUpnp = require('@megachips/nat-upnp');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
 const nodecmd = require('node-cmd');
-// eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
 
 const log = require('../lib/log');
 
-const client = new natUpnp.Client();
+const client = new natUpnp.Client({ cacheGateway: true });
 
 let upnpMachine = false;
 
@@ -43,27 +40,73 @@ async function isFirewallActive() {
 }
 
 /**
- * To adjust a firewall to allow comms between host and router.
+ * To allow inbound unicast SSDP M-SEARCH query response from as yet undiscovered
+ * router. I.e. allow SSDP for any lan address. This gets removed and updated to router
+ * Address once router found. Only applies to nodes using auto UPnP configuration.
+ * @returns {Promise<boolean>} True if SSDP is allowed. Otherwise false.
+ */
+async function ufwAllowSsdpforInit() {
+  if (!(await isFirewallActive())) return true;
+
+  const cmdAsync = util.promisify(nodecmd.get);
+  // allow from any address as we are looking for a router IP.
+  const allowSsdpCmd = 'sudo ufw allow from any port 1900 to any proto udp > /dev/null 2>&1';
+  try {
+    await cmdAsync(allowSsdpCmd);
+    return true;
+  } catch (error) {
+    log.error(error);
+    return false;
+  }
+}
+
+/**
+ * To remove allow inbound unicast SSDP M-SEARCH query response from LAN.
+ * @returns {Promise<boolean>} True if SSDP removed / not exist. Otherwise false.
+ */
+async function ufwRemoveAllowSsdpforInit() {
+  if (!(await isFirewallActive())) return true;
+
+  const cmdAsync = util.promisify(nodecmd.get);
+  // allow from any address as are looking for a router IP.
+  const removeAllowSsdpCmd = 'sudo ufw delete allow from any port 1900 to any proto udp > /dev/null 2>&1';
+  try {
+    await cmdAsync(removeAllowSsdpCmd);
+    return true;
+  } catch (error) {
+    // above rule returns 0 for non existent rule so this shouldn't fire unless actual error
+    log.error(error);
+    return false;
+  }
+}
+
+/**
+ *  * To adjust a firewall to allow comms between host and router.
  */
 async function adjustFirewallForUPNP() {
+  const { routerIp } = userconfig.computed;
+
   try {
-    let { routerIP } = userconfig.initial;
-    routerIP = serviceHelper.ensureString(routerIP);
-    if (routerIP) {
+    if (routerIp) {
       const cmdAsync = util.promisify(nodecmd.get);
       const firewallActive = await isFirewallActive();
       if (firewallActive) {
+        // why allow outbound?!? There is a default allow
         const execA = 'sudo ufw allow out from any to 239.255.255.250 port 1900 proto udp > /dev/null 2>&1';
-        const execB = `sudo ufw allow from ${routerIP} port 1900 to any proto udp > /dev/null 2>&1`;
-        const execC = `sudo ufw allow out from any to ${routerIP} proto tcp > /dev/null 2>&1`;
-        const execD = `sudo ufw allow from ${routerIP} to any proto udp > /dev/null 2>&1`;
+        // this is superfulous as there is an allow for allow udp below
+        const execB = `sudo ufw allow from ${routerIp} port 1900 to any proto udp > /dev/null 2>&1`;
+        const execC = `sudo ufw allow out from any to ${routerIp} proto tcp > /dev/null 2>&1`;
+        const execD = `sudo ufw allow from ${routerIp} to any proto udp > /dev/null 2>&1`;
+        // added this as we are now using multicast and need to be able to receive igmp queries
+        const execE = 'sudo ufw allow to any proto igmp > /dev/null 2>&1';
         await cmdAsync(execA);
         await cmdAsync(execB);
         await cmdAsync(execC);
         await cmdAsync(execD);
+        await cmdAsync(execE);
         log.info('Firewall adjusted for UPNP');
       } else {
-        log.info('RouterIP is set but firewall is not active. Adjusting not applied for UPNP');
+        log.info(`Router IP: ${routerIp} set but firewall is not active. Adjustment not applied for UPNP`);
       }
     }
   } catch (error) {
@@ -73,15 +116,17 @@ async function adjustFirewallForUPNP() {
 
 /**
  * To verify that a port has UPnP (Universal Plug and Play) support.
- * @param {number} apiport Port number.
  * @returns {Promise<boolean>} True if port mappings can be set. Otherwise false.
  */
-async function verifyUPNPsupport(apiport = config.server.apiport) {
+async function verifyUPNPsupport() {
+  const { routerIp } = userconfig.computed;
+  const { apiPort } = userconfig.computed;
+  const testPort = apiPort + 3;
+
   try {
-    if (userconfig.initial.routerIP) {
+    if (routerIp) {
       await adjustFirewallForUPNP();
     }
-    // run test on apiport + 1
     await client.getPublicIp();
   } catch (error) {
     log.error(error);
@@ -99,8 +144,8 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
   }
   try {
     await client.createMapping({
-      public: +apiport + 3,
-      private: +apiport + 3,
+      public: testPort,
+      private: testPort,
       ttl: 0,
       description: 'Flux_UPNP_Mapping_Test',
     });
@@ -120,7 +165,7 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
   }
   try {
     await client.removeMapping({
-      public: +apiport + 3,
+      public: testPort,
     });
   } catch (error) {
     log.error(error);
@@ -135,32 +180,31 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
 
 /**
  * To set up UPnP (Universal Plug and Play) support.
- * @param {number} apiport Port number.
  * @returns {Promise<boolean>} True if port mappings can be set. Otherwise false.
  */
-async function setupUPNP(apiport = config.server.apiport) {
+async function setupUPNP() {
   try {
     await client.createMapping({
-      public: +apiport,
-      private: +apiport,
-      ttl: 0, // Some routers force low ttl if 0, indefinite/default is used. Flux refreshes this every 6 blocks ~ 12 minutes
-      description: 'Flux_Backend_API',
-    });
-    await client.createMapping({
-      public: +apiport + 1,
-      private: +apiport + 1,
-      ttl: 0, // Some routers force low ttl if 0, indefinite/default is used. Flux refreshes this every 6 blocks ~ 12 minutes
-      description: 'Flux_Backend_API_SSL',
-    });
-    await client.createMapping({
-      public: +apiport - 1,
-      private: +apiport - 1,
+      public: userconfig.computed.homePort,
+      private: userconfig.computed.homePort,
       ttl: 0,
       description: 'Flux_Home_UI',
     });
     await client.createMapping({
-      public: +apiport + 2,
-      private: +apiport + 2,
+      public: userconfig.computed.apiPort,
+      private: userconfig.computed.apiPort,
+      ttl: 0, // Some routers force low ttl if 0, indefinite/default is used. Flux refreshes this every 6 blocks ~ 12 minutes
+      description: 'Flux_Backend_API',
+    });
+    await client.createMapping({
+      public: userconfig.computed.apiPortSsl,
+      private: userconfig.computed.apiPortSsl,
+      ttl: 0, // Some routers force low ttl if 0, indefinite/default is used. Flux refreshes this every 6 blocks ~ 12 minutes
+      description: 'Flux_Backend_API_SSL',
+    });
+    await client.createMapping({
+      public: userconfig.computed.syncthingPort,
+      private: userconfig.computed.syncthingPort,
       ttl: 0,
       description: 'Flux_Syncthing',
     });
@@ -219,6 +263,29 @@ async function removeMapUpnpPort(port) {
   } catch (error) {
     log.error(error);
     return false;
+  }
+}
+
+/**
+ * Removes any mappings on a node at startup
+ * @param {string} ip
+ * This nodes ip. Trying to remove a mapping for a host ip that doens't belong to this host, will error.
+ */
+async function cleanOldMappings(ip) {
+  const mappings = await client.getMappings();
+
+  // await in loop so we can bail early if we get an error
+  // eslint-disable-next-line no-restricted-syntax
+  for (const mapping of mappings) {
+    if (mapping.private.host === ip) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await client.removeMapping(mapping.public.port, mapping.protocol);
+      } catch (error) {
+        log.error(error);
+        return;
+      }
+    }
   }
 }
 
@@ -393,6 +460,7 @@ module.exports = {
   isUPNP,
   verifyUPNPsupport,
   setupUPNP,
+  cleanOldMappings,
   mapUpnpPort,
   removeMapUpnpPort,
   mapPortApi,
@@ -401,4 +469,6 @@ module.exports = {
   getIpApi,
   getGatewayApi,
   adjustFirewallForUPNP,
+  ufwAllowSsdpforInit,
+  ufwRemoveAllowSsdpforInit,
 };

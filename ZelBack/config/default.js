@@ -1,7 +1,6 @@
-// eslint-disable-next-line prefer-const
-let userconfig = require('../../config/userconfig');
+let { isDevelopment } = require('../../config/userconfig');
 
-const isDevelopment = userconfig.initial.development || false;
+isDevelopment = isDevelopment || false;
 
 module.exports = {
   development: isDevelopment,

@@ -1,12 +1,9 @@
-/* global userconfig */
-/* eslint-disable no-underscore-dangle */
 const config = require('config');
 const zeltrezjs = require('zeltrezjs');
 const nodecmd = require('node-cmd');
 const fs = require('fs').promises;
 const path = require('path');
 const os = require('os');
-// eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
 const { LRUCache } = require('lru-cache');
 const log = require('../lib/log');
@@ -449,7 +446,7 @@ async function getRandomConnection() {
   }
   const randomNode = Math.floor((Math.random() * zlLength)); // we do not really need a 'random'
   const ip = nodeList[randomNode].ip || nodeList[randomNode].ipaddress;
-  const apiPort = userconfig.initial.apiport || config.server.apiport;
+  const { apiPort } = userconfig.computed;
 
   if (!ip || !myFluxIP || ip === userconfig.initial.ipaddress || ip === myFluxIP || ip === `${userconfig.initial.ipaddress}:${apiPort}` || ip.split(':')[0] === myFluxIP.split(':')[0]) {
     return null;
@@ -737,7 +734,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   const axiosConfigAux = {
     timeout: 7000,
   };
-  const apiPort = userconfig.initial.apiport || config.server.apiport;
+  const { apiPort } = userconfig.computed;
   const resMyAvailability = await serviceHelper.axiosGet(`http://${askingIP}:${askingIpPort}/flux/checkfluxavailability?ip=${myIP}&port=${apiPort}`, axiosConfigAux).catch((error) => {
     log.error(`${askingIP} is not reachable`);
     log.error(error);
@@ -854,7 +851,8 @@ async function adjustExternalIP(ip) {
     kadena: '${userconfig.initial.kadena || ''}',
     testnet: ${userconfig.initial.testnet || false},
     development: ${userconfig.initial.development || false},
-    apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
+    upnp: ${userconfig.initial.upnp || false},
+    apiport: '${userconfig.initial.apiport || ''}',
     routerIP: '${userconfig.initial.routerIP || ''}',
     pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
     pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
@@ -867,8 +865,8 @@ async function adjustExternalIP(ip) {
 
     if (oldUserConfigIp && v4exact.test(oldUserConfigIp) && !myCache.has(ip)) {
       myCache.set(ip, ip);
-      const newIP = userconfig.initial.apiport !== 16127 ? `${ip}:${userconfig.initial.apiport}` : ip;
-      const oldIP = userconfig.initial.apiport !== 16127 ? `${oldUserConfigIp}:${userconfig.initial.apiport}` : oldUserConfigIp;
+      const newIP = userconfig.computed.apiPort !== 16127 ? `${ip}:${userconfig.computed.apiPort}` : ip;
+      const oldIP = userconfig.computed.apiPort !== 16127 ? `${oldUserConfigIp}:${userconfig.computed.apiPort}` : oldUserConfigIp;
       log.info(`New public Ip detected: ${newIP}, old Ip:${oldIP} , updating the FluxNode info in the network`);
       // eslint-disable-next-line global-require
       const appsService = require('./appsService');
@@ -1244,7 +1242,7 @@ async function allowPortApi(req, res) {
 
 /**
  * To check if a firewall is active.
- * @returns {boolean} True if a firewall is active. Otherwise false.
+ * @returns {Promise<boolean>} True if a firewall is active. Otherwise false.
  */
 async function isFirewallActive() {
   try {
@@ -1268,11 +1266,11 @@ async function isFirewallActive() {
 async function adjustFirewall() {
   try {
     const cmdAsync = util.promisify(nodecmd.get);
-    const apiPort = userconfig.initial.apiport || config.server.apiport;
-    const homePort = +apiPort - 1;
-    const apiSSLPort = +apiPort + 1;
-    const syncthingPort = +apiPort + 2;
-    let ports = [apiPort, homePort, apiSSLPort, syncthingPort, 80, 443, 16125];
+    const { apiPort } = userconfig.computed;
+    const { homePort } = userconfig.computed;
+    const { apiPortSsl } = userconfig.computed;
+    const { syncthingPort } = userconfig.computed;
+    let ports = [apiPort, homePort, apiPortSsl, syncthingPort, 80, 443, 16125];
     const fluxCommunicationPorts = config.server.allowedPorts;
     ports = ports.concat(fluxCommunicationPorts);
     const firewallActive = await isFirewallActive();

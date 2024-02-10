@@ -235,6 +235,9 @@ module.exports = (app, expressWs) => {
   app.get('/flux/nodejsversions', cache('30 seconds'), (req, res) => {
     fluxService.getNodeJsVersions(req, res);
   });
+  app.get('/flux/tags', cache('30 seconds'), (req, res) => {
+    fluxService.getFluxTags(req, res);
+  });
   app.get('/flux/ip', cache('30 seconds'), (req, res) => {
     fluxService.getFluxIP(req, res);
   });
