@@ -1371,6 +1371,7 @@ async function removeDockerContainerAccessToHost() {
     } catch (err) {
       log.error('Error adding FLUX chain to iptables');
       // if we can't add chain, we can't proceed
+      return;
     }
   });
 
@@ -1385,6 +1386,7 @@ async function removeDockerContainerAccessToHost() {
       } catch (err) {
         log.error('Error inserting FORWARD jump to FLUX chain');
         // if we can't jump, we need to bail out
+        return;
       }
     } else {
       log.error(checkErr);
