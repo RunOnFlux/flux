@@ -1384,13 +1384,6 @@ async function removeDockerContainerAccessToHost() {
   // check if rules have been created, as iptables is NOT idempotent.
   const checkDockerUserChain = 'sudo iptables -L DOCKER-USER ';
   const checkJumpChain = 'sudo iptables -C FORWARD -j DOCKER-USER';
-  // This would be far more readable if extra shell commands were run seperately. They are unmaintainable as-is. Or at least some interpolation.
-  const checkDropAccess = 'sudo iptables -C DOCKER-USER -s 172.23.0.0/16 -d $(ip route | grep "src $(ip addr show dev $(ip route | '
-    + "awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') -j DROP";
-  const checkHostAccess = 'sudo iptables -C DOCKER-USER -s 172.23.0.0/16 -d $(ip route | grep "src $(ip addr show dev $(ip route | '
-    + "awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') -m state --state ESTABLISHED,RELATED -j ACCEPT";
-  const checkContainerDnsAccess = 'sudo iptables -C DOCKER-USER -s 172.23.0.0/16 -p udp -d $(ip route | grep "src $(ip addr show dev $(ip route | '
-    + "awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') --dport 53 -j ACCEPT";
 
   let unrecoverable = false;
 
@@ -1429,13 +1422,55 @@ async function removeDockerContainerAccessToHost() {
 
   if (unrecoverable) return;
 
+  const routeCmd = 'ip -json route';
+  const rawRoutes = await cmdAsync(routeCmd).catch((err) => log.error(err));
+
+  if (!rawRoutes) return;
+
+  let routes;
+  try {
+    routes = JSON.parse(rawRoutes);
+  } catch (err) {
+    log.error("Error parsing JSON for routes... skipping");
+    return;
+  }
+
+  const defaultRoute = routes.find((route) => route.dst === "default");
+
+  if (!defaultRoute) {
+    log.error("Unable to find default gateway... skipping");
+    return;
+  }
+
+  const localSubnet = routes.find((route) => serviceHelper.ipInSubnet(defaultRoute.gateway, route.dst));
+
+  if (!localSubnet) {
+    log.error("Unable to find local subnet... skipping");
+  }
+
+  // console.log(defaultRoute)
+  // console.log(localSubnet)
+
+  const fluxSrc = '172.23.0.0/16'
+  const checkAction = '-C';
+  const insertAction = "-I";
+  const appendAction = "-A";
+
+  const baseDropCmd = `sudo iptables ### DOCKER-USER -s ${fluxSrc} -d ${localSubnet.dst} -j DROP`
+  const baseAllowEstablishedCmd = `sudo iptables ### DOCKER-USER -s ${fluxSrc} -d ${localSubnet.dst} -m state --state ESTABLISHED,RELATED -j ACCEPT`
+  const baseAllowDnsCmd = `sudo iptables ### DOCKER-USER -s ${fluxSrc} -p udp -d ${localSubnet.dst} --dport 53 -j ACCEPT`
+
+  const checkDropAccess = baseDropCmd.replace('###', checkAction);
+  const checkHostAccess = baseAllowEstablishedCmd.replace('###', checkAction);
+  const checkContainerDnsAccess = baseAllowDnsCmd.replace('###', checkAction);
+
+
   if (checkJumpToDockerChain) log.info('jump to DOCKER-USER chain already enabled in iptables');
 
   const accessDropped = await cmdAsync(checkDropAccess).catch(async (checkErr) => {
     if (checkErr.message.includes('Bad rule')) {
       // This always gets appended, so the drop is at the end
-      const dropAccessToHostNetwork = 'sudo iptables -A DOCKER-USER -s 172.23.0.0/16 -d $(ip route | grep "src $(ip addr show dev $(ip route | '
-        + "awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') -j DROP";
+      const dropAccessToHostNetwork = baseDropCmd.replace('###', appendAction);
       try {
         await cmdAsync(dropAccessToHostNetwork);
         log.info('Access to host from containers removed');
@@ -1449,8 +1484,7 @@ async function removeDockerContainerAccessToHost() {
 
   const hostAccess = await cmdAsync(checkHostAccess).catch(async (checkErr) => {
     if (checkErr.message.includes('Bad rule')) {
-      const giveHostAccessToDockerNetwork = 'sudo iptables -I DOCKER-USER -s 172.23.0.0/16 -d $(ip route | grep "src $(ip addr show dev $(ip route | '
-        + "awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') -m state --state ESTABLISHED,RELATED -j ACCEPT";
+      const giveHostAccessToDockerNetwork = baseAllowEstablishedCmd.replace('###', insertAction);
       try {
         await cmdAsync(giveHostAccessToDockerNetwork);
         log.info('Access to containers from host accepted');
@@ -1464,8 +1498,7 @@ async function removeDockerContainerAccessToHost() {
 
   const containerDns = await cmdAsync(checkContainerDnsAccess).catch(async (checkErr) => {
     if (checkErr.message.includes('Bad rule')) {
-      const giveContainerAccessToDNS = 'sudo iptables -I DOCKER-USER -s 172.23.0.0/16 -p udp -d $(ip route | grep "src $(ip addr show dev $(ip route | '
-        + "awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') --dport 53 -j ACCEPT";
+      const giveContainerAccessToDNS = baseAllowDnsCmd.replace('###', insertAction);
       try {
         await cmdAsync(giveContainerAccessToDNS);
         log.info('Access to host DNS from containers accepted');
