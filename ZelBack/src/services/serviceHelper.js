@@ -145,10 +145,10 @@ function isDecimalLimit(value, decimals = 8) {
  * To handle timeouts on axios connection.
  * @param {string} url URL.
  * @param {object} options Options object.
- * @returns {Promise<object>} Response.
+ * @returns {object} Response.
  */
 // helper function for timeout on axios connection
-const axiosGet = async (url, options = {}) => {
+const axiosGet = (url, options = {}) => {
   if (!options.timeout) {
     // eslint-disable-next-line no-param-reassign
     options.timeout = 20000;
@@ -207,16 +207,15 @@ function commandStringToArray(command) {
  * @returns {Boolean}
  */
 function ipInSubnet(ip, subnet) {
-  let [network, mask] = subnet.split("/");
+  const [network, mask] = subnet.split('/');
 
-  ip = Number(ip.split('.').reduce(
-    (ipInt, octet) => (ipInt << 8) + parseInt(octet || 0, 10), 0)
-  );
-  network = Number(network.split('.').reduce(
-    (ipInt, octet) => (ipInt << 8) + parseInt(octet || 0, 10), 0)
-  );
-  mask = parseInt('1'.repeat(mask) + '0'.repeat(32 - mask), 2);
-  return (ip & mask) == (network & mask);
+  // eslint-disable-next-line no-bitwise
+  const ipAsInt = Number(ip.split('.').reduce((ipInt, octet) => (ipInt << 8) + parseInt(octet || 0, 10), 0));
+  // eslint-disable-next-line no-bitwise
+  const networkAsInt = Number(network.split('.').reduce((ipInt, octet) => (ipInt << 8) + parseInt(octet || 0, 10), 0));
+  const maskAsInt = parseInt('1'.repeat(mask) + '0'.repeat(32 - mask), 2);
+  // eslint-disable-next-line no-bitwise
+  return (ipAsInt & maskAsInt) === (networkAsInt & maskAsInt);
 }
 
 module.exports = {

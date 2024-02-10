@@ -173,8 +173,8 @@ async function getFluxDockerNetworkSubnets() {
   const fluxNetworks = await docker.listNetworks({
     filters: JSON.stringify({
       name: ['fluxDockerNetwork'],
-    })
-  })
+    }),
+  });
 
   const subnets = fluxNetworks.map((network) => network.IPAM.Config[0].Subnet);
 
@@ -185,24 +185,25 @@ async function getAppNameByContainerIp(ip) {
   const fluxNetworks = await docker.listNetworks({
     filters: JSON.stringify({
       name: ['fluxDockerNetwork'],
-    })
-  })
+    }),
+  });
 
-  const fluxNetworkNames = fluxNetworks.map(n => n.Name)
+  const fluxNetworkNames = fluxNetworks.map((n) => n.Name);
 
-  const networkPromises = []
+  const networkPromises = [];
   fluxNetworkNames.forEach((networkName) => {
-    const dockerNetwork = docker.getNetwork(networkName)
+    const dockerNetwork = docker.getNetwork(networkName);
     networkPromises.push(dockerNetwork.inspect());
-  })
+  });
 
   const fluxNetworkData = await Promise.all(networkPromises);
 
   let appName = null;
+  // eslint-disable-next-line no-restricted-syntax
   for (const fluxNetwork of fluxNetworkData) {
-    const subnet = fluxNetwork.IPAM.Config[0].Subnet
+    const subnet = fluxNetwork.IPAM.Config[0].Subnet;
     if (serviceHelper.ipInSubnet(ip, subnet)) {
-      appName = fluxNetwork.Name.split("_")[1];
+      appName = fluxNetwork.Name.split('_')[1];
       break;
     }
   }
@@ -633,7 +634,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
           'max-size': '20m',
         },
       },
-      ExtraHosts: [`app.identity.service:${config.server.appVerificationAddress}`]
+      ExtraHosts: [`app.identity.service:${config.server.appVerificationAddress}`],
     },
   };
 

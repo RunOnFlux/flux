@@ -14,7 +14,7 @@ const geolocationService = require('./geolocationService');
 const upnpService = require('./upnpService');
 const syncthingService = require('./syncthingService');
 const pgpService = require('./pgpService');
-const appVerificationService = require('./appVerificationService')
+const appVerificationService = require('./appVerificationService');
 
 const apiPort = userconfig.initial.apiport || config.server.apiport;
 const development = userconfig.initial.development || false;

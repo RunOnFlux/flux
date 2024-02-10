@@ -1275,7 +1275,7 @@ async function allowOnlyDockerNetworksToAppVerification() {
   if (!firewallActive) return;
 
   const fluxAppDockerNetworks = '172.23.0.0/16';
-  const appVerificationAddress = config.server.appVerificationAddress;
+  const { appVerificationAddress } = config.server;
   const allowDockerNetworks = `LANG="en_US.UTF-8" && sudo ufw allow from ${fluxAppDockerNetworks} proto tcp to ${appVerificationAddress}/32 port 80`;
   // have to use iptables here as ufw won't filter loopback
   const denyAllElse = `LANG="en_US.UTF-8" && sudo iptables -I INPUT -i lo ! -s ${fluxAppDockerNetworks} -d ${appVerificationAddress}/32 -j DROP`;
@@ -1290,9 +1290,8 @@ async function allowOnlyDockerNetworksToAppVerification() {
     // this doesn't give any output
     await cmdAsync(denyAllElse);
     log.info(`Firewall adjusted to deny access to: ${appVerificationAddress}/32`);
-  }
-  catch (err) {
-    log.error(err)
+  } catch (err) {
+    log.error(err);
   }
 }
 

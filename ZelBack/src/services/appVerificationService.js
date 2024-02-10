@@ -29,22 +29,22 @@ async function generateChallengeMessage(req, res) {
   const { identity } = parsedBody;
 
   if (!identity || identity.length !== 64) {
-    res.statusMessage = "Authenticating node identity is required (txid)";
+    res.statusMessage = 'Authenticating node identity is required (txid)';
     res.status(422).end();
     return;
   }
 
   const app = await dockerService.getAppNameByContainerIp(req.socket.remoteAddress);
   if (!app) {
-    res.statusMessage = "You are not authorized for this endpoint";
+    res.statusMessage = 'You are not authorized for this endpoint';
     res.status(403).end();
     return;
   }
 
-  const fluxnodeRes = await daemonServiceUtils.executeCall("listfluxnodes", [identity]);
+  const fluxnodeRes = await daemonServiceUtils.executeCall('listfluxnodes', [identity]);
 
-  if (!fluxnodeRes || fluxnodeRes.status !== "success" || !fluxnodeRes.data.length) {
-    res.statusMessage = 'Unable to find node identity in deterministicfluxnodelist'
+  if (!fluxnodeRes || fluxnodeRes.status !== 'success' || !fluxnodeRes.data.length) {
+    res.statusMessage = 'Unable to find node identity in deterministicfluxnodelist';
     res.status(422).end();
     return;
   }
@@ -53,32 +53,32 @@ async function generateChallengeMessage(req, res) {
   const fluxnode = fluxnodeRes.data[0];
 
   // this is ridiculous having to do this all the time. The node identity should always include the port
-  const [ip, apiport] = fluxnode.ip.includes(":") ? fluxnode.ip.split(":") : [fluxnode.ip, "16127"]
+  const [ip, apiport] = fluxnode.ip.includes(':') ? fluxnode.ip.split(':') : [fluxnode.ip, '16127'];
 
   const message = randomBytes(16).toString('hex');
-  const toEncrypt = JSON.stringify({ app, message })
+  const toEncrypt = JSON.stringify({ app, message });
 
   // https://1-2-3-4-16127.node.api.runonflux.io/flux/pgp
-  const hyphenEncodedHostname = `${ip.split(".").join("-")}-${apiport}`
-  const pgpEndpoint = `http://${hyphenEncodedHostname}.node.api.runonflux.io/flux/pgp`
+  const hyphenEncodedHostname = `${ip.split('.').join('-')}-${apiport}`;
+  const pgpEndpoint = `http://${hyphenEncodedHostname}.node.api.runonflux.io/flux/pgp`;
 
-  const { data: pgpPubKeyRes } = await serviceHelper.axiosGet(pgpEndpoint, { timeout: 2000 })
+  const { data: pgpPubKeyRes } = await serviceHelper.axiosGet(pgpEndpoint, { timeout: 2000 });
 
-  if (!pgpPubKeyRes?.status === "success") {
-    res.statusMessage = "Unable to retrieve pgp key for target"
+  if (!pgpPubKeyRes?.status === 'success') {
+    res.statusMessage = 'Unable to retrieve pgp key for target';
     res.status(422).end();
   }
 
-  const encrypted = await pgpSerivce.encryptMessage(toEncrypt, [pgpPubKeyRes.data])
+  const encrypted = await pgpSerivce.encryptMessage(toEncrypt, [pgpPubKeyRes.data]);
 
   const dataMessage = messageHelper.createDataMessage({ message, encrypted });
-  return res ? res.json(dataMessage) : dataMessage;
+  res.json(dataMessage);
 }
 
 async function getNodeIdentity(req, res) {
   const app = await dockerService.getAppNameByContainerIp(req.socket.remoteAddress);
   if (!app) {
-    res.statusMessage = "You are not authorized for this endpoint";
+    res.statusMessage = 'You are not authorized for this endpoint';
     res.status(403).end();
     return;
   }
@@ -86,27 +86,26 @@ async function getNodeIdentity(req, res) {
   let outPoint = null;
   try {
     // this is reliant on fluxd running
-    const res = await generalService.obtainNodeCollateralInformation();
-    outPoint = { txhash: res.txhash, outidx: res.txindex };
+    const collateral = await generalService.obtainNodeCollateralInformation();
+    outPoint = { txhash: collateral.txhash, outidx: collateral.txindex };
   } catch {
     log.error('Error getting collateral info from daemon.');
   }
 
   if (!outPoint) {
-    res.statusMessage = 'Unable to get node identity.. try again later'
+    res.statusMessage = 'Unable to get node identity.. try again later';
     res.status(503).end();
     return;
   }
 
   const message = messageHelper.createDataMessage(outPoint);
-
-  return res ? res.json(message) : message;
+  res.json(message);
 }
 
 async function decryptChallengeMessage(req, res) {
   const app = await dockerService.getAppNameByContainerIp(req.socket.remoteAddress);
   if (!app) {
-    res.statusMessage = "You are not authorized for this endpoint";
+    res.statusMessage = 'You are not authorized for this endpoint';
     res.status(403).end();
     return;
   }
@@ -115,23 +114,24 @@ async function decryptChallengeMessage(req, res) {
   const { encrypted } = parsedBody;
 
   if (!encrypted) {
-    res.statusMessage = "Encrypted message not provided";
+    res.statusMessage = 'Encrypted message not provided';
     res.status(422).end();
     return;
   }
 
-  const pgpPrivateKey = userconfig.initial.pgpPrivateKey;
+  // eslint-disable-next-line no-undef
+  const { pgpPrivateKey } = userconfig.initial;
 
   if (!pgpPrivateKey) {
-    res.statusMessage = "Pgp key not set"
+    res.statusMessage = 'Pgp key not set';
     res.status(500).end();
     return;
   }
 
-  const decrypted = await pgpSerivce.decryptMessage(encrypted, pgpPrivateKey)
+  const decrypted = await pgpSerivce.decryptMessage(encrypted, pgpPrivateKey);
 
   if (!decrypted) {
-    res.statusMessage = "Unable to decrypt message";
+    res.statusMessage = 'Unable to decrypt message';
     res.status(500).end();
   }
 
@@ -143,7 +143,7 @@ async function decryptChallengeMessage(req, res) {
   }
 
   const dataMessage = messageHelper.createDataMessage(challenge.message);
-  return res ? res.json(dataMessage) : dataMessage;
+  res.json(dataMessage);
 }
 
 function start() {
@@ -151,14 +151,14 @@ function start() {
 
   const app = express();
   app.use(express.json());
-  app.post("/createchallenge", generateChallengeMessage)
-  app.post("/decryptchallenge", decryptChallengeMessage)
-  app.get("/nodeindentity", getNodeIdentity)
+  app.post('/createchallenge', generateChallengeMessage);
+  app.post('/decryptchallenge', decryptChallengeMessage);
+  app.get('/nodeidentity', getNodeIdentity);
   app.all('*', (_, res) => res.status(404).end());
 
   const bindAddress = config.server.appVerificationAddress;
   server = app.listen(80, bindAddress, () => {
-    log.info(`Server listening on port: 80 address: ${bindAddress}`)
+    log.info(`Server listening on port: 80 address: ${bindAddress}`);
   });
 }
 
