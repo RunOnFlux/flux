@@ -1278,21 +1278,35 @@ async function allowOnlyDockerNetworksToAppVerification() {
   const { appVerificationAddress } = config.server;
   const allowDockerNetworks = `LANG="en_US.UTF-8" && sudo ufw allow from ${fluxAppDockerNetworks} proto tcp to ${appVerificationAddress}/32 port 80`;
   // have to use iptables here as ufw won't filter loopback
-  const denyAllElse = `LANG="en_US.UTF-8" && sudo iptables -I INPUT -i lo ! -s ${fluxAppDockerNetworks} -d ${appVerificationAddress}/32 -j DROP`;
+  const denyRule = `INPUT -i lo ! -s ${fluxAppDockerNetworks} -d ${appVerificationAddress}/32 -j DROP`
+  const checkDenyRule = `LANG="en_US.UTF-8" && sudo iptables -C ${denyRule}`
+  const denyAllElse = `LANG="en_US.UTF-8" && sudo iptables -I ${denyRule}`;
+
   const cmdAsync = util.promisify(nodecmd.get);
+
   try {
-    const cmdResA = await cmdAsync(allowDockerNetworks);
-    if (serviceHelper.ensureString(cmdResA).includes('updated') || serviceHelper.ensureString(cmdResA).includes('existing') || serviceHelper.ensureString(cmdResA).includes('added')) {
+    const cmd = await cmdAsync(allowDockerNetworks);
+    if (serviceHelper.ensureString(cmd).includes('updated') || serviceHelper.ensureString(cmd).includes('existing') || serviceHelper.ensureString(cmd).includes('added')) {
       log.info(`Firewall adjusted for network: ${fluxAppDockerNetworks} to address: ${appVerificationAddress}/32`);
     } else {
       log.warn(`Failed to adjust Firewall for network: ${fluxAppDockerNetworks} to address: ${appVerificationAddress}/32`);
     }
-    // this doesn't give any output
-    await cmdAsync(denyAllElse);
-    log.info(`Firewall adjusted to deny access to: ${appVerificationAddress}/32`);
   } catch (err) {
     log.error(err);
   }
+
+  const denied = await cmdAsync(checkDenyRule).catch(async (err) => {
+    if (err.message.includes("Bad rule")) {
+      try {
+        await cmdAsync(denyAllElse);
+        log.info(`Firewall adjusted to deny access to: ${appVerificationAddress}/32`);
+      } catch (err) {
+        log.error(err);
+      }
+    }
+  });
+
+  if (denied) log.info(`Fireall already denying access to ${appVerificationAddress}/32`)
 }
 
 /**
