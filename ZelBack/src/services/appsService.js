@@ -11663,6 +11663,7 @@ async function appendBackupTask(req, res) {
       backupInProgress.push(appname);
       // Check if app using syncthing, stop syncthing for all component that using it
       const appDetails = await getApplicationGlobalSpecifications(appname);
+      log.info(`appDetails: ${JSON.stringify(appDetails)}`);
       // eslint-disable-next-line no-restricted-syntax
       const syncthing = appDetails.compose.find((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:') || appDetails.containerData.includes('s:'));
       if (syncthing) {
