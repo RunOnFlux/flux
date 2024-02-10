@@ -11639,15 +11639,24 @@ async function appendBackupTask(req, res) {
       }
       backupInProgress.push(appname);
       // Check if app using syncthing, stop syncthing for all component that using it
-      if (processedBody.syncthing) {
+      const appDetails = await getApplicationGlobalSpecifications(appname);
+      let syncthing;
+      if (appDetails.version <= 3) {
+        syncthing = appDetails.containerData.includes('g:') || appDetails.containerData.includes('r:') || appDetails.containerData.includes('s:');
+        if (syncthing) {
+          // eslint-disable-next-line no-await-in-loop
+          await sendChunk(res, `Stopping syncthing for ${appname}\n`);
+          // eslint-disable-next-line no-await-in-loop
+          await stopSyncthingApp(appname, res, true);
+        }
+      } else {
         // eslint-disable-next-line no-restricted-syntax
-        for (const component of backup) {
-          if (component.syncthing === true) {
-            // eslint-disable-next-line no-await-in-loop
-            await sendChunk(res, `Stopping syncthing for ${component.component}\n`);
-            // eslint-disable-next-line no-await-in-loop
-            await stopSyncthingApp(`${component.component}_${appname}`, res, true);
-          }
+        syncthing = appDetails.compose.find((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:') || appDetails.containerData.includes('s:'));
+        if (syncthing) {
+          // eslint-disable-next-line no-await-in-loop
+          await sendChunk(res, `Stopping syncthing for ${appname}\n`);
+          // eslint-disable-next-line no-await-in-loop
+          await stopSyncthingApp(appname, res, true);
         }
       }
       await sendChunk(res, 'Stopping application...\n');
@@ -11680,7 +11689,21 @@ async function appendBackupTask(req, res) {
       }
       await serviceHelper.delay(5 * 1000);
       await sendChunk(res, 'Starting application...\n');
-      await appDockerStart(appname);
+      if (!syncthing) {
+        await appDockerStart(appname);
+      } else if (appDetails.version <= 3) {
+        syncthing = appDetails.containerData.includes('g:');
+        if (!syncthing) {
+          await appDockerStart(appname);
+        }
+      } else {
+        const componentsWithoutGSyncthing = appDetails.compose.find((comp) => !comp.containerData.includes('g:'));
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of componentsWithoutGSyncthing) {
+          // eslint-disable-next-line no-await-in-loop
+          await appDockerStart(`${component.name}_${appname}`);
+        }
+      }
       await sendChunk(res, 'Finalizing...\n');
       await serviceHelper.delay(5 * 1000);
       const indexToRemove = backupInProgress.indexOf(appname);
@@ -11738,20 +11761,28 @@ async function appendRestoreTask(req, res) {
 
       const componentItem = restore.map((restoreItem) => restoreItem);
       restoreInProgress.push(appname);
-      await sendChunk(res, 'Stopping application...\n');
-      await appDockerStop(appname);
-      if (processedBody.syncthing) {
-        await sendChunk(res, 'Stopping syncthing...\n');
+      const appDetails = await getApplicationGlobalSpecifications(appname);
+      let syncthing;
+      if (appDetails.version <= 3) {
+        syncthing = appDetails.containerData.includes('g:') || appDetails.containerData.includes('r:') || appDetails.containerData.includes('s:');
+        if (syncthing) {
+          // eslint-disable-next-line no-await-in-loop
+          await sendChunk(res, `Stopping syncthing for ${appname}\n`);
+          // eslint-disable-next-line no-await-in-loop
+          await stopSyncthingApp(appname, res, true);
+        }
+      } else {
         // eslint-disable-next-line no-restricted-syntax
-        for (const component of componentItem) {
-          if (component.syncthing === true) {
-            // eslint-disable-next-line no-await-in-loop
-            await sendChunk(res, `Stopping syncthing for ${component.component}\n`);
-            // eslint-disable-next-line no-await-in-loop
-            await stopSyncthingApp(`${component.component}_${appname}`, res, true);
-          }
+        syncthing = appDetails.compose.find((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:') || appDetails.containerData.includes('s:'));
+        if (syncthing) {
+          // eslint-disable-next-line no-await-in-loop
+          await sendChunk(res, `Stopping syncthing for ${appname}\n`);
+          // eslint-disable-next-line no-await-in-loop
+          await stopSyncthingApp(appname, res, true);
         }
       }
+      await sendChunk(res, 'Stopping application...\n');
+      await appDockerStop(appname);
 
       // eslint-disable-next-line no-restricted-syntax
       for (const component of restore) {
@@ -11803,8 +11834,23 @@ async function appendRestoreTask(req, res) {
       }
       await serviceHelper.delay(1 * 15 * 1000);
       await sendChunk(res, 'Starting application...\n');
-      await appDockerStart(appname);
-      if (processedBody.syncthing) {
+      const redeploy = syncthing;
+      if (!syncthing) {
+        await appDockerStart(appname);
+      } else if (appDetails.version <= 3) {
+        syncthing = appDetails.containerData.includes('g:');
+        if (!syncthing) {
+          await appDockerStart(appname);
+        }
+      } else {
+        const componentsWithoutGSyncthing = appDetails.compose.find((comp) => !comp.containerData.includes('g:'));
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of componentsWithoutGSyncthing) {
+          // eslint-disable-next-line no-await-in-loop
+          await appDockerStart(`${component.name}_${appname}`);
+        }
+      }
+      if (redeploy) {
         await sendChunk(res, 'Redeploying other instances...\n');
         executeAppGlobalCommand(appname, 'redeploy', req.headers.zelidauth, true);
         await serviceHelper.delay(1 * 60 * 1000);

@@ -6243,14 +6243,11 @@ export default {
       this.selectedStorageMethod = value;
     },
     buildPostBody(appSpecification, jobType, restoreType = '') {
-      const shouldSetGlobalSyncthing = appSpecification.compose.some((item) => item.containerData.includes('r:') || item.containerData.includes('s:') || item.containerData.includes('g:'));
       const updatedObject = {
         appname: appSpecification.name,
-        syncthing: shouldSetGlobalSyncthing,
         ...(jobType === 'restore' ? { type: restoreType } : {}),
         [jobType]: appSpecification.compose.map((item) => ({
           component: item.name,
-          syncthing: item.containerData.includes('r:') || item.containerData.includes('s:') || item.containerData.includes('g:'),
           [jobType]: false,
           ...(jobType === 'restore' && restoreType === 'remote' ? { url: '' } : {}),
         })),
