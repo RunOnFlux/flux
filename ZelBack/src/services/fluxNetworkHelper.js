@@ -1358,7 +1358,9 @@ async function purgeUFW() {
  * As can be seen in this example:
  *
  * Originally, was using the FLUX chain, but you can see docker inserted the br-72d1725e481c network ahead, as well as the JUMP to DOCKER-USER,
- * which invalidates any rules in the FLUX chain, as there is basically an accept any.
+ * which invalidates any rules in the FLUX chain, as there is basically an accept any:
+ *
+ * FORWARD -i br-72d1725e481c ! -o br-72d1725e481c -j ACCEPT
  *
  * ```bash
  * -A INPUT -j ufw-track-input
