@@ -1364,6 +1364,8 @@ async function removeDockerContainerAccessToHost() {
   const checkHostAccess = "sudo iptables -C FLUX -i docker0 -d $(ip route | grep \"src $(ip addr show dev $(ip route | awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') -m state --state ESTABLISHED,RELATED -j ACCEPT";
   const checkContainerDnsAccess = "sudo iptables -C FLUX -i docker0 -p udp -d $(ip route | grep \"src $(ip addr show dev $(ip route | awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') --dport 53 -j ACCEPT";
 
+  let unrecoverable = false;
+
   const fluxChainExists = await cmdAsync(checkFluxChain).catch(async () => {
     try {
       await cmdAsync('sudo iptables -N FLUX');
@@ -1371,9 +1373,11 @@ async function removeDockerContainerAccessToHost() {
     } catch (err) {
       log.error('Error adding FLUX chain to iptables');
       // if we can't add chain, we can't proceed
-      return;
+      unrecoverable = true;
     }
   });
+
+  if (unrecoverable) return;
 
   if (fluxChainExists) log.info('Flux iptables chain already created');
 
@@ -1386,12 +1390,14 @@ async function removeDockerContainerAccessToHost() {
       } catch (err) {
         log.error('Error inserting FORWARD jump to FLUX chain');
         // if we can't jump, we need to bail out
-        return;
+        unrecoverable = true;;
       }
     } else {
       log.error(checkErr);
     }
   });
+
+  if (unrecoverable) return;
 
   if (checkJumpToFluxChain) log.info('jump to FLUX chain already enabled in iptables');
 
