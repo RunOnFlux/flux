@@ -11633,7 +11633,7 @@ async function appendBackupTask(req, res) {
     appname = processedBody.appname;
     const { backup } = processedBody;
     if (!appname || !backup) {
-      throw new Error('appname and restore parameters are mandatory');
+      throw new Error('appname and backup parameters are mandatory');
     }
     const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
     if (authorized === true) {
@@ -11725,9 +11725,8 @@ async function appendBackupTask(req, res) {
     }
   } catch (error) {
     log.error(error);
-    if (!error.toString().includes('Backup in progress...') && !error.toString().includes('appname and restore parameters are mandatory')) {
-      // await appDockerStart(`${appname}`);
-      const indexToRemove = backupInProgress.indexOf(appname);
+    const indexToRemove = backupInProgress.indexOf(appname);
+    if (indexToRemove >= 0) {
       backupInProgress.splice(indexToRemove, 1);
     }
     await sendChunk(res, `${error?.message}\n`);
@@ -11876,8 +11875,8 @@ async function appendRestoreTask(req, res) {
     }
   } catch (error) {
     log.error(error);
-    if (!error.toString().includes('Restore in progress...') && !error.toString().includes('appname, restore and type parameters are mandatory')) {
-      const indexToRemove = restoreInProgress.indexOf(appname);
+    const indexToRemove = restoreInProgress.indexOf(appname);
+    if (indexToRemove >= 0) {
       restoreInProgress.splice(indexToRemove, 1);
     }
     await sendChunk(res, `${error?.message}\n`);
