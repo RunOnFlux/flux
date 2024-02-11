@@ -1921,7 +1921,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       const container = containersData[i];
       const containerDataFlags = container.split(':')[1] ? container.split(':')[0] : '';
       if (containerDataFlags.includes('s') || containerDataFlags.includes('r') || containerDataFlags.includes('g')) {
-        const containerFolder = i === 0 ? '' : `/appdata${container.split(':')[1].replace(containersData[0], '')}`;
+        const containerFolder = i === 0 ? '/appdata' : `/appdata${container.split(':')[1].replace(containersData[0], '')}`;
         const stFolderCreation = {
           status: 'Creating .stfolder for syncthing...',
         };
@@ -10302,7 +10302,7 @@ async function syncthingApps() {
           const container = containersData[i];
           const containerDataFlags = container.split(':')[1] ? container.split(':')[0] : '';
           if (containerDataFlags.includes('s') || containerDataFlags.includes('r') || containerDataFlags.includes('g')) {
-            const containerFolder = i === 0 ? '' : `/appdata${container.split(':')[1].replace(containersData[0], '')}`;
+            const containerFolder = i === 0 ? '/appdata' : `/appdata${container.split(':')[1].replace(containersData[0], '')}`;
             const identifier = installedApp.name;
             const appId = dockerService.getAppIdentifier(identifier);
             const folder = `${appsFolder + appId + containerFolder}`;
@@ -10488,7 +10488,7 @@ async function syncthingApps() {
             const container = containersData[i];
             const containerDataFlags = container.split(':')[1] ? container.split(':')[0] : '';
             if (containerDataFlags.includes('s') || containerDataFlags.includes('r') || containerDataFlags.includes('g')) {
-              const containerFolder = i === 0 ? '' : `/appdata${container.split(':')[1].replace(containersData[0], '')}`;
+              const containerFolder = i === 0 ? '/appdata' : `/appdata${container.split(':')[1].replace(containersData[0], '')}`;
               const identifier = `${installedComponent.name}_${installedApp.name}`;
               const appId = dockerService.getAppIdentifier(identifier);
               const folder = `${appsFolder + appId + containerFolder}`;
