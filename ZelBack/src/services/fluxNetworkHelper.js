@@ -1430,8 +1430,8 @@ async function removeDockerContainerAccessToNonRoutable() {
   const appendAction = '-A';
 
   const baseDropCmd = `sudo iptables ### DOCKER-USER -s ${fluxSrc} -d @@@ -j DROP`;
-  const baseAllowEstablishedCmd = `sudo iptables ### DOCKER-USER -s ${fluxSrc} -d @@@ -m state --state ESTABLISHED,RELATED -j ACCEPT`;
-  const baseAllowDnsCmd = `sudo iptables ### DOCKER-USER -s ${fluxSrc} -p udp -d @@@ --dport 53 -j ACCEPT`;
+  const baseAllowEstablishedCmd = `sudo iptables ### DOCKER-USER -s ${fluxSrc} -d @@@ -m state --state RELATED,ESTABLISHED -j ACCEPT`;
+  const baseAllowDnsCmd = `sudo iptables ### DOCKER-USER -s ${fluxSrc} -d @@@ -p udp --dport 53 -j ACCEPT`;
 
   const baseCheckDropAccess = baseDropCmd.replace('###', checkAction);
   const baseCheckHostAccess = baseAllowEstablishedCmd.replace('###', checkAction);
