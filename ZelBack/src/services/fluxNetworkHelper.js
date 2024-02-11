@@ -1377,6 +1377,8 @@ async function purgeUFW() {
  * -A FORWARD -i br-048fde111132 -o br-048fde111132 -j ACCEPT
  *```
  * This means if a user or someone was to delete a single rule, we are able to recover correctly from it.
+ *
+ * The other option - is just to Flush all rules on every run, and reset them all.
  */
 async function removeDockerContainerAccessToNonRoutable() {
   const cmdAsync = util.promisify(nodecmd.get);
@@ -1428,14 +1430,67 @@ async function removeDockerContainerAccessToNonRoutable() {
   const checkAction = '-C';
   const insertAction = '-I';
   const appendAction = '-A';
+  const removeAction = '-D';
 
   const baseDropCmd = `sudo iptables ### DOCKER-USER -s ${fluxSrc} -d @@@ -j DROP`;
+  const baseAllowToFluxNetworksCmd = `sudo iptables ### DOCKER-USER -s ${fluxSrc} -d ${fluxSrc} -j ACCEPT`;
   const baseAllowEstablishedCmd = `sudo iptables ### DOCKER-USER -s ${fluxSrc} -d @@@ -m state --state RELATED,ESTABLISHED -j ACCEPT`;
   const baseAllowDnsCmd = `sudo iptables ### DOCKER-USER -s ${fluxSrc} -d @@@ -p udp --dport 53 -j ACCEPT`;
+  const baseReturnCmd = 'sudo iptables ### DOCKER-USER -j RETURN';
 
   const baseCheckDropAccess = baseDropCmd.replace('###', checkAction);
   const baseCheckHostAccess = baseAllowEstablishedCmd.replace('###', checkAction);
   const baseCheckContainerDnsAccess = baseAllowDnsCmd.replace('###', checkAction);
+
+  const checkReturnCmd = baseReturnCmd.replace('###', checkAction);
+  const checkAllowToFlux = baseAllowToFluxNetworksCmd.replace('###', checkAction);
+
+  // if this errors, we need to bail, as if the deny succeedes, we may cut off access
+  // eslint-disable-next-line no-await-in-loop
+  const allowToFlux = await cmdAsync(checkAllowToFlux).catch(async (checkErr) => {
+    if (checkErr.message.includes('Bad rule')) {
+      const giveFluxNetworkAccess = baseAllowToFluxNetworksCmd.replace('###', insertAction)
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await cmdAsync(giveFluxNetworkAccess);
+        log.info(`IPTABLES: Access to Flux containers from Flux containers accepted`);
+      } catch (err) {
+        log.error(`IPTABLES: Error allowing access to Flux containers from Flux containers. ${err}`);
+        return new Error();
+      }
+    } else {
+      log.error(checkErr);
+      return new Error();
+    }
+    return null;
+  });
+
+  if (allowToFlux instanceof Error) return;
+  if (allowToFlux) log.info(`IPTABLES: Access to Flux containers from Flux containers accepted`);
+
+  // if this errors, we need to bail, as if the deny succeedes, we may cut off access
+  // eslint-disable-next-line no-await-in-loop
+  const dockerReturn = await cmdAsync(checkReturnCmd).catch(async (checkErr) => {
+    if (checkErr.message.includes('Bad rule')) {
+      log.info(`IPTABLES: DOCKER-USER explicit return to FORWARD chain already removed`);
+    }
+  });
+
+  /**
+   * we remove this as we need to guarantee that our append rules are at the end. It doesn't
+   * need to be there, as there is an implicit RETURN from user generated chains.
+   */
+  if (dockerReturn) {
+    const removeDockerReturn = baseReturnCmd.replace('###', removeAction)
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await cmdAsync(removeDockerReturn);
+      log.info(`IPTABLES: DOCKER-USER explicit return to FORWARD chain removed`);
+    } catch (err) {
+      log.error(`IPTABLES: Error removing explicit return to Forward chain. ${err}`);
+      return;
+    }
+  }
 
   // eslint-disable-next-line no-restricted-syntax
   for (const network of rfc1918Networks) {
@@ -1487,7 +1542,7 @@ async function removeDockerContainerAccessToNonRoutable() {
     if (containerDns instanceof Error) break;
     if (containerDns) log.info(`IPTABLES: DNS access to ${network} from Flux containers already accepted`);
 
-    // if these error, we can continue on as no harm in allowing access
+    // this is last in the list, so that if any others error, this doesn't drop all traffic
     const checkDropAccess = baseCheckDropAccess.replace('@@@', network);
     // eslint-disable-next-line no-await-in-loop
     const accessDropped = await cmdAsync(checkDropAccess).catch(async (checkErr) => {
@@ -1503,7 +1558,6 @@ async function removeDockerContainerAccessToNonRoutable() {
         log.error(checkErr);
       }
     });
-
     if (accessDropped) log.info(`IPTABLES: Access to ${network} from Flux containers already removed`);
   }
 }
