@@ -1921,7 +1921,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       const container = containersData[i];
       const containerDataFlags = container.split(':')[1] ? container.split(':')[0] : '';
       if (containerDataFlags.includes('s') || containerDataFlags.includes('r') || containerDataFlags.includes('g')) {
-        const containerFolder = i === 0 ? '/appdata' : `/appdata${container.split(':')[1].replace(containersData[0], '')}`;
+        const containerFolder = i === 0 ? '' : `/appdata${container.split(':')[1].replace(containersData[0], '')}`;
         const stFolderCreation = {
           status: 'Creating .stfolder for syncthing...',
         };
@@ -1939,8 +1939,8 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
         if (res) {
           res.write(serviceHelper.ensureString(stFolderCreation2));
         }
-        /* if (appId.toLowerCase().includes('minecraft')) {
-          const stignore = `sudo echo '*.paused' >| ${appsFolder + appId + containerFolder}/.stignore`;
+        if (i === 0) {
+          const stignore = `sudo echo '/backup' >| ${appsFolder + appId + containerFolder}/.stignore`;
           log.info(stignore);
           // eslint-disable-next-line no-await-in-loop
           await cmdAsync(stignore);
@@ -1951,7 +1951,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
           if (res) {
             res.write(serviceHelper.ensureString(stiFileCreation));
           }
-        } */
+        }
       }
     }
 
@@ -10302,7 +10302,7 @@ async function syncthingApps() {
           const container = containersData[i];
           const containerDataFlags = container.split(':')[1] ? container.split(':')[0] : '';
           if (containerDataFlags.includes('s') || containerDataFlags.includes('r') || containerDataFlags.includes('g')) {
-            const containerFolder = i === 0 ? '/appdata' : `/appdata${container.split(':')[1].replace(containersData[0], '')}`;
+            const containerFolder = i === 0 ? '' : `/appdata${container.split(':')[1].replace(containersData[0], '')}`;
             const identifier = installedApp.name;
             const appId = dockerService.getAppIdentifier(identifier);
             const folder = `${appsFolder + appId + containerFolder}`;
@@ -10488,7 +10488,7 @@ async function syncthingApps() {
             const container = containersData[i];
             const containerDataFlags = container.split(':')[1] ? container.split(':')[0] : '';
             if (containerDataFlags.includes('s') || containerDataFlags.includes('r') || containerDataFlags.includes('g')) {
-              const containerFolder = i === 0 ? '/appdata' : `/appdata${container.split(':')[1].replace(containersData[0], '')}`;
+              const containerFolder = i === 0 ? '' : `/appdata${container.split(':')[1].replace(containersData[0], '')}`;
               const identifier = `${installedComponent.name}_${installedApp.name}`;
               const appId = dockerService.getAppIdentifier(identifier);
               const folder = `${appsFolder + appId + containerFolder}`;
