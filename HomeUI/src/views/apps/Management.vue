@@ -1369,6 +1369,7 @@
                 </b-button>
 
                 <br />
+                {{ backupList }}
                 <div class="mt-1">
                   <div
                     v-if="backupProgress === true"
@@ -6576,7 +6577,7 @@ export default {
             const { file } = backup;
             const fileNameArray = file.split('/');
             const fileName = fileNameArray[fileNameArray.length - 1];
-            const response = await BackupRestoreService.justAPI().get(`/backup/downloadlocalfile/${encodeURIComponent(file)}/${this.appName}`, axiosConfig);
+            const response = await BackupRestoreService.justAPI().get(`/backup/downloadlocalfile/${encodeURIComponent(file)}/${self.appName}`, axiosConfig);
             const blob = new Blob([response.data]);
             const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');

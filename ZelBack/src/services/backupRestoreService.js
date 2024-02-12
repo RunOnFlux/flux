@@ -159,7 +159,7 @@ async function getRemoteFileSize(req, res) {
     if (!fileurl || !appname) {
       throw new Error('fileurl and appname parameters are mandatory');
     }
-    const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req) : true;
+    const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req, appname) : true;
     if (authorized === true) {
       const fileSize = await IOUtils.getRemoteFileSize(fileurl, multiplier, decimal, number);
       if (fileSize === false) {
@@ -249,10 +249,12 @@ async function removeBackupFile(req, res) {
     console.log(req.params);
     let { filepath } = req.params;
     filepath = filepath || req.query.filepath;
-    if (!filepath) {
-      throw new Error('filepath parameter is mandatory');
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+    if (!filepath || !appname) {
+      throw new Error('filepath and appname parameters are mandatory');
     }
-    const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req) : true;
+    const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req, appname) : true;
     if (authorized === true) {
       if (!pathValidation(filepath)) {
         throw new Error('Path validation failed..');
@@ -289,7 +291,7 @@ async function downloadLocalFile(req, res) {
     let { filepath } = req.params;
     filepath = filepath || req.query.filepath;
     let { appname } = req.params;
-    appname = appname || req.query.filepath;
+    appname = appname || req.query.appname;
     if (!filepath || !appname) {
       throw new Error('filepath and appname parameters are mandatory');
     }
