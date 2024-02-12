@@ -20,7 +20,6 @@ const daemonServiceWalletRpcs = require('./daemonService/daemonServiceWalletRpcs
 const benchmarkService = require('./benchmarkService');
 const verificationHelper = require('./verificationHelper');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
-const dockerService = require('./dockerService');
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('./utils/establishedConnections');
@@ -1379,9 +1378,9 @@ async function purgeUFW() {
  *```
  * This means if a user or someone was to delete a single rule, we are able to recover correctly from it.
  *
- * The other option - is just to Flush all rules on every run, and reset them all.
+ * The other option - is just to Flush all rules on every run, and reset them all. This is what we are doing now.
  */
-async function removeDockerContainerAccessToNonRoutable() {
+async function removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces) {
   const cmdAsync = util.promisify(nodecmd.get);
 
   // check if rules have been created, as iptables is NOT idempotent.
@@ -1444,7 +1443,6 @@ async function removeDockerContainerAccessToNonRoutable() {
     return false;
   }
 
-  const fluxNetworkInterfaces = await dockerService.getFluxDockerNetworkPhysicalInterfaceNames();
   // add for legacy apps
   fluxNetworkInterfaces.push('docker0');
 
