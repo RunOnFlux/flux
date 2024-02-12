@@ -11843,7 +11843,7 @@ async function appendRestoreTask(req, res) {
           }
         }
       }
-      await serviceHelper.delay(1 * 15 * 1000);
+      await serviceHelper.delay(1 * 5 * 1000);
       await sendChunk(res, 'Starting application...\n');
       const redeploy = syncthing;
       if (!syncthing) {
