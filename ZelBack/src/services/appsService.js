@@ -11835,6 +11835,9 @@ async function appendRestoreTask(req, res) {
           const tarStatus = await IOUtils.untarFile(targetPath, tarGzPath);
           if (tarStatus === false) {
             throw new Error(`Error: Failed to unpack archive file for ${component.component}`);
+          } else {
+            // eslint-disable-next-line no-await-in-loop
+            await IOUtils.removeFile(tarGzPath);
           }
         }
       }
