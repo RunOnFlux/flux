@@ -2405,17 +2405,17 @@
                         </b-tr>
                       </template>
                       <template #cell(url)="data">
-                        <div class="table-cell">
+                        <div class="table-cell no">
                           {{ data.value }}
                         </div>
                       </template>
                       <template #cell(component)="data">
-                        <div class="table-cell no-wrap">
+                        <div class="table-cell">
                           {{ data.value }}
                         </div>
                       </template>
                       <template #cell(file_size)="data">
-                        <div class="table-cell">
+                        <div class="table-cell no-wrap">
                           {{ addAndConvertFileSizes(data.value) }}
                         </div>
                       </template>
