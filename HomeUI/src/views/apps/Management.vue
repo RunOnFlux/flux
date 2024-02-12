@@ -1369,7 +1369,6 @@
                 </b-button>
 
                 <br />
-                {{ backupList }}
                 <div class="mt-1">
                   <div
                     v-if="backupProgress === true"
