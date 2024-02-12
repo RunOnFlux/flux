@@ -11658,7 +11658,7 @@ async function appendBackupTask(req, res) {
     return false;
   }
   try {
-    const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
+    const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req) : true;
     if (authorized === true) {
       backupInProgress.push(appname);
       // Check if app using syncthing, stop syncthing for all component that using it
@@ -11774,7 +11774,7 @@ async function appendRestoreTask(req, res) {
     return false;
   }
   try {
-    const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
+    const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req) : true;
     if (authorized === true) {
       const componentItem = restore.map((restoreItem) => restoreItem);
       restoreInProgress.push(appname);
