@@ -2022,11 +2022,12 @@ describe('fluxNetworkHelper tests', () => {
   describe('remove flux container access to private address space tests', () => {
     let utilStub;
     let funcStub;
+    let infoLogSpy;
+    let errorLogSpy;
     beforeEach(() => {
       utilStub = sinon.stub(util, 'promisify');
       infoLogSpy = sinon.spy(log, 'info');
       errorLogSpy = sinon.spy(log, 'error');
-
     });
 
     afterEach(() => {
@@ -2054,8 +2055,9 @@ describe('fluxNetworkHelper tests', () => {
       funcStub = sinon.fake(async (cmd) => {
         if (cmd.includes('-L')) {
           return `Chain DOCKER-USER (0 references)
-          target     prot opt source               destination`
+          target     prot opt source               destination`;
         }
+        return undefined;
       });
       utilStub.returns(funcStub);
 
@@ -2081,17 +2083,17 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.notCalled(infoLogSpy);
       sinon.assert.calledOnceWithExactly(errorLogSpy, 'IPTABLES: Error adding DOCKER-USER chain');
     });
-    ////
+
     it('should add the jump to DOCKER-USER chain from FORWARD chain to iptables if it is missing', async () => {
       funcStub = sinon.fake(async (cmd) => {
         // chain doesn't exists
         if (cmd.includes('sudo iptables -L DOCKER-USER')) {
           return `Chain DOCKER-USER (0 references)
-          target     prot opt source               destination`
-        } else if (cmd.includes('sudo iptables -C FORWARD -j DOCKER-USER')) {
+          target     prot opt source               destination`;
+        } if (cmd.includes('sudo iptables -C FORWARD -j DOCKER-USER')) {
           throw new Error('iptables: Bad rule (does a matching rule exist in that chain?).');
         } else {
-          return `DOCKER-USER  all opt -- in * out *  0.0.0.0/0  -> 0.0.0.0/0`;
+          return 'DOCKER-USER  all opt -- in * out *  0.0.0.0/0  -> 0.0.0.0/0';
         }
       });
       utilStub.returns(funcStub);
@@ -2109,11 +2111,9 @@ describe('fluxNetworkHelper tests', () => {
       funcStub = sinon.fake(async (cmd) => {
         if (cmd.includes('sudo iptables -L DOCKER-USER')) {
           return `Chain DOCKER-USER (0 references)
-          target     prot opt source               destination`
-        } else {
-          return `DOCKER-USER  all opt -- in * out *  0.0.0.0/0  -> 0.0.0.0/0`;
+          target     prot opt source               destination`;
         }
-
+        return 'DOCKER-USER  all opt -- in * out *  0.0.0.0/0  -> 0.0.0.0/0';
       });
       utilStub.returns(funcStub);
 
@@ -2129,8 +2129,8 @@ describe('fluxNetworkHelper tests', () => {
       funcStub = sinon.fake(async (cmd) => {
         if (cmd.includes('sudo iptables -L DOCKER-USER')) {
           return `Chain DOCKER-USER (0 references)
-          target     prot opt source               destination`
-        } else if (cmd.includes('sudo iptables -C FORWARD -j DOCKER-USER')) {
+          target     prot opt source               destination`;
+        } if (cmd.includes('sudo iptables -C FORWARD -j DOCKER-USER')) {
           throw new Error('iptables: Bad rule (does a matching rule exist in that chain?).');
         } else {
           throw new Error();
@@ -2154,18 +2154,17 @@ describe('fluxNetworkHelper tests', () => {
       funcStub = sinon.fake(async (cmd) => {
         if (cmd.includes('sudo iptables -L DOCKER-USER')) {
           return `Chain DOCKER-USER (0 references)
-          target     prot opt source               destination`
-        } else if (cmd.includes('sudo iptables -C FORWARD -j DOCKER-USER')) {
-          return `DOCKER-USER  all opt -- in * out *  0.0.0.0/0  -> 0.0.0.0/0`;
-        } else {
-          return 'SIMULATED IPTABLES RESPONSE'
+          target     prot opt source               destination`;
+        } if (cmd.includes('sudo iptables -C FORWARD -j DOCKER-USER')) {
+          return 'DOCKER-USER  all opt -- in * out *  0.0.0.0/0  -> 0.0.0.0/0';
         }
-
+        return 'SIMULATED IPTABLES RESPONSE';
       });
       utilStub.returns(funcStub);
 
       await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable();
 
+      // eslint-disable-next-line no-restricted-syntax
       for (const network of networks) {
         sinon.assert.calledWith(funcStub, `sudo iptables -C DOCKER-USER -s 172.23.0.0/16 -d ${network} -p udp --dport 53 -j ACCEPT`);
         sinon.assert.calledWith(funcStub, `sudo iptables -C DOCKER-USER -s 172.23.0.0/16 -d ${network} -m state --state RELATED,ESTABLISHED -j ACCEPT`);
@@ -2184,20 +2183,20 @@ describe('fluxNetworkHelper tests', () => {
       funcStub = sinon.fake(async (cmd) => {
         if (cmd.includes('sudo iptables -L DOCKER-USER')) {
           return `Chain DOCKER-USER (0 references)
-          target     prot opt source               destination`
-        } else if (cmd.includes('sudo iptables -C FORWARD -j DOCKER-USER')) {
-          return `DOCKER-USER  all opt -- in * out *  0.0.0.0/0  -> 0.0.0.0/0`;
-        } else if (cmd.includes('sudo iptables -C DOCKER-USER')) {
+          target     prot opt source               destination`;
+        } if (cmd.includes('sudo iptables -C FORWARD -j DOCKER-USER')) {
+          return 'DOCKER-USER  all opt -- in * out *  0.0.0.0/0  -> 0.0.0.0/0';
+        } if (cmd.includes('sudo iptables -C DOCKER-USER')) {
           throw new Error('iptables: Bad rule (does a matching rule exist in that chain?).');
         } else {
-          return null
+          return null;
         }
-
       });
       utilStub.returns(funcStub);
 
       await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable();
 
+      // eslint-disable-next-line no-restricted-syntax
       for (const network of networks) {
         sinon.assert.calledWith(funcStub, `sudo iptables -C DOCKER-USER -s 172.23.0.0/16 -d ${network} -p udp --dport 53 -j ACCEPT`);
         sinon.assert.calledWith(funcStub, `sudo iptables -C DOCKER-USER -s 172.23.0.0/16 -d ${network} -m state --state RELATED,ESTABLISHED -j ACCEPT`);
@@ -2218,23 +2217,23 @@ describe('fluxNetworkHelper tests', () => {
       funcStub = sinon.fake(async (cmd) => {
         if (cmd.includes('sudo iptables -L DOCKER-USER')) {
           return `Chain DOCKER-USER (0 references)
-          target     prot opt source               destination`
-        } else if (cmd.includes('sudo iptables -C FORWARD -j DOCKER-USER')) {
-          return `DOCKER-USER  all opt -- in * out *  0.0.0.0/0  -> 0.0.0.0/0`;
+          target     prot opt source               destination`;
+        } if (cmd.includes('sudo iptables -C FORWARD -j DOCKER-USER')) {
+          return 'DOCKER-USER  all opt -- in * out *  0.0.0.0/0  -> 0.0.0.0/0';
           // this is the rule under test
-        } else if (cmd.includes('sudo iptables -C DOCKER-USER -s 172.23.0.0/16 -d 10.0.0.0/8 -j DROP')) {
+        } if (cmd.includes('sudo iptables -C DOCKER-USER -s 172.23.0.0/16 -d 10.0.0.0/8 -j DROP')) {
           throw new Error('iptables: Bad rule (does a matching rule exist in that chain?).');
         } else if (cmd.includes('sudo iptables -C DOCKER-USER')) {
-          return 'SIMULATED SUCCESSFUL NETWORK RESPONSE'
+          return 'SIMULATED SUCCESSFUL NETWORK RESPONSE';
         } else {
-          return null
+          return null;
         }
-
       });
       utilStub.returns(funcStub);
 
       await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable();
 
+      // eslint-disable-next-line no-restricted-syntax
       for (const network of networks) {
         sinon.assert.calledWith(funcStub, `sudo iptables -C DOCKER-USER -s 172.23.0.0/16 -d ${network} -p udp --dport 53 -j ACCEPT`);
         sinon.assert.calledWith(funcStub, `sudo iptables -C DOCKER-USER -s 172.23.0.0/16 -d ${network} -m state --state RELATED,ESTABLISHED -j ACCEPT`);
@@ -2260,23 +2259,23 @@ describe('fluxNetworkHelper tests', () => {
       funcStub = sinon.fake(async (cmd) => {
         if (cmd.includes('sudo iptables -L DOCKER-USER')) {
           return `Chain DOCKER-USER (0 references)
-          target     prot opt source               destination`
-        } else if (cmd.includes('sudo iptables -C FORWARD -j DOCKER-USER')) {
-          return `DOCKER-USER  all opt -- in * out *  0.0.0.0/0  -> 0.0.0.0/0`;
+          target     prot opt source               destination`;
+        } if (cmd.includes('sudo iptables -C FORWARD -j DOCKER-USER')) {
+          return 'DOCKER-USER  all opt -- in * out *  0.0.0.0/0  -> 0.0.0.0/0';
           // this is the rule under test
-        } else if (cmd.includes('sudo iptables -C DOCKER-USER')) {
+        } if (cmd.includes('sudo iptables -C DOCKER-USER')) {
           throw new Error('iptables: Bad rule (does a matching rule exist in that chain?).');
         } else if (cmd.includes('sudo iptables -I DOCKER-USER')) {
-          throw new Error()
+          throw new Error();
         }
-
+        return undefined;
       });
       utilStub.returns(funcStub);
 
       await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable();
 
+      // eslint-disable-next-line no-restricted-syntax
       for (const network of networks) {
-
         if (network === '10.0.0.0/8') {
           sinon.assert.calledWith(funcStub, `sudo iptables -C DOCKER-USER -s 172.23.0.0/16 -d ${network} -m state --state RELATED,ESTABLISHED -j ACCEPT`);
           sinon.assert.neverCalledWith(funcStub, `sudo iptables -I DOCKER-USER -s 172.23.0.0/16 -d ${network} -p udp --dport 53 -j ACCEPT`);

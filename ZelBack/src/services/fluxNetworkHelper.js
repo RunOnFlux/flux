@@ -1429,7 +1429,7 @@ async function removeDockerContainerAccessToNonRoutable() {
   const fluxSrc = '172.23.0.0/16';
 
   const baseDropCmd = `sudo iptables -A DOCKER-USER -s ${fluxSrc} -d #DST -j DROP`;
-  const baseAllowToFluxNetworksCmd = `sudo iptables -I DOCKER-USER -i #INT -o #INT -j ACCEPT`;
+  const baseAllowToFluxNetworksCmd = 'sudo iptables -I DOCKER-USER -i #INT -o #INT -j ACCEPT';
   const baseAllowEstablishedCmd = `sudo iptables -I DOCKER-USER -s ${fluxSrc} -d #DST -m state --state RELATED,ESTABLISHED -j ACCEPT`;
   const baseAllowDnsCmd = `sudo iptables -I DOCKER-USER -s ${fluxSrc} -d #DST -p udp --dport 53 -j ACCEPT`;
 
@@ -1438,7 +1438,7 @@ async function removeDockerContainerAccessToNonRoutable() {
 
   try {
     await cmdAsync(flushDockerUserCmd);
-    log.info(`IPTABLES: DOCKER-USER table flushed`);
+    log.info('IPTABLES: DOCKER-USER table flushed');
   } catch (err) {
     log.error(`IPTABLES: Error flushing DOCKER-USER table. ${err}`);
     return false;
@@ -1448,9 +1448,10 @@ async function removeDockerContainerAccessToNonRoutable() {
   // add for legacy apps
   fluxNetworkInterfaces.push('docker0');
 
+  // eslint-disable-next-line no-restricted-syntax
   for (const int of fluxNetworkInterfaces) {
     // if this errors, we need to bail, as if the deny succeedes, we may cut off access
-    const giveFluxNetworkAccess = baseAllowToFluxNetworksCmd.replace(/#INT/g, int)
+    const giveFluxNetworkAccess = baseAllowToFluxNetworksCmd.replace(/#INT/g, int);
     try {
       // eslint-disable-next-line no-await-in-loop
       await cmdAsync(giveFluxNetworkAccess);
@@ -1499,7 +1500,7 @@ async function removeDockerContainerAccessToNonRoutable() {
 
   try {
     await cmdAsync(addReturnCmd);
-    log.info(`IPTABLES: DOCKER-USER explicit return to FORWARD chain added`);
+    log.info('IPTABLES: DOCKER-USER explicit return to FORWARD chain added');
   } catch (err) {
     log.error(`IPTABLES: Error adding explicit return to Forward chain. ${err}`);
     return false;
