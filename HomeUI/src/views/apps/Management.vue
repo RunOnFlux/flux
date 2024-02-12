@@ -6564,7 +6564,9 @@ export default {
           onDownloadProgress(progressEvent) {
             const { loaded, total, target } = progressEvent;
             const decodedUrl = decodeURIComponent(target.responseURL);
-            const currentFileName = decodedUrl.split('/').pop();
+            const lastSlashIndex = decodedUrl.lastIndexOf('/');
+            const normalizedUrl = lastSlashIndex !== -1 ? decodedUrl.slice(0, lastSlashIndex) : decodedUrl;
+            const currentFileName = normalizedUrl.split('/').pop();
             const currentFileProgress = (loaded / total) * 100;
             const foundFile = self.backupList.find((file) => file.file.endsWith(currentFileName));
             self.updateFileProgress(currentFileName, currentFileProgress, loaded, total, foundFile.component);
