@@ -2026,6 +2026,8 @@ describe('fluxNetworkHelper tests', () => {
     let infoLogSpy;
     let errorLogSpy;
     beforeEach(() => {
+      // hide console output from logs, but still get logging spy
+      sinon.stub(console, 'log');
       utilStub = sinon.stub(util, 'promisify');
       infoLogSpy = sinon.spy(log, 'info');
       errorLogSpy = sinon.spy(log, 'error');
