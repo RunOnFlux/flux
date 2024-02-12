@@ -1379,6 +1379,9 @@ async function purgeUFW() {
  * This means if a user or someone was to delete a single rule, we are able to recover correctly from it.
  *
  * The other option - is just to Flush all rules on every run, and reset them all. This is what we are doing now.
+ *
+ * @param {string[]} fluxNetworkInterfaces The network interfaces, br-<12 character string>
+ * @returns  {Boolean}
  */
 async function removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces) {
   const cmdAsync = util.promisify(nodecmd.get);

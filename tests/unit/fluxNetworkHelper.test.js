@@ -5,6 +5,7 @@ const sinon = require('sinon');
 const WebSocket = require('ws');
 const path = require('path');
 const chaiAsPromised = require('chai-as-promised');
+const proxyquire = require('proxyquire');
 const fs = require('fs').promises;
 const util = require('util');
 const log = require('../../ZelBack/src/lib/log');
@@ -17,7 +18,6 @@ const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonServ
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
-const dockerService = require('../../ZelBack/src/services/dockerService');
 
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
@@ -2044,7 +2044,7 @@ describe('fluxNetworkHelper tests', () => {
       });
       utilStub.returns(funcStub);
 
-      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable();
+      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable([]);
       expect(result).to.eql(true);
 
       sinon.assert.calledWith(funcStub, 'sudo iptables -L DOCKER-USER');
@@ -2063,7 +2063,7 @@ describe('fluxNetworkHelper tests', () => {
       });
       utilStub.returns(funcStub);
 
-      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable();
+      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable([]);
 
       expect(result).to.eql(true);
       sinon.assert.calledWith(funcStub, 'sudo iptables -L DOCKER-USER');
@@ -2079,7 +2079,7 @@ describe('fluxNetworkHelper tests', () => {
       });
       utilStub.returns(funcStub);
 
-      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable();
+      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable([]);
 
       expect(result).to.eql(false);
       sinon.assert.calledWith(funcStub, 'sudo iptables -L DOCKER-USER');
@@ -2102,7 +2102,7 @@ describe('fluxNetworkHelper tests', () => {
       });
       utilStub.returns(funcStub);
 
-      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable();
+      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable([]);
 
       expect(result).to.eql(true);
       sinon.assert.calledWith(funcStub, 'sudo iptables -C FORWARD -j DOCKER-USER');
@@ -2122,7 +2122,7 @@ describe('fluxNetworkHelper tests', () => {
       });
       utilStub.returns(funcStub);
 
-      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable();
+      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable([]);
 
       expect(result).to.eql(true);
       sinon.assert.neverCalledWith(funcStub, 'sudo iptables -I FORWARD -j DOCKER-USER');
@@ -2144,7 +2144,7 @@ describe('fluxNetworkHelper tests', () => {
       });
       utilStub.returns(funcStub);
 
-      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable();
+      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable([]);
 
       expect(result).to.eql(false);
       sinon.assert.calledWith(funcStub, 'sudo iptables -C FORWARD -j DOCKER-USER');
@@ -2165,7 +2165,7 @@ describe('fluxNetworkHelper tests', () => {
       });
       utilStub.returns(funcStub);
 
-      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable();
+      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable([]);
 
       expect(result).to.eql(true);
       sinon.assert.calledWith(funcStub, 'sudo iptables -F DOCKER-USER');
@@ -2184,7 +2184,7 @@ describe('fluxNetworkHelper tests', () => {
       });
       utilStub.returns(funcStub);
 
-      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable();
+      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable([]);
 
       expect(result).to.eql(false);
       sinon.assert.calledWith(funcStub, 'sudo iptables -F DOCKER-USER');
@@ -2204,7 +2204,7 @@ describe('fluxNetworkHelper tests', () => {
       });
       utilStub.returns(funcStub);
 
-      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable();
+      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable([]);
 
       expect(result).to.eql(true);
 
@@ -2222,7 +2222,6 @@ describe('fluxNetworkHelper tests', () => {
 
     it('should add an allow for intra-network traffic per docker network', async () => {
       const interfaces = ['br-aaf87aa57b20', 'br-098bac43a7f1'];
-      const dockerStub = sinon.stub(dockerService, 'getFluxDockerNetworkPhysicalInterfaceNames').resolves(interfaces);
 
       funcStub = sinon.fake(async (cmd) => {
         if (cmd.includes('sudo iptables -L DOCKER-USER')) {
@@ -2233,7 +2232,7 @@ describe('fluxNetworkHelper tests', () => {
       });
       utilStub.returns(funcStub);
 
-      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable();
+      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable(interfaces);
 
       expect(result).to.eql(true);
 
@@ -2245,7 +2244,6 @@ describe('fluxNetworkHelper tests', () => {
 
       // 1 for the CHAIN rules, 1 FLUSH, 1 docker0 allow 2 interface allows, 9 for the adds and 1 for the RETURN
       expect(infoLogSpy.callCount).to.eql(15);
-      expect(dockerStub.callCount).to.eql(1);
       sinon.assert.notCalled(errorLogSpy);
     });
 
@@ -2266,7 +2264,7 @@ describe('fluxNetworkHelper tests', () => {
       });
       utilStub.returns(funcStub);
 
-      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable();
+      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable([]);
 
       expect(result).to.eql(false);
       expect(funcStub.callCount).to.eql(4);
