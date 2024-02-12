@@ -1381,7 +1381,7 @@ async function purgeUFW() {
  * The other option - is just to Flush all rules on every run, and reset them all. This is what we are doing now.
  *
  * @param {string[]} fluxNetworkInterfaces The network interfaces, br-<12 character string>
- * @returns  {Boolean}
+ * @returns  {Promise<Boolean>}
  */
 async function removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces) {
   const cmdAsync = util.promisify(nodecmd.get);
