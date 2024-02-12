@@ -2307,12 +2307,17 @@
                         <div :class="file.uploading ? '' : 'hidden'">
                           {{ file.file }}
                         </div>
-                        <b-progress
+                        <b-progress max="100" height="15px">
+                          <b-progress-bar :value="file.progress" :label="`${file.progress.toFixed(2)}%`" :class="file.uploading ? '' : 'hidden'" />
+                        </b-progress>
+                        <!-- <b-progress
                           :value="file.progress"
                           max="100"
-                          height="10px"
+                          height="15px"
+                          show-value
+                          :label="`${file.progress.toFixed(2)}%`"
                           :class="file.uploading ? '' : 'hidden'"
-                        />
+                        /> -->
                       </div>
                     </div>
                   </div>
