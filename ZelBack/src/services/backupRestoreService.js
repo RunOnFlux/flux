@@ -61,7 +61,7 @@ async function getVolumeDataOfComponent(req, res) {
     if (!appname || !component) {
       throw new Error('Both the appname and component parameters are required');
     }
-    const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
+    const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req) : true;
     if (authorized === true) {
       const dfInfoData = await IOUtils.getVolumeInfo(appname, component, multiplier, decimal, fields);
       if (dfInfoData === null) {
@@ -107,7 +107,7 @@ async function getLocalBackupList(req, res) {
     if (!path) {
       throw new Error('path parameter is required');
     }
-    const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
+    const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req) : true;
     if (authorized === true) {
       if (!pathValidation(vPath)) {
         throw new Error('Path validation failed..');
@@ -155,7 +155,7 @@ async function getRemoteFileSize(req, res) {
     if (!fileurl) {
       throw new Error('fileurl parameter is mandatory');
     }
-    const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
+    const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req) : true;
     if (authorized === true) {
       const fileSize = await IOUtils.getRemoteFileSize(fileurl, multiplier, decimal, number);
       if (fileSize === false) {
@@ -188,7 +188,7 @@ async function getRemoteFileSize(req, res) {
  */
 // eslint-disable-next-line consistent-return
 async function getRemoteFile(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  const authorized = await verificationHelper.verifyPrivilege('appownerabove', req);
   if (authorized === true) {
     try {
       console.log();
@@ -248,7 +248,7 @@ async function removeBackupFile(req, res) {
     if (!filepath) {
       throw new Error('filepath parameter is mandatory');
     }
-    const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
+    const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req) : true;
     if (authorized === true) {
       if (!pathValidation(filepath)) {
         throw new Error('Path validation failed..');
@@ -287,7 +287,7 @@ async function downloadLocalFile(req, res) {
     if (!filepath) {
       throw new Error('filepath parameter is mandatory');
     }
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req);
     if (authorized) {
       if (!pathValidation(filepath)) {
         throw new Error('Path validation failed..');
