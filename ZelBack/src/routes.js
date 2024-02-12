@@ -616,16 +616,16 @@ module.exports = (app, expressWs) => {
   app.get('/backup/getvolumedataofcomponent/:appname?/:component?/:multiplier?/:decimal?/:fields?', (req, res) => {
     backupRestoreService.getVolumeDataOfComponent(req, res);
   });
-  app.get('/backup/getremotefilesize/:fileurl?/:multiplier?/:decimal?/:number?', (req, res) => {
+  app.get('/backup/getremotefilesize/:fileurl?/:multiplier?/:decimal?/:number?/:appname?', (req, res) => {
     backupRestoreService.getRemoteFileSize(req, res);
   });
-  app.get('/backup/getlocalbackuplist/:path?/:multiplier?/:decimal?/:number?', (req, res) => {
+  app.get('/backup/getlocalbackuplist/:path?/:multiplier?/:decimal?/:number?/:appname?', (req, res) => {
     backupRestoreService.getLocalBackupList(req, res);
   });
-  app.get('/backup/removebackupfile/:filepath?', (req, res) => {
+  app.get('/backup/removebackupfile/:filepath?/:appname?', (req, res) => {
     backupRestoreService.removeBackupFile(req, res);
   });
-  app.get('/backup/downloadlocalfile/:filepath?', (req, res) => {
+  app.get('/backup/downloadlocalfile/:filepath?/:appname?', (req, res) => {
     backupRestoreService.downloadLocalFile(req, res);
   });
   app.post('/apps/appendbackuptask', (req, res) => {
@@ -640,13 +640,10 @@ module.exports = (app, expressWs) => {
     appsService.appendRestoreTask(req, res);
   });
 
-  app.post('/ioutils/fileupload/:fullpath?/:filename?', (req, res) => {
+  app.post('/ioutils/fileupload/:fullpath?/:filename?/:appname?', (req, res) => {
     IOUtils.fileUpload(req, res);
   });
 
-  app.post('/backup/getremotefile', (req, res) => {
-    backupRestoreService.getRemoteFile(req, res);
-  });
   // GET PROTECTED API - Fluxnode Owner
   app.get('/daemon/stop', (req, res) => {
     daemonServiceControlRpcs.stop(req, res);

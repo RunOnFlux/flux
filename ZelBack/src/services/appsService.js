@@ -11658,7 +11658,7 @@ async function appendBackupTask(req, res) {
     return false;
   }
   try {
-    const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req) : true;
+    const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req, appname) : true;
     if (authorized === true) {
       backupInProgress.push(appname);
       // Check if app using syncthing, stop syncthing for all component that using it
@@ -11774,7 +11774,7 @@ async function appendRestoreTask(req, res) {
     return false;
   }
   try {
-    const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req) : true;
+    const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req, appname) : true;
     if (authorized === true) {
       const componentItem = restore.map((restoreItem) => restoreItem);
       restoreInProgress.push(appname);
@@ -11836,6 +11836,8 @@ async function appendRestoreTask(req, res) {
           if (tarStatus === false) {
             throw new Error(`Error: Failed to unpack archive file for ${component.component}`);
           } else {
+            // eslint-disable-next-line no-await-in-loop
+            await sendChunk(res, `Removing backup file for ${component.component}...\n`);
             // eslint-disable-next-line no-await-in-loop
             await IOUtils.removeFile(tarGzPath);
           }

@@ -9,38 +9,29 @@ export default {
     };
     return Api().get(`/backup/getvolumedataofcomponent/${appname}/${componentname}/${multiplier}/${decimal}/${fields}`, axiosConfig);
   },
-  getRemoteFileSize(zelidauthHeader, fileurl, multiplier, decimal, number) {
+  getRemoteFileSize(zelidauthHeader, fileurl, multiplier, decimal, number, appname) {
     const axiosConfig = {
       headers: {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().get(`/backup/getremotefilesize/${fileurl}/${multiplier}/${decimal}/${number}`, axiosConfig);
+    return Api().get(`/backup/getremotefilesize/${fileurl}/${multiplier}/${decimal}/${number}/${appname}`, axiosConfig);
   },
-  getBackupList(zelidauthHeader, path, multiplier, decimal, number) {
+  getBackupList(zelidauthHeader, path, multiplier, decimal, number, appname) {
     const axiosConfig = {
       headers: {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().get(`/backup/getlocalbackuplist/${path}/${multiplier}/${decimal}/${number}`, axiosConfig);
+    return Api().get(`/backup/getlocalbackuplist/${path}/${multiplier}/${decimal}/${number}/${appname}`, axiosConfig);
   },
-  removeBackupFile(zelidauthHeader, filepath) {
+  removeBackupFile(zelidauthHeader, filepath, appname) {
     const axiosConfig = {
       headers: {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().get(`/backup/removebackupfile/${filepath}`, axiosConfig);
-  },
-  getRemoteFile(zelidauthHeader, data) {
-    const axiosConfig = {
-      headers: {
-        'Content-Type': 'application/json',
-        zelidauth: zelidauthHeader,
-      },
-    };
-    return Api().post('/backup/getremotefile', JSON.stringify(data), axiosConfig);
+    return Api().get(`/backup/removebackupfile/${filepath}/${appname}`, axiosConfig);
   },
   justAPI() {
     return Api();

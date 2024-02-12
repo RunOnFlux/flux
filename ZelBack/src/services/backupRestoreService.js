@@ -1,8 +1,8 @@
-const fs = require('fs').promises;
+// const fs = require('fs').promises;
 const log = require('../lib/log');
 const path = require('path');
 const messageHelper = require('./messageHelper');
-const serviceHelper = require('./serviceHelper');
+// const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
 const IOUtils = require('./IOUtils');
 
@@ -61,7 +61,7 @@ async function getVolumeDataOfComponent(req, res) {
     if (!appname || !component) {
       throw new Error('Both the appname and component parameters are required');
     }
-    const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req) : true;
+    const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req, appname) : true;
     if (authorized === true) {
       const dfInfoData = await IOUtils.getVolumeInfo(appname, component, multiplier, decimal, fields);
       if (dfInfoData === null) {
@@ -104,10 +104,12 @@ async function getLocalBackupList(req, res) {
     decimal = (decimal !== undefined && decimal !== null) ? decimal : (req.query.decimal || '0');
     let { number } = req.params;
     number = (number !== undefined && number !== null) ? number : (req.query.number || 'false');
+    let { appname } = req.params;
+    appname = (appname !== undefined && appname !== null) ? appname : (req.query.number || '');
     if (!path) {
-      throw new Error('path parameter is required');
+      throw new Error('path and appname parameters are required');
     }
-    const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req) : true;
+    const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req, appname) : true;
     if (authorized === true) {
       if (!pathValidation(vPath)) {
         throw new Error('Path validation failed..');
@@ -152,8 +154,10 @@ async function getRemoteFileSize(req, res) {
     decimal = (decimal !== undefined && decimal !== null) ? decimal : (req.query.decimal || '0');
     let { number } = req.params;
     number = (number !== undefined && number !== null) ? number : (req.query.number || 'false');
-    if (!fileurl) {
-      throw new Error('fileurl parameter is mandatory');
+    let { appname } = req.params;
+    appname = (appname !== undefined && appname !== null) ? appname : (req.query.appname || '');
+    if (!fileurl || !appname) {
+      throw new Error('fileurl and appname parameters are mandatory');
     }
     const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req) : true;
     if (authorized === true) {
@@ -187,51 +191,51 @@ async function getRemoteFileSize(req, res) {
  * @throws {object} - JSON error response if an error occurs.
  */
 // eslint-disable-next-line consistent-return
-async function getRemoteFile(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege('appownerabove', req);
-  if (authorized === true) {
-    try {
-      console.log();
-      const bodyData = serviceHelper.ensureObject(req.body);
-      console.log(bodyData);
-      if (!bodyData || bodyData.length === 0) {
-        throw new Error('Request body must contain data (body parameters are required)');
-      }
-      const isValidData = bodyData.every((item) => 'url' in item && 'component' in item && 'appname' in item);
-      if (!isValidData) {
-        throw new Error('Each object in bodyData must have "url", "component", and "appname" properties');
-      }
-      // eslint-disable-next-line no-restricted-syntax
-      for (const { url, component, appname } of bodyData) {
-        // eslint-disable-next-line no-await-in-loop
-        const volumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 0, 'mount');
-        // eslint-disable-next-line no-await-in-loop
-        if (await IOUtils.checkFileExists(`${volumePath[0].mount}/backup/remote/${component}_${appname}.tar.gz`)) {
-          // eslint-disable-next-line no-await-in-loop
-          await IOUtils.removeFile(`${volumePath[0].mount}/backup/remote/${component}_${appname}.tar.gz`);
-        }
-        // eslint-disable-next-line no-await-in-loop
-        await fs.mkdir(`${volumePath[0].mount}/backup/remote`, { recursive: true });
-        // eslint-disable-next-line no-await-in-loop
-        await IOUtils.downloadFileFromUrl(url, `${volumePath[0].mount}/backup/remote`, component, appname, true);
-      }
-      const response = messageHelper.createDataMessage(true);
-      return res ? res.json(response) : response;
-      // eslint-disable-next-line no-else-return
-    } catch (error) {
-      log.error(error);
-      const errorResponse = messageHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
-      );
-      return res ? res.json(errorResponse) : errorResponse;
-    }
-  } else {
-    const errMessage = messageHelper.errUnauthorizedMessage();
-    return res.json(errMessage);
-  }
-}
+// async function getRemoteFile(req, res) {
+//   const authorized = await verificationHelper.verifyPrivilege('appownerabove', req);
+//   if (authorized === true) {
+//     try {
+//       console.log();
+//       const bodyData = serviceHelper.ensureObject(req.body);
+//       console.log(bodyData);
+//       if (!bodyData || bodyData.length === 0) {
+//         throw new Error('Request body must contain data (body parameters are required)');
+//       }
+//       const isValidData = bodyData.every((item) => 'url' in item && 'component' in item && 'appname' in item);
+//       if (!isValidData) {
+//         throw new Error('Each object in bodyData must have "url", "component", and "appname" properties');
+//       }
+//       // eslint-disable-next-line no-restricted-syntax
+//       for (const { url, component, appname } of bodyData) {
+//         // eslint-disable-next-line no-await-in-loop
+//         const volumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 0, 'mount');
+//         // eslint-disable-next-line no-await-in-loop
+//         if (await IOUtils.checkFileExists(`${volumePath[0].mount}/backup/remote/${component}_${appname}.tar.gz`)) {
+//           // eslint-disable-next-line no-await-in-loop
+//           await IOUtils.removeFile(`${volumePath[0].mount}/backup/remote/${component}_${appname}.tar.gz`);
+//         }
+//         // eslint-disable-next-line no-await-in-loop
+//         await fs.mkdir(`${volumePath[0].mount}/backup/remote`, { recursive: true });
+//         // eslint-disable-next-line no-await-in-loop
+//         await IOUtils.downloadFileFromUrl(url, `${volumePath[0].mount}/backup/remote`, component, appname, true);
+//       }
+//       const response = messageHelper.createDataMessage(true);
+//       return res ? res.json(response) : response;
+//       // eslint-disable-next-line no-else-return
+//     } catch (error) {
+//       log.error(error);
+//       const errorResponse = messageHelper.createErrorMessage(
+//         error.message || error,
+//         error.name,
+//         error.code,
+//       );
+//       return res ? res.json(errorResponse) : errorResponse;
+//     }
+//   } else {
+//     const errMessage = messageHelper.errUnauthorizedMessage();
+//     return res.json(errMessage);
+//   }
+// }
 
 /**
  * Remove a backup file specified by the filepath.
@@ -284,10 +288,12 @@ async function downloadLocalFile(req, res) {
     console.log(req.params);
     let { filepath } = req.params;
     filepath = filepath || req.query.filepath;
-    if (!filepath) {
-      throw new Error('filepath parameter is mandatory');
+    let { appname } = req.params;
+    appname = appname || req.query.filepath;
+    if (!filepath || !appname) {
+      throw new Error('filepath and appname parameters are mandatory');
     }
-    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req);
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
     if (authorized) {
       if (!pathValidation(filepath)) {
         throw new Error('Path validation failed..');
@@ -314,7 +320,7 @@ async function downloadLocalFile(req, res) {
 module.exports = {
   getVolumeDataOfComponent,
   getRemoteFileSize,
-  getRemoteFile,
+  // getRemoteFile,
   getLocalBackupList,
   removeBackupFile,
   downloadLocalFile,

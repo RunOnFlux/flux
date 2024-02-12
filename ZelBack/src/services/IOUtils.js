@@ -366,7 +366,12 @@ async function removeDirectory(rpath, directory = false) {
  */
 async function fileUpload(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req);
+    let { appname } = req.params;
+    appname = appname || req.query.appname || '';
+    if (!appname) {
+      throw new Error('appname parameter is mandatory.');
+    }
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
     if (!authorized) {
       throw new Error('Unauthorized. Access denied.');
     }

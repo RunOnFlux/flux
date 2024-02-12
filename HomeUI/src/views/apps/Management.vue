@@ -5957,7 +5957,7 @@ export default {
       const port = this.config.apiPort;
       const folder = encodeURIComponent(fullpath);
       const filename = encodeURIComponent(saveAs);
-      return `${this.ipAddress}:${port}/ioutils/fileupload/${folder}/${filename}`;
+      return `${this.ipAddress}:${port}/ioutils/fileupload/${folder}/${filename}/${this.appName}`;
     },
     addAndConvertFileSizes(sizes, targetUnit = 'auto', decimal = 2) {
       const multiplierMap = {
@@ -6449,7 +6449,7 @@ export default {
       }
       if (this.restoreRemoteUrl.trim() !== '' && this.restoreRemoteUrlComponent !== null) {
         const zelidauth = localStorage.getItem('zelidauth');
-        this.remoteFileSizeResponse = await BackupRestoreService.getRemoteFileSize(zelidauth, encodeURIComponent(this.restoreRemoteUrl.trim()), 'B', 0);
+        this.remoteFileSizeResponse = await BackupRestoreService.getRemoteFileSize(zelidauth, encodeURIComponent(this.restoreRemoteUrl.trim()), 'B', 0, true, this.appName);
         if (this.remoteFileSizeResponse.data?.status !== 'success') {
           this.showToast('danger', this.remoteFileSizeResponse.data?.data.message || this.remoteFileSizeResponse.data?.massage);
           return;
@@ -6498,7 +6498,7 @@ export default {
         this.volumeInfo = await BackupRestoreService.getVolumeDataOfComponent(zelidauth, name, componentItem, 'B', 0, 'mount');
         this.volumePath = this.volumeInfo.data?.data;
         // eslint-disable-next-line no-await-in-loop
-        this.backupFile = await BackupRestoreService.getBackupList(zelidauth, encodeURIComponent(`${this.volumePath.mount}/backup/local`), 'B', 0, true);
+        this.backupFile = await BackupRestoreService.getBackupList(zelidauth, encodeURIComponent(`${this.volumePath.mount}/backup/local`), 'B', 0, true, name);
         this.backupItem = this.backupFile.data?.data;
         if (Array.isArray(this.backupItem)) {
           this.BackupItem = {
@@ -6540,12 +6540,12 @@ export default {
         for (const fileData of restoreItem) {
           const filePath = fileData.file;
           // eslint-disable-next-line no-await-in-loop
-          await BackupRestoreService.removeBackupFile(zelidauth, encodeURIComponent(filePath));
+          await BackupRestoreService.removeBackupFile(zelidauth, encodeURIComponent(filePath), this.appName);
         }
         this.backupList = [];
         this.backupToUpload = [];
       } else {
-        this.status = await BackupRestoreService.removeBackupFile(zelidauth, encodeURIComponent(filepath));
+        this.status = await BackupRestoreService.removeBackupFile(zelidauth, encodeURIComponent(filepath), this.appName);
         const backupIndex = restoreItem.findIndex((item) => item.component === name);
         restoreItem.splice(backupIndex, 1);
       }
@@ -6576,7 +6576,7 @@ export default {
             const { file } = backup;
             const fileNameArray = file.split('/');
             const fileName = fileNameArray[fileNameArray.length - 1];
-            const response = await BackupRestoreService.justAPI().get(`/backup/downloadlocalfile/${encodeURIComponent(file)}`, axiosConfig);
+            const response = await BackupRestoreService.justAPI().get(`/backup/downloadlocalfile/${encodeURIComponent(file)}/${this.appName}`, axiosConfig);
             const blob = new Blob([response.data]);
             const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
