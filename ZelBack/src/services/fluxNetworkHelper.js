@@ -20,6 +20,7 @@ const daemonServiceWalletRpcs = require('./daemonService/daemonServiceWalletRpcs
 const benchmarkService = require('./benchmarkService');
 const verificationHelper = require('./verificationHelper');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
+const dockerService = require('./dockerService');
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('./utils/establishedConnections');
@@ -1399,7 +1400,7 @@ async function removeDockerContainerAccessToNonRoutable() {
     return null;
   });
 
-  if (dockerUserChainExists instanceof Error) return;
+  if (dockerUserChainExists instanceof Error) return false;
   if (dockerUserChainExists) log.info('IPTABLES: DOCKER-USER chain already created');
 
   const checkJumpToDockerChain = await cmdAsync(checkJumpChain).catch(async (checkErr) => {
@@ -1421,145 +1422,89 @@ async function removeDockerContainerAccessToNonRoutable() {
     return null;
   });
 
-  if (checkJumpToDockerChain instanceof Error) return;
+  if (checkJumpToDockerChain instanceof Error) return false;
   if (checkJumpToDockerChain) log.info('IPTABLES: Jump to DOCKER-USER chain already enabled');
 
   const rfc1918Networks = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'];
   const fluxSrc = '172.23.0.0/16';
 
-  const checkAction = '-C';
-  const insertAction = '-I';
-  const appendAction = '-A';
-  const removeAction = '-D';
+  const baseDropCmd = `sudo iptables -A DOCKER-USER -s ${fluxSrc} -d #DST -j DROP`;
+  const baseAllowToFluxNetworksCmd = `sudo iptables -I DOCKER-USER -i #INT -o #INT -j ACCEPT`;
+  const baseAllowEstablishedCmd = `sudo iptables -I DOCKER-USER -s ${fluxSrc} -d #DST -m state --state RELATED,ESTABLISHED -j ACCEPT`;
+  const baseAllowDnsCmd = `sudo iptables -I DOCKER-USER -s ${fluxSrc} -d #DST -p udp --dport 53 -j ACCEPT`;
 
-  const baseDropCmd = `sudo iptables ### DOCKER-USER -s ${fluxSrc} -d @@@ -j DROP`;
-  const baseAllowToFluxNetworksCmd = `sudo iptables ### DOCKER-USER -s ${fluxSrc} -d ${fluxSrc} -j ACCEPT`;
-  const baseAllowEstablishedCmd = `sudo iptables ### DOCKER-USER -s ${fluxSrc} -d @@@ -m state --state RELATED,ESTABLISHED -j ACCEPT`;
-  const baseAllowDnsCmd = `sudo iptables ### DOCKER-USER -s ${fluxSrc} -d @@@ -p udp --dport 53 -j ACCEPT`;
-  const baseReturnCmd = 'sudo iptables ### DOCKER-USER -j RETURN';
+  const addReturnCmd = 'sudo iptables -A DOCKER-USER -j RETURN';
+  const flushDockerUserCmd = 'sudo iptables -F DOCKER-USER';
 
-  const baseCheckDropAccess = baseDropCmd.replace('###', checkAction);
-  const baseCheckHostAccess = baseAllowEstablishedCmd.replace('###', checkAction);
-  const baseCheckContainerDnsAccess = baseAllowDnsCmd.replace('###', checkAction);
+  try {
+    await cmdAsync(flushDockerUserCmd);
+    log.info(`IPTABLES: DOCKER-USER table flushed`);
+  } catch (err) {
+    log.error(`IPTABLES: Error flushing DOCKER-USER table. ${err}`);
+    return false;
+  }
 
-  const checkReturnCmd = baseReturnCmd.replace('###', checkAction);
-  const checkAllowToFlux = baseAllowToFluxNetworksCmd.replace('###', checkAction);
+  const fluxNetworkInterfaces = await dockerService.getFluxDockerNetworkPhysicalInterfaceNames();
+  // add for legacy apps
+  fluxNetworkInterfaces.push('docker0');
 
-  // if this errors, we need to bail, as if the deny succeedes, we may cut off access
-  // eslint-disable-next-line no-await-in-loop
-  const allowToFlux = await cmdAsync(checkAllowToFlux).catch(async (checkErr) => {
-    if (checkErr.message.includes('Bad rule')) {
-      const giveFluxNetworkAccess = baseAllowToFluxNetworksCmd.replace('###', insertAction)
-      try {
-        // eslint-disable-next-line no-await-in-loop
-        await cmdAsync(giveFluxNetworkAccess);
-        log.info(`IPTABLES: Access to Flux containers from Flux containers accepted`);
-      } catch (err) {
-        log.error(`IPTABLES: Error allowing access to Flux containers from Flux containers. ${err}`);
-        return new Error();
-      }
-    } else {
-      log.error(checkErr);
-      return new Error();
-    }
-    return null;
-  });
-
-  if (allowToFlux instanceof Error) return;
-  if (allowToFlux) log.info(`IPTABLES: Access to Flux containers from Flux containers accepted`);
-
-  // if this errors, we need to bail, as if the deny succeedes, we may cut off access
-  // eslint-disable-next-line no-await-in-loop
-  const dockerReturn = await cmdAsync(checkReturnCmd).catch(async (checkErr) => {
-    if (checkErr.message.includes('Bad rule')) {
-      log.info(`IPTABLES: DOCKER-USER explicit return to FORWARD chain already removed`);
-    }
-  });
-
-  /**
-   * we remove this as we need to guarantee that our append rules are at the end. It doesn't
-   * need to be there, as there is an implicit RETURN from user generated chains.
-   */
-  if (dockerReturn) {
-    const removeDockerReturn = baseReturnCmd.replace('###', removeAction)
+  for (const int of fluxNetworkInterfaces) {
+    // if this errors, we need to bail, as if the deny succeedes, we may cut off access
+    const giveFluxNetworkAccess = baseAllowToFluxNetworksCmd.replace(/#INT/g, int)
     try {
       // eslint-disable-next-line no-await-in-loop
-      await cmdAsync(removeDockerReturn);
-      log.info(`IPTABLES: DOCKER-USER explicit return to FORWARD chain removed`);
+      await cmdAsync(giveFluxNetworkAccess);
+      log.info(`IPTABLES: Traffic on Flux interface ${int} accepted`);
     } catch (err) {
-      log.error(`IPTABLES: Error removing explicit return to Forward chain. ${err}`);
-      return;
+      log.error(`IPTABLES: Error allowing traffic on Flux interface ${int}. ${err}`);
+      return false;
     }
   }
 
   // eslint-disable-next-line no-restricted-syntax
   for (const network of rfc1918Networks) {
-    // if these error, we need to bail, as if the deny succeedes, we may cut off access
-    const checkHostAccess = baseCheckHostAccess.replace('@@@', network);
-    // eslint-disable-next-line no-await-in-loop
-    const hostAccess = await cmdAsync(checkHostAccess).catch(async (checkErr) => {
-      if (checkErr.message.includes('Bad rule')) {
-        const giveHostAccessToDockerNetwork = baseAllowEstablishedCmd.replace('###', insertAction).replace('@@@', network);
-        try {
-          // eslint-disable-next-line no-await-in-loop
-          await cmdAsync(giveHostAccessToDockerNetwork);
-          log.info(`IPTABLES: Access to Flux containers from ${network} accepted`);
-        } catch (err) {
-          log.error(`IPTABLES: Error allowing access to Flux containers from ${network}. ${err}`);
-          return new Error();
-        }
-      } else {
-        log.error(checkErr);
-        return new Error();
-      }
-      return null;
-    });
+    // if any of these error, we need to bail, as if the deny succeedes, we may cut off access
 
-    if (hostAccess instanceof Error) break;
-    if (hostAccess) log.info(`IPTABLES: Access to Flux containers from ${network} already accepted`);
+    const giveHostAccessToDockerNetwork = baseAllowEstablishedCmd.replace('#DST', network);
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await cmdAsync(giveHostAccessToDockerNetwork);
+      log.info(`IPTABLES: Access to Flux containers from ${network} accepted`);
+    } catch (err) {
+      log.error(`IPTABLES: Error allowing access to Flux containers from ${network}. ${err}`);
+      return false;
+    }
 
-    // if these error, we need to bail, as if the deny succeedes, we may cut off access
-    const checkContainerDnsAccess = baseCheckContainerDnsAccess.replace('@@@', network);
-    // eslint-disable-next-line no-await-in-loop
-    const containerDns = await cmdAsync(checkContainerDnsAccess).catch(async (checkErr) => {
-      if (checkErr.message.includes('Bad rule')) {
-        const giveContainerAccessToDNS = baseAllowDnsCmd.replace('###', insertAction).replace('@@@', network);
-        try {
-          // eslint-disable-next-line no-await-in-loop
-          await cmdAsync(giveContainerAccessToDNS);
-          log.info(`IPTABLES: DNS access to ${network} from Flux containers accepted`);
-        } catch (err) {
-          log.error(`IPTABLES: Error allowing DNS access to ${network} from Flux containers. ${err}`);
-          return new Error();
-        }
-      } else {
-        log.error(checkErr);
-        return new Error();
-      }
-      return null;
-    });
+    const giveContainerAccessToDNS = baseAllowDnsCmd.replace('#DST', network);
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await cmdAsync(giveContainerAccessToDNS);
+      log.info(`IPTABLES: DNS access to ${network} from Flux containers accepted`);
+    } catch (err) {
+      log.error(`IPTABLES: Error allowing DNS access to ${network} from Flux containers. ${err}`);
+      return false;
+    }
 
-    if (containerDns instanceof Error) break;
-    if (containerDns) log.info(`IPTABLES: DNS access to ${network} from Flux containers already accepted`);
-
-    // this is last in the list, so that if any others error, this doesn't drop all traffic
-    const checkDropAccess = baseCheckDropAccess.replace('@@@', network);
-    // eslint-disable-next-line no-await-in-loop
-    const accessDropped = await cmdAsync(checkDropAccess).catch(async (checkErr) => {
-      if (checkErr.message.includes('Bad rule')) {
-        // This always gets appended, so the drop is at the end
-        const dropAccessToHostNetwork = baseDropCmd.replace('###', appendAction).replace('@@@', network);
-        try {
-          // eslint-disable-next-line no-await-in-loop
-          await cmdAsync(dropAccessToHostNetwork);
-          log.info(`IPTABLES: Access to ${network} from Flux containers removed`);
-        } catch (err) { log.error(`IPTABLES: Error denying access to ${network} from Flux containers. ${err}`); }
-      } else {
-        log.error(checkErr);
-      }
-    });
-    if (accessDropped) log.info(`IPTABLES: Access to ${network} from Flux containers already removed`);
+    // This always gets appended, so the drop is at the end
+    const dropAccessToHostNetwork = baseDropCmd.replace('#DST', network);
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await cmdAsync(dropAccessToHostNetwork);
+      log.info(`IPTABLES: Access to ${network} from Flux containers removed`);
+    } catch (err) {
+      log.error(`IPTABLES: Error denying access to ${network} from Flux containers. ${err}`);
+      return false;
+    }
   }
+
+  try {
+    await cmdAsync(addReturnCmd);
+    log.info(`IPTABLES: DOCKER-USER explicit return to FORWARD chain added`);
+  } catch (err) {
+    log.error(`IPTABLES: Error adding explicit return to Forward chain. ${err}`);
+    return false;
+  }
+  return true;
 }
 
 const lruRateOptions = {

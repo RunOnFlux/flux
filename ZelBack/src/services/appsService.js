@@ -3391,6 +3391,13 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
         throw new Error(`Flux App network of ${appName} failed to initiate. Range already assigned to different application.`);
       }
       log.info(serviceHelper.ensureString(fluxNet));
+      const accessRemoved = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable();
+      const accessRemovedRes = {
+        status: accessRemoved ? `Private network access removed for ${appName}` : `Error removing private network access for ${appName}`,
+      };
+      if (res) {
+        res.write(serviceHelper.ensureString(accessRemovedRes));
+      }
       const fluxNetResponse = {
         status: `Docker network of ${appName} initiated.`,
       };
