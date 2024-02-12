@@ -2241,7 +2241,7 @@
                         </div>
                       </template>
                       <template #cell(file_size)="data">
-                        <div class="table-cell">
+                        <div class="table-cell no-wrap">
                           {{ addAndConvertFileSizes(data.value) }}
                         </div>
                       </template>
@@ -2410,7 +2410,7 @@
                         </div>
                       </template>
                       <template #cell(component)="data">
-                        <div class="table-cell">
+                        <div class="table-cell no-wrap">
                           {{ data.value }}
                         </div>
                       </template>
@@ -6230,8 +6230,8 @@ export default {
     RestoreTableBuilder(value) {
       return [
         { key: 'component', label: 'Component Name', thStyle: { width: '25%' } },
-        { key: value.toString().toLowerCase(), label: value.toString(), thStyle: { width: '65%' } },
-        { key: 'file_size', label: 'Size', thStyle: { width: '15%' } },
+        { key: value.toString().toLowerCase(), label: value.toString(), thStyle: { width: '70%' } },
+        { key: 'file_size', label: 'Size', thStyle: { width: '10%' } },
         { key: 'actions', label: 'Action', thStyle: { width: '5%' } },
       ];
     },
@@ -8616,6 +8616,9 @@ export default {
 </script>
 
 <style>
+.no-wrap {
+  white-space: nowrap !important;
+}
 .custom-button {
   width: 15px !important;
   height: 25px !important;
