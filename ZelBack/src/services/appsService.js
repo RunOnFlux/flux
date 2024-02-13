@@ -1093,10 +1093,11 @@ function startAppMonitoring(appName) {
           return;
         }
         const statsNow = await dockerService.dockerContainerStats(appName);
-        const appFolderName = dockerService.getAppDockerNameIdentifier(appName).substring(1);
-        const folderSize = await getAppFolderSize(appFolderName);
+        const containerSize = await dockerService.dockerContainerInspect(appName, { size: true });
+        // const appFolderName = dockerService.getAppDockerNameIdentifier(appName).substring(1);
+        // const folderSize = await getAppFolderSize(appFolderName);
         statsNow.disk_stats = {
-          used: folderSize,
+          used: containerSize.SizeRootFs ?? 0,
         };
         appsMonitored[appName].oneMinuteStatsStore.unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
         if (appsMonitored[appName].oneMinuteStatsStore.length > 60) {
