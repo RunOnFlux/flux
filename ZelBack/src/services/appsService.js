@@ -10776,6 +10776,13 @@ async function masterSlaveApps() {
       let identifier;
       let needsToBeChecked = false;
       let appId;
+      const backupSkip = backupInProgress.some((backupItem) => installedApp.name === backupItem);
+      const restoreSkip = restoreInProgress.some((backupItem) => installedApp.name === backupItem);
+      if (backupSkip || restoreSkip) {
+        log.info(`Backup/Restore is running for ${installedApp.name}, syncthing masterSlave check is disabled for that app`);
+        // eslint-disable-next-line no-continue
+        continue;
+      }
       if (installedApp.version <= 3) {
         identifier = installedApp.name;
         appId = dockerService.getAppIdentifier(identifier);
@@ -10858,6 +10865,9 @@ async function masterSlaveApps() {
             if (myIP !== ip && runningAppsNames.includes(identifier)) {
               appDockerStop(installedApp.name);
               log.info(`masterSlaveApps: stopping docker app:${installedApp.name}`);
+            } else if (myIP === ip && !runningAppsNames.includes(identifier)) {
+              appDockerRestart(installedApp.name);
+              log.info(`masterSlaveApps: starting docker app:${installedApp.name}`);
             }
           }
         }
@@ -11847,18 +11857,8 @@ async function appendRestoreTask(req, res) {
       }
       await serviceHelper.delay(1 * 5 * 1000);
       await sendChunk(res, 'Starting application...\n');
-      const redeploy = syncthing;
-      if (!syncthing) {
-        await appDockerStart(appname);
-      } else {
-        const componentsWithoutGSyncthing = appDetails.compose.filter((comp) => !comp.containerData.includes('g:'));
-        // eslint-disable-next-line no-restricted-syntax
-        for (const component of componentsWithoutGSyncthing) {
-          // eslint-disable-next-line no-await-in-loop
-          await appDockerStart(`${component.name}_${appname}`);
-        }
-      }
-      if (redeploy) {
+      await appDockerStart(appname);
+      if (syncthing) {
         await sendChunk(res, 'Redeploying other instances...\n');
         executeAppGlobalCommand(appname, 'redeploy', req.headers.zelidauth, true);
         await serviceHelper.delay(1 * 60 * 1000);
