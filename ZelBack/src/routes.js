@@ -631,12 +631,14 @@ module.exports = (app, expressWs) => {
   app.post('/apps/appendbackuptask', (req, res) => {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Transfer-Encoding', 'chunked');
+    res.setHeader('Connection', 'keep-alive');
     appsService.appendBackupTask(req, res);
   });
 
   app.post('/apps/appendrestoretask', (req, res) => {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Transfer-Encoding', 'chunked');
+    res.setHeader('Connection', 'keep-alive');
     appsService.appendRestoreTask(req, res);
   });
 
