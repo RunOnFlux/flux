@@ -1102,12 +1102,12 @@ function startAppMonitoring(appName) {
             const source = mount?.Source;
             if (source) {
               const mountInfo = nodecmd.runSync(`sudo du -sb ${source}`);
-              const mountSize = +mountInfo?.data.split(source)[0] ?? 0;
-              if (typeof mountSize === 'number' && !isNaN(mountSize)) {
+              const mountSize = mountInfo?.data.split(source)[0] ?? 0;
+              if (typeof mountSize === 'number' && !Number.isNaN(mountSize)) {
                 containerTotalSize += mountSize;
               }
             }
-          })
+          });
         }
 
         // const appFolderName = dockerService.getAppDockerNameIdentifier(appName).substring(1);
@@ -1148,16 +1148,16 @@ function startAppMonitoring(appName) {
             const source = mount?.Source;
             if (source) {
               const mountInfo = nodecmd.runSync(`sudo du -sb ${source}`);
-              const mountSize = +mountInfo?.data.split(source)[0] ?? 0;
-              if (typeof mountSize === 'number' && !isNaN(mountSize)) {
+              const mountSize = mountInfo?.data.split(source)[0] ?? 0;
+              if (typeof mountSize === 'number' && !Number.isNaN(mountSize)) {
                 containerTotalSize += mountSize;
               }
             }
-          })
+          });
         }
 
-        //const appFolderName = dockerService.getAppDockerNameIdentifier(appName).substring(1);
-        //const folderSize = await getAppFolderSize(appFolderName);
+        // const appFolderName = dockerService.getAppDockerNameIdentifier(appName).substring(1);
+        // const folderSize = await getAppFolderSize(appFolderName);
         statsNow.disk_stats = {
           used: containerTotalSize ?? 0,
         };
