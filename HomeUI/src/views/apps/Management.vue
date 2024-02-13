@@ -6121,13 +6121,14 @@ export default {
           const propertyName = typeToPropertyMap[type];
           if (propertyName) {
             this[propertyName] = chunk;
-            if (type === 'restore_upload' && chunk.includes('Error')) {
+            if (type === 'restore_upload' && chunk.includes('Error:')) {
+              console.log(chunk);
               this.changeAlert('danger', chunk, 'showTopUpload', true);
             } else if (type === 'restore_upload' && chunk.includes('Finalizing')) {
               setTimeout(() => {
                 this.changeAlert('success', 'Restore completed successfully', 'showTopUpload', true);
               }, 5000);
-            } else if (type === 'restore_remote' && chunk.includes('Error')) {
+            } else if (type === 'restore_remote' && chunk.includes('Error:')) {
               this.changeAlert('danger', chunk, 'showTopRemote', true);
             } else if (type === 'restore_remote' && chunk.includes('Finalizing')) {
               setTimeout(() => {
