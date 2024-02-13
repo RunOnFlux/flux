@@ -11693,7 +11693,6 @@ async function appendBackupTask(req, res) {
           await sendChunk(res, `Creating backup archive for ${component.component}...\n`);
           // eslint-disable-next-line no-await-in-loop
           const tarStatus = await IOUtils.createTarGz(targetPath, tarGzPath);
-          console.log(tarStatus);
           if (tarStatus.status === false) {
             // eslint-disable-next-line no-await-in-loop
             await IOUtils.removeFile(`${componentPath[0].mount}/backup/local/backup_${component.component}.tar.gz`);
@@ -11836,8 +11835,8 @@ async function appendRestoreTask(req, res) {
           await sendChunk(res, `Unpacking backup archive for ${component.component}...\n`);
           // eslint-disable-next-line no-await-in-loop
           const tarStatus = await IOUtils.untarFile(targetPath, tarGzPath);
-          if (tarStatus === false) {
-            throw new Error(`Error: Failed to unpack archive file for ${component.component}`);
+          if (tarStatus.status === false) {
+            throw new Error(`Error: Failed to unpack archive file for ${component.component}, ${tarStatus.error}`);
           } else {
             // eslint-disable-next-line no-await-in-loop
             await sendChunk(res, `Removing backup file for ${component.component}...\n`);

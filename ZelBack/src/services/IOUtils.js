@@ -11,19 +11,7 @@ const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
 
 const cmdAsync = util.promisify(nodecmd.get);
-
 const exec = util.promisify(require('child_process').exec);
-
-async function runCommand(command) {
-  try {
-    const { stdout, stderr } = await exec(command, { maxBuffer: 1024 * 1024 * 10 });
-    console.log('Command output:', stdout);
-    return { stdout, stderr };
-  } catch (error) {
-    console.error('Command error:', error.stderr || error.stdout);
-    throw new Error(`Error executing command: ${error.message}`);
-  }
-}
 
 /**
  * Converts file sizes to a specified unit or the most appropriate unit based on the total size.
@@ -321,11 +309,11 @@ async function untarFile(extractPath, tarFilePath) {
   try {
     await fs.mkdir(extractPath, { recursive: true });
     const unpackCmd = `sudo tar -xvzf ${tarFilePath} -C ${extractPath}`;
-    await runCommand(unpackCmd);
-    return true;
-  } catch (err) {
-    log.error('Error during extraction:', err);
-    return false;
+    await exec(unpackCmd, { maxBuffer: 1024 * 1024 * 10 });
+    return { status: true };
+  } catch (error) {
+    log.error('Error during extraction:', error.stderr || error.stdout);
+    return { status: false, error: error.stderr || error.stdout };
   }
 }
 
@@ -341,11 +329,11 @@ async function createTarGz(sourceDirectory, outputFileName) {
     const outputDirectory = outputFileName.substring(0, outputFileName.lastIndexOf('/'));
     await fs.mkdir(outputDirectory, { recursive: true });
     const packCmd = `sudo tar -czvf ${outputFileName} -C ${sourceDirectory} .`;
-    await cmdGetWithMaxBuffer(packCmd);
+    await exec(packCmd, { maxBuffer: 1024 * 1024 * 10 });
     return { status: true };
   } catch (error) {
-    log.error('Error creating tarball:', error);
-    return { status: false, error: error?.message };
+    log.error('Error creating tarball:', error.stderr || error.stdout);
+    return { status: false, error: error.stderr || error.stdout };
   }
 }
 
