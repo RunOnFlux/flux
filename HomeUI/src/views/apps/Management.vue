@@ -1812,6 +1812,7 @@
                         name="radio-btn-outline"
                         buttons
                         style="max-height: 38px; min-width: 100px; white-space: nowrap;"
+                        @change="handleRadioClick"
                       />
                     </b-col>
 
@@ -2162,6 +2163,20 @@
 
                 <div v-if="selectedRestoreOption === 'Upload File'">
                   <div>
+                    <b-alert
+                      v-model="showTopUpload"
+                      class="position-fixed fixed-top m-1 rounded-0"
+                      style="z-index: 1000;"
+                      :variant="alertVariant"
+                      solid="true"
+                      dismissible
+                    >
+                      <center>
+                        <h5 class="mt-1 mb-1">
+                          {{ alertMessage }}
+                        </h5>
+                      </center>
+                    </b-alert>
                     <b-input-group class="mb-0">
                       <b-input-group-prepend is-text>
                         <b-icon icon="folder-plus" />
@@ -2245,7 +2260,6 @@
                           {{ addAndConvertFileSizes(data.value) }}
                         </div>
                       </template>
-
                       <template #cell(actions)="data">
                         <div class="d-flex justify-content-center align-items-center">
                           <b-button
@@ -2253,7 +2267,7 @@
                             variant="outline-danger"
                             class="d-flex justify-content-center align-items-center"
                             style="width: 15px; height: 25px"
-                            @click="deleteItem(data.index, files)"
+                            @click="deleteItem(data.index, files, data.item.file, 'upload')"
                           >
                             <b-icon
                               class="d-flex justify-content-center align-items-center"
@@ -2301,11 +2315,11 @@
                       <div
                         v-for="file in files"
                         v-if="file.uploading"
-                        :key="file.file.name"
+                        :key="file.file_name"
                         class="upload-item mb-1"
                       >
                         <div :class="file.uploading ? '' : 'hidden'">
-                          {{ file.file }}
+                          {{ file.file_name }}
                         </div>
                         <b-progress max="100" height="15px">
                           <b-progress-bar :value="file.progress" :label="`${file.progress.toFixed(2)}%`" :class="file.uploading ? '' : 'hidden'" />
@@ -2333,6 +2347,20 @@
                 </div>
                 <div v-if="selectedRestoreOption === 'Remote URL'">
                   <div>
+                    <b-alert
+                      v-model="showTopRemote"
+                      class="position-fixed fixed-top m-1 rounded-0"
+                      style="z-index: 1000;"
+                      :variant="alertVariant"
+                      solid="true"
+                      dismissible
+                    >
+                      <center>
+                        <h5 class="mt-1 mb-1">
+                          {{ alertMessage }}
+                        </h5>
+                      </center>
+                    </b-alert>
                     <b-input-group class="mb-0">
                       <b-input-group-prepend is-text>
                         <b-icon icon="globe" />
@@ -5103,6 +5131,7 @@
 
 <script>
 import {
+  BAlert,
   BTabs,
   BTab,
   BTable,
@@ -5189,6 +5218,7 @@ const geolocations = require('../../libs/geolocation');
 export default {
   components: {
     JsonViewer,
+    BAlert,
     BTabs,
     BTab,
     BTable,
@@ -5249,6 +5279,10 @@ export default {
   },
   data() {
     return {
+      showTopUpload: false,
+      showTopRemote: false,
+      alertMessage: '',
+      alertVariant: '',
       restoreFromUpload: false,
       restoreFromUploadStatus: '',
       restoreFromRemoteURLStatus: '',
@@ -5628,7 +5662,7 @@ export default {
       return this.RestoreTableBuilder('URL');
     },
     computedRestoreUploadFileFields() {
-      return this.RestoreTableBuilder('File');
+      return this.RestoreTableBuilder('File_name');
     },
     checkpointsTable() {
       return [
@@ -5953,6 +5987,12 @@ export default {
     this.getEnterpriseNodes();
   },
   methods: {
+    handleRadioClick() {
+      if (this.selectedRestoreOption === 'Upload File') {
+        this.loadBackupList(this.appName, 'upload', 'files');
+      }
+      console.log('Radio button clicked. Selected option:', this.selectedOption);
+    },
     getUploadFolder(fullpath, saveAs) {
       const port = this.config.apiPort;
       const folder = encodeURIComponent(fullpath);
@@ -6030,7 +6070,7 @@ export default {
         this.volumePath = this.volumeInfo.data?.data?.mount;
 
         const existingFile = this.files.findIndex(
-          (item) => item.selected_file.name === filesToAdd[0].name && item.component !== this.restoreRemoteFile,
+          (item) => item.file_name === filesToAdd[0].name && item.component !== this.restoreRemoteFile,
         );
         if (existingFile !== -1) {
           this.showToast('warning', `'${f.name}' is already in the upload queue for other component.`);
@@ -6047,7 +6087,7 @@ export default {
             progress: 0,
             path: `${this.volumePath}/backup/upload`,
             component: this.restoreRemoteFile,
-            file: `backup_${this.restoreRemoteFile.toLowerCase()}.tar.gz`,
+            file_name: `backup_${this.restoreRemoteFile.toLowerCase()}.tar.gz`,
             file_size: f.size,
           });
         } else {
@@ -6058,7 +6098,7 @@ export default {
             progress: 0,
             path: `${this.volumePath}/backup/upload`,
             component: this.restoreRemoteFile,
-            file: `backup_${this.restoreRemoteFile.toLowerCase()}.tar.gz`,
+            file_name: `backup_${this.restoreRemoteFile.toLowerCase()}.tar.gz`,
             file_size: f.size,
           });
         }
@@ -6081,11 +6121,31 @@ export default {
           const propertyName = typeToPropertyMap[type];
           if (propertyName) {
             this[propertyName] = chunk;
+            if (type === 'restore_upload' && chunk.includes('Error')) {
+              this.changeAlert('danger', chunk, 'showTopUpload', true);
+            } else if (type === 'restore_upload' && chunk.includes('Finalizing')) {
+              setTimeout(() => {
+                this.changeAlert('success', 'Restore completed successfully', 'showTopUpload', true);
+              }, 5000);
+            } else if (type === 'restore_remote' && chunk.includes('Error')) {
+              this.changeAlert('danger', chunk, 'showTopRemote', true);
+            } else if (type === 'restore_remote' && chunk.includes('Finalizing')) {
+              setTimeout(() => {
+                this.changeAlert('success', 'Restore completed successfully', 'showTopRemote', true);
+              }, 5000);
+            }
           }
         }
       }
     },
+    changeAlert(variant, text, element, state) {
+      // Change variant and text through a function
+      this.alertVariant = variant; // Change variant to 'danger' or any other desired variant
+      this.alertMessage = text; // Change text to a new message
+      this[element] = state; // Show the alert
+    },
     startUpload() {
+      this.showTopUpload = false;
       const self = this;
       // eslint-disable-next-line no-async-promise-executor
       return new Promise(async (resolve, reject) => {
@@ -6094,7 +6154,7 @@ export default {
           this.restoreFromUploadStatus = 'Uploading...';
           // eslint-disable-next-line no-async-promise-executor
           const uploadPromises = this.files.map((f) => new Promise(async (resolveFile, rejectFile) => {
-            if (!f.uploaded && !f.uploading) {
+            if (!f.uploaded && !f.uploading && f.selected_file) {
               try {
                 await this.upload(f);
                 resolveFile();
@@ -6150,6 +6210,7 @@ export default {
           });
           this.restoreFromUpload = false;
           this.restoreFromUploadStatus = '';
+          this.loadBackupList(this.appName, 'upload', 'files');
           resolve();
         } catch (error) {
           reject(error);
@@ -6228,9 +6289,11 @@ export default {
       return item.reduce((total, component) => total + parseFloat(component.file_size), 0);
     },
     RestoreTableBuilder(value) {
+      const labelValue = value.toString();
+      const labelWithoutUnderscore = labelValue.split('_')[0];
       return [
         { key: 'component', label: 'Component Name', thStyle: { width: '25%' } },
-        { key: value.toString().toLowerCase(), label: value.toString(), thStyle: { width: '70%' } },
+        { key: value.toString().toLowerCase(), label: labelWithoutUnderscore, thStyle: { width: '70%' } },
         { key: 'file_size', label: 'Size', thStyle: { width: '10%' } },
         { key: 'actions', label: 'Action', thStyle: { width: '5%' } },
       ];
@@ -6486,10 +6549,18 @@ export default {
         }
       }
     },
-    deleteItem(index, item) {
+    async deleteItem(index, item, file = '', type = '') {
+      const elementIndex = item.findIndex((obj) => obj.file === file);
+      if (elementIndex !== -1) {
+        if (!item[elementIndex]?.selected_file && type === 'upload') {
+          console.log(item[elementIndex].file);
+          const zelidauth = localStorage.getItem('zelidauth');
+          await BackupRestoreService.removeBackupFile(zelidauth, encodeURIComponent(item[elementIndex].file), this.appName);
+        }
+      }
       item.splice(index, 1);
     },
-    async loadBackupList(name = this.appName) {
+    async loadBackupList(name = this.appName, type = 'local', itemsList = 'backupList') {
       const zelidauth = localStorage.getItem('zelidauth');
       const backupListTmp = [];
       // eslint-disable-next-line no-restricted-syntax
@@ -6498,7 +6569,7 @@ export default {
         this.volumeInfo = await BackupRestoreService.getVolumeDataOfComponent(zelidauth, name, componentItem, 'B', 0, 'mount');
         this.volumePath = this.volumeInfo.data?.data;
         // eslint-disable-next-line no-await-in-loop
-        this.backupFile = await BackupRestoreService.getBackupList(zelidauth, encodeURIComponent(`${this.volumePath.mount}/backup/local`), 'B', 0, true, name);
+        this.backupFile = await BackupRestoreService.getBackupList(zelidauth, encodeURIComponent(`${this.volumePath.mount}/backup/${type}`), 'B', 0, true, name);
         this.backupItem = this.backupFile.data?.data;
         if (Array.isArray(this.backupItem)) {
           this.BackupItem = {
@@ -6506,12 +6577,15 @@ export default {
             component: componentItem,
             create: +this.backupItem[0].create,
             file_size: this.backupItem[0].size,
-            file: `${this.volumePath.mount}/backup/local/${this.backupItem[0].name}`,
+            file: `${this.volumePath.mount}/backup/${type}/${this.backupItem[0].name}`,
+            file_name: `${this.backupItem[0].name}`,
           };
           backupListTmp.push(this.BackupItem);
         }
       }
-      this.backupList = backupListTmp;
+      console.log(JSON.stringify(itemsList));
+      // eslint-disable-next-line no-param-reassign, no-unused-vars
+      this[itemsList] = backupListTmp;
     },
     allDownloadsCompleted() {
       return this.computedFileProgress.every((item) => item.progress === 100);
