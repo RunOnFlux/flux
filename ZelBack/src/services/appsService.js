@@ -11693,10 +11693,11 @@ async function appendBackupTask(req, res) {
           await sendChunk(res, `Creating backup archive for ${component.component}...\n`);
           // eslint-disable-next-line no-await-in-loop
           const tarStatus = await IOUtils.createTarGz(targetPath, tarGzPath);
-          if (tarStatus === false) {
+          console.log(tarStatus);
+          if (tarStatus.status === false) {
             // eslint-disable-next-line no-await-in-loop
             await IOUtils.removeFile(`${componentPath[0].mount}/backup/local/backup_${component.component}.tar.gz`);
-            throw new Error(`Error: Failed to create backup archive for ${component.component}`);
+            throw new Error(`Error: Failed to create backup archive for ${component.component}, ${tarStatus.error}`);
           }
         }
       }

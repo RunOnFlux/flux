@@ -329,10 +329,10 @@ async function createTarGz(sourceDirectory, outputFileName) {
     await fs.mkdir(outputDirectory, { recursive: true });
     const packCmd = `sudo tar -czvf ${outputFileName} -C ${sourceDirectory} .`;
     await cmdAsync(packCmd);
-    return true;
+    return { status: true };
   } catch (error) {
     log.error('Error creating tarball:', error);
-    return false;
+    return { status: false, error: error?.message };
   }
 }
 
