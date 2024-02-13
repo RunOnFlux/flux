@@ -416,5 +416,6 @@
    "jwilder/nginx-proxy",
    "nginxproxy/acme-companion",
    "tmart1010/streamlit_music-server",
-   "golang"
+   "golang",
+   "prom"
 ]
