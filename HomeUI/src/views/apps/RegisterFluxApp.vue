@@ -1615,16 +1615,27 @@
           xs="6"
           lg="4"
         >
-          <b-card title="Pay with Zelcore">
-            <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${applicationPrice}&message=${registrationHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
-              <img
-                class="zelidLogin"
-                src="@/assets/images/zelID.svg"
-                alt="Zel ID"
-                height="100%"
-                width="100%"
-              >
-            </a>
+          <b-card title="Pay with">
+            <div class="loginRow">
+              <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${applicationPrice}&message=${registrationHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
+                <img
+                  class="zelidLogin"
+                  src="@/assets/images/zelID.svg"
+                  alt="Zel ID"
+                  height="100%"
+                  width="100%"
+                >
+              </a>
+              <a @click="initSSPpay">
+                <img
+                  class="sspLogin"
+                  src="@/assets/images/ssp-logo-white.svg"
+                  alt="SSP"
+                  height="100%"
+                  width="100%"
+                >
+              </a>
+            </div>
           </b-card>
         </b-col>
       </b-row>
@@ -3432,9 +3443,31 @@ export default {
         }
         const responseData = await window.ssp.request('sspwid_sign_message', { message: this.dataToSign });
         if (responseData.status === 'ERROR') {
-          throw new Error(responseData.data);
+          throw new Error(responseData.data || responseData.result);
         }
         this.signature = responseData.signature;
+      } catch (error) {
+        this.showToast('danger', error.message);
+      }
+    },
+    async initSSPpay() {
+      try {
+        if (!window.ssp) {
+          this.showToast('danger', 'SSP Wallet not installed');
+          return;
+        }
+        const data = {
+          message: this.registrationHash,
+          amount: (+this.applicationPrice || 0).toString(),
+          address: this.deploymentAddress,
+          chain: 'flux',
+        };
+        const responseData = await window.ssp.request('pay', data);
+        if (responseData.status === 'ERROR') {
+          throw new Error(responseData.data || responseData.result);
+        } else {
+          this.showToast('success', `${responseData.data}: ${responseData.txid}`);
+        }
       } catch (error) {
         this.showToast('danger', error.message);
       }

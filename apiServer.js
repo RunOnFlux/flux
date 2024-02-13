@@ -58,7 +58,9 @@ async function configReload() {
         delete require.cache[require.resolve('./config/userconfig')];
         // eslint-disable-next-line
         userconfig = require('./config/userconfig');
-        await loadUpnpIfRequired();
+        if (userconfig?.initial?.apiport) {
+          await loadUpnpIfRequired();
+        }
       }
     }
   } catch (error) {
