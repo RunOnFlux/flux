@@ -2163,20 +2163,6 @@
 
                 <div v-if="selectedRestoreOption === 'Upload File'">
                   <div>
-                    <b-alert
-                      v-model="showTopUpload"
-                      class="position-fixed fixed-top m-1 rounded-0"
-                      style="z-index: 1000;"
-                      :variant="alertVariant"
-                      solid="true"
-                      dismissible
-                    >
-                      <center>
-                        <h5 class="mt-1 mb-1">
-                          {{ alertMessage }}
-                        </h5>
-                      </center>
-                    </b-alert>
                     <b-input-group class="mb-0">
                       <b-input-group-prepend is-text>
                         <b-icon icon="folder-plus" />
@@ -2223,6 +2209,18 @@
                       @input="handleFiles"
                     >
                   </div>
+                  <b-alert
+                    v-model="showTopUpload"
+                    class="mt-1 rounded-0 d-flex align-items-center justify-content-center"
+                    style="z-index: 1000;"
+                    :variant="alertVariant"
+                    solid="true"
+                    dismissible
+                  >
+                    <h5 class="mt-1 mb-1">
+                      {{ alertMessage }}
+                    </h5>
+                  </b-alert>
                   <div
                     v-if="files?.length > 0"
                     class="d-flex justify-content-between mt-2"
@@ -2347,20 +2345,6 @@
                 </div>
                 <div v-if="selectedRestoreOption === 'Remote URL'">
                   <div>
-                    <b-alert
-                      v-model="showTopRemote"
-                      class="position-fixed fixed-top m-1 rounded-0"
-                      style="z-index: 1000;"
-                      :variant="alertVariant"
-                      solid="true"
-                      dismissible
-                    >
-                      <center>
-                        <h5 class="mt-1 mb-1">
-                          {{ alertMessage }}
-                        </h5>
-                      </center>
-                    </b-alert>
                     <b-input-group class="mb-0">
                       <b-input-group-prepend is-text>
                         <b-icon icon="globe" />
@@ -2405,6 +2389,18 @@
                       {{ urlValidationMessage }}
                     </b-form-invalid-feedback>
                   </div>
+                  <b-alert
+                    v-model="showTopRemote"
+                    class="mt-1 rounded-0 d-flex align-items-center justify-content-center"
+                    style="z-index: 1000;"
+                    :variant="alertVariant"
+                    solid="true"
+                    dismissible
+                  >
+                    <h5 class="mt-1 mb-1">
+                      {{ alertMessage }}
+                    </h5>
+                  </b-alert>
                   <div
                     v-if="restoreRemoteUrlItems?.length > 0"
                     class="d-flex justify-content-between mt-2"
@@ -6639,7 +6635,7 @@ export default {
           headers: {
             zelidauth,
           },
-          responseType: 'blob',
+          responseType: 'stream',
           onDownloadProgress(progressEvent) {
             const { loaded, total, target } = progressEvent;
             const decodedUrl = decodeURIComponent(target.responseURL);
@@ -6659,18 +6655,15 @@ export default {
             const fileNameArray = file.split('/');
             const fileName = fileNameArray[fileNameArray.length - 1];
             const response = await BackupRestoreService.justAPI().get(`/backup/downloadlocalfile/${encodeURIComponent(file)}/${self.appName}`, axiosConfig);
-            const blob = new Blob([response.data]);
+            const blob = new Blob([response.data], { type: response.headers['content-type'] });
             const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
             link.setAttribute('download', fileName);
             document.body.appendChild(link);
-
             link.click();
-
             document.body.removeChild(link);
             window.URL.revokeObjectURL(url);
-
             return true;
           } catch (error) {
             console.error('Error downloading file:', error);
