@@ -11847,18 +11847,8 @@ async function appendRestoreTask(req, res) {
       }
       await serviceHelper.delay(1 * 5 * 1000);
       await sendChunk(res, 'Starting application...\n');
-      const redeploy = syncthing;
-      if (!syncthing) {
-        await appDockerStart(appname);
-      } else {
-        const componentsWithoutGSyncthing = appDetails.compose.filter((comp) => !comp.containerData.includes('g:'));
-        // eslint-disable-next-line no-restricted-syntax
-        for (const component of componentsWithoutGSyncthing) {
-          // eslint-disable-next-line no-await-in-loop
-          await appDockerStart(`${component.name}_${appname}`);
-        }
-      }
-      if (redeploy) {
+      await appDockerStart(appname);
+      if (syncthing) {
         await sendChunk(res, 'Redeploying other instances...\n');
         executeAppGlobalCommand(appname, 'redeploy', req.headers.zelidauth, true);
         await serviceHelper.delay(1 * 60 * 1000);
