@@ -6186,6 +6186,7 @@ export default {
             zelidauth,
             'Content-Type': 'application/json',
             'Access-Control-Allow-Origin': '*',
+            Connection: 'keep-alive',
           };
           const response = await fetch(`${this.ipAddress}:${port}/apps/appendrestoretask`, {
             method: 'POST',
@@ -6357,6 +6358,7 @@ export default {
         zelidauth,
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
+        Connection: 'keep-alive',
       };
       const postLayout = this.buildPostBody(this.appSpecification, 'backup');
       let postBackupData;
@@ -6473,6 +6475,7 @@ export default {
         zelidauth,
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
+        Connection: 'keep-alive',
       };
       const postLayout = this.buildPostBody(this.appSpecification, 'restore', 'remote');
       let postBackupData;
