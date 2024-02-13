@@ -6132,6 +6132,7 @@ export default {
             } else if (type === 'restore_remote' && chunk.includes('Finalizing')) {
               setTimeout(() => {
                 this.changeAlert('success', 'Restore completed successfully', 'showTopRemote', true);
+                this.restoreRemoteUrlItems = [];
               }, 5000);
             }
           }
@@ -6461,6 +6462,7 @@ export default {
 
     async restoreFromRemoteFile() {
       const zelidauth = localStorage.getItem('zelidauth');
+      this.showTopRemote = false;
       this.downloadingFromUrl = true;
       this.restoreFromRemoteURLStatus = 'Initializing restore jobs...';
       // eslint-disable-next-line no-unused-vars

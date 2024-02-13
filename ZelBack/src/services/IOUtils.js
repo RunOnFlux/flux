@@ -12,13 +12,18 @@ const verificationHelper = require('./verificationHelper');
 
 const cmdAsync = util.promisify(nodecmd.get);
 
-const cmdGetWithMaxBuffer = util.promisify((cmd, options, callback) => {
-  // eslint-disable-next-line no-param-reassign
-  if (!options) options = {};
-  // eslint-disable-next-line no-param-reassign
-  options.maxBuffer = 1024 * 1024 * 10; // Set maxBuffer to 10 MB or adjust as needed
-  nodecmd.get(cmd, options, callback);
-});
+const exec = util.promisify(require('child_process').exec);
+
+async function runCommand(command) {
+  try {
+    const { stdout, stderr } = await exec(command, { maxBuffer: 1024 * 1024 * 10 });
+    console.log('Command output:', stdout);
+    return { stdout, stderr };
+  } catch (error) {
+    console.error('Command error:', error.stderr || error.stdout);
+    throw new Error(`Error executing command: ${error.message}`);
+  }
+}
 
 /**
  * Converts file sizes to a specified unit or the most appropriate unit based on the total size.
@@ -316,7 +321,7 @@ async function untarFile(extractPath, tarFilePath) {
   try {
     await fs.mkdir(extractPath, { recursive: true });
     const unpackCmd = `sudo tar -xvzf ${tarFilePath} -C ${extractPath}`;
-    await cmdAsync(unpackCmd);
+    await runCommand(unpackCmd);
     return true;
   } catch (err) {
     log.error('Error during extraction:', err);
