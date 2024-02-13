@@ -12,6 +12,14 @@ const verificationHelper = require('./verificationHelper');
 
 const cmdAsync = util.promisify(nodecmd.get);
 
+const cmdGetWithMaxBuffer = util.promisify((cmd, options, callback) => {
+  // eslint-disable-next-line no-param-reassign
+  if (!options) options = {};
+  // eslint-disable-next-line no-param-reassign
+  options.maxBuffer = 1024 * 1024 * 10; // Set maxBuffer to 10 MB or adjust as needed
+  nodecmd.get(cmd, options, callback);
+});
+
 /**
  * Converts file sizes to a specified unit or the most appropriate unit based on the total size.
  * @param {number | Array<{ file_size: number }>} sizes - Total size in bytes or an array of file sizes.
@@ -328,7 +336,7 @@ async function createTarGz(sourceDirectory, outputFileName) {
     const outputDirectory = outputFileName.substring(0, outputFileName.lastIndexOf('/'));
     await fs.mkdir(outputDirectory, { recursive: true });
     const packCmd = `sudo tar -czvf ${outputFileName} -C ${sourceDirectory} .`;
-    await cmdAsync(packCmd);
+    await cmdGetWithMaxBuffer(packCmd);
     return { status: true };
   } catch (error) {
     log.error('Error creating tarball:', error);
