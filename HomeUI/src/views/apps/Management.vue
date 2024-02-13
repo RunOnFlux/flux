@@ -6227,7 +6227,6 @@ export default {
           reject('XMLHttpRequest is not supported.');
           return;
         }
-        console.log(`TEST: ${JSON.stringify(file)}`);
         const xhr = new XMLHttpRequest();
         const action = this.getUploadFolder(file.path, file.file_name);
         if (xhr.upload) {
