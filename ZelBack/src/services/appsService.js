@@ -1093,11 +1093,27 @@ function startAppMonitoring(appName) {
           return;
         }
         const statsNow = await dockerService.dockerContainerStats(appName);
-        const containerSize = await dockerService.dockerContainerInspect(appName, { size: true });
+        const containerInfo = await dockerService.dockerContainerInspect(appName, { size: true });
+        let containerTotalSize = +containerInfo.SizeRootFs ?? 0;
+
+        // traverse mounts/volumes to find size used on host
+        if (containerInfo?.Mounts?.length) {
+          containerInfo.Mounts.forEach((mount) => {
+            const source = mount?.Source;
+            if (source) {
+              const mountInfo = nodecmd.runSync(`sudo du -sb ${source}`);
+              const mountSize = +mountInfo?.data.split(source)[0] ?? 0;
+              if (typeof mountSize === 'number' && !isNaN(mountSize)) {
+                containerTotalSize += mountSize;
+              }
+            }
+          })
+        }
+
         // const appFolderName = dockerService.getAppDockerNameIdentifier(appName).substring(1);
         // const folderSize = await getAppFolderSize(appFolderName);
         statsNow.disk_stats = {
-          used: containerSize.SizeRootFs ?? 0,
+          used: containerTotalSize ?? 0,
         };
         appsMonitored[appName].oneMinuteStatsStore.unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
         if (appsMonitored[appName].oneMinuteStatsStore.length > 60) {
@@ -1123,10 +1139,27 @@ function startAppMonitoring(appName) {
           return;
         }
         const statsNow = await dockerService.dockerContainerStats(appName);
-        const appFolderName = dockerService.getAppDockerNameIdentifier(appName).substring(1);
-        const folderSize = await getAppFolderSize(appFolderName);
+        const containerInfo = await dockerService.dockerContainerInspect(appName, { size: true });
+        let containerTotalSize = +containerInfo.SizeRootFs ?? 0;
+
+        // traverse mounts/volumes to find size used on host
+        if (containerInfo?.Mounts?.length) {
+          containerInfo.Mounts.forEach((mount) => {
+            const source = mount?.Source;
+            if (source) {
+              const mountInfo = nodecmd.runSync(`sudo du -sb ${source}`);
+              const mountSize = +mountInfo?.data.split(source)[0] ?? 0;
+              if (typeof mountSize === 'number' && !isNaN(mountSize)) {
+                containerTotalSize += mountSize;
+              }
+            }
+          })
+        }
+
+        //const appFolderName = dockerService.getAppDockerNameIdentifier(appName).substring(1);
+        //const folderSize = await getAppFolderSize(appFolderName);
         statsNow.disk_stats = {
-          used: folderSize,
+          used: containerTotalSize ?? 0,
         };
         appsMonitored[appName].fifteenMinStatsStore.unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
         if (appsMonitored[appName].oneMinuteStatsStore.length > 96) {
