@@ -555,6 +555,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
   const options = {
     Image: appSpecifications.repotag,
     name: getAppIdentifier(identifier),
+    Hostname: appSpecifications.name,
     AttachStdin: true,
     AttachStdout: true,
     AttachStderr: true,
