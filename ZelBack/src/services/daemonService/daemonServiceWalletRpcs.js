@@ -40,30 +40,24 @@ async function addMultiSigAddress(req, res) {
  * @returns {object} Message.
  */
 async function addMultiSigAddressPost(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    let { n } = processedBody;
-    let { keysobject } = processedBody;
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    if (authorized !== true) {
-      response = messageHelper.errUnauthorizedMessage();
-      return res.json(response);
-    }
-    const rpccall = 'addMultiSigAddress';
-    let rpcparameters = [];
-    if (n && keysobject) {
-      n = serviceHelper.ensureNumber(n);
-      keysobject = serviceHelper.ensureObject(keysobject);
-      rpcparameters = [n, keysobject];
-    }
-    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-
+  const processedBody = serviceHelper.ensureObject(req.body);
+  let { n } = processedBody;
+  let { keysobject } = processedBody;
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
+  if (authorized !== true) {
+    response = messageHelper.errUnauthorizedMessage();
     return res.json(response);
-  });
+  }
+  const rpccall = 'addMultiSigAddress';
+  let rpcparameters = [];
+  if (n && keysobject) {
+    n = serviceHelper.ensureNumber(n);
+    keysobject = serviceHelper.ensureObject(keysobject);
+    rpcparameters = [n, keysobject];
+  }
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
+
+  return res.json(response);
 }
 
 /**
@@ -594,37 +588,31 @@ async function sendFrom(req, res) {
  * @returns {object} Message.
  */
 async function sendFromPost(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const { tofluxaddress } = processedBody;
-    let {
-      amount, minconf, comment, commentto,
-    } = processedBody;
-    const account = '';
-    minconf = minconf || 1;
-    comment = comment || '';
-    commentto = commentto || '';
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    if (authorized !== true) {
-      response = messageHelper.errUnauthorizedMessage();
-      return res.json(response);
-    }
-    const rpccall = 'sendFrom';
-    let rpcparameters = [];
-    if (tofluxaddress && amount) {
-      amount = serviceHelper.ensureNumber(amount);
-      minconf = serviceHelper.ensureNumber(minconf);
-      rpcparameters = [account, tofluxaddress, amount, minconf, comment, commentto];
-    }
-
-    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-
+  const processedBody = serviceHelper.ensureObject(req.body);
+  const { tofluxaddress } = processedBody;
+  let {
+    amount, minconf, comment, commentto,
+  } = processedBody;
+  const account = '';
+  minconf = minconf || 1;
+  comment = comment || '';
+  commentto = commentto || '';
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
+  if (authorized !== true) {
+    response = messageHelper.errUnauthorizedMessage();
     return res.json(response);
-  });
+  }
+  const rpccall = 'sendFrom';
+  let rpcparameters = [];
+  if (tofluxaddress && amount) {
+    amount = serviceHelper.ensureNumber(amount);
+    minconf = serviceHelper.ensureNumber(minconf);
+    rpcparameters = [account, tofluxaddress, amount, minconf, comment, commentto];
+  }
+
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
+
+  return res.json(response);
 }
 
 /**
@@ -673,41 +661,35 @@ async function sendMany(req, res) {
  * @returns {object} Message.
  */
 async function sendManyPost(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    let {
-      amounts, minconf, comment, substractfeefromamount,
-    } = processedBody;
-    const fromaccount = '';
-    minconf = minconf || 1;
-    comment = comment || '';
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    if (authorized !== true) {
-      response = messageHelper.errUnauthorizedMessage();
-      return res.json(response);
-    }
-    const rpccall = 'sendMany';
-    let rpcparameters = [];
-    if (!amounts) {
-      response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-      return res.json(response);
-    }
-    amounts = serviceHelper.ensureObject(amounts);
-    minconf = serviceHelper.ensureNumber(minconf);
-    rpcparameters = [fromaccount, amounts, minconf, comment];
-    if (substractfeefromamount) {
-      substractfeefromamount = serviceHelper.ensureObject(substractfeefromamount);
-      rpcparameters.push(substractfeefromamount);
-    }
-
-    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-
+  const processedBody = serviceHelper.ensureObject(req.body);
+  let {
+    amounts, minconf, comment, substractfeefromamount,
+  } = processedBody;
+  const fromaccount = '';
+  minconf = minconf || 1;
+  comment = comment || '';
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
+  if (authorized !== true) {
+    response = messageHelper.errUnauthorizedMessage();
     return res.json(response);
-  });
+  }
+  const rpccall = 'sendMany';
+  let rpcparameters = [];
+  if (!amounts) {
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
+    return res.json(response);
+  }
+  amounts = serviceHelper.ensureObject(amounts);
+  minconf = serviceHelper.ensureNumber(minconf);
+  rpcparameters = [fromaccount, amounts, minconf, comment];
+  if (substractfeefromamount) {
+    substractfeefromamount = serviceHelper.ensureObject(substractfeefromamount);
+    rpcparameters.push(substractfeefromamount);
+  }
+
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
+
+  return res.json(response);
 }
 
 /**
@@ -750,37 +732,31 @@ async function sendToAddress(req, res) {
  * @returns {object} Message.
  */
 async function sendToAddressPost(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const { fluxaddress } = processedBody;
-    let { amount } = processedBody;
-    let { comment } = processedBody;
-    let { commentto } = processedBody;
-    let { substractfeefromamount } = processedBody;
-    comment = comment || '';
-    commentto = commentto || '';
-    substractfeefromamount = substractfeefromamount ?? false;
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    if (authorized !== true) {
-      response = messageHelper.errUnauthorizedMessage();
-      return res.json(response);
-    }
-    const rpccall = 'sendToAddress';
-    let rpcparameters = [];
-    if (fluxaddress && amount) {
-      amount = serviceHelper.ensureNumber(amount);
-      substractfeefromamount = serviceHelper.ensureBoolean(substractfeefromamount);
-      rpcparameters = [fluxaddress, amount, comment, commentto, substractfeefromamount];
-    }
-
-    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-
+  const processedBody = serviceHelper.ensureObject(req.body);
+  const { fluxaddress } = processedBody;
+  let { amount } = processedBody;
+  let { comment } = processedBody;
+  let { commentto } = processedBody;
+  let { substractfeefromamount } = processedBody;
+  comment = comment || '';
+  commentto = commentto || '';
+  substractfeefromamount = substractfeefromamount ?? false;
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
+  if (authorized !== true) {
+    response = messageHelper.errUnauthorizedMessage();
     return res.json(response);
-  });
+  }
+  const rpccall = 'sendToAddress';
+  let rpcparameters = [];
+  if (fluxaddress && amount) {
+    amount = serviceHelper.ensureNumber(amount);
+    substractfeefromamount = serviceHelper.ensureBoolean(substractfeefromamount);
+    rpcparameters = [fluxaddress, amount, comment, commentto, substractfeefromamount];
+  }
+
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
+
+  return res.json(response);
 }
 
 /**
@@ -842,30 +818,24 @@ async function signMessage(req, res) {
  * @returns {object} Message.
  */
 async function signMessagePost(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const { taddr } = processedBody;
-    const { message } = processedBody;
+  const processedBody = serviceHelper.ensureObject(req.body);
+  const { taddr } = processedBody;
+  const { message } = processedBody;
 
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    if (authorized !== true) {
-      response = messageHelper.errUnauthorizedMessage();
-      return res.json(response);
-    }
-    const rpccall = 'signMessage';
-    let rpcparameters = [];
-    if (taddr && message) {
-      rpcparameters = [taddr, message];
-    }
-
-    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
+  if (authorized !== true) {
+    response = messageHelper.errUnauthorizedMessage();
     return res.json(response);
-  });
+  }
+  const rpccall = 'signMessage';
+  let rpcparameters = [];
+  if (taddr && message) {
+    rpcparameters = [taddr, message];
+  }
+
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
+
+  return res.json(response);
 }
 
 /**

@@ -34,8 +34,10 @@ const geolocationService = require('./geolocationService');
 const syncthingService = require('./syncthingService');
 const pgpService = require('./pgpService');
 const signatureVerifier = require('./signatureVerifier');
+// eslint-disable-next-line no-unused-vars
+const backupRestoreService = require('./backupRestoreService');
+const IOUtils = require('./IOUtils');
 const log = require('../lib/log');
-
 const { invalidMessages } = require('./invalidMessages');
 
 const fluxDirPath = path.join(__dirname, '../../../');
@@ -96,6 +98,8 @@ let removalInProgress = false;
 let installationInProgress = false;
 let reinstallationOfOldAppsInProgress = false;
 let masterSlaveAppsRunning = false;
+const backupInProgress = [];
+const restoreInProgress = [];
 
 const hashesNumberOfSearchs = new Map();
 const mastersRunningGSyncthingApps = new Map();
@@ -321,18 +325,26 @@ async function listAppsImages(req, res) {
  * @param {string} command What command to execute, api route to be done.
  * @param {object} zelidauth What zelidauth headers to send with request for authentication purposes.
  * @param {(object|boolean|string)} paramA first parameter that a command may need
+ * @param {boolean} bypassMyIp Indicates if method should not be made to the ip of the fluxnode from where the call was made
  */
-async function executeAppGlobalCommand(appname, command, zelidauth, paramA) {
+async function executeAppGlobalCommand(appname, command, zelidauth, paramA, bypassMyIp) {
   try {
     // get a list of the specific app locations
     // eslint-disable-next-line no-use-before-define
     const locations = await appLocation(appname);
+    const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+    const myUrl = myIP.split(':')[0];
+    const myUrlPort = myIP.split(':')[1] || 16127;
     let i = 1;
     // eslint-disable-next-line no-restricted-syntax
     for (const appInstance of locations) {
       // HERE let the node we are connected to handle it
       const ip = appInstance.ip.split(':')[0];
       const port = appInstance.ip.split(':')[1] || 16127;
+      if (bypassMyIp && myUrl === ip && myUrlPort === port) {
+        // eslint-disable-next-line no-continue
+        continue;
+      }
       const axiosConfig = {
         headers: {
           zelidauth,
@@ -1424,66 +1436,60 @@ async function appChanges(req, res) {
  * @param {object} res Response.
  */
 async function appExec(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const processedBody = serviceHelper.ensureObject(body);
+  try {
+    const processedBody = serviceHelper.ensureObject(req.body);
 
-      if (!processedBody.appname) {
-        throw new Error('No Flux App specified');
-      }
-
-      if (!processedBody.cmd) {
-        throw new Error('No command specified');
-      }
-
-      const mainAppName = processedBody.appname.split('_')[1] || processedBody.appname;
-
-      const authorized = await verificationHelper.verifyPrivilege('appowner', req, mainAppName);
-      if (authorized === true) {
-        let cmd = processedBody.cmd || [];
-        let env = processedBody.env || [];
-
-        cmd = serviceHelper.ensureObject(cmd);
-        env = serviceHelper.ensureObject(env);
-
-        const containers = await dockerService.dockerListContainers(true);
-        const myContainer = containers.find((container) => (container.Names[0] === dockerService.getAppDockerNameIdentifier(processedBody.appname) || container.Id === processedBody.appname));
-        const dockerContainer = dockerService.getDockerContainer(myContainer.Id);
-
-        res.setHeader('Content-Type', 'application/json');
-
-        dockerService.dockerContainerExec(dockerContainer, cmd, env, res, (error) => {
-          if (error) {
-            log.error(error);
-            const errorResponse = messageHelper.createErrorMessage(
-              error.message || error,
-              error.name,
-              error.code,
-            );
-            res.write(errorResponse);
-            res.end();
-          } else {
-            res.end();
-          }
-        });
-      } else {
-        const errMessage = messageHelper.errUnauthorizedMessage();
-        res.json(errMessage);
-      }
-    } catch (error) {
-      log.error(error);
-      const errorResponse = messageHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
-      );
-      res.json(errorResponse);
+    if (!processedBody.appname) {
+      throw new Error('No Flux App specified');
     }
-  });
+
+    if (!processedBody.cmd) {
+      throw new Error('No command specified');
+    }
+
+    const mainAppName = processedBody.appname.split('_')[1] || processedBody.appname;
+
+    const authorized = await verificationHelper.verifyPrivilege('appowner', req, mainAppName);
+    if (authorized === true) {
+      let cmd = processedBody.cmd || [];
+      let env = processedBody.env || [];
+
+      cmd = serviceHelper.ensureObject(cmd);
+      env = serviceHelper.ensureObject(env);
+
+      const containers = await dockerService.dockerListContainers(true);
+      const myContainer = containers.find((container) => (container.Names[0] === dockerService.getAppDockerNameIdentifier(processedBody.appname) || container.Id === processedBody.appname));
+      const dockerContainer = dockerService.getDockerContainer(myContainer.Id);
+
+      res.setHeader('Content-Type', 'application/json');
+
+      dockerService.dockerContainerExec(dockerContainer, cmd, env, res, (error) => {
+        if (error) {
+          log.error(error);
+          const errorResponse = messageHelper.createErrorMessage(
+            error.message || error,
+            error.name,
+            error.code,
+          );
+          res.write(errorResponse);
+          res.end();
+        } else {
+          res.end();
+        }
+      });
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
 }
 
 /**
@@ -1936,8 +1942,8 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
         if (res) {
           res.write(serviceHelper.ensureString(stFolderCreation2));
         }
-        /* if (appId.toLowerCase().includes('minecraft')) {
-          const stignore = `sudo echo '*.paused' >| ${appsFolder + appId + containerFolder}/.stignore`;
+        if (i === 0) {
+          const stignore = `sudo echo '/backup' >| ${appsFolder + appId + containerFolder}/.stignore`;
           log.info(stignore);
           // eslint-disable-next-line no-await-in-loop
           await cmdAsync(stignore);
@@ -1948,7 +1954,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
           if (res) {
             res.write(serviceHelper.ensureString(stiFileCreation));
           }
-        } */
+        }
       }
     }
 
@@ -7168,112 +7174,106 @@ function specificationFormatter(appSpecification) {
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function registerAppGlobalyApi(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const authorized = await verificationHelper.verifyPrivilege('user', req);
-      if (!authorized) {
-        const errMessage = messageHelper.errUnauthorizedMessage();
-        res.json(errMessage);
-        return;
-      }
-      // first check if this node is available for application registration
-      if (outgoingPeers.length < config.fluxapps.minOutgoing) {
-        throw new Error('Sorry, This Flux does not have enough outgoing peers for safe application registration');
-      }
-      if (incomingPeers.length < config.fluxapps.minIncoming) {
-        throw new Error('Sorry, This Flux does not have enough incoming peers for safe application registration');
-      }
-      const processedBody = serviceHelper.ensureObject(body);
-      // Note. Actually signature, timestamp is not needed. But we require it only to verify that user indeed has access to the private key of the owner zelid.
-      // name and port HAVE to be unique for application. Check if they don't exist in global database
-      // first let's check if all fields are present and have proper format except tiered and tiered specifications and those can be omitted
-      let { appSpecification, timestamp, signature } = processedBody;
-      let messageType = processedBody.type; // determines how data is treated in the future
-      let typeVersion = processedBody.version; // further determines how data is treated in the future
-      if (!appSpecification || !timestamp || !signature || !messageType || !typeVersion) {
-        throw new Error('Incomplete message received. Check if appSpecification, type, version, timestamp and signature are provided.');
-      }
-      if (messageType !== 'zelappregister' && messageType !== 'fluxappregister') {
-        throw new Error('Invalid type of message');
-      }
-      if (typeVersion !== 1) {
-        throw new Error('Invalid version of message');
-      }
-      appSpecification = serviceHelper.ensureObject(appSpecification);
-      timestamp = serviceHelper.ensureNumber(timestamp);
-      signature = serviceHelper.ensureString(signature);
-      messageType = serviceHelper.ensureString(messageType);
-      typeVersion = serviceHelper.ensureNumber(typeVersion);
-
-      const appSpecFormatted = specificationFormatter(appSpecification);
-
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      if (!syncStatus.data.synced) {
-        throw new Error('Daemon not yet synced.');
-      }
-      const daemonHeight = syncStatus.data.height;
-
-      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-      await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
-
-      // check if name is not yet registered
-      await checkApplicationRegistrationNameConflicts(appSpecFormatted);
-
-      // check if zelid owner is correct ( done in message verification )
-      // if signature is not correct, then specifications are not correct type or bad message received. Respond with 'Received message is invalid';
-      await verifyAppMessageSignature(messageType, typeVersion, appSpecFormatted, timestamp, signature);
-
-      // if all ok, then sha256 hash of entire message = message + timestamp + signature. We are hashing all to have always unique value.
-      // If hashing just specificiations, if application goes back to previous specifications, it may pose some issues if we have indeed correct state
-      // We respond with a hash that is supposed to go to transaction.
-      const message = messageType + typeVersion + JSON.stringify(appSpecFormatted) + timestamp + signature;
-      const messageHASH = await generalService.messageHash(message);
-      // now all is great. Store appSpecFormatted, timestamp, signature and hash in appsTemporaryMessages. with 1 hours expiration time. Broadcast this message to all outgoing connections.
-      const temporaryAppMessage = { // specification of temp message
-        type: messageType,
-        version: typeVersion,
-        appSpecifications: appSpecFormatted,
-        hash: messageHASH,
-        timestamp,
-        signature,
-      };
-      await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
-      // above takes 2-3 seconds
-      await serviceHelper.delay(1200); // it takes receiving node at least 1 second to process the message. Add 1200 ms mas for processing
-      // this operations takes 2.5-3.5 seconds and is heavy, message gets verified again.
-      await requestAppMessage(messageHASH); // this itself verifies that Peers received our message broadcast AND peers send us the message back. By peers sending the message back we finally store it to our temporary message storage and rebroadcast it again
-      // request app message is quite slow and from performance testing message will appear roughly 5 seconds after ask
-      await serviceHelper.delay(1200); // 1200 ms mas for processing - peer sends message back to us
-      // check temporary message storage
-      let tempMessage = await checkAppTemporaryMessageExistence(messageHASH); // Cumulus measurement: after roughly 8 seconds here
-      for (let i = 0; i < 20; i += 1) { // ask for up to 20 times - 10 seconds. Must have been processed by that time or it failed. Cumulus measurement: Approx 5-6 seconds
-        if (!tempMessage) {
-          // eslint-disable-next-line no-await-in-loop
-          await serviceHelper.delay(500);
-          // eslint-disable-next-line no-await-in-loop
-          tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
-        }
-      }
-      if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
-        const responseHash = messageHelper.createDataMessage(tempMessage.hash);
-        res.json(responseHash); // all ok
-        return;
-      }
-      throw new Error('Unable to register application on the network. Try again later.');
-    } catch (error) {
-      log.warn(error);
-      const errorResponse = messageHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
-      );
-      res.json(errorResponse);
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('user', req);
+    if (!authorized) {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+      return;
     }
-  });
+    // first check if this node is available for application registration
+    if (outgoingPeers.length < config.fluxapps.minOutgoing) {
+      throw new Error('Sorry, This Flux does not have enough outgoing peers for safe application registration');
+    }
+    if (incomingPeers.length < config.fluxapps.minIncoming) {
+      throw new Error('Sorry, This Flux does not have enough incoming peers for safe application registration');
+    }
+    const processedBody = serviceHelper.ensureObject(req.body);
+    // Note. Actually signature, timestamp is not needed. But we require it only to verify that user indeed has access to the private key of the owner zelid.
+    // name and port HAVE to be unique for application. Check if they don't exist in global database
+    // first let's check if all fields are present and have proper format except tiered and tiered specifications and those can be omitted
+    let { appSpecification, timestamp, signature } = processedBody;
+    let messageType = processedBody.type; // determines how data is treated in the future
+    let typeVersion = processedBody.version; // further determines how data is treated in the future
+    if (!appSpecification || !timestamp || !signature || !messageType || !typeVersion) {
+      throw new Error('Incomplete message received. Check if appSpecification, type, version, timestamp and signature are provided.');
+    }
+    if (messageType !== 'zelappregister' && messageType !== 'fluxappregister') {
+      throw new Error('Invalid type of message');
+    }
+    if (typeVersion !== 1) {
+      throw new Error('Invalid version of message');
+    }
+    appSpecification = serviceHelper.ensureObject(appSpecification);
+    timestamp = serviceHelper.ensureNumber(timestamp);
+    signature = serviceHelper.ensureString(signature);
+    messageType = serviceHelper.ensureString(messageType);
+    typeVersion = serviceHelper.ensureNumber(typeVersion);
+
+    const appSpecFormatted = specificationFormatter(appSpecification);
+
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    if (!syncStatus.data.synced) {
+      throw new Error('Daemon not yet synced.');
+    }
+    const daemonHeight = syncStatus.data.height;
+
+    // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
+    await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
+
+    // check if name is not yet registered
+    await checkApplicationRegistrationNameConflicts(appSpecFormatted);
+
+    // check if zelid owner is correct ( done in message verification )
+    // if signature is not correct, then specifications are not correct type or bad message received. Respond with 'Received message is invalid';
+    await verifyAppMessageSignature(messageType, typeVersion, appSpecFormatted, timestamp, signature);
+
+    // if all ok, then sha256 hash of entire message = message + timestamp + signature. We are hashing all to have always unique value.
+    // If hashing just specificiations, if application goes back to previous specifications, it may pose some issues if we have indeed correct state
+    // We respond with a hash that is supposed to go to transaction.
+    const message = messageType + typeVersion + JSON.stringify(appSpecFormatted) + timestamp + signature;
+    const messageHASH = await generalService.messageHash(message);
+    // now all is great. Store appSpecFormatted, timestamp, signature and hash in appsTemporaryMessages. with 1 hours expiration time. Broadcast this message to all outgoing connections.
+    const temporaryAppMessage = { // specification of temp message
+      type: messageType,
+      version: typeVersion,
+      appSpecifications: appSpecFormatted,
+      hash: messageHASH,
+      timestamp,
+      signature,
+    };
+    await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
+    // above takes 2-3 seconds
+    await serviceHelper.delay(1200); // it takes receiving node at least 1 second to process the message. Add 1200 ms mas for processing
+    // this operations takes 2.5-3.5 seconds and is heavy, message gets verified again.
+    await requestAppMessage(messageHASH); // this itself verifies that Peers received our message broadcast AND peers send us the message back. By peers sending the message back we finally store it to our temporary message storage and rebroadcast it again
+    // request app message is quite slow and from performance testing message will appear roughly 5 seconds after ask
+    await serviceHelper.delay(1200); // 1200 ms mas for processing - peer sends message back to us
+    // check temporary message storage
+    let tempMessage = await checkAppTemporaryMessageExistence(messageHASH); // Cumulus measurement: after roughly 8 seconds here
+    for (let i = 0; i < 20; i += 1) { // ask for up to 20 times - 10 seconds. Must have been processed by that time or it failed. Cumulus measurement: Approx 5-6 seconds
+      if (!tempMessage) {
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(500);
+        // eslint-disable-next-line no-await-in-loop
+        tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
+      }
+    }
+    if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
+      const responseHash = messageHelper.createDataMessage(tempMessage.hash);
+      res.json(responseHash); // all ok
+      return;
+    }
+    throw new Error('Unable to register application on the network. Try again later.');
+  } catch (error) {
+    log.warn(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
 }
 
 /**
@@ -7283,127 +7283,121 @@ async function registerAppGlobalyApi(req, res) {
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function updateAppGlobalyApi(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const authorized = await verificationHelper.verifyPrivilege('user', req);
-      if (!authorized) {
-        const errMessage = messageHelper.errUnauthorizedMessage();
-        res.json(errMessage);
-        return;
-      }
-      // first check if this node is available for application update
-      if (outgoingPeers.length < config.fluxapps.minOutgoing) {
-        throw new Error('Sorry, This Flux does not have enough outgoing peers for safe application update');
-      }
-      if (incomingPeers.length < config.fluxapps.minIncoming) {
-        throw new Error('Sorry, This Flux does not have enough incoming peers for safe application update');
-      }
-      const processedBody = serviceHelper.ensureObject(body);
-      // Note. Actually signature, timestamp is not needed. But we require it only to verify that user indeed has access to the private key of the owner zelid.
-      // name and ports HAVE to be unique for application. Check if they don't exist in global database
-      // first let's check if all fields are present and have proper format except tiered and tiered specifications and those can be omitted
-      let { appSpecification, timestamp, signature } = processedBody;
-      let messageType = processedBody.type; // determines how data is treated in the future
-      let typeVersion = processedBody.version; // further determines how data is treated in the future
-      if (!appSpecification || !timestamp || !signature || !messageType || !typeVersion) {
-        throw new Error('Incomplete message received. Check if appSpecification, timestamp, type, version and signature are provided.');
-      }
-      if (messageType !== 'zelappupdate' && messageType !== 'fluxappupdate') {
-        throw new Error('Invalid type of message');
-      }
-      if (typeVersion !== 1) {
-        throw new Error('Invalid version of message');
-      }
-      appSpecification = serviceHelper.ensureObject(appSpecification);
-      timestamp = serviceHelper.ensureNumber(timestamp);
-      signature = serviceHelper.ensureString(signature);
-      messageType = serviceHelper.ensureString(messageType);
-      typeVersion = serviceHelper.ensureNumber(typeVersion);
-
-      const appSpecFormatted = specificationFormatter(appSpecification);
-
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      if (!syncStatus.data.synced) {
-        throw new Error('Daemon not yet synced.');
-      }
-      const daemonHeight = syncStatus.data.height;
-
-      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-      await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
-
-      // verify that app exists, does not change repotag and is signed by app owner.
-      const db = dbHelper.databaseConnection();
-      const database = db.db(config.database.appsglobal.database);
-      // may throw
-      const query = { name: appSpecFormatted.name };
-      const projection = {
-        projection: {
-          _id: 0,
-        },
-      };
-      const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-      if (!appInfo) {
-        throw new Error('Flux App update received but application to update does not exist!');
-      }
-      if (appInfo.repotag !== appSpecFormatted.repotag) { // this is OK. <= v3 cannot change, v4 can but does not have this in specifications as its compose
-        throw new Error('Flux App update of repotag is not allowed');
-      }
-      const appOwner = appInfo.owner; // ensure previous app owner is signing this message
-      // here signature is checked against PREVIOUS app owner
-      await verifyAppMessageUpdateSignature(messageType, typeVersion, appSpecFormatted, timestamp, signature, appOwner);
-
-      // if all ok, then sha256 hash of entire message = message + timestamp + signature. We are hashing all to have always unique value.
-      // If hashing just specificiations, if application goes back to previous specifications, it may pose some issues if we have indeed correct state
-      // We respond with a hash that is supposed to go to transaction.
-      const message = messageType + typeVersion + JSON.stringify(appSpecFormatted) + timestamp + signature;
-      const messageHASH = await generalService.messageHash(message);
-      // now all is great. Store appSpecFormatted, timestamp, signature and hash in appsTemporaryMessages. with 1 hours expiration time. Broadcast this message to all outgoing connections.
-      const temporaryAppMessage = { // specification of temp message
-        type: messageType,
-        version: typeVersion,
-        appSpecifications: appSpecFormatted,
-        hash: messageHASH,
-        timestamp,
-        signature,
-      };
-      // verify that app exists, does not change repotag (for v1-v3), does not change name and does not change component names
-      await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, temporaryAppMessage.timestamp);
-      await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
-      // above takes 2-3 seconds
-      await serviceHelper.delay(1200); // it takes receiving node at least 1 second to process the message. Add 1200 ms mas for processing
-      // this operations takes 2.5-3.5 seconds and is heavy, message gets verified again.
-      await requestAppMessage(messageHASH); // this itself verifies that Peers received our message broadcast AND peers send us the message back. By peers sending the message back we finally store it to our temporary message storage and rebroadcast it again
-      await serviceHelper.delay(1200); // 1200 ms mas for processing - peer sends message back to us
-      // check temporary message storage
-      let tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
-      for (let i = 0; i < 20; i += 1) { // ask for up to 20 times - 10 seconds. Must have been processed by that time or it failed.
-        if (!tempMessage) {
-          // eslint-disable-next-line no-await-in-loop
-          await serviceHelper.delay(500);
-          // eslint-disable-next-line no-await-in-loop
-          tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
-        }
-      }
-      if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
-        const responseHash = messageHelper.createDataMessage(tempMessage.hash);
-        res.json(responseHash); // all ok
-        return;
-      }
-      throw new Error('Unable to update application on the network. Try again later.');
-    } catch (error) {
-      log.warn(error);
-      const errorResponse = messageHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
-      );
-      res.json(errorResponse);
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('user', req);
+    if (!authorized) {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+      return;
     }
-  });
+    // first check if this node is available for application update
+    if (outgoingPeers.length < config.fluxapps.minOutgoing) {
+      throw new Error('Sorry, This Flux does not have enough outgoing peers for safe application update');
+    }
+    if (incomingPeers.length < config.fluxapps.minIncoming) {
+      throw new Error('Sorry, This Flux does not have enough incoming peers for safe application update');
+    }
+    const processedBody = serviceHelper.ensureObject(req.body);
+    // Note. Actually signature, timestamp is not needed. But we require it only to verify that user indeed has access to the private key of the owner zelid.
+    // name and ports HAVE to be unique for application. Check if they don't exist in global database
+    // first let's check if all fields are present and have proper format except tiered and tiered specifications and those can be omitted
+    let { appSpecification, timestamp, signature } = processedBody;
+    let messageType = processedBody.type; // determines how data is treated in the future
+    let typeVersion = processedBody.version; // further determines how data is treated in the future
+    if (!appSpecification || !timestamp || !signature || !messageType || !typeVersion) {
+      throw new Error('Incomplete message received. Check if appSpecification, timestamp, type, version and signature are provided.');
+    }
+    if (messageType !== 'zelappupdate' && messageType !== 'fluxappupdate') {
+      throw new Error('Invalid type of message');
+    }
+    if (typeVersion !== 1) {
+      throw new Error('Invalid version of message');
+    }
+    appSpecification = serviceHelper.ensureObject(appSpecification);
+    timestamp = serviceHelper.ensureNumber(timestamp);
+    signature = serviceHelper.ensureString(signature);
+    messageType = serviceHelper.ensureString(messageType);
+    typeVersion = serviceHelper.ensureNumber(typeVersion);
+
+    const appSpecFormatted = specificationFormatter(appSpecification);
+
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    if (!syncStatus.data.synced) {
+      throw new Error('Daemon not yet synced.');
+    }
+    const daemonHeight = syncStatus.data.height;
+
+    // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
+    await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
+
+    // verify that app exists, does not change repotag and is signed by app owner.
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+    // may throw
+    const query = { name: appSpecFormatted.name };
+    const projection = {
+      projection: {
+        _id: 0,
+      },
+    };
+    const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+    if (!appInfo) {
+      throw new Error('Flux App update received but application to update does not exist!');
+    }
+    if (appInfo.repotag !== appSpecFormatted.repotag) { // this is OK. <= v3 cannot change, v4 can but does not have this in specifications as its compose
+      throw new Error('Flux App update of repotag is not allowed');
+    }
+    const appOwner = appInfo.owner; // ensure previous app owner is signing this message
+    // here signature is checked against PREVIOUS app owner
+    await verifyAppMessageUpdateSignature(messageType, typeVersion, appSpecFormatted, timestamp, signature, appOwner);
+
+    // if all ok, then sha256 hash of entire message = message + timestamp + signature. We are hashing all to have always unique value.
+    // If hashing just specificiations, if application goes back to previous specifications, it may pose some issues if we have indeed correct state
+    // We respond with a hash that is supposed to go to transaction.
+    const message = messageType + typeVersion + JSON.stringify(appSpecFormatted) + timestamp + signature;
+    const messageHASH = await generalService.messageHash(message);
+    // now all is great. Store appSpecFormatted, timestamp, signature and hash in appsTemporaryMessages. with 1 hours expiration time. Broadcast this message to all outgoing connections.
+    const temporaryAppMessage = { // specification of temp message
+      type: messageType,
+      version: typeVersion,
+      appSpecifications: appSpecFormatted,
+      hash: messageHASH,
+      timestamp,
+      signature,
+    };
+    // verify that app exists, does not change repotag (for v1-v3), does not change name and does not change component names
+    await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, temporaryAppMessage.timestamp);
+    await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
+    // above takes 2-3 seconds
+    await serviceHelper.delay(1200); // it takes receiving node at least 1 second to process the message. Add 1200 ms mas for processing
+    // this operations takes 2.5-3.5 seconds and is heavy, message gets verified again.
+    await requestAppMessage(messageHASH); // this itself verifies that Peers received our message broadcast AND peers send us the message back. By peers sending the message back we finally store it to our temporary message storage and rebroadcast it again
+    await serviceHelper.delay(1200); // 1200 ms mas for processing - peer sends message back to us
+    // check temporary message storage
+    let tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
+    for (let i = 0; i < 20; i += 1) { // ask for up to 20 times - 10 seconds. Must have been processed by that time or it failed.
+      if (!tempMessage) {
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(500);
+        // eslint-disable-next-line no-await-in-loop
+        tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
+      }
+    }
+    if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
+      const responseHash = messageHelper.createDataMessage(tempMessage.hash);
+      res.json(responseHash); // all ok
+      return;
+    }
+    throw new Error('Unable to update application on the network. Try again later.');
+  } catch (error) {
+    log.warn(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
 }
 
 /**
@@ -7914,37 +7908,31 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
  * @returns {object} Message.
  */
 async function checkDockerAccessibility(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const authorized = await verificationHelper.verifyPrivilege('user', req);
-      if (!authorized) {
-        const errMessage = messageHelper.errUnauthorizedMessage();
-        return res.json(errMessage);
-      }
-      // check repotag if available for download
-      const processedBody = serviceHelper.ensureObject(body);
-
-      if (!processedBody.repotag) {
-        throw new Error('No repotag specifiec');
-      }
-
-      await verifyRepository(processedBody.repotag);
-      const message = messageHelper.createSuccessMessage('Repotag is accessible');
-      return res.json(message);
-    } catch (error) {
-      log.warn(error);
-      const errorResponse = messageHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
-      );
-      return res.json(errorResponse);
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('user', req);
+    if (!authorized) {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      return res.json(errMessage);
     }
-  });
+    // check repotag if available for download
+    const processedBody = serviceHelper.ensureObject(req.body);
+
+    if (!processedBody.repotag) {
+      throw new Error('No repotag specifiec');
+    }
+
+    await verifyRepository(processedBody.repotag);
+    const message = messageHelper.createSuccessMessage('Repotag is accessible');
+    return res.json(message);
+  } catch (error) {
+    log.warn(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res.json(errorResponse);
+  }
 }
 
 /**
@@ -9094,7 +9082,12 @@ async function checkAndNotifyPeersOfRunningApps() {
             log.warn(`${stoppedApp} is stopped but should be running. Starting...`);
             // it is a stopped global app. Try to run it.
             // check if some removal is in progress and if it is don't start it!
-            if (!removalInProgress && !installationInProgress && !reinstallationOfOldAppsInProgress) {
+            const backupSkip = backupInProgress.some((backupItem) => stoppedApp === backupItem);
+            const restoreSkip = restoreInProgress.some((backupItem) => stoppedApp === backupItem);
+            if (backupSkip || restoreSkip) {
+              log.warn(`Application ${stoppedApp} backup/restore is in progress...`);
+            }
+            if (!removalInProgress && !installationInProgress && !reinstallationOfOldAppsInProgress && !restoreSkip && !backupSkip) {
               log.warn(`${stoppedApp} is stopped, starting`);
               if (!appsStopedCache.has(stoppedApp)) {
                 appsStopedCache.set(stoppedApp, stoppedApp);
@@ -9104,7 +9097,7 @@ async function checkAndNotifyPeersOfRunningApps() {
                 startAppMonitoring(stoppedApp);
               }
             } else {
-              log.warn(`Not starting ${stoppedApp} as application removal or installation is in progress`);
+              log.warn(`Not starting ${stoppedApp} as application removal or installation or backup/restore is in progress`);
             }
           }
         } catch (err) {
@@ -9684,78 +9677,72 @@ async function reinstallOldApplications() {
  * @returns {object} Message.
  */
 async function getAppPrice(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const processedBody = serviceHelper.ensureObject(body);
-      let appSpecification = processedBody;
+  try {
+    const processedBody = serviceHelper.ensureObject(req.body);
+    let appSpecification = processedBody;
 
-      appSpecification = serviceHelper.ensureObject(appSpecification);
-      const appSpecFormatted = specificationFormatter(appSpecification);
+    appSpecification = serviceHelper.ensureObject(appSpecification);
+    const appSpecFormatted = specificationFormatter(appSpecification);
 
-      // verifications skipped. This endpoint is only for price evaluation
+    // verifications skipped. This endpoint is only for price evaluation
 
-      // check if app exists or its a new registration price
-      const db = dbHelper.databaseConnection();
-      const database = db.db(config.database.appsglobal.database);
-      // may throw
-      const query = { name: appSpecFormatted.name };
-      const projection = {
-        projection: {
-          _id: 0,
-        },
-      };
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      if (!syncStatus.data.synced) {
-        throw new Error('Daemon not yet synced.');
-      }
-      const daemonHeight = syncStatus.data.height;
-      const appPrices = await getChainParamsPriceUpdates();
-      const intervals = appPrices.filter((i) => i.height < daemonHeight);
-      const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
-      const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-      const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
-      let actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices);
-      const expireIn = appSpecFormatted.expire || defaultExpire;
-      // app prices are ceiled to highest 0.01
-      const multiplier = expireIn / defaultExpire;
-      actualPriceToPay *= multiplier;
-      actualPriceToPay = Math.ceil(actualPriceToPay * 100) / 100;
-      if (appInfo) {
-        let previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices); // calculate previous based on CURRENT height, with current interval of prices!
-        let previousExpireIn = previousSpecsPrice.expire || defaultExpire; // bad typo bug line. Leave it like it is, this bug is a feature now.
-        if (daemonHeight > 1315000) {
-          previousExpireIn = appInfo.expire || defaultExpire;
-        }
-        const multiplierPrevious = previousExpireIn / defaultExpire;
-        previousSpecsPrice *= multiplierPrevious;
-        previousSpecsPrice = Math.ceil(previousSpecsPrice * 100) / 100;
-        // what is the height difference
-        const heightDifference = daemonHeight - appInfo.height;
-        const perc = (previousExpireIn - heightDifference) / previousExpireIn;
-        if (perc > 0) {
-          actualPriceToPay -= (perc * previousSpecsPrice);
-        }
-      }
-      actualPriceToPay = Number(Math.ceil(actualPriceToPay * 100) / 100);
-      if (actualPriceToPay < priceSpecifications.minPrice) {
-        actualPriceToPay = priceSpecifications.minPrice;
-      }
-      const respondPrice = messageHelper.createDataMessage(actualPriceToPay);
-      return res.json(respondPrice);
-    } catch (error) {
-      log.warn(error);
-      const errorResponse = messageHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
-      );
-      return res.json(errorResponse);
+    // check if app exists or its a new registration price
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+    // may throw
+    const query = { name: appSpecFormatted.name };
+    const projection = {
+      projection: {
+        _id: 0,
+      },
+    };
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    if (!syncStatus.data.synced) {
+      throw new Error('Daemon not yet synced.');
     }
-  });
+    const daemonHeight = syncStatus.data.height;
+    const appPrices = await getChainParamsPriceUpdates();
+    const intervals = appPrices.filter((i) => i.height < daemonHeight);
+    const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
+    const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+    const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
+    let actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices);
+    const expireIn = appSpecFormatted.expire || defaultExpire;
+    // app prices are ceiled to highest 0.01
+    const multiplier = expireIn / defaultExpire;
+    actualPriceToPay *= multiplier;
+    actualPriceToPay = Math.ceil(actualPriceToPay * 100) / 100;
+    if (appInfo) {
+      let previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices); // calculate previous based on CURRENT height, with current interval of prices!
+      let previousExpireIn = previousSpecsPrice.expire || defaultExpire; // bad typo bug line. Leave it like it is, this bug is a feature now.
+      if (daemonHeight > 1315000) {
+        previousExpireIn = appInfo.expire || defaultExpire;
+      }
+      const multiplierPrevious = previousExpireIn / defaultExpire;
+      previousSpecsPrice *= multiplierPrevious;
+      previousSpecsPrice = Math.ceil(previousSpecsPrice * 100) / 100;
+      // what is the height difference
+      const heightDifference = daemonHeight - appInfo.height;
+      const perc = (previousExpireIn - heightDifference) / previousExpireIn;
+      if (perc > 0) {
+        actualPriceToPay -= (perc * previousSpecsPrice);
+      }
+    }
+    actualPriceToPay = Number(Math.ceil(actualPriceToPay * 100) / 100);
+    if (actualPriceToPay < priceSpecifications.minPrice) {
+      actualPriceToPay = priceSpecifications.minPrice;
+    }
+    const respondPrice = messageHelper.createDataMessage(actualPriceToPay);
+    return res.json(respondPrice);
+  } catch (error) {
+    log.warn(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res.json(errorResponse);
+  }
 }
 
 /**
@@ -9778,6 +9765,12 @@ async function redeployAPI(req, res) {
 
     if (appname.includes('_')) {
       throw new Error('Component cannot be redeployed manually');
+    }
+
+    const redeploySkip = restoreInProgress.some((backupItem) => appname === backupItem);
+    if (redeploySkip) {
+      log.info(`Restore is running for ${appname}, redeploy skipped...`);
+      return;
     }
 
     let { force } = req.params;
@@ -9828,44 +9821,38 @@ async function redeployAPI(req, res) {
  * @returns {object} Message.
  */
 async function verifyAppRegistrationParameters(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const processedBody = serviceHelper.ensureObject(body);
-      let appSpecification = processedBody;
+  try {
+    const processedBody = serviceHelper.ensureObject(req.body);
+    let appSpecification = processedBody;
 
-      appSpecification = serviceHelper.ensureObject(appSpecification);
-      const appSpecFormatted = specificationFormatter(appSpecification);
+    appSpecification = serviceHelper.ensureObject(appSpecification);
+    const appSpecFormatted = specificationFormatter(appSpecification);
 
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      if (!syncStatus.data.synced) {
-        throw new Error('Daemon not yet synced.');
-      }
-      const daemonHeight = syncStatus.data.height;
-
-      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-      await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
-
-      // check if name is not yet registered
-      await checkApplicationRegistrationNameConflicts(appSpecFormatted);
-
-      // app is valid and can be registered
-      // respond with formatted specifications
-      const respondPrice = messageHelper.createDataMessage(appSpecFormatted);
-      return res.json(respondPrice);
-    } catch (error) {
-      log.warn(error);
-      const errorResponse = messageHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
-      );
-      return res.json(errorResponse);
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    if (!syncStatus.data.synced) {
+      throw new Error('Daemon not yet synced.');
     }
-  });
+    const daemonHeight = syncStatus.data.height;
+
+    // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
+    await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
+
+    // check if name is not yet registered
+    await checkApplicationRegistrationNameConflicts(appSpecFormatted);
+
+    // app is valid and can be registered
+    // respond with formatted specifications
+    const respondPrice = messageHelper.createDataMessage(appSpecFormatted);
+    return res.json(respondPrice);
+  } catch (error) {
+    log.warn(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res.json(errorResponse);
+  }
 }
 
 /**
@@ -9875,45 +9862,39 @@ async function verifyAppRegistrationParameters(req, res) {
  * @returns {object} Message.
  */
 async function verifyAppUpdateParameters(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const processedBody = serviceHelper.ensureObject(body);
-      let appSpecification = processedBody;
+  try {
+    const processedBody = serviceHelper.ensureObject(req.body);
+    let appSpecification = processedBody;
 
-      appSpecification = serviceHelper.ensureObject(appSpecification);
-      const appSpecFormatted = specificationFormatter(appSpecification);
+    appSpecification = serviceHelper.ensureObject(appSpecification);
+    const appSpecFormatted = specificationFormatter(appSpecification);
 
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      if (!syncStatus.data.synced) {
-        throw new Error('Daemon not yet synced.');
-      }
-      const daemonHeight = syncStatus.data.height;
-
-      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-      await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
-
-      // check if name is not yet registered
-      const timestamp = new Date().getTime();
-      await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, timestamp);
-
-      // app is valid and can be registered
-      // respond with formatted specifications
-      const respondPrice = messageHelper.createDataMessage(appSpecFormatted);
-      return res.json(respondPrice);
-    } catch (error) {
-      log.warn(error);
-      const errorResponse = messageHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
-      );
-      return res.json(errorResponse);
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    if (!syncStatus.data.synced) {
+      throw new Error('Daemon not yet synced.');
     }
-  });
+    const daemonHeight = syncStatus.data.height;
+
+    // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
+    await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
+
+    // check if name is not yet registered
+    const timestamp = new Date().getTime();
+    await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, timestamp);
+
+    // app is valid and can be registered
+    // respond with formatted specifications
+    const respondPrice = messageHelper.createDataMessage(appSpecFormatted);
+    return res.json(respondPrice);
+  } catch (error) {
+    log.warn(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res.json(errorResponse);
+  }
 }
 
 /**
@@ -10112,11 +10093,11 @@ async function forceAppRemovals() {
   }
 }
 
-async function stopSyncthingApp(appComponentName, res) {
+async function stopSyncthingApp(appComponentName, res, isBackRestore) {
   try {
     const identifier = appComponentName;
     const appId = dockerService.getAppIdentifier(identifier);
-    if (receiveOnlySyncthingAppsCache.has(appId)) {
+    if (!isBackRestore && receiveOnlySyncthingAppsCache.has(appId)) {
       receiveOnlySyncthingAppsCache.delete(appId);
     }
     const folder = `${appsFolder + appId}`;
@@ -10137,8 +10118,14 @@ async function stopSyncthingApp(appComponentName, res) {
         // remove folder from syncthing
         // eslint-disable-next-line no-await-in-loop
         await syncthingService.adjustConfigFolders('delete', undefined, folderId);
+        // check if restart is needed
         // eslint-disable-next-line no-await-in-loop
-        await syncthingService.systemRestart();
+        const restartRequired = await syncthingService.getConfigRestartRequired();
+        if (restartRequired.status === 'success' && restartRequired.data.requiresRestart === true) {
+          log.info('Syncthing restart required, restarting...');
+          // eslint-disable-next-line no-await-in-loop
+          await syncthingService.systemRestart();
+        }
         const adjustSyncthingB = {
           status: 'Syncthing adjusted',
         };
@@ -10200,6 +10187,41 @@ async function appDockerRestart(appname) {
         for (const appComponent of appSpecs.compose) {
           // eslint-disable-next-line no-await-in-loop
           await dockerService.appDockerRestart(`${appComponent.name}_${appSpecs.name}`);
+          startAppMonitoring(`${appComponent.name}_${appSpecs.name}`);
+        }
+      }
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
+ * To start an app. Start each component if the app is using Docker Compose.
+ * @param {string} appname Request.
+ */
+async function appDockerStart(appname) {
+  try {
+    const mainAppName = appname.split('_')[1] || appname;
+    const isComponent = appname.includes('_'); // it is a component restart. Proceed with restarting just component
+    if (isComponent) {
+      await dockerService.appDockerStart(appname);
+      startAppMonitoring(appname);
+    } else {
+      // ask for restarting entire composed application
+      // eslint-disable-next-line no-use-before-define
+      const appSpecs = await getApplicationSpecifications(mainAppName);
+      if (!appSpecs) {
+        throw new Error('Application not found');
+      }
+      if (appSpecs.version <= 3) {
+        await dockerService.appDockerStart(appname);
+        startAppMonitoring(appname);
+      } else {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of appSpecs.compose) {
+          // eslint-disable-next-line no-await-in-loop
+          await dockerService.appDockerStart(`${appComponent.name}_${appSpecs.name}`);
           startAppMonitoring(`${appComponent.name}_${appSpecs.name}`);
         }
       }
@@ -10288,6 +10310,13 @@ async function syncthingApps() {
     const allDevicesResp = await syncthingService.getConfigDevices();
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled.data) {
+      const backupSkip = backupInProgress.some((backupItem) => installedApp.name === backupItem);
+      const restoreSkip = restoreInProgress.some((backupItem) => installedApp.name === backupItem);
+      if (backupSkip || restoreSkip) {
+        log.info(`Backup is running for ${installedApp.name}, syncthing disabled for that app`);
+        // eslint-disable-next-line no-continue
+        continue;
+      }
       if (installedApp.version <= 3) {
         const containersData = installedApp.containerData.split('|');
         // eslint-disable-next-line no-restricted-syntax
@@ -10769,6 +10798,13 @@ async function masterSlaveApps() {
       let identifier;
       let needsToBeChecked = false;
       let appId;
+      const backupSkip = backupInProgress.some((backupItem) => installedApp.name === backupItem);
+      const restoreSkip = restoreInProgress.some((backupItem) => installedApp.name === backupItem);
+      if (backupSkip || restoreSkip) {
+        log.info(`Backup/Restore is running for ${installedApp.name}, syncthing masterSlave check is disabled for that app`);
+        // eslint-disable-next-line no-continue
+        continue;
+      }
       if (installedApp.version <= 3) {
         identifier = installedApp.name;
         appId = dockerService.getAppIdentifier(identifier);
@@ -10912,6 +10948,9 @@ async function masterSlaveApps() {
             if (myIP.split(':')[0] !== ip && runningAppsNames.includes(identifier)) {
               appDockerStop(installedApp.name);
               log.info(`masterSlaveApps: stopping docker app:${installedApp.name}`);
+            } else if (myIP === ip && !runningAppsNames.includes(identifier)) {
+              appDockerRestart(installedApp.name);
+              log.info(`masterSlaveApps: starting docker app:${installedApp.name}`);
             }
           }
         }
@@ -11660,6 +11699,276 @@ function setInstallationInProgressTrue() {
   installationInProgress = true;
 }
 
+/**
+ * Send a chunk of data as a response to the client with a delay.
+ * @async
+ * @param {object} res - Response object.
+ * @param {string} chunk - Data chunk to be sent.
+ * @returns {Promise<void>} - A Promise that resolves after sending the chunk with a delay.
+ */
+async function sendChunk(res, chunk) {
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      res.write(`${chunk}\n`);
+      resolve();
+    }, 3000); // Adjust the delay as needed
+  });
+}
+
+/**
+ * Append a backup task based on the provided parameters.
+ * @async
+ * @param {object} req - Request object.
+ * @param {object} res - Response object.
+ * @returns {boolean} - True if the backup task is successfully appended, otherwise false.
+ * @throws {object} - JSON error response if an error occurs.
+ */
+async function appendBackupTask(req, res) {
+  let appname;
+  let backup;
+  try {
+    const processedBody = serviceHelper.ensureObject(req.body);
+    log.info(processedBody);
+    // eslint-disable-next-line prefer-destructuring
+    appname = processedBody.appname;
+    // eslint-disable-next-line prefer-destructuring
+    backup = processedBody.backup;
+    if (!appname || !backup) {
+      throw new Error('appname and backup parameters are mandatory');
+    }
+    const indexBackup = backupInProgress.indexOf(appname);
+    if (indexBackup !== -1) {
+      throw new Error('Backup in progress...');
+    }
+    const hasTrueBackup = backup.some((backupitem) => backupitem.backup);
+    if (hasTrueBackup === false) {
+      throw new Error('No backup jobs...');
+    }
+  } catch (error) {
+    log.error(error);
+    await sendChunk(res, `${error?.message}\n`);
+    res.end();
+    return false;
+  }
+  try {
+    const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req, appname) : true;
+    if (authorized === true) {
+      backupInProgress.push(appname);
+      // Check if app using syncthing, stop syncthing for all component that using it
+      const appDetails = await getApplicationGlobalSpecifications(appname);
+      // eslint-disable-next-line no-restricted-syntax
+      const syncthing = appDetails.compose.find((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:') || comp.containerData.includes('s:'));
+      if (syncthing) {
+        // eslint-disable-next-line no-await-in-loop
+        await sendChunk(res, `Stopping syncthing for ${appname}\n`);
+        // eslint-disable-next-line no-await-in-loop
+        await stopSyncthingApp(appname, res, true);
+      }
+
+      await sendChunk(res, 'Stopping application...\n');
+      await appDockerStop(appname);
+      // eslint-disable-next-line no-restricted-syntax
+      for (const component of backup) {
+        if (component.backup) {
+          // eslint-disable-next-line no-await-in-loop
+          const componentPath = await IOUtils.getVolumeInfo(appname, component.component, 'B', 0, 'mount');
+          const targetPath = `${componentPath[0].mount}/appdata`;
+          const tarGzPath = `${componentPath[0].mount}/backup/local/backup_${component.component}.tar.gz`;
+          // eslint-disable-next-line no-await-in-loop
+          const existStatus = await IOUtils.checkFileExists(`${componentPath[0].mount}/backup/local/backup_${component.component}.tar.gz`);
+          if (existStatus === true) {
+            // eslint-disable-next-line no-await-in-loop
+            await sendChunk(res, `Removing exists backup archive for ${component.component}...\n`);
+            // eslint-disable-next-line no-await-in-loop
+            await IOUtils.removeFile(`${componentPath[0].mount}/backup/local/backup_${component.component}.tar.gz`);
+          }
+          // eslint-disable-next-line no-await-in-loop
+          await sendChunk(res, `Creating backup archive for ${component.component}...\n`);
+          // eslint-disable-next-line no-await-in-loop
+          const tarStatus = await IOUtils.createTarGz(targetPath, tarGzPath);
+          if (tarStatus.status === false) {
+            // eslint-disable-next-line no-await-in-loop
+            await IOUtils.removeFile(`${componentPath[0].mount}/backup/local/backup_${component.component}.tar.gz`);
+            throw new Error(`Error: Failed to create backup archive for ${component.component}, ${tarStatus.error}`);
+          }
+        }
+      }
+      await serviceHelper.delay(5 * 1000);
+      await sendChunk(res, 'Starting application...\n');
+      if (!syncthing) {
+        await appDockerStart(appname);
+      } else {
+        const componentsWithoutGSyncthing = appDetails.compose.filter((comp) => !comp.containerData.includes('g:'));
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of componentsWithoutGSyncthing) {
+          // eslint-disable-next-line no-await-in-loop
+          await appDockerStart(`${component.name}_${appname}`);
+        }
+      }
+      await sendChunk(res, 'Finalizing...\n');
+      await serviceHelper.delay(5 * 1000);
+      const indexToRemove = backupInProgress.indexOf(appname);
+      backupInProgress.splice(indexToRemove, 1);
+      res.end();
+      return true;
+    // eslint-disable-next-line no-else-return
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      return res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const indexToRemove = backupInProgress.indexOf(appname);
+    if (indexToRemove >= 0) {
+      backupInProgress.splice(indexToRemove, 1);
+    }
+    await sendChunk(res, `${error?.message}\n`);
+    res.end();
+    return false;
+  }
+}
+
+/**
+ * Append a restore task based on the provided parameters.
+ * @async
+ * @param {object} req - Request object.
+ * @param {object} res - Response object.
+ * @returns {boolean} - True if the restore task is successfully appended, otherwise false.
+ * @throws {object} - JSON error response if an error occurs.
+ */
+async function appendRestoreTask(req, res) {
+  let appname;
+  let restore;
+  let type;
+  try {
+    const processedBody = serviceHelper.ensureObject(req.body);
+    log.info(processedBody);
+    // eslint-disable-next-line prefer-destructuring
+    appname = processedBody.appname;
+    // eslint-disable-next-line prefer-destructuring
+    restore = processedBody.restore;
+    // eslint-disable-next-line prefer-destructuring
+    type = processedBody.type;
+    if (!appname || !restore || !type) {
+      throw new Error('appname, restore and type parameters are mandatory');
+    }
+    const indexRestore = restoreInProgress.indexOf(appname);
+    if (indexRestore !== -1) {
+      throw new Error(`Restore for app ${appname} is running...`);
+    }
+    const hasTrueRestore = restore.some((restoreitem) => restoreitem.restore);
+    if (hasTrueRestore === false) {
+      throw new Error('No restore jobs...');
+    }
+  } catch (error) {
+    log.error(error);
+    await sendChunk(res, `${error?.message}\n`);
+    res.end();
+    return false;
+  }
+  try {
+    const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req, appname) : true;
+    if (authorized === true) {
+      const componentItem = restore.map((restoreItem) => restoreItem);
+      restoreInProgress.push(appname);
+      const appDetails = await getApplicationGlobalSpecifications(appname);
+      // eslint-disable-next-line no-restricted-syntax
+      const syncthing = appDetails.compose.find((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:') || comp.containerData.includes('s:'));
+      if (syncthing) {
+        // eslint-disable-next-line no-await-in-loop
+        await sendChunk(res, `Stopping syncthing for ${appname}\n`);
+        // eslint-disable-next-line no-await-in-loop
+        await stopSyncthingApp(appname, res, true);
+      }
+      await sendChunk(res, 'Stopping application...\n');
+      await appDockerStop(appname);
+
+      // eslint-disable-next-line no-restricted-syntax
+      for (const component of restore) {
+        if (component.restore) {
+          // eslint-disable-next-line no-await-in-loop
+          const componentVolumeInfo = await IOUtils.getVolumeInfo(appname, component.component, 'B', 0, 'mount');
+          const appDataPath = `${componentVolumeInfo[0].mount}/appdata`;
+          // eslint-disable-next-line no-await-in-loop
+          await sendChunk(res, `Removing ${component.component} component data...\n`);
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.delay(2 * 1000);
+          // eslint-disable-next-line no-await-in-loop
+          await IOUtils.removeDirectory(appDataPath, true);
+        }
+      }
+
+      if (type === 'remote') {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const restoreItem of componentItem) {
+          if (restoreItem?.url !== '') {
+            // eslint-disable-next-line no-await-in-loop
+            const componentPath = await IOUtils.getVolumeInfo(appname, restoreItem.component, 'B', 0, 'mount');
+            // eslint-disable-next-line no-await-in-loop
+            await IOUtils.removeDirectory(`${componentPath[0].mount}/backup/remote`, true);
+            // eslint-disable-next-line no-await-in-loop
+            await sendChunk(res, `Downloading ${restoreItem.url}...\n`);
+            // eslint-disable-next-line no-await-in-loop
+            const downloadStatus = await IOUtils.downloadFileFromUrl(restoreItem.url, `${componentPath[0].mount}/backup/remote`, restoreItem.component, true);
+            if (downloadStatus === 'false') {
+              throw new Error(`Error: Failed to download ${restoreItem.url}...`);
+            }
+          }
+        }
+      }
+
+      // eslint-disable-next-line no-restricted-syntax
+      for (const component of restore) {
+        if (component.restore) {
+          // eslint-disable-next-line no-await-in-loop
+          const componentPath = await IOUtils.getVolumeInfo(appname, component.component, 'B', 0, 'mount');
+          const targetPath = `${componentPath[0].mount}/appdata`;
+          const tarGzPath = `${componentPath[0].mount}/backup/${type}/backup_${component.component}.tar.gz`;
+          // eslint-disable-next-line no-await-in-loop
+          await sendChunk(res, `Unpacking backup archive for ${component.component}...\n`);
+          // eslint-disable-next-line no-await-in-loop
+          const tarStatus = await IOUtils.untarFile(targetPath, tarGzPath);
+          if (tarStatus.status === false) {
+            throw new Error(`Error: Failed to unpack archive file for ${component.component}, ${tarStatus.error}`);
+          } else {
+            // eslint-disable-next-line no-await-in-loop
+            await sendChunk(res, `Removing backup file for ${component.component}...\n`);
+            // eslint-disable-next-line no-await-in-loop
+            await IOUtils.removeFile(tarGzPath);
+          }
+        }
+      }
+      await serviceHelper.delay(1 * 5 * 1000);
+      await sendChunk(res, 'Starting application...\n');
+      await appDockerStart(appname);
+      if (syncthing) {
+        await sendChunk(res, 'Redeploying other instances...\n');
+        executeAppGlobalCommand(appname, 'redeploy', req.headers.zelidauth, true);
+        await serviceHelper.delay(1 * 60 * 1000);
+      }
+      await sendChunk(res, 'Finalizing...\n');
+      await serviceHelper.delay(5 * 1000);
+      const indexToRemove = restoreInProgress.indexOf(appname);
+      restoreInProgress.splice(indexToRemove, 1);
+      res.end();
+      return true;
+    // eslint-disable-next-line no-else-return
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      return res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const indexToRemove = restoreInProgress.indexOf(appname);
+    if (indexToRemove >= 0) {
+      restoreInProgress.splice(indexToRemove, 1);
+    }
+    await sendChunk(res, `${error?.message}\n`);
+    res.end();
+    return false;
+  }
+}
+
 module.exports = {
   listRunningApps,
   listAllApps,
@@ -11757,7 +12066,9 @@ module.exports = {
   checkApplicationsCompliance,
   testAppMount,
   checkStorageSpaceForApps,
-
+  appendBackupTask,
+  appendRestoreTask,
+  sendChunk,
   // exports for testing purposes
   setAppsMonitored,
   getAppsMonitored,
