@@ -9,6 +9,7 @@ module.exports = {
   server: {
     allowedPorts: [16127, 16137, 16147, 16157, 16167, 16177, 16187, 16197],
     apiport: 16127, // homeport is -1, ssl port is +1
+    appVerificationAddress: '169.254.42.42',
   },
   database: {
     url: '127.0.0.1',

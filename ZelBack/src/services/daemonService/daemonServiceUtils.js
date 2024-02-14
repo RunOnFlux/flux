@@ -37,7 +37,7 @@ let daemonCallRunning = false;
  * To execute a remote procedure call (RPC).
  * @param {string} rpc Remote procedure call.
  * @param {string[]} params RPC parameters.
- * @returns {object} Message.
+ * @returns {Promise<object>} Message.
  */
 async function executeCall(rpc, params) {
   const rpcparameters = params || [];

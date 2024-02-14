@@ -200,6 +200,24 @@ function commandStringToArray(command) {
   return splitargs(command);
 }
 
+/**
+ * To confirm if ip is in subnet
+ * @param {string} ip
+ * @param {string} subnet
+ * @returns {Boolean}
+ */
+function ipInSubnet(ip, subnet) {
+  const [network, mask] = subnet.split('/');
+
+  // eslint-disable-next-line no-bitwise
+  const ipAsInt = Number(ip.split('.').reduce((ipInt, octet) => (ipInt << 8) + parseInt(octet || 0, 10), 0));
+  // eslint-disable-next-line no-bitwise
+  const networkAsInt = Number(network.split('.').reduce((ipInt, octet) => (ipInt << 8) + parseInt(octet || 0, 10), 0));
+  const maskAsInt = parseInt('1'.repeat(mask) + '0'.repeat(32 - mask), 2);
+  // eslint-disable-next-line no-bitwise
+  return (ipAsInt & maskAsInt) === (networkAsInt & maskAsInt);
+}
+
 module.exports = {
   ensureBoolean,
   ensureNumber,
@@ -212,4 +230,5 @@ module.exports = {
   isDecimalLimit,
   dockerBufferToString,
   commandStringToArray,
+  ipInSubnet,
 };
