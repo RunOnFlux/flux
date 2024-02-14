@@ -6691,7 +6691,7 @@ export default {
           headers: {
             zelidauth,
           },
-          responseType: 'stream',
+          responseType: 'blob',
           onDownloadProgress(progressEvent) {
             const { loaded, total, target } = progressEvent;
             const decodedUrl = decodeURIComponent(target.responseURL);
@@ -6711,7 +6711,7 @@ export default {
             const fileNameArray = file.split('/');
             const fileName = fileNameArray[fileNameArray.length - 1];
             const response = await BackupRestoreService.justAPI().get(`/backup/downloadlocalfile/${encodeURIComponent(file)}/${self.appName}`, axiosConfig);
-            const blob = new Blob([response.data], { type: response.headers['content-type'] });
+            const blob = new Blob([response.data]);
             const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
