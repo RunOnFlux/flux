@@ -7019,7 +7019,6 @@ export default {
     goBackToApps() {
       this.$emit('back');
     },
-    initiateSignWSUpdate() {
     async initiateSignWSUpdate() {
       if (this.dataToSign.length > 180000) {
         const message = this.dataToSign;
