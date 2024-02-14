@@ -1063,6 +1063,37 @@ async function getAppFolderSize(appName) {
 }
 
 /**
+ * Returns total app container storage in bytes
+ * @param {string} appName - name or id of the container
+ * @returns {Promise<number>}
+ */
+async function getContainerStorage(appName) {
+  try {
+    const containerInfo = await dockerService.dockerContainerInspect(appName, { size: true });
+    let containerTotalSize = +containerInfo.SizeRootFs ?? 0;
+    // traverse mounts/volumes to find size used on host
+    if (containerInfo?.Mounts?.length) {
+      containerInfo.Mounts.forEach((mount) => {
+        let source = mount?.Source;
+        if (source) {
+          // remove /appdata to get true size of the app folder
+          source = source.replace('/appdata', '');
+          const mountInfo = nodecmd.runSync(`sudo du -sb ${source}`);
+          const mountSize = mountInfo?.data.split(source)[0] ?? 0;
+          if (typeof mountSize === 'number' && !Number.isNaN(mountSize)) {
+            containerTotalSize += mountSize;
+          }
+        }
+      });
+    }
+    return containerTotalSize;
+  } catch (error) {
+    log.error(error);
+    return 0;
+  }
+}
+
+/**
  * Starts app monitoring for a single app and saves monitoring data in-memory to the appsMonitored object.
  * @param {object} appName monitored component name
  */
@@ -1093,22 +1124,7 @@ function startAppMonitoring(appName) {
           return;
         }
         const statsNow = await dockerService.dockerContainerStats(appName);
-        const containerInfo = await dockerService.dockerContainerInspect(appName, { size: true });
-        let containerTotalSize = +containerInfo.SizeRootFs ?? 0;
-
-        // traverse mounts/volumes to find size used on host
-        if (containerInfo?.Mounts?.length) {
-          containerInfo.Mounts.forEach((mount) => {
-            const source = mount?.Source;
-            if (source) {
-              const mountInfo = nodecmd.runSync(`sudo du -sb ${source}`);
-              const mountSize = mountInfo?.data.split(source)[0] ?? 0;
-              if (typeof mountSize === 'number' && !Number.isNaN(mountSize)) {
-                containerTotalSize += mountSize;
-              }
-            }
-          });
-        }
+        const containerTotalSize = await getContainerStorage(appName);
 
         // const appFolderName = dockerService.getAppDockerNameIdentifier(appName).substring(1);
         // const folderSize = await getAppFolderSize(appFolderName);
@@ -1139,22 +1155,7 @@ function startAppMonitoring(appName) {
           return;
         }
         const statsNow = await dockerService.dockerContainerStats(appName);
-        const containerInfo = await dockerService.dockerContainerInspect(appName, { size: true });
-        let containerTotalSize = +containerInfo.SizeRootFs ?? 0;
-
-        // traverse mounts/volumes to find size used on host
-        if (containerInfo?.Mounts?.length) {
-          containerInfo.Mounts.forEach((mount) => {
-            const source = mount?.Source;
-            if (source) {
-              const mountInfo = nodecmd.runSync(`sudo du -sb ${source}`);
-              const mountSize = mountInfo?.data.split(source)[0] ?? 0;
-              if (typeof mountSize === 'number' && !Number.isNaN(mountSize)) {
-                containerTotalSize += mountSize;
-              }
-            }
-          });
-        }
+        const containerTotalSize = await getContainerStorage(appName);
 
         // const appFolderName = dockerService.getAppDockerNameIdentifier(appName).substring(1);
         // const folderSize = await getAppFolderSize(appFolderName);
