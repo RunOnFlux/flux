@@ -417,5 +417,6 @@
    "nginxproxy/acme-companion",
    "tmart1010/streamlit_music-server",
    "golang",
-   "prom"
+   "prom",
+   "ghcr.io/lloesche/valheim-server"
 ]
