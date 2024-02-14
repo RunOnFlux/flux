@@ -10808,13 +10808,13 @@ async function masterSlaveApps() {
       if (installedApp.version <= 3) {
         identifier = installedApp.name;
         appId = dockerService.getAppIdentifier(identifier);
-        needsToBeChecked = installedApp.containerData.includes('g:') && receiveOnlySyncthingAppsCache.get(appId).restarted;
+        needsToBeChecked = installedApp.containerData.includes('g:') && receiveOnlySyncthingAppsCache.has(appId) && receiveOnlySyncthingAppsCache.get(appId).restarted;
       } else {
         const componentUsingMasterSlave = installedApp.compose.find((comp) => comp.containerData.includes('g:'));
         if (componentUsingMasterSlave) {
           identifier = `${componentUsingMasterSlave.name}_${installedApp.name}`;
           appId = dockerService.getAppIdentifier(identifier);
-          needsToBeChecked = receiveOnlySyncthingAppsCache.get(appId).restarted;
+          needsToBeChecked = receiveOnlySyncthingAppsCache.has(appId) && receiveOnlySyncthingAppsCache.get(appId).restarted;
         }
       }
       if (needsToBeChecked) {
