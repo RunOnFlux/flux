@@ -3155,6 +3155,14 @@
         </div>
       </b-tab>
       <b-tab title="Running Instances">
+        <div v-if="masterSlaveApp">
+          <b-card title="Primary/Standby App Information">
+            <list-entry
+              title="Current IP selected as Primary running your application"
+              :data="masterIP"
+            />
+          </b-card>
+        </div>
         <b-row>
           <b-col
             md="4"
@@ -4886,15 +4894,26 @@
               lg="4"
             >
               <b-card title="Pay with Zelcore">
-                <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${appPricePerSpecs}&message=${updateHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
-                  <img
-                    class="zelidLogin"
-                    src="@/assets/images/zelID.svg"
-                    alt="Zel ID"
-                    height="100%"
-                    width="100%"
-                  >
-                </a>
+                <div class="loginRow">
+                  <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${appPricePerSpecs}&message=${updateHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
+                    <img
+                      class="zelidLogin"
+                      src="@/assets/images/zelID.svg"
+                      alt="Zel ID"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                  <a @click="initSSPpay">
+                    <img
+                      class="sspLogin"
+                      src="@/assets/images/ssp-logo-white.svg"
+                      alt="SSP"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                </div>
               </b-card>
             </b-col>
           </b-row>
@@ -5483,9 +5502,10 @@ export default {
         data: [],
         fields: [
           { key: 'show_details', label: '' },
-          { key: 'name', label: 'Name', sortable: true },
           { key: 'ip', label: 'IP Address', sortable: true },
-          { key: 'hash', label: 'Hash', sortable: true },
+          { key: 'continent', label: 'Continent', sortable: true },
+          { key: 'country', label: 'Country', sortable: true },
+          { key: 'region', label: 'Region', sortable: true },
           { key: 'visit', label: 'Visit' },
         ],
         perPage: 10,
@@ -5524,6 +5544,8 @@ export default {
       numberOfNegativeGeolocations: 1,
       minExpire: 5000,
       maxExpire: 264000,
+      extendSubscription: true,
+      daemonBlockCount: -1,
       expirePosition: 2,
       expireOptions: [
         {
@@ -5604,6 +5626,8 @@ export default {
       chooseEnterpriseDialog: false,
       isPrivateApp: false,
       signClient: null,
+      masterIP: '',
+      masterSlaveApp: false,
     };
   },
   computed: {
@@ -5897,6 +5921,38 @@ export default {
         return this.expireOptions[this.expirePosition].label;
       }
       return null;
+    },
+    minutesToString() {
+      let value = this.minutesRemaining * 60;
+      const units = {
+        day: 24 * 60 * 60,
+        hour: 60 * 60,
+        minute: 60,
+        second: 1,
+      };
+      const result = [];
+      // eslint-disable-next-line no-restricted-syntax, guard-for-in
+      for (const name in units) {
+        const p = Math.floor(value / units[name]);
+        if (p === 1) result.push(` ${p} ${name}`);
+        if (p >= 2) result.push(` ${p} ${name}s`);
+        value %= units[name];
+      }
+      return result;
+    },
+    getNewExpireLabel() {
+      if (this.daemonBlockCount === -1) {
+        return 'Not possible to calculate expiration';
+      }
+      const expires = this.callBResponse.data.expire || 22000;
+      const blocksToExpire = this.callBResponse.data.height + expires - this.daemonBlockCount;
+      if (blocksToExpire < 1) {
+        return 'Application Expired';
+      }
+      // eslint-disable-next-line vue/no-side-effects-in-computed-properties
+      this.minutesRemaining = blocksToExpire * 2;
+      const result = this.minutesToString;
+      return `${result[0]}, ${result[1]}, ${result[2]}`;
     },
   },
   watch: {
@@ -6964,6 +7020,23 @@ export default {
       this.$emit('back');
     },
     initiateSignWSUpdate() {
+    async initiateSignWSUpdate() {
+      if (this.dataToSign.length > 180000) {
+        const message = this.dataToSign;
+        // upload to flux storage
+        const data = {
+          publicid: Math.floor((Math.random() * 999999999999999)).toString(),
+          public: message,
+        };
+        await axios.post(
+          'https://storage.runonflux.io/v1/public',
+          data,
+        );
+        const zelProtocol = `zel:?action=sign&message=FLUX_URL=https://storage.runonflux.io/v1/public/${data.publicid}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${this.callbackValue}`;
+        window.location.href = zelProtocol;
+      } else {
+        window.location.href = `zel:?action=sign&message=${this.dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${this.callbackValue}`;
+      }
       const self = this;
       const { protocol, hostname, port } = window.location;
       let mybackend = '';
@@ -7064,6 +7137,9 @@ export default {
           this.appUpdateSpecification.commands = this.ensureString(specs.commands);
           this.appUpdateSpecification.containerPorts = specs.containerPort || this.ensureString(specs.containerPorts); // v1 compatibility
         } else {
+          if (this.appUpdateSpecification.version > 3 && this.appUpdateSpecification.compose.find((comp) => comp.containerData.includes('g:'))) {
+            this.masterSlaveApp = true;
+          }
           if (this.appUpdateSpecification.version <= 7) {
             this.appUpdateSpecification.version = 7;
           }
@@ -7666,7 +7742,53 @@ export default {
         this.showToast('danger', response.data.data.message || response.data.data);
       } else {
         this.instances.data = response.data.data;
+        // eslint-disable-next-line no-restricted-syntax
+        for (const node of this.instances.data) {
+          const ip = node.ip.split(':')[0];
+          const port = node.ip.split(':')[1] || 16127;
+          const url = `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/flux/geolocation`;
+          let errorFluxOs = false;
+          // eslint-disable-next-line no-await-in-loop
+          const fluxGeo = await axios.get(url).catch((error) => {
+            errorFluxOs = true;
+            console.log(`Error geting geolocation from ${ip}:${port} : ${error}`);
+            node.continent = 'N/A';
+            node.country = 'N/A';
+            node.region = 'N/A';
+          });
+          if (!errorFluxOs && fluxGeo.data.status === 'success' && fluxGeo.data.data.continent) {
+            node.continent = fluxGeo.data.data.continent;
+            node.country = fluxGeo.data.data.country;
+            node.region = fluxGeo.data.data.regionName;
+          } else {
+            node.continent = 'N/A';
+            node.country = 'N/A';
+            node.region = 'N/A';
+          }
+        }
         this.instances.totalRows = this.instances.data.length;
+        if (this.masterSlaveApp) {
+          const url = `https://${this.appName}.app.runonflux.io/fluxstatistics?scope=${this.appName};json;norefresh`;
+          let errorFdm = false;
+          let fdmData = await axios.get(url).catch((error) => {
+            errorFdm = true;
+            console.log(`UImasterSlave: Failed to reach FDM with error: ${error}`);
+            this.masterIP = 'Failed to Check';
+          });
+          if (errorFdm) {
+            return;
+          }
+          fdmData = fdmData.data;
+          if (fdmData && fdmData.length > 0) {
+            console.log('FDM_Data_Received');
+            const ipElement = fdmData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
+            if (ipElement) {
+              this.masterIP = ipElement.value.value.split(':')[0];
+              return;
+            }
+          }
+          this.masterIP = 'Defining New Primary In Progress';
+        }
       }
     },
     async getAppOwner() {
@@ -8679,9 +8801,31 @@ export default {
         }
         const responseData = await window.ssp.request('sspwid_sign_message', { message: this.dataToSign });
         if (responseData.status === 'ERROR') {
-          throw new Error(responseData.data);
+          throw new Error(responseData.data || responseData.result);
         }
         this.signature = responseData.signature;
+      } catch (error) {
+        this.showToast('danger', error.message);
+      }
+    },
+    async initSSPpay() {
+      try {
+        if (!window.ssp) {
+          this.showToast('danger', 'SSP Wallet not installed');
+          return;
+        }
+        const data = {
+          message: this.updateHash,
+          amount: (+this.appPricePerSpecs || 0).toString(),
+          address: this.deploymentAddress,
+          chain: 'flux',
+        };
+        const responseData = await window.ssp.request('pay', data);
+        if (responseData.status === 'ERROR') {
+          throw new Error(responseData.data || responseData.result);
+        } else {
+          this.showToast('success', `${responseData.data}: ${responseData.txid}`);
+        }
       } catch (error) {
         this.showToast('danger', error.message);
       }

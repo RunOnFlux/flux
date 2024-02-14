@@ -865,26 +865,39 @@ async function adjustExternalIP(ip) {
       const oldIP = userconfig.initial.apiport !== 16127 ? `${oldUserConfigIp}:${userconfig.initial.apiport}` : oldUserConfigIp;
       log.info(`New public Ip detected: ${newIP}, old Ip:${oldIP} , updating the FluxNode info in the network`);
       // eslint-disable-next-line global-require
-      const dockerService = require('./dockerService');
-      let apps = await dockerService.dockerListContainers(true);
-      if (apps.length > 0) {
-        apps = apps.filter((app) => ((app.Names[0].slice(1, 4) === 'zel' || app.Names[0].slice(1, 5) === 'flux') && app.Names[0] !== '/flux_watchtower'));
-      }
-      if (apps.length > 0) {
-        const broadcastedAt = new Date().getTime();
-        const newIpChangedMessage = {
-          type: 'fluxipchanged',
-          version: 1,
-          oldIP,
-          newIP,
-          broadcastedAt,
-        };
-        // broadcast messages about ip changed to all peers
-        // eslint-disable-next-line global-require
-        const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
-        await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newIpChangedMessage);
-        await serviceHelper.delay(500);
-        await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newIpChangedMessage);
+      const appsService = require('./appsService');
+      let apps = await appsService.installedApps();
+      if (apps.status === 'success' && apps.data.length > 0) {
+        apps = apps.data;
+        let appsRemoved = 0;
+        // eslint-disable-next-line no-restricted-syntax
+        for (const app of apps) {
+          // eslint-disable-next-line no-await-in-loop
+          const runningAppList = await appsService.getRunningAppList(app.name);
+          const findMyIP = runningAppList.find((instance) => instance.ip.split(':')[0] === ip);
+          if (findMyIP) {
+            log.info(`Aplication: ${app.name}, was found on the network already running under the same ip, uninstalling app`);
+            // eslint-disable-next-line no-await-in-loop
+            await appsService.removeAppLocally(app.name, null, true, null, true).catch((error) => log.error(error));
+            appsRemoved += 1;
+          }
+        }
+        if (apps.length > appsRemoved) {
+          const broadcastedAt = new Date().getTime();
+          const newIpChangedMessage = {
+            type: 'fluxipchanged',
+            version: 1,
+            oldIP,
+            newIP,
+            broadcastedAt,
+          };
+          // broadcast messages about ip changed to all peers
+          // eslint-disable-next-line global-require
+          const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
+          await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newIpChangedMessage);
+          await serviceHelper.delay(500);
+          await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newIpChangedMessage);
+        }
       }
       const benchmarkResponse = await benchmarkService.getBenchmarks();
       if (benchmarkResponse.status === 'error') {

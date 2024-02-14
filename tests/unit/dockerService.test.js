@@ -681,6 +681,7 @@ describe('dockerService tests', () => {
       const expectedConfig = {
         ...baseExpectedConfig,
         name: 'fluxwebsite_fluxwebsite',
+        Hostname: 'website',
         ExposedPorts: {
           '31113/tcp': {},
           '31113/udp': {},
@@ -739,6 +740,7 @@ describe('dockerService tests', () => {
       const expectedConfig = {
         ...baseExpectedConfig,
         name: 'fluxwebsite',
+        Hostname: 'website',
         ExposedPorts: {
           '31113/tcp': {},
           '31113/udp': {},
@@ -788,6 +790,7 @@ describe('dockerService tests', () => {
       };
       const expectedConfig = {
         ...baseExpectedConfig,
+        Hostname: 'website',
         name: 'fluxwebsite_fluxwebsite',
         ExposedPorts: {
           '31112/tcp': {}, '9933/tcp': {}, '31112/udp': {}, '9933/udp': {},

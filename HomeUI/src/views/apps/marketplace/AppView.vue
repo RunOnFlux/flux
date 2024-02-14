@@ -38,6 +38,51 @@
               :value="appData.description"
               class="description-text"
             />
+            <br>
+            <div
+              v-if="appData.contacts"
+              class="form-row form-group"
+            >
+              <label class="col-3 col-form-label">
+                Contact
+                <v-icon
+                  v-b-tooltip.hover.top="'Add your email contact to get notifications ex. app about to expire, app spawns. Your contact will be uploaded to Flux Storage to not be public visible'"
+                  name="info-circle"
+                  class="mr-1"
+                />
+              </label>
+              <div class="col">
+                <b-form-input
+                  id="contact"
+                  v-model="contact"
+                />
+              </div>
+            </div>
+            <br>
+            <div v-if="appData.geolocationOptions">
+              <b-form-group
+                label-cols="3"
+                label-cols-lg="20"
+                :label="`Deployment Location`"
+                label-for="geolocation"
+              >
+                <b-form-select
+                  id="geolocation"
+                  v-model="selectedGeolocation"
+                  :options="appData.geolocationOptions"
+                >
+                  <template #first>
+                    <b-form-select-option
+                      :value="null"
+                      disabled
+                    >
+                      Worldwide
+                    </b-form-select-option>
+                  </template>
+                </b-form-select>
+              </b-form-group>
+            </div>
+
             <b-card
               class="mt-1"
               no-body
@@ -474,7 +519,7 @@
             class="text-center wizard-card"
           >
             <b-card-text>
-              Price: {{ appPricePerMonth }} FLUX
+              Price: {{ appPricePerDeployment }} FLUX
             </b-card-text>
             <b-button
               v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -504,7 +549,7 @@
                 class="text-center wizard-card"
               >
                 <b-card-text>
-                  To finish the application update, please make a transaction of {{ appPricePerMonth }} FLUX to address<br>
+                  To finish the application update, please make a transaction of {{ appPricePerDeployment }} FLUX to address<br>
                   '{{ deploymentAddress }}'<br>
                   with the following message<br>
                   '{{ registrationHash }}'
@@ -520,15 +565,26 @@
                 title="Pay with Zelcore"
                 class="text-center wizard-card"
               >
-                <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${appPricePerMonth}&message=${registrationHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
-                  <img
-                    class="zelidLogin"
-                    src="@/assets/images/zelID.svg"
-                    alt="Zel ID"
-                    height="100%"
-                    width="100%"
-                  >
-                </a>
+                <div class="loginRow">
+                  <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${appPricePerDeployment}&message=${registrationHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
+                    <img
+                      class="zelidLogin"
+                      src="@/assets/images/zelID.svg"
+                      alt="Zel ID"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                  <a @click="initSSPpay">
+                    <img
+                      class="sspLogin"
+                      src="@/assets/images/ssp-logo-white.svg"
+                      alt="SSP"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                </div>
               </b-card>
             </b-col>
           </b-row>
@@ -554,6 +610,9 @@ import {
   VBModal,
   VBToggle,
   VBTooltip,
+  BFormSelect,
+  BFormSelectOption,
+  BFormGroup,
 } from 'bootstrap-vue';
 import {
   FormWizard,
@@ -619,7 +678,9 @@ export default {
     BRow,
     BTabs,
     BTab,
-
+    BFormSelect,
+    BFormSelectOption,
+    BFormGroup,
     FormWizard,
     TabContent,
 
@@ -698,11 +759,13 @@ export default {
     const signClient = ref(null);
     const dataForAppRegistration = ref(null);
     const timestamp = ref(null);
-    const appPricePerMonth = ref(0);
+    const appPricePerDeployment = ref(0);
     const registrationHash = ref(null);
     const websocket = ref(null);
     const selectedEnterpriseNodes = ref([]);
     const enterprisePublicKeys = ref([]);
+    const selectedGeolocation = ref(null);
+    const contact = ref(null);
 
     const config = computed(() => vm.$store.state.flux.config);
     const validTill = computed(() => timestamp.value + 60 * 60 * 1000); // 1 hour
@@ -859,9 +922,32 @@ export default {
         }
         const responseData = await window.ssp.request('sspwid_sign_message', { message: dataToSign.value });
         if (responseData.status === 'ERROR') {
-          throw new Error(responseData.data);
+          throw new Error(responseData.data || responseData.result);
         }
         signature.value = responseData.signature;
+      } catch (error) {
+        showToast('danger', error.message);
+      }
+    };
+
+    const initSSPpay = async () => {
+      try {
+        if (!window.ssp) {
+          this.showToast('danger', 'SSP Wallet not installed');
+          return;
+        }
+        const data = {
+          message: this.registrationHash,
+          amount: (+this.appPricePerDeployment || 0).toString(),
+          address: this.deploymentAddress,
+          chain: 'flux',
+        };
+        const responseData = await window.ssp.request('pay', data);
+        if (responseData.status === 'ERROR') {
+          throw new Error(responseData.data || responseData.result);
+        } else {
+          this.showToast('success', `${responseData.data}: ${responseData.txid}`);
+        }
       } catch (error) {
         showToast('danger', error.message);
       }
@@ -1108,6 +1194,24 @@ export default {
         if (props.appData.version >= 5) {
           appSpecification.contacts = [];
           appSpecification.geolocation = [];
+          if (selectedGeolocation.value) {
+            appSpecification.geolocation.push(selectedGeolocation.value);
+          }
+          if (contact.value) {
+            const contacts = [contact.value];
+            const contactsid = Math.floor((Math.random() * 999999999999999)).toString();
+            const data = {
+              contactsid,
+              contacts,
+            };
+            // eslint-disable-next-line no-await-in-loop
+            const resp = await axios.post('https://storage.runonflux.io/v1/contacts', data);
+            if (resp.data.status === 'error') {
+              throw new Error(resp.data.message || resp.data);
+            }
+            showToast('success', 'Successful upload of Contact Parameter to Flux Storage');
+            appSpecification.contacts = [`F_S_CONTACTS==https://storage.runonflux.io/v1/contacts/${contactsid}`];
+          }
         }
         if (props.appData.version >= 6) {
           appSpecification.expire = props.appData.expire || 22000;
@@ -1234,7 +1338,7 @@ export default {
         }
         timestamp.value = new Date().getTime();
         dataForAppRegistration.value = appSpecFormatted;
-        appPricePerMonth.value = props.appData.price;
+        appPricePerDeployment.value = props.appData.price;
         dataToSign.value = `${registrationtype.value}${version.value}${JSON.stringify(appSpecFormatted)}${new Date().getTime()}`;
         registrationHash.value = null;
         signature.value = null;
@@ -1679,9 +1783,11 @@ export default {
 
       userZelid,
       dataToSign,
+      selectedGeolocation,
+      contact,
       signClient,
       signature,
-      appPricePerMonth,
+      appPricePerDeployment,
       registrationHash,
       deploymentAddress,
 
@@ -1693,6 +1799,7 @@ export default {
       initiateSignWS,
       initMetamask,
       initSSP,
+      initSSPpay,
       initWalletConnect,
       onSessionConnect,
       siwe,
