@@ -3,14 +3,11 @@ const fs = require('fs').promises;
 const util = require('util');
 const log = require('../lib/log');
 const axios = require('axios');
-const nodecmd = require('node-cmd');
 const path = require('path');
 const { formidable } = require('formidable');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
-
-const cmdAsync = util.promisify(nodecmd.get);
 const exec = util.promisify(require('child_process').exec);
 
 /**
@@ -352,7 +349,7 @@ async function removeDirectory(rpath, directory = false) {
     } else {
       execFinal = `sudo rm -rf ${rpath}/*`;
     }
-    await cmdAsync(execFinal);
+    await exec(execFinal, { maxBuffer: 1024 * 1024 * 10 });
     return true;
   } catch (error) {
     log.error(error);
