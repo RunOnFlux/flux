@@ -309,8 +309,10 @@ async function untarFile(extractPath, tarFilePath) {
     await exec(unpackCmd, { maxBuffer: 1024 * 1024 * 10 });
     return { status: true };
   } catch (error) {
+    const stringstderr = error.stderr.replace(/\n/g, ' ');
+    const stringstdout = error.stdout.replace(/\n/g, ' ');
     log.error('Error during extraction:', error.stderr || error.stdout);
-    return { status: false, error: error.stderr || error.stdout };
+    return { status: false, error: stringstderr || stringstdout };
   }
 }
 
@@ -329,8 +331,10 @@ async function createTarGz(sourceDirectory, outputFileName) {
     await exec(packCmd, { maxBuffer: 1024 * 1024 * 10 });
     return { status: true };
   } catch (error) {
+    const stringstderr = error.stderr.replace(/\n/g, ' ');
+    const stringstdout = error.stdout.replace(/\n/g, ' ');
     log.error('Error creating tarball:', error.stderr || error.stdout);
-    return { status: false, error: error.stderr || error.stdout };
+    return { status: false, error: stringstderr || stringstdout };
   }
 }
 
