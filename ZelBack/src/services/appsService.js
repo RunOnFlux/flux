@@ -11936,6 +11936,17 @@ async function appendRestoreTask(req, res) {
             // eslint-disable-next-line no-await-in-loop
             await IOUtils.removeFile(tarGzPath);
           }
+          const syncthingAux = appDetails.compose.find((comp) => comp.name === component.component && (comp.containerData.includes('g:') || comp.containerData.includes('r:')));
+          if (syncthingAux) {
+            const identifier = `${component.component}_${appname}`;
+            const appId = dockerService.getAppIdentifier(identifier);
+            const cache = {
+              restarted: true,
+              numberOfExecutionsRequired: 4,
+              numberOfExecutions: 10,
+            };
+            receiveOnlySyncthingAppsCache.set(appId, cache);
+          }
         }
       }
       await serviceHelper.delay(1 * 5 * 1000);
