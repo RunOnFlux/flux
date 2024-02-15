@@ -632,7 +632,7 @@ module.exports = (app, expressWs) => {
     appsService.appendBackupTask(req, res);
   });
 
-  app.post('/apps/appendrestoretask', (req, res) => {;
+  app.post('/apps/appendrestoretask', (req, res) => {
     appsService.appendRestoreTask(req, res);
   });
 

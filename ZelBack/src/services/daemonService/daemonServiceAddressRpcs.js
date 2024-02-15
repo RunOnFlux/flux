@@ -11,26 +11,32 @@ let response = messageHelper.createErrorMessage();
  * @returns {object} Message.
  */
 async function getAddressTxids(req, res) {
-  const processedBody = serviceHelper.ensureObject(req.body);
-  const { addresses, start, end } = processedBody;
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const { addresses, start, end } = processedBody;
 
-  const options = {
-    addresses,
-  };
+    const options = {
+      addresses,
+    };
 
-  if (start) {
-    options.start = serviceHelper.ensureNumber(start);
-  }
-  if (end) {
-    options.end = serviceHelper.ensureNumber(end);
-  }
+    if (start) {
+      options.start = serviceHelper.ensureNumber(start);
+    }
+    if (end) {
+      options.end = serviceHelper.ensureNumber(end);
+    }
 
-  const rpccall = 'getaddresstxids';
-  const rpcparameters = [options];
+    const rpccall = 'getaddresstxids';
+    const rpcparameters = [options];
 
-  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+    return res.json(response);
+  });
 }
 
 /**
@@ -73,19 +79,25 @@ async function getSingleAddresssTxids(req, res) {
  * @returns {object} Message.
  */
 async function getAddressBalance(req, res) {
-  const processedBody = serviceHelper.ensureObject(req.body);
-  const { addresses } = processedBody;
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const { addresses } = processedBody;
 
-  const options = {
-    addresses,
-  };
+    const options = {
+      addresses,
+    };
 
-  const rpccall = 'getaddressbalance';
-  const rpcparameters = [options];
+    const rpccall = 'getaddressbalance';
+    const rpcparameters = [options];
 
-  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+    return res.json(response);
+  });
 }
 
 /**
@@ -117,32 +129,38 @@ async function getSingleAddressBalance(req, res) {
  * @returns {object} Message.
  */
 async function getAddressDeltas(req, res) {
-  const processedBody = serviceHelper.ensureObject(req.body);
-  const {
-    addresses, start, end, chaininfo,
-  } = processedBody;
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const {
+      addresses, start, end, chaininfo,
+    } = processedBody;
 
-  const options = {
-    addresses,
-  };
+    const options = {
+      addresses,
+    };
 
-  if (start) {
-    options.start = serviceHelper.ensureNumber(start);
-  }
-  if (end) {
-    options.end = serviceHelper.ensureNumber(end);
-  }
+    if (start) {
+      options.start = serviceHelper.ensureNumber(start);
+    }
+    if (end) {
+      options.end = serviceHelper.ensureNumber(end);
+    }
 
-  if (chaininfo) {
-    options.chainInfo = serviceHelper.ensureBoolean(chaininfo);
-  }
+    if (chaininfo) {
+      options.chainInfo = serviceHelper.ensureBoolean(chaininfo);
+    }
 
-  const rpccall = 'getaddressdeltas';
-  const rpcparameters = [options];
+    const rpccall = 'getaddressdeltas';
+    const rpcparameters = [options];
 
-  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+    return res.json(response);
+  });
 }
 
 /**
@@ -191,22 +209,28 @@ async function getSingleAddressDeltas(req, res) {
  * @returns {object} Message.
  */
 async function getAddressUtxos(req, res) {
-  const processedBody = serviceHelper.ensureObject(req.body);
-  const {
-    addresses, chainInfo,
-  } = processedBody;
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const {
+      addresses, chainInfo,
+    } = processedBody;
 
-  const options = {
-    addresses,
-    chainInfo,
-  };
+    const options = {
+      addresses,
+      chainInfo,
+    };
 
-  const rpccall = 'getaddressutxos';
-  const rpcparameters = [options];
+    const rpccall = 'getaddressutxos';
+    const rpcparameters = [options];
 
-  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+    return res.json(response);
+  });
 }
 
 /**
@@ -241,21 +265,27 @@ async function getSingleAddressUtxos(req, res) {
  * @returns {object} Message.
  */
 async function getAddressMempool(req, res) {
-  const processedBody = serviceHelper.ensureObject(req.body);
-  const {
-    addresses,
-  } = processedBody;
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const {
+      addresses,
+    } = processedBody;
 
-  const options = {
-    addresses,
-  };
+    const options = {
+      addresses,
+    };
 
-  const rpccall = 'getaddressmempool';
-  const rpcparameters = [options];
+    const rpccall = 'getaddressmempool';
+    const rpcparameters = [options];
 
-  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+    return res.json(response);
+  });
 }
 
 /**

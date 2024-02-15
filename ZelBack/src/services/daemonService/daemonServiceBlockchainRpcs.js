@@ -158,18 +158,24 @@ async function getBlockHashes(req, res) {
  * @param {object} res Response.
  */
 async function getBlockHashesPost(req, res) {
-  const processedBody = serviceHelper.ensureObject(req.body);
-  const { high, low, options } = processedBody;
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const { high, low, options } = processedBody;
 
-  const rpccall = 'getblockhashes';
-  const rpcparameters = [high, low];
+    const rpccall = 'getblockhashes';
+    const rpcparameters = [high, low];
 
-  if (options) {
-    rpcparameters.push(options);
-  }
-  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
+    if (options) {
+      rpcparameters.push(options);
+    }
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+    return res.json(response);
+  });
 }
 
 /**
@@ -401,19 +407,25 @@ async function getSpentInfo(req, res) {
  * @returns {object} Message.
  */
 async function getSpentInfoPost(req, res) {
-  const processedBody = serviceHelper.ensureObject(req.body);
-  const { txid, index } = processedBody;
-  const options = {
-    txid: serviceHelper.ensureString(txid),
-    index: serviceHelper.ensureNumber(index),
-  };
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const { txid, index } = processedBody;
+    const options = {
+      txid: serviceHelper.ensureString(txid),
+      index: serviceHelper.ensureNumber(index),
+    };
 
-  const rpccall = 'getspentinfo';
-  const rpcparameters = [options];
+    const rpccall = 'getspentinfo';
+    const rpcparameters = [options];
 
-  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+    return res.json(response);
+  });
 }
 
 module.exports = {
