@@ -11766,108 +11766,114 @@ async function sendChunk(res, chunk) {
  * @throws {object} - JSON error response if an error occurs.
  */
 async function appendBackupTask(req, res) {
-  let appname;
-  let backup;
-  try {
-    const processedBody = serviceHelper.ensureObject(req.body);
-    log.info(processedBody);
-    // eslint-disable-next-line prefer-destructuring
-    appname = processedBody.appname;
-    // eslint-disable-next-line prefer-destructuring
-    backup = processedBody.backup;
-    if (!appname || !backup) {
-      throw new Error('appname and backup parameters are mandatory');
-    }
-    const indexBackup = backupInProgress.indexOf(appname);
-    if (indexBackup !== -1) {
-      throw new Error('Backup in progress...');
-    }
-    const hasTrueBackup = backup.some((backupitem) => backupitem.backup);
-    if (hasTrueBackup === false) {
-      throw new Error('No backup jobs...');
-    }
-  } catch (error) {
-    log.error(error);
-    await sendChunk(res, `${error?.message}\n`);
-    res.end();
-    return false;
-  }
-  try {
-    const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req, appname) : true;
-    if (authorized === true) {
-      backupInProgress.push(appname);
-      // Check if app using syncthing, stop syncthing for all component that using it
-      const appDetails = await getApplicationGlobalSpecifications(appname);
-      // eslint-disable-next-line no-restricted-syntax
-      const syncthing = appDetails.compose.find((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:') || comp.containerData.includes('s:'));
-      if (syncthing) {
-        // eslint-disable-next-line no-await-in-loop
-        await sendChunk(res, `Stopping syncthing for ${appname}\n`);
-        // eslint-disable-next-line no-await-in-loop
-        await stopSyncthingApp(appname, res, true);
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    let appname;
+    let backup;
+    try {
+      const processedBody = serviceHelper.ensureObject(body);
+      log.info(processedBody);
+      // eslint-disable-next-line prefer-destructuring
+      appname = processedBody.appname;
+      // eslint-disable-next-line prefer-destructuring
+      backup = processedBody.backup;
+      if (!appname || !backup) {
+        throw new Error('appname and backup parameters are mandatory');
       }
-
-      await sendChunk(res, 'Stopping application...\n');
-      await appDockerStop(appname);
-      // eslint-disable-next-line no-restricted-syntax
-      for (const component of backup) {
-        if (component.backup) {
-          // eslint-disable-next-line no-await-in-loop
-          const componentPath = await IOUtils.getVolumeInfo(appname, component.component, 'B', 0, 'mount');
-          const targetPath = `${componentPath[0].mount}/appdata`;
-          const tarGzPath = `${componentPath[0].mount}/backup/local/backup_${component.component}.tar.gz`;
-          // eslint-disable-next-line no-await-in-loop
-          const existStatus = await IOUtils.checkFileExists(`${componentPath[0].mount}/backup/local/backup_${component.component}.tar.gz`);
-          if (existStatus === true) {
-            // eslint-disable-next-line no-await-in-loop
-            await sendChunk(res, `Removing exists backup archive for ${component.component}...\n`);
-            // eslint-disable-next-line no-await-in-loop
-            await IOUtils.removeFile(`${componentPath[0].mount}/backup/local/backup_${component.component}.tar.gz`);
-          }
-          // eslint-disable-next-line no-await-in-loop
-          await sendChunk(res, `Creating backup archive for ${component.component}...\n`);
-          // eslint-disable-next-line no-await-in-loop
-          const tarStatus = await IOUtils.createTarGz(targetPath, tarGzPath);
-          if (tarStatus.status === false) {
-            // eslint-disable-next-line no-await-in-loop
-            await IOUtils.removeFile(`${componentPath[0].mount}/backup/local/backup_${component.component}.tar.gz`);
-            throw new Error(`Error: Failed to create backup archive for ${component.component}, ${tarStatus.error}`);
-          }
-        }
+      const indexBackup = backupInProgress.indexOf(appname);
+      if (indexBackup !== -1) {
+        throw new Error('Backup in progress...');
       }
-      await serviceHelper.delay(5 * 1000);
-      await sendChunk(res, 'Starting application...\n');
-      if (!syncthing) {
-        await appDockerStart(appname);
-      } else {
-        const componentsWithoutGSyncthing = appDetails.compose.filter((comp) => !comp.containerData.includes('g:'));
-        // eslint-disable-next-line no-restricted-syntax
-        for (const component of componentsWithoutGSyncthing) {
-          // eslint-disable-next-line no-await-in-loop
-          await appDockerStart(`${component.name}_${appname}`);
-        }
+      const hasTrueBackup = backup.some((backupitem) => backupitem.backup);
+      if (hasTrueBackup === false) {
+        throw new Error('No backup jobs...');
       }
-      await sendChunk(res, 'Finalizing...\n');
-      await serviceHelper.delay(5 * 1000);
-      const indexToRemove = backupInProgress.indexOf(appname);
-      backupInProgress.splice(indexToRemove, 1);
+    } catch (error) {
+      log.error(error);
+      await sendChunk(res, `${error?.message}\n`);
       res.end();
-      return true;
-    // eslint-disable-next-line no-else-return
-    } else {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      return res.json(errMessage);
+      return false;
     }
-  } catch (error) {
-    log.error(error);
-    const indexToRemove = backupInProgress.indexOf(appname);
-    if (indexToRemove >= 0) {
-      backupInProgress.splice(indexToRemove, 1);
+    try {
+      const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req, appname) : true;
+      if (authorized === true) {
+        backupInProgress.push(appname);
+        // Check if app using syncthing, stop syncthing for all component that using it
+        const appDetails = await getApplicationGlobalSpecifications(appname);
+        // eslint-disable-next-line no-restricted-syntax
+        const syncthing = appDetails.compose.find((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:') || comp.containerData.includes('s:'));
+        if (syncthing) {
+          // eslint-disable-next-line no-await-in-loop
+          await sendChunk(res, `Stopping syncthing for ${appname}\n`);
+          // eslint-disable-next-line no-await-in-loop
+          await stopSyncthingApp(appname, res, true);
+        }
+
+        await sendChunk(res, 'Stopping application...\n');
+        await appDockerStop(appname);
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of backup) {
+          if (component.backup) {
+            // eslint-disable-next-line no-await-in-loop
+            const componentPath = await IOUtils.getVolumeInfo(appname, component.component, 'B', 0, 'mount');
+            const targetPath = `${componentPath[0].mount}/appdata`;
+            const tarGzPath = `${componentPath[0].mount}/backup/local/backup_${component.component}.tar.gz`;
+            // eslint-disable-next-line no-await-in-loop
+            const existStatus = await IOUtils.checkFileExists(`${componentPath[0].mount}/backup/local/backup_${component.component}.tar.gz`);
+            if (existStatus === true) {
+              // eslint-disable-next-line no-await-in-loop
+              await sendChunk(res, `Removing exists backup archive for ${component.component}...\n`);
+              // eslint-disable-next-line no-await-in-loop
+              await IOUtils.removeFile(`${componentPath[0].mount}/backup/local/backup_${component.component}.tar.gz`);
+            }
+            // eslint-disable-next-line no-await-in-loop
+            await sendChunk(res, `Creating backup archive for ${component.component}...\n`);
+            // eslint-disable-next-line no-await-in-loop
+            const tarStatus = await IOUtils.createTarGz(targetPath, tarGzPath);
+            if (tarStatus.status === false) {
+              // eslint-disable-next-line no-await-in-loop
+              await IOUtils.removeFile(`${componentPath[0].mount}/backup/local/backup_${component.component}.tar.gz`);
+              throw new Error(`Error: Failed to create backup archive for ${component.component}, ${tarStatus.error}`);
+            }
+          }
+        }
+        await serviceHelper.delay(5 * 1000);
+        await sendChunk(res, 'Starting application...\n');
+        if (!syncthing) {
+          await appDockerStart(appname);
+        } else {
+          const componentsWithoutGSyncthing = appDetails.compose.filter((comp) => !comp.containerData.includes('g:'));
+          // eslint-disable-next-line no-restricted-syntax
+          for (const component of componentsWithoutGSyncthing) {
+            // eslint-disable-next-line no-await-in-loop
+            await appDockerStart(`${component.name}_${appname}`);
+          }
+        }
+        await sendChunk(res, 'Finalizing...\n');
+        await serviceHelper.delay(5 * 1000);
+        const indexToRemove = backupInProgress.indexOf(appname);
+        backupInProgress.splice(indexToRemove, 1);
+        res.end();
+        return true;
+      // eslint-disable-next-line no-else-return
+      } else {
+        const errMessage = messageHelper.errUnauthorizedMessage();
+        return res.json(errMessage);
+      }
+    } catch (error) {
+      log.error(error);
+      const indexToRemove = backupInProgress.indexOf(appname);
+      if (indexToRemove >= 0) {
+        backupInProgress.splice(indexToRemove, 1);
+      }
+      await sendChunk(res, `${error?.message}\n`);
+      res.end();
+      return false;
     }
-    await sendChunk(res, `${error?.message}\n`);
-    res.end();
-    return false;
-  }
+  });
 }
 
 /**
@@ -11879,147 +11885,153 @@ async function appendBackupTask(req, res) {
  * @throws {object} - JSON error response if an error occurs.
  */
 async function appendRestoreTask(req, res) {
-  let appname;
-  let restore;
-  let type;
-  try {
-    const processedBody = serviceHelper.ensureObject(req.body);
-    log.info(processedBody);
-    // eslint-disable-next-line prefer-destructuring
-    appname = processedBody.appname;
-    // eslint-disable-next-line prefer-destructuring
-    restore = processedBody.restore;
-    // eslint-disable-next-line prefer-destructuring
-    type = processedBody.type;
-    if (!appname || !restore || !type) {
-      throw new Error('appname, restore and type parameters are mandatory');
-    }
-    const indexRestore = restoreInProgress.indexOf(appname);
-    if (indexRestore !== -1) {
-      throw new Error(`Restore for app ${appname} is running...`);
-    }
-    const hasTrueRestore = restore.some((restoreitem) => restoreitem.restore);
-    if (hasTrueRestore === false) {
-      throw new Error('No restore jobs...');
-    }
-  } catch (error) {
-    log.error(error);
-    await sendChunk(res, `${error?.message}\n`);
-    res.end();
-    return false;
-  }
-  try {
-    const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req, appname) : true;
-    if (authorized === true) {
-      const componentItem = restore.map((restoreItem) => restoreItem);
-      restoreInProgress.push(appname);
-      const appDetails = await getApplicationGlobalSpecifications(appname);
-      // eslint-disable-next-line no-restricted-syntax
-      const syncthing = appDetails.compose.find((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:') || comp.containerData.includes('s:'));
-      if (syncthing) {
-        // eslint-disable-next-line no-await-in-loop
-        await sendChunk(res, `Stopping syncthing for ${appname}\n`);
-        // eslint-disable-next-line no-await-in-loop
-        await stopSyncthingApp(appname, res, true);
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    let appname;
+    let restore;
+    let type;
+    try {
+      const processedBody = serviceHelper.ensureObject(body);
+      log.info(processedBody);
+      // eslint-disable-next-line prefer-destructuring
+      appname = processedBody.appname;
+      // eslint-disable-next-line prefer-destructuring
+      restore = processedBody.restore;
+      // eslint-disable-next-line prefer-destructuring
+      type = processedBody.type;
+      if (!appname || !restore || !type) {
+        throw new Error('appname, restore and type parameters are mandatory');
       }
-      await sendChunk(res, 'Stopping application...\n');
-      await appDockerStop(appname);
-
-      // eslint-disable-next-line no-restricted-syntax
-      for (const component of restore) {
-        if (component.restore) {
-          // eslint-disable-next-line no-await-in-loop
-          const componentVolumeInfo = await IOUtils.getVolumeInfo(appname, component.component, 'B', 0, 'mount');
-          const appDataPath = `${componentVolumeInfo[0].mount}/appdata`;
-          // eslint-disable-next-line no-await-in-loop
-          await sendChunk(res, `Removing ${component.component} component data...\n`);
-          // eslint-disable-next-line no-await-in-loop
-          await serviceHelper.delay(2 * 1000);
-          // eslint-disable-next-line no-await-in-loop
-          await IOUtils.removeDirectory(appDataPath, true);
-        }
+      const indexRestore = restoreInProgress.indexOf(appname);
+      if (indexRestore !== -1) {
+        throw new Error(`Restore for app ${appname} is running...`);
       }
-
-      if (type === 'remote') {
+      const hasTrueRestore = restore.some((restoreitem) => restoreitem.restore);
+      if (hasTrueRestore === false) {
+        throw new Error('No restore jobs...');
+      }
+    } catch (error) {
+      log.error(error);
+      await sendChunk(res, `${error?.message}\n`);
+      res.end();
+      return false;
+    }
+    try {
+      const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req, appname) : true;
+      if (authorized === true) {
+        const componentItem = restore.map((restoreItem) => restoreItem);
+        restoreInProgress.push(appname);
+        const appDetails = await getApplicationGlobalSpecifications(appname);
         // eslint-disable-next-line no-restricted-syntax
-        for (const restoreItem of componentItem) {
-          if (restoreItem?.url !== '') {
+        const syncthing = appDetails.compose.find((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:') || comp.containerData.includes('s:'));
+        if (syncthing) {
+          // eslint-disable-next-line no-await-in-loop
+          await sendChunk(res, `Stopping syncthing for ${appname}\n`);
+          // eslint-disable-next-line no-await-in-loop
+          await stopSyncthingApp(appname, res, true);
+        }
+        await sendChunk(res, 'Stopping application...\n');
+        await appDockerStop(appname);
+
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of restore) {
+          if (component.restore) {
             // eslint-disable-next-line no-await-in-loop
-            const componentPath = await IOUtils.getVolumeInfo(appname, restoreItem.component, 'B', 0, 'mount');
+            const componentVolumeInfo = await IOUtils.getVolumeInfo(appname, component.component, 'B', 0, 'mount');
+            const appDataPath = `${componentVolumeInfo[0].mount}/appdata`;
             // eslint-disable-next-line no-await-in-loop
-            await IOUtils.removeDirectory(`${componentPath[0].mount}/backup/remote`, true);
+            await sendChunk(res, `Removing ${component.component} component data...\n`);
             // eslint-disable-next-line no-await-in-loop
-            await sendChunk(res, `Downloading ${restoreItem.url}...\n`);
+            await serviceHelper.delay(2 * 1000);
             // eslint-disable-next-line no-await-in-loop
-            const downloadStatus = await IOUtils.downloadFileFromUrl(restoreItem.url, `${componentPath[0].mount}/backup/remote`, restoreItem.component, true);
-            if (downloadStatus === 'false') {
-              throw new Error(`Error: Failed to download ${restoreItem.url}...`);
+            await IOUtils.removeDirectory(appDataPath, true);
+          }
+        }
+
+        if (type === 'remote') {
+          // eslint-disable-next-line no-restricted-syntax
+          for (const restoreItem of componentItem) {
+            if (restoreItem?.url !== '') {
+              // eslint-disable-next-line no-await-in-loop
+              const componentPath = await IOUtils.getVolumeInfo(appname, restoreItem.component, 'B', 0, 'mount');
+              // eslint-disable-next-line no-await-in-loop
+              await IOUtils.removeDirectory(`${componentPath[0].mount}/backup/remote`, true);
+              // eslint-disable-next-line no-await-in-loop
+              await sendChunk(res, `Downloading ${restoreItem.url}...\n`);
+              // eslint-disable-next-line no-await-in-loop
+              const downloadStatus = await IOUtils.downloadFileFromUrl(restoreItem.url, `${componentPath[0].mount}/backup/remote`, restoreItem.component, true);
+              if (downloadStatus === 'false') {
+                throw new Error(`Error: Failed to download ${restoreItem.url}...`);
+              }
             }
           }
         }
-      }
 
-      // eslint-disable-next-line no-restricted-syntax
-      for (const component of restore) {
-        if (component.restore) {
-          // eslint-disable-next-line no-await-in-loop
-          const componentPath = await IOUtils.getVolumeInfo(appname, component.component, 'B', 0, 'mount');
-          const targetPath = `${componentPath[0].mount}/appdata`;
-          const tarGzPath = `${componentPath[0].mount}/backup/${type}/backup_${component.component}.tar.gz`;
-          // eslint-disable-next-line no-await-in-loop
-          await sendChunk(res, `Unpacking backup archive for ${component.component}...\n`);
-          // eslint-disable-next-line no-await-in-loop
-          const tarStatus = await IOUtils.untarFile(targetPath, tarGzPath);
-          if (tarStatus.status === false) {
-            throw new Error(`Error: Failed to unpack archive file for ${component.component}, ${tarStatus.error}`);
-          } else {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of restore) {
+          if (component.restore) {
             // eslint-disable-next-line no-await-in-loop
-            await sendChunk(res, `Removing backup file for ${component.component}...\n`);
+            const componentPath = await IOUtils.getVolumeInfo(appname, component.component, 'B', 0, 'mount');
+            const targetPath = `${componentPath[0].mount}/appdata`;
+            const tarGzPath = `${componentPath[0].mount}/backup/${type}/backup_${component.component}.tar.gz`;
             // eslint-disable-next-line no-await-in-loop
-            await IOUtils.removeFile(tarGzPath);
-          }
-          const syncthingAux = appDetails.compose.find((comp) => comp.name === component.component && (comp.containerData.includes('g:') || comp.containerData.includes('r:')));
-          if (syncthingAux) {
-            const identifier = `${component.component}_${appname}`;
-            const appId = dockerService.getAppIdentifier(identifier);
-            const cache = {
-              restarted: true,
-              numberOfExecutionsRequired: 4,
-              numberOfExecutions: 10,
-            };
-            receiveOnlySyncthingAppsCache.set(appId, cache);
+            await sendChunk(res, `Unpacking backup archive for ${component.component}...\n`);
+            // eslint-disable-next-line no-await-in-loop
+            const tarStatus = await IOUtils.untarFile(targetPath, tarGzPath);
+            if (tarStatus.status === false) {
+              throw new Error(`Error: Failed to unpack archive file for ${component.component}, ${tarStatus.error}`);
+            } else {
+              // eslint-disable-next-line no-await-in-loop
+              await sendChunk(res, `Removing backup file for ${component.component}...\n`);
+              // eslint-disable-next-line no-await-in-loop
+              await IOUtils.removeFile(tarGzPath);
+            }
+            const syncthingAux = appDetails.compose.find((comp) => comp.name === component.component && (comp.containerData.includes('g:') || comp.containerData.includes('r:')));
+            if (syncthingAux) {
+              const identifier = `${component.component}_${appname}`;
+              const appId = dockerService.getAppIdentifier(identifier);
+              const cache = {
+                restarted: true,
+                numberOfExecutionsRequired: 4,
+                numberOfExecutions: 10,
+              };
+              receiveOnlySyncthingAppsCache.set(appId, cache);
+            }
           }
         }
+        await serviceHelper.delay(1 * 5 * 1000);
+        await sendChunk(res, 'Starting application...\n');
+        await appDockerStart(appname);
+        if (syncthing) {
+          await sendChunk(res, 'Redeploying other instances...\n');
+          executeAppGlobalCommand(appname, 'redeploy', req.headers.zelidauth, true);
+          await serviceHelper.delay(1 * 60 * 1000);
+        }
+        await sendChunk(res, 'Finalizing...\n');
+        await serviceHelper.delay(5 * 1000);
+        const indexToRemove = restoreInProgress.indexOf(appname);
+        restoreInProgress.splice(indexToRemove, 1);
+        res.end();
+        return true;
+      // eslint-disable-next-line no-else-return
+      } else {
+        const errMessage = messageHelper.errUnauthorizedMessage();
+        return res.json(errMessage);
       }
-      await serviceHelper.delay(1 * 5 * 1000);
-      await sendChunk(res, 'Starting application...\n');
-      await appDockerStart(appname);
-      if (syncthing) {
-        await sendChunk(res, 'Redeploying other instances...\n');
-        executeAppGlobalCommand(appname, 'redeploy', req.headers.zelidauth, true);
-        await serviceHelper.delay(1 * 60 * 1000);
-      }
-      await sendChunk(res, 'Finalizing...\n');
-      await serviceHelper.delay(5 * 1000);
+    } catch (error) {
+      log.error(error);
       const indexToRemove = restoreInProgress.indexOf(appname);
-      restoreInProgress.splice(indexToRemove, 1);
+      if (indexToRemove >= 0) {
+        restoreInProgress.splice(indexToRemove, 1);
+      }
+      await sendChunk(res, `${error?.message}\n`);
       res.end();
-      return true;
-    // eslint-disable-next-line no-else-return
-    } else {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      return res.json(errMessage);
+      return false;
     }
-  } catch (error) {
-    log.error(error);
-    const indexToRemove = restoreInProgress.indexOf(appname);
-    if (indexToRemove >= 0) {
-      restoreInProgress.splice(indexToRemove, 1);
-    }
-    await sendChunk(res, `${error?.message}\n`);
-    res.end();
-    return false;
-  }
+  });
 }
 
 module.exports = {
