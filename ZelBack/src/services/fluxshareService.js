@@ -803,7 +803,7 @@ async function fluxShareUpload(req, res) {
       folder += '/';
     }
     const dirpath = path.join(__dirname, '../../../');
-    const uploadDir = `${dirpath}ZelApps/ZelShare${folder}`;
+    const uploadDir = `${dirpath}ZelApps/ZelShare/${folder}`;
     const options = {
       multiples: true,
       uploadDir,
