@@ -356,9 +356,11 @@ module.exports = (app, expressWs) => {
     generalService.whitelistedRepositories(req, res);
   });
   app.post('/apps/verifyappregistrationspecifications', (req, res) => { // returns formatted app specifications
+    res.setHeader('Content-Type', 'application/json');
     appsService.verifyAppRegistrationParameters(req, res);
   });
   app.post('/apps/verifyappupdatespecifications', (req, res) => { // returns formatted app specifications
+    res.setHeader('Content-Type', 'application/json');
     appsService.verifyAppUpdateParameters(req, res);
   });
   app.get('/apps/deploymentinformation', cache('30 seconds'), (req, res) => {
