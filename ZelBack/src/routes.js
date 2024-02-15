@@ -356,11 +356,9 @@ module.exports = (app, expressWs) => {
     generalService.whitelistedRepositories(req, res);
   });
   app.post('/apps/verifyappregistrationspecifications', (req, res) => { // returns formatted app specifications
-    res.setHeader('Content-Type', 'application/json');
     appsService.verifyAppRegistrationParameters(req, res);
   });
   app.post('/apps/verifyappupdatespecifications', (req, res) => { // returns formatted app specifications
-    res.setHeader('Content-Type', 'application/json');
     appsService.verifyAppUpdateParameters(req, res);
   });
   app.get('/apps/deploymentinformation', cache('30 seconds'), (req, res) => {
@@ -631,14 +629,10 @@ module.exports = (app, expressWs) => {
     backupRestoreService.downloadLocalFile(req, res);
   });
   app.post('/apps/appendbackuptask', (req, res) => {
-    res.setHeader('Content-Type', 'application/json; charset=utf-8');
-    res.setHeader('Transfer-Encoding', 'chunked');
     appsService.appendBackupTask(req, res);
   });
 
-  app.post('/apps/appendrestoretask', (req, res) => {
-    res.setHeader('Content-Type', 'application/json; charset=utf-8');
-    res.setHeader('Transfer-Encoding', 'chunked');
+  app.post('/apps/appendrestoretask', (req, res) => {;
     appsService.appendRestoreTask(req, res);
   });
 
