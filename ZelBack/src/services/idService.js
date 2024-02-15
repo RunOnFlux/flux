@@ -225,12 +225,12 @@ async function emergencyPhrase(req, res) {
  * @param {object} res Response.
  */
 async function verifyLogin(req, res) {
+  // Phase 2 - check that request is valid
   let body = '';
   req.on('data', (data) => {
     body += data;
   });
   req.on('end', async () => {
-    // Phase 2 - check that request is valid
     try {
       const processedBody = serviceHelper.ensureObject(body);
       const address = processedBody.zelid || processedBody.address;
