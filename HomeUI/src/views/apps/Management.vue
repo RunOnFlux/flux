@@ -1300,7 +1300,7 @@
                     line-height: 0px;
                   "
                 >
-                  <h5><b-icon class="mr-1" icon="back" /> Manual Triggered Backup</h5>
+                  <h5><b-icon class="mr-1" icon="back" /> Manual Backup Container Data</h5>
                 </div>
                 <div class="mb-2">
                   <b-form-group>
