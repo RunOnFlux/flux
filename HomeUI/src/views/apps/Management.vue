@@ -5780,7 +5780,7 @@ export default {
           const marketPlaceApp = this.marketPlaceApps.find((app) => this.appUpdateSpecification.name.toLowerCase().startsWith(app.name.toLowerCase()));
           if (marketPlaceApp) {
             if (marketPlaceApp.multiplier > 1) {
-              return marketPlaceApp.multiplier;
+              return marketPlaceApp.multiplier * this.generalMultiplier;
             }
           }
         }
