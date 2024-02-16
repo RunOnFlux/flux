@@ -477,7 +477,7 @@
               <a @click="initSSP">
                 <img
                   class="sspLogin"
-                  src="@/assets/images/ssp-logo-white.svg"
+                  :src="isDark ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
                   alt="SSP"
                   height="100%"
                   width="100%"
@@ -578,7 +578,7 @@
                   <a @click="initSSPpay">
                     <img
                       class="sspLogin"
-                      src="@/assets/images/ssp-logo-white.svg"
+                      :src="isDark ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
                       alt="SSP"
                       height="100%"
                       width="100%"
@@ -639,6 +639,7 @@ import AppsService from '@/services/AppsService';
 import tierColors from '@/libs/colors';
 import SignClient from '@walletconnect/sign-client';
 import { MetaMaskSDK } from '@metamask/sdk';
+import useAppConfig from '@core/app-config/useAppConfig';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
 
@@ -718,6 +719,10 @@ export default {
     const vm = getCurrentInstance().proxy;
     // Use toast
     const toast = useToast();
+
+    const { skin } = useAppConfig();
+
+    const isDark = computed(() => skin.value === 'dark');
 
     const resolveTagVariant = (status) => {
       if (status === 'Open') return 'warning';
@@ -1815,6 +1820,9 @@ export default {
       componentSelected,
 
       tierColors,
+
+      skin,
+      isDark,
     };
   },
 };

@@ -4838,7 +4838,7 @@
                   <a @click="initSSP">
                     <img
                       class="sspLogin"
-                      src="@/assets/images/ssp-logo-white.svg"
+                      :src="skin === 'dark' ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
                       alt="SSP"
                       height="100%"
                       width="100%"
@@ -4907,7 +4907,7 @@
                   <a @click="initSSPpay">
                     <img
                       class="sspLogin"
-                      src="@/assets/images/ssp-logo-white.svg"
+                      :src="skin === 'dark' ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
                       alt="SSP"
                       height="100%"
                       width="100%"
@@ -5202,6 +5202,7 @@ import { WebLinksAddon } from 'xterm-addon-web-links';
 import { Unicode11Addon } from 'xterm-addon-unicode11';
 import { SerializeAddon } from 'xterm-addon-serialize';
 import io from 'socket.io-client';
+import useAppConfig from '@core/app-config/useAppConfig';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
 
@@ -5631,6 +5632,9 @@ export default {
     };
   },
   computed: {
+    skin() {
+      return useAppConfig().skin.value;
+    },
     zelidHeader() {
       const zelidauth = localStorage.getItem('zelidauth');
       const headers = {
