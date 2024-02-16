@@ -2575,6 +2575,10 @@ export default {
         if (!this.tosAgreed) {
           throw new Error('Please agree to Terms of Service');
         }
+        if (this.appRegistrationSpecification.compose.find((comp) => comp.repotag.toLowerCase().includes('presearch/node')
+          || comp.repotag.toLowerCase().includes('thijsvanloef/palworld-server-docker'))) {
+          throw new Error('This application is configured and needs to be bought directly from marketplace.');
+        }
         // formation, pre verificaiton
         const appSpecification = this.appRegistrationSpecification;
         let secretsPresent = false;
