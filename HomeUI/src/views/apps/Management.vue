@@ -7356,7 +7356,7 @@ export default {
           throw new Error(response.data.data.message || response.data.data);
         }
         this.appPricePerSpecs = (Math.ceil(((+response.data.data * this.priceMultiplier) * 100))) / 100;
-        this.timestamp = new Date().getTime();
+        this.timestamp = Date.Now();
         this.dataForAppUpdate = appSpecFormatted;
         this.dataToSign = this.updatetype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp;
       } catch (error) {
@@ -7937,7 +7937,7 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth');
       this.globalZelidAuthorized = false;
       const auth = qs.parse(zelidauth);
-      const timestamp = new Date().getTime();
+      const timestamp = Date.Now();
       const maxHours = 1.5 * 60 * 60 * 1000;
       const mesTime = auth.loginPhrase.substring(0, 13);
       if (+mesTime < (timestamp - maxHours)) {

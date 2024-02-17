@@ -1506,7 +1506,7 @@
                 <span class="text-danger">IMPORTANT:</span> Your funds will be locked until
               </h5>
               <h5>
-                <span class="text-warning">{{ new Date(new Date().getTime() + (getLockupDuration() * 1000)).toLocaleString() }}</span>
+                <span class="text-warning">{{ new Date(Date.Now() + (getLockupDuration() * 1000)).toLocaleString() }}</span>
               </h5>
               <h5 class="mb-2">
                 You will not be able to withdraw your Flux until the time has passed.

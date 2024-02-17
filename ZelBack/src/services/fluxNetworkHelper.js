@@ -54,7 +54,7 @@ class TokenBucket {
     this.capacity = capacity;
     this.fillPerSecond = fillPerSecond;
 
-    this.lastFilled = new Date().getTime();
+    this.lastFilled = Date.Now();
     this.tokens = capacity;
   }
 
@@ -71,7 +71,7 @@ class TokenBucket {
   }
 
   refill() {
-    const now = new Date().getTime();
+    const now = Date.Now();
     const rate = (now - this.lastFilled) / (this.fillPerSecond * 1000);
 
     this.tokens = Math.min(this.capacity, this.tokens + Math.floor(rate * this.capacity));
@@ -889,7 +889,7 @@ async function adjustExternalIP(ip) {
           }
         }
         if (apps.length > appsRemoved) {
-          const broadcastedAt = new Date().getTime();
+          const broadcastedAt = Date.Now();
           const newIpChangedMessage = {
             type: 'fluxipchanged',
             version: 1,
@@ -1376,7 +1376,7 @@ const lruRateCache = new LRUCache(lruRateOptions);
  */
 function lruRateLimit(ip, limitPerSecond = 20) {
   const lruResponse = lruRateCache.get(ip);
-  const newTime = new Date().getTime();
+  const newTime = Date.Now();
   if (lruResponse) {
     const oldTime = lruResponse.time;
     const oldTokensRemaining = lruResponse.tokens;

@@ -141,7 +141,7 @@ async function fluxShareDatabaseShareFile(file) {
     if (result) {
       return result;
     }
-    const string = file + new Date().getTime().toString() + Math.floor((Math.random() * 999999999999999)).toString();
+    const string = file + Date.Now().toString() + Math.floor((Math.random() * 999999999999999)).toString();
 
     const fileDetail = {
       name: file,

@@ -1920,7 +1920,7 @@ describe('fluxNetworkHelper tests', () => {
         const dummyPeer = {
           ip: `${baseIp}${i}`,
           port: 16127,
-          lastPingTime: new Date().getTime(),
+          lastPingTime: Date.Now(),
           latency: 50,
         };
         incomingPeers.push(dummyPeer);
@@ -1930,7 +1930,7 @@ describe('fluxNetworkHelper tests', () => {
         const dummyPeer = {
           ip: `${baseIp}${i}`,
           port: 16127,
-          lastPingTime: new Date().getTime(),
+          lastPingTime: Date.Now(),
           latency: 50,
         };
         outgoingPeers.push(dummyPeer);

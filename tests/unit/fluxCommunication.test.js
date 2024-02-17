@@ -263,8 +263,8 @@ describe('fluxCommunication tests', () => {
       const type = 'fluxappregister';
       const name = 'myApp';
       const version = 1;
-      const timestamp = new Date().getTime();
-      const broadcastedAt = new Date().getTime();
+      const timestamp = Date.Now();
+      const broadcastedAt = Date.Now();
       const messageToHash = type + version + name + timestamp;
       const hash = await generalService.messageHash(messageToHash);
       const message = {
@@ -312,7 +312,7 @@ describe('fluxCommunication tests', () => {
       const name = 'myApp';
       const version = 1;
       const timestamp = 1592988806887;
-      const broadcastedAt = new Date().getTime() - (80 * 60 * 1000);
+      const broadcastedAt = Date.Now() - (80 * 60 * 1000);
       const messageToHash = type + version + name + timestamp;
       const hash = await generalService.messageHash(messageToHash);
       const message = {
@@ -431,7 +431,7 @@ describe('fluxCommunication tests', () => {
       const peer2 = {
         ip: '192.168.0.0', // can represent just one ip address, multiport
         port: 16127,
-        lastPingTime: new Date().getTime(),
+        lastPingTime: Date.Now(),
         latency: 50,
       };
       outgoingPeers.push(peer1);
@@ -477,7 +477,7 @@ describe('fluxCommunication tests', () => {
       const peer2 = {
         ip: '192.168.0.0',
         port: 16137,
-        lastPingTime: new Date().getTime(),
+        lastPingTime: Date.Now(),
         latency: 50,
       };
       outgoingPeers.push(peer1);
@@ -676,7 +676,7 @@ describe('fluxCommunication tests', () => {
       const peer2 = {
         ip: '192.168.0.0',
         port: 16127,
-        lastPingTime: new Date().getTime(),
+        lastPingTime: Date.Now(),
         latency: 50,
       };
       incomingConnections.push(peer1);
@@ -961,7 +961,7 @@ describe('fluxCommunication tests', () => {
 
     it('should not react to the message if rate limit is exceeded', async () => {
       const message = JSON.stringify({
-        timestamp: new Date().getTime(),
+        timestamp: Date.Now(),
         pubKey: '1234asd',
         data: {
           type: 'fluxapprunning',
@@ -999,7 +999,7 @@ describe('fluxCommunication tests', () => {
 
     it('should close the connection if peer is added to blockedList', async () => {
       const message = JSON.stringify({
-        timestamp: new Date().getTime(),
+        timestamp: Date.Now(),
         pubKey: '1234asd',
         signature: 'blabla',
         version: 1,
@@ -1050,7 +1050,7 @@ describe('fluxCommunication tests', () => {
       // eslint-disable-next-line no-loop-func
       it(`should handle the ${command} message properly`, async () => {
         const message = JSON.stringify({
-          timestamp: new Date().getTime(),
+          timestamp: Date.Now(),
           pubKey: '1234asd',
           signature: 'blabla',
           version: 1,
@@ -1098,7 +1098,7 @@ describe('fluxCommunication tests', () => {
       // eslint-disable-next-line no-loop-func
       it(`should handle the ${command} message properly`, async () => {
         const message = JSON.stringify({
-          timestamp: new Date().getTime(),
+          timestamp: Date.Now(),
           pubKey: '1234asd',
           signature: 'blabla',
           version: 1,
@@ -1146,7 +1146,7 @@ describe('fluxCommunication tests', () => {
       // eslint-disable-next-line no-loop-func
       it(`should handle the ${command} message properly`, async () => {
         const message = JSON.stringify({
-          timestamp: new Date().getTime(),
+          timestamp: Date.Now(),
           pubKey: '1234asd',
           signature: 'blabla',
           version: 1,

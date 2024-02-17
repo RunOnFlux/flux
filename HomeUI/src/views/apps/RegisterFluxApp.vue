@@ -2680,7 +2680,7 @@ export default {
           throw new Error(response.data.data.message || response.data.data);
         }
         this.applicationPrice = (Math.ceil(((+response.data.data * this.generalMultiplier) * 100))) / 100;
-        this.timestamp = new Date().getTime();
+        this.timestamp = Date.Now();
         this.dataForAppRegistration = appSpecFormatted;
         this.dataToSign = this.registrationtype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp;
       } catch (error) {

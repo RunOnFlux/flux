@@ -112,7 +112,7 @@ async function handleAppRunningMessage(message, fromIP, port) {
     // eslint-disable-next-line global-require
     const appsService = require('./appsService');
     const rebroadcastToPeers = await appsService.storeAppRunningMessage(message.data);
-    const currentTimeStamp = new Date().getTime();
+    const currentTimeStamp = Date.Now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
     if (rebroadcastToPeers === true && timestampOK) {
       const messageString = serviceHelper.ensureString(message);
@@ -154,7 +154,7 @@ async function handleIPChangedMessage(message, fromIP, port) {
     // eslint-disable-next-line global-require
     const appsService = require('./appsService');
     const rebroadcastToPeers = await appsService.storeIPChangedMessage(message.data);
-    const currentTimeStamp = new Date().getTime();
+    const currentTimeStamp = Date.Now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
     if (rebroadcastToPeers && timestampOK) {
       const messageString = serviceHelper.ensureString(message);
@@ -196,7 +196,7 @@ async function handleAppRemovedMessage(message, fromIP, port) {
     // eslint-disable-next-line global-require
     const appsService = require('./appsService');
     const rebroadcastToPeers = await appsService.storeAppRemovedMessage(message.data);
-    const currentTimeStamp = new Date().getTime();
+    const currentTimeStamp = Date.Now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
     if (rebroadcastToPeers && timestampOK) {
       const messageString = serviceHelper.ensureString(message);
@@ -565,7 +565,7 @@ async function initiateAndHandleConnection(connection) {
     // every time a ping is sent a pong as received, measure latency
     websocket.on('pong', () => {
       try {
-        const curTime = new Date().getTime();
+        const curTime = Date.Now();
         const foundPeer = outgoingPeers.find((peer) => peer.ip === ip && peer.port === port);
         if (foundPeer) {
           foundPeer.latency = Math.ceil((curTime - foundPeer.lastPingTime) / 2);

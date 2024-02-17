@@ -36,7 +36,7 @@ async function sendToAllPeers(data, wsList) {
         await serviceHelper.delay(25);
         if (client.readyState === WebSocket.OPEN) {
           if (!data) {
-            const pingTime = new Date().getTime();
+            const pingTime = Date.Now();
             client.ping(); // do ping instead
             const foundPeer = outgoingPeers.find((peer) => peer.ip === client.ip && peer.port === client.port);
             if (foundPeer) {
