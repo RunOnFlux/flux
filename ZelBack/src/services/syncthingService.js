@@ -293,21 +293,27 @@ async function systemError(req, res) {
  * @returns {object} Message
  */
 async function postSystemError(req, res) {
-  try {
-    const message = serviceHelper.ensureObject(req.body);
-    const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
-    let response = null;
-    if (authorized === true) {
-      response = await performRequest('post', '/rest/system/error', message);
-    } else {
-      response = messageHelper.errUnauthorizedMessage();
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const message = serviceHelper.ensureObject(body);
+    try {
+      const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
+      let response = null;
+      if (authorized === true) {
+        response = await performRequest('post', '/rest/system/error', message);
+      } else {
+        response = messageHelper.errUnauthorizedMessage();
+      }
+      return res ? res.json(response) : response;
+    } catch (error) {
+      log.error(error);
+      const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+      return res ? res.json(errorResponse) : errorResponse;
     }
-    return res ? res.json(response) : response;
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res ? res.json(errorResponse) : errorResponse;
-  }
+  });
 }
 
 /**
