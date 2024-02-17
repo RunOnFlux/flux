@@ -7224,7 +7224,7 @@ async function registerAppGlobalyApi(req, res) {
       const timestampNow = Date.now();
       if (timestamp < timestampNow - 1000 * 3600) {
         throw new Error('Message timestamp is over 1 hour old, not valid. Check if your computer clock is synced and restart the registration process.');
-      } else if (timestamp > timestampNow) {
+      } else if (timestamp > timestampNow + 1000 * 60 * 5) {
         throw new Error('Message timestamp from future, not valid. Check if your computer clock is synced and restart the registration process.');
       }
 
@@ -7346,7 +7346,7 @@ async function updateAppGlobalyApi(req, res) {
       const timestampNow = Date.now();
       if (timestamp < timestampNow - 1000 * 3600) {
         throw new Error('Message timestamp is over 1 hour old, not valid. Check if your computer clock is synced and restart the registration process.');
-      } else if (timestamp > timestampNow) {
+      } else if (timestamp > timestampNow + 1000 * 60 * 5) {
         throw new Error('Message timestamp from future, not valid. Check if your computer clock is synced and restart the registration process.');
       }
 
