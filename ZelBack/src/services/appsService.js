@@ -7221,6 +7221,13 @@ async function registerAppGlobalyApi(req, res) {
       messageType = serviceHelper.ensureString(messageType);
       typeVersion = serviceHelper.ensureNumber(typeVersion);
 
+      const timestampNow = Date.now();
+      if (timestamp < timestampNow - 1000 * 3600) {
+        throw new Error('Message timestamp is over 1 hour old, not valid. Check if your computer clock is synced and restart the registration process.');
+      } else if (timestamp > timestampNow) {
+        throw new Error('Message timestamp from future, not valid. Check if your computer clock is synced and restart the registration process.');
+      }
+
       const appSpecFormatted = specificationFormatter(appSpecification);
 
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
@@ -7335,6 +7342,13 @@ async function updateAppGlobalyApi(req, res) {
       signature = serviceHelper.ensureString(signature);
       messageType = serviceHelper.ensureString(messageType);
       typeVersion = serviceHelper.ensureNumber(typeVersion);
+
+      const timestampNow = Date.now();
+      if (timestamp < timestampNow - 1000 * 3600) {
+        throw new Error('Message timestamp is over 1 hour old, not valid. Check if your computer clock is synced and restart the registration process.');
+      } else if (timestamp > timestampNow) {
+        throw new Error('Message timestamp from future, not valid. Check if your computer clock is synced and restart the registration process.');
+      }
 
       const appSpecFormatted = specificationFormatter(appSpecification);
 
