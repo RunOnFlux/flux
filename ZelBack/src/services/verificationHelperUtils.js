@@ -63,7 +63,7 @@ async function verifyUserSession(headers) {
   const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
   // if not logged, check if not older than 16 hours
   if (!loggedUser) {
-    const timestamp = Date.Now();
+    const timestamp = Date.now();
     const message = auth.loginPhrase;
     const maxHours = 16 * 60 * 60 * 1000;
     if (Number(message.substring(0, 13)) < (timestamp - maxHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
@@ -175,7 +175,7 @@ async function verifyAppOwnerSession(headers, appName) {
   const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
   // if not logged, check if not older than 2 hours
   if (!loggedUser) {
-    const timestamp = Date.Now();
+    const timestamp = Date.now();
     const message = auth.loginPhrase;
     const twoHours = 2 * 60 * 60 * 1000;
     if (Number(message.substring(0, 13)) < (timestamp - twoHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
@@ -217,7 +217,7 @@ async function verifyAppOwnerOrHigherSession(headers, appName) {
   const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
   // if not logged, check if not older than 2 hours
   if (!loggedUser) {
-    const timestamp = Date.Now();
+    const timestamp = Date.now();
     const message = auth.loginPhrase;
     const maxHours = 2 * 60 * 60 * 1000;
     if (Number(message.substring(0, 13)) < (timestamp - maxHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {

@@ -1111,7 +1111,7 @@ function startAppMonitoring(appName) {
         statsNow.disk_stats = {
           used: containerSize.SizeRootFs ?? 0,
         };
-        appsMonitored[appName].oneMinuteStatsStore.unshift({ timestamp: Date.Now(), data: statsNow }); // Most recent stats object is at position 0 in the array
+        appsMonitored[appName].oneMinuteStatsStore.unshift({ timestamp: Date.now(), data: statsNow }); // Most recent stats object is at position 0 in the array
         if (appsMonitored[appName].oneMinuteStatsStore.length > 60) {
           appsMonitored[appName].oneMinuteStatsStore.length = 60; // Store stats every 1 min for the last hour only
         }
@@ -1140,7 +1140,7 @@ function startAppMonitoring(appName) {
         statsNow.disk_stats = {
           used: folderSize,
         };
-        appsMonitored[appName].fifteenMinStatsStore.unshift({ timestamp: Date.Now(), data: statsNow }); // Most recent stats object is at position 0 in the array
+        appsMonitored[appName].fifteenMinStatsStore.unshift({ timestamp: Date.now(), data: statsNow }); // Most recent stats object is at position 0 in the array
         if (appsMonitored[appName].oneMinuteStatsStore.length > 96) {
           appsMonitored[appName].fifteenMinStatsStore.length = 96; // Store stats every 15 mins for the last day only
         }
@@ -2450,7 +2450,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     if (sendMessage) {
       const ip = await fluxNetworkHelper.getMyFluxIPandPort();
       if (ip) {
-        const broadcastedAt = Date.Now();
+        const broadcastedAt = Date.now();
         const appRemovedMessage = {
           type: 'fluxappremoved',
           version: 1,
@@ -3448,7 +3448,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     } else {
       await installApplicationHard(specificationsToInstall, appName, isComponent, res, appSpecifications);
     }
-    const broadcastedAt = Date.Now();
+    const broadcastedAt = Date.now();
     const newAppRunningMessage = {
       type: 'fluxapprunning',
       version: 1,
@@ -6504,7 +6504,7 @@ async function storeAppRunningMessage(message) {
   }
 
   const validTill = message.broadcastedAt + (65 * 60 * 1000); // 3900 seconds
-  if (validTill < Date.Now()) {
+  if (validTill < Date.now()) {
     // reject old message
     return false;
   }
@@ -6592,7 +6592,7 @@ async function storeIPChangedMessage(message) {
   log.info(message);
 
   const validTill = message.broadcastedAt + (65 * 60 * 1000); // 3900 seconds
-  if (validTill < Date.Now()) {
+  if (validTill < Date.now()) {
     // reject old message
     return false;
   }
@@ -6641,7 +6641,7 @@ async function storeAppRemovedMessage(message) {
   log.info(message);
 
   const validTill = message.broadcastedAt + (65 * 60 * 1000); // 3900 seconds
-  if (validTill < Date.Now()) {
+  if (validTill < Date.now()) {
     // reject old message
     return false;
   }
@@ -8978,7 +8978,7 @@ async function trySpawningGlobalApplication() {
     const registerOk = await registerAppLocally(appSpecifications); // can throw
     if (!registerOk) {
       log.info('Error on registerAppLocally');
-      const broadcastedAt = Date.Now();
+      const broadcastedAt = Date.now();
       const appRemovedMessage = {
         type: 'fluxappremoved',
         version: 1,
@@ -9167,7 +9167,7 @@ async function checkAndNotifyPeersOfRunningApps() {
           name: application.name,
           hash: application.hash, // hash of application specifics that are running
           ip: myIP,
-          broadcastedAt: Date.Now(),
+          broadcastedAt: Date.now(),
         };
         const app = {
           name: application.name,
@@ -9194,7 +9194,7 @@ async function checkAndNotifyPeersOfRunningApps() {
           version: 2,
           apps,
           ip: myIP,
-          broadcastedAt: Date.Now(),
+          broadcastedAt: Date.now(),
         };
         // eslint-disable-next-line no-await-in-loop
         await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessageV2);
@@ -9920,7 +9920,7 @@ async function verifyAppUpdateParameters(req, res) {
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
       // check if name is not yet registered
-      const timestamp = Date.Now();
+      const timestamp = Date.now();
       await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, timestamp);
 
       // app is valid and can be registered
@@ -10959,7 +10959,7 @@ async function masterSlaveApps() {
                   log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
                 } else {
                   const previousMasterIndex = runningAppList.findIndex((x) => x.ip === mastersRunningGSyncthingApps.get(identifier));
-                  let timetoStartApp = Date.Now();
+                  let timetoStartApp = Date.now();
                   if (previousMasterIndex >= 0) {
                     if (index > previousMasterIndex) {
                       timetoStartApp += (index - 1) * 5 * 60 * 1000;
@@ -10969,14 +10969,14 @@ async function masterSlaveApps() {
                   } else {
                     timetoStartApp += index * 5 * 60 * 1000;
                   }
-                  if (timetoStartApp <= Date.Now()) {
+                  if (timetoStartApp <= Date.now()) {
                     appDockerRestart(installedApp.name);
                     log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
                   } else {
                     timeTostartNewMasterApp.set(identifier, timetoStartApp);
                   }
                 }
-              } else if (timeTostartNewMasterApp.has(identifier) && timeTostartNewMasterApp.get(identifier) <= Date.Now()) {
+              } else if (timeTostartNewMasterApp.has(identifier) && timeTostartNewMasterApp.get(identifier) <= Date.now()) {
                 appDockerRestart(installedApp.name);
                 log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
               }

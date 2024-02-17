@@ -27,7 +27,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       const peer = {
         ip,
         port,
-        lastPingTime: Date.Now(),
+        lastPingTime: Date.now(),
         latency: 50,
       };
       outgoingPeers.push(peer);

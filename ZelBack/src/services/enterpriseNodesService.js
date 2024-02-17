@@ -42,7 +42,7 @@ async function getEnterpriseList() {
         }
       });
     });
-    const currentTime = Date.Now();
+    const currentTime = Date.now();
     const collateralized = {}; // pubkey: points
     nodeList.forEach((node) => {
       let value = 0;

@@ -742,7 +742,7 @@ describe('idService tests', () => {
 
     it('should return error if database returns nothing', async () => {
       sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
-      const timestamp = Date.Now();
+      const timestamp = Date.now();
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
       const req = {
@@ -770,7 +770,7 @@ describe('idService tests', () => {
     });
 
     it('should return error if signature in database is invalid', async () => {
-      const timestamp = Date.Now();
+      const timestamp = Date.now();
       sinon.stub(dbHelper, 'findOneInDatabase').resolves({
         loginPhrase: `${timestamp + 10000}11111111111111111111111111111`,
       });
@@ -802,7 +802,7 @@ describe('idService tests', () => {
 
     it('should return error if signature verification failed', async () => {
       bitcoinMessageStub.returns(false);
-      const timestamp = Date.Now();
+      const timestamp = Date.now();
       sinon.stub(dbHelper, 'findOneInDatabase').resolves({
         loginPhrase: `${timestamp - 10000}11111111111111111111111111111`,
       });
@@ -834,7 +834,7 @@ describe('idService tests', () => {
 
     it('should return success message if everything is okay', async () => {
       bitcoinMessageStub.returns(true);
-      const timestamp = Date.Now();
+      const timestamp = Date.now();
       sinon.stub(dbHelper, 'findOneInDatabase').resolves({
         loginPhrase: `${timestamp - 10000}11111111111111111111111111111`,
       });
@@ -1051,7 +1051,7 @@ describe('idService tests', () => {
 
     it('should return success message if everything is okay', async () => {
       bitcoinMessageStub.returns(true);
-      const timestamp = Date.Now();
+      const timestamp = Date.now();
       sinon.stub(dbHelper, 'findOneInDatabase').resolves({
         loginPhrase: `${timestamp - 10000}11111111111111111111111111111`,
       });

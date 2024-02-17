@@ -1341,10 +1341,10 @@ export default {
           websocket.value.close();
           websocket.value = null;
         }
-        timestamp.value = Date.Now();
+        timestamp.value = Date.now();
         dataForAppRegistration.value = appSpecFormatted;
         appPricePerDeployment.value = props.appData.price;
-        dataToSign.value = `${registrationtype.value}${version.value}${JSON.stringify(appSpecFormatted)}${Date.Now()}`;
+        dataToSign.value = `${registrationtype.value}${version.value}${JSON.stringify(appSpecFormatted)}${Date.now()}`;
         registrationHash.value = null;
         signature.value = null;
         launchModalShowing.value = true;

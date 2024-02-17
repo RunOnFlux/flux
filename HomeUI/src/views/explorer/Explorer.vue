@@ -578,7 +578,7 @@ export default {
         hour: 60 * 60 * 1000,
         minute: 60 * 1000,
       };
-      const diff = Date.Now() - (timeCreated * 1000);
+      const diff = Date.now() - (timeCreated * 1000);
 
       if (diff > periods.month) {
         // it was at least a month ago
