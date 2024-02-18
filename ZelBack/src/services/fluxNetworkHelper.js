@@ -1386,9 +1386,15 @@ async function purgeUFW() {
 async function removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces) {
   const cmdAsync = util.promisify(nodecmd.get);
 
+  const checkIptables = 'sudo iptables --version';
+  const iptablesInstalled = await cmdAsync(checkIptables).catch(() => false);
+
+  if (!iptablesInstalled) return false;
+
   // check if rules have been created, as iptables is NOT idempotent.
   const checkDockerUserChain = 'sudo iptables -L DOCKER-USER';
-  const checkJumpChain = 'sudo iptables -C FORWARD -j DOCKER-USER';
+  // iptables 1.8.4 doesn't return anything - so have updated command a little
+  const checkJumpChain = 'sudo iptables -C FORWARD -j DOCKER-USER && echo true';
 
   const dockerUserChainExists = await cmdAsync(checkDockerUserChain).catch(async () => {
     try {
@@ -1405,22 +1411,19 @@ async function removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces) {
   if (dockerUserChainExists instanceof Error) return false;
   if (dockerUserChainExists) log.info('IPTABLES: DOCKER-USER chain already created');
 
-  const checkJumpToDockerChain = await cmdAsync(checkJumpChain).catch(async (checkErr) => {
-    if (checkErr.message.includes('Bad rule')) {
-      const jumpToFluxChain = 'sudo iptables -I FORWARD -j DOCKER-USER';
-      try {
-        await cmdAsync(jumpToFluxChain);
-        log.info('IPTABLES: New rule in FORWARD inserted to jump to DOCKER-USER chain');
-      } catch (err) {
-        log.error('IPTABLES: Error inserting FORWARD jump to DOCKER-USER chain');
-        // if we can't jump, we need to bail out
-        return new Error();
-      }
-    } else {
-      // if we can't check if the chain jump is ok, we should bail out
-      log.error(checkErr);
+  const checkJumpToDockerChain = await cmdAsync(checkJumpChain).catch(async () => {
+    // Ubuntu 20.04 @ iptables 1.8.4 Error: "iptables: No chain/target/match by that name."
+    // Ubuntu 22.04 @ iptables 1.8.7 Error: "iptables: Bad rule (does a matching rule exist in that chain?)."
+    const jumpToFluxChain = 'sudo iptables -I FORWARD -j DOCKER-USER';
+    try {
+      await cmdAsync(jumpToFluxChain);
+      log.info('IPTABLES: New rule in FORWARD inserted to jump to DOCKER-USER chain');
+    } catch (err) {
+      log.error('IPTABLES: Error inserting FORWARD jump to DOCKER-USER chain');
+      // if we can't jump, we need to bail out
       return new Error();
     }
+
     return null;
   });
 
