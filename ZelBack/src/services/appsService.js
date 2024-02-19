@@ -11829,23 +11829,23 @@ async function appendBackupTask(req, res) {
           // eslint-disable-next-line no-await-in-loop
           const componentPath = await IOUtils.getVolumeInfo(appname, component.component, 'B', 0, 'mount');
           const targetPath = `${componentPath[0].mount}/appdata`;
-          const tarGzPath = `${componentPath[0].mount}/backup/local/backup_${component.component}.tar.gz`;
+          const tarGzPath = `${componentPath[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`;
           // eslint-disable-next-line no-await-in-loop
-          const existStatus = await IOUtils.checkFileExists(`${componentPath[0].mount}/backup/local/backup_${component.component}.tar.gz`);
+          const existStatus = await IOUtils.checkFileExists(`${componentPath[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`);
           if (existStatus === true) {
             // eslint-disable-next-line no-await-in-loop
-            await sendChunk(res, `Removing exists backup archive for ${component.component}...\n`);
+            await sendChunk(res, `Removing exists backup archive for ${component.component.toLowerCase()}...\n`);
             // eslint-disable-next-line no-await-in-loop
-            await IOUtils.removeFile(`${componentPath[0].mount}/backup/local/backup_${component.component}.tar.gz`);
+            await IOUtils.removeFile(`${componentPath[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`);
           }
           // eslint-disable-next-line no-await-in-loop
-          await sendChunk(res, `Creating backup archive for ${component.component}...\n`);
+          await sendChunk(res, `Creating backup archive for ${component.component.toLowerCase()}...\n`);
           // eslint-disable-next-line no-await-in-loop
           const tarStatus = await IOUtils.createTarGz(targetPath, tarGzPath);
           if (tarStatus.status === false) {
             // eslint-disable-next-line no-await-in-loop
-            await IOUtils.removeFile(`${componentPath[0].mount}/backup/local/backup_${component.component}.tar.gz`);
-            throw new Error(`Error: Failed to create backup archive for ${component.component}, ${tarStatus.error}`);
+            await IOUtils.removeFile(`${componentPath[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`);
+            throw new Error(`Error: Failed to create backup archive for ${component.component.toLowerCase()}, ${tarStatus.error}`);
           }
         }
       }
@@ -11979,16 +11979,16 @@ async function appendRestoreTask(req, res) {
           // eslint-disable-next-line no-await-in-loop
           const componentPath = await IOUtils.getVolumeInfo(appname, component.component, 'B', 0, 'mount');
           const targetPath = `${componentPath[0].mount}/appdata`;
-          const tarGzPath = `${componentPath[0].mount}/backup/${type}/backup_${component.component}.tar.gz`;
+          const tarGzPath = `${componentPath[0].mount}/backup/${type}/backup_${component.component.toLowerCase()}.tar.gz`;
           // eslint-disable-next-line no-await-in-loop
-          await sendChunk(res, `Unpacking backup archive for ${component.component}...\n`);
+          await sendChunk(res, `Unpacking backup archive for ${component.component.toLowerCase()}...\n`);
           // eslint-disable-next-line no-await-in-loop
           const tarStatus = await IOUtils.untarFile(targetPath, tarGzPath);
           if (tarStatus.status === false) {
-            throw new Error(`Error: Failed to unpack archive file for ${component.component}, ${tarStatus.error}`);
+            throw new Error(`Error: Failed to unpack archive file for ${component.component.toLowerCase()}, ${tarStatus.error}`);
           } else {
             // eslint-disable-next-line no-await-in-loop
-            await sendChunk(res, `Removing backup file for ${component.component}...\n`);
+            await sendChunk(res, `Removing backup file for ${component.component.toLowerCase()}...\n`);
             // eslint-disable-next-line no-await-in-loop
             await IOUtils.removeFile(tarGzPath);
           }
