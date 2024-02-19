@@ -7024,7 +7024,7 @@ export default {
       this.$emit('back');
     },
     async initiateSignWSUpdate() {
-      if (this.dataToSign.length > 180000) {
+      if (this.dataToSign.length > 1800) {
         const message = this.dataToSign;
         // upload to flux storage
         const data = {
