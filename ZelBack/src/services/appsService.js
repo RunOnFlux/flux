@@ -1070,21 +1070,23 @@ async function getAppFolderSize(appName) {
 async function getContainerStorage(appName) {
   try {
     const containerInfo = await dockerService.dockerContainerInspect(appName, { size: true });
-    let containerTotalSize = +containerInfo.SizeRootFs ?? 0;
+    let containerTotalSize = serviceHelper.ensureNumber(containerInfo.SizeRootFs) || 0;
     // traverse mounts/volumes to find size used on host
     if (containerInfo?.Mounts?.length) {
-      containerInfo.Mounts.forEach((mount) => {
+      await Promise.all(containerInfo.Mounts.map(async (mount) => {
         let source = mount?.Source;
         if (source) {
           // remove /appdata to get true size of the app folder
           source = source.replace('/appdata', '');
-          const mountInfo = nodecmd.runSync(`sudo du -sb ${source}`);
-          const mountSize = mountInfo?.data.split(source)[0] ?? 0;
+          const exec = `sudo du -sb ${source}`;
+          const mountInfo = await cmdAsync(exec);
+          const mountSize = serviceHelper.ensureNumber(mountInfo?.data.split(source)[0]) || 0;
           if (typeof mountSize === 'number' && !Number.isNaN(mountSize)) {
             containerTotalSize += mountSize;
           }
         }
-      });
+      }));
+      return containerTotalSize;
     }
     return containerTotalSize;
   } catch (error) {
