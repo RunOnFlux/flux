@@ -2742,6 +2742,12 @@
               <b-button-group size="sm">
                 <b-button
                   variant="outline-primary"
+                  @click="refreshFolder()"
+                >
+                  <v-icon name="redo-alt" />
+                </b-button>
+                <b-button
+                  variant="outline-primary"
                   @click="uploadFilesDialog = true"
                 >
                   <v-icon name="cloud-upload-alt" />
