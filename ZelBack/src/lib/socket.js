@@ -18,7 +18,7 @@ function initIO(httpServer) {
   });
 
   io.on('connection', (socket) => {
-    socket.on('exec', async (zelidauth, nameOrId, dockerCmd, dockerEnv) => {
+    socket.on('exec', async (zelidauth, nameOrId, dockerCmd, dockerEnv, dockerUser) => {
       const auth = {
         zelidauth,
       };
@@ -40,6 +40,7 @@ function initIO(httpServer) {
         Tty: true,
         Cmd: serviceHelper.commandStringToArray(dockerCmd),
         Env: serviceHelper.commandStringToArray(dockerEnv),
+        User: dockerUser,
       };
       container.exec(cmd, (err, exec) => {
         const options = {
@@ -55,14 +56,6 @@ function initIO(httpServer) {
           exec.resize({ h: rows, w: cols }, () => {
           });
         });
-        /* eslint-disable no-shadow, no-unused-vars */
-        container.wait((err, data) => {
-          socket.emit('end', 'ended');
-        });
-
-        if (err) {
-          return;
-        }
         /* eslint-disable no-shadow */
         exec.start(options, (err, stream) => {
           if (err) {

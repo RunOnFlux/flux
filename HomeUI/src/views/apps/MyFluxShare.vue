@@ -688,7 +688,6 @@ export default {
     },
     upFolder() {
       this.changeFolder('..');
-      this.sortTableByNameManual();
     },
     showToast(variant, title, icon = 'InfoIcon') {
       this.$toast({

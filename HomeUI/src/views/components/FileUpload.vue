@@ -37,8 +37,9 @@
           :key="file.file.name"
           class="upload-item mb-1"
         >
-          <p>{{ file.file.name }}</p>
+          {{ file.file.name }}
           <b-button
+            v-if="!file.uploading"
             class="delete"
             variant="outline-primary"
             size="sm"
@@ -49,13 +50,13 @@
             <span
               class="d-inline-block text-white"
               aria-hidden="true"
-            >&times;</span>
+            ><v-icon name="trash-alt" /></span>
           </b-button>
           <b-progress
             :value="file.progress"
             max="100"
             striped
-            height="3px"
+            height="5px"
             :class="file.uploading || file.uploaded ? '' : 'hidden'"
           />
         </div>
@@ -172,6 +173,7 @@ export default {
         if (!f.uploaded && !f.uploading) {
           this.upload(f);
         }
+        // eslint-disable-next-line no-plusplus
       });
     },
     /* eslint no-param-reassign: ["error", { "props": false }] */
@@ -195,7 +197,6 @@ export default {
       }
 
       const formData = new FormData();
-
       formData.append(file.file.name, file.file);
       file.uploading = true;
 
@@ -215,7 +216,7 @@ export default {
         file.uploaded = true;
         file.uploading = false;
         self.$emit('complete');
-
+        self.removeFile(file);
         self.showToast('success', `'${file.file.name}' has been uploaded`);
       };
 

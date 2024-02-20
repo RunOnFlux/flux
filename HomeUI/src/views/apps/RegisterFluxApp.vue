@@ -1560,7 +1560,7 @@
               <a @click="initSSP">
                 <img
                   class="sspLogin"
-                  src="@/assets/images/ssp-logo-white.svg"
+                  :src="skin === 'dark' ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
                   alt="SSP"
                   height="100%"
                   width="100%"
@@ -1629,7 +1629,7 @@
               <a @click="initSSPpay">
                 <img
                   class="sspLogin"
-                  src="@/assets/images/ssp-logo-white.svg"
+                  :src="skin === 'dark' ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
                   alt="SSP"
                   height="100%"
                   width="100%"
@@ -1946,6 +1946,7 @@ import ListEntry from '@/views/components/ListEntry.vue';
 
 import SignClient from '@walletconnect/sign-client';
 import { MetaMaskSDK } from '@metamask/sdk';
+import useAppConfig from '@core/app-config/useAppConfig';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
 
@@ -2339,6 +2340,9 @@ export default {
       'config',
       'privilege',
     ]),
+    skin() {
+      return useAppConfig().skin.value;
+    },
     validTill() {
       const expTime = this.timestamp + 60 * 60 * 1000; // 1 hour
       return expTime;
@@ -2575,6 +2579,10 @@ export default {
         if (!this.tosAgreed) {
           throw new Error('Please agree to Terms of Service');
         }
+        if (this.appRegistrationSpecification.compose.find((comp) => comp.repotag.toLowerCase().includes('presearch/node')
+          || comp.repotag.toLowerCase().includes('thijsvanloef/palworld-server-docker'))) {
+          throw new Error('This application is configured and needs to be bought directly from marketplace.');
+        }
         // formation, pre verificaiton
         const appSpecification = this.appRegistrationSpecification;
         let secretsPresent = false;
@@ -2672,7 +2680,7 @@ export default {
           throw new Error(response.data.data.message || response.data.data);
         }
         this.applicationPrice = (Math.ceil(((+response.data.data * this.generalMultiplier) * 100))) / 100;
-        this.timestamp = new Date().getTime();
+        this.timestamp = Date.now();
         this.dataForAppRegistration = appSpecFormatted;
         this.dataToSign = this.registrationtype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp;
       } catch (error) {
@@ -2736,7 +2744,7 @@ export default {
     },
 
     async initiateSignWS() {
-      if (this.dataToSign.length > 180000) {
+      if (this.dataToSign.length > 1800) {
         const message = this.dataToSign;
         // upload to flux storage
         const data = {

@@ -34,8 +34,10 @@ const geolocationService = require('./geolocationService');
 const syncthingService = require('./syncthingService');
 const pgpService = require('./pgpService');
 const signatureVerifier = require('./signatureVerifier');
+// eslint-disable-next-line no-unused-vars
+const backupRestoreService = require('./backupRestoreService');
+const IOUtils = require('./IOUtils');
 const log = require('../lib/log');
-
 const { invalidMessages } = require('./invalidMessages');
 
 const fluxDirPath = path.join(__dirname, '../../../');
@@ -96,6 +98,8 @@ let removalInProgress = false;
 let installationInProgress = false;
 let reinstallationOfOldAppsInProgress = false;
 let masterSlaveAppsRunning = false;
+const backupInProgress = [];
+const restoreInProgress = [];
 
 const hashesNumberOfSearchs = new Map();
 const mastersRunningGSyncthingApps = new Map();
@@ -321,18 +325,25 @@ async function listAppsImages(req, res) {
  * @param {string} command What command to execute, api route to be done.
  * @param {object} zelidauth What zelidauth headers to send with request for authentication purposes.
  * @param {(object|boolean|string)} paramA first parameter that a command may need
+ * @param {boolean} bypassMyIp Indicates if method should not be made to the ip of the fluxnode from where the call was made
  */
-async function executeAppGlobalCommand(appname, command, zelidauth, paramA) {
+async function executeAppGlobalCommand(appname, command, zelidauth, paramA, bypassMyIp) {
   try {
     // get a list of the specific app locations
     // eslint-disable-next-line no-use-before-define
     const locations = await appLocation(appname);
-    let i = 1;
+    const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+    const myUrl = myIP.split(':')[0];
+    const myUrlPort = myIP.split(':')[1] || 16127;
     // eslint-disable-next-line no-restricted-syntax
     for (const appInstance of locations) {
       // HERE let the node we are connected to handle it
       const ip = appInstance.ip.split(':')[0];
       const port = appInstance.ip.split(':')[1] || 16127;
+      if (bypassMyIp && myUrl === ip && myUrlPort === port) {
+        // eslint-disable-next-line no-continue
+        continue;
+      }
       const axiosConfig = {
         headers: {
           zelidauth,
@@ -345,11 +356,6 @@ async function executeAppGlobalCommand(appname, command, zelidauth, paramA) {
       axios.get(url, axiosConfig);// do not wait, we do not care of the response
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(500);
-      if (command === 'redeploy' && !paramA && i < 4) {
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(i * 60 * 1000);
-      }
-      i += 1;
     }
   } catch (error) {
     log.error(error);
@@ -1099,7 +1105,7 @@ function startAppMonitoring(appName) {
         statsNow.disk_stats = {
           used: containerSize.SizeRootFs ?? 0,
         };
-        appsMonitored[appName].oneMinuteStatsStore.unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
+        appsMonitored[appName].oneMinuteStatsStore.unshift({ timestamp: Date.now(), data: statsNow }); // Most recent stats object is at position 0 in the array
         if (appsMonitored[appName].oneMinuteStatsStore.length > 60) {
           appsMonitored[appName].oneMinuteStatsStore.length = 60; // Store stats every 1 min for the last hour only
         }
@@ -1128,7 +1134,7 @@ function startAppMonitoring(appName) {
         statsNow.disk_stats = {
           used: folderSize,
         };
-        appsMonitored[appName].fifteenMinStatsStore.unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
+        appsMonitored[appName].fifteenMinStatsStore.unshift({ timestamp: Date.now(), data: statsNow }); // Most recent stats object is at position 0 in the array
         if (appsMonitored[appName].oneMinuteStatsStore.length > 96) {
           appsMonitored[appName].fifteenMinStatsStore.length = 96; // Store stats every 15 mins for the last day only
         }
@@ -1936,8 +1942,8 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
         if (res) {
           res.write(serviceHelper.ensureString(stFolderCreation2));
         }
-        /* if (appId.toLowerCase().includes('minecraft')) {
-          const stignore = `sudo echo '*.paused' >| ${appsFolder + appId + containerFolder}/.stignore`;
+        if (i === 0) {
+          const stignore = `sudo echo '/backup' >| ${appsFolder + appId + containerFolder}/.stignore`;
           log.info(stignore);
           // eslint-disable-next-line no-await-in-loop
           await cmdAsync(stignore);
@@ -1948,7 +1954,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
           if (res) {
             res.write(serviceHelper.ensureString(stiFileCreation));
           }
-        } */
+        }
       }
     }
 
@@ -2438,7 +2444,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     if (sendMessage) {
       const ip = await fluxNetworkHelper.getMyFluxIPandPort();
       if (ip) {
-        const broadcastedAt = new Date().getTime();
+        const broadcastedAt = Date.now();
         const appRemovedMessage = {
           type: 'fluxappremoved',
           version: 1,
@@ -3436,7 +3442,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     } else {
       await installApplicationHard(specificationsToInstall, appName, isComponent, res, appSpecifications);
     }
-    const broadcastedAt = new Date().getTime();
+    const broadcastedAt = Date.now();
     const newAppRunningMessage = {
       type: 'fluxapprunning',
       version: 1,
@@ -6492,7 +6498,7 @@ async function storeAppRunningMessage(message) {
   }
 
   const validTill = message.broadcastedAt + (65 * 60 * 1000); // 3900 seconds
-  if (validTill < new Date().getTime()) {
+  if (validTill < Date.now()) {
     // reject old message
     return false;
   }
@@ -6580,7 +6586,7 @@ async function storeIPChangedMessage(message) {
   log.info(message);
 
   const validTill = message.broadcastedAt + (65 * 60 * 1000); // 3900 seconds
-  if (validTill < new Date().getTime()) {
+  if (validTill < Date.now()) {
     // reject old message
     return false;
   }
@@ -6629,7 +6635,7 @@ async function storeAppRemovedMessage(message) {
   log.info(message);
 
   const validTill = message.broadcastedAt + (65 * 60 * 1000); // 3900 seconds
-  if (validTill < new Date().getTime()) {
+  if (validTill < Date.now()) {
     // reject old message
     return false;
   }
@@ -7209,6 +7215,13 @@ async function registerAppGlobalyApi(req, res) {
       messageType = serviceHelper.ensureString(messageType);
       typeVersion = serviceHelper.ensureNumber(typeVersion);
 
+      const timestampNow = Date.now();
+      if (timestamp < timestampNow - 1000 * 3600) {
+        throw new Error('Message timestamp is over 1 hour old, not valid. Check if your computer clock is synced and restart the registration process.');
+      } else if (timestamp > timestampNow + 1000 * 60 * 5) {
+        throw new Error('Message timestamp from future, not valid. Check if your computer clock is synced and restart the registration process.');
+      }
+
       const appSpecFormatted = specificationFormatter(appSpecification);
 
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
@@ -7323,6 +7336,13 @@ async function updateAppGlobalyApi(req, res) {
       signature = serviceHelper.ensureString(signature);
       messageType = serviceHelper.ensureString(messageType);
       typeVersion = serviceHelper.ensureNumber(typeVersion);
+
+      const timestampNow = Date.now();
+      if (timestamp < timestampNow - 1000 * 3600) {
+        throw new Error('Message timestamp is over 1 hour old, not valid. Check if your computer clock is synced and restart the registration process.');
+      } else if (timestamp > timestampNow + 1000 * 60 * 5) {
+        throw new Error('Message timestamp from future, not valid. Check if your computer clock is synced and restart the registration process.');
+      }
 
       const appSpecFormatted = specificationFormatter(appSpecification);
 
@@ -8966,7 +8986,7 @@ async function trySpawningGlobalApplication() {
     const registerOk = await registerAppLocally(appSpecifications); // can throw
     if (!registerOk) {
       log.info('Error on registerAppLocally');
-      const broadcastedAt = new Date().getTime();
+      const broadcastedAt = Date.now();
       const appRemovedMessage = {
         type: 'fluxappremoved',
         version: 1,
@@ -9094,7 +9114,12 @@ async function checkAndNotifyPeersOfRunningApps() {
             log.warn(`${stoppedApp} is stopped but should be running. Starting...`);
             // it is a stopped global app. Try to run it.
             // check if some removal is in progress and if it is don't start it!
-            if (!removalInProgress && !installationInProgress && !reinstallationOfOldAppsInProgress) {
+            const backupSkip = backupInProgress.some((backupItem) => stoppedApp === backupItem);
+            const restoreSkip = restoreInProgress.some((backupItem) => stoppedApp === backupItem);
+            if (backupSkip || restoreSkip) {
+              log.warn(`Application ${stoppedApp} backup/restore is in progress...`);
+            }
+            if (!removalInProgress && !installationInProgress && !reinstallationOfOldAppsInProgress && !restoreSkip && !backupSkip) {
               log.warn(`${stoppedApp} is stopped, starting`);
               if (!appsStopedCache.has(stoppedApp)) {
                 appsStopedCache.set(stoppedApp, stoppedApp);
@@ -9104,7 +9129,7 @@ async function checkAndNotifyPeersOfRunningApps() {
                 startAppMonitoring(stoppedApp);
               }
             } else {
-              log.warn(`Not starting ${stoppedApp} as application removal or installation is in progress`);
+              log.warn(`Not starting ${stoppedApp} as application removal or installation or backup/restore is in progress`);
             }
           }
         } catch (err) {
@@ -9150,7 +9175,7 @@ async function checkAndNotifyPeersOfRunningApps() {
           name: application.name,
           hash: application.hash, // hash of application specifics that are running
           ip: myIP,
-          broadcastedAt: new Date().getTime(),
+          broadcastedAt: Date.now(),
         };
         const app = {
           name: application.name,
@@ -9177,7 +9202,7 @@ async function checkAndNotifyPeersOfRunningApps() {
           version: 2,
           apps,
           ip: myIP,
-          broadcastedAt: new Date().getTime(),
+          broadcastedAt: Date.now(),
         };
         // eslint-disable-next-line no-await-in-loop
         await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessageV2);
@@ -9780,6 +9805,12 @@ async function redeployAPI(req, res) {
       throw new Error('Component cannot be redeployed manually');
     }
 
+    const redeploySkip = restoreInProgress.some((backupItem) => appname === backupItem);
+    if (redeploySkip) {
+      log.info(`Restore is running for ${appname}, redeploy skipped...`);
+      return;
+    }
+
     let { force } = req.params;
     force = force || req.query.force || false;
     force = serviceHelper.ensureBoolean(force);
@@ -9897,7 +9928,7 @@ async function verifyAppUpdateParameters(req, res) {
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
       // check if name is not yet registered
-      const timestamp = new Date().getTime();
+      const timestamp = Date.now();
       await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, timestamp);
 
       // app is valid and can be registered
@@ -10112,11 +10143,11 @@ async function forceAppRemovals() {
   }
 }
 
-async function stopSyncthingApp(appComponentName, res) {
+async function stopSyncthingApp(appComponentName, res, isBackRestore) {
   try {
     const identifier = appComponentName;
     const appId = dockerService.getAppIdentifier(identifier);
-    if (receiveOnlySyncthingAppsCache.has(appId)) {
+    if (!isBackRestore && receiveOnlySyncthingAppsCache.has(appId)) {
       receiveOnlySyncthingAppsCache.delete(appId);
     }
     const folder = `${appsFolder + appId}`;
@@ -10137,8 +10168,14 @@ async function stopSyncthingApp(appComponentName, res) {
         // remove folder from syncthing
         // eslint-disable-next-line no-await-in-loop
         await syncthingService.adjustConfigFolders('delete', undefined, folderId);
+        // check if restart is needed
         // eslint-disable-next-line no-await-in-loop
-        await syncthingService.systemRestart();
+        const restartRequired = await syncthingService.getConfigRestartRequired();
+        if (restartRequired.status === 'success' && restartRequired.data.requiresRestart === true) {
+          log.info('Syncthing restart required, restarting...');
+          // eslint-disable-next-line no-await-in-loop
+          await syncthingService.systemRestart();
+        }
         const adjustSyncthingB = {
           status: 'Syncthing adjusted',
         };
@@ -10200,6 +10237,41 @@ async function appDockerRestart(appname) {
         for (const appComponent of appSpecs.compose) {
           // eslint-disable-next-line no-await-in-loop
           await dockerService.appDockerRestart(`${appComponent.name}_${appSpecs.name}`);
+          startAppMonitoring(`${appComponent.name}_${appSpecs.name}`);
+        }
+      }
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
+ * To start an app. Start each component if the app is using Docker Compose.
+ * @param {string} appname Request.
+ */
+async function appDockerStart(appname) {
+  try {
+    const mainAppName = appname.split('_')[1] || appname;
+    const isComponent = appname.includes('_'); // it is a component restart. Proceed with restarting just component
+    if (isComponent) {
+      await dockerService.appDockerStart(appname);
+      startAppMonitoring(appname);
+    } else {
+      // ask for restarting entire composed application
+      // eslint-disable-next-line no-use-before-define
+      const appSpecs = await getApplicationSpecifications(mainAppName);
+      if (!appSpecs) {
+        throw new Error('Application not found');
+      }
+      if (appSpecs.version <= 3) {
+        await dockerService.appDockerStart(appname);
+        startAppMonitoring(appname);
+      } else {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of appSpecs.compose) {
+          // eslint-disable-next-line no-await-in-loop
+          await dockerService.appDockerStart(`${appComponent.name}_${appSpecs.name}`);
           startAppMonitoring(`${appComponent.name}_${appSpecs.name}`);
         }
       }
@@ -10288,6 +10360,13 @@ async function syncthingApps() {
     const allDevicesResp = await syncthingService.getConfigDevices();
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled.data) {
+      const backupSkip = backupInProgress.some((backupItem) => installedApp.name === backupItem);
+      const restoreSkip = restoreInProgress.some((backupItem) => installedApp.name === backupItem);
+      if (backupSkip || restoreSkip) {
+        log.info(`Backup is running for ${installedApp.name}, syncthing disabled for that app`);
+        // eslint-disable-next-line no-continue
+        continue;
+      }
       if (installedApp.version <= 3) {
         const containersData = installedApp.containerData.split('|');
         // eslint-disable-next-line no-restricted-syntax
@@ -10769,16 +10848,23 @@ async function masterSlaveApps() {
       let identifier;
       let needsToBeChecked = false;
       let appId;
+      const backupSkip = backupInProgress.some((backupItem) => installedApp.name === backupItem);
+      const restoreSkip = restoreInProgress.some((backupItem) => installedApp.name === backupItem);
+      if (backupSkip || restoreSkip) {
+        log.info(`Backup/Restore is running for ${installedApp.name}, syncthing masterSlave check is disabled for that app`);
+        // eslint-disable-next-line no-continue
+        continue;
+      }
       if (installedApp.version <= 3) {
         identifier = installedApp.name;
         appId = dockerService.getAppIdentifier(identifier);
-        needsToBeChecked = installedApp.containerData.includes('g:') && receiveOnlySyncthingAppsCache.get(appId).restarted;
+        needsToBeChecked = installedApp.containerData.includes('g:') && receiveOnlySyncthingAppsCache.has(appId) && receiveOnlySyncthingAppsCache.get(appId).restarted;
       } else {
         const componentUsingMasterSlave = installedApp.compose.find((comp) => comp.containerData.includes('g:'));
         if (componentUsingMasterSlave) {
           identifier = `${componentUsingMasterSlave.name}_${installedApp.name}`;
           appId = dockerService.getAppIdentifier(identifier);
-          needsToBeChecked = receiveOnlySyncthingAppsCache.get(appId).restarted;
+          needsToBeChecked = receiveOnlySyncthingAppsCache.has(appId) && receiveOnlySyncthingAppsCache.get(appId).restarted;
         }
       }
       if (needsToBeChecked) {
@@ -10881,7 +10967,7 @@ async function masterSlaveApps() {
                   log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
                 } else {
                   const previousMasterIndex = runningAppList.findIndex((x) => x.ip === mastersRunningGSyncthingApps.get(identifier));
-                  let timetoStartApp = new Date().getTime();
+                  let timetoStartApp = Date.now();
                   if (previousMasterIndex >= 0) {
                     if (index > previousMasterIndex) {
                       timetoStartApp += (index - 1) * 5 * 60 * 1000;
@@ -10891,14 +10977,14 @@ async function masterSlaveApps() {
                   } else {
                     timetoStartApp += index * 5 * 60 * 1000;
                   }
-                  if (timetoStartApp <= new Date().getTime()) {
+                  if (timetoStartApp <= Date.now()) {
                     appDockerRestart(installedApp.name);
                     log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
                   } else {
                     timeTostartNewMasterApp.set(identifier, timetoStartApp);
                   }
                 }
-              } else if (timeTostartNewMasterApp.has(identifier) && timeTostartNewMasterApp.get(identifier) <= new Date().getTime()) {
+              } else if (timeTostartNewMasterApp.has(identifier) && timeTostartNewMasterApp.get(identifier) <= Date.now()) {
                 appDockerRestart(installedApp.name);
                 log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
               }
@@ -10912,6 +10998,9 @@ async function masterSlaveApps() {
             if (myIP.split(':')[0] !== ip && runningAppsNames.includes(identifier)) {
               appDockerStop(installedApp.name);
               log.info(`masterSlaveApps: stopping docker app:${installedApp.name}`);
+            } else if (myIP === ip && !runningAppsNames.includes(identifier)) {
+              appDockerRestart(installedApp.name);
+              log.info(`masterSlaveApps: starting docker app:${installedApp.name}`);
             }
           }
         }
@@ -11660,6 +11749,287 @@ function setInstallationInProgressTrue() {
   installationInProgress = true;
 }
 
+/**
+ * Send a chunk of data as a response to the client with a delay.
+ * @async
+ * @param {object} res - Response object.
+ * @param {string} chunk - Data chunk to be sent.
+ * @returns {Promise<void>} - A Promise that resolves after sending the chunk with a delay.
+ */
+async function sendChunk(res, chunk) {
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      res.write(`${chunk}\n`);
+      resolve();
+    }, 3000); // Adjust the delay as needed
+  });
+}
+
+/**
+ * Append a backup task based on the provided parameters.
+ * @async
+ * @param {object} req - Request object.
+ * @param {object} res - Response object.
+ * @returns {boolean} - True if the backup task is successfully appended, otherwise false.
+ * @throws {object} - JSON error response if an error occurs.
+ */
+async function appendBackupTask(req, res) {
+  let appname;
+  let backup;
+  try {
+    const processedBody = serviceHelper.ensureObject(req.body);
+    log.info(processedBody);
+    // eslint-disable-next-line prefer-destructuring
+    appname = processedBody.appname;
+    // eslint-disable-next-line prefer-destructuring
+    backup = processedBody.backup;
+    if (!appname || !backup) {
+      throw new Error('appname and backup parameters are mandatory');
+    }
+    const indexBackup = backupInProgress.indexOf(appname);
+    if (indexBackup !== -1) {
+      throw new Error('Backup in progress...');
+    }
+    const hasTrueBackup = backup.some((backupitem) => backupitem.backup);
+    if (hasTrueBackup === false) {
+      throw new Error('No backup jobs...');
+    }
+  } catch (error) {
+    log.error(error);
+    await sendChunk(res, `${error?.message}\n`);
+    res.end();
+    return false;
+  }
+  try {
+    const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req, appname) : true;
+    if (authorized === true) {
+      backupInProgress.push(appname);
+      // Check if app using syncthing, stop syncthing for all component that using it
+      const appDetails = await getApplicationGlobalSpecifications(appname);
+      // eslint-disable-next-line no-restricted-syntax
+      const syncthing = appDetails.compose.find((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:') || comp.containerData.includes('s:'));
+      if (syncthing) {
+        // eslint-disable-next-line no-await-in-loop
+        await sendChunk(res, `Stopping syncthing for ${appname}\n`);
+        // eslint-disable-next-line no-await-in-loop
+        await stopSyncthingApp(appname, res, true);
+      }
+
+      await sendChunk(res, 'Stopping application...\n');
+      await appDockerStop(appname);
+      // eslint-disable-next-line no-restricted-syntax
+      for (const component of backup) {
+        if (component.backup) {
+          // eslint-disable-next-line no-await-in-loop
+          const componentPath = await IOUtils.getVolumeInfo(appname, component.component, 'B', 0, 'mount');
+          const targetPath = `${componentPath[0].mount}/appdata`;
+          const tarGzPath = `${componentPath[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`;
+          // eslint-disable-next-line no-await-in-loop
+          const existStatus = await IOUtils.checkFileExists(`${componentPath[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`);
+          if (existStatus === true) {
+            // eslint-disable-next-line no-await-in-loop
+            await sendChunk(res, `Removing exists backup archive for ${component.component.toLowerCase()}...\n`);
+            // eslint-disable-next-line no-await-in-loop
+            await IOUtils.removeFile(`${componentPath[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`);
+          }
+          // eslint-disable-next-line no-await-in-loop
+          await sendChunk(res, `Creating backup archive for ${component.component.toLowerCase()}...\n`);
+          // eslint-disable-next-line no-await-in-loop
+          const tarStatus = await IOUtils.createTarGz(targetPath, tarGzPath);
+          if (tarStatus.status === false) {
+            // eslint-disable-next-line no-await-in-loop
+            await IOUtils.removeFile(`${componentPath[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`);
+            throw new Error(`Error: Failed to create backup archive for ${component.component.toLowerCase()}, ${tarStatus.error}`);
+          }
+        }
+      }
+      await serviceHelper.delay(5 * 1000);
+      await sendChunk(res, 'Starting application...\n');
+      if (!syncthing) {
+        await appDockerStart(appname);
+      } else {
+        const componentsWithoutGSyncthing = appDetails.compose.filter((comp) => !comp.containerData.includes('g:'));
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of componentsWithoutGSyncthing) {
+          // eslint-disable-next-line no-await-in-loop
+          await appDockerStart(`${component.name}_${appname}`);
+        }
+      }
+      await sendChunk(res, 'Finalizing...\n');
+      await serviceHelper.delay(5 * 1000);
+      const indexToRemove = backupInProgress.indexOf(appname);
+      backupInProgress.splice(indexToRemove, 1);
+      res.end();
+      return true;
+    // eslint-disable-next-line no-else-return
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      return res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const indexToRemove = backupInProgress.indexOf(appname);
+    if (indexToRemove >= 0) {
+      backupInProgress.splice(indexToRemove, 1);
+    }
+    await sendChunk(res, `${error?.message}\n`);
+    res.end();
+    return false;
+  }
+}
+
+/**
+ * Append a restore task based on the provided parameters.
+ * @async
+ * @param {object} req - Request object.
+ * @param {object} res - Response object.
+ * @returns {boolean} - True if the restore task is successfully appended, otherwise false.
+ * @throws {object} - JSON error response if an error occurs.
+ */
+async function appendRestoreTask(req, res) {
+  let appname;
+  let restore;
+  let type;
+  try {
+    const processedBody = serviceHelper.ensureObject(req.body);
+    log.info(processedBody);
+    // eslint-disable-next-line prefer-destructuring
+    appname = processedBody.appname;
+    // eslint-disable-next-line prefer-destructuring
+    restore = processedBody.restore;
+    // eslint-disable-next-line prefer-destructuring
+    type = processedBody.type;
+    if (!appname || !restore || !type) {
+      throw new Error('appname, restore and type parameters are mandatory');
+    }
+    const indexRestore = restoreInProgress.indexOf(appname);
+    if (indexRestore !== -1) {
+      throw new Error(`Restore for app ${appname} is running...`);
+    }
+    const hasTrueRestore = restore.some((restoreitem) => restoreitem.restore);
+    if (hasTrueRestore === false) {
+      throw new Error('No restore jobs...');
+    }
+  } catch (error) {
+    log.error(error);
+    await sendChunk(res, `${error?.message}\n`);
+    res.end();
+    return false;
+  }
+  try {
+    const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req, appname) : true;
+    if (authorized === true) {
+      const componentItem = restore.map((restoreItem) => restoreItem);
+      restoreInProgress.push(appname);
+      const appDetails = await getApplicationGlobalSpecifications(appname);
+      // eslint-disable-next-line no-restricted-syntax
+      const syncthing = appDetails.compose.find((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:') || comp.containerData.includes('s:'));
+      if (syncthing) {
+        // eslint-disable-next-line no-await-in-loop
+        await sendChunk(res, `Stopping syncthing for ${appname}\n`);
+        // eslint-disable-next-line no-await-in-loop
+        await stopSyncthingApp(appname, res, true);
+      }
+      await sendChunk(res, 'Stopping application...\n');
+      await appDockerStop(appname);
+
+      // eslint-disable-next-line no-restricted-syntax
+      for (const component of restore) {
+        if (component.restore) {
+          // eslint-disable-next-line no-await-in-loop
+          const componentVolumeInfo = await IOUtils.getVolumeInfo(appname, component.component, 'B', 0, 'mount');
+          const appDataPath = `${componentVolumeInfo[0].mount}/appdata`;
+          // eslint-disable-next-line no-await-in-loop
+          await sendChunk(res, `Removing ${component.component} component data...\n`);
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.delay(2 * 1000);
+          // eslint-disable-next-line no-await-in-loop
+          await IOUtils.removeDirectory(appDataPath, true);
+        }
+      }
+
+      if (type === 'remote') {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const restoreItem of componentItem) {
+          if (restoreItem?.url !== '') {
+            // eslint-disable-next-line no-await-in-loop
+            const componentPath = await IOUtils.getVolumeInfo(appname, restoreItem.component, 'B', 0, 'mount');
+            // eslint-disable-next-line no-await-in-loop
+            await IOUtils.removeDirectory(`${componentPath[0].mount}/backup/remote`, true);
+            // eslint-disable-next-line no-await-in-loop
+            await sendChunk(res, `Downloading ${restoreItem.url}...\n`);
+            // eslint-disable-next-line no-await-in-loop
+            const downloadStatus = await IOUtils.downloadFileFromUrl(restoreItem.url, `${componentPath[0].mount}/backup/remote`, restoreItem.component, true);
+            if (downloadStatus === 'false') {
+              throw new Error(`Error: Failed to download ${restoreItem.url}...`);
+            }
+          }
+        }
+      }
+
+      // eslint-disable-next-line no-restricted-syntax
+      for (const component of restore) {
+        if (component.restore) {
+          // eslint-disable-next-line no-await-in-loop
+          const componentPath = await IOUtils.getVolumeInfo(appname, component.component, 'B', 0, 'mount');
+          const targetPath = `${componentPath[0].mount}/appdata`;
+          const tarGzPath = `${componentPath[0].mount}/backup/${type}/backup_${component.component.toLowerCase()}.tar.gz`;
+          // eslint-disable-next-line no-await-in-loop
+          await sendChunk(res, `Unpacking backup archive for ${component.component.toLowerCase()}...\n`);
+          // eslint-disable-next-line no-await-in-loop
+          const tarStatus = await IOUtils.untarFile(targetPath, tarGzPath);
+          if (tarStatus.status === false) {
+            throw new Error(`Error: Failed to unpack archive file for ${component.component.toLowerCase()}, ${tarStatus.error}`);
+          } else {
+            // eslint-disable-next-line no-await-in-loop
+            await sendChunk(res, `Removing backup file for ${component.component.toLowerCase()}...\n`);
+            // eslint-disable-next-line no-await-in-loop
+            await IOUtils.removeFile(tarGzPath);
+          }
+          const syncthingAux = appDetails.compose.find((comp) => comp.name === component.component && (comp.containerData.includes('g:') || comp.containerData.includes('r:')));
+          if (syncthingAux) {
+            const identifier = `${component.component}_${appname}`;
+            const appId = dockerService.getAppIdentifier(identifier);
+            const cache = {
+              restarted: true,
+              numberOfExecutionsRequired: 4,
+              numberOfExecutions: 10,
+            };
+            receiveOnlySyncthingAppsCache.set(appId, cache);
+          }
+        }
+      }
+      await serviceHelper.delay(1 * 5 * 1000);
+      await sendChunk(res, 'Starting application...\n');
+      await appDockerStart(appname);
+      if (syncthing) {
+        await sendChunk(res, 'Redeploying other instances...\n');
+        executeAppGlobalCommand(appname, 'redeploy', req.headers.zelidauth, true);
+        await serviceHelper.delay(1 * 60 * 1000);
+      }
+      await sendChunk(res, 'Finalizing...\n');
+      await serviceHelper.delay(5 * 1000);
+      const indexToRemove = restoreInProgress.indexOf(appname);
+      restoreInProgress.splice(indexToRemove, 1);
+      res.end();
+      return true;
+    // eslint-disable-next-line no-else-return
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      return res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const indexToRemove = restoreInProgress.indexOf(appname);
+    if (indexToRemove >= 0) {
+      restoreInProgress.splice(indexToRemove, 1);
+    }
+    await sendChunk(res, `${error?.message}\n`);
+    res.end();
+    return false;
+  }
+}
+
 module.exports = {
   listRunningApps,
   listAllApps,
@@ -11757,7 +12127,9 @@ module.exports = {
   checkApplicationsCompliance,
   testAppMount,
   checkStorageSpaceForApps,
-
+  appendBackupTask,
+  appendRestoreTask,
+  sendChunk,
   // exports for testing purposes
   setAppsMonitored,
   getAppsMonitored,
