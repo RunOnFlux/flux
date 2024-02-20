@@ -7744,6 +7744,8 @@ export default {
       if (response.data.status === 'error') {
         this.showToast('danger', response.data.data.message || response.data.data);
       } else {
+        this.masterIP = null;
+        this.instances.data = [];
         this.instances.data = response.data.data;
         // eslint-disable-next-line no-restricted-syntax
         for (const node of this.instances.data) {
