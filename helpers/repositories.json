@@ -418,5 +418,7 @@
    "tmart1010/streamlit_music-server",
    "golang",
    "prom",
-   "ghcr.io/lloesche/valheim-server"
+   "ghcr.io/lloesche/valheim-server",
+   "scton54",
+   "scton54/nuxt3flux"
 ]
