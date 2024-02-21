@@ -24,6 +24,8 @@ const upnpService = require('./services/upnpService');
 const syncthingService = require('./services/syncthingService');
 const fluxNetworkHelper = require('./services/fluxNetworkHelper');
 const enterpriseNodesService = require('./services/enterpriseNodesService');
+const backupRestoreService = require('./services/backupRestoreService');
+const IOUtils = require('./services/IOUtils');
 
 function isLocal(req, res, next) {
   const remote = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || req.headers['x-forwarded-for'];
@@ -608,6 +610,34 @@ module.exports = (app, expressWs) => {
   });
   app.get('/syncthing/debug/file', cache('30 seconds'), (req, res) => {
     syncthingService.debugFile(req, res);
+  });
+  // BACKUP & RESTORE
+
+  app.get('/backup/getvolumedataofcomponent/:appname?/:component?/:multiplier?/:decimal?/:fields?', (req, res) => {
+    backupRestoreService.getVolumeDataOfComponent(req, res);
+  });
+  app.get('/backup/getremotefilesize/:fileurl?/:multiplier?/:decimal?/:number?/:appname?', (req, res) => {
+    backupRestoreService.getRemoteFileSize(req, res);
+  });
+  app.get('/backup/getlocalbackuplist/:path?/:multiplier?/:decimal?/:number?/:appname?', (req, res) => {
+    backupRestoreService.getLocalBackupList(req, res);
+  });
+  app.get('/backup/removebackupfile/:filepath?/:appname?', (req, res) => {
+    backupRestoreService.removeBackupFile(req, res);
+  });
+  app.get('/backup/downloadlocalfile/:filepath?/:appname?', (req, res) => {
+    backupRestoreService.downloadLocalFile(req, res);
+  });
+  app.post('/apps/appendbackuptask', (req, res) => {
+    appsService.appendBackupTask(req, res);
+  });
+
+  app.post('/apps/appendrestoretask', (req, res) => {
+    appsService.appendRestoreTask(req, res);
+  });
+
+  app.post('/ioutils/fileupload/:fullpath?/:filename?/:appname?', (req, res) => {
+    IOUtils.fileUpload(req, res);
   });
 
   // GET PROTECTED API - Fluxnode Owner

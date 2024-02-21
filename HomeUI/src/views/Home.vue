@@ -60,7 +60,7 @@
             <a @click="initSSP">
               <img
                 class="sspLogin"
-                src="@/assets/images/ssp-logo-white.svg"
+                :src="skin === 'dark' ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
                 alt="SSP"
                 height="100%"
                 width="100%"
@@ -168,6 +168,7 @@ import { MetaMaskSDK } from '@metamask/sdk';
 
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import ListEntry from '@/views/components/ListEntry.vue';
+import useAppConfig from '@core/app-config/useAppConfig';
 
 import DaemonService from '@/services/DaemonService';
 import IDService from '@/services/IDService';
@@ -240,6 +241,9 @@ export default {
       'config',
       'privilege',
     ]),
+    skin() {
+      return useAppConfig().skin.value;
+    },
     callbackValue() {
       const backendURL = this.backendURL();
       const url = `${backendURL}/id/verifylogin`;

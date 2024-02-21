@@ -70,16 +70,16 @@ export default {
     return Api().post('/flux/broadcastmessage', JSON.stringify(data), axiosConfig);
   },
   connectedPeers() {
-    return Api().get(`/flux/connectedpeers?timestamp=${new Date().getTime()}`);
+    return Api().get(`/flux/connectedpeers?timestamp=${Date.now()}`);
   },
   connectedPeersInfo() {
-    return Api().get(`/flux/connectedpeersinfo?timestamp=${new Date().getTime()}`);
+    return Api().get(`/flux/connectedpeersinfo?timestamp=${Date.now()}`);
   },
   incomingConnections() {
-    return Api().get(`/flux/incomingconnections?timestamp=${new Date().getTime()}`);
+    return Api().get(`/flux/incomingconnections?timestamp=${Date.now()}`);
   },
   incomingConnectionsInfo() {
-    return Api().get(`/flux/incomingconnectionsinfo?timestamp=${new Date().getTime()}`);
+    return Api().get(`/flux/incomingconnectionsinfo?timestamp=${Date.now()}`);
   },
   addPeer(zelidauthHeader, ip) {
     return Api().get(`/flux/addpeer/${ip}`, {
