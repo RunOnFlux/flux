@@ -1345,21 +1345,174 @@ async function purgeUFW() {
 }
 
 /**
- * This fix a docker security issue where docker containers can access host network, for example to create port forwarding on hosts
+ * This fix a docker security issue where docker containers can access private node operator networks, for example to create port forwarding on hosts.
+ *
+ * Docker should create a DOCKER-USER chain. If this doesn't exist - we create it, then jump to this chain immediately from the FORWARD CHAIN.
+ * This allows rules to be added via -I (insert) and -A (append) to the DOCKER-USER chain individually, so we can ALWAYS append the
+ * drop traffic rule, and insert the ACCEPT rules. If no matches are found in the DOCKER-USER chain, rule evaluation continues
+ * from the next rule in the FORWARD chain.
+ *
+ * If needed in the future, we can actually create a JUMP from the DOCKER-USER chain to a custom chain. The reason why we MUST use the DOCKER-USER
+ * chain is that whenever docker creates a new network, it re-jumps the DOCKER-USER chain at the head of the FORWARD chain.
+ *
+ * As can be seen in this example:
+ *
+ * Originally, was using the FLUX chain, but you can see docker inserted the br-72d1725e481c network ahead, as well as the JUMP to DOCKER-USER,
+ * which invalidates any rules in the FLUX chain, as there is basically an accept any:
+ *
+ * FORWARD -i br-72d1725e481c ! -o br-72d1725e481c -j ACCEPT
+ *
+ * ```bash
+ * -A INPUT -j ufw-track-input
+ * -A FORWARD -j DOCKER-USER
+ * -A FORWARD -j DOCKER-ISOLATION-STAGE-1
+ * -A FORWARD -o br-72d1725e481c -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+ * -A FORWARD -o br-72d1725e481c -j DOCKER
+ * -A FORWARD -i br-72d1725e481c ! -o br-72d1725e481c -j ACCEPT
+ * -A FORWARD -i br-72d1725e481c -o br-72d1725e481c -j ACCEPT
+ * -A FORWARD -j FLUX
+ * -A FORWARD -o br-048fde111132 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+ * -A FORWARD -o br-048fde111132 -j DOCKER
+ * -A FORWARD -i br-048fde111132 ! -o br-048fde111132 -j ACCEPT
+ * -A FORWARD -i br-048fde111132 -o br-048fde111132 -j ACCEPT
+ *```
+ * This means if a user or someone was to delete a single rule, we are able to recover correctly from it.
+ *
+ * The other option - is just to Flush all rules on every run, and reset them all. This is what we are doing now.
+ *
+ * @param {string[]} fluxNetworkInterfaces The network interfaces, br-<12 character string>
+ * @returns  {Promise<Boolean>}
  */
-async function removeDockerContainerAccessToHost() {
+async function removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces) {
+  const cmdAsync = util.promisify(nodecmd.get);
+
+  const checkIptables = 'sudo iptables --version';
+  const iptablesInstalled = await cmdAsync(checkIptables).catch(() => {
+    log.error('Unable to find iptables binary');
+    return false
+  });
+
+  if (!iptablesInstalled) return false;
+
+  // check if rules have been created, as iptables is NOT idempotent.
+  const checkDockerUserChain = 'sudo iptables -L DOCKER-USER';
+  // iptables 1.8.4 doesn't return anything - so have updated command a little
+  const checkJumpChain = 'sudo iptables -C FORWARD -j DOCKER-USER && echo true';
+
+  const dockerUserChainExists = await cmdAsync(checkDockerUserChain).catch(async () => {
+    try {
+      await cmdAsync('sudo iptables -N DOCKER-USER');
+      log.info('IPTABLES: DOCKER-USER chain created');
+    } catch (err) {
+      log.error('IPTABLES: Error adding DOCKER-USER chain');
+      // if we can't add chain, we can't proceed
+      return new Error();
+    }
+    return null;
+  });
+
+  if (dockerUserChainExists instanceof Error) return false;
+  if (dockerUserChainExists) log.info('IPTABLES: DOCKER-USER chain already created');
+
+  const checkJumpToDockerChain = await cmdAsync(checkJumpChain).catch(async () => {
+    // Ubuntu 20.04 @ iptables 1.8.4 Error: "iptables: No chain/target/match by that name."
+    // Ubuntu 22.04 @ iptables 1.8.7 Error: "iptables: Bad rule (does a matching rule exist in that chain?)."
+    const jumpToFluxChain = 'sudo iptables -I FORWARD -j DOCKER-USER';
+    try {
+      await cmdAsync(jumpToFluxChain);
+      log.info('IPTABLES: New rule in FORWARD inserted to jump to DOCKER-USER chain');
+    } catch (err) {
+      log.error('IPTABLES: Error inserting FORWARD jump to DOCKER-USER chain');
+      // if we can't jump, we need to bail out
+      return new Error();
+    }
+
+    return null;
+  });
+
+  if (checkJumpToDockerChain instanceof Error) return false;
+  if (checkJumpToDockerChain) log.info('IPTABLES: Jump to DOCKER-USER chain already enabled');
+
+  const rfc1918Networks = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'];
+  const fluxSrc = '172.23.0.0/16';
+
+  const baseDropCmd = `sudo iptables -A DOCKER-USER -s ${fluxSrc} -d #DST -j DROP`;
+  const baseAllowToFluxNetworksCmd = 'sudo iptables -I DOCKER-USER -i #INT -o #INT -j ACCEPT';
+  const baseAllowEstablishedCmd = `sudo iptables -I DOCKER-USER -s ${fluxSrc} -d #DST -m state --state RELATED,ESTABLISHED -j ACCEPT`;
+  const baseAllowDnsCmd = `sudo iptables -I DOCKER-USER -s ${fluxSrc} -d #DST -p udp --dport 53 -j ACCEPT`;
+
+  const addReturnCmd = 'sudo iptables -A DOCKER-USER -j RETURN';
+  const flushDockerUserCmd = 'sudo iptables -F DOCKER-USER';
+
   try {
-    const cmdAsync = util.promisify(nodecmd.get);
-    const dropAccessToHostNetwork = "sudo iptables -I FORWARD -i docker0 -d $(ip route | grep \"src $(ip addr show dev $(ip route | awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') -j DROP";
-    await cmdAsync(dropAccessToHostNetwork).catch((error) => log.error(`Error executing dropAccessToHostNetwork command:${error}`));
-    const giveHostAccessToDockerNetwork = "sudo iptables -I FORWARD -i docker0 -d $(ip route | grep \"src $(ip addr show dev $(ip route | awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') -m state --state ESTABLISHED,RELATED -j ACCEPT";
-    await cmdAsync(giveHostAccessToDockerNetwork).catch((error) => log.error(`Error executing giveHostAccessToDockerNetwork command:${error}`));
-    const giveContainerAccessToDNS = "sudo iptables -I FORWARD -i docker0 -p udp -d $(ip route | grep \"src $(ip addr show dev $(ip route | awk '/default/ {print $5}') | grep \"inet\" | awk 'NR==1{print $2}' | cut -d'/' -f 1)\" | awk '{print $1}') --dport 53 -j ACCEPT";
-    await cmdAsync(giveContainerAccessToDNS).catch((error) => log.error(`Error executing giveContainerAccessToDNS command:${error}`));
-    log.info('Access to host from containers removed');
-  } catch (error) {
-    log.error(error);
+    await cmdAsync(flushDockerUserCmd);
+    log.info('IPTABLES: DOCKER-USER table flushed');
+  } catch (err) {
+    log.error(`IPTABLES: Error flushing DOCKER-USER table. ${err}`);
+    return false;
   }
+
+  // add for legacy apps
+  fluxNetworkInterfaces.push('docker0');
+
+  // eslint-disable-next-line no-restricted-syntax
+  for (const int of fluxNetworkInterfaces) {
+    // if this errors, we need to bail, as if the deny succeedes, we may cut off access
+    const giveFluxNetworkAccess = baseAllowToFluxNetworksCmd.replace(/#INT/g, int);
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await cmdAsync(giveFluxNetworkAccess);
+      log.info(`IPTABLES: Traffic on Flux interface ${int} accepted`);
+    } catch (err) {
+      log.error(`IPTABLES: Error allowing traffic on Flux interface ${int}. ${err}`);
+      return false;
+    }
+  }
+
+  // eslint-disable-next-line no-restricted-syntax
+  for (const network of rfc1918Networks) {
+    // if any of these error, we need to bail, as if the deny succeedes, we may cut off access
+
+    const giveHostAccessToDockerNetwork = baseAllowEstablishedCmd.replace('#DST', network);
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await cmdAsync(giveHostAccessToDockerNetwork);
+      log.info(`IPTABLES: Access to Flux containers from ${network} accepted`);
+    } catch (err) {
+      log.error(`IPTABLES: Error allowing access to Flux containers from ${network}. ${err}`);
+      return false;
+    }
+
+    const giveContainerAccessToDNS = baseAllowDnsCmd.replace('#DST', network);
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await cmdAsync(giveContainerAccessToDNS);
+      log.info(`IPTABLES: DNS access to ${network} from Flux containers accepted`);
+    } catch (err) {
+      log.error(`IPTABLES: Error allowing DNS access to ${network} from Flux containers. ${err}`);
+      return false;
+    }
+
+    // This always gets appended, so the drop is at the end
+    const dropAccessToHostNetwork = baseDropCmd.replace('#DST', network);
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await cmdAsync(dropAccessToHostNetwork);
+      log.info(`IPTABLES: Access to ${network} from Flux containers removed`);
+    } catch (err) {
+      log.error(`IPTABLES: Error denying access to ${network} from Flux containers. ${err}`);
+      return false;
+    }
+  }
+
+  try {
+    await cmdAsync(addReturnCmd);
+    log.info('IPTABLES: DOCKER-USER explicit return to FORWARD chain added');
+  } catch (err) {
+    log.error(`IPTABLES: Error adding explicit return to Forward chain. ${err}`);
+    return false;
+  }
+  return true;
 }
 
 const lruRateOptions = {
@@ -1492,5 +1645,5 @@ module.exports = {
   isPortUserBlocked,
   allowNodeToBindPrivilegedPorts,
   installNetcat,
-  removeDockerContainerAccessToHost,
+  removeDockerContainerAccessToNonRoutable,
 };

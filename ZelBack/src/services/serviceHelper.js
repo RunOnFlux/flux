@@ -200,6 +200,42 @@ function commandStringToArray(command) {
   return splitargs(command);
 }
 
+/**
+ *
+ * @param {*} ip ip address to check
+ * @returns {Boolean}
+ */
+function validIpv4Address(ip) {
+  // first octet must start with 1-9, then next 3 can be 0.
+  const ipv4Regex = /^[1-9]\d{0,2}\.(\d{0,3}\.){2}\d{0,3}$/;
+
+  if (!ipv4Regex.test(ip)) return false;
+
+  const octets = ip.split('.');
+  const isValid = octets.every((octet) => parseInt(octet, 10) < 256);
+  return isValid;
+}
+
+/**
+ * To confirm if ip is in subnet
+ * @param {string} ip
+ * @param {string} subnet
+ * @returns {Boolean}
+ */
+function ipInSubnet(ip, subnet) {
+  const [network, mask] = subnet.split('/');
+
+  if (!validIpv4Address(ip) || !validIpv4Address(network)) return false;
+
+  // eslint-disable-next-line no-bitwise
+  const ipAsInt = Number(ip.split('.').reduce((ipInt, octet) => (ipInt << 8) + parseInt(octet || 0, 10), 0));
+  // eslint-disable-next-line no-bitwise
+  const networkAsInt = Number(network.split('.').reduce((ipInt, octet) => (ipInt << 8) + parseInt(octet || 0, 10), 0));
+  const maskAsInt = parseInt('1'.repeat(mask) + '0'.repeat(32 - mask), 2);
+  // eslint-disable-next-line no-bitwise
+  return (ipAsInt & maskAsInt) === (networkAsInt & maskAsInt);
+}
+
 module.exports = {
   ensureBoolean,
   ensureNumber,
@@ -212,4 +248,6 @@ module.exports = {
   isDecimalLimit,
   dockerBufferToString,
   commandStringToArray,
+  validIpv4Address,
+  ipInSubnet,
 };
