@@ -5984,7 +5984,13 @@ export default {
       // eslint-disable-next-line vue/no-side-effects-in-computed-properties
       this.minutesRemaining = blocksToExpire * 2;
       const result = this.minutesToString;
-      return `${result[0]}, ${result[1]}, ${result[2]}`;
+      if (result.length > 2) {
+        return `${result[0]}, ${result[1]}, ${result[2]}`;
+      }
+      if (result.length > 1) {
+        return `${result[0]}, ${result[1]}`;
+      }
+      return `${result[0]}`;
     },
   },
   watch: {

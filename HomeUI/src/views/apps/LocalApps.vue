@@ -2396,7 +2396,13 @@ export default {
       }
       const minutesRemaining = blocksToExpire * 2;
       const result = this.minutesToString(minutesRemaining);
-      return `${result[0]}, ${result[1]}, ${result[2]}`;
+      if (result.length > 2) {
+        return `${result[0]}, ${result[1]}, ${result[2]}`;
+      }
+      if (result.length > 1) {
+        return `${result[0]}, ${result[1]}`;
+      }
+      return `${result[0]}`;
     },
     async appsGetListGlobalApps() {
       this.tableconfig.globalAvailable.loading = true;
