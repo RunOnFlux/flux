@@ -1389,7 +1389,7 @@ async function removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces) {
   const checkIptables = 'sudo iptables --version';
   const iptablesInstalled = await cmdAsync(checkIptables).catch(() => {
     log.error('Unable to find iptables binary');
-    return false
+    return false;
   });
 
   if (!iptablesInstalled) return false;
