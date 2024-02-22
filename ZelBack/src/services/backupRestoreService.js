@@ -1,8 +1,6 @@
-// const fs = require('fs').promises;
 const log = require('../lib/log');
 const path = require('path');
 const messageHelper = require('./messageHelper');
-// const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
 const IOUtils = require('./IOUtils');
 const fs = require('fs').promises;
