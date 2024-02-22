@@ -108,8 +108,8 @@
               :number="callResponse.data.height + (callResponse.data.expire || 22000)"
             />
             <list-entry
-              title="Period"
-              :data="getExpireLabel || (callResponse.data.expire ? `${callResponse.data.expire} blocks` : '1 month')"
+              title="Expires in"
+              :data="getNewExpireLabel"
             />
             <list-entry
               title="Enterprise Nodes"
@@ -393,8 +393,8 @@
               :number="callBResponse.data.height + (callBResponse.data.expire || 22000)"
             />
             <list-entry
-              title="Period"
-              :data="getExpireLabel || (callBResponse.data.expire ? `${callBResponse.data.expire} blocks` : '1 month')"
+              title="Expires in"
+              :data="getNewExpireLabel"
             />
             <list-entry
               title="Enterprise Nodes"
@@ -2779,8 +2779,8 @@
               :number="callBResponse.data.height + (callBResponse.data.expire || 22000)"
             />
             <list-entry
-              title="Period"
-              :data="getExpireLabel || (callBResponse.data.expire ? `${callBResponse.data.expire} blocks` : '1 month')"
+              title="Expires in"
+              :data="getNewExpireLabel"
             />
             <list-entry
               title="Enterprise Nodes"
@@ -3613,13 +3613,40 @@
                   />
                 </b-form-group>
                 <br>
-                <b-form-group
+                <div
                   v-if="appUpdateSpecification.version >= 6"
-                  label-cols="2"
-                  label-cols-lg="1"
-                  label="Period"
-                  label-for="period"
+                  class="form-row form-group"
                 >
+                  <label class="col-form-label">
+                    Extend Subscription
+                    <v-icon
+                      v-b-tooltip.hover.top="'Select if you want to extend your subscription period'"
+                      name="info-circle"
+                      class="mr-1"
+                    />
+                  </label>
+                  <div class="col">
+                    <b-form-checkbox
+                      id="extendSubscription"
+                      v-model="extendSubscription"
+                      switch
+                      class="custom-control-primary inline"
+                    />
+                  </div>
+                </div>
+                <br>
+                <div
+                  v-if="extendSubscription"
+                  class="form-row form-group"
+                >
+                  <label class="col-form-label">
+                    Period
+                    <v-icon
+                      v-b-tooltip.hover.top="'Time you want to extend your subscription from today'"
+                      name="info-circle"
+                      class="mr-1"
+                    />
+                  </label>
                   <div class="mx-1">
                     {{ getExpireLabel || (appUpdateSpecification.expire ? `${appUpdateSpecification.expire} blocks` : '1 month') }}
                   </div>
@@ -3632,7 +3659,7 @@
                     :max="5"
                     :step="1"
                   />
-                </b-form-group>
+                </div>
                 <br>
                 <div
                   v-if="appUpdateSpecification.version >= 7"
@@ -3898,7 +3925,7 @@
                     <label class="col-3 col-form-label">
                       Cont. Data
                       <v-icon
-                        v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with r: for synced data between instances. Eg. r:/data'"
+                        v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with r: for synced data between instances. Ex. r:/data. Prepend with g: for synced data and primary/standby solution. Ex. g:/data'"
                         name="info-circle"
                         class="mr-1"
                       />
@@ -4534,7 +4561,7 @@
                   <label class="col-3 col-form-label">
                     Cont. Data
                     <v-icon
-                      v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with r: for synced data between instances. Eg. r:/data'"
+                      v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with r: for synced data between instances. Ex. r:/data. Prepend with g: for synced data and primary/standby solution. Ex. g:/data'"
                       name="info-circle"
                       class="mr-1"
                     />
@@ -5548,6 +5575,7 @@ export default {
       extendSubscription: true,
       daemonBlockCount: -1,
       expirePosition: 2,
+      minutesRemaining: 0,
       expireOptions: [
         {
           value: 5000,
@@ -6041,6 +6069,7 @@ export default {
     this.getMarketPlace();
     this.getMultiplier();
     this.getEnterpriseNodes();
+    this.getDaemonBlockCount();
   },
   methods: {
     handleRadioClick() {
@@ -7253,6 +7282,15 @@ export default {
       }
     },
     convertExpire() {
+      if (!this.extendSubscription) {
+        const expires = this.callBResponse.data.expire || 22000;
+        const blocksToExpire = this.callBResponse.data.height + expires - this.daemonBlockCount;
+        if (blocksToExpire < 5000) {
+          throw new Error('Your application will expire in less than one week, you need to extend subscription to be able to update specifications');
+        } else {
+          return Math.ceil(blocksToExpire / 1000) * 1000;
+        }
+      }
       if (this.expireOptions[this.expirePosition]) {
         return this.expireOptions[this.expirePosition].value;
       }
@@ -7307,6 +7345,9 @@ export default {
           // time to encrypt
           // eslint-disable-next-line no-restricted-syntax
           for (const component of this.appUpdateSpecification.compose) {
+            component.environmentParameters = component.environmentParameters.replace('\\“', '\\"');
+            component.commands = component.commands.replace('\\“', '\\"');
+            component.domains = component.domains.replace('\\“', '\\"');
             if (component.secrets && !component.secrets.startsWith('-----BEGIN PGP MESSAGE')) {
               // need encryption
               // eslint-disable-next-line no-await-in-loop
@@ -7342,6 +7383,7 @@ export default {
           appSpecification.geolocation = this.generateGeolocations();
         }
         if (appSpecification.version >= 6) {
+          await this.getDaemonBlockCount();
           appSpecification.expire = this.convertExpire();
         }
         // call api for verification of app registration specifications that returns formatted specs
@@ -8687,6 +8729,12 @@ export default {
         }
       } catch (error) {
         console.log(error);
+      }
+    },
+    async getDaemonBlockCount() {
+      const response = await DaemonService.getBlockCount();
+      if (response.data.status === 'success') {
+        this.daemonBlockCount = response.data.data;
       }
     },
     async fetchEnterpriseKey(nodeip) { // we must have at least +5 nodes or up to 10% of spare keys
