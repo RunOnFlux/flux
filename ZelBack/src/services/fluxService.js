@@ -39,6 +39,83 @@ async function fluxBackendFolder(req, res) {
 }
 
 /**
+ * To show the current short commit id.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+// eslint-disable-next-line consistent-return
+async function getCurrentCommitId(req, res) {
+  if (req) {
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized !== true) {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      return res ? res.json(errMessage) : errMessage;
+    }
+  }
+
+  const cmdAsync = util.promisify(nodecmd.get);
+  const showBranchCmd = 'git rev-parse --short HEAD'
+
+  const branch = await cmdAsync(showBranchCmd).catch((err) => {
+    const errMsg = messageHelper.createErrorMessage(`Error getting current commit id of Flux: ${err.message}`, err.name, err.code);
+    return res ? res.json(errMsg) : errMsg;
+  })
+
+  const successMsg = messageHelper.createSuccessMessage(branch.replace('\n', ''));
+  return res ? res.json(successMsg) : successMsg;
+}
+
+/**
+ * To show the currently selected branch.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+// eslint-disable-next-line consistent-return
+async function getCurrentBranch(req, res) {
+  if (req) {
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized !== true) {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      return res ? res.json(errMessage) : errMessage;
+    }
+  }
+
+  const cmdAsync = util.promisify(nodecmd.get);
+  const showBranchCmd = 'git rev-parse --abbrev-ref HEAD'
+
+  const branch = await cmdAsync(showBranchCmd).catch((err) => {
+    const errMsg = messageHelper.createErrorMessage(`Error getting current branch of Flux: ${err.message}`, err.name, err.code);
+    return res ? res.json(errMsg) : errMsg;
+  })
+
+  const successMsg = messageHelper.createSuccessMessage(branch.replace('\n', ''));
+  return res ? res.json(successMsg) : successMsg;
+}
+
+/**
+ * Check out branch if it exists locally
+ * @param {string} branch The branch to checkout
+ * @param {{pull?: Boolean}} options
+ * @returns {Boolean}
+ */
+async function checkoutBranch(branch, options = {}) {
+  const cmdAsync = util.promisify(nodecmd.get);
+  const verifyBranch = `git rev-parse --verify ${branch}`;
+  const pull = options.pull ? ' && git pull' : ''
+  const checkoutAndPull = `git checkout ${branch}${pull}`;
+
+  const verified = await cmdAsync(verifyBranch).catch((err) => log.error(err));
+
+  if (verified) {
+    const checkedOut = await cmdAsync(checkoutAndPull).catch((err) = log.error(err));
+    if (checkedOut) return true;
+  }
+  return false;
+}
+
+/**
  * To switch to master branch of FluxOS. Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -67,7 +144,7 @@ async function enterMaster(req, res) {
 }
 
 /**
- * To switch to master branch of FluxOS. Only accessible by admins and Flux team members.
+ * To switch to development branch of FluxOS. Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {object} Message.
@@ -142,7 +219,7 @@ async function softUpdateFlux(req, res) {
       const errMessage = messageHelper.createErrorMessage(`Error softly updating Flux: ${err.message}`, err.name, err.code);
       return res ? res.json(errMessage) : errMessage;
     }
-    const message = messageHelper.createSuccessMessage('Flux successfully updated using soft method');
+    const message = messageHelper.createSuccessMessage('Flux successfully soft updated');
     return res ? res.json(message) : message;
   });
 }
@@ -1503,6 +1580,7 @@ module.exports = {
   fluxBackendFolder,
   getNodeTier,
   installFluxWatchTower,
+  getCurrentBranch,
   enterDevelopment,
   enterMaster,
   isStaticIPapi,
@@ -1513,6 +1591,8 @@ module.exports = {
   getBlockedRepositories,
   getMarketplaceURL,
   restartFluxOS,
+  checkoutBranch,
+  getCurrentCommitId,
 
   // Exports for testing purposes
   fluxLog,

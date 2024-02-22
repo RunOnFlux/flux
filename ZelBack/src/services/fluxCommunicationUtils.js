@@ -17,32 +17,28 @@ let addingNodesToCache = false;
 
 /**
  * To constantly update deterministic Flux list every 2 minutes so we always trigger cache and have up to date value
+ * @returns {Promise<void>}
  */
-async function constantlyUpdateDeterministicFluxList() {
+async function updateDeterministicFluxList() {
+  if (addingNodesToCache) return;
+
+  addingNodesToCache = true;
+
+  const request = {
+    params: {},
+    query: {},
+  };
+
   try {
-    while (addingNodesToCache) {
-      // prevent several instances filling the cache at the same time.
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(100);
-    }
-    addingNodesToCache = true;
-    const request = {
-      params: {},
-      query: {},
-    };
     const daemonFluxNodesList = await daemonServiceFluxnodeRpcs.viewDeterministicFluxNodeList(request);
     if (daemonFluxNodesList.status === 'success') {
       const generalFluxList = daemonFluxNodesList.data || [];
       myCache.set('fluxList', generalFluxList);
     }
-    addingNodesToCache = false;
-    await serviceHelper.delay(2 * 60 * 1000); // 2 minutes
-    constantlyUpdateDeterministicFluxList();
   } catch (error) {
-    addingNodesToCache = false;
     log.error(error);
-    await serviceHelper.delay(2 * 60 * 1000); // 2 minutes
-    constantlyUpdateDeterministicFluxList();
+  } finally {
+    addingNodesToCache = false;
   }
 }
 
@@ -206,7 +202,7 @@ async function verifyOriginalFluxBroadcast(data, obtainedFluxNodeList, currentTi
 }
 
 module.exports = {
-  constantlyUpdateDeterministicFluxList,
+  updateDeterministicFluxList,
   verifyTimestampInFluxBroadcast,
   verifyOriginalFluxBroadcast,
   deterministicFluxList,

@@ -12,6 +12,7 @@ const staticIpOrgs = ['hetzner', 'ovh', 'netcup', 'hostnodes', 'contabo', 'hosts
  * Method responsable for setting node geolocation information
  */
 async function setNodeGeolocation() {
+  log.info('Setting Node Geolocation');
   try {
     const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
     if (!myIP) {

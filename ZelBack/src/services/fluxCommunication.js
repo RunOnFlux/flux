@@ -446,12 +446,14 @@ function connectedPeersInfo(req, res) {
 
 /**
  * To keep connections alive by pinging all outgoing and incoming peers.
+ * @returns {Promise<void>}
  */
-function keepConnectionsAlive() {
-  setInterval(() => {
-    fluxCommunicationMessagesSender.sendToAllPeers(); // perform ping
-    fluxCommunicationMessagesSender.sendToAllIncomingConnections(); // perform ping
-  }, 15 * 1000);
+async function pingAllPeers() {
+  // this was previous running both inbound / outbound pings at the same time. Which based
+  // on the 25ms delay in each function - wasn't the intent. It migh be a better solution to
+  // spread out the ~30 pings over the 15sec period.
+  await fluxCommunicationMessagesSender.sendToAllPeers(); // perform ping
+  await fluxCommunicationMessagesSender.sendToAllIncomingConnections(); // perform ping
 }
 
 /**
@@ -794,7 +796,7 @@ async function addOutgoingPeer(req, res) {
 /**
  * To discover and connect to other randomly selected FluxNodes. Maintains connections with 1-2% of nodes on the Flux network. Ensures that FluxNode connections are not duplicated.
  */
-async function fluxDiscovery() {
+async function connectToPeers() {
   try {
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     if (!syncStatus.data.synced) {
@@ -920,12 +922,12 @@ async function fluxDiscovery() {
       await serviceHelper.delay(500);
     }
     setTimeout(() => {
-      fluxDiscovery();
+      connectToPeers();
     }, 60 * 1000);
   } catch (error) {
     log.warn(error.message || error);
     setTimeout(() => {
-      fluxDiscovery();
+      connectToPeers();
     }, 120 * 1000);
   }
 }
@@ -943,8 +945,8 @@ module.exports = {
   removePeer,
   removeIncomingPeer,
   connectedPeersInfo,
-  keepConnectionsAlive,
-  fluxDiscovery,
+  pingAllPeers,
+  connectToPeers,
   handleAppMessages,
   addPeer,
   handleAppRunningMessage,

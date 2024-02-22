@@ -395,7 +395,7 @@ function getDosStateValue() {
 
 /**
  * To get Flux IP adress and port.
- * @returns {string} IP address and port.
+ * @returns {Promise<string>} IP address and port.
  */
 async function getMyFluxIPandPort() {
   const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
@@ -413,7 +413,7 @@ async function getMyFluxIPandPort() {
 /**
  * To get FluxNode private key.
  * @param {string} privatekey Private Key.
- * @returns {string} Private key, if already input as parameter or otherwise from the daemon config.
+ * @returns {Promise<string>} Private key, if already input as parameter or otherwise from the daemon config.
  */
 async function getFluxNodePrivateKey(privatekey) {
   const privKey = privatekey || daemonServiceUtils.getConfigValue('zelnodeprivkey');
@@ -423,7 +423,7 @@ async function getFluxNodePrivateKey(privatekey) {
 /**
  * To get FluxNode public key.
  * @param {string} privatekey Private key.
- * @returns {string} Public key.
+ * @returns {Promise<string>} Public key.
  */
 async function getFluxNodePublicKey(privatekey) {
   try {
@@ -439,7 +439,7 @@ async function getFluxNodePublicKey(privatekey) {
 
 /**
  * To get a random connection.
- * @returns {string} IP:Port or just IP if default.
+ * @returns {Promise<string>} IP:Port or just IP if default.
  */
 async function getRandomConnection() {
   const nodeList = await fluxCommunicationUtils.deterministicFluxList();
@@ -461,7 +461,7 @@ async function getRandomConnection() {
  * To close an outgoing connection.
  * @param {string} ip IP address.
  * @param {string} port node API port.
- * @returns {object} Message.
+ * @returns {Promise<object>} Message.
  */
 async function closeConnection(ip, port) {
   if (!ip) return messageHelper.createWarningMessage('To close a connection please provide a proper IP number.');
@@ -486,7 +486,7 @@ async function closeConnection(ip, port) {
  * @param {string} port node API port.
  * @param {object} expressWS Express web socket.
  * @param {object} clientToClose Web socket for client to close.
- * @returns {object} Message.
+ * @returns {Promise<object>} Message.
  */
 async function closeIncomingConnection(ip, port, expressWS, clientToClose) {
   if (!ip) return messageHelper.createWarningMessage('To close a connection please provide a proper IP number.');
@@ -595,7 +595,7 @@ function getStoredFluxBenchAllowed() {
 
 /**
  * To check if Flux benchmark version is allowed.
- * @returns {boolean} True if version is verified as allowed. Otherwise false.
+ * @returns {Promise<boolean>} True if version is verified as allowed. Otherwise false.
  */
 async function checkFluxbenchVersionAllowed() {
   if (storedFluxBenchAllowed) {
@@ -692,7 +692,7 @@ function isCommunicationEstablished(req, res) {
 /**
  * To check user's FluxNode availability.
  * @param {number} retryNumber Number of retries.
- * @returns {boolean} True if all checks passed.
+ * @returns {Promise<boolean>} True if all checks passed.
  */
 async function checkMyFluxAvailability(retryNumber = 0) {
   let userBlockedPorts = userconfig.initial.blockedPorts || [];
@@ -830,7 +830,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
 /**
  * To adjust an external IP.
  * @param {string} ip IP address.
- * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ * @returns {Promise<void>} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function adjustExternalIP(ip) {
   try {
@@ -921,7 +921,7 @@ async function adjustExternalIP(ip) {
 
 /**
  * To check deterministic node collisions (i.e. if multiple FluxNode instances detected).
- * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ * @returns {Promise<void>} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function checkDeterministicNodesCollisions() {
   try {
@@ -934,6 +934,7 @@ async function checkDeterministicNodesCollisions() {
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       if (!syncStatus.data.synced) {
         setTimeout(() => {
+          console.log("NOT SYNCED CHECK DETERM");
           checkDeterministicNodesCollisions();
         }, 120 * 1000);
         return;
@@ -955,6 +956,7 @@ async function checkDeterministicNodesCollisions() {
               dosState = 100;
               setDosMessage(`Flux earlier collision detection on ip:${myIP}`);
               setTimeout(() => {
+                console.log("EARLIER COLLISION DETERMCOLLISION");
                 checkDeterministicNodesCollisions();
               }, 60 * 1000);
               return;
@@ -967,6 +969,7 @@ async function checkDeterministicNodesCollisions() {
             dosState = 100;
             setDosMessage('Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.');
             setTimeout(() => {
+              console.log("NO NODE DETERMCOLLISION");
               checkDeterministicNodesCollisions();
             }, 60 * 1000);
             return;
@@ -1002,11 +1005,13 @@ async function checkDeterministicNodesCollisions() {
       }
     }
     setTimeout(() => {
+      console.log("END OF DETERMCOLLISION");
       checkDeterministicNodesCollisions();
     }, 60 * 1000);
   } catch (error) {
     log.error(error);
     setTimeout(() => {
+      console.log("ERROR IN DETERMCOLLISION");
       checkDeterministicNodesCollisions();
     }, 120 * 1000);
   }
@@ -1030,7 +1035,7 @@ function getDOSState(req, res) {
 /**
  * To allow a port.
  * @param {string} port Port.
- * @returns {object} Command status.
+ * @returns {Promise<object>} Command status.
  */
 async function allowPort(port) {
   const cmdAsync = util.promisify(nodecmd.get);
@@ -1059,7 +1064,7 @@ async function allowPort(port) {
 /**
  * To allow out a port.
  * @param {string} port Port.
- * @returns {object} Command status.
+ * @returns {Promise<object>} Command status.
  */
 async function allowOutPort(port) {
   const cmdAsync = util.promisify(nodecmd.get);
@@ -1088,7 +1093,7 @@ async function allowOutPort(port) {
 /**
  * To deny a port.
  * @param {string} port Port.
- * @returns {object} Command status.
+ * @returns {Promise<object>} Command status.
  */
 async function denyPort(port) {
   const cmdAsync = util.promisify(nodecmd.get);
@@ -1122,7 +1127,7 @@ async function denyPort(port) {
 /**
  * To delete a ufw allow rule on port.
  * @param {string} port Port.
- * @returns {object} Command status.
+ * @returns {Promise<object>} Command status.
  */
 async function deleteAllowPortRule(port) {
   const cmdAsync = util.promisify(nodecmd.get);
@@ -1153,7 +1158,7 @@ async function deleteAllowPortRule(port) {
 /**
  * To delete a ufw deny rule on port.
  * @param {string} port Port.
- * @returns {object} Command status.
+ * @returns {Promise<object>} Command status.
  */
 async function deleteDenyPortRule(port) {
   const cmdAsync = util.promisify(nodecmd.get);
@@ -1184,7 +1189,7 @@ async function deleteDenyPortRule(port) {
 /**
  * To delete a ufw allow rule on port.
  * @param {string} port Port.
- * @returns {object} Command status.
+ * @returns {Promise<object>} Command status.
  */
 async function deleteAllowOutPortRule(port) {
   const cmdAsync = util.promisify(nodecmd.get);
@@ -1216,7 +1221,7 @@ async function deleteAllowOutPortRule(port) {
  * To allow a port via API. Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {object} Message.
+ * @returns {Promise<object>} Message.
  */
 async function allowPortApi(req, res) {
   let { port } = req.params;
@@ -1244,7 +1249,7 @@ async function allowPortApi(req, res) {
 
 /**
  * To check if a firewall is active.
- * @returns {boolean} True if a firewall is active. Otherwise false.
+ * @returns {Promise<boolean>} True if a firewall is active. Otherwise false.
  */
 async function isFirewallActive() {
   try {
@@ -1264,6 +1269,7 @@ async function isFirewallActive() {
 
 /**
  * To adjust a firewall to allow ports for Flux.
+ * @returns {Prmoise<void>}
  */
 async function adjustFirewall() {
   try {
@@ -1308,6 +1314,7 @@ async function adjustFirewall() {
 
 /**
  * To clean a firewall deny policies, and delete them from it.
+ * @returns {Prmoise<void>}
  */
 async function purgeUFW() {
   try {
@@ -1573,25 +1580,12 @@ function lruRateLimit(ip, limitPerSecond = 20) {
 
 /**
  * Allow Node to bind to privileged without sudo
+ * @returns {Prmoise<void>}
  */
 async function allowNodeToBindPrivilegedPorts() {
   try {
     const cmdAsync = util.promisify(nodecmd.get);
     const exec = "sudo setcap 'cap_net_bind_service=+ep' `which node`";
-    await cmdAsync(exec);
-  } catch (error) {
-    log.error(error);
-  }
-}
-
-/**
- * Install Netcat from apt
- * Despite nc tool is by default present on both Debian and Ubuntu we install netcat for precaution
- */
-async function installNetcat() {
-  try {
-    const cmdAsync = util.promisify(nodecmd.get);
-    const exec = 'sudo apt install netcat-openbsd -y';
     await cmdAsync(exec);
   } catch (error) {
     log.error(error);
@@ -1644,6 +1638,5 @@ module.exports = {
   isPortUPNPBanned,
   isPortUserBlocked,
   allowNodeToBindPrivilegedPorts,
-  installNetcat,
   removeDockerContainerAccessToNonRoutable,
 };

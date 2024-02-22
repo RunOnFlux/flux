@@ -1,27 +1,58 @@
-/* global userconfig */
-global.userconfig = require('./config/userconfig');
-
 process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
-// Flux configuration
+
+global.userconfig = require('./config/userconfig');
+global.sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 const config = require('config');
 const fs = require('fs');
 const https = require('https');
 const path = require('path');
 const util = require('util');
 const nodecmd = require('node-cmd');
-const app = require('./ZelBack/src/lib/server');
-const log = require('./ZelBack/src/lib/log');
-const socket = require('./ZelBack/src/lib/socket');
-const serviceManager = require('./ZelBack/src/services/serviceManager');
-const upnpService = require('./ZelBack/src/services/upnpService');
 const hash = require('object-hash');
 const { watch } = require('fs/promises');
 const eWS = require('express-ws');
 
+// Flux requires
+let app;
+let log;
+let socket;
+let serviceManager;
+let fluxService;
+let upnpService;
+
+loadFluxModules();
+
 const cmdAsync = util.promisify(nodecmd.get);
 const apiPort = userconfig.initial.apiport || config.server.apiport;
 const apiPortHttps = +apiPort + 1;
+const development = userconfig.initial.development || false;
 let initialHash = hash(fs.readFileSync(path.join(__dirname, '/config/userconfig.js')));
+
+function requireUncached(module) {
+  delete require.cache[require.resolve(module)];
+  return require(module);
+}
+
+function loadFluxModules(options = {}) {
+  loader = options.invalidateCache ? requireUncached : require
+
+  app = loader('./ZelBack/src/lib/server');
+  log = loader('./ZelBack/src/lib/log');
+  socket = loader('./ZelBack/src/lib/socket');
+  serviceManager = loader('./ZelBack/src/services/serviceManager');
+  fluxService = loader('./ZelBack/src/services/fluxService');
+  upnpService = loader('./ZelBack/src/services/upnpService');
+}
+
+async function loadBranch(branch) {
+  const res = await fluxService.getCurrentBranch();
+  if (res.status === 'success' && res.data.message !== branch) {
+    log.info(`Branch: ${branch} differs from current branch: ${res.data.message}, switching`)
+    const success = await fluxService.checkoutBranch(branch, { pull: true });
+    if (success) loadFluxModules({ invalidateCache: true });
+  }
+}
 
 async function loadUpnpIfRequired() {
   let verifyUpnp = false;
@@ -59,9 +90,11 @@ async function configReload() {
         delete require.cache[require.resolve('./config/userconfig')];
         // eslint-disable-next-line
         userconfig = require('./config/userconfig');
-        if (userconfig?.initial?.apiport) {
+        if (userconfig.initial?.apiport) {
           await loadUpnpIfRequired();
         }
+        const branch = development ? userconfig.initial.branch || "development" : "master";
+        await loadBranch(branch);
       }
     }
   } catch (error) {
@@ -79,11 +112,13 @@ async function initiate() {
     process.exit();
   }
 
+  const branch = development ? userconfig.initial.branch || "development" : "master";
+  await loadBranch(branch);
+
   await loadUpnpIfRequired();
 
-  setInterval(async () => {
-    configReload();
-  }, 2 * 1000);
+  // store timer
+  setInterval(configReload, 2 * 1000);
 
   const server = app.listen(apiPort, () => {
     log.info(`Flux listening on port ${apiPort}!`);

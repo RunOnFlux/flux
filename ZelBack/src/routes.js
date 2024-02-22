@@ -950,6 +950,9 @@ module.exports = (app, expressWs) => {
   app.get('/flux/entermaster', (req, res) => {
     fluxService.enterMaster(req, res);
   });
+  app.get('/flux/getcurrentbranch', (req, res) => {
+    fluxService.getCurrentBranch(req, res);
+  })
   app.get('/flux/enterdevelopment', (req, res) => {
     fluxService.enterDevelopment(req, res);
   });
@@ -1074,13 +1077,13 @@ module.exports = (app, expressWs) => {
   });
 
   app.get('/explorer/reindex/:reindexapps?', (req, res) => {
-    explorerService.reindexExplorer(req, res);
+    explorerService.reindexExplorerApi(req, res);
   });
   app.get('/explorer/restart', (req, res) => {
-    explorerService.restartBlockProcessing(req, res);
+    explorerService.restartBlockProcessingApi(req, res);
   });
   app.get('/explorer/stop', (req, res) => {
-    explorerService.stopBlockProcessing(req, res);
+    explorerService.stopBlockProcessingApi(req, res);
   });
   app.get('/explorer/rescan/:blockheight?/:rescanapps?', (req, res) => {
     explorerService.rescanExplorer(req, res);

@@ -66,16 +66,6 @@ async function fluxDaemonBlockchainInfo() {
   }
 }
 
-/**
- * To call the flux daemon blockchain info function at set intervals.
- */
-function daemonBlockchainInfoService() {
-  fluxDaemonBlockchainInfo();
-  setInterval(() => {
-    fluxDaemonBlockchainInfo();
-  }, 60 * 1000);
-}
-
 function getIsDaemonInsightExplorer() {
   return isDaemonInsightExplorer;
 }
@@ -104,10 +94,9 @@ module.exports = {
   isInsightExplorer,
   // == NON Daemon ==
   isDaemonSynced,
-  daemonBlockchainInfoService,
+  fluxDaemonBlockchainInfo,
 
   // exports for testing purposes
-  fluxDaemonBlockchainInfo,
   getIsDaemonInsightExplorer,
   setIsDaemonInsightExplorer,
   setCurrentDaemonHeight,

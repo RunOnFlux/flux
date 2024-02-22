@@ -158,7 +158,7 @@ async function nodeCollateral() {
 
 /**
  * Checks if a node's status is confirmed.
- * @returns {boolean} True if node is confirmed. False if there is an error.
+ * @returns {Promise<boolean>} True if node is confirmed. False if there is an error.
  */
 async function isNodeStatusConfirmed() {
   try {
@@ -178,7 +178,7 @@ async function isNodeStatusConfirmed() {
 
 /**
  * Checks if a node's FluxOS database is synced with the node's daemon database.
- * @returns {boolean} True if FluxOS databse height is within 1 of the daemon database height. False if not within 1 of the height or if there is an error.
+ * @returns {Promise<boolean>} True if FluxOS databse height is within 1 of the daemon database height. False if not within 1 of the height or if there is an error.
  */
 async function checkSynced() {
   try {
@@ -296,7 +296,7 @@ function parseDockerTag(targetDockerTag) {
  * github is ghcr.io/namespace/repository:tag
  * google is gcr.io/namespace/repository:tag
  * @param {string} repotag GitHub repository tag.
- * @returns {boolean} True or an error is thrown.
+ * @returns {Promise<boolean>} True or an error is thrown.
  */
 async function checkWhitelistedRepository(targetDockerTag) {
   if (typeof targetDockerTag !== 'string') {
@@ -352,7 +352,7 @@ async function checkWhitelistedRepository(targetDockerTag) {
 /**
  * To create a JSON response showing a list of whitelisted Github repositories.
  * @param {object} req Request.
- * @param {object} res Response.
+ * @param {Promise<object>} res Response.
  */
 async function whitelistedRepositories(req, res) {
   try {
@@ -369,7 +369,7 @@ async function whitelistedRepositories(req, res) {
 /**
  * To hash a message using sha256 encryption.
  * @param {string} message Message to be hashed.
- * @returns {string} Hashed message.
+ * @returns {Promise<string>} Hashed message.
  */
 async function messageHash(message) {
   if (typeof message !== 'string') {

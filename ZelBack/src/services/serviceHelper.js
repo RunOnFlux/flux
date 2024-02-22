@@ -2,6 +2,8 @@ const axios = require('axios');
 const config = require('config');
 const splitargs = require('splitargs');
 const qs = require('qs');
+const nodecmd = require('node-cmd');
+const util = require('util');
 
 const dbHelper = require('./dbHelper');
 const log = require('../lib/log');
@@ -236,6 +238,17 @@ function ipInSubnet(ip, subnet) {
   return (ipAsInt & maskAsInt) === (networkAsInt & maskAsInt);
 }
 
+/**
+ * Install Package from apt idempotently
+ * @returns {Prmoise<void>}
+ */
+async function installAptPackage(packageName) {
+  const cmdAsync = util.promisify(nodecmd.get);
+  await cmdAsync(`dpkg -l ${packageName}`).catch(async () => {
+    await cmdAsync(`sudo apt install ${packageName} -y`).catch((err) => log.error(err));
+  });
+}
+
 module.exports = {
   ensureBoolean,
   ensureNumber,
@@ -250,4 +263,5 @@ module.exports = {
   commandStringToArray,
   validIpv4Address,
   ipInSubnet,
+  installAptPackage,
 };

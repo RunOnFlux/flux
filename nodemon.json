@@ -2,8 +2,7 @@
   "verbose": true,
   "delay": 5000,
   "events": {
+    "start": "reset",
     "crash": "npm install --omit=dev --legacy-peer-deps"
-  },
-  "watch": ["package-lock.json", "yarn.lock", "package.json", "ZelBack/", "app.js", "apiServer.js", "helpers/", "lib/"],
-  "ignore": ["config/"]
+  }
 }

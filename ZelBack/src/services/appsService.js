@@ -5823,7 +5823,7 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
 
 /**
  * To create a list of ports assigned to each local app.
- * @returns {object[]} Array of app specs objects.
+ * @returns {Promise<object[]>} Array of app specs objects.
  */
 async function assignedPortsInstalledApps() {
   // construct object ob app name and ports array
@@ -6545,7 +6545,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
 /**
  * To store a message for a running app.
  * @param {object} message Message.
- * @returns {boolean} True if message is successfully stored and rebroadcasted. Returns false if message is old. Throws an error if invalid.
+ * @returns {Promise<boolean>} True if message is successfully stored and rebroadcasted. Returns false if message is old. Throws an error if invalid.
  */
 async function storeAppRunningMessage(message) {
   /* message object
@@ -8529,7 +8529,7 @@ async function getAppsLocation(req, res) {
 /**
  * To get all global app names.
  * @param {array} proj Array of wanted projection to get, If not submitted, all fields.
- * @returns {string[]} Array of app specifications or an empty array if an error is caught.
+ * @returns {Promise<string[]>} Array of app specifications or an empty array if an error is caught.
  */
 async function getAllGlobalApplications(proj = []) {
   try {
