@@ -342,7 +342,7 @@ async function cleanLocalBackup() {
           // eslint-disable-next-line no-await-in-loop
           const localFiles = await fs.readdir(localFolderPath);
           // Filter out files older than 24 hours
-          const currentDate = new Date();
+          const currentDate = Date.now();
           const twentyFourHoursAgo = currentDate - 24 * 60 * 60 * 1000;
           // eslint-disable-next-line no-restricted-syntax
           for (const file of localFiles) {
