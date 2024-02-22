@@ -15,6 +15,7 @@ const upnpService = require('./upnpService');
 const syncthingService = require('./syncthingService');
 const pgpService = require('./pgpService');
 const dockerService = require('./dockerService');
+const backupRestoreService = require('./backupRestoreService');
 
 const apiPort = userconfig.initial.apiport || config.server.apiport;
 const development = userconfig.initial.development || false;
@@ -155,6 +156,9 @@ async function startFluxFunctions() {
     setTimeout(() => {
       appsService.checkStorageSpaceForApps();
     }, 20 * 60 * 1000);
+    setInterval(() => {
+      backupRestoreService.cleanLocalBackup();
+    }, 25 * 60 * 1000); // every 25 minutes
     if (development) { // just on development branch
       setInterval(async () => {
         await fluxService.enterDevelopment().catch((error) => log.error(error));
