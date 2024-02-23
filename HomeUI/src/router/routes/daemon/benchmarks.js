@@ -7,6 +7,9 @@ export default [
       pageTitle: 'Get Benchmarks',
       breadcrumb: [
         {
+          text: 'Flux Admin',
+        },
+        {
           text: 'Daemon',
         },
         {
@@ -26,6 +29,9 @@ export default [
     meta: {
       pageTitle: 'Get Bench Status',
       breadcrumb: [
+        {
+          text: 'Flux Admin',
+        },
         {
           text: 'Daemon',
         },
@@ -47,6 +53,9 @@ export default [
       pageTitle: 'Start Benchmark',
       breadcrumb: [
         {
+          text: 'Flux Admin',
+        },
+        {
           text: 'Daemon',
         },
         {
@@ -67,6 +76,9 @@ export default [
     meta: {
       pageTitle: 'Stop Benchmark',
       breadcrumb: [
+        {
+          text: 'Flux Admin',
+        },
         {
           text: 'Daemon',
         },

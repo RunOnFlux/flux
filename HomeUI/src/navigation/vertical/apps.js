@@ -17,10 +17,4 @@ export default [
     icon: 'regular/plus-square',
     route: 'apps-registerapp',
   },
-  {
-    title: 'My FluxShare',
-    icon: 'regular/hdd',
-    route: 'apps-fluxsharestorage',
-    privilege: ['admin'],
-  },
 ];

@@ -1,10 +1,22 @@
+import benchmarks from './benchmark_collapsed';
+import daemon from './daemon_collapsed';
+import flux from './flux_collapsed';
+
 export default [
   {
     title: 'Flux Admin',
     icon: 'clipboard-list',
     spacing: true,
-    privilege: ['user', 'admin', 'fluxteam'],
+    privilege: ['admin', 'fluxteam'],
     children: [
+      {
+        title: 'Explorer',
+        route: 'explorer',
+        icon: 'search',
+      },
+      ...daemon,
+      ...benchmarks,
+      ...flux,
       {
         title: 'Logged Sessions',
         icon: 'regular/id-badge',
@@ -34,6 +46,12 @@ export default [
         icon: 'fingerprint',
         route: 'fluxadmin-manageusers',
         privilege: ['admin', 'fluxteam'],
+      },
+      {
+        title: 'My FluxShare',
+        icon: 'regular/hdd',
+        route: 'apps-fluxsharestorage',
+        privilege: ['admin'],
       },
     ],
   },

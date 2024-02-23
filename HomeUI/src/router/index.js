@@ -45,6 +45,9 @@ const router = new VueRouter({
         pageTitle: 'Explorer',
         breadcrumb: [
           {
+            text: 'Flux Admin',
+          },
+          {
             text: 'Explorer',
             active: true,
           },
