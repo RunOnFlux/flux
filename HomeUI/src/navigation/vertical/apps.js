@@ -1,6 +1,6 @@
 export default [
   {
-    header: 'Apps',
+    header: 'Applications',
   },
   {
     title: 'Local Apps',
@@ -16,5 +16,10 @@ export default [
     title: 'Register Flux App',
     icon: 'regular/plus-square',
     route: 'apps-registerapp',
+  },
+  {
+    title: 'Marketplace',
+    icon: 'shopping-basket',
+    route: 'apps-marketplace',
   },
 ];

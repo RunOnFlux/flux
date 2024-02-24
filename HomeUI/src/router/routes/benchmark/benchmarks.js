@@ -7,7 +7,7 @@ export default [
       pageTitle: 'Get Status',
       breadcrumb: [
         {
-          text: 'Flux Admin',
+          text: 'Administration',
         },
         {
           text: 'Benchmark',
@@ -30,7 +30,7 @@ export default [
       pageTitle: 'Restart Node Benchmarks',
       breadcrumb: [
         {
-          text: 'Flux Admin',
+          text: 'Administration',
         },
         {
           text: 'Benchmark',
@@ -54,7 +54,7 @@ export default [
       pageTitle: 'Sign FluxNode Transaction',
       breadcrumb: [
         {
-          text: 'Flux Admin',
+          text: 'Administration',
         },
         {
           text: 'Benchmark',

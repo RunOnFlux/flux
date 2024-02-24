@@ -7,7 +7,7 @@ export default [
       pageTitle: 'Logged Sessions',
       breadcrumb: [
         {
-          text: 'Flux Admin',
+          text: 'Administration',
         },
         {
           text: 'Logged Sessions',
@@ -25,7 +25,7 @@ export default [
       pageTitle: 'Manage Flux',
       breadcrumb: [
         {
-          text: 'Flux Admin',
+          text: 'Administration',
         },
         {
           text: 'Manage Flux',
@@ -43,7 +43,7 @@ export default [
       pageTitle: 'Manage Daemon',
       breadcrumb: [
         {
-          text: 'Flux Admin',
+          text: 'Administration',
         },
         {
           text: 'Manage Daemon',
@@ -61,7 +61,7 @@ export default [
       pageTitle: 'Manage Benchmark',
       breadcrumb: [
         {
-          text: 'Flux Admin',
+          text: 'Administration',
         },
         {
           text: 'Manage Benchmark',
@@ -79,7 +79,7 @@ export default [
       pageTitle: 'Manage Users',
       breadcrumb: [
         {
-          text: 'Flux Admin',
+          text: 'Administration',
         },
         {
           text: 'Manage Users',

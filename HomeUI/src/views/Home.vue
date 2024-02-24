@@ -1,39 +1,21 @@
 <template>
   <div>
-    <b-card title="FluxOS - Node Details">
+    <b-card title="Welcome to Flux network - The biggest decentralyzed computational network">
       <list-entry
-        title="Flux owner ZelID"
-        :data="userconfig.zelid"
+        title="Dasboard"
+        :data="dashboard"
       />
       <list-entry
-        title="Status"
-        :data="getNodeStatusResponse.nodeStatus"
-        :variant="getNodeStatusResponse.class"
+        title="Applications"
+        :data="applications"
       />
       <list-entry
-        title="Static Ip ISP/Org"
-        :data="staticIp ? 'Yes' : 'No'"
+        title="XDAO"
+        :data="xdao"
       />
       <list-entry
-        v-if="getInfoResponse.message !== ''"
-        title="Daemon Version"
-        :data="getInfoResponse.message.version.toString()"
-      />
-      <list-entry
-        v-if="getInfoResponse.message !== ''"
-        title="Protocol Version"
-        :data="getInfoResponse.message.protocolversion.toString()"
-      />
-      <list-entry
-        v-if="getInfoResponse.message !== ''"
-        title="Current Blockchain Height"
-        :data="getInfoResponse.message.blocks.toString()"
-      />
-      <list-entry
-        v-if="getInfoResponse.status.length > 0 && getInfoResponse.message.errors !== ''"
-        title="Error"
-        :data="getInfoResponse.message.errors"
-        variant="danger"
+        title="Administration"
+        :data="administration"
       />
     </b-card>
 
@@ -169,10 +151,7 @@ import { MetaMaskSDK } from '@metamask/sdk';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import ListEntry from '@/views/components/ListEntry.vue';
 import useAppConfig from '@core/app-config/useAppConfig';
-
-import DaemonService from '@/services/DaemonService';
 import IDService from '@/services/IDService';
-import FluxService from '../services/FluxService';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
 
@@ -213,16 +192,10 @@ export default {
   },
   data() {
     return {
-      getInfoResponse: {
-        status: '',
-        message: '',
-      },
-      getNodeStatusResponse: {
-        class: 'text-success',
-        status: '',
-        data: '',
-        nodeStatus: 'Checking status...',
-      },
+      dashboard: 'Check our network information, resources available or a map with our infrastructure location.',
+      xdao: 'See the list of change proposals to our network, create new ones, vote.',
+      applications: 'Marketplace, register your own app, manage your active apps.',
+      administration: 'Tools for the infrastructe administrator',
       websocket: null,
       errorMessage: '',
       loginPhrase: '',
@@ -231,7 +204,6 @@ export default {
         signature: '',
         loginPhrase: '',
       },
-      staticIp: false,
       signClient: null,
     };
   },
@@ -251,11 +223,7 @@ export default {
     },
   },
   mounted() {
-    this.daemonGetInfo();
-    this.daemonWelcomeGetFluxNodeStatus();
     this.getZelIdLoginPhrase();
-    this.getOwnerZelid();
-    this.getStaticIpInfo();
     this.initMMSDK();
   },
   methods: {
@@ -290,42 +258,6 @@ export default {
         mybackend += this.config.apiPort;
       }
       return store.get('backendURL') || mybackend;
-    },
-    async getOwnerZelid() {
-      const response = await FluxService.getZelid();
-      const obtainedZelid = response.data.data;
-      if (response.data.status === 'success' && typeof obtainedZelid === 'string') {
-        this.$store.commit('flux/setUserZelid', obtainedZelid);
-      }
-    },
-    async getStaticIpInfo() {
-      const response = await FluxService.getStaticIpInfo();
-      console.log(response);
-      if (response.data.status === 'success') {
-        this.staticIp = response.data.data;
-      }
-    },
-    async daemonGetInfo() {
-      const response = await DaemonService.getInfo();
-      this.getInfoResponse.status = response.data.status;
-      this.getInfoResponse.message = response.data.data;
-    },
-    async daemonWelcomeGetFluxNodeStatus() {
-      const response = await DaemonService.getFluxNodeStatus();
-      this.getNodeStatusResponse.status = response.data.status;
-      this.getNodeStatusResponse.data = response.data.data;
-      if (this.getNodeStatusResponse.data) {
-        if (this.getNodeStatusResponse.data.status === 'CONFIRMED' || this.getNodeStatusResponse.data.location === 'CONFIRMED') {
-          this.getNodeStatusResponse.nodeStatus = 'Flux is working correctly';
-          this.getNodeStatusResponse.class = 'success';
-        } else if (this.getNodeStatusResponse.data.status === 'STARTED' || this.getNodeStatusResponse.data.location === 'STARTED') {
-          this.getNodeStatusResponse.nodeStatus = 'Flux has just been started. Flux is running with limited capabilities.';
-          this.getNodeStatusResponse.class = 'warning';
-        } else {
-          this.getNodeStatusResponse.nodeStatus = 'Flux is not confirmed. Flux is running with limited capabilities.';
-          this.getNodeStatusResponse.class = 'danger';
-        }
-      }
     },
     initiateLoginWS() {
       const self = this;

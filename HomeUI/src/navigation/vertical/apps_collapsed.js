@@ -1,6 +1,6 @@
 export default [
   {
-    title: 'Apps',
+    title: 'Applications',
     icon: 'laptop-code',
     spacing: true,
     children: [
@@ -18,6 +18,11 @@ export default [
         title: 'Register Flux App',
         icon: 'regular/plus-square',
         route: 'apps-registerapp',
+      },
+      {
+        title: 'Marketplace',
+        icon: 'shopping-basket',
+        route: 'apps-marketplace',
       },
     ],
   },

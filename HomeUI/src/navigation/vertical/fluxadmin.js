@@ -4,8 +4,7 @@ import flux from './flux';
 
 export default [
   {
-    header: 'Flux Admin',
-    privilege: ['admin', 'fluxteam'],
+    header: 'Administration',
   },
   {
     title: 'Explorer',

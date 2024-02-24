@@ -7,7 +7,7 @@ export default [
       pageTitle: 'Get Mining Info',
       breadcrumb: [
         {
-          text: 'Flux Admin',
+          text: 'Administration',
         },
         {
           text: 'Daemon',

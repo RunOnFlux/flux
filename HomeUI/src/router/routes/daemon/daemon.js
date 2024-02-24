@@ -26,7 +26,7 @@ export default [
       pageTitle: 'Debug',
       breadcrumb: [
         {
-          text: 'Flux Admin',
+          text: 'Administration',
         },
         {
           text: 'Daemon',

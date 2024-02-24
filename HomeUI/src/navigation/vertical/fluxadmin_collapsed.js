@@ -4,10 +4,9 @@ import flux from './flux_collapsed';
 
 export default [
   {
-    title: 'Flux Admin',
+    title: 'Administration',
     icon: 'clipboard-list',
     spacing: true,
-    privilege: ['admin', 'fluxteam'],
     children: [
       {
         title: 'Explorer',

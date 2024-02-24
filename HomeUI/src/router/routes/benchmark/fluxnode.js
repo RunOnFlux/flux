@@ -7,7 +7,7 @@ export default [
       pageTitle: 'Get Benchmarks',
       breadcrumb: [
         {
-          text: 'Flux Admin',
+          text: 'Administration',
         },
         {
           text: 'Benchmark',
@@ -30,7 +30,7 @@ export default [
       pageTitle: 'Get Info',
       breadcrumb: [
         {
-          text: 'Flux Admin',
+          text: 'Administration',
         },
         {
           text: 'Benchmark',

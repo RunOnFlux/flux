@@ -1,6 +1,5 @@
 import collapsedDashboard from './dashboard_collapsed';
 import collapsedApps from './apps_collapsed';
-import collapsedMarketplace from './marketplace_collapsed';
 import collapsedFluxadmin from './fluxadmin_collapsed';
 import collapsedXdao from './xdao_collapsed';
 
@@ -12,7 +11,6 @@ export default [
   },
   ...collapsedDashboard,
   ...collapsedApps,
-  ...collapsedMarketplace,
-  ...collapsedFluxadmin,
   ...collapsedXdao,
+  ...collapsedFluxadmin,
 ];

@@ -7,7 +7,7 @@ export default [
       pageTitle: 'Get Info',
       breadcrumb: [
         {
-          text: 'Flux Admin',
+          text: 'Administration',
         },
         {
           text: 'Daemon',
@@ -30,7 +30,7 @@ export default [
       pageTitle: 'Help',
       breadcrumb: [
         {
-          text: 'Flux Admin',
+          text: 'Administration',
         },
         {
           text: 'Daemon',
@@ -53,7 +53,7 @@ export default [
       pageTitle: 'Rescan Blockchain',
       breadcrumb: [
         {
-          text: 'Flux Admin',
+          text: 'Administration',
         },
         {
           text: 'Daemon',
@@ -77,7 +77,7 @@ export default [
       pageTitle: 'Reindex Blockchain',
       breadcrumb: [
         {
-          text: 'Flux Admin',
+          text: 'Administration',
         },
         {
           text: 'Daemon',
@@ -101,7 +101,7 @@ export default [
       pageTitle: 'Start',
       breadcrumb: [
         {
-          text: 'Flux Admin',
+          text: 'Administration',
         },
         {
           text: 'Daemon',
@@ -125,7 +125,7 @@ export default [
       pageTitle: 'Stop',
       breadcrumb: [
         {
-          text: 'Flux Admin',
+          text: 'Administration',
         },
         {
           text: 'Daemon',
@@ -149,7 +149,7 @@ export default [
       pageTitle: 'Restart',
       breadcrumb: [
         {
-          text: 'Flux Admin',
+          text: 'Administration',
         },
         {
           text: 'Daemon',

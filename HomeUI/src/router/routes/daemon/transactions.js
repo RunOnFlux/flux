@@ -7,7 +7,7 @@ export default [
       pageTitle: 'Get Raw Transaction',
       breadcrumb: [
         {
-          text: 'Flux Admin',
+          text: 'Administration',
         },
         {
           text: 'Daemon',

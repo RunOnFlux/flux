@@ -7,7 +7,7 @@ export default [
       pageTitle: 'Validate Address',
       breadcrumb: [
         {
-          text: 'Flux Admin',
+          text: 'Administration',
         },
         {
           text: 'Daemon',

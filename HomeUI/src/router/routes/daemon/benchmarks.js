@@ -7,7 +7,7 @@ export default [
       pageTitle: 'Get Benchmarks',
       breadcrumb: [
         {
-          text: 'Flux Admin',
+          text: 'Administration',
         },
         {
           text: 'Daemon',
@@ -30,7 +30,7 @@ export default [
       pageTitle: 'Get Bench Status',
       breadcrumb: [
         {
-          text: 'Flux Admin',
+          text: 'Administration',
         },
         {
           text: 'Daemon',
@@ -53,7 +53,7 @@ export default [
       pageTitle: 'Start Benchmark',
       breadcrumb: [
         {
-          text: 'Flux Admin',
+          text: 'Administration',
         },
         {
           text: 'Daemon',
@@ -77,7 +77,7 @@ export default [
       pageTitle: 'Stop Benchmark',
       breadcrumb: [
         {
-          text: 'Flux Admin',
+          text: 'Administration',
         },
         {
           text: 'Daemon',

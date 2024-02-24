@@ -2,7 +2,6 @@ import dashboard from './dashboard';
 import apps from './apps';
 import fluxadmin from './fluxadmin';
 import xdao from './xdao';
-import marketplace from './marketplace';
 
 export default [
   {
@@ -12,7 +11,6 @@ export default [
   },
   ...dashboard,
   ...apps,
-  ...marketplace,
-  ...fluxadmin,
   ...xdao,
+  ...fluxadmin,
 ];

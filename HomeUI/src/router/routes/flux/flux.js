@@ -7,7 +7,7 @@ export default [
       pageTitle: 'Node Status',
       breadcrumb: [
         {
-          text: 'Flux Admin',
+          text: 'Administration',
         },
         {
           text: 'Flux',
@@ -27,7 +27,7 @@ export default [
       pageTitle: 'Flux Network',
       breadcrumb: [
         {
-          text: 'Flux Admin',
+          text: 'Administration',
         },
         {
           text: 'Flux',
@@ -47,7 +47,7 @@ export default [
       pageTitle: 'Debug',
       breadcrumb: [
         {
-          text: 'Flux Admin',
+          text: 'Administration',
         },
         {
           text: 'Flux',
