@@ -33,8 +33,15 @@ const geolocationService = require('./geolocationService');
  */
 // eslint-disable-next-line consistent-return
 async function fluxBackendFolder(req, res) {
-  const fluxBackFolder = path.join(__dirname, '../../');
-  const message = messageHelper.createDataMessage(fluxBackFolder);
+  const branch = userconfig.initial.branch;
+  const develop = userconfig.initial.development;
+  let fluxBackendFolder = '';
+  if (develop && branch && !["development", "master"].includes(branch)) {
+    fluxBackendFolder = path.join(__dirname, '../../../../canonical/ZelBack');
+  } else {
+    fluxBackendFolder = path.join(__dirname, '../../');
+  }
+  const message = messageHelper.createDataMessage(fluxBackendFolder);
   return res.json(message);
 }
 
