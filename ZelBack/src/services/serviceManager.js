@@ -29,7 +29,7 @@ const delayedActions = new Map(
   [
     [geolocationService.setNodeGeolocation, "90s"],
     // wait as of restarts due to ui building
-    [explorerService.initiateBlockProcessor, { schedule: "2m", logMsg: 'Flux Block Processing Service started'],
+    [explorerService.initiateBlockProcessor, { schedule: "2m", logMsg: 'Flux Block Processing Service started' }],
     [appsService.checkMyAppsAvailability, "3m"],
     [appsService.syncthingApps, "3m"],
     // stop and starts apps using syncthing g: when a new master is required or was changed.

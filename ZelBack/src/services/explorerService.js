@@ -802,7 +802,7 @@ async function processBlocks(options = {}) {
       }
     }
   } catch (error) {
-    // this happens if the bpc.sleep() is interrupted by bpc.abort()
+    // AbortError happens if the bpc.sleep() is interrupted by bpc.abort()
     if (error.name !== 'AbortError') {
       log.error('Block processor encountered an error.');
       log.error(error);
@@ -1111,16 +1111,12 @@ async function initiateBlockProcessor(options = {}) {
         scannedBlockHeight = config.deterministicNodesStart - 1
       }
 
-      processBlocks({ fromHeight: scannedBlockHeight + 1, isInsightExplorer });
-      break;
+      return processBlocks({ fromHeight: scannedBlockHeight + 1, isInsightExplorer });
 
     } catch (error) {
       if (error.name !== 'AbortError') {
         log.error(error);
-        // can probably just let this one time out, if abort() gets called here,
-        // the while loop will end when this resolves. Don't want to use bpc.sleep as
-        // that will raise and have to catch it
-        await sleep(15 * 60 * 1000);
+        await bpc.sleep(15 * 60 * 1000).catch();
       }
     }
   }
