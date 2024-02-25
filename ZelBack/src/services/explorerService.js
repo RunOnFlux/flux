@@ -1807,5 +1807,3 @@ module.exports = {
   processStandard,
   restoreDatabaseToBlockheightState,
 };
-
-initiateBlockProcessor();
