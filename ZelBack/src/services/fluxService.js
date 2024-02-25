@@ -116,7 +116,7 @@ async function checkoutBranch(branch, options = {}) {
   const verified = await cmdAsync(verifyBranch).catch((err) => log.error(err));
 
   if (verified) {
-    const checkedOut = await cmdAsync(checkoutAndPull).catch((err) = log.error(err));
+    const checkedOut = await cmdAsync(checkoutAndPull).catch((err) => log.error(err));
     if (checkedOut) return true;
   }
   return false;
