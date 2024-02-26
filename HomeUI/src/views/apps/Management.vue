@@ -2720,6 +2720,7 @@
               v-model="selectedApp"
               :options="null"
               :disabled="!!isVisible || isComposeSingle"
+              @change="refreshFolder"
             >
               <b-form-select-option
                 value="null"
@@ -6111,6 +6112,7 @@ export default {
       return false;
     },
     isComposeSingle() {
+      // eslint-disable-next-line vue/no-side-effects-in-computed-properties
       if (this.appSpecification.version <= 3) {
         return true;
       }
@@ -6343,6 +6345,8 @@ export default {
       if (value) {
         if (this.appSpecification.version >= 4) {
           this.selectedApp = this.appSpecification.compose[0].name;
+          this.loadFolder(this.currentFolder);
+          this.storageStats();
         }
       }
     },
@@ -6420,9 +6424,6 @@ export default {
     this.getMarketPlace();
     this.getMultiplier();
     this.getEnterpriseNodes();
-    this.loadingFolder = true;
-    this.loadFolder(this.currentFolder); // empty string for main folder
-    this.storageStats();
   },
   methods: {
     sortNameFolder(a, b) {
@@ -6486,7 +6487,7 @@ export default {
           this.folderView = [];
         }
         this.loadingFolder = true;
-        const response = await AppsService.getFolder(this.zelidHeader.zelidauth, encodeURIComponent(path), this.appName, this.selectedApp);
+        const response = await AppsService.getAppsFolderInfo(this.zelidHeader.zelidauth, this.appName, this.selectedApp, encodeURIComponent(path));
         this.loadingFolder = false;
         if (response.data.status === 'success') {
           this.folderView = response.data.data;

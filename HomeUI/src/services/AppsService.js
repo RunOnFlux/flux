@@ -311,6 +311,13 @@ export default {
     // stop monitoring of all apps
     return Api().get('/apps/stopmonitoring', axiosConfig);
   },
+  getAppsFolderInfo(zelidauthHeader, appname, component, folder) {
+    return Api().get(`/apps/getfolderinfo/${appname}/${component}/${folder}`, {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
   justAPI() {
     return Api();
   },

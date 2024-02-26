@@ -1412,4 +1412,9 @@ module.exports = (app, expressWs) => {
   app.get('/apps/fluxshare/downloadfolder/:folder?', (req, res) => {
     fluxshareService.fluxShareDownloadFolder(req, res);
   });
+
+  // Volume Browser
+  app.get('/apps/getfolderinfo/:appname?/:component?/:folder?', (req, res) => {
+    appsService.getAppsFolder(req, res);
+  });
 };
