@@ -285,20 +285,15 @@ async function fluxShareShareFile(req, res) {
  */
 async function fluxShareDownloadFolder(req, res, authorized = false) {
   try {
-    let { appname } = req.params;
-    appname = appname || req.query.appname || '';
     let auth = authorized;
-    let authorizedForApp;
     if (!auth) {
       auth = await verificationHelper.verifyPrivilege('admin', req);
-      authorizedForApp = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
     }
 
-    if (auth || authorizedForApp) {
+    if (auth) {
       let { folder } = req.params;
       folder = folder || req.query.folder;
-      let { component } = req.params;
-      component = component || req.query.component || '';
+
       if (!folder) {
         const errorResponse = messageHelper.createErrorMessage('No folder specified');
         res.json(errorResponse);
@@ -306,13 +301,7 @@ async function fluxShareDownloadFolder(req, res, authorized = false) {
       }
 
       const dirpath = path.join(__dirname, '../../../');
-      let folderpath = `${dirpath}ZelApps/ZelShare/${folder}`;
-      if (component) {
-        const apppath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 2);
-        if (apppath.mount.length > 0) {
-          folderpath = `${apppath.mount[0]}/appdata/${folder}`;
-        }
-      }
+      const folderpath = `${dirpath}ZelApps/ZelShare/${folder}`;
 
       // beautify name
       const folderNameArray = folderpath.split('/');
@@ -360,28 +349,19 @@ async function fluxShareDownloadFolder(req, res, authorized = false) {
  */
 async function fluxShareDownloadFile(req, res) {
   try {
-    let { appname } = req.params;
-    appname = appname || req.query.appname || '';
-    const authorizedForApp = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    if (authorized || authorizedForApp) {
+    if (authorized) {
       let { file } = req.params;
       file = file || req.query.file;
-      let { component } = req.params;
-      component = component || req.query.component || '';
+
       if (!file) {
         const errorResponse = messageHelper.createErrorMessage('No file specified');
         res.json(errorResponse);
         return;
       }
+
       const dirpath = path.join(__dirname, '../../../');
-      let filepath = `${dirpath}ZelApps/ZelShare/${file}`;
-      if (component) {
-        const apppath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 2);
-        if (apppath.mount.length > 0) {
-          filepath = `${apppath.mount[0]}/appdata/${file}`;
-        }
-      }
+      const filepath = `${dirpath}ZelApps/ZelShare/${file}`;
 
       // beautify name
       const fileNameArray = file.split('/');
@@ -453,15 +433,10 @@ async function fluxShareDownloadFile(req, res) {
  */
 async function fluxShareRename(req, res) {
   try {
-    let { appname } = req.params;
-    appname = appname || req.query.appname || '';
-    const authorizedForApp = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    if (authorized || authorizedForApp) {
+    if (authorized) {
       let { oldpath } = req.params;
       oldpath = oldpath || req.query.oldpath;
-      let { component } = req.params;
-      component = component || req.query.component || '';
       if (!oldpath) {
         throw new Error('No file nor folder to rename specified');
       }
@@ -478,24 +453,13 @@ async function fluxShareRename(req, res) {
       await fluxShareDatabaseFileDeleteMultiple(fileURI);
 
       const dirpath = path.join(__dirname, '../../../');
-      let oldfullpath = `${dirpath}ZelApps/ZelShare/${oldpath}`;
+      const oldfullpath = `${dirpath}ZelApps/ZelShare/${oldpath}`;
       let newfullpath = `${dirpath}ZelApps/ZelShare/${newname}`;
-      let apppath;
-      if (component) {
-        apppath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 2);
-        if (apppath.mount.length > 0) {
-          oldfullpath = `${apppath.mount[0]}/appdata/${oldpath}`;
-          newfullpath = `${dirpath}ZelApps/ZelShare/${newname}`;
-        }
-      }
       const fileURIArray = fileURI.split('%2F');
       fileURIArray.pop();
       if (fileURIArray.length > 0) {
         const renamingFolder = fileURIArray.join('/');
         newfullpath = `${dirpath}ZelApps/ZelShare/${renamingFolder}/${newname}`;
-        if (component) {
-          newfullpath = `${apppath.mount[0]}/appdata/${renamingFolder}/${newname}`;
-        }
       }
       await fs.promises.rename(oldfullpath, newfullpath);
 
@@ -573,26 +537,16 @@ async function fluxShareRemoveFile(req, res) {
  */
 async function fluxShareRemoveFolder(req, res) {
   try {
-    let { appname } = req.params;
-    appname = appname || req.query.appname || '';
-    const authorizedForApp = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    if (authorized || authorizedForApp) {
+    if (authorized) {
       let { folder } = req.params;
       folder = folder || req.query.folder;
-      let { component } = req.params;
-      component = component || req.query.component || '';
       if (!folder) {
         throw new Error('No folder specified');
       }
+
       const dirpath = path.join(__dirname, '../../../');
-      let filepath = `${dirpath}ZelApps/ZelShare/${folder}`;
-      if (component) {
-        const apppath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 2);
-        if (apppath.mount.length > 0) {
-          filepath = `${apppath.mount[0]}/appdata/${folder}`;
-        }
-      }
+      const filepath = `${dirpath}ZelApps/ZelShare/${folder}`;
       // await fs.promises.rmdir(filepath);
       await IOUtils.removeDirectory(filepath);
       const response = messageHelper.createSuccessMessage('Folder Removed');
@@ -624,23 +578,13 @@ async function fluxShareRemoveFolder(req, res) {
  */
 async function fluxShareGetFolder(req, res) {
   try {
-    let { appname } = req.params;
-    appname = appname || req.query.appname || '';
-    const authorizedForApp = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    if (authorized || authorizedForApp) {
+    if (authorized) {
       let { folder } = req.params;
       folder = folder || req.query.folder || '';
-      let { component } = req.params;
-      component = component || req.query.component || '';
+
       const dirpath = path.join(__dirname, '../../../');
-      let filepath = `${dirpath}ZelApps/ZelShare/${folder}`;
-      if (component) {
-        const apppath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 2);
-        if (apppath.mount.length > 0) {
-          filepath = `${apppath.mount[0]}/appdata/${folder}`;
-        }
-      }
+      const filepath = `${dirpath}ZelApps/ZelShare/${folder}`;
       const options = {
         withFileTypes: false,
       };
@@ -705,24 +649,16 @@ async function fluxShareGetFolder(req, res) {
  */
 async function fluxShareCreateFolder(req, res) {
   try {
-    let { appname } = req.params;
-    appname = appname || req.query.appname || '';
-    const authorizedForApp = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    if (authorized || authorizedForApp) {
+    if (authorized) {
       let { folder } = req.params;
       folder = folder || req.query.folder || '';
-      let { component } = req.params;
-      component = component || req.query.component || '';
+
       const dirpath = path.join(__dirname, '../../../');
-      let filepath = `${dirpath}ZelApps/ZelShare/${folder}`;
-      if (component) {
-        const apppath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 2);
-        if (apppath.mount.length > 0) {
-          filepath = `${apppath.mount[0]}/appdata/${folder}`;
-        }
-      }
+      const filepath = `${dirpath}ZelApps/ZelShare/${folder}`;
+
       await fs.promises.mkdir(filepath);
+
       const resultsResponse = messageHelper.createSuccessMessage('Folder Created');
       res.json(resultsResponse);
     } else {
