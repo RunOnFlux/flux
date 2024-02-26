@@ -5327,7 +5327,7 @@ export default {
       storageMethod: [
         {
           value: 'flux',
-          disabled: true,
+          disabled: false,
           text: 'FluxDrive',
         },
         {
