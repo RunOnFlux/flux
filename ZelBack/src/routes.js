@@ -1373,22 +1373,22 @@ module.exports = (app, expressWs) => {
   });
 
   // FluxShare
-  app.get('/apps/fluxshare/getfile/:file?/:token?', (req, res) => {
+  app.get('/apps/fluxshare/getfile/:file?/:token?/:appname?/:component?', (req, res) => {
     fluxshareService.fluxShareDownloadFile(req, res);
   });
-  app.get('/apps/fluxshare/getfolder/:folder?', (req, res) => {
+  app.get('/apps/fluxshare/getfolder/:folder?/:appname?/:component?', (req, res) => {
     fluxshareService.fluxShareGetFolder(req, res);
   });
-  app.get('/apps/fluxshare/createfolder/:folder?', (req, res) => {
+  app.get('/apps/fluxshare/createfolder/:folder?/:appname?/:component?', (req, res) => {
     fluxshareService.fluxShareCreateFolder(req, res);
   });
-  app.post('/apps/fluxshare/uploadfile/:folder?', (req, res) => {
+  app.post('/apps/fluxshare/uploadfile/:folder?/:appname?/:component?', (req, res) => {
     fluxshareService.fluxShareUpload(req, res);
   });
-  app.get('/apps/fluxshare/removefile/:file?', (req, res) => {
+  app.get('/apps/fluxshare/removefile/:file?/:appname?/:component?', (req, res) => {
     fluxshareService.fluxShareRemoveFile(req, res);
   });
-  app.get('/apps/fluxshare/removefolder/:folder?', (req, res) => {
+  app.get('/apps/fluxshare/removefolder/:folder?/:appname?/:component?', (req, res) => {
     fluxshareService.fluxShareRemoveFolder(req, res);
   });
   app.get('/apps/fluxshare/fileexists/:file?', (req, res) => {
@@ -1406,10 +1406,10 @@ module.exports = (app, expressWs) => {
   app.get('/apps/fluxshare/sharedfiles', (req, res) => {
     fluxshareService.fluxShareGetSharedFiles(req, res);
   });
-  app.get('/apps/fluxshare/rename/:oldpath?/:newname?', (req, res) => {
+  app.get('/apps/fluxshare/rename/:oldpath?/:newname?/:appname?/:component?', (req, res) => {
     fluxshareService.fluxShareRename(req, res);
   });
-  app.get('/apps/fluxshare/downloadfolder/:folder?', (req, res) => {
+  app.get('/apps/fluxshare/downloadfolder/:folder?/:appname?/:component?', (req, res) => {
     fluxshareService.fluxShareDownloadFolder(req, res);
   });
 };

@@ -6486,7 +6486,7 @@ export default {
           this.folderView = [];
         }
         this.loadingFolder = true;
-        const response = await AppsService.getFolder(this.zelidHeader.zelidauth, encodeURIComponent(path));
+        const response = await AppsService.getFolder(this.zelidHeader.zelidauth, encodeURIComponent(path), this.appName, this.selectedApp);
         this.loadingFolder = false;
         if (response.data.status === 'success') {
           this.folderView = response.data.data;
@@ -6506,7 +6506,7 @@ export default {
         if (this.currentFolder !== '') {
           folderPath = `${this.currentFolder}/${path}`;
         }
-        const response = await AppsService.createFolder(this.zelidHeader.zelidauth, encodeURIComponent(folderPath));
+        const response = await AppsService.createFolder(this.zelidHeader.zelidauth, encodeURIComponent(folderPath), this.appName, this.selectedApp);
         if (response.data.status === 'error') {
           if (response.data.data.code === 'EEXIST') {
             this.showToast('danger', `Folder ${path} already exists`);
