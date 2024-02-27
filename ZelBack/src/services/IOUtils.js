@@ -395,7 +395,7 @@ async function fileUpload(req, res) {
     const appVolumePath = await getVolumeInfo(appname, component, 'B', 'mount', 0);
     if (appVolumePath.length > 0) {
       if (type === 'backup') {
-        filepath = `${appVolumePath[0].mount}/backup/upload/${folder}`;
+        filepath = `${appVolumePath[0].mount}/backup/upload/`;
       } else {
         filepath = `${appVolumePath[0].mount}/appdata/${folder}`;
       }
@@ -426,6 +426,8 @@ async function fileUpload(req, res) {
     // eslint-disable-next-line no-bitwise
     // await fs.promises.access(uploadDir, fs.constants.F_OK | fs.constants.W_OK); // check folder exists and write ability
     await fs.mkdir(filepath, { recursive: true });
+    const permission = `sudo chmod 777 ${filepath}`;
+    await exec(permission, { maxBuffer: 1024 * 1024 * 10 });
     const form = formidable(options);
 
     form

@@ -6762,7 +6762,7 @@ export default {
     getUploadFolderBackup(saveAs) {
       const port = this.config.apiPort;
       const filename = encodeURIComponent(saveAs);
-      return `${this.ipAddress}:${port}/ioutils/fileupload/backup/${this.appName}/${this.selectedApp}//${filename}`;
+      return `${this.ipAddress}:${port}/ioutils/fileupload/backup/${this.appName}/${this.restoreRemoteFile}/null/${filename}`;
     },
     // getUploadFolder1(fullpath, saveAs) {
     //   const port = this.config.apiPort;
