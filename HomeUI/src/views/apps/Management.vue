@@ -5778,10 +5778,11 @@ export default {
       console.log('Radio button clicked. Selected option:', this.selectedOption);
     },
     getUploadFolder(fullpath, saveAs) {
-      const port = this.config.apiPort;
+      const ip = this.selectedIp.split(':')[0];
+      const port = this.selectedIp.split(':')[1] || 16127;
       const folder = encodeURIComponent(fullpath);
       const filename = encodeURIComponent(saveAs);
-      return `${this.ipAddress}:${port}/ioutils/fileupload/${folder}/${filename}/${this.appName}`;
+      return `http://${ip}:${port}/ioutils/fileupload/${folder}/${filename}/${this.appName}`;
     },
     addAndConvertFileSizes(sizes, targetUnit = 'auto', decimal = 2) {
       const multiplierMap = {
