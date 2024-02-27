@@ -2789,7 +2789,7 @@
                   @close="refreshFolder()"
                 >
                   <file-upload
-                    :upload-folder="getUploadFolder"
+                    :upload-folder="getUploadFolder()"
                     :headers="zelidHeader"
                     @complete="refreshFolder"
                   />
@@ -6016,14 +6016,7 @@ export default {
     //   }
     //   return `${this.ipAddress}:${port}/ioutils/fileupload/volume/${this.appName}/${this.selectedAppVolume}`;
     // },
-    getUploadFolder() {
-      const port = this.config.apiPort;
-      if (this.currentFolder) {
-        const folder = encodeURIComponent(this.currentFolder);
-        return `${this.ipAddress}:${port}/ioutils/fileupload/volume/${this.appName}/${this.selectedAppVolume}/${folder}`;
-      }
-      return `${this.ipAddress}:${port}/ioutils/fileupload/volume/${this.appName}/${this.selectedAppVolume}`;
-    },
+
     // zelidHeader() {
     //   const zelidauth = localStorage.getItem('zelidauth');
     //   const headers = {
@@ -6757,6 +6750,14 @@ export default {
         this.loadBackupList(this.appName, 'upload', 'files');
       }
       console.log('Radio button clicked. Selected option:', this.selectedOption);
+    },
+    getUploadFolder() {
+      const port = this.config.apiPort;
+      if (this.currentFolder) {
+        const folder = encodeURIComponent(this.currentFolder);
+        return `${this.ipAddress}:${port}/ioutils/fileupload/volume/${this.appName}/${this.selectedAppVolume}/${folder}`;
+      }
+      return `${this.ipAddress}:${port}/ioutils/fileupload/volume/${this.appName}/${this.selectedAppVolume}`;
     },
     getUploadFolderBackup(saveAs) {
       const port = this.config.apiPort;
