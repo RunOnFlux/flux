@@ -377,19 +377,34 @@ async function fileUpload(req, res) {
     if (!authorized) {
       throw new Error('Unauthorized. Access denied.');
     }
-    let { fullpath } = req.params;
-    fullpath = fullpath || req.query.fullpath;
-
+    let { component } = req.params;
+    component = component || req.query.component || '';
     let { filename } = req.params;
     filename = filename || req.query.filename || '';
-
-    if (!fullpath) {
-      throw new Error('fullpath parameter is mandatory');
+    let { folder } = req.params;
+    folder = folder || req.query.folder || '';
+    if (folder) {
+      folder += '/';
     }
-
+    let { type } = req.params;
+    type = type || req.query.type || '';
+    if (!type || !component) {
+      throw new Error('component and type parameters are mandatory');
+    }
+    let filepath;
+    const appVolumePath = await getVolumeInfo(appname, component, 'B', 'mount', 0);
+    if (appVolumePath.length > 0) {
+      if (type === 'backup') {
+        filepath = `${appVolumePath[0].mount}/backup/upload/${folder}`;
+      } else {
+        filepath = `${appVolumePath[0].mount}/appdata/${folder}`;
+      }
+    } else {
+      throw new Error('Application volume not found');
+    }
     const options = {
       multiples: true,
-      uploadDir: `${fullpath}/`,
+      uploadDir: `${filepath}`,
       maxFileSize: 5 * 1024 * 1024 * 1024, // 5gb
       hashAlgorithm: false,
       keepExtensions: true,
@@ -410,7 +425,7 @@ async function fileUpload(req, res) {
 
     // eslint-disable-next-line no-bitwise
     // await fs.promises.access(uploadDir, fs.constants.F_OK | fs.constants.W_OK); // check folder exists and write ability
-    await fs.mkdir(fullpath, { recursive: true });
+    await fs.mkdir(filepath, { recursive: true });
     const form = formidable(options);
 
     form
@@ -418,10 +433,10 @@ async function fileUpload(req, res) {
       .on('fileBegin', (name, file) => {
         if (!filename) {
           // eslint-disable-next-line no-param-reassign
-          file.filepath = `${fullpath}/${name}`;
+          file.filepath = `${filepath}/${name}`;
         } else {
           // eslint-disable-next-line no-param-reassign
-          file.filepath = `${fullpath}/${filename}`;
+          file.filepath = `${filepath}/${filename}`;
         }
       })
       .on('progress', (bytesReceived, bytesExpected) => {

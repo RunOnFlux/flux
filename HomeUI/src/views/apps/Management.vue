@@ -6008,13 +6008,21 @@ export default {
 
       return filteredResults;
     },
+    // getUploadFolder() {
+    //   const port = this.config.apiPort;
+    //   if (this.currentFolder) {
+    //     const folder = encodeURIComponent(this.currentFolder);
+    //     return `${this.ipAddress}:${port}/ioutils/fileupload/volume/${this.appName}/${this.selectedAppVolume}/${folder}`;
+    //   }
+    //   return `${this.ipAddress}:${port}/ioutils/fileupload/volume/${this.appName}/${this.selectedAppVolume}`;
+    // },
     getUploadFolder() {
       const port = this.config.apiPort;
       if (this.currentFolder) {
         const folder = encodeURIComponent(this.currentFolder);
-        return `${this.ipAddress}:${port}/apps/fluxshare/uploadfile/${folder}`;
+        return `${this.ipAddress}:${port}/ioutils/fileupload/volume/${this.appName}/${this.selectedAppVolume}/${folder}`;
       }
-      return `${this.ipAddress}:${port}/apps/fluxshare/uploadfile`;
+      return `${this.ipAddress}:${port}/ioutils/fileupload/volume/${this.appName}/${this.selectedAppVolume}`;
     },
     // zelidHeader() {
     //   const zelidauth = localStorage.getItem('zelidauth');
@@ -6750,12 +6758,17 @@ export default {
       }
       console.log('Radio button clicked. Selected option:', this.selectedOption);
     },
-    getUploadFolder1(fullpath, saveAs) {
+    getUploadFolderBackup(saveAs) {
       const port = this.config.apiPort;
-      const folder = encodeURIComponent(fullpath);
       const filename = encodeURIComponent(saveAs);
-      return `${this.ipAddress}:${port}/ioutils/fileupload/${folder}/${filename}/${this.appName}`;
+      return `${this.ipAddress}:${port}/ioutils/fileupload/backup/${this.appName}/${this.selectedApp}//${filename}`;
     },
+    // getUploadFolder1(fullpath, saveAs) {
+    //   const port = this.config.apiPort;
+    //   const folder = encodeURIComponent(fullpath);
+    //   const filename = encodeURIComponent(saveAs);
+    //   return `${this.ipAddress}:${port}/ioutils/fileupload/${this.appName}/${folder}/${filename}/`;
+    // },
     addAndConvertFileSizes(sizes, targetUnit = 'auto', decimal = 2) {
       const multiplierMap = {
         B: 1,
@@ -6987,7 +7000,7 @@ export default {
           return;
         }
         const xhr = new XMLHttpRequest();
-        const action = this.getUploadFolder1(file.path, file.file_name);
+        const action = this.getUploadFolderBackup(file.file_name);
         if (xhr.upload) {
           xhr.upload.onprogress = function progress(e) {
             if (e.total > 0) {

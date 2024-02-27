@@ -640,7 +640,7 @@ module.exports = (app, expressWs) => {
     appsService.appendRestoreTask(req, res);
   });
 
-  app.post('/ioutils/fileupload/:fullpath?/:filename?/:appname?', (req, res) => {
+  app.post('/ioutils/fileupload/:type?/:appname?/:component?/:folder?/:filename?', (req, res) => {
     IOUtils.fileUpload(req, res);
   });
 
