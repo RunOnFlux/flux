@@ -11849,6 +11849,7 @@ async function appendBackupTask(req, res) {
 
       await sendChunk(res, 'Stopping application...\n');
       await appDockerStop(appname);
+      await serviceHelper.delay(5 * 1000);
       // eslint-disable-next-line no-restricted-syntax
       for (const component of backup) {
         if (component.backup) {
@@ -11964,7 +11965,7 @@ async function appendRestoreTask(req, res) {
       }
       await sendChunk(res, 'Stopping application...\n');
       await appDockerStop(appname);
-
+      await serviceHelper.delay(5 * 1000);
       // eslint-disable-next-line no-restricted-syntax
       for (const component of restore) {
         if (component.restore) {
