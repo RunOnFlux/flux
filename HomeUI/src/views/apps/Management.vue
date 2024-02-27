@@ -6330,24 +6330,7 @@ export default {
           return;
         }
       }
-      const { protocol, hostname, port } = window.location;
-      let mybackend = '';
       let consoleInit = 0;
-      mybackend += protocol;
-      mybackend += '//';
-      const regex = /[A-Za-z]/g;
-      if (hostname.match(regex)) {
-        const names = hostname.split('.');
-        names[0] = 'api';
-        mybackend += names.join('.');
-      } else {
-        mybackend += hostname;
-        mybackend += ':';
-        mybackend += (+port + 1) || this.config.apiPort;
-      }
-
-      const backendURL = store.get('backendURL') || mybackend;
-
       if (this.selectedApp || this.appSpecification.version <= 3) {
         if (this.selectedCmd === null) {
           this.showToast('danger', 'No command selected.');
@@ -6381,8 +6364,10 @@ export default {
         },
       });
 
+      const url = this.selectedIp.split(':')[0];
+      const urlPort = this.selectedIp.split(':')[1] || 16127;
       const zelidauth = localStorage.getItem('zelidauth');
-      this.socket = io.connect(backendURL);
+      this.socket = io.connect(`http://${url}:${urlPort}`);
 
       let userValue = '';
       if (this.enableUser) {
