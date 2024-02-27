@@ -192,10 +192,10 @@ export default {
   },
   data() {
     return {
-      dashboard: 'Check our network information, resources available or a map with our infrastructure location.',
-      xdao: 'See the list of change proposals to our network, create new ones, vote.',
+      dashboard: 'Check Flux network information, resources available or a map with server locations.',
+      xdao: 'See the list of changes proposed to Flux network, create new ones and vote.',
       applications: 'Buy on marketplace, register your own app, manage your active apps.',
-      administration: 'Tools for the infrastructe administrator.',
+      administration: 'Tools for the infrastructe administrators, node operators.',
       websocket: null,
       errorMessage: '',
       loginPhrase: '',
