@@ -7,6 +7,9 @@ export default [
       pageTitle: 'Get Benchmarks',
       breadcrumb: [
         {
+          text: 'Administration',
+        },
+        {
           text: 'Benchmark',
         },
         {
@@ -26,6 +29,9 @@ export default [
     meta: {
       pageTitle: 'Get Info',
       breadcrumb: [
+        {
+          text: 'Administration',
+        },
         {
           text: 'Benchmark',
         },

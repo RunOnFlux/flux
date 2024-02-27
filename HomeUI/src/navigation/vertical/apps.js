@@ -1,11 +1,11 @@
 export default [
   {
-    header: 'Apps',
+    header: 'Applications',
   },
   {
-    title: 'Local Apps',
-    icon: 'upload',
-    route: 'apps-localapps',
+    title: 'Management',
+    icon: 'cogs',
+    route: 'apps-myapps',
   },
   {
     title: 'Global Apps',
@@ -13,14 +13,13 @@ export default [
     route: 'apps-globalapps',
   },
   {
-    title: 'Register Flux App',
+    title: 'Register New App',
     icon: 'regular/plus-square',
     route: 'apps-registerapp',
   },
   {
-    title: 'My FluxShare',
-    icon: 'regular/hdd',
-    route: 'apps-fluxsharestorage',
-    privilege: ['admin'],
+    title: 'Marketplace',
+    icon: 'shopping-basket',
+    route: 'apps-marketplace',
   },
 ];

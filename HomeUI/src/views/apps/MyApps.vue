@@ -5,7 +5,8 @@
       @activate-tab="tabChanged()"
     >
       <b-tab
-        title="Active Apps"
+        active
+        title="My Active Apps"
       >
         <b-overlay
           :show="tableconfig.active.loading"
@@ -16,17 +17,17 @@
             <b-row>
               <b-col cols="12">
                 <b-table
-                  class="apps-active-table"
+                  class="myapps-table"
                   striped
                   hover
                   responsive
-                  :items="tableconfig.active.apps"
-                  :fields="tableconfig.active.fields"
+                  :items="myGlobalApps"
+                  :fields="tableconfig.my.fields"
                   show-empty
-                  empty-text="No Flux Apps are active"
+                  empty-text="No Global Apps are owned"
                 >
                   <template #cell(show_details)="row">
-                    <a @click="showLocations(row, tableconfig.active.apps)">
+                    <a @click="showLocations(row, myGlobalApps)">
                       <v-icon
                         v-if="!row.detailsShowing"
                         name="chevron-down"
@@ -38,31 +39,6 @@
                     </a>
                   </template>
                   <template #row-details="row">
-                    <b-card class="mx-2">
-                      <b-button
-                        :id="`copy-active-app-${row.item.name}`"
-                        v-b-tooltip.hover.top="'Copy to Clipboard'"
-                        size="sm"
-                        class="mr-2"
-                        variant="danger"
-                        @click="copyToClipboard(JSON.stringify(row.item))"
-                      >
-                        Copy Specifications
-                      </b-button>
-                      <b-button
-                        :id="`deploy-active-app-${row.item.name}`"
-                        size="sm"
-                        class="mr-2"
-                        variant="danger"
-                      >
-                        Deploy Myself
-                      </b-button>
-                      <confirm-dialog
-                        :target="`deploy-active-app-${row.item.name}`"
-                        confirm-button="Deploy App"
-                        @confirm="redeployApp(row.item, true)"
-                      />
-                    </b-card>
                     <b-card class="mx-2">
                       <list-entry
                         title="Description"
@@ -77,6 +53,10 @@
                         :data="row.item.hash"
                       />
                       <div v-if="row.item.version >= 5">
+                        <list-entry
+                          title="Contacts"
+                          :data="JSON.stringify(row.item.contacts)"
+                        />
                         <div v-if="row.item.geolocation.length">
                           <div
                             v-for="location in row.item.geolocation"
@@ -348,6 +328,9 @@
                       </b-table>
                     </b-card>
                   </template>
+                  <template #cell(name)="row">
+                    {{ getDisplayName(row.item.name) }}
+                  </template>
                   <template #cell(visit)="row">
                     <b-button
                       size="sm"
@@ -357,6 +340,21 @@
                     >
                       Visit
                     </b-button>
+                  </template>
+                  <template #cell(manage)="row">
+                    <b-button
+                      :id="`manage-installed-app-${row.item.name}`"
+                      size="sm"
+                      class="mr-0"
+                      variant="danger"
+                    >
+                      Manage
+                    </b-button>
+                    <confirm-dialog
+                      :target="`manage-installed-app-${row.item.name}`"
+                      confirm-button="Manage App"
+                      @confirm="openAppManagement(row.item.name)"
+                    />
                   </template>
                 </b-table>
               </b-col>
@@ -364,9 +362,9 @@
           </b-card>
         </b-overlay>
       </b-tab>
-      <b-tab title="Marketplace Deployments">
+      <b-tab title="My Expired Apps">
         <b-overlay
-          :show="tableconfig.active.loading"
+          :show="tableconfig.my_expired.loading"
           variant="transparent"
           blur="5px"
         >
@@ -374,17 +372,17 @@
             <b-row>
               <b-col cols="12">
                 <b-table
-                  class="apps-active-table"
+                  class="myapps-table"
                   striped
                   hover
                   responsive
-                  :items="tableconfig.active_marketplace.apps"
-                  :fields="tableconfig.active_marketplace.fields"
+                  :items="tableconfig.my_expired.apps"
+                  :fields="tableconfig.my_expired.fields"
                   show-empty
-                  empty-text="No Flux Marketplace Apps are active"
+                  empty-text="None of your owed Apps are expired"
                 >
                   <template #cell(show_details)="row">
-                    <a @click="showLocations(row, tableconfig.active.apps)">
+                    <a @click="row.toggleDetails();">
                       <v-icon
                         v-if="!row.detailsShowing"
                         name="chevron-down"
@@ -410,6 +408,10 @@
                         :data="row.item.hash"
                       />
                       <div v-if="row.item.version >= 5">
+                        <list-entry
+                          title="Contacts"
+                          :data="JSON.stringify(row.item.contacts)"
+                        />
                         <div v-if="row.item.geolocation.length">
                           <div
                             v-for="location in row.item.geolocation"
@@ -652,44 +654,25 @@
                           </div>
                         </b-card>
                       </div>
-                      <h4>Locations</h4>
-                      <b-table
-                        class="locations-table"
-                        striped
-                        hover
-                        :items="appLocations"
-                        :fields="appLocationFields"
-                      >
-                        <template #cell(visit)="locationRow">
-                          <b-button
-                            size="sm"
-                            class="mr-1"
-                            variant="danger"
-                            @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
-                          >
-                            Visit App
-                          </b-button>
-                          <b-button
-                            size="sm"
-                            class="mr-0"
-                            variant="danger"
-                            @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
-                          >
-                            Visit FluxNode
-                          </b-button>
-                        </template>
-                      </b-table>
                     </b-card>
                   </template>
-                  <template #cell(visit)="row">
+                  <template #cell(name)="row">
+                    {{ getDisplayName(row.item.name) }}
+                  </template>
+                  <template #cell(redeploy)="row">
                     <b-button
+                      :id="`redeploy-installed-app-${row.item.name}`"
                       size="sm"
                       class="mr-0"
                       variant="danger"
-                      @click="openGlobalApp(row.item.name)"
                     >
-                      Visit
+                      Redeploy
                     </b-button>
+                    <confirm-dialog
+                      :target="`redeploy-installed-app-${row.item.name}`"
+                      confirm-button="Redeploy App"
+                      @confirm="redeployApp(row.item)"
+                    />
                   </template>
                 </b-table>
               </b-col>
@@ -788,6 +771,26 @@ export default {
             { key: 'name', label: 'Name', sortable: true },
             { key: 'description', label: 'Description', sortable: true },
             { key: 'visit', label: 'Visit' },
+          ],
+        },
+        my: {
+          apps: [],
+          fields: [
+            { key: 'show_details', label: '' },
+            { key: 'name', label: 'Name', sortable: true },
+            { key: 'description', label: 'Description', sortable: true },
+            { key: 'visit', label: 'Visit' },
+            { key: 'manage', label: 'Manage' },
+          ],
+        },
+        my_expired: {
+          loading: true,
+          apps: [],
+          fields: [
+            { key: 'show_details', label: '' },
+            { key: 'name', label: 'Name', sortable: true },
+            { key: 'description', label: 'Description', sortable: true },
+            { key: 'redeploy', label: 'Redeploy' },
           ],
         },
       },

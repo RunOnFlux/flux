@@ -1,10 +1,9 @@
-// const fs = require('fs').promises;
 const log = require('../lib/log');
 const path = require('path');
 const messageHelper = require('./messageHelper');
-// const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
 const IOUtils = require('./IOUtils');
+const fs = require('fs').promises;
 
 const fluxDirPath = path.join(__dirname, '../../../');
 const appsFolder = `${fluxDirPath}ZelApps/`;
@@ -319,6 +318,57 @@ async function downloadLocalFile(req, res) {
   }
 }
 
+async function cleanLocalBackup() {
+  try {
+    // Get a list of folders in the root path
+    const folders = await fs.readdir(appsFolder);
+    // eslint-disable-next-line no-restricted-syntax
+    for (const folder of folders) {
+      if (folder.toLowerCase() === 'zelshare') {
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      const folderPath = path.join(appsFolder, folder);
+      // eslint-disable-next-line no-await-in-loop
+      const isDirectory = (await fs.stat(folderPath)).isDirectory();
+      if (isDirectory) {
+        // Check if there is a 'local' folder in each subdirectory
+        const localFolderPath = path.join(folderPath, 'backup', 'local');
+        try {
+          // Check if 'local' folder exists
+          // eslint-disable-next-line no-await-in-loop
+          await fs.access(localFolderPath);
+          // Get a list of files in the 'local' folder
+          // eslint-disable-next-line no-await-in-loop
+          const localFiles = await fs.readdir(localFolderPath);
+          // Filter out files older than 24 hours
+          const currentDate = Date.now();
+          const twentyFourHoursAgo = currentDate - 24 * 60 * 60 * 1000;
+          // eslint-disable-next-line no-restricted-syntax
+          for (const file of localFiles) {
+            const filePath = path.join(localFolderPath, file);
+            // Get file stats
+            // eslint-disable-next-line no-await-in-loop
+            const stats = await fs.stat(filePath);
+            const creationTime = new Date(stats.birthtime);
+            // Check if the file is older than 24 hours
+            if (creationTime < twentyFourHoursAgo) {
+              // Delete the file
+              // eslint-disable-next-line no-await-in-loop
+              await fs.unlink(filePath);
+              log.info(`Deleted file: ${filePath}`);
+            }
+          }
+        } catch (error) {
+          // 'local' folder doesn't exist in this subdirectory
+        }
+      }
+    }
+  } catch (err) {
+    log.error('Error:', err);
+  }
+}
+
 module.exports = {
   getVolumeDataOfComponent,
   getRemoteFileSize,
@@ -326,4 +376,5 @@ module.exports = {
   getLocalBackupList,
   removeBackupFile,
   downloadLocalFile,
+  cleanLocalBackup,
 };

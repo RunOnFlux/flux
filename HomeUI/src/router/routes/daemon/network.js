@@ -7,6 +7,9 @@ export default [
       pageTitle: 'Get Network Info',
       breadcrumb: [
         {
+          text: 'Administration',
+        },
+        {
           text: 'Daemon',
         },
         {

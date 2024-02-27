@@ -822,6 +822,46 @@ async function createFluxDockerNetwork() {
 }
 
 /**
+ *
+ * @returns {Promise<Docker.NetworkInspectInfo[]>}
+ */
+async function getFluxDockerNetworks() {
+  const fluxNetworks = await docker.listNetworks({
+    filters: JSON.stringify({
+      name: ['fluxDockerNetwork'],
+    }),
+  });
+
+  return fluxNetworks;
+}
+
+/**
+ *
+ * @returns {Promise<string[]>}
+ */
+async function getFluxDockerNetworkPhysicalInterfaceNames() {
+  const fluxNetworks = await getFluxDockerNetworks();
+
+  const interfaceNames = fluxNetworks.map((network) => {
+    // the physical interface name is br-<first 12 chars of Id>
+    const intName = `br-${network.Id.slice(0, 12)}`;
+    return intName;
+  });
+
+  return interfaceNames;
+}
+
+/**
+ *
+ * @returns {Promise<string[]>}
+ */
+async function getFluxDockerNetworkSubnets() {
+  const fluxNetworks = await getFluxDockerNetworks();
+  const subnets = fluxNetworks.map((network) => network.IPAM.Config[0].Subnet);
+  return subnets;
+}
+
+/**
  * Creates flux application docker network if doesn't exist
  *
  * @returns {object} response
@@ -973,6 +1013,8 @@ module.exports = {
   createFluxDockerNetwork,
   getDockerContainerOnly,
   getDockerContainerByIdOrName,
+  getFluxDockerNetworkPhysicalInterfaceNames,
+  getFluxDockerNetworkSubnets,
   createFluxAppDockerNetwork,
   removeFluxAppDockerNetwork,
   pruneNetworks,

@@ -7,6 +7,9 @@ export default [
       pageTitle: 'Get Info',
       breadcrumb: [
         {
+          text: 'Administration',
+        },
+        {
           text: 'Daemon',
         },
         {
@@ -27,6 +30,9 @@ export default [
       pageTitle: 'Help',
       breadcrumb: [
         {
+          text: 'Administration',
+        },
+        {
           text: 'Daemon',
         },
         {
@@ -46,6 +52,9 @@ export default [
     meta: {
       pageTitle: 'Rescan Blockchain',
       breadcrumb: [
+        {
+          text: 'Administration',
+        },
         {
           text: 'Daemon',
         },
@@ -68,6 +77,9 @@ export default [
       pageTitle: 'Reindex Blockchain',
       breadcrumb: [
         {
+          text: 'Administration',
+        },
+        {
           text: 'Daemon',
         },
         {
@@ -88,6 +100,9 @@ export default [
     meta: {
       pageTitle: 'Start',
       breadcrumb: [
+        {
+          text: 'Administration',
+        },
         {
           text: 'Daemon',
         },
@@ -110,6 +125,9 @@ export default [
       pageTitle: 'Stop',
       breadcrumb: [
         {
+          text: 'Administration',
+        },
+        {
           text: 'Daemon',
         },
         {
@@ -130,6 +148,9 @@ export default [
     meta: {
       pageTitle: 'Restart',
       breadcrumb: [
+        {
+          text: 'Administration',
+        },
         {
           text: 'Daemon',
         },

@@ -2,17 +2,17 @@ import { categories } from '../../../libs/marketplaceCategories';
 
 export default [
   {
-    path: '/apps/localapps',
-    name: 'apps-localapps',
-    component: () => import('@/views/apps/LocalApps.vue'),
+    path: '/apps/myapps',
+    name: 'apps-myapps',
+    component: () => import('@/views/apps/MyApps.vue'),
     meta: {
-      pageTitle: 'Local Apps',
+      pageTitle: 'Applications',
       breadcrumb: [
         {
-          text: 'Apps',
+          text: 'Applications',
         },
         {
-          text: 'Local Apps',
+          text: 'Management',
           active: true,
         },
       ],
@@ -23,10 +23,10 @@ export default [
     name: 'apps-globalapps',
     component: () => import('@/views/apps/GlobalApps.vue'),
     meta: {
-      pageTitle: 'Global Apps',
+      pageTitle: 'Applications',
       breadcrumb: [
         {
-          text: 'Apps',
+          text: 'Applications',
         },
         {
           text: 'Global Apps',
@@ -40,13 +40,13 @@ export default [
     name: 'apps-registerapp',
     component: () => import('@/views/apps/RegisterFluxApp.vue'),
     meta: {
-      pageTitle: 'Register Flux App',
+      pageTitle: 'Register New App',
       breadcrumb: [
         {
-          text: 'Apps',
+          text: 'Applications',
         },
         {
-          text: 'Register Flux App',
+          text: 'Register New App',
           active: true,
         },
       ],
@@ -84,24 +84,6 @@ export default [
       contentRenderer: 'sidebar-left',
       contentClass: 'marketplace-application',
       navActiveLink: 'apps-marketplace',
-    },
-  },
-  {
-    path: '/apps/fluxsharestorage',
-    name: 'apps-fluxsharestorage',
-    component: () => import('@/views/apps/MyFluxShare.vue'),
-    meta: {
-      pageTitle: 'My FluxShare Storage',
-      breadcrumb: [
-        {
-          text: 'Apps',
-        },
-        {
-          text: 'My FluxShare Storage',
-          active: true,
-        },
-      ],
-      privilege: ['admin'],
     },
   },
 ];

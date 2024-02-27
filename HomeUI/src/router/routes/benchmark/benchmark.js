@@ -14,6 +14,9 @@ export default [
       pageTitle: 'Debug',
       breadcrumb: [
         {
+          text: 'Administration',
+        },
+        {
           text: 'Benchmark',
         },
         {
