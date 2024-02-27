@@ -17,11 +17,12 @@
     <b-tabs
       class="mt-2"
       pills
-      vertical
+      :vertical="windowWidth > 860 ? true : false"
       lazy
       @input="index => updateManagementTab(index)"
     >
       <b-tab
+        v-if="windowWidth > 860"
         title="Local App Management"
         disabled
       />
@@ -29,17 +30,16 @@
         active
         title="Specifications"
       >
-        <div>
+        <div class="adjustMaxWidth">
           <b-card title="Local application management">
             <b-col
-              md="4"
-              sm="4"
               class="my-1"
             >
               <b-form-group class="mb-0">
-                <label class="d-inline-block text-left mr-50">Select Ip to connect</label>
+                <label class="d-inline-block text-left mr-50">Select Ip to connect</label><br>
                 <b-form-select
                   v-model="selectedIp"
+                  style="width: 200px"
                   :options="null"
                 >
                   <b-form-select-option
@@ -54,7 +54,7 @@
             </b-col>
           </b-card>
         </div>
-        <div>
+        <div class="adjustMaxWidth">
           <b-card>
             <div v-if="callBResponse.data && callResponse.data">
               <div v-if="callBResponse.data.hash !== callResponse.data.hash">
@@ -69,9 +69,9 @@
             <h2>Installed Specifications</h2>
             <div
               v-if="callResponse.data"
-              style="text-align: left"
+              style="text-align: left;"
             >
-              <b-card class="mx-2">
+              <b-card class="">
                 <list-entry
                   title="Description"
                   :data="callResponse.data.name"
@@ -354,9 +354,9 @@
             </h2>
             <div
               v-if="callBResponse.data"
-              style="text-align: left"
+              style="text-align: left;"
             >
-              <b-card class="mx-2">
+              <b-card class="">
                 <list-entry
                   title="Description"
                   :data="callBResponse.data.name"
@@ -644,7 +644,7 @@
         title="Information"
       >
         <h3>Application: {{ appSpecification.name }}</h3>
-        <div v-if="appSpecification.version >= 4">
+        <div v-if="appSpecification.version >= 4" class="adjustMaxWidth">
           <div
             v-for="(component, index) in callResponse.data"
             :key="index"
@@ -661,7 +661,7 @@
             </div>
           </div>
         </div>
-        <div v-else>
+        <div v-else class="adjustMaxWidth">
           <div v-if="callResponse.data && callResponse.data[0]">
             <json-viewer
               :value="callResponse.data[0].callData"
@@ -677,13 +677,13 @@
         title="Resources"
       >
         <h3>Application: {{ appSpecification.name }}</h3>
-        <div v-if="commandExecuting">
+        <div v-if="commandExecuting" class="adjustMaxWidth">
           <v-icon
             class="spin-icon"
             name="spinner"
           />
         </div>
-        <div v-if="appSpecification.version >= 4">
+        <div v-if="appSpecification.version >= 4" class="adjustMaxWidth">
           <div
             v-for="(component, index) in callResponse.data"
             :key="index"
@@ -700,7 +700,7 @@
             </div>
           </div>
         </div>
-        <div v-else>
+        <div v-else class="adjustMaxWidth">
           <div v-if="callResponse.data && callResponse.data[0]">
             <json-viewer
               :value="callResponse.data[0].callData"
@@ -716,7 +716,7 @@
         title="Monitoring"
       >
         <h3>History Statistics 1 hour</h3>
-        <div v-if="appSpecification.version >= 4">
+        <div v-if="appSpecification.version >= 4" class="adjustMaxWidth">
           <div
             v-for="(component, index) in callResponse.data"
             :key="index"
@@ -733,7 +733,7 @@
             </div>
           </div>
         </div>
-        <div v-else>
+        <div v-else class="adjustMaxWidth">
           <b-table
             v-if="callResponse.data && callResponse.data[0]"
             class="stats-table"
@@ -746,7 +746,7 @@
         </div>
         <br><br>
         <h3>History Statistics 24 hours</h3>
-        <div v-if="appSpecification.version >= 4">
+        <div v-if="appSpecification.version >= 4" class="adjustMaxWidth">
           <div
             v-for="(component, index) in callResponse.data"
             :key="index"
@@ -763,7 +763,7 @@
             </div>
           </div>
         </div>
-        <div v-else>
+        <div v-else class="adjustMaxWidth">
           <b-table
             v-if="callResponse.data && callResponse.data[0]"
             class="stats-table"
@@ -779,13 +779,13 @@
         title="File Changes"
       >
         <h3>Application: {{ appSpecification.name }}</h3>
-        <div v-if="commandExecuting">
+        <div v-if="commandExecuting" class="adjustMaxWidth">
           <v-icon
             class="spin-icon"
             name="spinner"
           />
         </div>
-        <div v-if="appSpecification.version >= 4">
+        <div v-if="appSpecification.version >= 4" class="adjustMaxWidth">
           <div
             v-for="(component, index) in callResponse.data"
             :key="index"
@@ -802,7 +802,7 @@
             </div>
           </div>
         </div>
-        <div v-else>
+        <div v-else class="adjustMaxWidth">
           <div v-if="callResponse.data && callResponse.data[0]">
             <json-viewer
               :value="callResponse.data[0].callData"
@@ -818,13 +818,13 @@
         title="Processes"
       >
         <h3>Application: {{ appSpecification.name }}</h3>
-        <div v-if="commandExecuting">
+        <div v-if="commandExecuting" class="adjustMaxWidth">
           <v-icon
             class="spin-icon"
             name="spinner"
           />
         </div>
-        <div v-if="appSpecification.version >= 4">
+        <div v-if="appSpecification.version >= 4" class="adjustMaxWidth">
           <div
             v-for="(component, index) in callResponse.data"
             :key="index"
@@ -841,7 +841,7 @@
             </div>
           </div>
         </div>
-        <div v-else>
+        <div v-else class="adjustMaxWidth">
           <div v-if="callResponse.data && callResponse.data[0]">
             <json-viewer
               :value="callResponse.data[0].callData"
@@ -857,7 +857,7 @@
         title="Log File"
       >
         <h3>Application: {{ appSpecification.name }}</h3>
-        <div v-if="appSpecification.version >= 4">
+        <div v-if="appSpecification.version >= 4" class="adjustMaxWidth">
           <div
             v-for="(component, index) in callResponse.data"
             :key="index"
@@ -903,7 +903,7 @@
             </div>
           </div>
         </div>
-        <div v-else>
+        <div v-else class="adjustMaxWidth">
           <div class="text-center">
             <h6>
               Click the 'Download Log File' button to download the Log file from your Application debug file. This may take a few minutes depending on file size.
@@ -947,7 +947,7 @@
       <b-tab
         title="Control"
       >
-        <b-row class="match-height">
+        <b-row class="match-height adjustMaxWidth">
           <b-col xs="6">
             <b-card title="Control">
               <b-card-text class="mb-2">
@@ -1088,7 +1088,7 @@
             </b-card>
           </b-col>
         </b-row>
-        <b-row class="match-height">
+        <b-row class="match-height adjustMaxWidth">
           <b-col xs="6">
             <b-card title="Redeploy">
               <b-card-text class="mb-2">
@@ -1152,12 +1152,14 @@
         </b-row>
       </b-tab>
       <b-tab
+        v-if="windowWidth > 860"
         title="Component Control"
         :disabled="!isApplicationInstalledLocally || appSpecification.version <= 3"
       >
         <b-card
           v-for="(component, index) of appSpecification.compose"
           :key="index"
+          class="adjustMaxWidth"
         >
           <h4>{{ component.name }} Component</h4>
           <b-row class="match-height">
@@ -1306,7 +1308,7 @@
       <b-tab
         title="Backup/Restore"
       >
-        <div>
+        <div class="adjustMaxWidth">
           <b-card no-body>
             <b-tabs pills card>
               <b-tab title="Backup" style="margin: 0; padding-top: 0px;">
@@ -2537,7 +2539,7 @@
       <b-tab
         title="Interactive Terminal"
       >
-        <div class="text-center">
+        <div class="text-center adjustMaxWidth">
           <div>
             <b-card-group deck>
               <b-card header-tag="header">
@@ -2717,11 +2719,12 @@
         </div>
       </b-tab>
       <b-tab
+        v-if="windowWidth > 860"
         title="Global App Management"
         disabled
       />
       <b-tab title="Running Instances">
-        <div v-if="masterSlaveApp">
+        <div v-if="masterSlaveApp" class="adjustMaxWidth">
           <b-card title="Primary/Standby App Information">
             <list-entry
               title="Current IP selected as Primary running your application"
@@ -2729,7 +2732,7 @@
             />
           </b-card>
         </div>
-        <b-row>
+        <b-row class="adjustMaxWidth">
           <b-col
             md="4"
             sm="4"
@@ -2807,7 +2810,7 @@
                 </a>
               </template>
               <template #row-details="row">
-                <b-card class="mx-2">
+                <b-card class="">
                   <list-entry
                     v-if="row.item.broadcastedAt"
                     title="Broadcast"
@@ -2861,7 +2864,7 @@
       >
         <div
           v-if="!fluxCommunication"
-          class="text-danger"
+          class="text-danger adjustMaxWidth"
         >
           Warning: Connected Flux is not communicating properly with Flux network
         </div>
@@ -2869,7 +2872,7 @@
           Update Application Specifications
         </h2>
 
-        <div v-if="appUpdateSpecification.version >= 4">
+        <div v-if="appUpdateSpecification.version >= 4" class="adjustMaxWidth">
           <b-row class="match-height">
             <b-col xs="6">
               <b-card title="Details">
@@ -3801,7 +3804,7 @@
                     </a>
                   </template>
                   <template #row-details="row">
-                    <b-card class="mx-2">
+                    <b-card class="">
                       <list-entry
                         v-if="row.item.ip"
                         title="IP Address"
@@ -3928,7 +3931,7 @@
             </div>
           </b-card>
         </div>
-        <div v-else>
+        <div v-else class="adjustMaxWidth">
           <b-row class="match-height">
             <b-col
               xs="12"
@@ -4335,7 +4338,7 @@
             </b-col>
           </b-row>
         </div>
-        <div class="flex">
+        <div class="flex adjustMaxWidth">
           <b-form-checkbox
             id="tos"
             v-model="tosAgreed"
@@ -4351,7 +4354,7 @@
           </a>
           <br><br>
         </div>
-        <div>
+        <div class="adjustMaxWidth">
           <b-button
             v-ripple.400="'rgba(255, 255, 255, 0.15)'"
             variant="success"
@@ -4362,7 +4365,7 @@
             Compute Update Message
           </b-button>
         </div>
-        <div v-if="dataToSign">
+        <div v-if="dataToSign" class="adjustMaxWidth">
           <b-form-group
             label-cols="3"
             label-cols-lg="2"
@@ -4624,7 +4627,7 @@
               </a>
             </template>
             <template #row-details="row">
-              <b-card class="mx-2">
+              <b-card class="">
                 <list-entry
                   title="IP Address"
                   :data="row.item.ip"
@@ -4887,6 +4890,7 @@ export default {
   },
   data() {
     return {
+      windowWidth: window.innerWidth,
       showTopUpload: false,
       showTopRemote: false,
       alertMessage: '',
@@ -5609,8 +5613,17 @@ export default {
     this.getDaemonBlockCount();
     await this.getApplicationLocations();
     await this.delay(500);
+    this.$nextTick(() => {
+      window.addEventListener('resize', this.onResize);
+    });
+  },
+  beforeDestroy() {
+    window.removeEventListener('resize', this.onResize);
   },
   methods: {
+    onResize() {
+      this.windowWidth = window.innerWidth;
+    },
     handleRadioClick() {
       if (this.selectedRestoreOption === 'Upload File') {
         this.loadBackupList(this.appName, 'upload', 'files');
@@ -8635,5 +8648,23 @@ a:hover img {
   color: #42b983 !important;
   word-break: break-word;
   white-space: normal;
+}
+.card-body {
+  padding: 1rem;
+}
+
+.adjustMaxWidth {
+  width: calc(100vw - 570px);
+}
+@media (max-width: 1199px) {
+  .adjustMaxWidth {
+    width: calc(100vw - 310px);
+  }
+}
+@media (max-width: 860px) {
+  .adjustMaxWidth {
+    width: unset;
+    max-width: unset;
+  }
 }
 </style>
