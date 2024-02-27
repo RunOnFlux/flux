@@ -318,6 +318,13 @@ export default {
       },
     });
   },
+  createAppsFolder(zelidauthHeader, appname, component, folder) {
+    return Api().get(`/apps/createfolder/${appname}/${component}/${folder}`, {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
   justAPI() {
     return Api();
   },

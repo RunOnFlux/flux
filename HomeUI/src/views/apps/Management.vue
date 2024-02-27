@@ -2717,7 +2717,7 @@
           </div>
           <div class="mr-4" style="max-width: 250px;">
             <b-form-select
-              v-model="selectedApp"
+              v-model="selectedAppVolume"
               :options="null"
               :disabled="!!isVisible || isComposeSingle"
               @change="refreshFolder"
@@ -5764,6 +5764,7 @@ export default {
       terminal: null,
       selectedCmd: null,
       selectedApp: null,
+      selectedAppVolume: null,
       enableUser: false,
       userInputValue: '',
       customValue: '',
@@ -6344,7 +6345,7 @@ export default {
     isComposeSingle(value) {
       if (value) {
         if (this.appSpecification.version >= 4) {
-          this.selectedApp = this.appSpecification.compose[0].name;
+          this.selectedAppVolume = this.appSpecification.compose[0].name;
           this.loadFolder(this.currentFolder);
           this.storageStats();
         }
@@ -6487,7 +6488,7 @@ export default {
           this.folderView = [];
         }
         this.loadingFolder = true;
-        const response = await AppsService.getAppsFolderInfo(this.zelidHeader.zelidauth, this.appName, this.selectedApp, encodeURIComponent(path));
+        const response = await AppsService.getAppsFolderInfo(this.zelidHeader.zelidauth, this.appName, this.selectedAppVolume, encodeURIComponent(path));
         this.loadingFolder = false;
         if (response.data.status === 'success') {
           this.folderView = response.data.data;
@@ -6507,7 +6508,7 @@ export default {
         if (this.currentFolder !== '') {
           folderPath = `${this.currentFolder}/${path}`;
         }
-        const response = await AppsService.createFolder(this.zelidHeader.zelidauth, encodeURIComponent(folderPath), this.appName, this.selectedApp);
+        const response = await AppsService.createAppsFolder(this.zelidHeader.zelidauth, this.appName, this.selectedApp, encodeURIComponent(folderPath));
         if (response.data.status === 'error') {
           if (response.data.data.code === 'EEXIST') {
             this.showToast('danger', `Folder ${path} already exists`);

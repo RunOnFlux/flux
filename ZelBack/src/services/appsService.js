@@ -12047,6 +12047,45 @@ async function getAppsFolder(req, res) {
   }
 }
 
+/**
+ * To create a folder
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function createAppsFolder(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname || '';
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    if (authorized) {
+      let { folder } = req.params;
+      folder = folder || req.query.folder || '';
+      let { component } = req.params;
+      component = component || req.query.component || '';
+      if (!appname || !component) {
+        throw new Error('appname and component parameters are mandatory');
+      }
+      let filepath;
+      const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
+      if (appVolumePath.length > 0) {
+        filepath = `${appVolumePath[0].mount}/appdata/${folder}`;
+      } else {
+        throw new Error('Application volume not found');
+      }
+      await fs.promises.mkdir(filepath);
+      const resultsResponse = messageHelper.createSuccessMessage('Folder Created');
+      res.json(resultsResponse);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
+}
+
 module.exports = {
   listRunningApps,
   listAllApps,
@@ -12148,6 +12187,7 @@ module.exports = {
   appendRestoreTask,
   sendChunk,
   getAppsFolder,
+  createAppsFolder,
   // exports for testing purposes
   setAppsMonitored,
   getAppsMonitored,

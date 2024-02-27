@@ -1417,4 +1417,7 @@ module.exports = (app, expressWs) => {
   app.get('/apps/getfolderinfo/:appname?/:component?/:folder?', (req, res) => {
     appsService.getAppsFolder(req, res);
   });
+  app.get('/apps/createfolder/:appname?/:component?/:folder?', (req, res) => {
+    appsService.createAppsFolder(req, res);
+  });
 };
