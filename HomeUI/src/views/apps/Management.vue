@@ -5991,7 +5991,7 @@ export default {
       }
       const url = this.selectedIp.split(':')[0];
       const urlPort = this.selectedIp.split(':')[1] || 16127;
-      const response = await fetch(`${url}:${urlPort}/apps/appendbackuptask`, {
+      const response = await fetch(`http://${url}:${urlPort}/apps/appendbackuptask`, {
         method: 'POST',
         body: JSON.stringify(postBackupData),
         headers,
