@@ -5813,7 +5813,7 @@ export default {
           };
           const url = this.selectedIp.split(':')[0];
           const urlPort = this.selectedIp.split(':')[1] || 16127;
-          const response = await fetch(`${url}:${urlPort}/apps/appendrestoretask`, {
+          const response = await fetch(`http://${url}:${urlPort}/apps/appendrestoretask`, {
             method: 'POST',
             body: JSON.stringify(postRestoreData),
             headers,
@@ -6108,7 +6108,7 @@ export default {
       }
       const url = this.selectedIp.split(':')[0];
       const urlPort = this.selectedIp.split(':')[1] || 16127;
-      const response = await fetch(`${url}:${urlPort}/apps/appendrestoretask`, {
+      const response = await fetch(`http://${url}:${urlPort}/apps/appendrestoretask`, {
         method: 'POST',
         body: JSON.stringify(postBackupData),
         headers,
