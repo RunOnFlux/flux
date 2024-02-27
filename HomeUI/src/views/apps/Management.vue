@@ -6715,7 +6715,7 @@ export default {
       try {
         const oldpath = this.fileRenaming;
         const newname = this.newName;
-        const response = await AppsService.renameFileFolder(this.zelidHeader.zelidauth, encodeURIComponent(oldpath), newname);
+        const response = await AppsService.renameAppsObject(this.zelidHeader.zelidauth, this.appName, this.selectedAppVolume, encodeURIComponent(oldpath), newname);
         console.log(response);
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data);

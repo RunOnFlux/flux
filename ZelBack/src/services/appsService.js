@@ -14,6 +14,7 @@ const systemcrontab = require('crontab');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
 const fs = require('fs').promises;
+const execShell = util.promisify(require('child_process').exec);
 const httpShutdown = require('http-shutdown');
 const fluxCommunication = require('./fluxCommunication');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
@@ -12072,7 +12073,8 @@ async function createAppsFolder(req, res) {
       } else {
         throw new Error('Application volume not found');
       }
-      await fs.mkdir(filepath);
+      const cmd = `sudo mkdir ${filepath}`;
+      await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
       const resultsResponse = messageHelper.createSuccessMessage('Folder Created');
       res.json(resultsResponse);
     } else {
@@ -12083,6 +12085,76 @@ async function createAppsFolder(req, res) {
     log.error(error);
     const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
+  }
+}
+
+/**
+ * To rename a file or folder. Oldpath is relative path to default fluxshare directory; newname is just a new name of folder/file. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function renameAppsObject(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname || '';
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    if (authorized) {
+      let { oldpath } = req.params;
+      let { component } = req.params;
+      component = component || req.query.component || '';
+      if (!appname || !component) {
+        throw new Error('appname and component parameters are mandatory');
+      }
+      oldpath = oldpath || req.query.oldpath;
+      if (!oldpath) {
+        throw new Error('No file nor folder to rename specified');
+      }
+      let { newname } = req.params;
+      newname = newname || req.query.newname;
+      if (!newname) {
+        throw new Error('No new name specified');
+      }
+      if (newname.includes('/')) {
+        throw new Error('New name is invalid');
+      }
+      // stop sharing of ALL files that start with the path
+      const fileURI = encodeURIComponent(oldpath);
+      let oldfullpath;
+      let newfullpath;
+      const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
+      if (appVolumePath.length > 0) {
+        oldfullpath = `${appVolumePath[0].mount}/appdata/${oldpath}`;
+        newfullpath = `${appVolumePath[0].mount}/appdata/${newname}`;
+      } else {
+        throw new Error('Application volume not found');
+      }
+      const fileURIArray = fileURI.split('%2F');
+      fileURIArray.pop();
+      if (fileURIArray.length > 0) {
+        const renamingFolder = fileURIArray.join('/');
+        newfullpath = `${appVolumePath[0].mount}/appdata/${renamingFolder}/${newname}`;
+      }
+      const cmd = `sudo mv -T ${oldfullpath} ${newfullpath}`;
+      await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      const response = messageHelper.createSuccessMessage('Rename successful');
+      res.json(response);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
   }
 }
 
@@ -12188,6 +12260,7 @@ module.exports = {
   sendChunk,
   getAppsFolder,
   createAppsFolder,
+  renameAppsObject,
   // exports for testing purposes
   setAppsMonitored,
   getAppsMonitored,

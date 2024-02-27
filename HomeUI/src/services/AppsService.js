@@ -325,6 +325,13 @@ export default {
       },
     });
   },
+  renameAppsObject(zelidauthHeader, appname, component, oldpath, newname) {
+    return Api().get(`/apps/renameobject/${appname}/${component}/${oldpath}/${newname}`, {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
   justAPI() {
     return Api();
   },

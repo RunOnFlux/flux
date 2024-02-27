@@ -1420,4 +1420,7 @@ module.exports = (app, expressWs) => {
   app.get('/apps/createfolder/:appname?/:component?/:folder?', (req, res) => {
     appsService.createAppsFolder(req, res);
   });
+  app.get('/apps/renameobject/:appname?/:component?/:oldpath?/:newname?', (req, res) => {
+    appsService.renameAppsObject(req, res);
+  });
 };
