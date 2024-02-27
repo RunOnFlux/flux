@@ -2715,7 +2715,7 @@
               <b-icon class="mr-1" icon="hdd" scale="1.4" /> {{ `${storage.used.toFixed(2)} / ${storage.total.toFixed(2)}` }} GB
             </h6>
           </div>
-          <div class="mr-4" style="max-width: 250px;">
+          <div class="mr-4 mb-2 d-flex" style="max-width: 250px;">
             <b-form-select
               v-model="selectedAppVolume"
               :options="null"
@@ -2738,7 +2738,18 @@
             </b-form-select>
           </div>
           <div>
-            <b-button-toolbar justify>
+            <b-button-toolbar justify class="mb-1">
+              <b-input-group v-if="selectedAppVolume" style="width: 85%;">
+                <b-input-group-prepend>
+                  <b-input-group-text>
+                    <b-icon icon="house-fill" />
+                  </b-input-group-text>
+                </b-input-group-prepend>
+                <b-form-input
+                  v-model="inputPathValue"
+                  style="font-weight: bold; font-size: 1.0em;"
+                />
+              </b-input-group>
               <b-button-group size="sm" />
               <b-button-group size="sm">
                 <b-button
@@ -5591,6 +5602,7 @@ export default {
   },
   data() {
     return {
+      inputPathValue: '',
       fields: [
         { key: 'name', label: 'Name', sortable: true },
         // eslint-disable-next-line object-curly-newline
@@ -6480,6 +6492,7 @@ export default {
       } else {
         this.currentFolder = `${this.currentFolder}/${name}`;
       }
+      this.inputPathValue = `/${this.currentFolder}`;
       this.loadFolder(this.currentFolder);
     },
     async loadFolder(path, soft = false) {
@@ -6603,6 +6616,7 @@ export default {
       return str.join('.');
     },
     refreshFolder() {
+      this.inputPathValue = `/${this.currentFolder}`;
       this.loadFolder(this.currentFolder, true);
       this.storageStats();
     },
