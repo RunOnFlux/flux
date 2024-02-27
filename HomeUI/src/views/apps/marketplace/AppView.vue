@@ -1215,7 +1215,7 @@ export default {
               throw new Error(resp.data.message || resp.data);
             }
             showToast('success', 'Successful upload of Contact Parameter to Flux Storage');
-            appSpecification.contacts = [`F_S_CONTACTS==https://storage.runonflux.io/v1/contacts/${contactsid}`];
+            appSpecification.contacts = [`F_S_CONTACTS=https://storage.runonflux.io/v1/contacts/${contactsid}`];
           }
         }
         if (props.appData.version >= 6) {
