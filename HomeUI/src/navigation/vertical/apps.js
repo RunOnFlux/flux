@@ -4,6 +4,11 @@ export default [
   },
   {
     title: 'Management',
+    icon: 'cogs',
+    route: 'apps-myapps',
+  },
+  {
+    title: 'Global Apps',
     icon: 'globe',
     route: 'apps-globalapps',
   },

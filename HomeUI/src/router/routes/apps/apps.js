@@ -2,6 +2,23 @@ import { categories } from '../../../libs/marketplaceCategories';
 
 export default [
   {
+    path: '/apps/myapps',
+    name: 'apps-myapps',
+    component: () => import('@/views/apps/MyApps.vue'),
+    meta: {
+      pageTitle: 'Applications',
+      breadcrumb: [
+        {
+          text: 'Applications',
+        },
+        {
+          text: 'Management',
+          active: true,
+        },
+      ],
+    },
+  },
+  {
     path: '/apps/globalapps',
     name: 'apps-globalapps',
     component: () => import('@/views/apps/GlobalApps.vue'),
@@ -12,7 +29,7 @@ export default [
           text: 'Applications',
         },
         {
-          text: 'Management',
+          text: 'Global Apps',
           active: true,
         },
       ],

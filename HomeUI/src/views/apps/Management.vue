@@ -5608,8 +5608,7 @@ export default {
     this.getEnterpriseNodes();
     this.getDaemonBlockCount();
     await this.getApplicationLocations();
-    this.getInstalledApplicationSpecifics();
-    this.getApplicationManagementAndStatus();
+    await this.delay(500);
   },
   methods: {
     handleRadioClick() {
@@ -6516,14 +6515,15 @@ export default {
       this.appExec.env = '';
       this.output = '';
       this.backupToUpload = [];
-      this.getApplicationManagementAndStatus();
       if (index !== 11) {
         this.disconnectTerminal();
       }
-
+      if (!this.selectedIp) {
+        await this.getApplicationLocations();
+      }
+      this.getApplicationManagementAndStatus();
       switch (index) {
         case 1:
-          await this.getApplicationLocations();
           this.getInstalledApplicationSpecifics();
           this.getGlobalApplicationSpecifics();
           break;
@@ -7354,23 +7354,26 @@ export default {
             const ipElement = fdmData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
             if (ipElement) {
               this.masterIP = ipElement.value.value.split(':')[0];
-              if (ipElement.value.value.split(':')[1] === '16127') {
-                this.selectedIp = ipElement.value.value.split(':')[0];
-              } else {
-                this.selectedIp = ipElement.value.value;
+              if (!this.selectedIp) {
+                if (ipElement.value.value.split(':')[1] === '16127') {
+                  this.selectedIp = ipElement.value.value.split(':')[0];
+                } else {
+                  this.selectedIp = ipElement.value.value;
+                }
+                console.log(this.selectedIp);
               }
-              console.log(this.selectedIp);
               return;
             }
           }
-          this.selectedIp = this.instances.data[0].ip;
+          if (!this.selectedIp) {
+            this.selectedIp = this.instances.data[0].ip;
+          }
           this.masterIP = 'Defining New Primary In Progress';
-        } else {
+        } else if (!this.selectedIp) {
           this.selectedIp = this.instances.data[0].ip;
         }
         console.log(this.selectedIp);
       }
-      this.appsGetListAllApps();
     },
     async getAppOwner() {
       const response = await AppsService.getAppOwner(this.appName);
@@ -7550,6 +7553,7 @@ export default {
         }
         return response;
       } catch (error) {
+        this.showToast('danger', command);
         this.showToast('danger', error.message || error);
         return null;
       }
