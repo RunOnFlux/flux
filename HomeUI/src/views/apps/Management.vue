@@ -36,7 +36,7 @@
               class="my-1"
             >
               <b-form-group class="mb-0">
-                <label class="d-inline-block text-left mr-50">Select Ip to connect</label><br>
+                <label class="d-inline-block text-left mr-50">Select IP to run local application management:</label>
                 <b-form-select
                   v-model="selectedIp"
                   style="width: 200px"
