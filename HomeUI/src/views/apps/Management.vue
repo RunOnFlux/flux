@@ -7726,7 +7726,6 @@ export default {
         }
         return response;
       } catch (error) {
-        this.showToast('danger', command);
         this.showToast('danger', error.message || error);
         return null;
       }
