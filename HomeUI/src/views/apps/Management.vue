@@ -5753,6 +5753,10 @@ export default {
     },
   },
   async mounted() {
+    const self = this;
+    this.$nextTick(() => {
+      window.addEventListener('resize', self.onResize);
+    });
     this.initMMSDK();
     this.callBResponse.data = '';
     this.callBResponse.status = '';
@@ -5771,11 +5775,7 @@ export default {
     this.getMultiplier();
     this.getEnterpriseNodes();
     this.getDaemonBlockCount();
-    await this.getApplicationLocations();
-    await this.delay(500);
-    this.$nextTick(() => {
-      window.addEventListener('resize', this.onResize);
-    });
+    this.getApplicationLocations();
   },
   beforeDestroy() {
     window.removeEventListener('resize', this.onResize);
