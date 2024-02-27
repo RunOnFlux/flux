@@ -26,595 +26,622 @@
         disabled
       />
       <b-tab
+        active
         title="Specifications"
-        :active="!global"
-        :disabled="!isApplicationInstalledLocally"
       >
-        <div v-if="callBResponse.data && callResponse.data">
-          <div v-if="callBResponse.data.hash !== callResponse.data.hash">
-            <h1>Locally running application does not match global specifications! Update needed</h1>
-            <br><br>
-          </div>
-          <div v-else>
-            Application is synced with Global network
-            <br><br>
-          </div>
-        </div>
-        <h2>Installed Specifications</h2>
-        <div
-          v-if="callResponse.data"
-          style="text-align: left"
-        >
-          <b-card class="mx-2">
-            <list-entry
-              title="Description"
-              :data="callResponse.data.name"
-            />
-            <list-entry
-              title="Description"
-              :data="callResponse.data.description"
-            />
-            <list-entry
-              title="Owner"
-              :data="callResponse.data.owner"
-            />
-            <list-entry
-              title="Hash"
-              :data="callResponse.data.hash"
-            />
-            <div v-if="callResponse.data.version >= 5">
-              <div v-if="callResponse.data.geolocation.length">
-                <div
-                  v-for="location in callResponse.data.geolocation"
-                  :key="location"
+        <div>
+          <b-card title="Local application management">
+            <b-col
+              md="4"
+              sm="4"
+              class="my-1"
+            >
+              <b-form-group class="mb-0">
+                <label class="d-inline-block text-left mr-50">Select Ip to connect</label>
+                <b-form-select
+                  v-model="selectedIp"
+                  :options="null"
                 >
-                  <list-entry
-                    title="Geolocation"
-                    :data="getGeolocation(location)"
-                  />
-                </div>
+                  <b-form-select-option
+                    v-for="instance in instances.data"
+                    :key="instance.ip"
+                    :value="instance.ip"
+                  >
+                    {{ instance.ip }}
+                  </b-form-select-option>
+                </b-form-select>
+              </b-form-group>
+            </b-col>
+          </b-card>
+        </div>
+        <div>
+          <b-card>
+            <div v-if="callBResponse.data && callResponse.data">
+              <div v-if="callBResponse.data.hash !== callResponse.data.hash">
+                <h1>Locally running application does not match global specifications! Update needed</h1>
+                <br><br>
               </div>
               <div v-else>
-                <list-entry
-                  title="Continent"
-                  data="All"
-                />
-                <list-entry
-                  title="Country"
-                  data="All"
-                />
-                <list-entry
-                  title="Region"
-                  data="All"
-                />
+                Application is synced with Global network
+                <br><br>
               </div>
             </div>
-            <list-entry
-              v-if="callResponse.data.instances"
-              title="Instances"
-              :data="callResponse.data.instances.toString()"
-            />
-            <list-entry
-              title="Specifications version"
-              :number="callResponse.data.version"
-            />
-            <list-entry
-              title="Registered on Blockheight"
-              :number="callResponse.data.height"
-            />
-            <list-entry
-              v-if="callResponse.data.hash && callResponse.data.hash.length === 64"
-              title="Expires on Blockheight"
-              :number="callResponse.data.height + (callResponse.data.expire || 22000)"
-            />
-            <list-entry
-              title="Expires in"
-              :data="getNewExpireLabel"
-            />
-            <list-entry
-              title="Enterprise Nodes"
-              :data="callResponse.data.nodes ? callResponse.data.nodes.toString() : 'Not scoped'"
-            />
-            <list-entry
-              title="Static IP"
-              :data="callResponse.data.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
-            />
-            <h4>Composition</h4>
-            <div v-if="callResponse.data.version <= 3">
-              <b-card>
+            <h2>Installed Specifications</h2>
+            <div
+              v-if="callResponse.data"
+              style="text-align: left"
+            >
+              <b-card class="mx-2">
                 <list-entry
-                  title="Repository"
-                  :data="callResponse.data.repotag"
+                  title="Description"
+                  :data="callResponse.data.name"
                 />
                 <list-entry
-                  title="Custom Domains"
-                  :data="callResponse.data.domains.toString() || 'none'"
+                  title="Description"
+                  :data="callResponse.data.description"
                 />
                 <list-entry
-                  title="Automatic Domains"
-                  :data="constructAutomaticDomains(callResponse.data.ports, callResponse.data.name).toString() || 'none'"
+                  title="Owner"
+                  :data="callResponse.data.owner"
                 />
                 <list-entry
-                  title="Ports"
-                  :data="callResponse.data.ports.toString() || 'none'"
+                  title="Hash"
+                  :data="callResponse.data.hash"
+                />
+                <div v-if="callResponse.data.version >= 5">
+                  <div v-if="callResponse.data.geolocation.length">
+                    <div
+                      v-for="location in callResponse.data.geolocation"
+                      :key="location"
+                    >
+                      <list-entry
+                        title="Geolocation"
+                        :data="getGeolocation(location)"
+                      />
+                    </div>
+                  </div>
+                  <div v-else>
+                    <list-entry
+                      title="Continent"
+                      data="All"
+                    />
+                    <list-entry
+                      title="Country"
+                      data="All"
+                    />
+                    <list-entry
+                      title="Region"
+                      data="All"
+                    />
+                  </div>
+                </div>
+                <list-entry
+                  v-if="callResponse.data.instances"
+                  title="Instances"
+                  :data="callResponse.data.instances.toString()"
                 />
                 <list-entry
-                  title="Container Ports"
-                  :data="callResponse.data.containerPorts.toString() || 'none'"
+                  title="Specifications version"
+                  :number="callResponse.data.version"
                 />
                 <list-entry
-                  title="Container Data"
-                  :data="callResponse.data.containerData.toString() || 'none'"
+                  title="Registered on Blockheight"
+                  :number="callResponse.data.height"
                 />
                 <list-entry
-                  title="Environment Parameters"
-                  :data="callResponse.data.enviromentParameters.length > 0 ? callResponse.data.enviromentParameters.toString() : 'none'"
+                  v-if="callResponse.data.hash && callResponse.data.hash.length === 64"
+                  title="Expires on Blockheight"
+                  :number="callResponse.data.height + (callResponse.data.expire || 22000)"
                 />
                 <list-entry
-                  title="Commands"
-                  :data="callResponse.data.commands.length > 0 ? callResponse.data.commands.toString() : 'none'"
+                  title="Expires in"
+                  :data="getNewExpireLabel"
                 />
-                <div v-if="callResponse.data.tiered">
-                  <list-entry
-                    title="CPU Cumulus"
-                    :data="`${callResponse.data.cpubasic} vCore`"
-                  />
-                  <list-entry
-                    title="CPU Nimbus"
-                    :data="`${callResponse.data.cpusuper} vCore`"
-                  />
-                  <list-entry
-                    title="CPU Stratus"
-                    :data="`${callResponse.data.cpubamf} vCore`"
-                  />
-                  <list-entry
-                    title="RAM Cumulus"
-                    :data="`${callResponse.data.rambasic} MB`"
-                  />
-                  <list-entry
-                    title="RAM Nimbus"
-                    :data="`${callResponse.data.ramsuper} MB`"
-                  />
-                  <list-entry
-                    title="RAM Stratus"
-                    :data="`${callResponse.data.rambamf} MB`"
-                  />
-                  <list-entry
-                    title="SSD Cumulus"
-                    :data="`${callResponse.data.hddbasic} GB`"
-                  />
-                  <list-entry
-                    title="SSD Nimbus"
-                    :data="`${callResponse.data.hddsuper} GB`"
-                  />
-                  <list-entry
-                    title="SSD Stratus"
-                    :data="`${callResponse.data.hddbamf} GB`"
-                  />
+                <list-entry
+                  title="Enterprise Nodes"
+                  :data="callResponse.data.nodes ? callResponse.data.nodes.toString() : 'Not scoped'"
+                />
+                <list-entry
+                  title="Static IP"
+                  :data="callResponse.data.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
+                />
+                <h4>Composition</h4>
+                <div v-if="callResponse.data.version <= 3">
+                  <b-card>
+                    <list-entry
+                      title="Repository"
+                      :data="callResponse.data.repotag"
+                    />
+                    <list-entry
+                      title="Custom Domains"
+                      :data="callResponse.data.domains.toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Automatic Domains"
+                      :data="constructAutomaticDomains(callResponse.data.ports, callResponse.data.name).toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Ports"
+                      :data="callResponse.data.ports.toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Container Ports"
+                      :data="callResponse.data.containerPorts.toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Container Data"
+                      :data="callResponse.data.containerData.toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Environment Parameters"
+                      :data="callResponse.data.enviromentParameters.length > 0 ? callResponse.data.enviromentParameters.toString() : 'none'"
+                    />
+                    <list-entry
+                      title="Commands"
+                      :data="callResponse.data.commands.length > 0 ? callResponse.data.commands.toString() : 'none'"
+                    />
+                    <div v-if="callResponse.data.tiered">
+                      <list-entry
+                        title="CPU Cumulus"
+                        :data="`${callResponse.data.cpubasic} vCore`"
+                      />
+                      <list-entry
+                        title="CPU Nimbus"
+                        :data="`${callResponse.data.cpusuper} vCore`"
+                      />
+                      <list-entry
+                        title="CPU Stratus"
+                        :data="`${callResponse.data.cpubamf} vCore`"
+                      />
+                      <list-entry
+                        title="RAM Cumulus"
+                        :data="`${callResponse.data.rambasic} MB`"
+                      />
+                      <list-entry
+                        title="RAM Nimbus"
+                        :data="`${callResponse.data.ramsuper} MB`"
+                      />
+                      <list-entry
+                        title="RAM Stratus"
+                        :data="`${callResponse.data.rambamf} MB`"
+                      />
+                      <list-entry
+                        title="SSD Cumulus"
+                        :data="`${callResponse.data.hddbasic} GB`"
+                      />
+                      <list-entry
+                        title="SSD Nimbus"
+                        :data="`${callResponse.data.hddsuper} GB`"
+                      />
+                      <list-entry
+                        title="SSD Stratus"
+                        :data="`${callResponse.data.hddbamf} GB`"
+                      />
+                    </div>
+                    <div v-else>
+                      <list-entry
+                        title="CPU"
+                        :data="`${callResponse.data.cpu} vCore`"
+                      />
+                      <list-entry
+                        title="RAM"
+                        :data="`${callResponse.data.ram} MB`"
+                      />
+                      <list-entry
+                        title="SSD"
+                        :data="`${callResponse.data.hdd} GB`"
+                      />
+                    </div>
+                  </b-card>
                 </div>
                 <div v-else>
-                  <list-entry
-                    title="CPU"
-                    :data="`${callResponse.data.cpu} vCore`"
-                  />
-                  <list-entry
-                    title="RAM"
-                    :data="`${callResponse.data.ram} MB`"
-                  />
-                  <list-entry
-                    title="SSD"
-                    :data="`${callResponse.data.hdd} GB`"
-                  />
+                  <b-card
+                    v-for="(component, index) in callResponse.data.compose"
+                    :key="index"
+                  >
+                    <b-card-title>
+                      Component {{ component.name }}
+                    </b-card-title>
+                    <list-entry
+                      title="Name"
+                      :data="component.name"
+                    />
+                    <list-entry
+                      title="Description"
+                      :data="component.description"
+                    />
+                    <list-entry
+                      title="Repository"
+                      :data="component.repotag"
+                    />
+                    <list-entry
+                      title="Repository Authentication"
+                      :data="component.repoauth ? 'Content Encrypted' : 'Public'"
+                    />
+                    <list-entry
+                      title="Custom Domains"
+                      :data="component.domains.toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Automatic Domains"
+                      :data="constructAutomaticDomains(component.ports, callResponse.data.name, index).toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Ports"
+                      :data="component.ports.toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Container Ports"
+                      :data="component.containerPorts.toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Container Data"
+                      :data="component.containerData"
+                    />
+                    <list-entry
+                      title="Environment Parameters"
+                      :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
+                    />
+                    <list-entry
+                      title="Commands"
+                      :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
+                    />
+                    <list-entry
+                      title="Secret Environment Parameters"
+                      :data="component.secrets ? 'Content Encrypted' : 'none'"
+                    />
+                    <div v-if="component.tiered">
+                      <list-entry
+                        title="CPU Cumulus"
+                        :data="`${component.cpubasic} vCore`"
+                      />
+                      <list-entry
+                        title="CPU Nimbus"
+                        :data="`${component.cpusuper} vCore`"
+                      />
+                      <list-entry
+                        title="CPU Stratus"
+                        :data="`${component.cpubamf} vCore`"
+                      />
+                      <list-entry
+                        title="RAM Cumulus"
+                        :data="`${component.rambasic} MB`"
+                      />
+                      <list-entry
+                        title="RAM Nimbus"
+                        :data="`${component.ramsuper} MB`"
+                      />
+                      <list-entry
+                        title="RAM Stratus"
+                        :data="`${component.rambamf} MB`"
+                      />
+                      <list-entry
+                        title="SSD Cumulus"
+                        :data="`${component.hddbasic} GB`"
+                      />
+                      <list-entry
+                        title="SSD Nimbus"
+                        :data="`${component.hddsuper} GB`"
+                      />
+                      <list-entry
+                        title="SSD Stratus"
+                        :data="`${component.hddbamf} GB`"
+                      />
+                    </div>
+                    <div v-else>
+                      <list-entry
+                        title="CPU"
+                        :data="`${component.cpu} vCore`"
+                      />
+                      <list-entry
+                        title="RAM"
+                        :data="`${component.ram} MB`"
+                      />
+                      <list-entry
+                        title="SSD"
+                        :data="`${component.hdd} GB`"
+                      />
+                    </div>
+                  </b-card>
                 </div>
               </b-card>
             </div>
             <div v-else>
-              <b-card
-                v-for="(component, index) in callResponse.data.compose"
-                :key="index"
-              >
-                <b-card-title>
-                  Component {{ component.name }}
-                </b-card-title>
+              Local Specifications loading...
+            </div>
+            <h2 class="mt-2">
+              Global Specifications
+            </h2>
+            <div
+              v-if="callBResponse.data"
+              style="text-align: left"
+            >
+              <b-card class="mx-2">
                 <list-entry
-                  title="Name"
-                  :data="component.name"
+                  title="Description"
+                  :data="callBResponse.data.name"
                 />
                 <list-entry
                   title="Description"
-                  :data="component.description"
+                  :data="callBResponse.data.description"
                 />
                 <list-entry
-                  title="Repository"
-                  :data="component.repotag"
+                  title="Owner"
+                  :data="callBResponse.data.owner"
                 />
                 <list-entry
-                  title="Repository Authentication"
-                  :data="component.repoauth ? 'Content Encrypted' : 'Public'"
+                  title="Hash"
+                  :data="callBResponse.data.hash"
+                />
+                <div v-if="callBResponse.data.version >= 5">
+                  <div v-if="callBResponse.data.geolocation.length">
+                    <div
+                      v-for="location in callBResponse.data.geolocation"
+                      :key="location"
+                    >
+                      <list-entry
+                        title="Geolocation"
+                        :data="getGeolocation(location)"
+                      />
+                    </div>
+                  </div>
+                  <div v-else>
+                    <list-entry
+                      title="Continent"
+                      data="All"
+                    />
+                    <list-entry
+                      title="Country"
+                      data="All"
+                    />
+                    <list-entry
+                      title="Region"
+                      data="All"
+                    />
+                  </div>
+                </div>
+                <list-entry
+                  v-if="callBResponse.data.instances"
+                  title="Instances"
+                  :data="callBResponse.data.instances.toString()"
                 />
                 <list-entry
-                  title="Custom Domains"
-                  :data="component.domains.toString() || 'none'"
+                  title="Specifications version"
+                  :number="callBResponse.data.version"
                 />
                 <list-entry
-                  title="Automatic Domains"
-                  :data="constructAutomaticDomains(component.ports, callResponse.data.name, index).toString() || 'none'"
+                  title="Registered on Blockheight"
+                  :number="callBResponse.data.height"
                 />
                 <list-entry
-                  title="Ports"
-                  :data="component.ports.toString() || 'none'"
+                  v-if="callBResponse.data.hash && callBResponse.data.hash.length === 64"
+                  title="Expires on Blockheight"
+                  :number="callBResponse.data.height + (callBResponse.data.expire || 22000)"
                 />
                 <list-entry
-                  title="Container Ports"
-                  :data="component.containerPorts.toString() || 'none'"
+                  title="Expires in"
+                  :data="getNewExpireLabel"
                 />
                 <list-entry
-                  title="Container Data"
-                  :data="component.containerData"
+                  title="Enterprise Nodes"
+                  :data="callBResponse.data.nodes ? callBResponse.data.nodes.toString() : 'Not scoped'"
                 />
                 <list-entry
-                  title="Environment Parameters"
-                  :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
+                  title="Static IP"
+                  :data="callBResponse.data.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
                 />
-                <list-entry
-                  title="Commands"
-                  :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
-                />
-                <list-entry
-                  title="Secret Environment Parameters"
-                  :data="component.secrets ? 'Content Encrypted' : 'none'"
-                />
-                <div v-if="component.tiered">
-                  <list-entry
-                    title="CPU Cumulus"
-                    :data="`${component.cpubasic} vCore`"
-                  />
-                  <list-entry
-                    title="CPU Nimbus"
-                    :data="`${component.cpusuper} vCore`"
-                  />
-                  <list-entry
-                    title="CPU Stratus"
-                    :data="`${component.cpubamf} vCore`"
-                  />
-                  <list-entry
-                    title="RAM Cumulus"
-                    :data="`${component.rambasic} MB`"
-                  />
-                  <list-entry
-                    title="RAM Nimbus"
-                    :data="`${component.ramsuper} MB`"
-                  />
-                  <list-entry
-                    title="RAM Stratus"
-                    :data="`${component.rambamf} MB`"
-                  />
-                  <list-entry
-                    title="SSD Cumulus"
-                    :data="`${component.hddbasic} GB`"
-                  />
-                  <list-entry
-                    title="SSD Nimbus"
-                    :data="`${component.hddsuper} GB`"
-                  />
-                  <list-entry
-                    title="SSD Stratus"
-                    :data="`${component.hddbamf} GB`"
-                  />
+                <h4>Composition</h4>
+                <div v-if="callBResponse.data.version <= 3">
+                  <b-card>
+                    <list-entry
+                      title="Repository"
+                      :data="callBResponse.data.repotag"
+                    />
+                    <list-entry
+                      title="Custom Domains"
+                      :data="callBResponse.data.domains.toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Automatic Domains"
+                      :data="constructAutomaticDomainsGlobal.toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Ports"
+                      :data="callBResponse.data.ports.toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Container Ports"
+                      :data="callBResponse.data.containerPorts.toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Container Data"
+                      :data="callBResponse.data.containerData"
+                    />
+                    <list-entry
+                      title="Environment Parameters"
+                      :data="callBResponse.data.enviromentParameters.length > 0 ? callBResponse.data.enviromentParameters.toString() : 'none'"
+                    />
+                    <list-entry
+                      title="Commands"
+                      :data="callBResponse.data.commands.length > 0 ? callBResponse.data.commands.toString() : 'none'"
+                    />
+                    <div v-if="callBResponse.data.tiered">
+                      <list-entry
+                        title="CPU Cumulus"
+                        :data="`${callBResponse.data.cpubasic} vCore`"
+                      />
+                      <list-entry
+                        title="CPU Nimbus"
+                        :data="`${callBResponse.data.cpusuper} vCore`"
+                      />
+                      <list-entry
+                        title="CPU Stratus"
+                        :data="`${callBResponse.data.cpubamf} vCore`"
+                      />
+                      <list-entry
+                        title="RAM Cumulus"
+                        :data="`${callBResponse.data.rambasic} MB`"
+                      />
+                      <list-entry
+                        title="RAM Nimbus"
+                        :data="`${callBResponse.data.ramsuper} MB`"
+                      />
+                      <list-entry
+                        title="RAM Stratus"
+                        :data="`${callBResponse.data.rambamf} MB`"
+                      />
+                      <list-entry
+                        title="SSD Cumulus"
+                        :data="`${callBResponse.data.hddbasic} GB`"
+                      />
+                      <list-entry
+                        title="SSD Nimbus"
+                        :data="`${callBResponse.data.hddsuper} GB`"
+                      />
+                      <list-entry
+                        title="SSD Stratus"
+                        :data="`${callBResponse.data.hddbamf} GB`"
+                      />
+                    </div>
+                    <div v-else>
+                      <list-entry
+                        title="CPU"
+                        :data="`${callBResponse.data.cpu} vCore`"
+                      />
+                      <list-entry
+                        title="RAM"
+                        :data="`${callBResponse.data.ram} MB`"
+                      />
+                      <list-entry
+                        title="SSD"
+                        :data="`${callBResponse.data.hdd} GB`"
+                      />
+                    </div>
+                  </b-card>
                 </div>
                 <div v-else>
-                  <list-entry
-                    title="CPU"
-                    :data="`${component.cpu} vCore`"
-                  />
-                  <list-entry
-                    title="RAM"
-                    :data="`${component.ram} MB`"
-                  />
-                  <list-entry
-                    title="SSD"
-                    :data="`${component.hdd} GB`"
-                  />
+                  <b-card
+                    v-for="(component, index) in callBResponse.data.compose"
+                    :key="index"
+                  >
+                    <b-card-title>
+                      Component {{ component.name }}
+                    </b-card-title>
+                    <list-entry
+                      title="Name"
+                      :data="component.name"
+                    />
+                    <list-entry
+                      title="Description"
+                      :data="component.description"
+                    />
+                    <list-entry
+                      title="Repository"
+                      :data="component.repotag"
+                    />
+                    <list-entry
+                      title="Repository Authentication"
+                      :data="component.repoauth ? 'Content Encrypted' : 'Public'"
+                    />
+                    <list-entry
+                      title="Custom Domains"
+                      :data="component.domains.toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Automatic Domains"
+                      :data="constructAutomaticDomains(component.ports, callBResponse.data.name, index).toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Ports"
+                      :data="component.ports.toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Container Ports"
+                      :data="component.containerPorts.toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Container Data"
+                      :data="component.containerData"
+                    />
+                    <list-entry
+                      title="Environment Parameters"
+                      :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
+                    />
+                    <list-entry
+                      title="Commands"
+                      :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
+                    />
+                    <list-entry
+                      title="Secret Environment Parameters"
+                      :data="component.secrets ? 'Content Encrypted' : 'none'"
+                    />
+                    <div v-if="component.tiered">
+                      <list-entry
+                        title="CPU Cumulus"
+                        :data="`${component.cpubasic} vCore`"
+                      />
+                      <list-entry
+                        title="CPU Nimbus"
+                        :data="`${component.cpusuper} vCore`"
+                      />
+                      <list-entry
+                        title="CPU Stratus"
+                        :data="`${component.cpubamf} vCore`"
+                      />
+                      <list-entry
+                        title="RAM Cumulus"
+                        :data="`${component.rambasic} MB`"
+                      />
+                      <list-entry
+                        title="RAM Nimbus"
+                        :data="`${component.ramsuper} MB`"
+                      />
+                      <list-entry
+                        title="RAM Stratus"
+                        :data="`${component.rambamf} MB`"
+                      />
+                      <list-entry
+                        title="SSD Cumulus"
+                        :data="`${component.hddbasic} GB`"
+                      />
+                      <list-entry
+                        title="SSD Nimbus"
+                        :data="`${component.hddsuper} GB`"
+                      />
+                      <list-entry
+                        title="SSD Stratus"
+                        :data="`${component.hddbamf} GB`"
+                      />
+                    </div>
+                    <div v-else>
+                      <list-entry
+                        title="CPU"
+                        :data="`${component.cpu} vCore`"
+                      />
+                      <list-entry
+                        title="RAM"
+                        :data="`${component.ram} MB`"
+                      />
+                      <list-entry
+                        title="SSD"
+                        :data="`${component.hdd} GB`"
+                      />
+                    </div>
+                  </b-card>
                 </div>
               </b-card>
             </div>
-          </b-card>
-        </div>
-        <div v-else>
-          Local Specifications loading...
-        </div>
-        <h2 class="mt-2">
-          Global Specifications
-        </h2>
-        <div
-          v-if="callBResponse.data"
-          style="text-align: left"
-        >
-          <b-card class="mx-2">
-            <list-entry
-              title="Description"
-              :data="callBResponse.data.name"
-            />
-            <list-entry
-              title="Description"
-              :data="callBResponse.data.description"
-            />
-            <list-entry
-              title="Owner"
-              :data="callBResponse.data.owner"
-            />
-            <list-entry
-              title="Hash"
-              :data="callBResponse.data.hash"
-            />
-            <div v-if="callBResponse.data.version >= 5">
-              <div v-if="callBResponse.data.geolocation.length">
-                <div
-                  v-for="location in callBResponse.data.geolocation"
-                  :key="location"
-                >
-                  <list-entry
-                    title="Geolocation"
-                    :data="getGeolocation(location)"
-                  />
-                </div>
-              </div>
-              <div v-else>
-                <list-entry
-                  title="Continent"
-                  data="All"
-                />
-                <list-entry
-                  title="Country"
-                  data="All"
-                />
-                <list-entry
-                  title="Region"
-                  data="All"
-                />
-              </div>
-            </div>
-            <list-entry
-              v-if="callBResponse.data.instances"
-              title="Instances"
-              :data="callBResponse.data.instances.toString()"
-            />
-            <list-entry
-              title="Specifications version"
-              :number="callBResponse.data.version"
-            />
-            <list-entry
-              title="Registered on Blockheight"
-              :number="callBResponse.data.height"
-            />
-            <list-entry
-              v-if="callBResponse.data.hash && callBResponse.data.hash.length === 64"
-              title="Expires on Blockheight"
-              :number="callBResponse.data.height + (callBResponse.data.expire || 22000)"
-            />
-            <list-entry
-              title="Expires in"
-              :data="getNewExpireLabel"
-            />
-            <list-entry
-              title="Enterprise Nodes"
-              :data="callBResponse.data.nodes ? callBResponse.data.nodes.toString() : 'Not scoped'"
-            />
-            <list-entry
-              title="Static IP"
-              :data="callBResponse.data.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
-            />
-            <h4>Composition</h4>
-            <div v-if="callBResponse.data.version <= 3">
-              <b-card>
-                <list-entry
-                  title="Repository"
-                  :data="callBResponse.data.repotag"
-                />
-                <list-entry
-                  title="Custom Domains"
-                  :data="callBResponse.data.domains.toString() || 'none'"
-                />
-                <list-entry
-                  title="Automatic Domains"
-                  :data="constructAutomaticDomainsGlobal.toString() || 'none'"
-                />
-                <list-entry
-                  title="Ports"
-                  :data="callBResponse.data.ports.toString() || 'none'"
-                />
-                <list-entry
-                  title="Container Ports"
-                  :data="callBResponse.data.containerPorts.toString() || 'none'"
-                />
-                <list-entry
-                  title="Container Data"
-                  :data="callBResponse.data.containerData"
-                />
-                <list-entry
-                  title="Environment Parameters"
-                  :data="callBResponse.data.enviromentParameters.length > 0 ? callBResponse.data.enviromentParameters.toString() : 'none'"
-                />
-                <list-entry
-                  title="Commands"
-                  :data="callBResponse.data.commands.length > 0 ? callBResponse.data.commands.toString() : 'none'"
-                />
-                <div v-if="callBResponse.data.tiered">
-                  <list-entry
-                    title="CPU Cumulus"
-                    :data="`${callBResponse.data.cpubasic} vCore`"
-                  />
-                  <list-entry
-                    title="CPU Nimbus"
-                    :data="`${callBResponse.data.cpusuper} vCore`"
-                  />
-                  <list-entry
-                    title="CPU Stratus"
-                    :data="`${callBResponse.data.cpubamf} vCore`"
-                  />
-                  <list-entry
-                    title="RAM Cumulus"
-                    :data="`${callBResponse.data.rambasic} MB`"
-                  />
-                  <list-entry
-                    title="RAM Nimbus"
-                    :data="`${callBResponse.data.ramsuper} MB`"
-                  />
-                  <list-entry
-                    title="RAM Stratus"
-                    :data="`${callBResponse.data.rambamf} MB`"
-                  />
-                  <list-entry
-                    title="SSD Cumulus"
-                    :data="`${callBResponse.data.hddbasic} GB`"
-                  />
-                  <list-entry
-                    title="SSD Nimbus"
-                    :data="`${callBResponse.data.hddsuper} GB`"
-                  />
-                  <list-entry
-                    title="SSD Stratus"
-                    :data="`${callBResponse.data.hddbamf} GB`"
-                  />
-                </div>
-                <div v-else>
-                  <list-entry
-                    title="CPU"
-                    :data="`${callBResponse.data.cpu} vCore`"
-                  />
-                  <list-entry
-                    title="RAM"
-                    :data="`${callBResponse.data.ram} MB`"
-                  />
-                  <list-entry
-                    title="SSD"
-                    :data="`${callBResponse.data.hdd} GB`"
-                  />
-                </div>
-              </b-card>
+            <div v-else-if="callBResponse.status === 'error'">
+              Global specifications not found!
             </div>
             <div v-else>
-              <b-card
-                v-for="(component, index) in callBResponse.data.compose"
-                :key="index"
-              >
-                <b-card-title>
-                  Component {{ component.name }}
-                </b-card-title>
-                <list-entry
-                  title="Name"
-                  :data="component.name"
-                />
-                <list-entry
-                  title="Description"
-                  :data="component.description"
-                />
-                <list-entry
-                  title="Repository"
-                  :data="component.repotag"
-                />
-                <list-entry
-                  title="Repository Authentication"
-                  :data="component.repoauth ? 'Content Encrypted' : 'Public'"
-                />
-                <list-entry
-                  title="Custom Domains"
-                  :data="component.domains.toString() || 'none'"
-                />
-                <list-entry
-                  title="Automatic Domains"
-                  :data="constructAutomaticDomains(component.ports, callBResponse.data.name, index).toString() || 'none'"
-                />
-                <list-entry
-                  title="Ports"
-                  :data="component.ports.toString() || 'none'"
-                />
-                <list-entry
-                  title="Container Ports"
-                  :data="component.containerPorts.toString() || 'none'"
-                />
-                <list-entry
-                  title="Container Data"
-                  :data="component.containerData"
-                />
-                <list-entry
-                  title="Environment Parameters"
-                  :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
-                />
-                <list-entry
-                  title="Commands"
-                  :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
-                />
-                <list-entry
-                  title="Secret Environment Parameters"
-                  :data="component.secrets ? 'Content Encrypted' : 'none'"
-                />
-                <div v-if="component.tiered">
-                  <list-entry
-                    title="CPU Cumulus"
-                    :data="`${component.cpubasic} vCore`"
-                  />
-                  <list-entry
-                    title="CPU Nimbus"
-                    :data="`${component.cpusuper} vCore`"
-                  />
-                  <list-entry
-                    title="CPU Stratus"
-                    :data="`${component.cpubamf} vCore`"
-                  />
-                  <list-entry
-                    title="RAM Cumulus"
-                    :data="`${component.rambasic} MB`"
-                  />
-                  <list-entry
-                    title="RAM Nimbus"
-                    :data="`${component.ramsuper} MB`"
-                  />
-                  <list-entry
-                    title="RAM Stratus"
-                    :data="`${component.rambamf} MB`"
-                  />
-                  <list-entry
-                    title="SSD Cumulus"
-                    :data="`${component.hddbasic} GB`"
-                  />
-                  <list-entry
-                    title="SSD Nimbus"
-                    :data="`${component.hddsuper} GB`"
-                  />
-                  <list-entry
-                    title="SSD Stratus"
-                    :data="`${component.hddbamf} GB`"
-                  />
-                </div>
-                <div v-else>
-                  <list-entry
-                    title="CPU"
-                    :data="`${component.cpu} vCore`"
-                  />
-                  <list-entry
-                    title="RAM"
-                    :data="`${component.ram} MB`"
-                  />
-                  <list-entry
-                    title="SSD"
-                    :data="`${component.hdd} GB`"
-                  />
-                </div>
-              </b-card>
+              Global Specifications loading...
             </div>
           </b-card>
-        </div>
-        <div v-else-if="callBResponse.status === 'error'">
-          Global specifications not found!
-        </div>
-        <div v-else>
-          Global Specifications loading...
         </div>
       </b-tab>
       <b-tab
         title="Information"
-        :disabled="!isApplicationInstalledLocally"
       >
         <h3>Application: {{ appSpecification.name }}</h3>
         <div v-if="appSpecification.version >= 4">
@@ -648,7 +675,6 @@
       </b-tab>
       <b-tab
         title="Resources"
-        :disabled="!isApplicationInstalledLocally"
       >
         <h3>Application: {{ appSpecification.name }}</h3>
         <div v-if="commandExecuting">
@@ -688,7 +714,6 @@
       </b-tab>
       <b-tab
         title="Monitoring"
-        :disabled="!isApplicationInstalledLocally"
       >
         <h3>History Statistics 1 hour</h3>
         <div v-if="appSpecification.version >= 4">
@@ -752,7 +777,6 @@
       </b-tab>
       <b-tab
         title="File Changes"
-        :disabled="!isApplicationInstalledLocally"
       >
         <h3>Application: {{ appSpecification.name }}</h3>
         <div v-if="commandExecuting">
@@ -792,7 +816,6 @@
       </b-tab>
       <b-tab
         title="Processes"
-        :disabled="!isApplicationInstalledLocally"
       >
         <h3>Application: {{ appSpecification.name }}</h3>
         <div v-if="commandExecuting">
@@ -832,7 +855,6 @@
       </b-tab>
       <b-tab
         title="Log File"
-        :disabled="!isApplicationInstalledLocally"
       >
         <h3>Application: {{ appSpecification.name }}</h3>
         <div v-if="appSpecification.version >= 4">
@@ -924,7 +946,6 @@
       </b-tab>
       <b-tab
         title="Control"
-        :disabled="!isApplicationInstalledLocally"
       >
         <b-row class="match-height">
           <b-col xs="6">
@@ -1284,7 +1305,6 @@
       </b-tab>
       <b-tab
         title="Backup/Restore"
-        :disabled="!isApplicationInstalledLocally"
       >
         <div>
           <b-card no-body>
@@ -2516,7 +2536,6 @@
       </b-tab>
       <b-tab
         title="Interactive Terminal"
-        :disabled="!isApplicationInstalledLocally"
       >
         <div class="text-center">
           <div>
@@ -2701,459 +2720,6 @@
         title="Global App Management"
         disabled
       />
-      <b-tab
-        title="Global Specifications"
-        :active="global"
-      >
-        <h2 class="mt-2">
-          Global Specifications
-        </h2>
-        <div
-          v-if="callBResponse.data"
-          style="text-align: left"
-        >
-          <b-card class="mx-2">
-            <list-entry
-              title="Description"
-              :data="callBResponse.data.name"
-            />
-            <list-entry
-              title="Description"
-              :data="callBResponse.data.description"
-            />
-            <list-entry
-              title="Owner"
-              :data="callBResponse.data.owner"
-            />
-            <list-entry
-              title="Hash"
-              :data="callBResponse.data.hash"
-            />
-            <div v-if="callBResponse.data.version >= 5">
-              <list-entry
-                title="Contacts"
-                :data="callBResponse.data.contacts.toString() || 'none'"
-              />
-              <div v-if="callBResponse.data.geolocation.length">
-                <div
-                  v-for="location in callBResponse.data.geolocation"
-                  :key="location"
-                >
-                  <list-entry
-                    title="Geolocation"
-                    :data="getGeolocation(location)"
-                  />
-                </div>
-              </div>
-              <div v-else>
-                <list-entry
-                  title="Continent"
-                  data="All"
-                />
-                <list-entry
-                  title="Country"
-                  data="All"
-                />
-                <list-entry
-                  title="Region"
-                  data="All"
-                />
-              </div>
-            </div>
-            <list-entry
-              v-if="callBResponse.data.instances"
-              title="Instances"
-              :data="callBResponse.data.instances.toString()"
-            />
-            <list-entry
-              title="Specifications version"
-              :number="callBResponse.data.version"
-            />
-            <list-entry
-              title="Registered on Blockheight"
-              :number="callBResponse.data.height"
-            />
-            <list-entry
-              v-if="callBResponse.data.hash && callBResponse.data.hash.length === 64"
-              title="Expires on Blockheight"
-              :number="callBResponse.data.height + (callBResponse.data.expire || 22000)"
-            />
-            <list-entry
-              title="Expires in"
-              :data="getNewExpireLabel"
-            />
-            <list-entry
-              title="Enterprise Nodes"
-              :data="callBResponse.data.nodes ? callBResponse.data.nodes.toString() : 'Not scoped'"
-            />
-            <list-entry
-              title="Static IP"
-              :data="callBResponse.data.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
-            />
-            <h4>Composition</h4>
-            <b-card v-if="callBResponse.data.version <= 3">
-              <list-entry
-                title="Repository"
-                :data="callBResponse.data.repotag"
-              />
-              <list-entry
-                title="Custom Domains"
-                :data="callBResponse.data.domains.toString() || 'none'"
-              />
-              <list-entry
-                title="Automatic Domains"
-                :data="constructAutomaticDomainsGlobal.toString() || 'none'"
-              />
-              <list-entry
-                title="Ports"
-                :data="callBResponse.data.ports.toString() || 'none'"
-              />
-              <list-entry
-                title="Container Ports"
-                :data="callBResponse.data.containerPorts.toString() || 'none'"
-              />
-              <list-entry
-                title="Container Data"
-                :data="callBResponse.data.containerData"
-              />
-              <list-entry
-                title="Environment Parameters"
-                :data="callBResponse.data.enviromentParameters.length > 0 ? callBResponse.data.enviromentParameters.toString() : 'none'"
-              />
-              <list-entry
-                title="Commands"
-                :data="callBResponse.data.commands.length > 0 ? callBResponse.data.commands.toString() : 'none'"
-              />
-              <div v-if="callBResponse.data.tiered">
-                <list-entry
-                  title="CPU Cumulus"
-                  :data="`${callBResponse.data.cpubasic} vCore`"
-                />
-                <list-entry
-                  title="CPU Nimbus"
-                  :data="`${callBResponse.data.cpusuper} vCore`"
-                />
-                <list-entry
-                  title="CPU Stratus"
-                  :data="`${callBResponse.data.cpubamf} vCore`"
-                />
-                <list-entry
-                  title="RAM Cumulus"
-                  :data="`${callBResponse.data.rambasic} MB`"
-                />
-                <list-entry
-                  title="RAM Nimbus"
-                  :data="`${callBResponse.data.ramsuper} MB`"
-                />
-                <list-entry
-                  title="RAM Stratus"
-                  :data="`${callBResponse.data.rambamf} MB`"
-                />
-                <list-entry
-                  title="SSD Cumulus"
-                  :data="`${callBResponse.data.hddbasic} GB`"
-                />
-                <list-entry
-                  title="SSD Nimbus"
-                  :data="`${callBResponse.data.hddsuper} GB`"
-                />
-                <list-entry
-                  title="SSD Stratus"
-                  :data="`${callBResponse.data.hddbamf} GB`"
-                />
-              </div>
-              <div v-else>
-                <list-entry
-                  title="CPU"
-                  :data="`${callBResponse.data.cpu} vCore`"
-                />
-                <list-entry
-                  title="RAM"
-                  :data="`${callBResponse.data.ram} MB`"
-                />
-                <list-entry
-                  title="SSD"
-                  :data="`${callBResponse.data.hdd} GB`"
-                />
-              </div>
-            </b-card>
-            <b-card
-              v-for="(component, index) in callBResponse.data.compose"
-              v-if="callBResponse.data.version >= 4"
-              :key="index"
-            >
-              <b-card-title>
-                Component {{ component.name }}
-              </b-card-title>
-              <list-entry
-                title="Name"
-                :data="component.name"
-              />
-              <list-entry
-                title="Description"
-                :data="component.description"
-              />
-              <list-entry
-                title="Repository"
-                :data="component.repotag"
-              />
-              <list-entry
-                title="Repository Authentication"
-                :data="component.repoauth ? 'Content Encrypted' : 'Public'"
-              />
-              <list-entry
-                title="Custom Domains"
-                :data="component.domains.toString() || 'none'"
-              />
-              <list-entry
-                title="Automatic Domains"
-                :data="constructAutomaticDomains(component.ports, callBResponse.data.name, index).toString() || 'none'"
-              />
-              <list-entry
-                title="Ports"
-                :data="component.ports.toString() || 'none'"
-              />
-              <list-entry
-                title="Container Ports"
-                :data="component.containerPorts.toString() || 'none'"
-              />
-              <list-entry
-                title="Container Data"
-                :data="component.containerData"
-              />
-              <list-entry
-                title="Environment Parameters"
-                :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
-              />
-              <list-entry
-                title="Commands"
-                :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
-              />
-              <list-entry
-                title="Secret Environment Parameters"
-                :data="component.secrets ? 'Content Encrypted' : 'none'"
-              />
-              <div v-if="component.tiered">
-                <list-entry
-                  title="CPU Cumulus"
-                  :data="`${component.cpubasic} vCore`"
-                />
-                <list-entry
-                  title="CPU Nimbus"
-                  :data="`${component.cpusuper} vCore`"
-                />
-                <list-entry
-                  title="CPU Stratus"
-                  :data="`${component.cpubamf} vCore`"
-                />
-                <list-entry
-                  title="RAM Cumulus"
-                  :data="`${component.rambasic} MB`"
-                />
-                <list-entry
-                  title="RAM Nimbus"
-                  :data="`${component.ramsuper} MB`"
-                />
-                <list-entry
-                  title="RAM Stratus"
-                  :data="`${component.rambamf} MB`"
-                />
-                <list-entry
-                  title="SSD Cumulus"
-                  :data="`${component.hddbasic} GB`"
-                />
-                <list-entry
-                  title="SSD Nimbus"
-                  :data="`${component.hddsuper} GB`"
-                />
-                <list-entry
-                  title="SSD Stratus"
-                  :data="`${component.hddbamf} GB`"
-                />
-              </div>
-              <div v-else>
-                <list-entry
-                  title="CPU"
-                  :data="`${component.cpu} vCore`"
-                />
-                <list-entry
-                  title="RAM"
-                  :data="`${component.ram} MB`"
-                />
-                <list-entry
-                  title="SSD"
-                  :data="`${component.hdd} GB`"
-                />
-              </div>
-            </b-card>
-          </b-card>
-        </div>
-        <div v-else-if="callBResponse.status === 'error'">
-          Global specifications not found!
-        </div>
-        <div v-else>
-          Global Specifications loading...
-        </div>
-      </b-tab>
-      <b-tab title="Global Control">
-        <div v-if="globalZelidAuthorized">
-          <b-row class="match-height">
-            <b-col xs="6">
-              <b-card title="Control">
-                <b-card-text class="mb-2">
-                  {{ isAppOwner ? 'General options to control all instances of your application' : 'General options to control instances of selected application running on all nodes that you own' }}
-                </b-card-text>
-                <div class="text-center">
-                  <b-button
-                    id="start-app-global"
-                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="success"
-                    aria-label="Start App"
-                    class="mx-1 my-1"
-                  >
-                    Start App
-                  </b-button>
-                  <confirm-dialog
-                    target="start-app-global"
-                    confirm-button="Start App"
-                    @confirm="startAppGlobally(appName)"
-                  />
-                  <b-button
-                    id="stop-app-global"
-                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="success"
-                    aria-label="Stop App"
-                    class="mx-1 my-1"
-                  >
-                    Stop App
-                  </b-button>
-                  <confirm-dialog
-                    target="stop-app-global"
-                    confirm-button="Stop App"
-                    @confirm="stopAppGlobally(appName)"
-                  />
-                  <b-button
-                    id="restart-app-global"
-                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="success"
-                    aria-label="Restart App"
-                    class="mx-1 my-1"
-                  >
-                    Restart App
-                  </b-button>
-                  <confirm-dialog
-                    target="restart-app-global"
-                    confirm-button="Restart App"
-                    @confirm="restartAppGlobally(appName)"
-                  />
-                </div>
-              </b-card>
-            </b-col>
-            <b-col xs="6">
-              <b-card title="Pause">
-                <b-card-text class="mb-2">
-                  {{ isAppOwner ? 'The Pause command suspends all processes of all instances of your app' : 'The Pause command suspends all processes of selected application on all of nodes that you own' }}
-                </b-card-text>
-                <div class="text-center">
-                  <b-button
-                    id="pause-app-global"
-                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="success"
-                    aria-label="Pause App"
-                    class="mx-1 my-1"
-                  >
-                    Pause App
-                  </b-button>
-                  <confirm-dialog
-                    target="pause-app-global"
-                    confirm-button="Pause App"
-                    @confirm="pauseAppGlobally(appName)"
-                  />
-                  <b-button
-                    id="unpause-app-global"
-                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="success"
-                    aria-label="Unpause App"
-                    class="mx-1 my-1"
-                  >
-                    Unpause App
-                  </b-button>
-                  <confirm-dialog
-                    target="unpause-app-global"
-                    confirm-button="Unpause App"
-                    @confirm="unpauseAppGlobally(appName)"
-                  />
-                </div>
-              </b-card>
-            </b-col>
-          </b-row>
-          <b-row class="match-height">
-            <b-col xs="6">
-              <b-card title="Redeploy">
-                <b-card-text class="mb-2">
-                  {{ isAppOwner ? 'Redeployes all instances of your application. Hard redeploy removes persistant data storage.' : 'Redeployes instances of selected application running on all of your nodes. Hard redeploy removes persistant data storage.' }}
-                </b-card-text>
-                <div class="text-center">
-                  <b-button
-                    id="redeploy-app-soft-global"
-                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="success"
-                    aria-label="Soft Redeploy App"
-                    class="mx-1 my-1"
-                  >
-                    Soft Redeploy App
-                  </b-button>
-                  <confirm-dialog
-                    target="redeploy-app-soft-global"
-                    confirm-button="Redeploy"
-                    @confirm="redeployAppSoftGlobally(appName)"
-                  />
-                  <b-button
-                    id="redeploy-app-hard-global"
-                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="success"
-                    aria-label="Hard Redeploy App"
-                    class="mx-1 my-1"
-                  >
-                    Hard Redeploy App
-                  </b-button>
-                  <confirm-dialog
-                    target="redeploy-app-hard-global"
-                    confirm-button="Redeploy"
-                    @confirm="redeployAppHardGlobally(appName)"
-                  />
-                </div>
-              </b-card>
-            </b-col>
-            <b-col xs="6">
-              <b-card title="Reinstall">
-                <b-card-text class="mb-2">
-                  {{ isAppOwner ? 'Removes all instances of your App forcing an installation on different nodes.' : 'Removes all instances of selected App on all of your nodes forcing installation on different nodes.' }}
-                </b-card-text>
-                <div class="text-center">
-                  <b-button
-                    id="remove-app-global"
-                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="success"
-                    aria-label="Reinstall App"
-                    class="mx-1 my-1"
-                  >
-                    Reinstall App
-                  </b-button>
-                  <confirm-dialog
-                    target="remove-app-global"
-                    confirm-button="Reinstall App"
-                    @confirm="removeAppGlobally(appName)"
-                  />
-                </div>
-              </b-card>
-            </b-col>
-          </b-row>
-        </div>
-        <div v-else>
-          Global management session expired. Please log out and back into FluxOS.
-        </div>
-      </b-tab>
       <b-tab title="Running Instances">
         <div v-if="masterSlaveApp">
           <b-card title="Primary/Standby App Information">
@@ -5218,7 +4784,6 @@ import JsonViewer from 'vue-json-viewer';
 
 import AppsService from '@/services/AppsService';
 import DaemonService from '@/services/DaemonService';
-import BackupRestoreService from '@/services/BackupRestoreService';
 
 import SignClient from '@walletconnect/sign-client';
 import { MetaMaskSDK } from '@metamask/sdk';
@@ -5656,7 +5221,9 @@ export default {
       isPrivateApp: false,
       signClient: null,
       masterIP: '',
+      selectedIp: null,
       masterSlaveApp: false,
+      applicationManagementAndStatus: '',
     };
   },
   computed: {
@@ -5882,38 +5449,6 @@ export default {
       }
       return false;
     },
-    applicationManagementAndStatus() {
-      console.log(this.getAllAppsResponse);
-      const foundAppInfo = this.getAllAppsResponse.data.find((app) => app.Names[0] === this.getAppDockerNameIdentifier()) || {};
-      const appInfo = {
-        name: this.appName,
-        state: foundAppInfo.State || 'Unknown state',
-        status: foundAppInfo.Status || 'Unknown status',
-      };
-      appInfo.state = appInfo.state.charAt(0).toUpperCase() + appInfo.state.slice(1);
-      appInfo.status = appInfo.status.charAt(0).toUpperCase() + appInfo.status.slice(1);
-      let niceString = `${appInfo.name} - ${appInfo.state} - ${appInfo.status}`;
-      if (this.appSpecification) {
-        if (this.appSpecification.version >= 4) {
-          niceString = `${this.appSpecification.name}:`;
-          // eslint-disable-next-line no-restricted-syntax
-          for (const component of this.appSpecification.compose) {
-            const foundAppInfoComponent = this.getAllAppsResponse.data.find((app) => app.Names[0] === this.getAppDockerNameIdentifier(`${component.name}_${this.appSpecification.name}`)) || {};
-            const appInfoComponent = {
-              name: component.name,
-              state: foundAppInfoComponent.State || 'Unknown state',
-              status: foundAppInfoComponent.Status || 'Unknown status',
-            };
-            appInfoComponent.state = appInfoComponent.state.charAt(0).toUpperCase() + appInfoComponent.state.slice(1);
-            appInfoComponent.status = appInfoComponent.status.charAt(0).toUpperCase() + appInfoComponent.status.slice(1);
-            const niceStringComponent = ` ${appInfoComponent.name} - ${appInfoComponent.state} - ${appInfoComponent.status},`;
-            niceString += niceStringComponent;
-          }
-          niceString = niceString.substring(0, niceString.length - 1);
-        }
-      }
-      return niceString;
-    },
     constructAutomaticDomainsGlobal() {
       if (!this.callBResponse.data) {
         return 'loading...';
@@ -6053,7 +5588,7 @@ export default {
       }
     },
   },
-  mounted() {
+  async mounted() {
     this.initMMSDK();
     this.callBResponse.data = '';
     this.callBResponse.status = '';
@@ -6066,16 +5601,15 @@ export default {
     this.checkFluxCommunication();
     this.getAppOwner();
     this.getGlobalApplicationSpecifics();
-    this.appsGetListAllApps();
-    if (!global) {
-      this.getInstalledApplicationSpecifics();
-    }
     this.appsDeploymentInformation();
     this.getGeolocationData();
     this.getMarketPlace();
     this.getMultiplier();
     this.getEnterpriseNodes();
     this.getDaemonBlockCount();
+    await this.getApplicationLocations();
+    this.getInstalledApplicationSpecifics();
+    this.getApplicationManagementAndStatus();
   },
   methods: {
     handleRadioClick() {
@@ -6153,11 +5687,10 @@ export default {
       this.addFiles(([...droppedFiles]));
     },
     async addFiles(filesToAdd) {
-      const zelidauth = localStorage.getItem('zelidauth');
       // eslint-disable-next-line no-restricted-syntax
       for (const f of filesToAdd) {
         // eslint-disable-next-line no-await-in-loop
-        this.volumeInfo = await BackupRestoreService.getVolumeDataOfComponent(zelidauth, this.appName, this.restoreRemoteFile, 'B', 0, 'mount,available,size');
+        this.volumeInfo = await this.executeLocalCommand(`/backup/getvolumedataofcomponent/${this.appName}/${this.restoreRemoteFile}/${'B'}/${0}/${'mount,available,size'}`);
         this.volumePath = this.volumeInfo.data?.data?.mount;
 
         const existingFile = this.files.findIndex(
@@ -6271,7 +5804,6 @@ export default {
           for (const componentName of this.files) {
             postRestoreData = this.updateJobStatus(postLayout, componentName.component, 'restore');
           }
-          const port = this.config.apiPort;
           const zelidauth = localStorage.getItem('zelidauth');
           const headers = {
             zelidauth,
@@ -6279,7 +5811,9 @@ export default {
             'Access-Control-Allow-Origin': '*',
             Connection: 'keep-alive',
           };
-          const response = await fetch(`${this.ipAddress}:${port}/apps/appendrestoretask`, {
+          const url = this.selectedIp.split(':')[0];
+          const urlPort = this.selectedIp.split(':')[1] || 16127;
+          const response = await fetch(`${url}:${urlPort}/apps/appendrestoretask`, {
             method: 'POST',
             body: JSON.stringify(postRestoreData),
             headers,
@@ -6443,8 +5977,6 @@ export default {
       this.tarProgress = 'Initializing backup jobs...';
       const zelidauth = localStorage.getItem('zelidauth');
       // eslint-disable-next-line no-unused-vars
-      const port = this.config.apiPort;
-      // eslint-disable-next-line no-unused-vars
       const headers = {
         zelidauth,
         'Content-Type': 'application/json',
@@ -6457,7 +5989,9 @@ export default {
       for (const componentName of componentNames) {
         postBackupData = this.updateJobStatus(postLayout, componentName, 'backup');
       }
-      const response = await fetch(`${this.ipAddress}:${port}/apps/appendbackuptask`, {
+      const url = this.selectedIp.split(':')[0];
+      const urlPort = this.selectedIp.split(':')[1] || 16127;
+      const response = await fetch(`${url}:${urlPort}/apps/appendbackuptask`, {
         method: 'POST',
         body: JSON.stringify(postBackupData),
         headers,
@@ -6560,8 +6094,6 @@ export default {
       this.downloadingFromUrl = true;
       this.restoreFromRemoteURLStatus = 'Initializing restore jobs...';
       // eslint-disable-next-line no-unused-vars
-      const port = this.config.apiPort;
-      // eslint-disable-next-line no-unused-vars
       const headers = {
         zelidauth,
         'Content-Type': 'application/json',
@@ -6574,7 +6106,9 @@ export default {
       for (const componentName of this.restoreRemoteUrlItems) {
         postBackupData = this.updateJobStatus(postLayout, componentName.component, 'restore', this.restoreRemoteUrlItems);
       }
-      const response = await fetch(`${this.ipAddress}:${port}/apps/appendrestoretask`, {
+      const url = this.selectedIp.split(':')[0];
+      const urlPort = this.selectedIp.split(':')[1] || 16127;
+      const response = await fetch(`${url}:${urlPort}/apps/appendrestoretask`, {
         method: 'POST',
         body: JSON.stringify(postBackupData),
         headers,
@@ -6608,13 +6142,12 @@ export default {
         return;
       }
       if (this.restoreRemoteUrl.trim() !== '' && this.restoreRemoteUrlComponent !== null) {
-        const zelidauth = localStorage.getItem('zelidauth');
-        this.remoteFileSizeResponse = await BackupRestoreService.getRemoteFileSize(zelidauth, encodeURIComponent(this.restoreRemoteUrl.trim()), 'B', 0, true, this.appName);
+        this.remoteFileSizeResponse = await this.executeLocalCommand(`/backup/getremotefilesize/${encodeURIComponent(this.restoreRemoteUrl.trim())}/${'B'}/${0}/${true}/${this.appName}`);
         if (this.remoteFileSizeResponse.data?.status !== 'success') {
           this.showToast('danger', this.remoteFileSizeResponse.data?.data.message || this.remoteFileSizeResponse.data?.massage);
           return;
         }
-        this.volumeInfoResponse = await BackupRestoreService.getVolumeDataOfComponent(zelidauth, appname, component, 'B', 0, 'size,available,mount');
+        this.volumeInfoResponse = await this.executeLocalCommand(`/backup/getvolumedataofcomponent/${appname}/${component}/${'B'}/${0}/${'size,available,mount'}`);
         if (this.volumeInfoResponse.data?.status !== 'success') {
           this.showToast('danger', this.volumeInfoResponse.data?.data.message || this.volumeInfoResponse.data?.data);
           return;
@@ -6651,22 +6184,20 @@ export default {
       if (elementIndex !== -1) {
         if (!item[elementIndex]?.selected_file && type === 'upload') {
           console.log(item[elementIndex].file);
-          const zelidauth = localStorage.getItem('zelidauth');
-          await BackupRestoreService.removeBackupFile(zelidauth, encodeURIComponent(item[elementIndex].file), this.appName);
+          await this.executeLocalCommand(`/backup/removebackupfile/${encodeURIComponent(item[elementIndex].file)}/${this.appName}`);
         }
       }
       item.splice(index, 1);
     },
     async loadBackupList(name = this.appName, type = 'local', itemsList = 'backupList') {
-      const zelidauth = localStorage.getItem('zelidauth');
       const backupListTmp = [];
       // eslint-disable-next-line no-restricted-syntax
       for (const componentItem of this.components) {
         // eslint-disable-next-line no-await-in-loop
-        this.volumeInfo = await BackupRestoreService.getVolumeDataOfComponent(zelidauth, name, componentItem, 'B', 0, 'mount');
+        this.volumeInfo = await this.executeLocalCommand(`/backup/getvolumedataofcomponent/${name}/${componentItem}/${'B'}/${0}/${'mount'}`);
         this.volumePath = this.volumeInfo.data?.data;
         // eslint-disable-next-line no-await-in-loop
-        this.backupFile = await BackupRestoreService.getBackupList(zelidauth, encodeURIComponent(`${this.volumePath.mount}/backup/${type}`), 'B', 0, true, name);
+        this.backupFile = await this.executeLocalCommand(`/backup/getlocalbackuplist/${encodeURIComponent(`${this.volumePath.mount}/backup/${type}`)}/${'B'}/${0}/${true}/${name}`);
         this.backupItem = this.backupFile.data?.data;
         if (Array.isArray(this.backupItem)) {
           this.BackupItem = {
@@ -6705,18 +6236,17 @@ export default {
       }
     },
     async deleteLocalBackup(name, restoreItem, filepath = 0) {
-      const zelidauth = localStorage.getItem('zelidauth');
       if (filepath === 0) {
         // eslint-disable-next-line no-restricted-syntax
         for (const fileData of restoreItem) {
           const filePath = fileData.file;
           // eslint-disable-next-line no-await-in-loop
-          await BackupRestoreService.removeBackupFile(zelidauth, encodeURIComponent(filePath), this.appName);
+          await this.executeLocalCommand(`/backup/removebackupfile/${encodeURIComponent(filePath)}/${this.appName}`);
         }
         this.backupList = [];
         this.backupToUpload = [];
       } else {
-        this.status = await BackupRestoreService.removeBackupFile(zelidauth, encodeURIComponent(filepath), this.appName);
+        this.status = await this.executeLocalCommand(`/backup/removebackupfile/${encodeURIComponent(filepath)}/${this.appName}`);
         const backupIndex = restoreItem.findIndex((item) => item.component === name);
         restoreItem.splice(backupIndex, 1);
       }
@@ -6749,7 +6279,7 @@ export default {
             const { file } = backup;
             const fileNameArray = file.split('/');
             const fileName = fileNameArray[fileNameArray.length - 1];
-            const response = await BackupRestoreService.justAPI().get(`/backup/downloadlocalfile/${encodeURIComponent(file)}/${self.appName}`, axiosConfig);
+            const response = await this.executeLocalCommand(`/backup/downloadlocalfile/${encodeURIComponent(file)}/${self.appName}`, null, axiosConfig);
             const blob = new Blob([response.data]);
             const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
@@ -6993,7 +6523,7 @@ export default {
         this.showToast('danger', response.data.data.message || response.data.data);
       }
     },
-    updateManagementTab(index) {
+    async updateManagementTab(index) {
       this.callResponse.data = '';
       this.callResponse.status = '';
       // do not reset global application specifics obtained
@@ -7001,12 +6531,14 @@ export default {
       this.appExec.env = '';
       this.output = '';
       this.backupToUpload = [];
+      this.getApplicationManagementAndStatus();
       if (index !== 11) {
         this.disconnectTerminal();
       }
 
       switch (index) {
         case 1:
+          await this.getApplicationLocations();
           this.getInstalledApplicationSpecifics();
           this.getGlobalApplicationSpecifics();
           break;
@@ -7034,15 +6566,12 @@ export default {
           this.loadBackupList();
           break;
         case 13:
-          this.getGlobalApplicationSpecifics();
+          this.getApplicationLocations();
           break;
         case 14:
           this.getZelidAuthority();
           break;
         case 15:
-          this.getApplicationLocations();
-          break;
-        case 16:
           this.getGlobalApplicationSpecifics();
           break;
         default:
@@ -7050,7 +6579,7 @@ export default {
       }
     },
     async appsGetListAllApps() {
-      const response = await AppsService.listAllApps();
+      const response = await this.executeLocalCommand('/apps/listallapps');
       console.log(response);
       this.getAllAppsResponse.status = response.data.status;
       this.getAllAppsResponse.data = response.data.data;
@@ -7130,18 +6659,20 @@ export default {
     },
 
     async getInstalledApplicationSpecifics() {
-      const response = await AppsService.getInstalledAppSpecifics(this.appName);
+      const response = await this.executeLocalCommand(`/apps/installedapps/${this.appName}`);
       console.log(response);
-      if (response.data.status === 'error' || !response.data.data[0]) {
-        this.showToast('danger', response.data.data.message || response.data.data);
-      } else {
-        this.callResponse.status = response.data.status;
-        this.callResponse.data = response.data.data[0];
-        this.appSpecification = response.data.data[0];
+      if (response) {
+        if (response.data.status === 'error' || !response.data.data[0]) {
+          this.showToast('danger', response.data.data.message || response.data.data);
+        } else {
+          this.callResponse.status = response.data.status;
+          this.callResponse.data = response.data.data[0];
+          this.appSpecification = response.data.data[0];
         // /* eslint-disable no-restricted-syntax */
         // if (this.apps.length === 1) {
         // this.apps = this.appSpecification.compose.map((component) => component.name); // Update apps array
         // }
+        }
       }
     },
     getExpirePosition(value) {
@@ -7416,7 +6947,6 @@ export default {
 
     async appExecute(name = this.appSpecification.name) {
       try {
-        const zelidauth = localStorage.getItem('zelidauth');
         if (!this.appExec.cmd) {
           this.showToast('danger', 'No commands specified');
           return;
@@ -7425,7 +6955,12 @@ export default {
         const { cmd } = this.appExec;
         this.commandExecuting = true;
         console.log('here');
-        const response = await AppsService.getAppExec(zelidauth, name, splitargs(cmd), env);
+        const data = {
+          appname: name,
+          cmd: splitargs(cmd),
+          env: JSON.parse(env),
+        };
+        const response = await this.executeLocalCommand('/apps/appexec/', data);
         console.log(response);
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data);
@@ -7507,7 +7042,6 @@ export default {
     },
 
     async getApplicationInspect() {
-      const zelidauth = localStorage.getItem('zelidauth');
       const callData = [];
       this.commandExecuting = true;
       if (this.appSpecification.version >= 4) {
@@ -7515,7 +7049,7 @@ export default {
         // eslint-disable-next-line no-restricted-syntax
         for (const component of this.appSpecification.compose) {
           // eslint-disable-next-line no-await-in-loop
-          const response = await AppsService.getAppInspect(zelidauth, `${component.name}_${this.appSpecification.name}`);
+          const response = await this.executeLocalCommand(`/apps/appinspect/${component.name}_${this.appSpecification.name}`);
           if (response.data.status === 'error') {
             this.showToast('danger', response.data.data.message || response.data.data);
           } else {
@@ -7527,7 +7061,7 @@ export default {
           }
         }
       } else {
-        const response = await AppsService.getAppInspect(zelidauth, this.appName);
+        const response = await this.executeLocalCommand(`/apps/appinspect/${this.appName}`);
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data);
         } else {
@@ -7544,7 +7078,6 @@ export default {
       this.callResponse.data = callData;
     },
     async getApplicationStats() {
-      const zelidauth = localStorage.getItem('zelidauth');
       const callData = [];
       this.commandExecuting = true;
       if (this.appSpecification.version >= 4) {
@@ -7552,7 +7085,7 @@ export default {
         // eslint-disable-next-line no-restricted-syntax
         for (const component of this.appSpecification.compose) {
           // eslint-disable-next-line no-await-in-loop
-          const response = await AppsService.getAppStats(zelidauth, `${component.name}_${this.appSpecification.name}`);
+          const response = await this.executeLocalCommand(`/apps/appstats/${component.name}_${this.appSpecification.name}`);
           if (response.data.status === 'error') {
             this.showToast('danger', response.data.data.message || response.data.data);
           } else {
@@ -7564,7 +7097,7 @@ export default {
           }
         }
       } else {
-        const response = await AppsService.getAppStats(zelidauth, this.appName);
+        const response = await this.executeLocalCommand(`/apps/appstats/${this.appName}`);
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data);
         } else {
@@ -7581,14 +7114,13 @@ export default {
       this.callResponse.data = callData;
     },
     async getApplicationMonitoring() {
-      const zelidauth = localStorage.getItem('zelidauth');
       const callData = [];
       if (this.appSpecification.version >= 4) {
         // compose
         // eslint-disable-next-line no-restricted-syntax
         for (const component of this.appSpecification.compose) {
           // eslint-disable-next-line no-await-in-loop
-          const response = await AppsService.getAppMonitoring(zelidauth, `${component.name}_${this.appSpecification.name}`);
+          const response = await this.executeLocalCommand(`/apps/appmonitor/${component.name}_${this.appSpecification.name}`);
           if (response.data.status === 'error') {
             this.showToast('danger', response.data.data.message || response.data.data);
           } else {
@@ -7600,7 +7132,7 @@ export default {
           }
         }
       } else {
-        const response = await AppsService.getAppMonitoring(zelidauth, this.appName);
+        const response = await this.executeLocalCommand(`/apps/appmonitor/${this.appName}`);
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data);
         } else {
@@ -7656,8 +7188,12 @@ export default {
     async stopMonitoring(appName, deleteData = false) {
       this.output = '';
       this.showToast('warning', `Stopping Monitoring of ${appName}`);
-      const zelidauth = localStorage.getItem('zelidauth');
-      const response = await AppsService.stopAppMonitoring(zelidauth, appName, deleteData);
+      let response;
+      if (deleteData) {
+        response = await this.executeLocalCommand(`/apps/stopmonitoring/${appName}/true`);
+      } else {
+        response = await this.executeLocalCommand(`/apps/stopmonitoring/${appName}`);
+      }
       if (response.data.status === 'success') {
         this.showToast('success', response.data.data.message || response.data.data);
       } else {
@@ -7668,8 +7204,7 @@ export default {
     async startMonitoring(appName) {
       this.output = '';
       this.showToast('warning', `Starting Monitoring of ${appName}`);
-      const zelidauth = localStorage.getItem('zelidauth');
-      const response = await AppsService.startAppMonitoring(zelidauth, appName);
+      const response = await this.executeLocalCommand(`/apps/startmonitoring/${appName}`);
       if (response.data.status === 'success') {
         this.showToast('success', response.data.data.message || response.data.data);
       } else {
@@ -7678,7 +7213,6 @@ export default {
       console.log(response);
     },
     async getApplicationChanges() {
-      const zelidauth = localStorage.getItem('zelidauth');
       const callData = [];
       this.commandExecuting = true;
       if (this.appSpecification.version >= 4) {
@@ -7686,7 +7220,7 @@ export default {
         // eslint-disable-next-line no-restricted-syntax
         for (const component of this.appSpecification.compose) {
           // eslint-disable-next-line no-await-in-loop
-          const response = await AppsService.getAppChanges(zelidauth, `${component.name}_${this.appSpecification.name}`);
+          const response = await this.executeLocalCommand(`/apps/appchanges/${component.name}_${this.appSpecification.name}`);
           if (response.data.status === 'error') {
             this.showToast('danger', response.data.data.message || response.data.data);
           } else {
@@ -7698,7 +7232,7 @@ export default {
           }
         }
       } else {
-        const response = await AppsService.getAppChanges(zelidauth, this.appName);
+        const response = await this.executeLocalCommand(`/apps/appchanges/${this.appName}`);
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data);
         } else {
@@ -7715,7 +7249,6 @@ export default {
       this.callResponse.data = callData;
     },
     async getApplicationProcesses() {
-      const zelidauth = localStorage.getItem('zelidauth');
       const callData = [];
       this.commandExecuting = true;
       if (this.appSpecification.version >= 4) {
@@ -7723,7 +7256,7 @@ export default {
         // eslint-disable-next-line no-restricted-syntax
         for (const component of this.appSpecification.compose) {
           // eslint-disable-next-line no-await-in-loop
-          const response = await AppsService.getAppTop(zelidauth, `${component.name}_${this.appSpecification.name}`);
+          const response = await this.executeLocalCommand(`/apps/apptop/${component.name}_${this.appSpecification.name}`);
           if (response.data.status === 'error') {
             this.showToast('danger', response.data.data.message || response.data.data);
           } else {
@@ -7735,7 +7268,7 @@ export default {
           }
         }
       } else {
-        const response = await AppsService.getAppTop(zelidauth, this.appName);
+        const response = await this.executeLocalCommand(`/apps/apptop/${this.appName}`);
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data);
         } else {
@@ -7752,14 +7285,13 @@ export default {
       this.callResponse.data = callData;
     },
     async getApplicationLogs() {
-      const zelidauth = localStorage.getItem('zelidauth');
       const callData = [];
       if (this.appSpecification.version >= 4) {
         // compose
         // eslint-disable-next-line no-restricted-syntax
         for (const component of this.appSpecification.compose) {
           // eslint-disable-next-line no-await-in-loop
-          const response = await AppsService.getAppLogsTail(zelidauth, `${component.name}_${this.appSpecification.name}`);
+          const response = await this.executeLocalCommand(`/apps/applog/${component.name}_${this.appSpecification.name}/100`);
           if (response.data.status === 'error') {
             this.showToast('danger', response.data.data.message || response.data.data);
           } else {
@@ -7771,7 +7303,7 @@ export default {
           }
         }
       } else {
-        const response = await AppsService.getAppLogsTail(zelidauth, this.appName);
+        const response = await this.executeLocalCommand(`/apps/applog/${this.appName}/100`);
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data);
         } else {
@@ -7837,12 +7369,23 @@ export default {
             const ipElement = fdmData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
             if (ipElement) {
               this.masterIP = ipElement.value.value.split(':')[0];
+              if (ipElement.value.value.split(':')[1] === '16127') {
+                this.selectedIp = ipElement.value.value.split(':')[0];
+              } else {
+                this.selectedIp = ipElement.value.value;
+              }
+              console.log(this.selectedIp);
               return;
             }
           }
+          this.selectedIp = this.instances.data[0].ip;
           this.masterIP = 'Defining New Primary In Progress';
+        } else {
+          this.selectedIp = this.instances.data[0].ip;
         }
+        console.log(this.selectedIp);
       }
+      this.appsGetListAllApps();
     },
     async getAppOwner() {
       const response = await AppsService.getAppOwner(this.appName);
@@ -7856,8 +7399,7 @@ export default {
     async stopApp(app) {
       this.output = '';
       this.showToast('warning', `Stopping ${app}`);
-      const zelidauth = localStorage.getItem('zelidauth');
-      const response = await AppsService.stopApp(zelidauth, app);
+      const response = await this.executeLocalCommand(`/apps/appstop/${app}`);
       if (response.data.status === 'success') {
         this.showToast('success', response.data.data.message || response.data.data);
       } else {
@@ -7869,8 +7411,7 @@ export default {
     async startApp(app) {
       this.output = '';
       this.showToast('warning', `Starting ${app}`);
-      const zelidauth = localStorage.getItem('zelidauth');
-      const response = await AppsService.startApp(zelidauth, app);
+      const response = await this.executeLocalCommand(`/apps/appstart/${app}`);
       if (response.data.status === 'success') {
         this.showToast('success', response.data.data.message || response.data.data);
       } else {
@@ -7882,8 +7423,7 @@ export default {
     async restartApp(app) {
       this.output = '';
       this.showToast('warning', `Restarting ${app}`);
-      const zelidauth = localStorage.getItem('zelidauth');
-      const response = await AppsService.restartApp(zelidauth, app);
+      const response = await this.executeLocalCommand(`/apps/apprestart/${app}`);
       if (response.data.status === 'success') {
         this.showToast('success', response.data.data.message || response.data.data);
       } else {
@@ -7895,8 +7435,7 @@ export default {
     async pauseApp(app) {
       this.output = '';
       this.showToast('warning', `Pausing ${app}`);
-      const zelidauth = localStorage.getItem('zelidauth');
-      const response = await AppsService.pauseApp(zelidauth, app);
+      const response = await this.executeLocalCommand(`/apps/apppause/${app}`);
       if (response.data.status === 'success') {
         this.showToast('success', response.data.data.message || response.data.data);
       } else {
@@ -7908,8 +7447,7 @@ export default {
     async unpauseApp(app) {
       this.output = '';
       this.showToast('warning', `Unpausing ${app}`);
-      const zelidauth = localStorage.getItem('zelidauth');
-      const response = await AppsService.unpauseApp(zelidauth, app);
+      const response = await this.executeLocalCommand(`/apps/appunpause/${app}`);
       if (response.data.status === 'success') {
         this.showToast('success', response.data.data.message || response.data.data);
       } else {
@@ -7938,7 +7476,7 @@ export default {
           self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
         },
       };
-      const response = await AppsService.justAPI().get(`/apps/redeploy/${app}/${force}`, axiosConfig);
+      const response = await this.executeLocalCommand(`/apps/redeploy/${app}/${force}`, null, axiosConfig);
       if (response.data.status === 'error') {
         this.showToast('danger', response.data.data.message || response.data.data);
       } else {
@@ -7966,7 +7504,7 @@ export default {
           self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
         },
       };
-      const response = await AppsService.justAPI().get(`/apps/appremove/${app}`, axiosConfig);
+      const response = await this.executeLocalCommand(`/apps/appremove/${app}`, null, axiosConfig);
       if (response.data.status === 'error') {
         this.showToast('danger', response.data.data.message || response.data.data);
       } else {
@@ -8000,6 +7538,36 @@ export default {
       return new Promise((resolve) => {
         setTimeout(resolve, ms);
       });
+    },
+    async executeLocalCommand(command, postObject, axiosConfigAux) {
+      try {
+        const zelidauth = localStorage.getItem('zelidauth');
+        let axiosConfig = axiosConfigAux;
+        if (!axiosConfig) {
+          axiosConfig = {
+            headers: {
+              zelidauth,
+            },
+          };
+        }
+        this.getZelidAuthority();
+        if (!this.globalZelidAuthorized) {
+          throw new Error('Session expired. Please log into FluxOS again');
+        }
+
+        const url = this.selectedIp.split(':')[0];
+        const urlPort = this.selectedIp.split(':')[1] || 16127;
+        let response = null;
+        if (postObject) {
+          response = await axios.post(`http://${url}:${urlPort}${command}`, postObject, axiosConfig);
+        } else {
+          response = await axios.get(`http://${url}:${urlPort}${command}`, axiosConfig);
+        }
+        return response;
+      } catch (error) {
+        this.showToast('danger', error.message || error);
+        return null;
+      }
     },
     async executeCommand(app, command, warningText, parameter) {
       try {
@@ -8887,6 +8455,41 @@ export default {
         }
       } catch (error) {
         this.showToast('danger', error.message);
+      }
+    },
+    async getApplicationManagementAndStatus() {
+      if (this.selectedIp) {
+        await this.appsGetListAllApps();
+        console.log(this.getAllAppsResponse);
+        const foundAppInfo = this.getAllAppsResponse.data.find((app) => app.Names[0] === this.getAppDockerNameIdentifier()) || {};
+        const appInfo = {
+          name: this.appName,
+          state: foundAppInfo.State || 'Unknown state',
+          status: foundAppInfo.Status || 'Unknown status',
+        };
+        appInfo.state = appInfo.state.charAt(0).toUpperCase() + appInfo.state.slice(1);
+        appInfo.status = appInfo.status.charAt(0).toUpperCase() + appInfo.status.slice(1);
+        let niceString = `${appInfo.name} - ${appInfo.state} - ${appInfo.status}`;
+        if (this.appSpecification) {
+          if (this.appSpecification.version >= 4) {
+            niceString = `${this.appSpecification.name}:`;
+            // eslint-disable-next-line no-restricted-syntax
+            for (const component of this.appSpecification.compose) {
+              const foundAppInfoComponent = this.getAllAppsResponse.data.find((app) => app.Names[0] === this.getAppDockerNameIdentifier(`${component.name}_${this.appSpecification.name}`)) || {};
+              const appInfoComponent = {
+                name: component.name,
+                state: foundAppInfoComponent.State || 'Unknown state',
+                status: foundAppInfoComponent.Status || 'Unknown status',
+              };
+              appInfoComponent.state = appInfoComponent.state.charAt(0).toUpperCase() + appInfoComponent.state.slice(1);
+              appInfoComponent.status = appInfoComponent.status.charAt(0).toUpperCase() + appInfoComponent.status.slice(1);
+              const niceStringComponent = ` ${appInfoComponent.name} - ${appInfoComponent.state} - ${appInfoComponent.status},`;
+              niceString += niceStringComponent;
+            }
+            niceString = niceString.substring(0, niceString.length - 1);
+          }
+        }
+        this.applicationManagementAndStatus = niceString;
       }
     },
   },

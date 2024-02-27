@@ -2,34 +2,17 @@ import { categories } from '../../../libs/marketplaceCategories';
 
 export default [
   {
-    path: '/apps/localapps',
-    name: 'apps-localapps',
-    component: () => import('@/views/apps/LocalApps.vue'),
-    meta: {
-      pageTitle: 'Local Apps',
-      breadcrumb: [
-        {
-          text: 'Apps',
-        },
-        {
-          text: 'Local Apps',
-          active: true,
-        },
-      ],
-    },
-  },
-  {
     path: '/apps/globalapps',
     name: 'apps-globalapps',
     component: () => import('@/views/apps/GlobalApps.vue'),
     meta: {
-      pageTitle: 'Global Apps',
+      pageTitle: 'Applications',
       breadcrumb: [
         {
-          text: 'Apps',
+          text: 'Applications',
         },
         {
-          text: 'Global Apps',
+          text: 'Management',
           active: true,
         },
       ],
@@ -43,7 +26,7 @@ export default [
       pageTitle: 'Register Flux App',
       breadcrumb: [
         {
-          text: 'Apps',
+          text: 'Applications',
         },
         {
           text: 'Register Flux App',
@@ -84,24 +67,6 @@ export default [
       contentRenderer: 'sidebar-left',
       contentClass: 'marketplace-application',
       navActiveLink: 'apps-marketplace',
-    },
-  },
-  {
-    path: '/apps/fluxsharestorage',
-    name: 'apps-fluxsharestorage',
-    component: () => import('@/views/apps/MyFluxShare.vue'),
-    meta: {
-      pageTitle: 'My FluxShare Storage',
-      breadcrumb: [
-        {
-          text: 'Apps',
-        },
-        {
-          text: 'My FluxShare Storage',
-          active: true,
-        },
-      ],
-      privilege: ['admin'],
     },
   },
 ];

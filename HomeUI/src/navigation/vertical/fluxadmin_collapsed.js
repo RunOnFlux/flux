@@ -17,6 +17,11 @@ export default [
       ...benchmarks,
       ...flux,
       {
+        title: 'Local Apps',
+        icon: 'upload',
+        route: 'apps-localapps',
+      },
+      {
         title: 'Logged Sessions',
         icon: 'regular/id-badge',
         route: 'fluxadmin-loggedsessions',

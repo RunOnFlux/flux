@@ -1,5 +1,22 @@
 export default [
   {
+    path: '/apps/localapps',
+    name: 'apps-localapps',
+    component: () => import('@/views/apps/LocalApps.vue'),
+    meta: {
+      pageTitle: 'Local Apps',
+      breadcrumb: [
+        {
+          text: 'Administration',
+        },
+        {
+          text: 'Local Apps',
+          active: true,
+        },
+      ],
+    },
+  },
+  {
     path: '/fluxadmin/loggedsessions',
     name: 'fluxadmin-loggedsessions',
     component: () => import('@/views/fluxadmin/LoggedSessions.vue'),
@@ -87,6 +104,24 @@ export default [
         },
       ],
       privilege: ['admin', 'fluxteam'],
+    },
+  },
+  {
+    path: '/apps/fluxsharestorage',
+    name: 'apps-fluxsharestorage',
+    component: () => import('@/views/apps/MyFluxShare.vue'),
+    meta: {
+      pageTitle: 'My FluxShare Storage',
+      breadcrumb: [
+        {
+          text: 'Administration',
+        },
+        {
+          text: 'My FluxShare Storage',
+          active: true,
+        },
+      ],
+      privilege: ['admin'],
     },
   },
 ];

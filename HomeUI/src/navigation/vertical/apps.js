@@ -3,12 +3,7 @@ export default [
     header: 'Applications',
   },
   {
-    title: 'Local Apps',
-    icon: 'upload',
-    route: 'apps-localapps',
-  },
-  {
-    title: 'Global Apps',
+    title: 'Management',
     icon: 'globe',
     route: 'apps-globalapps',
   },
