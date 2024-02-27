@@ -1,8 +1,8 @@
 <template>
   <div>
-    <b-card title="Welcome to Flux - The biggest decentralyzed computational network">
+    <b-card title="Welcome to Flux - The biggest decentralized computational network">
       <list-entry
-        title="Dasboard"
+        title="Dashboard"
         :data="dashboard"
       />
       <list-entry
@@ -195,7 +195,7 @@ export default {
       dashboard: 'Check Flux network information, resources available or a map with server locations.',
       xdao: 'See the list of changes proposed to Flux network, create new ones and vote.',
       applications: 'Buy on marketplace, register your own app, manage your active apps.',
-      administration: 'Tools for the infrastructe administrators, node operators.',
+      administration: 'Tools for the infrastructure administrators, node operators.',
       websocket: null,
       errorMessage: '',
       loginPhrase: '',
