@@ -2720,6 +2720,166 @@
         title="Global App Management"
         disabled
       />
+      <b-tab title="Global Control">
+        <div v-if="globalZelidAuthorized">
+          <b-row class="match-height">
+            <b-col xs="6">
+              <b-card title="Control">
+                <b-card-text class="mb-2">
+                  {{ isAppOwner ? 'General options to control all instances of your application' : 'General options to control instances of selected application running on all nodes that you own' }}
+                </b-card-text>
+                <div class="text-center">
+                  <b-button
+                    id="start-app-global"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Start App"
+                    class="mx-1 my-1"
+                  >
+                    Start App
+                  </b-button>
+                  <confirm-dialog
+                    target="start-app-global"
+                    confirm-button="Start App"
+                    @confirm="startAppGlobally(appName)"
+                  />
+                  <b-button
+                    id="stop-app-global"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Stop App"
+                    class="mx-1 my-1"
+                  >
+                    Stop App
+                  </b-button>
+                  <confirm-dialog
+                    target="stop-app-global"
+                    confirm-button="Stop App"
+                    @confirm="stopAppGlobally(appName)"
+                  />
+                  <b-button
+                    id="restart-app-global"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Restart App"
+                    class="mx-1 my-1"
+                  >
+                    Restart App
+                  </b-button>
+                  <confirm-dialog
+                    target="restart-app-global"
+                    confirm-button="Restart App"
+                    @confirm="restartAppGlobally(appName)"
+                  />
+                </div>
+              </b-card>
+            </b-col>
+            <b-col xs="6">
+              <b-card title="Pause">
+                <b-card-text class="mb-2">
+                  {{ isAppOwner ? 'The Pause command suspends all processes of all instances of your app' : 'The Pause command suspends all processes of selected application on all of nodes that you own' }}
+                </b-card-text>
+                <div class="text-center">
+                  <b-button
+                    id="pause-app-global"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Pause App"
+                    class="mx-1 my-1"
+                  >
+                    Pause App
+                  </b-button>
+                  <confirm-dialog
+                    target="pause-app-global"
+                    confirm-button="Pause App"
+                    @confirm="pauseAppGlobally(appName)"
+                  />
+                  <b-button
+                    id="unpause-app-global"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Unpause App"
+                    class="mx-1 my-1"
+                  >
+                    Unpause App
+                  </b-button>
+                  <confirm-dialog
+                    target="unpause-app-global"
+                    confirm-button="Unpause App"
+                    @confirm="unpauseAppGlobally(appName)"
+                  />
+                </div>
+              </b-card>
+            </b-col>
+          </b-row>
+          <b-row class="match-height">
+            <b-col xs="6">
+              <b-card title="Redeploy">
+                <b-card-text class="mb-2">
+                  {{ isAppOwner ? 'Redeployes all instances of your application.'
+                    + 'Hard redeploy removes persistant data storage. If app uses syncthing it can takes up to 30 to be up and running.' : 'Redeployes instances of selected application running on all of your nodes. Hard redeploy removes persistant data storage.' }}
+                </b-card-text>
+                <div class="text-center">
+                  <b-button
+                    id="redeploy-app-soft-global"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Soft Redeploy App"
+                    class="mx-1 my-1"
+                  >
+                    Soft Redeploy App
+                  </b-button>
+                  <confirm-dialog
+                    target="redeploy-app-soft-global"
+                    confirm-button="Redeploy"
+                    @confirm="redeployAppSoftGlobally(appName)"
+                  />
+                  <b-button
+                    id="redeploy-app-hard-global"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Hard Redeploy App"
+                    class="mx-1 my-1"
+                  >
+                    Hard Redeploy App
+                  </b-button>
+                  <confirm-dialog
+                    target="redeploy-app-hard-global"
+                    confirm-button="Redeploy"
+                    @confirm="redeployAppHardGlobally(appName)"
+                  />
+                </div>
+              </b-card>
+            </b-col>
+            <b-col xs="6">
+              <b-card title="Reinstall">
+                <b-card-text class="mb-2">
+                  {{ isAppOwner ? 'Removes all instances of your App forcing an installation on different nodes.' : 'Removes all instances of selected App on all of your nodes forcing installation on different nodes.' }}
+                </b-card-text>
+                <div class="text-center">
+                  <b-button
+                    id="remove-app-global"
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="success"
+                    aria-label="Reinstall App"
+                    class="mx-1 my-1"
+                  >
+                    Reinstall App
+                  </b-button>
+                  <confirm-dialog
+                    target="remove-app-global"
+                    confirm-button="Reinstall App"
+                    @confirm="removeAppGlobally(appName)"
+                  />
+                </div>
+              </b-card>
+            </b-col>
+          </b-row>
+        </div>
+        <div v-else>
+          Global management session expired. Please log out and back into FluxOS.
+        </div>
+      </b-tab>
       <b-tab title="Running Instances">
         <div v-if="masterSlaveApp">
           <b-card title="Primary/Standby App Information">
@@ -6550,14 +6710,11 @@ export default {
           this.applyFilter();
           this.loadBackupList();
           break;
-        case 13:
+        case 14:
           this.getApplicationLocations();
           break;
-        case 14:
-          this.getZelidAuthority();
-          break;
         case 15:
-          this.getGlobalApplicationSpecifics();
+          this.getZelidAuthority();
           break;
         default:
           break;
