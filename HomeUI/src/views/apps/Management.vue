@@ -6508,7 +6508,7 @@ export default {
         if (this.currentFolder !== '') {
           folderPath = `${this.currentFolder}/${path}`;
         }
-        const response = await AppsService.createAppsFolder(this.zelidHeader.zelidauth, this.appName, this.selectedApp, encodeURIComponent(folderPath));
+        const response = await AppsService.createAppsFolder(this.zelidHeader.zelidauth, this.appName, this.selectedAppVolume, encodeURIComponent(folderPath));
         if (response.data.status === 'error') {
           if (response.data.data.code === 'EEXIST') {
             this.showToast('danger', `Folder ${path} already exists`);

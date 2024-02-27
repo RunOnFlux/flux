@@ -12072,7 +12072,7 @@ async function createAppsFolder(req, res) {
       } else {
         throw new Error('Application volume not found');
       }
-      await fs.promises.mkdir(filepath);
+      await fs.mkdir(filepath);
       const resultsResponse = messageHelper.createSuccessMessage('Folder Created');
       res.json(resultsResponse);
     } else {
