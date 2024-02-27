@@ -5775,7 +5775,9 @@ export default {
     this.getMultiplier();
     this.getEnterpriseNodes();
     this.getDaemonBlockCount();
-    this.getApplicationLocations();
+    await this.getApplicationLocations().catch(() => {
+      this.showToast('danger', 'Error loading application locations');
+    });
   },
   beforeDestroy() {
     window.removeEventListener('resize', this.onResize);
@@ -8812,7 +8814,7 @@ a:hover img {
 }
 
 .adjustMaxWidth {
-  width: calc(100vw - 570px);
+  width: calc(100vw - 585px);
 }
 @media (max-width: 1199px) {
   .adjustMaxWidth {
