@@ -13,7 +13,7 @@ export default [
     route: 'apps-globalapps',
   },
   {
-    title: 'Register Flux App',
+    title: 'Register New App',
     icon: 'regular/plus-square',
     route: 'apps-registerapp',
   },

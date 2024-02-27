@@ -40,13 +40,13 @@ export default [
     name: 'apps-registerapp',
     component: () => import('@/views/apps/RegisterFluxApp.vue'),
     meta: {
-      pageTitle: 'Register Flux App',
+      pageTitle: 'Register New App',
       breadcrumb: [
         {
           text: 'Applications',
         },
         {
-          text: 'Register Flux App',
+          text: 'Register New App',
           active: true,
         },
       ],
