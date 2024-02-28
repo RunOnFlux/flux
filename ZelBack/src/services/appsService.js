@@ -12249,14 +12249,20 @@ async function downloadAppsFolder(req, res) {
         'Content-disposition': `attachment; filename=${folderName}.zip`,
       });
       const zip = archiver('zip');
-      zip.on('data', (data) => {
-        res.setHeader('Content-Length', (res.getHeader('Content-Length') || 0) + data.length);
-      });
       zip.on('close', async () => {
-        zip.pipe(res);
-        zip.glob('**/*', { cwd: folderpath });
-        zip.finalize();
+        try {
+          const zipSize = zip.pointer();
+          res.setHeader('Content-Length', zipSize);
+        } catch (error) {
+          console.error('Error streaming zip data:', error);
+        }
       });
+      // Initialize the archiver to use the response stream
+      zip.pipe(res);
+      // Start globbing files from the specified folder
+      zip.glob('**/*', { cwd: folderpath });
+      // Finalize the zip creation
+      zip.finalize();
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
