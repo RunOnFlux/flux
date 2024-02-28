@@ -5797,7 +5797,7 @@ export default {
       const port = this.selectedIp.split(':')[1] || 16127;
       const folder = encodeURIComponent(fullpath);
       const filename = encodeURIComponent(saveAs);
-      return `http://${ip}:${port}/ioutils/fileupload/${folder}/${filename}/${this.appName}`;
+      return `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/ioutils/fileupload/${folder}/${filename}/${this.appName}`;
     },
     addAndConvertFileSizes(sizes, targetUnit = 'auto', decimal = 2) {
       const multiplierMap = {
@@ -5988,7 +5988,7 @@ export default {
           };
           const url = this.selectedIp.split(':')[0];
           const urlPort = this.selectedIp.split(':')[1] || 16127;
-          const response = await fetch(`http://${url}:${urlPort}/apps/appendrestoretask`, {
+          const response = await fetch(`https://${url.replace(/\./g, '-')}-${urlPort}.node.api.runonflux.io/apps/appendrestoretask`, {
             method: 'POST',
             body: JSON.stringify(postRestoreData),
             headers,
@@ -6166,7 +6166,7 @@ export default {
       }
       const url = this.selectedIp.split(':')[0];
       const urlPort = this.selectedIp.split(':')[1] || 16127;
-      const response = await fetch(`http://${url}:${urlPort}/apps/appendbackuptask`, {
+      const response = await fetch(`https://${url.replace(/\./g, '-')}-${urlPort}.node.api.runonflux.io/apps/appendbackuptask`, {
         method: 'POST',
         body: JSON.stringify(postBackupData),
         headers,
@@ -6283,7 +6283,7 @@ export default {
       }
       const url = this.selectedIp.split(':')[0];
       const urlPort = this.selectedIp.split(':')[1] || 16127;
-      const response = await fetch(`http://${url}:${urlPort}/apps/appendrestoretask`, {
+      const response = await fetch(`https://${url.replace(/\./g, '-')}-${urlPort}.node.api.runonflux.io/apps/appendrestoretask`, {
         method: 'POST',
         body: JSON.stringify(postBackupData),
         headers,
@@ -6542,7 +6542,7 @@ export default {
       const url = this.selectedIp.split(':')[0];
       const urlPort = this.selectedIp.split(':')[1] || 16127;
       const zelidauth = localStorage.getItem('zelidauth');
-      this.socket = io.connect(`http://${url}:${urlPort}`);
+      this.socket = io.connect(`https://${url.replace(/\./g, '-')}-${urlPort}.node.api.runonflux.io`);
 
       let userValue = '';
       if (this.enableUser) {
@@ -7720,13 +7720,12 @@ export default {
         const urlPort = this.selectedIp.split(':')[1] || 16127;
         let response = null;
         if (postObject) {
-          response = await axios.post(`http://${url}:${urlPort}${command}`, postObject, axiosConfig);
+          response = await axios.post(`https://${url.replace(/\./g, '-')}-${urlPort}.node.api.runonflux.io${command}`, postObject, axiosConfig);
         } else {
-          response = await axios.get(`http://${url}:${urlPort}${command}`, axiosConfig);
+          response = await axios.get(`https://${url.replace(/\./g, '-')}-${urlPort}.node.api.runonflux.io${command}`, axiosConfig);
         }
         return response;
       } catch (error) {
-        this.showToast('danger', command);
         this.showToast('danger', error.message || error);
         return null;
       }
