@@ -2737,6 +2737,35 @@
               </b-form-select-option>
             </b-form-select>
           </div>
+          <div
+            v-if="fileProgressVolume.length > 0"
+            class="mb-2 mt-2 w-100"
+            style="
+                              margin: 0 auto;
+                              padding: 12px;
+                              border: 1px solid #eaeaea;
+                              border-radius: 8px;
+                              box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                              text-align: center;
+
+                            "
+          >
+            <h5 style="font-size: 16px; margin-bottom: 5px;">
+              <span v-if="!allDownloadsCompletedVolume()">
+                <b-spinner small /> Downloading...
+              </span>
+              <span v-else>
+                Download Completed
+              </span>
+            </h5>
+            <b-progress v-for="(item, index) in computedFileProgressVolume" v-if="item.progress > 0" :key="index" class="mt-1" style="height: 16px;" :max="100">
+              <b-progress-bar
+                :value="item.progress"
+                :label="`${item.fileName} - ${item.progress.toFixed(2)}%`"
+                style="font-size: 14px;"
+              />
+            </b-progress>
+          </div>
           <div>
             <b-button-toolbar v-if="selectedAppVolume" justify class="mb-1 w-100">
               <div class="d-flex flex-row w-100">
@@ -5668,6 +5697,7 @@ export default {
       backupProgress: false,
       tarProgress: '',
       fileProgress: [],
+      fileProgressVolume: [],
       showProgressBar: false,
       restoreOptions: [
         {
@@ -6053,6 +6083,9 @@ export default {
     },
     computedFileProgress() {
       return this.fileProgress;
+    },
+    computedFileProgressVolume() {
+      return this.fileProgressVolume;
     },
     downloadLabel() {
       // eslint-disable-next-line vue/no-side-effects-in-computed-properties
@@ -6552,36 +6585,22 @@ export default {
       this.downloaded[name] = '';
       this.total[name] = '';
     },
-    async download(name, isFolder = false, maxTotalSize = 0) {
+    async download(name, isFolder = false) {
       try {
         const self = this;
-        if (self.abortToken[name]) {
-          self.abortToken[name].cancel();
-        }
-        const sourceCancelToken = axios.CancelToken;
-        const cancelToken = sourceCancelToken.source();
-        this.$set(this.abortToken, name, cancelToken);
         const folder = this.currentFolder;
         const fileName = folder ? `${folder}/${name}` : name;
-        let initialTime;
         const axiosConfig = {
           headers: this.zelidHeader,
           responseType: 'blob',
           onDownloadProgress(progressEvent) {
-            if (!initialTime) {
-              initialTime = progressEvent.timeStamp;
-            }
-            self.$set(self.downloaded, name, progressEvent.loaded);
-            if (progressEvent.total) {
-              self.$set(self.total, name, progressEvent.total);
-            } else if (progressEvent.target && progressEvent.target.response && progressEvent.target.response.size) {
-              self.$set(self.total, name, progressEvent.target.response.size);
-            } else {
-              self.$set(self.total, name, maxTotalSize);
-            }
-            self.$set(self.timeStamp, name, progressEvent.timeStamp - initialTime);
+            const { loaded, total } = progressEvent;
+            // const decodedUrl = decodeURIComponent(target.responseURL);
+            const currentFileProgress = (loaded / total) * 100;
+            console.log(progressEvent);
+            // const currentFileName = decodedUrl.split('/').pop();
+            self.updateFileProgressVolume(name, currentFileProgress);
           },
-          cancelToken: self.abortToken[name].token,
         };
         let response;
         if (isFolder) {
@@ -7398,6 +7417,9 @@ export default {
     allDownloadsCompleted() {
       return this.computedFileProgress.every((item) => item.progress === 100);
     },
+    allDownloadsCompletedVolume() {
+      return this.computedFileProgressVolume.every((item) => item.progress === 100);
+    },
     updateFileProgress(currentFileName, currentFileProgress, loaded, total, name) {
       this.$nextTick(() => {
         const currentIndex = this.fileProgress.findIndex((entry) => entry.fileName === name);
@@ -7405,6 +7427,16 @@ export default {
           this.$set(this.fileProgress, currentIndex, { fileName: name, progress: currentFileProgress });
         } else {
           this.fileProgress.push({ fileName: name, progress: currentFileProgress });
+        }
+      });
+    },
+    updateFileProgressVolume(currentFileName, currentFileProgress) {
+      this.$nextTick(() => {
+        const currentIndex = this.fileProgressVolume.findIndex((entry) => entry.fileName === currentFileName);
+        if (currentIndex !== -1) {
+          this.$set(this.fileProgressVolume, currentIndex, { fileName: currentFileName, progress: currentFileProgress });
+        } else {
+          this.fileProgressVolume.push({ fileName: currentFileName, progress: currentFileProgress });
         }
       });
     },

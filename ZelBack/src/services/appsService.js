@@ -12249,10 +12249,14 @@ async function downloadAppsFolder(req, res) {
         'Content-disposition': `attachment; filename=${folderName}.zip`,
       });
       const zip = archiver('zip');
-      // Send the file to the page output.
-      zip.pipe(res);
-      zip.glob('**/*', { cwd: folderpath });
-      zip.finalize();
+      zip.on('data', (data) => {
+        res.setHeader('Content-Length', (res.getHeader('Content-Length') || 0) + data.length);
+      });
+      zip.on('close', async () => {
+        zip.pipe(res);
+        zip.glob('**/*', { cwd: folderpath });
+        zip.finalize();
+      });
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
