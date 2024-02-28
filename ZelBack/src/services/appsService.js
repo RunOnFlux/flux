@@ -12240,29 +12240,23 @@ async function downloadAppsFolder(req, res) {
       } else {
         throw new Error('Application volume not found');
       }
-      // beautify name
-      const folderNameArray = folderpath.split('/');
-      const folderName = folderNameArray[folderNameArray.length - 1];
-      // Tell the browser that this is a zip file.
-      res.writeHead(200, {
-        'Content-Type': 'application/zip',
-        'Content-disposition': `attachment; filename=${folderName}.zip`,
-      });
-      const zip = archiver('zip');
-      zip.on('close', async () => {
-        try {
-          const zipSize = zip.pointer();
-          res.setHeader('Content-Length', zipSize);
-        } catch (error) {
-          console.error('Error streaming zip data:', error);
-        }
-      });
       // Initialize the archiver to use the response stream
+      const zip = archiver('zip');
+      // Directly pipe the output to the response stream
       zip.pipe(res);
       // Start globbing files from the specified folder
       zip.glob('**/*', { cwd: folderpath });
       // Finalize the zip creation
-      zip.finalize();
+      await zip.finalize();
+      // Set Content-Disposition header and Content-Length
+      const zipSize = zip.pointer();
+      const folderNameArray = folderpath.split('/');
+      const folderName = folderNameArray[folderNameArray.length - 1];
+      res.writeHead(200, {
+        'Content-Type': 'application/zip',
+        'Content-disposition': `attachment; filename=${folderName}.zip`,
+        'Content-Length': zipSize,
+      });
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
