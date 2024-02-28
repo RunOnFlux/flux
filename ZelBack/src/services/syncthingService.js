@@ -22,6 +22,10 @@ const syncthingURL = `http://${config.syncthing.ip}:${config.syncthing.port}`;
 
 let syncthingApiKey = '';
 
+let syncthingInstallValidated = false;
+let syncthingStatusOk = false;
+let getDeviceIDRunning = false;
+
 const parserOptions = {
   ignoreAttributes: false,
   attributeNamePrefix: '@_',
@@ -2035,8 +2039,6 @@ async function getSvcReport(req, res) {
  * @param {object} res Response.
  * @returns {object} Message
  */
-let syncthingStatusOk = false;
-let getDeviceIDRunning = false;
 async function getDeviceID(req, res) {
   if (getDeviceIDRunning) {
     await serviceHelper.delay(2000);
@@ -2089,7 +2091,6 @@ function isRunning() {
 /**
  * Check if Synchtng is installed and if not install it
  */
-let syncthingInstalled = false;
 async function installSyncthing() { // can throw
   // check if syncthing is installed or not
   log.info('Checking if Syncthing is installed...');
@@ -2108,7 +2109,7 @@ async function installSyncthing() { // can throw
     const exec = `cd ${nodedpath} && bash installSyncthing.sh`;
     await cmdAsync(exec);
   }
-  syncthingInstalled = true;
+  syncthingInstallValidated = true;
   log.info('Syncthing installed');
 }
 
@@ -2197,7 +2198,7 @@ let run = 0;
 async function startSyncthing() {
   try {
     run += 1;
-    if (!syncthingInstalled) {
+    if (!syncthingInstallValidated) {
       await installSyncthing();
       await serviceHelper.delay(10 * 1000);
       startSyncthing();
@@ -2207,7 +2208,8 @@ async function startSyncthing() {
     const myDevice = await getDeviceID();
     if (myDevice.status === 'error') {
       log.error('Syncthing Error');
-      const execDIRcr = 'mkdir -p $HOME/.config'; // create .config folder first for it to have standard user ownership. With -p no error will be thrown in case of exists
+      // create .config folder first for it to have standard user ownership. With -p no error will be thrown in case of exists
+      const execDIRcr = 'mkdir -p $HOME/.config';
       await cmdAsync(execDIRcr).catch((error) => log.error(error));
       const execDIRown = 'sudo chown $USER:$USER $HOME/.config'; // adjust .config folder for ownership of running user
       await cmdAsync(execDIRown).catch((error) => log.error(error));

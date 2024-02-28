@@ -55,7 +55,7 @@ const recurringActions = new Map(
     // UPnP has already been verified and setup
     [upnpService.adjustFirewallForUPNP, { schedule: "1h", condition: upnpService.isUPNP() }],
     // first broadcast after 4m of starting fluxos (not really, could base off uptime?)
-    [appsService.checkAndNotifyPeersOfRunningApps, { schedule: "1g", afterDelay: "4m" }],
+    [appsService.checkAndNotifyPeersOfRunningApps, { schedule: "1h", afterDelay: "4m" }],
     [appsService.checkApplicationsCompliance, { schedule: "1h" }],
     [appsService.forceAppRemovals, { schedule: "1d", afterDelay: "30m" }],
   ]
@@ -142,7 +142,9 @@ async function randomMsBetween(minInterval, maxInterval) {
  * @returns {Promise<Boolean>} If the callback will run
  */
 async function runTimedCallback(interval, callable, method, timer, options = {}) {
-  if (!(callable instanceof Function)) return false
+  if (!(callable instanceof Function)) return false;
+
+  if (parseInt(interval, 10) === 0) return false;
 
   const name = callable.name || crypto.randomBytes(8).toString('hex');
   const delay = options.afterDelay ? parseInterval(options.afterDelay) : 0;
@@ -252,26 +254,20 @@ async function startFluxFunctions() {
     // move this from script to use Dockerode
     await fluxService.installFluxWatchTower();
 
+    await fluxNetworkHelper.purgeUFW();
+    log.info('Firewall purged');
+
     await fluxNetworkHelper.adjustFirewall();
     log.info('Firewalls checked');
-
-    await fluxNetworkHelper.allowNodeToBindPrivilegedPorts();
-    log.info('Node allowed to bind privileged ports');
-
-    // check what is going on here, this needs refactored, no need to be recursive
-    await fluxNetworkHelper.checkDeterministicNodesCollisions();
-    log.info('Flux checks operational');
-
-    // this is broken. needs refactoring
-    syncthingService.startSyncthing();
-    log.info('Syncthing service started');
 
     await pgpService.generateIdentity();
     log.info('PGP service initiated');
 
-    await fluxNetworkHelper.purgeUFW();
-    log.info('Firewall purged');
+    await fluxNetworkHelper.allowNodeToBindPrivilegedPorts();
+    log.info('Node allowed to bind privileged ports');
 
+    // I don't like this, shouldn't be up to the service manager to get docker interfaces
+    // docker must be running for this to work - should fluxOS check Docker is working?
     const fluxNetworkInterfaces = await dockerService.getFluxDockerNetworkPhysicalInterfaceNames();
     await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces);
     log.info('Docker to host firewall enabled');
@@ -283,12 +279,19 @@ async function startFluxFunctions() {
     await appsService.stopAllNonFluxRunningApps();
     log.info("All non Flux apps stopped");
 
+    // change networkHelper name to service, then change to method to start
+    fluxNetworkHelper.startNetworkSentinel();
+    log.info('Collision detection running');
+    // this is usually an empty array
+    const unreachableApps = await appsService.openAppsPortsToInternet();
+    appsService.forceAppsRemoval(unreachableApps);
+
+    // this is broken. needs refactoring
+    syncthingService.startSyncthing();
+    log.info('Syncthing service started');
+
     await appsService.startMonitoringOfApps();
     log.info("App monitoring has begun");
-
-    // can't wait on this right now - if a port fails it waits 3 minutes
-    // figure out better solution
-    appsService.restoreAppsPortsSupport();
 
     // don't await this... needs to be refactored completely
     fluxCommunication.connectToPeers();
@@ -297,13 +300,15 @@ async function startFluxFunctions() {
     for (const [action, options] of delayedActions.entries()) {
       const delay = typeof options === 'string' ? options : options.schedule;
       const { schedule: _, ...filteredOptions } = typeof options === 'string' ? {} : options;
-      await runAfter(delay, action, filteredOptions);
+      const running = await runAfter(delay, action, filteredOptions);
+      if (!running) log.warn(`Action: ${action} with delay: ${delay} not running`);
     }
 
     for (const [action, options] of recurringActions.entries()) {
       if (options.condition === false) continue;
       const { schedule, ...filteredOptions } = options;
-      await runEvery(schedule, action, filteredOptions);
+      const running = await runEvery(schedule, action, filteredOptions);
+      if (!running) log.warn(`Action: ${action} with delay: ${schedule} not running`);
     }
   } catch (e) {
     log.error(e);
@@ -327,9 +332,11 @@ async function stopFluxFunctions() {
   intervalTimers.clear();
 
   await explorerService.stopBlockProcessing();
+  await fluxNetworkHelper.stopNetworkSentinel();
 }
 
 module.exports = {
   startFluxFunctions,
   stopFluxFunctions,
+  FluxController,
 };

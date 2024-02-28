@@ -8,6 +8,68 @@ const util = require('util');
 const dbHelper = require('./dbHelper');
 const log = require('../lib/log');
 
+class AsyncLock {
+  disable = () => { };
+  ready = Promise.resolve();
+  locked = false;
+
+  async enable() {
+    if (this.locked) await this.ready;
+    this.ready = new Promise((resolve) => {
+      this.locked = true;
+      this.disable = () => {
+        this.reset();
+        resolve();
+      }
+    })
+  }
+
+  reset() {
+    this.disable = () => { };
+    this.ready = Promise.resolve();
+    this.locked = false;
+  }
+}
+
+class FluxController extends AbortController {
+  #timeouts = new Map();
+  lock = new AsyncLock();
+
+  get ['aborted']() {
+    return this.signal.aborted;
+  }
+
+  get ['locked']() {
+    return this.lock.locked;
+  }
+
+  /**
+   * An interruptable sleep. If you call abort() on the controller,
+   * The promise will reject immediately with { name: 'AbortError' }.
+   * @param {number} ms How many milliseconds to sleep for
+   * @returns
+   */
+  sleep(ms) {
+    const id = randomBytes(8).toString('hex');
+    return new Promise((resolve, reject) => {
+      this.#timeouts.set(id, [reject, setTimeout(() => {
+        this.#timeouts.delete(id);
+        resolve();
+      }, ms)])
+    })
+  }
+
+  async abort() {
+    super.abort();
+    for (const [reject, timeout] of this.#timeouts.values()) {
+      clearTimeout(timeout);
+      reject({ name: 'AbortError' });
+    }
+    this.#timeouts.clear();
+    await this.lock.ready;
+  }
+}
+
 /**
  * To delay by a number of milliseconds.
  * @param {number} ms Number of milliseconds.
@@ -264,4 +326,5 @@ module.exports = {
   validIpv4Address,
   ipInSubnet,
   installAptPackage,
+  FluxController,
 };

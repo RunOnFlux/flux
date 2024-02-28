@@ -23,71 +23,6 @@ const scannedHeightCollection = config.database.daemon.collections.scannedHeight
 const fluxTransactionCollection = config.database.daemon.collections.fluxTransactions;
 const chainParamsMessagesCollection = config.database.chainparams.collections.chainMessages;
 
-class AsyncLock {
-  disable = () => { };
-  ready = Promise.resolve();
-  locked = false;
-
-  async enable() {
-    if (this.locked) await this.ready;
-    this.ready = new Promise((resolve) => {
-      this.locked = true;
-      this.disable = () => {
-        this.reset();
-        resolve();
-      }
-    })
-  }
-
-  reset() {
-    this.disable = () => { };
-    this.ready = Promise.resolve();
-    this.locked = false;
-  }
-}
-
-class BlockProcessorController extends AbortController {
-  #timeouts = new Map();
-  lock = new AsyncLock();
-
-  get ['aborted']() {
-    return this.signal.aborted;
-  }
-
-  get ['locked']() {
-    return this.lock.locked;
-  }
-
-  /**
-   * An interruptable sleep. If you call abort() on the controller,
-   * The promise will reject immediately with { name: 'AbortError' }.
-   * @param {number} ms How many milliseconds to sleep for
-   * @returns
-   */
-  sleep(ms) {
-    const id = randomBytes(8).toString('hex');
-    return new Promise((resolve, reject) => {
-      this.#timeouts.set(id, [reject, setTimeout(() => {
-        this.#timeouts.delete(id);
-        resolve();
-      }, ms)])
-    })
-  }
-
-  async abort() {
-    super.abort();
-    for (const [reject, timeout] of this.#timeouts.values()) {
-      clearTimeout(timeout);
-      reject({ name: 'AbortError' });
-    }
-    this.#timeouts.clear();
-    await this.lock.ready;
-  }
-}
-
-let bpc = new BlockProcessorController();
-
-
 // cache for nodes
 const LRUoptions = {
   max: 20000, // store 20k of nodes value forever, no ttl
@@ -96,6 +31,9 @@ const LRUoptions = {
 const nodeCollateralCache = new LRUCache(LRUoptions);
 // updateFluxAppsPeriod can be between every 4 to 9 blocks
 const updateFluxAppsPeriod = Math.floor(Math.random() * 6 + 4);
+
+// Block Processor Controller
+const bpc = new serviceHelper.FluxController();
 
 /**
  * To return the sender's transaction info from the daemon service.
@@ -1561,7 +1499,7 @@ async function stopBlockProcessingApi(req, res) {
 async function stopBlockProcessing() {
   if (bpc.locked) {
     await bpc.abort();
-    bpc = new BlockProcessorController();
+    bpc = new serviceHelper.FluxController();
   }
 }
 
@@ -1583,7 +1521,7 @@ async function restartBlockProcessingApi(req, res) {
 async function restartBlockProcessing() {
   if (bpc.locked) {
     await bpc.abort();
-    bpc = new BlockProcessorController();
+    bpc = new serviceHelper.FluxController();
   }
   initiateBlockProcessor({ restoreDatabase: true });
 }

@@ -5922,27 +5922,21 @@ async function assignedPortsGlobalApps(appNames) {
 /**
  * Restores FluxOS firewall, UPNP rules
  */
-async function restoreFluxPortsSupport() {
+async function openFluxPortsToInternet() {
   try {
-    const isUPNP = upnpService.isUPNP();
-
     const apiPort = userconfig.initial.apiport || config.server.apiport;
     const homePort = +apiPort - 1;
     const apiPortSSL = +apiPort + 1;
     const syncthingPort = +apiPort + 2;
 
-    const firewallActive = await fluxNetworkHelper.isFirewallActive();
-    if (firewallActive) {
-      // setup UFW if active
+    if (fluxNetworkHelper.isFirewallActive()) {
       await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(apiPort));
       await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(homePort));
       await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(apiPortSSL));
       await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(syncthingPort));
     }
 
-    // UPNP
-    if (isUPNP) {
-      // map our Flux API, UI and SYNCTHING port
+    if (upnpService.isUPNP()) {
       await upnpService.setupUPNP(apiPort);
     }
   } catch (error) {
@@ -5952,39 +5946,34 @@ async function restoreFluxPortsSupport() {
 
 /**
  * Restores applications firewall, UPNP rules
+ * @returns {Promise<string[]>} app names to be removed (failed upnp port assignment)
  */
-async function restoreAppsPortsSupport() {
+async function openAppsPortsToInternet() {
+  const appsToRemove = [];
+
   try {
     const currentAppsPorts = await assignedPortsInstalledApps();
-    const isUPNP = upnpService.isUPNP();
-
     const firewallActive = await fluxNetworkHelper.isFirewallActive();
-    // setup UFW for apps
+
+    const ports = currentAppsPorts.flatMap(app => app.ports);
+
     if (firewallActive) {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const application of currentAppsPorts) {
-        // eslint-disable-next-line no-restricted-syntax
-        for (const port of application.ports) {
-          // eslint-disable-next-line no-await-in-loop
-          await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(port));
-        }
-      }
+      const allowPorts = []
+      ports.forEach((port) => allowPorts.push(fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(port))));
+      // is this dodgey? should be okay... just a child process for each port
+      await Promise.all(allowPorts);
     }
 
-    // UPNP
-    if (isUPNP) {
+    if (upnpService.isUPNP()) {
       // map application ports
       // eslint-disable-next-line no-restricted-syntax
-      for (const application of currentAppsPorts) {
+      for (const app of currentAppsPorts) {
         // eslint-disable-next-line no-restricted-syntax
-        for (const port of application.ports) {
+        for (const port of app.ports) {
           // eslint-disable-next-line no-await-in-loop
-          const upnpOk = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`);
+          const upnpOk = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${app.name}`);
           if (!upnpOk) {
-            // eslint-disable-next-line no-await-in-loop
-            await removeAppLocally(application.name, null, true, true, true).catch((error) => log.error(error)); // remove entire app
-            // eslint-disable-next-line no-await-in-loop
-            await serviceHelper.delay(3 * 60 * 1000); // 3 mins
+            appsToRemove.push(app.name);
             break;
           }
         }
@@ -5992,16 +5981,20 @@ async function restoreAppsPortsSupport() {
     }
   } catch (error) {
     log.error(error);
+  } finally {
+    return appsToRemove;
   }
 }
 
 /**
- * Restores FluxOS and applications firewall, UPNP rules
+ * Restores FluxOS and applications firewall and UPNP rules to open required ports to the internet.
+ * If the upnp port opening fails for an app, it removes the app.
  */
-async function restorePortsSupport() {
+async function openRequiredPortsToInternet() {
   try {
-    await restoreFluxPortsSupport();
-    await restoreAppsPortsSupport();
+    await openFluxPortsToInternet();
+    const appsToRemove = await openAppsPortsToInternet();
+    forceAppsRemoval(appsToRemove);
   } catch (error) {
     log.error(error);
   }
@@ -10437,6 +10430,18 @@ async function stopAllNonFluxRunningApps() {
   }
 }
 
+/**
+ *
+ * @param {string[]} appNames The list of apps to remove
+ * @returns {Promise<void>}
+ */
+async function forceAppsRemoval(appNames) {
+  for (const appName of appNames) {
+    await removeAppLocally(appName, null, true, true, true).catch((error) => log.error(error));
+    await serviceHelper.delay(3 * 60 * 1000); // 3 mins
+  }
+}
+
 // there might be some apps reported by docker but not installed. In that case compare list and initiate force removal
 async function forceAppRemovals() {
   try {
@@ -12832,9 +12837,10 @@ module.exports = {
   reconstructAppMessagesHashCollection,
   reconstructAppMessagesHashCollectionAPI,
   stopAllNonFluxRunningApps,
-  restorePortsSupport,
-  restoreFluxPortsSupport,
-  restoreAppsPortsSupport,
+  openRequiredPortsToInternet,
+  openFluxPortsToInternet,
+  openAppsPortsToInternet,
+  forceAppsRemoval,
   forceAppRemovals,
   getAllGlobalApplications,
   syncthingApps,
