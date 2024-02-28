@@ -12241,17 +12241,13 @@ async function downloadAppsFolder(req, res) {
       } else {
         throw new Error('Application volume not found');
       }
-
+      const zip = archiver('zip');
       const sizeStream = new PassThrough();
       let compressedSize = 0;
-      const zip = archiver('zip');
-
       sizeStream.on('data', (chunk) => {
         compressedSize += chunk.length;
       });
-
       sizeStream.on('end', () => {
-        console.log('Compressed Size:', compressedSize);
         const folderNameArray = folderpath.split('/');
         const folderName = folderNameArray[folderNameArray.length - 1];
         res.writeHead(200, {
@@ -12260,12 +12256,14 @@ async function downloadAppsFolder(req, res) {
           'Content-Length': compressedSize,
         });
         // Now, pipe the compressed data to the response stream
-        zip.pipe(res);
-        zip.glob('**/*', { cwd: folderpath });
-        zip.finalize();
+        const zipFinal = archiver('zip');
+        zipFinal.pipe(res);
+        zipFinal.directory(folderpath, false);
+        zipFinal.finalize();
       });
       zip.pipe(sizeStream);
       zip.directory(folderpath, false);
+      zip.finalize();
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);

@@ -2712,7 +2712,7 @@
           >
             <h5><b-icon class="mr-1" scale="1.2" icon="server" /> Volume browser</h5>
             <h6 v-if="selectedAppVolume" class="progress-label">
-              <b-icon class="mr-1" icon="hdd" scale="1.4" /> {{ `${storage.used} / ${storage.total}` }} GB
+              <b-icon class="mr-1" icon="hdd" scale="1.4" /> {{ `${storage.used.toFixed(2)} / ${storage.total}` }} GB
             </h6>
           </div>
           <div class="mr-4 mb-2 d-flex" style="max-width: 250px;">
@@ -2741,14 +2741,14 @@
             v-if="fileProgressVolume.length > 0"
             class="mb-2 mt-2 w-100"
             style="
-                              margin: 0 auto;
-                              padding: 12px;
-                              border: 1px solid #eaeaea;
-                              border-radius: 8px;
-                              box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-                              text-align: center;
+              margin: 0 auto;
+              padding: 12px;
+              border: 1px solid #eaeaea;
+              border-radius: 8px;
+              box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+              text-align: center;
 
-                            "
+            "
           >
             <h5 style="font-size: 16px; margin-bottom: 5px;">
               <span v-if="!allDownloadsCompletedVolume()">
@@ -2863,11 +2863,6 @@
                 {{ data.label.toUpperCase() }}
               </template>
               <template #cell(name)="data">
-                <!-- <div v-if="data.item.isUpButton">
-                  <b-link @click="upFolder()">
-                    <b-icon class="mr-1" scale="1.4" icon="folder" /> ...
-                  </b-link>
-                </div> -->
                 <div v-if="data.item.symLink">
                   <b-link @click="changeFolder(data.item.name)">
                     <b-icon class="mr-1" scale="1.4" icon="folder-symlink" /> {{ data.item.name }}
@@ -2910,22 +2905,6 @@
                   {{ addAndConvertFileSizes(data.item.size) }}
                 </div>
               </template>
-              <!-- <template #cell(delete)="data">
-                <b-button
-                  :id="`delete-${data.item.name}`"
-                  v-b-tooltip.hover.left="'Delete'"
-                  v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                  variant="gradient-danger"
-                  class="btn-icon action-icon"
-                >
-                  <v-icon name="trash-alt" />
-                </b-button>
-                <confirm-dialog
-                  :target="`delete-${data.item.name}`"
-                  :confirm-button="data.item.isFile ? 'Delete File' : 'Delete Folder'"
-                  @confirm="data.item.isFile ? deleteFile(data.item.name) : deleteFolder(data.item.name)"
-                />
-              </template> -->
               <template #cell(actions)="data">
                 <b-button-group v-if="!data.item.isUpButton" size="sm">
                   <b-button
@@ -2945,23 +2924,6 @@
                   >
                     <v-icon name="edit" />
                   </b-button>
-                  <!-- <b-button
-                    :id="`share-${data.item.name}`"
-                    v-b-tooltip.hover.bottom="data.item.shareToken ? 'Unshare file' : 'Share file'"
-                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    :variant="data.item.shareToken ? 'gradient-primary' : 'outline-secondary'"
-                    @click="data.item.shareToken ? unshareFile(data.item.name) : shareFile(data.item.name)"
-                  >
-                    <v-icon name="share-alt" />
-                  </b-button>
-                  <b-button
-                    v-if="data.item.shareToken"
-                    :id="`sharelink-${data.item.name}`"
-                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="outline-secondary"
-                  >
-                    <v-icon name="envelope" />
-                  </b-button> -->
                   <b-button
                     :id="`delete-${data.item.name}`"
                     v-b-tooltip.hover.bottom="'Delete'"
@@ -2981,35 +2943,6 @@
                   :confirm-button="data.item.isFile ? 'Download File' : 'Download Folder'"
                   @confirm="data.item.isFile ? download(data.item.name) : download(data.item.name, true, data.item.size)"
                 />
-                <b-popover
-                  v-if="data.item.shareToken"
-                  :target="`sharelink-${data.item.name}`"
-                  placement="bottom"
-                  triggers="hover focus"
-                >
-                  <template #title>
-                    <b-button
-                      v-b-tooltip.hover.top="'Copy to Clipboard'"
-                      aria-label="Copy to Clipboard"
-                      class="btn copy-button"
-                      variant="flat-warning"
-                      @click="copyLinkToClipboard(createfluxshareLink(data.item.shareFile, data.item.shareToken))"
-                    >
-                      <span
-                        class="d-inline-block"
-                        aria-hidden="true"
-                      >
-                        <v-icon name="clipboard" />
-                      </span>
-                    </b-button>
-                    Share Link
-                  </template>
-                  <div>
-                    <b-link :href="createfluxshareLink(data.item.shareFile, data.item.shareToken)">
-                      {{ createfluxshareLink(data.item.shareFile, data.item.shareToken) }}
-                    </b-link>
-                  </div>
-                </b-popover>
                 <b-modal
                   v-model="renameDialogVisible"
                   title="Rename"
@@ -6599,7 +6532,11 @@ export default {
             const currentFileProgress = (loaded / total) * 100;
             console.log(progressEvent);
             // const currentFileName = decodedUrl.split('/').pop();
-            self.updateFileProgressVolume(name, currentFileProgress);
+            if (isFolder) {
+              self.updateFileProgressVolume(`${name}.zip`, currentFileProgress);
+            } else {
+              self.updateFileProgressVolume(name, currentFileProgress);
+            }
           },
         };
         let response;
@@ -6620,6 +6557,7 @@ export default {
           } else {
             link.setAttribute('download', name);
           }
+
           document.body.appendChild(link);
           link.click();
         }
@@ -7418,6 +7356,11 @@ export default {
       return this.computedFileProgress.every((item) => item.progress === 100);
     },
     allDownloadsCompletedVolume() {
+      if (this.computedFileProgressVolume.every((item) => item.progress === 100)) {
+        setTimeout(() => {
+          this.fileProgressVolume = this.fileProgressVolume.filter((item) => item.progress !== 100.00);
+        }, 5000);
+      }
       return this.computedFileProgressVolume.every((item) => item.progress === 100);
     },
     updateFileProgress(currentFileName, currentFileProgress, loaded, total, name) {
