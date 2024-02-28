@@ -12158,6 +12158,58 @@ async function renameAppsObject(req, res) {
   }
 }
 
+/**
+ * To remove a specified shared file. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function removeAppsObject(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname || '';
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    if (authorized) {
+      let { object } = req.params;
+      object = object || req.query.object;
+      let { component } = req.params;
+      component = component || req.query.component || '';
+      if (!component) {
+        throw new Error('component parameter is mandatory');
+      }
+      if (!object) {
+        throw new Error('No object specified');
+      }
+      let filepath;
+      const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
+      if (appVolumePath.length > 0) {
+        filepath = `${appVolumePath[0].mount}/appdata/${object}`;
+      } else {
+        throw new Error('Application volume not found');
+      }
+      const cmd = `sudo rm -rf ${filepath}`;
+      await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      const response = messageHelper.createSuccessMessage('File Removed');
+      res.json(response);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
 module.exports = {
   listRunningApps,
   listAllApps,
@@ -12261,6 +12313,7 @@ module.exports = {
   getAppsFolder,
   createAppsFolder,
   renameAppsObject,
+  removeAppsObject,
   // exports for testing purposes
   setAppsMonitored,
   getAppsMonitored,

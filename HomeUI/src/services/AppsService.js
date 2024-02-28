@@ -332,6 +332,13 @@ export default {
       },
     });
   },
+  removeAppsObject(zelidauthHeader, appname, component, object) {
+    return Api().get(`/apps/removeobject/${appname}/${component}/${object}`, {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    });
+  },
   justAPI() {
     return Api();
   },

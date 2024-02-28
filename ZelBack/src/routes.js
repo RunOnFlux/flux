@@ -1423,4 +1423,7 @@ module.exports = (app, expressWs) => {
   app.get('/apps/renameobject/:appname?/:component?/:oldpath?/:newname?', (req, res) => {
     appsService.renameAppsObject(req, res);
   });
+  app.get('/apps/removeobject/:appname?/:component?/:object?', (req, res) => {
+    appsService.removeAppsObject(req, res);
+  });
 };

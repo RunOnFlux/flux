@@ -2711,8 +2711,8 @@
             "
           >
             <h5><b-icon class="mr-1" scale="1.2" icon="server" /> Volume browser</h5>
-            <h6 class="progress-label">
-              <b-icon class="mr-1" icon="hdd" scale="1.4" /> {{ `${storage.used.toFixed(2)} / ${storage.total.toFixed(2)}` }} GB
+            <h6 v-if="selectedAppVolume" class="progress-label">
+              <b-icon class="mr-1" icon="hdd" scale="1.4" /> {{ `${storage.used} / ${storage.total}` }} GB
             </h6>
           </div>
           <div class="mr-4 mb-2 d-flex" style="max-width: 250px;">
@@ -2720,7 +2720,7 @@
               v-model="selectedAppVolume"
               :options="null"
               :disabled="!!isVisible || isComposeSingle"
-              @change="refreshFolder"
+              @change="refreshFolderSwitch"
             >
               <b-form-select-option
                 value="null"
@@ -2738,76 +2738,80 @@
             </b-form-select>
           </div>
           <div>
-            <b-button-toolbar justify class="mb-1">
-              <b-input-group v-if="selectedAppVolume" style="width: 85%;">
-                <b-input-group-prepend>
-                  <b-input-group-text>
-                    <b-icon icon="house-fill" />
-                  </b-input-group-text>
-                </b-input-group-prepend>
-                <b-form-input
-                  v-model="inputPathValue"
-                  style="font-weight: bold; font-size: 1.0em;"
-                />
-              </b-input-group>
-              <b-button-group size="sm" />
-              <b-button-group size="sm">
-                <b-button
-                  variant="outline-primary"
-                  @click="refreshFolder()"
-                >
-                  <v-icon name="redo-alt" />
-                </b-button>
-                <b-button
-                  variant="outline-primary"
-                  @click="uploadFilesDialog = true"
-                >
-                  <v-icon name="cloud-upload-alt" />
-                </b-button>
-                <b-button
-                  variant="outline-primary"
-                  @click="createDirectoryDialogVisible = true"
-                >
-                  <v-icon name="folder-plus" />
-                </b-button>
-                <b-modal
-                  v-model="createDirectoryDialogVisible"
-                  title="Create Folder"
-                  size="lg"
-                  centered
-                  ok-only
-                  ok-title="Create Folder"
-                  @ok="createFolder(newDirName)"
-                >
-                  <b-form-group
-                    label="Folder Name"
-                    label-for="folderNameInput"
-                  >
-                    <b-form-input
-                      id="folderNameInput"
-                      v-model="newDirName"
-                      size="lg"
-                      placeholder="New Folder Name"
-                    />
-                  </b-form-group>
-                </b-modal>
-                <b-modal
-                  v-model="uploadFilesDialog"
-                  title="Upload Files"
-                  size="lg"
-                  centered
-                  hide-footer
-                  @close="refreshFolder()"
-                >
-                  <file-upload
-                    :upload-folder="getUploadFolder()"
-                    :headers="zelidHeader"
-                    @complete="refreshFolder"
+            <b-button-toolbar v-if="selectedAppVolume" justify class="mb-1 w-100">
+              <div class="d-flex flex-row w-100">
+                <b-input-group class="w-100 mr-2">
+                  <b-input-group-prepend>
+                    <b-input-group-text>
+                      <b-icon icon="house-fill" />
+                    </b-input-group-text>
+                  </b-input-group-prepend>
+                  <b-form-input
+                    v-model="inputPathValue"
+                    class="text-secondary"
+                    style="font-weight: bold; font-size: 1.0em;"
                   />
-                </b-modal>
-              </b-button-group>
+                </b-input-group>
+                <b-button-group size="sm" />
+                <b-button-group size="sm" class="ml-auto">
+                  <b-button
+                    variant="outline-primary"
+                    @click="refreshFolder()"
+                  >
+                    <v-icon name="redo-alt" />
+                  </b-button>
+                  <b-button
+                    variant="outline-primary"
+                    @click="uploadFilesDialog = true"
+                  >
+                    <v-icon name="cloud-upload-alt" />
+                  </b-button>
+                  <b-button
+                    variant="outline-primary"
+                    @click="createDirectoryDialogVisible = true"
+                  >
+                    <v-icon name="folder-plus" />
+                  </b-button>
+                  <b-modal
+                    v-model="createDirectoryDialogVisible"
+                    title="Create Folder"
+                    size="lg"
+                    centered
+                    ok-only
+                    ok-title="Create Folder"
+                    @ok="createFolder(newDirName)"
+                  >
+                    <b-form-group
+                      label="Folder Name"
+                      label-for="folderNameInput"
+                    >
+                      <b-form-input
+                        id="folderNameInput"
+                        v-model="newDirName"
+                        size="lg"
+                        placeholder="New Folder Name"
+                      />
+                    </b-form-group>
+                  </b-modal>
+                  <b-modal
+                    v-model="uploadFilesDialog"
+                    title="Upload Files"
+                    size="lg"
+                    centered
+                    hide-footer
+                    @close="refreshFolder()"
+                  >
+                    <file-upload
+                      :upload-folder="getUploadFolder()"
+                      :headers="zelidHeader"
+                      @complete="refreshFolder"
+                    />
+                  </b-modal>
+                </b-button-group>
+              </div>
             </b-button-toolbar>
             <b-table
+              v-if="selectedAppVolume"
               class="fluxshare-table"
               hover
               responsive
@@ -2912,7 +2916,7 @@
                   >
                     <v-icon name="edit" />
                   </b-button>
-                  <b-button
+                  <!-- <b-button
                     :id="`share-${data.item.name}`"
                     v-b-tooltip.hover.bottom="data.item.shareToken ? 'Unshare file' : 'Share file'"
                     v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -2928,7 +2932,7 @@
                     variant="outline-secondary"
                   >
                     <v-icon name="envelope" />
-                  </b-button>
+                  </b-button> -->
                   <b-button
                     :id="`delete-${data.item.name}`"
                     v-b-tooltip.hover.bottom="'Delete'"
@@ -2940,7 +2944,7 @@
                   <confirm-dialog
                     :target="`delete-${data.item.name}`"
                     :confirm-button="data.item.isFile ? 'Delete File' : 'Delete Folder'"
-                    @confirm="data.item.isFile ? deleteFile(data.item.name) : deleteFolder(data.item.name)"
+                    @confirm="deleteFile(data.item.name)"
                   />
                 </b-button-group>
                 <confirm-dialog
@@ -6469,14 +6473,15 @@ export default {
     },
     async storageStats() {
       try {
-        const response = await AppsService.storageStats(this.zelidHeader.zelidauth);
-        console.log(response);
-        if (response.data.status === 'success') {
-          this.storage.total = response.data.data.total;
-          this.storage.used = response.data.data.used;
-          this.storage.available = response.data.data.available;
+        this.volumeInfo = await BackupRestoreService.getVolumeDataOfComponent(this.zelidHeader.zelidauth, this.appName, this.selectedAppVolume, 'GB', 2, 'used,size');
+        this.volumePath = this.volumeInfo.data?.data;
+        console.log(this.volumeInfo);
+        if (this.volumeInfo.data.status === 'success') {
+          this.storage.total = this.volumeInfo.data.data.size;
+          // this.storage.used = this.volumeInfo.data.data.used;
+          this.storage.used = this.volumeInfo.data.data.used;
         } else {
-          this.showToast('danger', response.data.data.message || response.data.data);
+          this.showToast('danger', this.volumeInfo.data.data.message || this.volumeInfo.data.data);
         }
       } catch (error) {
         this.showToast('danger', error.message || error);
@@ -6492,7 +6497,9 @@ export default {
       } else {
         this.currentFolder = `${this.currentFolder}/${name}`;
       }
-      this.inputPathValue = `/${this.currentFolder}`;
+      const segments = this.currentFolder.split('/').filter((segment) => segment !== '');
+      const transformedPath = segments.map((segment) => `  ${segment}  `).join('/');
+      this.inputPathValue = `/${transformedPath}`;
       this.loadFolder(this.currentFolder);
     },
     async loadFolder(path, soft = false) {
@@ -6616,7 +6623,17 @@ export default {
       return str.join('.');
     },
     refreshFolder() {
-      this.inputPathValue = `/${this.currentFolder}`;
+      const segments = this.currentFolder.split('/').filter((segment) => segment !== '');
+      const transformedPath = segments.map((segment) => `  ${segment}  `).join('/');
+      this.inputPathValue = `/${transformedPath}`;
+      this.loadFolder(this.currentFolder, true);
+      this.storageStats();
+    },
+    refreshFolderSwitch() {
+      this.currentFolder = '';
+      const segments = this.currentFolder.split('/').filter((segment) => segment !== '');
+      const transformedPath = segments.map((segment) => `  ${segment}  `).join('/');
+      this.inputPathValue = `/${transformedPath}`;
       this.loadFolder(this.currentFolder, true);
       this.storageStats();
     },
@@ -6624,7 +6641,7 @@ export default {
       try {
         const folder = this.currentFolder;
         const fileName = folder ? `${folder}/${name}` : name;
-        const response = await AppsService.removeFile(this.zelidHeader.zelidauth, encodeURIComponent(fileName));
+        const response = await AppsService.removeAppsObject(this.zelidHeader.zelidauth, this.appName, this.selectedAppVolume, encodeURIComponent(fileName));
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data);
         } else {
