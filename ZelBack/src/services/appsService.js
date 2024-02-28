@@ -12075,7 +12075,7 @@ async function createAppsFolder(req, res) {
       } else {
         throw new Error('Application volume not found');
       }
-      const cmd = `sudo mkdir ${filepath}`;
+      const cmd = `sudo mkdir "${filepath}"`;
       await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
       const resultsResponse = messageHelper.createSuccessMessage('Folder Created');
       res.json(resultsResponse);
