@@ -41,6 +41,7 @@ const signatureVerifier = require('./signatureVerifier');
 const backupRestoreService = require('./backupRestoreService');
 const IOUtils = require('./IOUtils');
 const log = require('../lib/log');
+const { PassThrough } = require('stream');
 const { invalidMessages } = require('./invalidMessages');
 
 const fluxDirPath = path.join(__dirname, '../../../');
@@ -12240,23 +12241,31 @@ async function downloadAppsFolder(req, res) {
       } else {
         throw new Error('Application volume not found');
       }
-      // Initialize the archiver to use the response stream
+
+      const sizeStream = new PassThrough();
+      let compressedSize = 0;
       const zip = archiver('zip');
-      // Directly pipe the output to the response stream
-      zip.pipe(res);
-      // Start globbing files from the specified folder
-      zip.glob('**/*', { cwd: folderpath });
-      // Finalize the zip creation
-      await zip.finalize();
-      // Set Content-Disposition header and Content-Length
-      const zipSize = zip.pointer();
-      const folderNameArray = folderpath.split('/');
-      const folderName = folderNameArray[folderNameArray.length - 1];
-      res.writeHead(200, {
-        'Content-Type': 'application/zip',
-        'Content-disposition': `attachment; filename=${folderName}.zip`,
-        'Content-Length': zipSize,
+
+      sizeStream.on('data', (chunk) => {
+        compressedSize += chunk.length;
       });
+
+      sizeStream.on('end', () => {
+        console.log('Compressed Size:', compressedSize);
+        const folderNameArray = folderpath.split('/');
+        const folderName = folderNameArray[folderNameArray.length - 1];
+        res.writeHead(200, {
+          'Content-Type': 'application/zip',
+          'Content-disposition': `attachment; filename=${folderName}.zip`,
+          'Content-Length': compressedSize,
+        });
+        // Now, pipe the compressed data to the response stream
+        zip.pipe(res);
+        zip.glob('**/*', { cwd: folderpath });
+        zip.finalize();
+      });
+      zip.pipe(sizeStream);
+      zip.directory(folderpath, false);
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
