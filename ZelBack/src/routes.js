@@ -1427,9 +1427,9 @@ module.exports = (app, expressWs) => {
     appsService.removeAppsObject(req, res);
   });
   app.get('/apps/downloadfile/:appname?/:component?/:file?', (req, res) => {
-    appsService.removeAppsObject(req, res);
+    appsService.downloadAppsFile(req, res);
   });
   app.get('/apps/downloadfolder/:appname?/:component?/:folder?', (req, res) => {
-    appsService.removeAppsObject(req, res);
+    appsService.downloadAppsFolder(req, res);
   });
 };
