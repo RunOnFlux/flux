@@ -12187,7 +12187,7 @@ async function removeAppsObject(req, res) {
       } else {
         throw new Error('Application volume not found');
       }
-      const cmd = `sudo rm -rf ${filepath}`;
+      const cmd = `sudo rm -rf "${filepath}"`;
       await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
       const response = messageHelper.createSuccessMessage('File Removed');
       res.json(response);
