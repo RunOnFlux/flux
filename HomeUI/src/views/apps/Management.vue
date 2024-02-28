@@ -6585,9 +6585,9 @@ export default {
         };
         let response;
         if (isFolder) {
-          response = await AppsService.justAPI().get(`/apps/fluxshare/downloadfolder/${encodeURIComponent(fileName)}`, axiosConfig);
+          response = await AppsService.justAPI().get(`/apps/downloadfolder/${this.appName}/${this.selectedAppVolume}/${encodeURIComponent(fileName)}`, axiosConfig);
         } else {
-          response = await AppsService.justAPI().get(`/apps/fluxshare/getfile/${encodeURIComponent(fileName)}`, axiosConfig);
+          response = await AppsService.justAPI().get(`/apps/downloadfile/${this.appName}/${this.selectedAppVolume}/${encodeURIComponent(fileName)}`, axiosConfig);
         }
         console.log(response);
         if (response.data.status === 'error') {

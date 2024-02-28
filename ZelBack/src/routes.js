@@ -1426,4 +1426,10 @@ module.exports = (app, expressWs) => {
   app.get('/apps/removeobject/:appname?/:component?/:object?', (req, res) => {
     appsService.removeAppsObject(req, res);
   });
+  app.get('/apps/downloadfile/:appname?/:component?/:file?', (req, res) => {
+    appsService.removeAppsObject(req, res);
+  });
+  app.get('/apps/downloadfolder/:appname?/:component?/:folder?', (req, res) => {
+    appsService.removeAppsObject(req, res);
+  });
 };

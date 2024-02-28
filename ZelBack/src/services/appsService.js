@@ -8,6 +8,7 @@ const http = require('http');
 const os = require('os');
 const path = require('path');
 const nodecmd = require('node-cmd');
+const archiver = require('archiver');
 const df = require('node-df');
 const { LRUCache } = require('lru-cache');
 const systemcrontab = require('crontab');
@@ -12210,6 +12211,120 @@ async function removeAppsObject(req, res) {
   }
 }
 
+/**
+ * To download a zip folder for a specified directory. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @param {boolean} authorized False until verified as an admin.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
+async function downloadAppsFolder(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname || '';
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    if (authorized) {
+      let { folder } = req.params;
+      folder = folder || req.query.folder;
+      let { component } = req.params;
+      component = component || req.query.component;
+      if (!folder || !component) {
+        const errorResponse = messageHelper.createErrorMessage('folder and component parameters are mandatory');
+        res.json(errorResponse);
+        return;
+      }
+      let folderpath;
+      const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
+      if (appVolumePath.length > 0) {
+        folderpath = `${appVolumePath[0].mount}/appdata/${folder}`;
+      } else {
+        throw new Error('Application volume not found');
+      }
+      // beautify name
+      const folderNameArray = folderpath.split('/');
+      const folderName = folderNameArray[folderNameArray.length - 1];
+      // Tell the browser that this is a zip file.
+      res.writeHead(200, {
+        'Content-Type': 'application/zip',
+        'Content-disposition': `attachment; filename=${folderName}.zip`,
+      });
+      const zip = archiver('zip');
+      // Send the file to the page output.
+      zip.pipe(res);
+      zip.glob('**/*', { cwd: folderpath });
+      zip.finalize();
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
+/**
+ * To download a specified file. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
+async function downloadAppsFile(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname || '';
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    if (authorized) {
+      let { file } = req.params;
+      file = file || req.query.file;
+      let { component } = req.params;
+      component = component || req.query.component;
+      if (!file || !component) {
+        const errorResponse = messageHelper.createErrorMessage('file and component parameters are mandatory');
+        res.json(errorResponse);
+        return;
+      }
+      let filepath;
+      const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
+      if (appVolumePath.length > 0) {
+        filepath = `${appVolumePath[0].mount}/appdata/${file}`;
+      } else {
+        throw new Error('Application volume not found');
+      }
+      // beautify name
+      const fileNameArray = filepath.split('/');
+      const fileName = fileNameArray[fileNameArray.length - 1];
+      res.download(filepath, fileName);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
 module.exports = {
   listRunningApps,
   listAllApps,
@@ -12314,6 +12429,8 @@ module.exports = {
   createAppsFolder,
   renameAppsObject,
   removeAppsObject,
+  downloadAppsFolder,
+  downloadAppsFile,
   // exports for testing purposes
   setAppsMonitored,
   getAppsMonitored,
