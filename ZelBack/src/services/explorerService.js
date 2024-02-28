@@ -33,7 +33,7 @@ const nodeCollateralCache = new LRUCache(LRUoptions);
 const updateFluxAppsPeriod = Math.floor(Math.random() * 6 + 4);
 
 // Block Processor Controller
-const bpc = new serviceHelper.FluxController();
+let bpc = new serviceHelper.FluxController();
 
 /**
  * To return the sender's transaction info from the daemon service.

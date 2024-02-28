@@ -10,7 +10,6 @@ const os = require('os');
 const util = require('util');
 const { LRUCache } = require('lru-cache');
 const log = require('../lib/log');
-const { FluxController } = require('./serviceManager')
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
@@ -40,7 +39,7 @@ const LRUoptions = {
 const myCache = new LRUCache(LRUoptions);
 
 // Flux Network Controller
-const fnc = new serviceHelper.FluxController();
+let fnc = new serviceHelper.FluxController();
 
 // my external Flux IP from benchmark
 let myFluxIP = null;
@@ -882,10 +881,8 @@ async function startNetworkSentinel() {
 }
 
 async function stopNetworkSentinel() {
-  if (fnc.locked) {
-    await fnc.abort();
-    fnc = new serviceHelper.FluxController();
-  }
+  await fnc.abort();
+  fnc = new serviceHelper.FluxController();
 }
 
 /**

@@ -450,7 +450,7 @@ module.exports = (app, expressWs) => {
     syncthingService.getMeta(req, res);
   });
   app.get('/syncthing/deviceid', cache('30 seconds'), (req, res) => {
-    syncthingService.getDeviceID(req, res);
+    syncthingService.getDeviceIdApi(req, res);
   });
   app.get('/syncthing/health', cache('30 seconds'), (req, res) => {
     syncthingService.getHealth(req, res);
