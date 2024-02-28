@@ -12135,7 +12135,7 @@ async function renameAppsObject(req, res) {
         const renamingFolder = fileURIArray.join('/');
         newfullpath = `${appVolumePath[0].mount}/appdata/${renamingFolder}/${newname}`;
       }
-      const cmd = `sudo mv -T ${oldfullpath} ${newfullpath}`;
+      const cmd = `sudo mv -T "${oldfullpath}" "${newfullpath}"`;
       await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
       const response = messageHelper.createSuccessMessage('Rename successful');
       res.json(response);
