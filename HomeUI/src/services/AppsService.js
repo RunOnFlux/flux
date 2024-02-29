@@ -192,9 +192,6 @@ export default {
       },
     });
   },
-  getAppPirce(specifications) {
-    return Api().post('/apps/calculateprice', JSON.stringify(specifications));
-  },
   getFolder(zelidauthHeader, folder) {
     return Api().get(`/apps/fluxshare/getfolder/${folder}`, {
       headers: {
@@ -267,6 +264,9 @@ export default {
   },
   appPrice(data) {
     return Api().post('/apps/calculateprice', JSON.stringify(data));
+  },
+  appPriceUSDandFlux(data) {
+    return Api().post('/apps/calculateusdandfluxprice', JSON.stringify(data));
   },
   appRegistrationVerificaiton(data) {
     return Api().post('/apps/verifyappregistrationspecifications', JSON.stringify(data));

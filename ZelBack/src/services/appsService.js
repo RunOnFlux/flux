@@ -9816,6 +9816,108 @@ async function getAppPrice(req, res) {
 }
 
 /**
+ * To get app price.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+async function getAppFiatAndFluxPrice(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const processedBody = serviceHelper.ensureObject(body);
+      let appSpecification = processedBody;
+
+      appSpecification = serviceHelper.ensureObject(appSpecification);
+      const appSpecFormatted = specificationFormatter(appSpecification);
+
+      // verifications skipped. This endpoint is only for price evaluation
+
+      // check if app exists or its a new registration price
+      const db = dbHelper.databaseConnection();
+      const database = db.db(config.database.appsglobal.database);
+      // may throw
+      const query = { name: appSpecFormatted.name };
+      const projection = {
+        projection: {
+          _id: 0,
+        },
+      };
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+      if (!syncStatus.data.synced) {
+        throw new Error('Daemon not yet synced.');
+      }
+      const daemonHeight = syncStatus.data.height;
+      const axiosConfig = {
+        timeout: 5000,
+      };
+      const appPrices = [];
+      const response = await axios.get('https:/stats.runonflux.io/apps/getappspecsusdprice', axiosConfig);
+      if (response.data.status === 'success') {
+        appPrices.push(response.data.data);
+      } else {
+        throw new Error('Unable to get standard usd prices for app specs');
+      }
+      const intervals = appPrices.filter((i) => i.height < daemonHeight);
+      const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
+      const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+      const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
+      let actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices);
+      const expireIn = appSpecFormatted.expire || defaultExpire;
+      // app prices are ceiled to highest 0.01
+      const multiplier = expireIn / defaultExpire;
+      actualPriceToPay *= multiplier;
+      actualPriceToPay = Math.ceil(actualPriceToPay * 100) / 100;
+      if (appInfo) {
+        let previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices); // calculate previous based on CURRENT height, with current interval of prices!
+        let previousExpireIn = previousSpecsPrice.expire || defaultExpire; // bad typo bug line. Leave it like it is, this bug is a feature now.
+        if (daemonHeight > 1315000) {
+          previousExpireIn = appInfo.expire || defaultExpire;
+        }
+        const multiplierPrevious = previousExpireIn / defaultExpire;
+        previousSpecsPrice *= multiplierPrevious;
+        previousSpecsPrice = Math.ceil(previousSpecsPrice * 100) / 100;
+        // what is the height difference
+        const heightDifference = daemonHeight - appInfo.height;
+        const perc = (previousExpireIn - heightDifference) / previousExpireIn;
+        if (perc > 0) {
+          actualPriceToPay -= (perc * previousSpecsPrice);
+        }
+      }
+      actualPriceToPay = Number(Math.ceil(actualPriceToPay * 100) / 100);
+      if (actualPriceToPay < priceSpecifications.minPrice) {
+        actualPriceToPay = priceSpecifications.minPrice;
+      }
+      const fiatRates = await axios.get('https://viparates.zelcore.io/rates', axiosConfig).catch(() => { throw new Error('Unable to get Flux Rates'); });
+      const rateObj = fiatRates[0].find((rate) => rate.code === 'USD');
+      let btcRateforCoin = this.fiatRates[1].FLUX;
+      if (btcRateforCoin === undefined) {
+        btcRateforCoin = 0;
+      }
+      const fiatRate = rateObj.rate * btcRateforCoin;
+      const fluxPrice = ((actualPriceToPay / fiatRate) * appPrices[0].fluxmultiplier).toFixed(5);
+      const price = {
+        usd: actualPriceToPay,
+        flux: fluxPrice,
+      };
+      const respondPrice = messageHelper.createDataMessage(price);
+      return res.json(respondPrice);
+    } catch (error) {
+      log.warn(error);
+      const errorResponse = messageHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      return res.json(errorResponse);
+    }
+  });
+}
+
+/**
  * To redeploy via API. Cannot be performed for individual components. Force defaults to false. Only accessible by app owner, admins and flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -12135,6 +12237,7 @@ module.exports = {
   installAppLocally,
   updateAppGlobalyApi,
   getAppPrice,
+  getAppFiatAndFluxPrice,
   reinstallOldApplications,
   checkAndRemoveApplicationInstance,
   checkAppTemporaryMessageExistence,
