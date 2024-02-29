@@ -2717,7 +2717,7 @@
             />
           </div>
         </div>
-        <div class="text-center adjustMaxWidth">
+        <div class="adjustMaxWidth">
           <b-card class="mt-1">
             <div
               class="mb-2"
