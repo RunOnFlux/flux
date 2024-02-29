@@ -2696,9 +2696,9 @@
             />
           </div>
         </div>
-        <b-card>
+        <b-card class="mt-1">
           <div
-            class="mt-2 mb-2"
+            class="mb-2"
             style="
               display: flex;
               justify-content: space-between;
