@@ -266,8 +266,6 @@ async function startFluxFunctions() {
     await fluxNetworkHelper.allowNodeToBindPrivilegedPorts();
     log.info('Node allowed to bind privileged ports');
 
-    // I don't like this, shouldn't be up to the service manager to get docker interfaces
-    // docker must be running for this to work - should fluxOS check Docker is working?
     const fluxNetworkInterfaces = await dockerService.getFluxDockerNetworkPhysicalInterfaceNames();
     await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces);
     log.info('Docker to host firewall enabled');
@@ -279,12 +277,13 @@ async function startFluxFunctions() {
     await appsService.stopAllNonFluxRunningApps();
     log.info("All non Flux apps stopped");
 
-    // change networkHelper name to service, then change to method to start
-    fluxNetworkHelper.startNetworkSentinel();
-    log.info('Collision detection running');
     // this is usually an empty array
     const unreachableApps = await appsService.openAppsPortsToInternet();
     appsService.forceAppsRemoval(unreachableApps);
+
+    // change networkHelper name to service, then change to method to start
+    fluxNetworkHelper.startNetworkSentinel();
+    log.info('Collision detection running');
 
     syncthingService.startSyncthingSentinel();
     log.info('Syncthing service started');
@@ -292,8 +291,7 @@ async function startFluxFunctions() {
     await appsService.startMonitoringOfApps();
     log.info("App monitoring has begun");
 
-    // don't await this... needs to be refactored completely
-    fluxCommunication.connectToPeers();
+    fluxCommunication.startPeerConnectionSentinel();
     log.info('Flux peer connections initiated');
 
     for (const [action, options] of delayedActions.entries()) {
@@ -310,6 +308,7 @@ async function startFluxFunctions() {
       if (!running) log.warn(`Action: ${action} with delay: ${schedule} not running`);
     }
   } catch (e) {
+    // ToDo: remove. Should only restart the services that errored
     log.error(e);
     setTimeout(() => {
       startFluxFunctions();
@@ -317,8 +316,6 @@ async function startFluxFunctions() {
   }
 }
 
-// this doesn't stop the recursive functions. Work in progress.
-// Need to change them to while loop, and set a trigger / signal
 async function stopFluxFunctions() {
   for (const timer of timeoutTimers.values()) {
     clearTimeout(timer);
@@ -333,6 +330,8 @@ async function stopFluxFunctions() {
   await explorerService.stopBlockProcessing();
   await fluxNetworkHelper.stopNetworkSentinel();
   await syncthingService.stopSyncthingSentinel();
+  await fluxCommunication.stopPeerConnectionSentinel();
+  await appsService.stopMonitoringOfApps();
 }
 
 module.exports = {

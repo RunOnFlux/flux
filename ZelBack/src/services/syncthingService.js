@@ -2100,7 +2100,7 @@ async function getDeviceId() {
 
 /**
  * Returns if syncthing service is running ok
- * @returns {boolean} True if getDeviceID last execution was successful
+ * @returns {boolean} True if getDeviceId last execution was successful
  */
 function isRunning() {
   return syncthingStatusOk;

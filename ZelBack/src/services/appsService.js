@@ -10702,10 +10702,10 @@ async function syncthingApps() {
     const folderIds = [];
     const foldersConfiguration = [];
     const newFoldersConfiguration = [];
-    const myDeviceID = await syncthingService.getDeviceID();
-    if (myDeviceID.status !== 'success') {
-      return;
-    }
+
+    const myDeviceID = await syncthingService.getDeviceId();
+    if (!myDeviceID) return;
+
     const allFoldersResp = await syncthingService.getConfigFolders();
     const allDevicesResp = await syncthingService.getConfigDevices();
     // eslint-disable-next-line no-restricted-syntax
@@ -10730,7 +10730,7 @@ async function syncthingApps() {
             const folder = `${appsFolder + appId + containerFolder}`;
             const id = appId;
             const label = appId;
-            const devices = [{ deviceID: myDeviceID.data }];
+            const devices = [{ deviceID: myDeviceID }];
             const execDIRst = `[ ! -d \\"${folder}/.stfolder\\" ] && sudo mkdir -p ${folder}/.stfolder`; // if stfolder doesn't exist creates it
             // eslint-disable-next-line no-await-in-loop
             await cmdAsync(execDIRst);
@@ -10762,7 +10762,7 @@ async function syncthingApps() {
                 }
               }
               if (deviceID) {
-                if (deviceID !== myDeviceID.data) { // skip my id, already present
+                if (deviceID !== myDeviceID) { // skip my id, already present
                   const folderDeviceExists = devices.find((device) => device.deviceID === deviceID);
                   if (!folderDeviceExists) { // double check if not multiple the same ids
                     devices.push({ deviceID });
@@ -10777,7 +10777,7 @@ async function syncthingApps() {
                     autoAcceptFolders: true,
                   };
                   devicesIds.push(deviceID);
-                  if (deviceID !== myDeviceID.data) {
+                  if (deviceID !== myDeviceID) {
                     const syncthingDeviceExists = allDevicesResp.data.find((device) => device.name === name);
                     if (!syncthingDeviceExists) {
                       devicesConfiguration.push(newDevice);
@@ -10924,7 +10924,7 @@ async function syncthingApps() {
               const folder = `${appsFolder + appId + containerFolder}`;
               const id = appId;
               const label = appId;
-              const devices = [{ deviceID: myDeviceID.data }];
+              const devices = [{ deviceID: myDeviceID }];
               const execDIRst = `[ ! -d \\"${folder}/.stfolder\\" ] && sudo mkdir -p ${folder}/.stfolder`; // if stfolder doesn't exist creates it
               // eslint-disable-next-line no-await-in-loop
               await cmdAsync(execDIRst);
@@ -10956,7 +10956,7 @@ async function syncthingApps() {
                   }
                 }
                 if (deviceID) {
-                  if (deviceID !== myDeviceID.data) { // skip my id, already present
+                  if (deviceID !== myDeviceID) { // skip my id, already present
                     const folderDeviceExists = devices.find((device) => device.deviceID === deviceID);
                     if (!folderDeviceExists) { // double check if not multiple the same ids
                       devices.push({ deviceID });
@@ -10971,7 +10971,7 @@ async function syncthingApps() {
                       autoAcceptFolders: true,
                     };
                     devicesIds.push(deviceID);
-                    if (deviceID !== myDeviceID.data) {
+                    if (deviceID !== myDeviceID) {
                       const syncthingDeviceExists = allDevicesResp.data.find((device) => device.name === name);
                       if (!syncthingDeviceExists) {
                         devicesConfiguration.push(newDevice);
@@ -11123,7 +11123,7 @@ async function syncthingApps() {
     // eslint-disable-next-line no-restricted-syntax
     for (const nonUsedDevice of nonUsedDevices) {
       // exclude our deviceID
-      if (nonUsedDevice.deviceID !== myDeviceID.data) {
+      if (nonUsedDevice.deviceID !== myDeviceID) {
         log.info(`Removing unused Syncthing device ${nonUsedDevice.deviceID}`);
         // eslint-disable-next-line no-await-in-loop
         await syncthingService.adjustConfigDevices('delete', undefined, nonUsedDevice.deviceID);
@@ -12752,72 +12752,78 @@ async function downloadAppsFile(req, res) {
 }
 
 module.exports = {
-  listRunningApps,
-  listAllApps,
-  listAppsImages,
-  appStart,
-  appStop,
-  appRestart,
+  appChanges,
+  appendBackupTask,
+  appendRestoreTask,
+  appExec,
+  appInspect,
   appKill,
-  appPause,
-  appUnpause,
-  appTop,
   appLog,
   appLogStream,
-  appInspect,
-  appStats,
   appMonitor,
   appMonitorStream,
-  startMonitoringOfApps,
-  startAppMonitoringAPI,
-  stopAppMonitoringAPI,
-  appChanges,
-  appExec,
-  fluxUsage,
-  removeAppLocally,
-  registerAppLocally,
-  registerAppGlobalyApi,
-  createFluxNetworkAPI,
-  removeAppLocallyApi,
-  installedApps,
-  availableApps,
-  appsResources,
-  checkAppMessageExistence,
-  requestAppMessageAPI,
-  checkAndRequestApp,
-  checkDockerAccessibility,
-  registrationInformation,
+  appPause,
   appPricePerMonth,
-  getAppsTemporaryMessages,
-  getAppsPermanentMessages,
-  getGlobalAppsSpecifications,
-  storeAppTemporaryMessage,
-  verifyRepository,
+  appRestart,
+  appsResources,
+  appStart,
+  appStats,
+  appStop,
+  appTop,
+  appUnpause,
+  availableApps,
+  checkAndNotifyPeersOfRunningApps,
+  checkAndRemoveApplicationInstance,
+  checkAndRequestApp,
+  checkApplicationsCompliance,
+  checkAppMessageExistence,
+  checkAppTemporaryMessageExistence,
+  checkDockerAccessibility,
   checkHWParameters,
-  verifyAppHash,
-  verifyAppMessageSignature,
-  reindexGlobalAppsInformation,
-  rescanGlobalAppsInformation,
+  checkMyAppsAvailability,
+  checkStorageSpaceForApps,
   continuousFluxAppHashesCheck,
+  createFluxNetworkAPI,
+  deploymentInformation,
+  expireGlobalApplications,
+  fluxUsage,
+  forceAppRemovals,
+  forceAppsRemoval,
+  getAllGlobalApplications,
   getAppHashes,
-  getAppsLocation,
-  getAppsLocations,
-  storeAppRunningMessage,
-  storeIPChangedMessage,
-  storeAppRemovedMessage,
-  reindexGlobalAppsLocation,
-  getRunningAppIpList,
-  getRunningAppList,
-  trySpawningGlobalApplication,
-  getApplicationSpecifications,
-  getStrictApplicationSpecifications,
   getApplicationGlobalSpecifications,
   getApplicationLocalSpecifications,
-  getApplicationSpecificationAPI,
   getApplicationOwnerAPI,
-  checkAndNotifyPeersOfRunningApps,
-  rescanGlobalAppsInformationAPI,
+  getApplicationSpecificationAPI,
+  getApplicationSpecifications,
+  getAppPrice,
+  getAppsDOSState,
+  getAppsLocation,
+  getAppsLocations,
+  getAppsPermanentMessages,
+  getAppsTemporaryMessages,
+  getChainParamsPriceUpdates,
+  getGlobalAppsSpecifications,
+  getRunningAppIpList,
+  getRunningAppList,
+  getStrictApplicationSpecifications,
+  installAppLocally,
+  installedApps,
+  listAllApps,
+  listAppsImages,
+  listRunningApps,
+  openAppsPortsToInternet,
+  openFluxPortsToInternet,
+  openRequiredPortsToInternet,
+  reconstructAppMessagesHashCollection,
+  reconstructAppMessagesHashCollectionAPI,
+  redeployAPI,
+  registerAppGlobalyApi,
+  registerAppLocally,
+  registrationInformation,
+  reindexGlobalAppsInformation,
   reindexGlobalAppsInformationAPI,
+  reindexGlobalAppsLocation,
   reindexGlobalAppsLocationAPI,
   expireGlobalApplications,
   installAppLocally,
@@ -12825,29 +12831,24 @@ module.exports = {
   getAppPrice,
   getAppFiatAndFluxPrice,
   reinstallOldApplications,
-  checkAndRemoveApplicationInstance,
-  checkAppTemporaryMessageExistence,
+  removeAppLocally,
+  removeAppLocallyApi,
+  requestAppMessageAPI,
+  rescanGlobalAppsInformation,
+  rescanGlobalAppsInformationAPI,
+  sendChunk,
+  softRedeploy,
   softRegisterAppLocally,
   softRemoveAppLocally,
-  softRedeploy,
-  redeployAPI,
-  verifyAppRegistrationParameters,
-  verifyAppUpdateParameters,
-  deploymentInformation,
-  reconstructAppMessagesHashCollection,
-  reconstructAppMessagesHashCollectionAPI,
+  startAppMonitoringAPI,
+  startMonitoringOfApps,
   stopAllNonFluxRunningApps,
-  openRequiredPortsToInternet,
-  openFluxPortsToInternet,
-  openAppsPortsToInternet,
-  forceAppsRemoval,
-  forceAppRemovals,
-  getAllGlobalApplications,
+  stopAppMonitoringAPI,
+  storeAppRemovedMessage,
+  storeAppRunningMessage,
+  storeAppTemporaryMessage,
+  storeIPChangedMessage,
   syncthingApps,
-  getChainParamsPriceUpdates,
-  getAppsDOSState,
-  checkMyAppsAvailability,
-  checkApplicationsCompliance,
   testAppMount,
   checkStorageSpaceForApps,
   appendBackupTask,
@@ -12860,28 +12861,28 @@ module.exports = {
   downloadAppsFolder,
   downloadAppsFile,
   // exports for testing purposes
-  setAppsMonitored,
-  getAppsMonitored,
-  clearAppsMonitored,
-  getAppFolderSize,
-  startAppMonitoring,
-  stopMonitoringOfApps,
-  getNodeSpecs,
-  setNodeSpecs,
-  returnNodeSpecs,
   appUninstallHard,
   appUninstallSoft,
-  removalInProgressReset,
-  totalAppHWRequirements,
-  nodeFullGeolocation,
   checkAppGeolocationRequirements,
   checkAppHWRequirements,
-  installApplicationHard,
-  setRemovalInProgressToTrue,
-  installationInProgressReset,
-  setInstallationInProgressTrue,
   checkForNonAllowedAppsOnLocalNetwork,
-  triggerAppHashesCheckAPI,
+  clearAppsMonitored,
+  getAppFolderSize,
+  getAppsMonitored,
   getAuthToken,
+  getNodeSpecs,
+  installApplicationHard,
+  installationInProgressReset,
   masterSlaveApps,
+  nodeFullGeolocation,
+  removalInProgressReset,
+  returnNodeSpecs,
+  setAppsMonitored,
+  setInstallationInProgressTrue,
+  setNodeSpecs,
+  setRemovalInProgressToTrue,
+  startAppMonitoring,
+  stopMonitoringOfApps,
+  totalAppHWRequirements,
+  triggerAppHashesCheckAPI,
 };

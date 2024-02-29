@@ -55,7 +55,7 @@ async function sendToAllPeers(data, wsList) {
           const { ip } = client;
           const { port } = client;
           // eslint-disable-next-line no-use-before-define
-          fluxNetworkHelper.closeConnection(ip, port);
+          fluxNetworkHelper.closeOutboundConnection(ip, port);
         } catch (err) {
           log.error(err);
         }

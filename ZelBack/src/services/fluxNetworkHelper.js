@@ -466,7 +466,7 @@ async function getRandomConnection() {
  * @param {string} port node API port.
  * @returns {Promise<object>} Message.
  */
-async function closeConnection(ip, port) {
+async function closeOutboundConnection(ip, port) {
   if (!ip) return messageHelper.createWarningMessage('To close a connection please provide a proper IP number.');
   const peerIndex = outgoingPeers.findIndex((peer) => peer.ip === ip && peer.port === port);
   if (peerIndex > -1) {
@@ -1647,7 +1647,7 @@ module.exports = {
   adjustFirewall,
   purgeUFW,
   checkRateLimit,
-  closeConnection,
+  closeOutboundConnection,
   closeIncomingConnection,
   checkFluxbenchVersionAllowed,
   checkMyFluxAvailability,
