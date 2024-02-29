@@ -6416,7 +6416,6 @@ export default {
         console.log(this.volumeInfo);
         if (this.volumeInfo.data.status === 'success') {
           this.storage.total = this.volumeInfo.data.data.size;
-          // this.storage.used = this.volumeInfo.data.data.used;
           this.storage.used = this.volumeInfo.data.data.used;
         } else {
           this.showToast('danger', this.volumeInfo.data.data.message || this.volumeInfo.data.data);
