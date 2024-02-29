@@ -2717,6 +2717,280 @@
             />
           </div>
         </div>
+        <div class="text-center adjustMaxWidth">
+          <b-card class="mt-1">
+            <div
+              class="mb-2"
+              style="
+                display: flex;
+                justify-content: space-between;
+                border: 1px solid #ccc;
+                border-radius: 8px;
+                height: 45px;
+                padding: 12px;
+                text-align: left;
+                line-height: 0px;
+              "
+            >
+              <h5><b-icon class="mr-1" scale="1.2" icon="server" /> Volume browser</h5>
+              <h6 v-if="selectedAppVolume" class="progress-label">
+                <b-icon class="mr-1" icon="hdd" scale="1.4" /> {{ `${storage.used.toFixed(2)} / ${storage.total}` }} GB
+              </h6>
+            </div>
+            <div class="mr-4 mb-2 d-flex" style="max-width: 250px;">
+              <b-form-select
+                v-model="selectedAppVolume"
+                :options="null"
+                :disabled="isComposeSingle"
+                @change="refreshFolderSwitch"
+              >
+                <b-form-select-option
+                  value="null"
+                  disabled
+                >
+                  -- Please select component --
+                </b-form-select-option>
+                <b-form-select-option
+                  v-for="component in appSpecification.compose"
+                  :key="component.name"
+                  :value="component.name"
+                >
+                  {{ component.name }}
+                </b-form-select-option>
+              </b-form-select>
+            </div>
+            <div
+              v-if="fileProgressVolume.length > 0"
+              class="mb-2 mt-2 w-100"
+              style="
+                margin: 0 auto;
+                padding: 12px;
+                border: 1px solid #eaeaea;
+                border-radius: 8px;
+                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                text-align: center;
+
+              "
+            >
+              <h5 style="font-size: 16px; margin-bottom: 5px;">
+                <span v-if="!allDownloadsCompletedVolume()">
+                  <b-spinner small /> Downloading...
+                </span>
+                <span v-else>
+                  Download Completed
+                </span>
+              </h5>
+              <b-progress v-for="(item, index) in computedFileProgressVolume" v-if="item.progress > 0" :key="index" class="mt-1" style="height: 16px;" :max="100">
+                <b-progress-bar
+                  :value="item.progress"
+                  :label="`${item.fileName} - ${item.progress.toFixed(2)}%`"
+                  style="font-size: 14px;"
+                />
+              </b-progress>
+            </div>
+            <div>
+              <b-button-toolbar v-if="selectedAppVolume" justify class="mb-1 w-100">
+                <div class="d-flex flex-row w-100">
+                  <b-input-group class="w-100 mr-2">
+                    <b-input-group-prepend>
+                      <b-input-group-text>
+                        <b-icon icon="house-fill" />
+                      </b-input-group-text>
+                    </b-input-group-prepend>
+                    <b-form-input
+                      v-model="inputPathValue"
+                      class="text-secondary"
+                      style="font-weight: bold; font-size: 1.0em;"
+                    />
+                  </b-input-group>
+                  <b-button-group size="sm" />
+                  <b-button-group size="sm" class="ml-auto">
+                    <b-button
+                      variant="outline-primary"
+                      @click="refreshFolder()"
+                    >
+                      <v-icon name="redo-alt" />
+                    </b-button>
+                    <b-button
+                      variant="outline-primary"
+                      @click="uploadFilesDialog = true"
+                    >
+                      <v-icon name="cloud-upload-alt" />
+                    </b-button>
+                    <b-button
+                      variant="outline-primary"
+                      @click="createDirectoryDialogVisible = true"
+                    >
+                      <v-icon name="folder-plus" />
+                    </b-button>
+                    <b-modal
+                      v-model="createDirectoryDialogVisible"
+                      title="Create Folder"
+                      size="lg"
+                      centered
+                      ok-only
+                      ok-title="Create Folder"
+                      @ok="createFolder(newDirName)"
+                    >
+                      <b-form-group
+                        label="Folder Name"
+                        label-for="folderNameInput"
+                      >
+                        <b-form-input
+                          id="folderNameInput"
+                          v-model="newDirName"
+                          size="lg"
+                          placeholder="New Folder Name"
+                        />
+                      </b-form-group>
+                    </b-modal>
+                    <b-modal
+                      v-model="uploadFilesDialog"
+                      title="Upload Files"
+                      size="lg"
+                      centered
+                      hide-footer
+                      @close="refreshFolder()"
+                    >
+                      <file-upload
+                        :upload-folder="getUploadFolder()"
+                        :headers="zelidHeader"
+                        @complete="refreshFolder"
+                      />
+                    </b-modal>
+                  </b-button-group>
+                </div>
+              </b-button-toolbar>
+              <b-table
+                v-if="selectedAppVolume"
+                class="fluxshare-table"
+                hover
+                responsive
+                small
+                outlined
+                size="sm"
+                :items="folderContentFilter"
+                :fields="fields"
+                :busy="loadingFolder"
+                :sort-compare="sort"
+                sort-by="name"
+              >
+                <template #table-busy>
+                  <div class="text-center text-danger my-2">
+                    <b-spinner class="align-middle mx-2" />
+                    <strong>Loading...</strong>
+                  </div>
+                </template>
+                <template #head(name)="data">
+                  {{ data.label.toUpperCase() }}
+                </template>
+                <template #cell(name)="data">
+                  <div v-if="data.item.symLink">
+                    <b-link @click="changeFolder(data.item.name)">
+                      <b-icon class="mr-1" scale="1.4" icon="folder-symlink" /> {{ data.item.name }}
+                    </b-link>
+                  </div>
+                  <div v-if="data.item.isDirectory">
+                    <b-link @click="changeFolder(data.item.name)">
+                      <b-icon class="mr-1" scale="1.4" icon="folder" /> {{ data.item.name }}
+                    </b-link>
+                  </div>
+                  <div v-else>
+                    <div v-if="!data.item.symLink">
+                      <b-icon class="mr-1" scale="1.4" icon="file-earmark" /> {{ data.item.name }}
+                    </div>
+                  </div>
+                </template>
+                <template #cell(modifiedAt)="data">
+                  <div v-if="!data.item.isUpButton" class="no-wrap">
+                    {{ new Date(data.item.modifiedAt).toLocaleString('en-GB', timeoptions) }}
+                  </div>
+                </template>
+                <template #cell(type)="data">
+                  <div v-if="!data.item.isUpButton">
+                    <div v-if="data.item.isDirectory">
+                      Folder
+                    </div>
+                    <div v-else-if="data.item.isFile">
+                      File
+                    </div>
+                    <div v-else-if="data.item.isSymbolicLink">
+                      File
+                    </div>
+                    <div v-else>
+                      Other
+                    </div>
+                  </div>
+                </template>
+                <template #cell(size)="data">
+                  <div v-if="data.item.size > 0 && !data.item.isUpButton" class="no-wrap">
+                    {{ addAndConvertFileSizes(data.item.size) }}
+                  </div>
+                </template>
+                <template #cell(actions)="data">
+                  <b-button-group v-if="!data.item.isUpButton" size="sm">
+                    <b-button
+                      :id="`download-${data.item.name}`"
+                      v-b-tooltip.hover.bottom="data.item.isFile ? 'Download' : 'Download zip of folder'"
+                      v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                      variant="outline-secondary"
+                    >
+                      <v-icon :name="data.item.isFile ? 'file-download' : 'file-archive'" />
+                    </b-button>
+                    <b-button
+                      :id="`rename-${data.item.name}`"
+                      v-b-tooltip.hover.bottom="'Rename'"
+                      v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                      variant="outline-secondary"
+                      @click="rename(data.item.name)"
+                    >
+                      <v-icon name="edit" />
+                    </b-button>
+                    <b-button
+                      :id="`delete-${data.item.name}`"
+                      v-b-tooltip.hover.bottom="'Delete'"
+                      v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                      variant="outline-secondary"
+                    >
+                      <v-icon name="trash-alt" />
+                    </b-button>
+                    <confirm-dialog
+                      :target="`delete-${data.item.name}`"
+                      :confirm-button="data.item.isFile ? 'Delete File' : 'Delete Folder'"
+                      @confirm="deleteFile(data.item.name)"
+                    />
+                  </b-button-group>
+                  <confirm-dialog
+                    :target="`download-${data.item.name}`"
+                    :confirm-button="data.item.isFile ? 'Download File' : 'Download Folder'"
+                    @confirm="data.item.isFile ? download(data.item.name) : download(data.item.name, true, data.item.size)"
+                  />
+                  <b-modal
+                    v-model="renameDialogVisible"
+                    title="Rename"
+                    size="lg"
+                    centered
+                    ok-only
+                    ok-title="Rename"
+                    @ok="confirmRename()"
+                  >
+                    <b-form-group
+                      label="Name"
+                      label-for="nameInput"
+                    >
+                      <b-form-input
+                        id="nameInput"
+                        v-model="newName"
+                        size="lg"
+                        placeholder="Name"
+                      />
+                    </b-form-group>
+                  </b-modal>
+                </template>
+              </b-table>
+            </div>
+          </b-card>
+        </div>
       </b-tab>
       <b-tab
         v-if="windowWidth > 860"
@@ -4944,6 +5218,7 @@ import ToastificationContent from '@core/components/toastification/Toastificatio
 import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
 import ListEntry from '@/views/components/ListEntry.vue';
 import JsonViewer from 'vue-json-viewer';
+import FileUpload from '@/views/components/FileUpload.vue';
 
 import AppsService from '@/services/AppsService';
 import DaemonService from '@/services/DaemonService';
@@ -4988,6 +5263,7 @@ const geolocations = require('../../libs/geolocation');
 
 export default {
   components: {
+    FileUpload,
     JsonViewer,
     BAlert,
     BTabs,
@@ -5050,6 +5326,57 @@ export default {
   },
   data() {
     return {
+      inputPathValue: '',
+      fields: [
+        { key: 'name', label: 'Name', sortable: true },
+        // eslint-disable-next-line object-curly-newline
+        { key: 'size', label: 'Size', sortable: true, thStyle: { width: '10%' } },
+        // eslint-disable-next-line object-curly-newline
+        { key: 'modifiedAt', label: 'Last modification', sortable: true, thStyle: { width: '15%' } },
+        // { key: 'type', label: 'Type', sortable: true },
+        // eslint-disable-next-line object-curly-newline
+        { key: 'actions', label: 'Actions', sortable: false, thStyle: { width: '10%' } },
+      ],
+      timeoptions: {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      },
+      loadingFolder: false,
+      folderView: [],
+      currentFolder: '',
+      uploadFilesDialog: false,
+      filterFolder: '',
+      createDirectoryDialogVisible: false,
+      renameDialogVisible: false,
+      newName: '',
+      fileRenaming: '',
+      newDirName: '',
+      abortToken: {},
+      downloaded: {},
+      total: {},
+      timeStamp: {},
+      working: false,
+      storage: {
+        used: 0,
+        total: 2,
+        available: 2,
+      },
+      customColors: [
+        { color: '#6f7ad3', percentage: 20 },
+        { color: '#1989fa', percentage: 40 },
+        { color: '#5cb87a', percentage: 60 },
+        { color: '#e6a23c', percentage: 80 },
+        { color: '#f56c6c', percentage: 100 },
+      ],
+      uploadTotal: '',
+      uploadUploaded: '',
+      uploadTimeStart: '',
+      currentUploadTime: '',
+      uploadFiles: [],
+      fileProgressVolume: [],
       windowWidth: window.innerWidth,
       showTopUpload: false,
       showTopRemote: false,
@@ -5175,6 +5502,7 @@ export default {
       terminal: null,
       selectedCmd: null,
       selectedApp: null,
+      selectedAppVolume: null,
       enableUser: false,
       userInputValue: '',
       customValue: '',
@@ -5198,7 +5526,6 @@ export default {
           ],
         },
       ],
-      timeoptions,
       output: '',
       fluxCommunication: false,
       commandExecuting: false,
@@ -5275,10 +5602,7 @@ export default {
         totalRows: 1,
         currentPage: 1,
       },
-      total: '',
-      downloaded: '',
       downloadedSize: '',
-      abortToken: {},
       deploymentAddress: '',
       appPricePerSpecs: 0,
       maxInstances: 100,
@@ -5414,6 +5738,15 @@ export default {
     },
     computedFileProgress() {
       return this.fileProgress;
+    },
+    computedFileProgressVolume() {
+      return this.fileProgressVolume;
+    },
+    folderContentFilter() {
+      const filteredFolder = this.folderView.filter((data) => JSON.stringify(data.name).toLowerCase().includes(this.filterFolder.toLowerCase()));
+      const upButton = this.currentFolder ? { name: '..', symLink: true, isUpButton: true } : null;
+      const filteredResults = [upButton, ...filteredFolder.filter((data) => data.name !== '.gitkeep')].filter(Boolean);
+      return filteredResults;
     },
     downloadLabel() {
       // eslint-disable-next-line vue/no-side-effects-in-computed-properties
@@ -5783,6 +6116,236 @@ export default {
     window.removeEventListener('resize', this.onResize);
   },
   methods: {
+    sortNameFolder(a, b) {
+      return (a.isDirectory ? `..${a.name}` : a.name).localeCompare(b.isDirectory ? `..${b.name}` : b.name);
+    },
+    sortTypeFolder(a, b) {
+      if (a.isDirectory && b.isFile) return -1;
+      if (a.isFile && b.isDirectory) return 1;
+      return 0;
+    },
+    sort(a, b, key, sortDesc) {
+      if (key === 'name') {
+        return this.sortNameFolder(a, b, sortDesc);
+      }
+      if (key === 'type') {
+        return this.sortTypeFolder(a, b, sortDesc);
+      }
+      if (key === 'modifiedAt') {
+        if (a.modifiedAt > b.modifiedAt) return -1;
+        if (a.modifiedAt < b.modifiedAt) return 1;
+        return 0;
+      }
+      if (key === 'size') {
+        if (a.size > b.size) return -1;
+        if (a.size < b.size) return 1;
+        return 0;
+      }
+      return 0;
+    },
+    async storageStats() {
+      try {
+        this.volumeInfo = await this.executeLocalCommand(`/backup/getvolumedataofcomponent/${this.appName}/${this.selectedAppVolume}/${'GB'}/${2}/${'used,size'}`);
+        this.volumePath = this.volumeInfo.data?.data;
+        if (this.volumeInfo.data.status === 'success') {
+          this.storage.total = this.volumeInfo.data.data.size;
+          this.storage.used = this.volumeInfo.data.data.used;
+        } else {
+          this.showToast('danger', this.volumeInfo.data.data.message || this.volumeInfo.data.data);
+        }
+      } catch (error) {
+        this.showToast('danger', error.message || error);
+      }
+    },
+    changeFolder(name) {
+      if (name === '..') {
+        const folderArrray = this.currentFolder.split('/');
+        folderArrray.pop();
+        this.currentFolder = folderArrray.join('/');
+      } else if (this.currentFolder === '') {
+        this.currentFolder = name;
+      } else {
+        this.currentFolder = `${this.currentFolder}/${name}`;
+      }
+      const segments = this.currentFolder.split('/').filter((segment) => segment !== '');
+      const transformedPath = segments.map((segment) => `  ${segment}  `).join('/');
+      this.inputPathValue = `/${transformedPath}`;
+      this.loadFolder(this.currentFolder);
+    },
+    async loadFolder(path, soft = false) {
+      try {
+        this.filterFolder = '';
+        if (!soft) {
+          this.folderView = [];
+        }
+        this.loadingFolder = true;
+        const response = await this.executeLocalCommand(`/apps/getfolderinfo/${this.appName}/${this.selectedAppVolume}/${encodeURIComponent(path)}`);
+        this.loadingFolder = false;
+        if (response.data.status === 'success') {
+          this.folderView = response.data.data;
+          console.log(this.folderView);
+        } else {
+          this.showToast('danger', response.data.data.message || response.data.data);
+        }
+      } catch (error) {
+        this.loadingFolder = false;
+        console.log(error.message);
+        this.showToast('danger', error.message || error);
+      }
+    },
+    async createFolder(path) {
+      try {
+        let folderPath = path;
+        if (this.currentFolder !== '') {
+          folderPath = `${this.currentFolder}/${path}`;
+        }
+        const response = await this.executeLocalCommand(`/apps/createfolder/${this.appName}/${this.selectedAppVolume}/${encodeURIComponent(folderPath)}`);
+        if (response.data.status === 'error') {
+          if (response.data.data.code === 'EEXIST') {
+            this.showToast('danger', `Folder ${path} already exists`);
+          } else {
+            this.showToast('danger', response.data.data.message || response.data.data);
+          }
+        } else {
+          this.loadFolder(this.currentFolder, true);
+          this.createDirectoryDialogVisible = false;
+        }
+      } catch (error) {
+        this.loadingFolder = false;
+        console.log(error.message);
+        this.showToast('danger', error.message || error);
+      }
+      this.newDirName = '';
+    },
+    cancelDownload(name) {
+      this.abortToken[name].cancel(`Download of ${name} cancelled`);
+      this.downloaded[name] = '';
+      this.total[name] = '';
+    },
+    async download(name, isFolder = false) {
+      try {
+        const self = this;
+        const folder = this.currentFolder;
+        const fileName = folder ? `${folder}/${name}` : name;
+        const axiosConfig = {
+          headers: this.zelidHeader,
+          responseType: 'blob',
+          onDownloadProgress(progressEvent) {
+            const { loaded, total } = progressEvent;
+            // const decodedUrl = decodeURIComponent(target.responseURL);
+            const currentFileProgress = (loaded / total) * 100;
+            console.log(progressEvent);
+            // const currentFileName = decodedUrl.split('/').pop();
+            if (isFolder) {
+              self.updateFileProgressVolume(`${name}.zip`, currentFileProgress);
+            } else {
+              self.updateFileProgressVolume(name, currentFileProgress);
+            }
+          },
+        };
+        let response;
+        if (isFolder) {
+          response = await this.executeLocalCommand(`/apps/downloadfolder/${this.appName}/${this.selectedAppVolume}/${encodeURIComponent(fileName)}`, null, axiosConfig);
+        } else {
+          response = await this.executeLocalCommand(`/apps/downloadfile/${this.appName}/${this.selectedAppVolume}/${encodeURIComponent(fileName)}`, null, axiosConfig);
+        }
+        console.log(response);
+        if (response.data.status === 'error') {
+          this.showToast('danger', response.data.data.message || response.data.data);
+        } else {
+          const url = window.URL.createObjectURL(new Blob([response.data]));
+          const link = document.createElement('a');
+          link.href = url;
+          if (isFolder) {
+            link.setAttribute('download', `${name}.zip`);
+          } else {
+            link.setAttribute('download', name);
+          }
+
+          document.body.appendChild(link);
+          link.click();
+        }
+      } catch (error) {
+        console.log(error.message);
+        if (error.message) {
+          if (!error.message.startsWith('Download')) {
+            this.showToast('danger', error.message);
+          }
+        } else {
+          this.showToast('danger', error);
+        }
+      }
+    },
+    beautifyValue(valueInText) {
+      const str = valueInText.split('.');
+      if (str[0].length >= 4) {
+        str[0] = str[0].replace(/(\d)(?=(\d{3})+$)/g, '$1,');
+      }
+      return str.join('.');
+    },
+    refreshFolder() {
+      const segments = this.currentFolder.split('/').filter((segment) => segment !== '');
+      const transformedPath = segments.map((segment) => `  ${segment}  `).join('/');
+      this.inputPathValue = `/${transformedPath}`;
+      this.loadFolder(this.currentFolder, true);
+      this.storageStats();
+    },
+    refreshFolderSwitch() {
+      this.currentFolder = '';
+      const segments = this.currentFolder.split('/').filter((segment) => segment !== '');
+      const transformedPath = segments.map((segment) => `  ${segment}  `).join('/');
+      this.inputPathValue = `/${transformedPath}`;
+      this.loadFolder(this.currentFolder, true);
+      this.storageStats();
+    },
+    async deleteFile(name) {
+      try {
+        const folder = this.currentFolder;
+        const fileName = folder ? `${folder}/${name}` : name;
+        const response = await this.executeLocalCommand(`/apps/removeobject/${this.appName}/${this.selectedAppVolume}/${encodeURIComponent(fileName)}`);
+        if (response.data.status === 'error') {
+          this.showToast('danger', response.data.data.message || response.data.data);
+        } else {
+          this.refreshFolder();
+          this.showToast('success', `${name} deleted`);
+        }
+      } catch (error) {
+        this.showToast('danger', error.message || error);
+      }
+    },
+    rename(name) {
+      this.renameDialogVisible = true;
+      let folderPath = name;
+      if (this.currentFolder !== '') {
+        folderPath = `${this.currentFolder}/${name}`;
+      }
+      this.fileRenaming = folderPath;
+      this.newName = name;
+    },
+    async confirmRename() {
+      this.renameDialogVisible = false;
+      try {
+        const oldpath = this.fileRenaming;
+        const newname = this.newName;
+        const response = await this.executeLocalCommand(`/apps/renameobject/${this.appName}/${this.selectedAppVolume}/${encodeURIComponent(oldpath)}/${newname}`);
+        console.log(response);
+        if (response.data.status === 'error') {
+          this.showToast('danger', response.data.data.message || response.data.data);
+        } else {
+          if (oldpath.includes('/')) {
+            this.showToast('success', `${oldpath.split('/').pop()} renamed to ${newname}`);
+          } else {
+            this.showToast('success', `${oldpath} renamed to ${newname}`);
+          }
+          this.loadFolder(this.currentFolder, true);
+        }
+      } catch (error) {
+        this.showToast('danger', error.message || error);
+      }
+    },
+    upFolder() {
+      this.changeFolder('..');
+    },
     onResize() {
       this.windowWidth = window.innerWidth;
     },
@@ -5792,12 +6355,20 @@ export default {
       }
       console.log('Radio button clicked. Selected option:', this.selectedOption);
     },
-    getUploadFolder(fullpath, saveAs) {
+    getUploadFolder() {
       const ip = this.selectedIp.split(':')[0];
       const port = this.selectedIp.split(':')[1] || 16127;
-      const folder = encodeURIComponent(fullpath);
+      if (this.currentFolder) {
+        const folder = encodeURIComponent(this.currentFolder);
+        return `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/ioutils/fileupload/volume/${this.appName}/${this.selectedAppVolume}/${folder}`;
+      }
+      return `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/ioutils/fileupload/volume/${this.appName}/${this.selectedAppVolume}`;
+    },
+    getUploadFolderBackup(saveAs) {
+      const ip = this.selectedIp.split(':')[0];
+      const port = this.selectedIp.split(':')[1] || 16127;
       const filename = encodeURIComponent(saveAs);
-      return `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/ioutils/fileupload/${folder}/${filename}/${this.appName}`;
+      return `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/ioutils/fileupload/backup/${this.appName}/${this.restoreRemoteFile}/null/${filename}`;
     },
     addAndConvertFileSizes(sizes, targetUnit = 'auto', decimal = 2) {
       const multiplierMap = {
@@ -6030,7 +6601,7 @@ export default {
           return;
         }
         const xhr = new XMLHttpRequest();
-        const action = this.getUploadFolder(file.path, file.file_name);
+        const action = this.getUploadFolderBackup(file.file_name);
         if (xhr.upload) {
           xhr.upload.onprogress = function progress(e) {
             if (e.total > 0) {
@@ -6393,6 +6964,14 @@ export default {
     allDownloadsCompleted() {
       return this.computedFileProgress.every((item) => item.progress === 100);
     },
+    allDownloadsCompletedVolume() {
+      if (this.computedFileProgressVolume.every((item) => item.progress === 100)) {
+        setTimeout(() => {
+          this.fileProgressVolume = this.fileProgressVolume.filter((item) => item.progress !== 100.00);
+        }, 5000);
+      }
+      return this.computedFileProgressVolume.every((item) => item.progress === 100);
+    },
     updateFileProgress(currentFileName, currentFileProgress, loaded, total, name) {
       this.$nextTick(() => {
         const currentIndex = this.fileProgress.findIndex((entry) => entry.fileName === name);
@@ -6400,6 +6979,16 @@ export default {
           this.$set(this.fileProgress, currentIndex, { fileName: name, progress: currentFileProgress });
         } else {
           this.fileProgress.push({ fileName: name, progress: currentFileProgress });
+        }
+      });
+    },
+    updateFileProgressVolume(currentFileName, currentFileProgress) {
+      this.$nextTick(() => {
+        const currentIndex = this.fileProgressVolume.findIndex((entry) => entry.fileName === currentFileName);
+        if (currentIndex !== -1) {
+          this.$set(this.fileProgressVolume, currentIndex, { fileName: currentFileName, progress: currentFileProgress });
+        } else {
+          this.fileProgressVolume.push({ fileName: currentFileName, progress: currentFileProgress });
         }
       });
     },
@@ -7146,11 +7735,11 @@ export default {
       }
     },
 
-    cancelDownload() {
-      this.abortToken.cancel('User download cancelled');
-      this.downloaded = '';
-      this.total = '';
-    },
+    // cancelDownload() {
+    //   this.abortToken.cancel('User download cancelled');
+    //   this.downloaded = '';
+    //   this.total = '';
+    // },
     async downloadApplicationLog(appName) {
       const self = this;
       this.downloaded = '';
