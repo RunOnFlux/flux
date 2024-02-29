@@ -2719,7 +2719,7 @@
             <b-form-select
               v-model="selectedAppVolume"
               :options="null"
-              :disabled="!!isVisible || isComposeSingle"
+              :disabled="isComposeSingle"
               @change="refreshFolderSwitch"
             >
               <b-form-select-option
