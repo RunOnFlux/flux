@@ -2241,6 +2241,8 @@ export default {
       },
       dataForAppRegistration: {},
       applicationPrice: 0,
+      applicationPriceAux: 0,
+      applicationPriceUSD: 0,
       deploymentAddress: '',
       minInstances: 3,
       maxInstances: 100,
@@ -2674,12 +2676,24 @@ export default {
           throw new Error(responseAppSpecs.data.data.message || responseAppSpecs.data.data);
         }
         const appSpecFormatted = responseAppSpecs.data.data;
-        const response = await AppsService.appPrice(appSpecFormatted);
+        let response = await AppsService.appPrice(appSpecFormatted);
         this.applicationPrice = 0;
+        this.applicationPriceAux = 0;
+        this.applicationPriceUSD = 0;
         if (response.data.status === 'error') {
           throw new Error(response.data.data.message || response.data.data);
         }
-        this.applicationPrice = (Math.ceil(((+response.data.data * this.generalMultiplier) * 100))) / 100;
+        this.applicationPriceAux = (Math.ceil(((+response.data.data * this.generalMultiplier) * 100))) / 100;
+        console.log(this.applicationPriceAux);
+
+        response = await AppsService.appPriceUSDandFlux(appSpecFormatted);
+        if (response.data.status === 'error') {
+          throw new Error(response.data.data.message || response.data.data);
+        }
+        this.applicationPriceUSD = (Math.ceil(((+response.data.data.usd * this.generalMultiplier) * 100))) / 100;
+        this.applicationPrice = (Math.ceil(((+response.data.data.flux * this.generalMultiplier) * 100))) / 100;
+        console.log(this.applicationPriceUSD);
+        console.log(this.applicationPrice);
         this.timestamp = Date.now();
         this.dataForAppRegistration = appSpecFormatted;
         this.dataToSign = this.registrationtype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp;

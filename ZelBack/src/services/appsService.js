@@ -9898,7 +9898,7 @@ async function getAppFiatAndFluxPrice(req, res) {
         btcRateforCoin = 0;
       }
       const fiatRate = rateObj.rate * btcRateforCoin;
-      const fluxPrice = ((actualPriceToPay / fiatRate) * appPrices[0].fluxmultiplier).toFixed(5);
+      const fluxPrice = Number((Math.ceil((actualPriceToPay / fiatRate) * appPrices[0].fluxmultiplier) * 100) / 100);
       const price = {
         usd: actualPriceToPay,
         flux: fluxPrice,
