@@ -5767,7 +5767,6 @@ export default {
           ],
         },
       ],
-      // timeoptions,
       output: '',
       fluxCommunication: false,
       commandExecuting: false,
@@ -5844,10 +5843,7 @@ export default {
         totalRows: 1,
         currentPage: 1,
       },
-      // total: '',
-      // downloaded: '',
       downloadedSize: '',
-      //  abortToken: {},
       deploymentAddress: '',
       appPricePerSpecs: 0,
       maxInstances: 100,
@@ -5987,30 +5983,6 @@ export default {
 
       return filteredResults;
     },
-    // getUploadFolder() {
-    //   const port = this.config.apiPort;
-    //   if (this.currentFolder) {
-    //     const folder = encodeURIComponent(this.currentFolder);
-    //     return `${this.ipAddress}:${port}/ioutils/fileupload/volume/${this.appName}/${this.selectedAppVolume}/${folder}`;
-    //   }
-    //   return `${this.ipAddress}:${port}/ioutils/fileupload/volume/${this.appName}/${this.selectedAppVolume}`;
-    // },
-
-    // zelidHeader() {
-    //   const zelidauth = localStorage.getItem('zelidauth');
-    //   const headers = {
-    //     zelidauth,
-    //   };
-    //   return headers;
-    // },
-    // ipAddress() {
-    //   const backendURL = store.get('backendURL');
-    //   if (backendURL) {
-    //     return `${store.get('backendURL').split(':')[0]}:${store.get('backendURL').split(':')[1]}`;
-    //   }
-    //   const { hostname } = window.location;
-    //   return `http://${hostname}`;
-    // },
     filesToUpload() {
       return this.files.length > 0 && this.files.some((file) => !file.uploading && !file.uploaded && file.progress === 0);
     },
@@ -6752,12 +6724,6 @@ export default {
       const filename = encodeURIComponent(saveAs);
       return `${this.ipAddress}:${port}/ioutils/fileupload/backup/${this.appName}/${this.restoreRemoteFile}/null/${filename}`;
     },
-    // getUploadFolder1(fullpath, saveAs) {
-    //   const port = this.config.apiPort;
-    //   const folder = encodeURIComponent(fullpath);
-    //   const filename = encodeURIComponent(saveAs);
-    //   return `${this.ipAddress}:${port}/ioutils/fileupload/${this.appName}/${folder}/${filename}/`;
-    // },
     addAndConvertFileSizes(sizes, targetUnit = 'auto', decimal = 2) {
       const multiplierMap = {
         B: 1,
@@ -7824,10 +7790,6 @@ export default {
         this.callResponse.status = response.data.status;
         this.callResponse.data = response.data.data[0];
         this.appSpecification = response.data.data[0];
-        // /* eslint-disable no-restricted-syntax */
-        // if (this.apps.length === 1) {
-        // this.apps = this.appSpecification.compose.map((component) => component.name); // Update apps array
-        // }
       }
     },
     getExpirePosition(value) {
@@ -8125,12 +8087,6 @@ export default {
         this.showToast('danger', error.message || error);
       }
     },
-
-    // cancelDownload() {
-    //   this.abortToken.cancel('User download cancelled');
-    //   this.downloaded = '';
-    //   this.total = '';
-    // },
     async downloadApplicationLog(appName) {
       const self = this;
       this.downloaded = '';
@@ -8146,7 +8102,6 @@ export default {
           self.downloaded = progressEvent.loaded;
           self.total = progressEvent.total;
         },
-        // cancelToken: self.abortToken.token,
       };
       const response = await DaemonService.justAPI().get(`/apps/applog/${appName}`, axiosConfig);
       const url = window.URL.createObjectURL(new Blob([response.data]));
@@ -8806,18 +8761,6 @@ export default {
       });
       return string;
     },
-
-    // showToast(variant, title, icon = 'InfoIcon') {
-    //   this.$toast({
-    //     component: ToastificationContent,
-    //     props: {
-    //       title,
-    //       icon,
-    //       variant,
-    //     },
-    //   });
-    // },
-
     decodeAsciiResponse(data) {
       if (typeof data === 'string') {
         return data.replace(/[^\x20-\x7E\t\r\n\v\f]/g, '');
