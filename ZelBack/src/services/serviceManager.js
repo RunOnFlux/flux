@@ -28,7 +28,7 @@ const delayedActions = new Map(
   [
     [geolocationService.setNodeGeolocation, '90s'],
     // wait as of restarts due to ui building
-    [explorerService.initiateBlockProcessor, { schedule: '2m', logMsg: 'Flux Block Processing Service started' }],
+    [explorerService.startBlockProcessor, { schedule: '2m', logMsg: 'Flux Block Processing Service started' }],
     [appsService.checkMyAppsAvailability, '3m'],
     [appsService.syncthingApps, '3m'],
     // stop and starts apps using syncthing g: when a new master is required or was changed.
@@ -48,7 +48,7 @@ const recurringActions = new Map(
     [fluxService.softUpdateFlux, { schedule: '1m', condition: development === true || development === 'true' || development === 1 || development === '1' }],
     // this waits for updateDeterministicFluxList to finish it's first run (run immediate awaits the first iteration)
     [fluxCommunicationUtils.updateDeterministicFluxList, { runImmediate: true, schedule: '2m' }],
-    [appsService.restorePortsSupport, { schedule: '10m' }],
+    [appsService.openRequiredPortsToInternet, { schedule: '10m' }],
     [backupRestoreService.cleanLocalBackup, { schedule: '25m' }],
     [appsService.continuousFluxAppHashesCheck, { schedule: '30m', afterDelay: serviceHelper.randomMsBetween('15m', '30m') }],
     // UPnP has already been verified and setup
