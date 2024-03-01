@@ -11507,12 +11507,11 @@ async function removeTestAppMount(specifiedVolume) {
     const appId = 'flux_fluxTestVol';
     log.info('Mount Test: Unmounting volume');
     const execUnmount = `sudo umount ${appsFolder + appId}`;
+    // if umount fails, fail silently. Another option would be to check the following
+    // prior `grep -qs '${appsFolder + appId} ' /proc/mounts` - note the extra space.
     await cmdAsync(execUnmount).then(() => {
       log.info('Mount Test: Volume unmounted');
-    }).catch((e) => {
-      log.error(e);
-      log.error('Mount Test: An error occured while unmounting volume. Continuing. Most likely false positive.');
-    });
+    }).catch();
 
     log.info('Mount Test: Cleaning up data');
     const execDelete = `sudo rm -rf ${appsFolder + appId}`;
