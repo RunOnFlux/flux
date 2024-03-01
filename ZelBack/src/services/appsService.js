@@ -9857,6 +9857,7 @@ async function getAppFiatAndFluxPrice(req, res) {
       const appPrices = [];
       const response = await axios.get('https://stats.runonflux.io/apps/getappspecsusdprice', axiosConfig);
       if (response.data.status === 'success') {
+        log.info(`Stats Prices: ${response}`);
         appPrices.push(response.data.data);
       } else {
         throw new Error('Unable to get standard usd prices for app specs');
@@ -9892,8 +9893,8 @@ async function getAppFiatAndFluxPrice(req, res) {
         actualPriceToPay = priceSpecifications.minPrice;
       }
       const fiatRates = await axios.get('https://viparates.zelcore.io/rates', axiosConfig).catch(() => { throw new Error('Unable to get Flux Rates'); });
-      const rateObj = fiatRates[0].find((rate) => rate.code === 'USD');
-      let btcRateforCoin = this.fiatRates[1].FLUX;
+      const rateObj = fiatRates.data[0].find((rate) => rate.code === 'USD');
+      let btcRateforCoin = fiatRates.data[1].FLUX;
       if (btcRateforCoin === undefined) {
         btcRateforCoin = 0;
       }

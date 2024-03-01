@@ -2721,21 +2721,22 @@ export default {
         if (response.data.status === 'error') {
           throw new Error(response.data.data.message || response.data.data);
         }
-        this.applicationPriceAux = (Math.ceil(((+response.data.data * this.generalMultiplier) * 100))) / 100;
-        console.log(this.applicationPriceAux);
+        const fluxOldPrice = (Math.ceil(((+response.data.data * this.generalMultiplier) * 100))) / 100;
+        console.log(`OLD FLUX:${fluxOldPrice}`);
 
         response = await AppsService.appPriceUSDandFlux(appSpecFormatted);
+        console.log(`appPriceUSDandFlux:${JSON.stringify(response)}`);
         if (response.data.status === 'error') {
           throw new Error(response.data.data.message || response.data.data);
         }
         this.applicationPriceUSD = (Math.ceil(((+response.data.data.usd * this.generalMultiplier) * 100))) / 100;
-        console.log(this.applicationPriceUSD);
+        console.log(`OLD FLUX:${this.applicationPriceUSD}`);
         if (Number.isNaN(response.data.data.flux)) {
           this.applicationPriceFluxError = true;
           this.showToast('danger', 'Not possible to complete payment with Flux crypto currency');
         } else {
           this.applicationPrice = (Math.ceil(((+response.data.data.flux * this.generalMultiplier) * 100))) / 100;
-          console.log(this.applicationPrice);
+          console.log(`OLD FLUX:${this.applicationPrice}`);
         }
         this.timestamp = Date.now();
         this.dataForAppRegistration = appSpecFormatted;
