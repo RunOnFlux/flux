@@ -1636,6 +1636,17 @@
                 >
               </a>
             </div>
+            <div class="loginRow">
+              <a @click="initStripePay(registrationHash, appRegistrationSpecification.name, applicationPriceUSD, appRegistrationSpecification.description)">
+                <img
+                  class="stripeLogin"
+                  src="@/assets/images/Stripe.svg"
+                  alt="Stripe"
+                  height="100%"
+                  width="100%"
+                >
+              </a>
+            </div>
           </b-card>
         </b-col>
       </b-row>
@@ -1949,6 +1960,8 @@ import { MetaMaskSDK } from '@metamask/sdk';
 import useAppConfig from '@core/app-config/useAppConfig';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
+
+const paymentBridge = 'https://fiatpaymentsbridge.runonflux.io';
 
 const walletConnectOptions = {
   projectId,
@@ -3494,6 +3507,33 @@ export default {
         this.showToast('danger', error.message);
       }
     },
+    async initStripePay(hash, name, price, description) {
+      try {
+        const zelidauth = localStorage.getItem('zelidauth');
+        const auth = qs.parse(zelidauth);
+        const data = {
+          zelid: auth.zelid,
+          signature: auth.signature,
+          loginPhrase: auth.loginPhrase,
+          details: {
+            name,
+            description,
+            hash,
+            price,
+            productName: name,
+          },
+        };
+        const checkoutURL = await axios.post(`${paymentBridge}/api/v1/stripe/checkout/create`, data);
+        console.log(checkoutURL.data.data);
+        if (checkoutURL.data.status === 'error') {
+          this.showToast('error', 'Failed to create stripe checkout');
+          return;
+        }
+        this.openSite(checkoutURL.data.data);
+      } catch (error) {
+        this.showToast('error', 'Failed to create stripe checkout');
+      }
+    },
     importSpecs(appSpecs) {
       try {
         JSON.parse(appSpecs);
@@ -3626,7 +3666,15 @@ export default {
   -webkit-app-region: no-drag;
   transition: 0.1s;
 }
-
+.stripeLogin {
+  margin-left: 5px;
+  height: 90px;
+  padding: 10px;
+}
+.stripeLogin img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
 .walletconnectLogin {
   height: 100px;
   padding: 10px;
