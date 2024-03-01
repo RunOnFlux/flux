@@ -2114,7 +2114,7 @@ async function installSyncthingIdempotently() { // can throw
 
   log.info('Checking if Syncthing is installed...');
   const execIsInstalled = 'syncthing --version';
-  const installed = await cmdAsync(execIsInstalled).catch(log.info('Syncthing not installed....'));
+  const installed = await cmdAsync(execIsInstalled).catch(() => log.info('Syncthing not installed....'));
 
   if (!installed) {
     log.info('Installing Syncthing...');
@@ -2269,7 +2269,7 @@ async function runSyncthingSentinel() {
       log.info('Spawning Syncthing instance...');
       await cmdAsync(exec).catch((err) => {
         log.error(err);
-        log.info('Error starting synchting.');
+        log.info('Error starting syncthing.');
       });
 
     }

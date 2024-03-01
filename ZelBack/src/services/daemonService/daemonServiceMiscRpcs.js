@@ -53,16 +53,18 @@ async function fluxDaemonBlockchainInfo() {
   try {
     const daemonBlockChainInfo = await daemonServiceBlockchainRpcs.getBlockchainInfo();
     if (daemonBlockChainInfo.status !== 'success') {
-      return log.error(daemonBlockChainInfo.data.message || daemonBlockChainInfo.data);
+      log.error(daemonBlockChainInfo.data.message || daemonBlockChainInfo.data);
+      return null;
     }
     currentDaemonHeight = daemonBlockChainInfo.data.blocks;
     if (daemonBlockChainInfo.data.headers >= currentDaemonHeader) {
       currentDaemonHeader = daemonBlockChainInfo.data.headers;
     }
-    return log.info(`Daemon Sync status: ${currentDaemonHeight}/${currentDaemonHeader}`);
+    log.info(`Daemon Sync status: ${currentDaemonHeight} / ${currentDaemonHeader}`);
   } catch (error) {
-    return log.warn(error);
+    log.warn(error);
   }
+  return null;
 }
 
 function getIsDaemonInsightExplorer() {
