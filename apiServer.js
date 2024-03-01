@@ -1,8 +1,22 @@
 process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
 
-global.userconfig = require('./config/userconfig');
+/**
+ * A global function to be used as a no-operation. See apiServer.js
+ * @returns {void}
+ */
+globalThis.noop = () => { }
 
-global.sleep = (ms) => new Promise((r) => { setTimeout(r, ms); });
+/**
+ * A global awaitable function to wait for actions. See apiServer.js
+ * @param {number} ms Amount of time to sleep for
+ * @returns {Promise<void>}
+ */
+globalThis.sleep = (ms) => new Promise((r) => { setTimeout(r, ms); });
+
+/**
+ * A global container for user defined configuration. See apiServer.js
+ */
+globalThis.userconfig = require('./config/userconfig');
 
 const config = require('config');
 const fs = require('fs');
