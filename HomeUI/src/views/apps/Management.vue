@@ -8088,7 +8088,7 @@ export default {
             node.country = 'N/A';
             node.region = 'N/A';
           });
-          if (!errorFluxOs && fluxGeo.data.status === 'success' && fluxGeo.data.data.continent) {
+          if (!errorFluxOs && fluxGeo.data?.status === 'success' && fluxGeo.data.data?.continent) {
             node.continent = fluxGeo.data.data.continent;
             node.country = fluxGeo.data.data.country;
             node.region = fluxGeo.data.data.regionName;
