@@ -48,7 +48,7 @@ const myCacheTemp = new LRUCache(LRUoptionsTemp);
 
 const testListCache = new LRUCache(LRUTest); */
 
-let numberOfFluxNodes = 0;
+const numberOfFluxNodes = 0;
 
 const blockedPubKeysCache = new LRUCache(LRUoptions);
 
@@ -59,6 +59,7 @@ const privateIpsList = [
 
 // Flux Communication Controller
 let fcc = serviceHelper.FluxController();
+let connectionTimeout = null;
 
 /**
  * To handle temporary app messages.
@@ -533,16 +534,15 @@ async function removeIncomingPeer(req, res, expressWS) {
 }
 
 async function closeAllConnections() {
-  const promises = []
+  const promises = [];
 
-  for (const peer of outgoingPeers) {
-    promises.push(fluxNetworkHelper.closeOutboundConnection(peer.ip, peer.port))
-  }
+  outgoingPeers.forEach((peer) => {
+    promises.push(fluxNetworkHelper.closeOutboundConnection(peer.ip, peer.port));
+  });
 
-  for (const peer of incomingPeers) {
-    promises.push(fluxNetworkHelper.closeIncomingConnection(peer.ip, peer.port))
-
-  }
+  incomingPeers.forEach((peer) => {
+    promises.push(fluxNetworkHelper.closeIncomingConnection(peer.ip, peer.port));
+  });
 
   await Promise.all(promises);
 }
@@ -814,171 +814,182 @@ async function addOutgoingPeer(req, res) {
 /**
  * To discover and connect to other randomly selected FluxNodes Ensures that
  * FluxNode connections are not duplicated.
- * @returns {Promise<void>}
+ * @returns {Promise<number>} ms to sleep for until next attempt
  */
+async function connectToPeers() {
+  if (fcc.aborted) return 0;
 
-async function startPeerConnectionSentinel() {
-  while (!fcc.aborted) {
-    try {
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      if (!syncStatus.data.synced) {
-        log.error('Daemon not synced. Peer discovery on hold. Will try again in 1m.');
-        await fcc.sleep(60 * 1000);
-        continue;
-      }
+  fcc.lock.enable();
+  try {
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    if (!syncStatus.data.synced) {
+      log.error('Daemon not synced. Peer discovery on hold. Will try again in 1m.');
+      return 60 * 1000;
+    }
 
-      const currentIpsConnTried = [];
+    const currentIpsConnTried = [];
 
-      const localEndpoint = await fluxNetworkHelper.getMyFluxIPandPort();
-      if (!localEndpoint) {
-        log.error('Flux IP not detected. Peer discovery on hold. Will try again in 1m.');
-        await fcc.sleep(60 * 1000);
-        continue;
-      }
+    const localEndpoint = await fluxNetworkHelper.getMyFluxIPandPort();
+    if (!localEndpoint) {
+      log.error('Flux IP not detected. Peer discovery on hold. Will try again in 1m.');
+      return 60 * 1000;
+    }
 
-      const activatedNodes = await fluxCommunicationUtils.deterministicFluxList();
+    const activatedNodes = await fluxCommunicationUtils.deterministicFluxList();
 
-      const fluxNode = activatedNodes.find((node) => node.ip === localEndpoint);
+    const fluxNode = activatedNodes.find((node) => node.ip === localEndpoint);
 
-      if (!fluxNode) {
-        log.error('Node not confirmed. Peer discovery on hold. Will try again in 1m.');
-        await fcc.sleep(60 * 1000);
-        continue;
-      }
+    if (!fluxNode) {
+      log.error('Node not confirmed. Peer discovery on hold. Will try again in 1m.');
+      return 60 * 1000;
+    }
 
-      let [sortedNodeList, fluxNodeIndex] = sortedNodeListCache.get('sortedNodeList');
+    let [sortedNodeList, fluxNodeIndex] = sortedNodeListCache.get('sortedNodeList');
 
-      if (!sortedNodeList) {
-        log.info('sortedNodeList not found in cache');
-        sortedNodeList = activatedNodes;
-        log.info('Searching for my node on sortedNodeList');
-        fluxNodeIndex = sortedNodeList.findIndex((node) => node.ip === localEndpoint);
-        log.info(`My node was found on index: ${fluxNodeIndex} of ${sortedNodeList.length} nodes`);
-        sortedNodeList.sort((a, b) => {
-          if (a.added_height > b.added_height) return 1;
-          if (b.added_height > a.added_height) return -1;
-          if (b.txhash > a.txhash) return 1;
-          return 0;
-        });
-        // this just moves the list, so the node behind us in the list is index 0
-        sortedNodeList = sortedNodeList
-          .slice(fluxNodeIndex + 1, nodeCount)
-          .concat(sortedNodeList.slice(0, fluxNodeIndex));
+    if (!sortedNodeList) {
+      log.info('sortedNodeList not found in cache');
+      sortedNodeList = activatedNodes;
+      log.info('Searching for my node on sortedNodeList');
+      fluxNodeIndex = sortedNodeList.findIndex((node) => node.ip === localEndpoint);
+      log.info(`My node was found on index: ${fluxNodeIndex} of ${sortedNodeList.length} nodes`);
+      sortedNodeList.sort((a, b) => {
+        if (a.added_height > b.added_height) return 1;
+        if (b.added_height > a.added_height) return -1;
+        if (b.txhash > a.txhash) return 1;
+        return 0;
+      });
+      // this just moves the list, so the node behind us in the list is index 0
+      sortedNodeList = sortedNodeList
+        .slice(fluxNodeIndex + 1, sortedNodeList.length)
+        .concat(sortedNodeList.slice(0, fluxNodeIndex));
 
-        sortedNodeListCache.set('sortedNodeList', [sortedNodeList, fluxNodeIndex]);
-        log.info('sortedNodeList stored to cache');
-      }
+      sortedNodeListCache.set('sortedNodeList', [sortedNodeList, fluxNodeIndex]);
+      log.info('sortedNodeList stored to cache');
+    }
 
-      const minDeterministicOutPeers = Math.min(sortedNodeList.length, config.fluxapps.minOutgoing);
+    const minDeterministicOutPeers = Math.min(sortedNodeList.length, config.fluxapps.minOutgoing);
 
-      log.info(`Current number of outgoing connections:${outgoingConnections.length}`);
-      log.info(`Current number of incoming connections:${incomingConnections.length}`);
-      log.info(`Current number of outgoing peers:${outgoingPeers.length}`);
-      log.info(`Current number of incoming peers:${incomingPeers.length}`);
+    log.info(`Current number of outgoing connections:${outgoingConnections.length}`);
+    log.info(`Current number of incoming connections:${incomingConnections.length}`);
+    log.info(`Current number of outgoing peers:${outgoingPeers.length}`);
+    log.info(`Current number of incoming peers:${incomingPeers.length}`);
 
-      const nodeCount = sortedNodeList.length;
+    // always try to connect to deterministic nodes
+    let deterministicPeerConnections = false;
 
-      // always try to connect to deterministic nodes
-      let deterministicPeerConnections = false;
+    while (!fcc.aborted && outgoingConnections.length < minDeterministicOutPeers) {
+      const { ip: endpoint } = sortedNodeList.shift();
+      const [ip, port] = endpoint.includes(':') ? endpoint.split() : [endpoint, 16127];
 
-      while (outgoingConnections.length < minDeterministicOutPeers) {
-        const { ip: endpoint } = sortedNodeList.shift();
-        const [ip, port] = endpoint.includes(":") ? endpoint.split() : [endpoint, 16127];
+      // change these to maps
+      const outgoing = outgoingConnections.find((client) => client.ip === ip && client.port === port);
+      const incoming = incomingConnections.find((client) => client.ip === ip && client.port === port);
 
-        // change these to maps
-        const outgoing = outgoingConnections.find((client) => client.ip === ip && client.port === port);
-        const incoming = incomingConnections.find((client) => client.ip === ip && client.port === port);
-
-        if (!outgoing && !incoming) {
-          deterministicPeerConnections = true;
-          initiateAndHandleConnection(endpoint);
-          // this is pretty rugged. Should wait on the connection being established.
-          // eslint-disable-next-line no-await-in-loop
-          await fcc.sleep(500);
-        }
-      }
-
-      // established deterministic 8 incoming connections
-      while (incomingConnections.length < minDeterministicOutPeers) {
-        const { ip: endpoint } = sortedNodeList.shift();
-        const [ip, port] = ip.includes(":") ? endpoint.split() : [endpoint, 16127];
-
-        // change these to maps
-        const outgoing = outgoingConnections.find((client) => client.ip === ip && client.port === port);
-        const incoming = incomingConnections.find((client) => client.ip === ip && client.port === port);
-
-        if (!outgoing && !incoming) {
-          deterministicPeerConnections = true;
-          // eslint-disable-next-line no-await-in-loop
-          await serviceHelper.axiosGet(`http://${ipOnly}:${portInc}/flux/addoutgoingpeer/${myIP}`).catch((error) => log.error(error));
-        }
-      }
-
-      if (deterministicPeerConnections) {
-        log.info('Connections to deterministic peers established');
-      }
-
-      // why??
-      await fcc.sleep(500);
-
-      let index = 0;
-      while ((outgoingConnections.length < 14 || [...new Set(outgoingConnections.map((client) => client.ip))].length < 9) && index < 100) { // Max of 14 outgoing connections - 8 possible deterministic + min. 6 random
-        index += 1;
-        // eslint-disable-next-line no-await-in-loop
-        const connection = await fluxNetworkHelper.getRandomConnection();
-        if (connection) {
-          const ipInc = connection.split(':')[0];
-          const portInc = connection.split(':')[1] || 16127;
-          // additional precaution
-          const sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ipInc);
-          const clientExists = outgoingConnections.find((client) => client.ip === ipInc && client.port === portInc);
-          const clientIncomingExists = incomingConnections.find((client) => client.ip === ipInc && client.port === portInc);
-          if (!sameConnectedIp && !clientExists && !clientIncomingExists) {
-            log.info(`Adding random Flux peer: ${connection}`);
-            currentIpsConnTried.push(connection);
-            initiateAndHandleConnection(connection);
-          }
-        }
+      if (!outgoing && !incoming) {
+        deterministicPeerConnections = true;
+        initiateAndHandleConnection(endpoint);
+        // this is pretty rugged. Should wait on the connection being established.
         // eslint-disable-next-line no-await-in-loop
         await fcc.sleep(500);
-      }
-      index = 0;
-      while ((incomingConnections.length < 12 || [...new Set(incomingConnections.map((client) => client.ip))].length < 5) && index < 100) { // Max of 12 incoming connections - 8 possible deterministic + min. 4 random (we will get more random as others nodes have more random outgoing connections)
-        index += 1;
-        // eslint-disable-next-line no-await-in-loop
-        const connection = await fluxNetworkHelper.getRandomConnection();
-        if (connection) {
-          const ipInc = connection.split(':')[0];
-          const portInc = connection.split(':')[1] || 16127;
-          // additional precaution
-          const sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ipInc);
-          const clientExists = outgoingConnections.find((client) => client.ip === ipInc && client.port === portInc);
-          const clientIncomingExists = incomingConnections.find((client) => client.ip === ipInc && client.port === portInc);
-          if (!sameConnectedIp && !clientExists && !clientIncomingExists) {
-            log.info(`Asking random Flux ${connection} to add us as a peer`);
-            currentIpsConnTried.push(connection);
-            // eslint-disable-next-line no-await-in-loop
-            await serviceHelper.axiosGet(`http://${ipInc}:${portInc}/flux/addoutgoingpeer/${myIP}`).catch((error) => log.error(error));
-          }
-        }
-        // eslint-disable-next-line no-await-in-loop
-        await fcc.sleep(500);
-      }
-      await fcc.sleep(60 * 1000);
-    } catch (err) {
-      if (!err.name === 'AbortError') {
-        log.warn(err);
-        await fcc.sleep(2 * 60 * 1000).catch();
       }
     }
+
+    // established deterministic 8 incoming connections
+    while (!fcc.aborted && incomingConnections.length < minDeterministicOutPeers) {
+      const { ip: endpoint } = sortedNodeList.shift();
+      const [ip, port] = endpoint.includes(':') ? endpoint.split() : [endpoint, 16127];
+
+      // change these to maps
+      const outgoing = outgoingConnections.find((client) => client.ip === ip && client.port === port);
+      const incoming = incomingConnections.find((client) => client.ip === ip && client.port === port);
+
+      if (!outgoing && !incoming) {
+        deterministicPeerConnections = true;
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.axiosGet(`http://${ip}:${port}/flux/addoutgoingpeer/${localEndpoint}`).catch((error) => log.error(error));
+      }
+    }
+
+    if (deterministicPeerConnections) {
+      log.info('Connections to deterministic peers established');
+    }
+
+    // why??
+    await fcc.sleep(500);
+
+    let index = 0;
+    // Max of 14 outgoing connections - 8 possible deterministic + min. 6 random
+    while (!fcc.aborted && index < 100 && (outgoingConnections.length < 14 || [...new Set(outgoingConnections.map((client) => client.ip))].length < 9)) {
+      index += 1;
+      // eslint-disable-next-line no-await-in-loop
+      const connection = await fluxNetworkHelper.getRandomConnection();
+      if (connection) {
+        const ipInc = connection.split(':')[0];
+        const portInc = connection.split(':')[1] || 16127;
+        // additional precaution
+        const sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ipInc);
+        const clientExists = outgoingConnections.find((client) => client.ip === ipInc && client.port === portInc);
+        const clientIncomingExists = incomingConnections.find((client) => client.ip === ipInc && client.port === portInc);
+        if (!sameConnectedIp && !clientExists && !clientIncomingExists) {
+          log.info(`Adding random Flux peer: ${connection}`);
+          currentIpsConnTried.push(connection);
+          initiateAndHandleConnection(connection);
+        }
+      }
+      // eslint-disable-next-line no-await-in-loop
+      await fcc.sleep(500);
+    }
+    index = 0;
+    // Max of 12 incoming connections - 8 possible deterministic + min. 4 random (we will get more random as others nodes have more random outgoing connections)
+    while ((incomingConnections.length < 12 || [...new Set(incomingConnections.map((client) => client.ip))].length < 5) && index < 100) {
+      index += 1;
+      // eslint-disable-next-line no-await-in-loop
+      const connection = await fluxNetworkHelper.getRandomConnection();
+      if (connection) {
+        const ipInc = connection.split(':')[0];
+        const portInc = connection.split(':')[1] || 16127;
+        // additional precaution
+        const sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ipInc);
+        const clientExists = outgoingConnections.find((client) => client.ip === ipInc && client.port === portInc);
+        const clientIncomingExists = incomingConnections.find((client) => client.ip === ipInc && client.port === portInc);
+        if (!sameConnectedIp && !clientExists && !clientIncomingExists) {
+          log.info(`Asking random Flux ${connection} to add us as a peer`);
+          currentIpsConnTried.push(connection);
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.axiosGet(`http://${ipInc}:${portInc}/flux/addoutgoingpeer/${localEndpoint}`).catch((error) => log.error(error));
+        }
+      }
+      // eslint-disable-next-line no-await-in-loop
+      await fcc.sleep(500);
+    }
+    return 60 * 1000;
+  } catch (err) {
+    if (!err.name === 'AbortError') {
+      log.warn(err);
+      return 2 * 60 * 120;
+    }
+  } finally {
+    fcc.lock.disable();
   }
+  return 0;
+}
+
+async function loopPeerConnections() {
+  const ms = await connectToPeers();
+  if (!ms) return;
+  connectionTimeout = setTimeout(loopPeerConnections, ms);
+}
+
+function startPeerConnectionSentinel() {
+  loopPeerConnections();
 }
 
 async function stopPeerConnectionSentinel() {
+  if (connectionTimeout) clearTimeout(connectionTimeout);
+  connectionTimeout = null;
   await fcc.abort();
   fcc = new serviceHelper.FluxController();
   await closeAllConnections();
-
 }
 
 /**

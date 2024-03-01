@@ -1,3 +1,6 @@
+/* eslint max-classes-per-file: 0 */
+const { randomBytes } = require('node:crypto');
+
 const axios = require('axios');
 const config = require('config');
 const splitargs = require('splitargs');
@@ -9,9 +12,13 @@ const dbHelper = require('./dbHelper');
 const log = require('../lib/log');
 
 class AsyncLock {
-  disable = () => { };
   ready = Promise.resolve();
+
   locked = false;
+
+  constructor() {
+    this.disable = () => { };
+  }
 
   async enable() {
     if (this.locked) await this.ready;
@@ -20,8 +27,8 @@ class AsyncLock {
       this.disable = () => {
         this.reset();
         resolve();
-      }
-    })
+      };
+    });
   }
 
   reset() {
@@ -33,6 +40,7 @@ class AsyncLock {
 
 class FluxController extends AbortController {
   #timeouts = new Map();
+
   lock = new AsyncLock();
 
   get ['aborted']() {
@@ -55,12 +63,13 @@ class FluxController extends AbortController {
       this.#timeouts.set(id, [reject, setTimeout(() => {
         this.#timeouts.delete(id);
         resolve();
-      }, ms)])
-    })
+      }, ms)]);
+    });
   }
 
   async abort() {
     super.abort();
+    // eslint-disable-next-line no-restricted-syntax
     for (const [reject, timeout] of this.#timeouts.values()) {
       clearTimeout(timeout);
       reject({ name: 'AbortError' });
@@ -79,6 +88,81 @@ function delay(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+/**
+ *  Parse a human readable time string into milliseconds, for timers
+ * @param {number|string} userInterval the time period to parse. In the format
+ * ```<amount of time>[<unit of time>]+``` For example:
+ * ```
+ *   200  = 200 milliseconds
+ *   15s  = 15 seconds
+ *   2m   = 2 minutes
+ *   4h   = 4 hours
+ *   1d   = 1 day
+ *
+ *   3m30s   = 3 minutes 30 seconds
+ *   1h30m    = 1 hour 30 minutes
+ *   1d8h30m5s  = 1 day 8 hours 30 minutes 5 seconds
+ * ```
+ * @returns number milliseconds
+ */
+function parseInterval(userInterval) {
+  // if only numbers are provided, we assume they are ms
+  if (/^\d+$/.test(userInterval)) return userInterval;
+
+  // allows unlimited numbers followed by zero or one of of sSmMhHdD, then allows unlimited repeating of the
+  // previous match, except that if a number is provided, it must be followed with one of sSmMhHdD.
+  if (!/^[0-9]+[s|S|m|M|h|H|d|D]?(?:[0-9]+[s|S|m|M|h|H|d|D]+)*$/.test(userInterval)) return 0;
+
+  const intervalAsArray = userInterval.match(/[0-9]+|[a-zA-Z]+/g);
+  // this should always be true because of the middle regex
+  if (intervalAsArray.length % 2 !== 0) return 0;
+
+  let ms = 0;
+  // iterate of the array objects as pairs
+  for (let i = 0; i < intervalAsArray.length; i += 2) {
+    const measure = intervalAsArray[i];
+    const unit = intervalAsArray[i + 1];
+
+    switch (unit.toLowerCase()) {
+      case 's':
+        ms += measure * 1000;
+        break;
+      case 'm':
+        ms += measure * 1000 * 60;
+        break;
+      case 'h':
+        ms += measure * 1000 * 3600;
+        break;
+      case 'd':
+        ms += measure * 1000 * 86400;
+        break;
+      default:
+      // do nothing
+    }
+  }
+  return ms;
+}
+
+/**
+ * Generates a random amount of milliseconds between two human
+ * readable strings.
+ *
+ * I.e. 15m and 30m Would return an amount of ms somewhere between
+ * 15 minutes and 30 minutes.
+ * @param {string|number} minInterval Human readable time string
+ * @param {string|number} maxInterval Human readable time string
+ * @returns number milliseconds
+ */
+async function randomMsBetween(minInterval, maxInterval) {
+  // eslint-disable-next-line no-param-reassign
+  if (minInterval > maxInterval) [minInterval, maxInterval] = [maxInterval, minInterval];
+
+  const min = parseInterval(minInterval);
+  const max = parseInterval(maxInterval);
+  const interval = (Math.floor(Math.random() * (max - min + 1)) + min);
+  return interval;
 }
 
 /**
@@ -312,19 +396,21 @@ async function installAptPackage(packageName) {
 }
 
 module.exports = {
+  axiosGet,
+  commandStringToArray,
+  delay,
+  deleteLoginPhrase,
+  dockerBufferToString,
   ensureBoolean,
   ensureNumber,
   ensureObject,
   ensureString,
-  axiosGet,
-  delay,
   getApplicationOwner,
-  deleteLoginPhrase,
-  isDecimalLimit,
-  dockerBufferToString,
-  commandStringToArray,
-  validIpv4Address,
-  ipInSubnet,
   installAptPackage,
+  ipInSubnet,
+  isDecimalLimit,
+  parseInterval,
+  randomMsBetween,
+  validIpv4Address,
   FluxController,
 };

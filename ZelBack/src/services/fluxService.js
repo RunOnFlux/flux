@@ -1,4 +1,3 @@
-/* global userconfig */
 const nodecmd = require('node-cmd');
 const path = require('path');
 const config = require('config');
@@ -33,15 +32,15 @@ const geolocationService = require('./geolocationService');
  */
 // eslint-disable-next-line consistent-return
 async function fluxBackendFolder(req, res) {
-  const branch = userconfig.initial.branch;
+  const { branch } = userconfig.initial;
   const develop = userconfig.initial.development;
-  let fluxBackendFolder = '';
-  if (develop && branch && !["development", "master"].includes(branch)) {
-    fluxBackendFolder = path.join(__dirname, '../../../../canonical/ZelBack');
+  let backendFolder = '';
+  if (develop && branch && !['development', 'master'].includes(branch)) {
+    backendFolder = path.join(__dirname, '../../../../canonical/ZelBack');
   } else {
-    fluxBackendFolder = path.join(__dirname, '../../');
+    backendFolder = path.join(__dirname, '../../');
   }
-  const message = messageHelper.createDataMessage(fluxBackendFolder);
+  const message = messageHelper.createDataMessage(backendFolder);
   return res.json(message);
 }
 
@@ -62,12 +61,12 @@ async function getCurrentCommitId(req, res) {
   }
 
   const cmdAsync = util.promisify(nodecmd.get);
-  const showBranchCmd = 'git rev-parse --short HEAD'
+  const showBranchCmd = 'git rev-parse --short HEAD';
 
   const branch = await cmdAsync(showBranchCmd).catch((err) => {
     const errMsg = messageHelper.createErrorMessage(`Error getting current commit id of Flux: ${err.message}`, err.name, err.code);
     return res ? res.json(errMsg) : errMsg;
-  })
+  });
 
   const successMsg = messageHelper.createSuccessMessage(branch.replace('\n', ''));
   return res ? res.json(successMsg) : successMsg;
@@ -90,12 +89,12 @@ async function getCurrentBranch(req, res) {
   }
 
   const cmdAsync = util.promisify(nodecmd.get);
-  const showBranchCmd = 'git rev-parse --abbrev-ref HEAD'
+  const showBranchCmd = 'git rev-parse --abbrev-ref HEAD';
 
   const branch = await cmdAsync(showBranchCmd).catch((err) => {
     const errMsg = messageHelper.createErrorMessage(`Error getting current branch of Flux: ${err.message}`, err.name, err.code);
     return res ? res.json(errMsg) : errMsg;
-  })
+  });
 
   const successMsg = messageHelper.createSuccessMessage(branch.replace('\n', ''));
   return res ? res.json(successMsg) : successMsg;
@@ -110,7 +109,7 @@ async function getCurrentBranch(req, res) {
 async function checkoutBranch(branch, options = {}) {
   const cmdAsync = util.promisify(nodecmd.get);
   const verifyBranch = `git rev-parse --verify ${branch}`;
-  const pull = options.pull ? ' && git pull' : ''
+  const pull = options.pull ? ' && git pull' : '';
   const checkoutAndPull = `git checkout ${branch}${pull}`;
 
   const verified = await cmdAsync(verifyBranch).catch((err) => log.error(err));

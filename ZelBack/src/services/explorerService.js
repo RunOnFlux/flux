@@ -1,6 +1,5 @@
 const config = require('config');
 const { LRUCache } = require('lru-cache');
-const { randomBytes } = require('crypto');
 
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
@@ -34,6 +33,7 @@ const updateFluxAppsPeriod = Math.floor(Math.random() * 6 + 4);
 
 // Block Processor Controller
 let bpc = new serviceHelper.FluxController();
+let blockProcessorTimeout = null;
 
 /**
  * To return the sender's transaction info from the daemon service.
@@ -633,128 +633,6 @@ async function processStandard(blockDataVerbose, database) {
 }
 
 /**
- * To process block data for entry to Insight database.
- * @param {number} blockHeight Block height.
- * @param {boolean} isInsightExplorer True if node is insight explorer based.
- * @returns {Promise<void>}
- */
-async function processBlocks(options = {}) {
-  if (bpc.aborted) return;
-
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.daemon.database);
-  const isInsightExplorer = options.isInsightExplorer || false;
-
-  let blockHeight = options.fromHeight || 1;
-  let fetchNewBlock = false;
-
-  try {
-    while (!bpc.aborted) {
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      if (!syncStatus.data.synced) {
-        await bpc.sleep(2 * 60 * 1000);
-        continue;
-      }
-
-      if (fetchNewBlock) {
-        const infoRes = await daemonServiceControlRpcs.getInfo();
-        let daemonHeight = 0;
-        if (infoRes.status === 'success') {
-          daemonHeight = infoRes.data.blocks;
-        }
-        if (daemonHeight > blockHeight) {
-          blockHeight += 1;
-          fetchNewBlock = false;
-        } else {
-          await bpc.sleep(5 * 1000);
-          continue;
-        }
-      }
-
-      const currentBlock = await getVerboseBlock(blockHeight);
-      if (currentBlock.height % 50 === 0) log.info(`Processing Explorer Block Height: ${currentBlock.height}`);
-
-      isInsightExplorer ? await processInsight(currentBlock, database) : await processStandard(currentBlock, database);
-
-      if (blockHeight % config.fluxapps.expireFluxAppsPeriod === 0) {
-        if (!isInsightExplorer) {
-          const result = await dbHelper.collectionStats(database, utxoIndexCollection);
-          const resultB = await dbHelper.collectionStats(database, addressTransactionIndexCollection);
-          const resultFusion = await dbHelper.collectionStats(database, coinbaseFusionIndexCollection);
-          log.info(`UTXO documents: ${result.size}, ${result.count}, ${result.avgObjSize}`);
-          log.info(`ADDR documents: ${resultB.size}, ${resultB.count}, ${resultB.avgObjSize}`);
-          log.info(`Fusion documents: ${resultFusion.size}, ${resultFusion.count}, ${resultFusion.avgObjSize}`);
-        }
-        const resultC = await dbHelper.collectionStats(database, fluxTransactionCollection);
-        log.info(`FLUX documents: ${resultC.size}, ${resultC.count}, ${resultC.avgObjSize}`);
-      }
-
-      // this should run only when node is synced
-      const newBlock = !(currentBlock.confirmations >= 2);
-      if (newBlock) {
-        if (blockHeight % config.fluxapps.expireFluxAppsPeriod === 0) {
-          if (currentBlock.height >= config.fluxapps.epochstart) {
-            appsService.expireGlobalApplications();
-          }
-        }
-        if (blockHeight % config.fluxapps.removeFluxAppsPeriod === 0) {
-          if (currentBlock.height >= config.fluxapps.epochstart) {
-            appsService.checkAndRemoveApplicationInstance();
-          }
-        }
-        if (blockHeight % updateFluxAppsPeriod === 0) {
-          if (currentBlock.height >= config.fluxapps.epochstart) {
-            appsService.reinstallOldApplications();
-          }
-        }
-        if (currentBlock.height % config.fluxapps.reconstructAppMessagesHashPeriod === 0) {
-          try {
-            appsService.reconstructAppMessagesHashCollection();
-            log.info('Validation of App Messages Hash Collection');
-          } catch (error) {
-            log.error(error);
-          }
-        }
-        if (currentBlock.height % config.fluxapps.benchUpnpPeriod === 0) {
-          try {
-            benchmarkService.executeUpnpBench();
-          } catch (error) {
-            log.error(error);
-          }
-        }
-      }
-
-      const scannedHeight = currentBlock.height;
-      // update scanned Height in scannedBlockHeightCollection
-      const query = { generalScannedHeight: { $gte: 0 } };
-      const update = { $set: { generalScannedHeight: scannedHeight } };
-      const options = {
-        upsert: true,
-      };
-      await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
-
-      if (currentBlock.confirmations > 1) {
-        blockHeight += 1;
-      } else {
-        fetchNewBlock = true;
-      }
-    }
-  } catch (error) {
-    // AbortError happens if the bpc.sleep() is interrupted by bpc.abort()
-    if (error.name !== 'AbortError') {
-      log.error('Block processor encountered an error.');
-      log.error(error);
-    }
-  } finally {
-    bpc.lock.disable();
-    // it was some other error that got us here
-    if (!bpc.aborted) {
-      initiateBlockProcessor({ restoreDatabase: true });
-    }
-  }
-}
-
-/**
  * To restore database to specified block height.
  * @param {number} height Block height.
  * @param {boolean} rescanGlobalApps Value set to false on function call.
@@ -801,7 +679,7 @@ async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = fals
 /**
  * @returns {Promise<void>}
  */
-async function prepareExplorerDatabase() {
+async function prepareExplorerDatabase(con, database, reindexOrRescanGlobalApps) {
   log.info('Preparing daemon collections');
   const result = await dbHelper.dropCollection(database, utxoIndexCollection).catch((error) => {
     if (error.message !== 'ns not found') {
@@ -828,7 +706,7 @@ async function prepareExplorerDatabase() {
       throw error;
     }
   });
-  const databaseUpdates = db.db(config.database.chainparams.database);
+  const databaseUpdates = con.db(config.database.chainparams.database);
   const resultChainParams = await dbHelper.dropCollection(databaseUpdates, chainParamsMessagesCollection).catch((error) => {
     if (error.message !== 'ns not found') {
       throw error;
@@ -864,7 +742,7 @@ async function prepareExplorerDatabase() {
   await databaseUpdates.collection(chainParamsMessagesCollection).createIndex({ message: 1 }, { name: 'query for getting message of some chain parameters update message' });
   await databaseUpdates.collection(chainParamsMessagesCollection).createIndex({ version: 1 }, { name: 'query for getting version of some chain parameters update message' });
 
-  const databaseGlobal = db.db(config.database.appsglobal.database);
+  const databaseGlobal = con.db(config.database.appsglobal.database);
   log.info('Preparing apps collections');
   if (reindexOrRescanGlobalApps === true) {
     const resultE = await dbHelper.dropCollection(databaseGlobal, config.database.appsglobal.collections.appsMessages).catch((error) => {
@@ -908,7 +786,6 @@ async function prepareExplorerDatabase() {
   log.info('Preparation done');
 }
 
-
 /**
  * To start the block processor.
  * @param {{restoreDatabase?: Boolean, deepRestore?: Boolean, reindexOrRescanGlobalApps?: Boolean}} options
@@ -922,19 +799,20 @@ async function prepareExplorerDatabase() {
  * or if its initial start of flux use reindexGlobalApps with caution!!!
  */
 
-async function initiateBlockProcessor(options = {}) {
-  if (bpc.locked) return;
+async function setupBlockProcessor(options = {}) {
+  if (bpc.aborted) return {};
 
   // if (bpc.aborted) throw new Error('This should never happen')
 
   bpc.lock.enable();
 
-  let restoreDatabase = options.restoreDatabase === false ? false : true;
-  let deepRestore = options.deepRestore === false ? false : true;
-  let reindexOrRescanGlobalApps = options.deepRestore === true ? true : false;
+  const restoreDatabase = options.restoreDatabase !== false;
+  const deepRestore = options.deepRestore !== false;
+  const reindexOrRescanGlobalApps = options.deepRestore === true;
 
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.daemon.database);
+  const con = dbHelper.databaseConnection();
+  const database = con.db(config.database.daemon.database);
+
   const query = { generalScannedHeight: { $gte: 0 } };
   const projection = {
     projection: {
@@ -942,122 +820,276 @@ async function initiateBlockProcessor(options = {}) {
       generalScannedHeight: 1,
     },
   };
+
   let scannedBlockHeight = 0;
 
-  while (!bpc.aborted) {
-    try {
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      if (!syncStatus.data.synced) {
-        await bpc.sleep(2 * 60 * 1000);
-        continue;
-      }
+  try {
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    if (!syncStatus.data.synced) {
+      return { delayMs: 2 * 60 * 1000 };
+    }
 
-      const currentHeight = await dbHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
-      if (currentHeight && currentHeight.generalScannedHeight) {
-        scannedBlockHeight = currentHeight.generalScannedHeight;
-      }
-      // fix for a node if they have corrupted global app list
-      if (scannedBlockHeight >= config.fluxapps.epochstart) {
-        const globalAppsSpecs = await appsService.getAllGlobalApplications(['height']); // already sorted from oldest lowest height to newest highest height
-        if (globalAppsSpecs.length >= 2) {
-          const defaultExpire = config.fluxapps.blocksLasting;
-          const minBlockheightDifference = defaultExpire * 0.9; // it is highly unlikely that there was no app registration or an update for default of 2200 blocks ~3days
-          const blockDifference = globalAppsSpecs[globalAppsSpecs.length - 1] - globalAppsSpecs[0]; // most recent app - oldest app
-          if (blockDifference < minBlockheightDifference) {
-            await appsService.reindexGlobalAppsInformation();
-          }
-        } else {
+    const currentHeight = await dbHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
+    if (currentHeight && currentHeight.generalScannedHeight) {
+      scannedBlockHeight = currentHeight.generalScannedHeight;
+    }
+    // fix for a node if they have corrupted global app list
+    if (scannedBlockHeight >= config.fluxapps.epochstart) {
+      const globalAppsSpecs = await appsService.getAllGlobalApplications(['height']); // already sorted from oldest lowest height to newest highest height
+      if (globalAppsSpecs.length >= 2) {
+        const defaultExpire = config.fluxapps.blocksLasting;
+        const minBlockheightDifference = defaultExpire * 0.9; // it is highly unlikely that there was no app registration or an update for default of 2200 blocks ~3days
+        const blockDifference = globalAppsSpecs[globalAppsSpecs.length - 1] - globalAppsSpecs[0]; // most recent app - oldest app
+        if (blockDifference < minBlockheightDifference) {
           await appsService.reindexGlobalAppsInformation();
         }
+      } else {
+        await appsService.reindexGlobalAppsInformation();
+      }
+    }
+
+    if (scannedBlockHeight === 0) {
+      // rename this appropriately
+      await prepareExplorerDatabase(con, database, reindexOrRescanGlobalApps);
+    }
+
+    if (scannedBlockHeight && restoreDatabase) {
+      try {
+        // adjust for initial reorg
+        if (deepRestore) {
+          log.info('Deep restoring of database...');
+          scannedBlockHeight = Math.max(scannedBlockHeight - 100, 0);
+          await restoreDatabaseToBlockheightState(scannedBlockHeight, reindexOrRescanGlobalApps);
+          const queryHeight = { generalScannedHeight: { $gte: 0 } };
+          const update = { $set: { generalScannedHeight: scannedBlockHeight } };
+          await dbHelper.updateOneInDatabase(database, scannedHeightCollection, queryHeight, update, { upsert: true });
+          log.info('Database restored OK');
+        } else {
+          log.info('Restoring database...');
+          await restoreDatabaseToBlockheightState(scannedBlockHeight, reindexOrRescanGlobalApps);
+          log.info('Database restored OK');
+        }
+      } catch (e) {
+        log.error('Error restoring database!');
+        return { delayMs: 15 * 60 * 1000 };
+      }
+    } else if (scannedBlockHeight > config.daemon.chainValidHeight) {
+      const daemonGetChainTips = await daemonServiceBlockchainRpcs.getChainTips();
+      if (daemonGetChainTips.status !== 'success') {
+        log.error(daemonGetChainTips.data.message || daemonGetChainTips.data);
+        return { delayMs: 15 * 60 * 1000 };
       }
 
-      if (scannedBlockHeight === 0) {
-        // rename this appropriately
-        await prepareExplorerDatabase();
-      }
+      const reorganisations = daemonGetChainTips.data;
+      // database can be off for up to 2 blocks compared to daemon
+      const reorgDepth = scannedBlockHeight - 2;
+      const reorgs = reorganisations.filter((reorg) => reorg.status === 'valid-fork' && reorg.height === reorgDepth);
+      let rescanDepth = 0;
+      // if more valid forks on the same height. Restore from the longest one
+      reorgs.forEach((reorg) => {
+        if (reorg.branchlen > rescanDepth) {
+          rescanDepth = reorg.branchlen;
+        }
+      });
 
-      if (scannedBlockHeight && restoreDatabase) {
+      if (rescanDepth > 0) {
         try {
-          // adjust for initial reorg
-          if (deepRestore) {
-            log.info('Deep restoring of database...');
-            scannedBlockHeight = Math.max(scannedBlockHeight - 100, 0);
-            await restoreDatabaseToBlockheightState(scannedBlockHeight, reindexOrRescanGlobalApps);
-            const queryHeight = { generalScannedHeight: { $gte: 0 } };
-            const update = { $set: { generalScannedHeight: scannedBlockHeight } };
-            const options = {
-              upsert: true,
-            };
-            await dbHelper.updateOneInDatabase(database, scannedHeightCollection, queryHeight, update, options);
-            log.info('Database restored OK');
-          } else {
-            log.info('Restoring database...');
-            await restoreDatabaseToBlockheightState(scannedBlockHeight, reindexOrRescanGlobalApps);
-            log.info('Database restored OK');
-          }
+          // restore rescanDepth + 2 more blocks back
+          rescanDepth += 2;
+          log.warn(`Potential chain reorganisation spotted at height ${reorgDepth}. Rescanning last ${rescanDepth} blocks...`);
+          scannedBlockHeight = Math.max(scannedBlockHeight - rescanDepth, 0);
+          await restoreDatabaseToBlockheightState(scannedBlockHeight, reindexOrRescanGlobalApps);
+          const queryHeight = { generalScannedHeight: { $gte: 0 } };
+          const update = { $set: { generalScannedHeight: scannedBlockHeight } };
+          await dbHelper.updateOneInDatabase(database, scannedHeightCollection, queryHeight, update, { upsert: true });
+          log.info('Database restored OK');
         } catch (e) {
-          log.error('Error restoring database!');
-          await bpc.sleep(15 * 60 * 1000);
-          continue;
-        }
-      } else if (scannedBlockHeight > config.daemon.chainValidHeight) {
-        const daemonGetChainTips = await daemonServiceBlockchainRpcs.getChainTips();
-        if (daemonGetChainTips.status !== 'success') {
-          log.error(daemonGetChainTips.data.message || daemonGetInfo.data);
-          await bpc.sleep(15 * 60 * 1000);
-          continue
-        }
-
-        const reorganisations = daemonGetChainTips.data;
-        // database can be off for up to 2 blocks compared to daemon
-        const reorgDepth = scannedBlockHeight - 2;
-        const reorgs = reorganisations.filter((reorg) => reorg.status === 'valid-fork' && reorg.height === reorgDepth);
-        let rescanDepth = 0;
-        // if more valid forks on the same height. Restore from the longest one
-        reorgs.forEach((reorg) => {
-          if (reorg.branchlen > rescanDepth) {
-            rescanDepth = reorg.branchlen;
-          }
-        });
-
-        if (rescanDepth > 0) {
-          try {
-            // restore rescanDepth + 2 more blocks back
-            rescanDepth += 2;
-            log.warn(`Potential chain reorganisation spotted at height ${reorgDepth}. Rescanning last ${rescanDepth} blocks...`);
-            scannedBlockHeight = Math.max(scannedBlockHeight - rescanDepth, 0);
-            await restoreDatabaseToBlockheightState(scannedBlockHeight, reindexOrRescanGlobalApps);
-            const queryHeight = { generalScannedHeight: { $gte: 0 } };
-            const update = { $set: { generalScannedHeight: scannedBlockHeight } };
-            const options = {
-              upsert: true,
-            };
-            await dbHelper.updateOneInDatabase(database, scannedHeightCollection, queryHeight, update, options);
-            log.info('Database restored OK');
-          } catch (e) {
-            log.error(`Error restoring database!: ${e}`);
-            await bpc.sleep(15 * 60 * 1000);
-            continue;
-          }
+          log.error(`Error restoring database!: ${e}`);
+          return { delayMs: 15 * 60 * 1000 };
         }
       }
+    }
 
-      const isInsightExplorer = daemonServiceMiscRpcs.isInsightExplorer();
+    const isInsightExplorer = daemonServiceMiscRpcs.isInsightExplorer();
 
-      // if node is insight explorer based, we are only processing flux app messages
-      if (isInsightExplorer && scannedBlockHeight < config.deterministicNodesStart - 1) {
-        scannedBlockHeight = config.deterministicNodesStart - 1
+    // if node is insight explorer based, we are only processing flux app messages
+    if (isInsightExplorer && scannedBlockHeight < config.deterministicNodesStart - 1) {
+      scannedBlockHeight = config.deterministicNodesStart - 1;
+    }
+
+    return { delayMs: 0, scannedBlockHeight, isInsightExplorer };
+  } catch (error) {
+    log.error(error);
+    return { delayMs: 15 * 60 * 1000 };
+  } finally {
+    bpc.lock.disable();
+  }
+}
+
+/**
+ * To process block data for entry to Insight database.
+ * @param {number} blockHeight Block height to fetch and process.
+ * @param {mongodb.Db} database The Daemon database
+ * @param {boolean} isInsightExplorer True if node is insight explorer based.
+ * @returns {Promise<number>} Block confirmations
+ */
+async function processBlock(blockHeight, database, isInsightExplorer) {
+  const currentBlock = await getVerboseBlock(blockHeight);
+  if (currentBlock.height % 50 === 0) log.info(`Processing Explorer Block Height: ${currentBlock.height}`);
+
+  if (isInsightExplorer) {
+    await processInsight(currentBlock, database);
+  } else {
+    await processStandard(currentBlock, database);
+  }
+
+  if (blockHeight % config.fluxapps.expireFluxAppsPeriod === 0) {
+    if (!isInsightExplorer) {
+      const result = await dbHelper.collectionStats(database, utxoIndexCollection);
+      const resultB = await dbHelper.collectionStats(database, addressTransactionIndexCollection);
+      const resultFusion = await dbHelper.collectionStats(database, coinbaseFusionIndexCollection);
+      log.info(`UTXO documents: ${result.size}, ${result.count}, ${result.avgObjSize}`);
+      log.info(`ADDR documents: ${resultB.size}, ${resultB.count}, ${resultB.avgObjSize}`);
+      log.info(`Fusion documents: ${resultFusion.size}, ${resultFusion.count}, ${resultFusion.avgObjSize}`);
+    }
+    const resultC = await dbHelper.collectionStats(database, fluxTransactionCollection);
+    log.info(`FLUX documents: ${resultC.size}, ${resultC.count}, ${resultC.avgObjSize}`);
+  }
+
+  // this should run only when node is synced
+  const newBlock = !(currentBlock.confirmations >= 2);
+  if (newBlock) {
+    if (blockHeight % config.fluxapps.expireFluxAppsPeriod === 0) {
+      if (currentBlock.height >= config.fluxapps.epochstart) {
+        appsService.expireGlobalApplications();
       }
-
-      return processBlocks({ fromHeight: scannedBlockHeight + 1, isInsightExplorer });
-
-    } catch (error) {
-      if (error.name !== 'AbortError') {
+    }
+    if (blockHeight % config.fluxapps.removeFluxAppsPeriod === 0) {
+      if (currentBlock.height >= config.fluxapps.epochstart) {
+        appsService.checkAndRemoveApplicationInstance();
+      }
+    }
+    if (blockHeight % updateFluxAppsPeriod === 0) {
+      if (currentBlock.height >= config.fluxapps.epochstart) {
+        appsService.reinstallOldApplications();
+      }
+    }
+    if (currentBlock.height % config.fluxapps.reconstructAppMessagesHashPeriod === 0) {
+      try {
+        appsService.reconstructAppMessagesHashCollection();
+        log.info('Validation of App Messages Hash Collection');
+      } catch (error) {
         log.error(error);
-        await bpc.sleep(15 * 60 * 1000).catch();
+      }
+    }
+    if (currentBlock.height % config.fluxapps.benchUpnpPeriod === 0) {
+      try {
+        benchmarkService.executeUpnpBench();
+      } catch (error) {
+        log.error(error);
       }
     }
   }
+
+  // update scanned Height in scannedBlockHeightCollection
+  const query = { generalScannedHeight: { $gte: 0 } };
+  const update = { $set: { generalScannedHeight: blockHeight } };
+  await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, { upsert: true });
+
+  return currentBlock.confirmations;
+}
+
+/**
+ * To process block data for entry to Insight database.
+ * @param {number} blockHeight Block height.
+ * @param {{blockHeight: number, isInsightExplorer?: Boolean}} options
+ * @returns {Promise<[number, number]>} tuple containing ms to wait for next run, and the current height
+ */
+async function processBlocks(options) {
+  if (bpc.aborted) return [0, 0];
+
+  await bpc.lock.enable();
+
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.daemon.database);
+  const isInsightExplorer = options.isInsightExplorer || false;
+
+  let blockHeight = options.fromHeight || 1;
+
+  const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+  if (!syncStatus.data.synced) {
+    // this is the processed height
+    return [2 * 60 * 1000, blockHeight - 1];
+  }
+
+  let confirmations = 0;
+  confirmations = await processBlock(blockHeight, database, isInsightExplorer);
+
+  while (confirmations > 1) {
+    blockHeight += 1;
+    // eslint-disable-next-line no-await-in-loop
+    confirmations = await processBlock(blockHeight, database, isInsightExplorer);
+  }
+
+  const infoRes = await daemonServiceControlRpcs.getInfo();
+
+  let daemonHeight = 0;
+  if (infoRes.status === 'success') {
+    daemonHeight = infoRes.data.blocks;
+  }
+
+  if (daemonHeight > blockHeight) {
+    blockHeight += 1;
+    await processBlock(blockHeight, database, isInsightExplorer);
+  }
+
+  bpc.lock.disable();
+
+  // no more blocks to process
+  return [5 * 1000, blockHeight];
+}
+
+// finally {
+//   bpc.lock.disable();
+//   // it was some other error that got us here
+//   if (!bpc.aborted) {
+//     setupBlockProcessor({ restoreDatabase: true });
+//   }
+// }
+// return [0, blockHeight];
+
+async function startBlockProcessor(options = {}) {
+  const { delayMs, scannedBlockHeight, isInsightExplorer } = await setupBlockProcessor(options);
+
+  if (bpc.aborted) return;
+
+  if (delayMs) {
+    blockProcessorTimeout = setTimeout(() => startBlockProcessor(options), delayMs);
+    return;
+  }
+  // eslint-disable-next-line no-use-before-define
+  loopProcessBlocks({ fromHeight: scannedBlockHeight + 1, isInsightExplorer });
+}
+
+async function loopProcessBlocks(options = {}) {
+  let ms;
+  let blockHeight;
+
+  try {
+    [ms, blockHeight] = await processBlocks(options);
+  } catch (err) {
+    if (err.message && err.message.includes('duplicate key')) {
+      startBlockProcessor({ restoreDatabase: true, deepRestore: true });
+    } else {
+      startBlockProcessor({ restoreDatabase: true, deepRestore: false });
+    }
+    return;
+  }
+
+  if (bpc.aborted) return;
+
+  const opts = { fromHeight: blockHeight + 1, isInsightExplorer: options.isInsightExplorer };
+  blockProcessorTimeout = setTimeout(() => loopProcessBlocks(opts), ms);
 }
 
 /**
@@ -1481,26 +1513,33 @@ async function getScannedHeight(req, res) {
   }
 }
 
+async function stopBlockProcessor() {
+  if (!bpc.aborted) {
+    clearTimeout(blockProcessorTimeout);
+    await bpc.abort();
+    bpc = new serviceHelper.FluxController();
+    blockProcessorTimeout = null;
+  }
+}
+
 /**
  * To stop block processing. Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
  */
-async function stopBlockProcessingApi(req, res) {
+async function stopBlockProcessorApi(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
-    stopBlockProcessing();
+    stopBlockProcessor();
   } else {
     const errMessage = messageHelper.errUnauthorizedMessage();
     res.json(errMessage);
   }
 }
 
-async function stopBlockProcessing() {
-  if (bpc.locked) {
-    await bpc.abort();
-    bpc = new serviceHelper.FluxController();
-  }
+async function restartBlockProcessor() {
+  await stopBlockProcessor();
+  startBlockProcessor({ restoreDatabase: true });
 }
 
 /**
@@ -1508,22 +1547,36 @@ async function stopBlockProcessing() {
  * @param {object} req Request.
  * @param {object} res Response.
  */
-async function restartBlockProcessingApi(req, res) {
+async function restartBlockProcessorApi(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
-    restartBlockProcessing();
+    restartBlockProcessor();
   } else {
     const errMessage = messageHelper.errUnauthorizedMessage();
     res.json(errMessage);
   }
 }
 
-async function restartBlockProcessing() {
-  if (bpc.locked) {
-    await bpc.abort();
-    bpc = new serviceHelper.FluxController();
+async function reindexExplorer(reindexOrRescanGlobalApps) {
+  const dbopen = dbHelper.databaseConnection();
+  const database = dbopen.db(config.database.daemon.database);
+
+  await stopBlockProcessor();
+
+  const resultOfDropping = await dbHelper.dropCollection(database, scannedHeightCollection).catch((error) => {
+    // ns not found = collection didn't exist
+    if (error.message !== 'ns not found') {
+      log.error(error);
+      return false;
+    }
+    return true;
+  });
+
+  if (resultOfDropping) {
+    startBlockProcessor({ restoreDatabase: true, deepRestore: false, reindexOrRescanGlobalApps }); // restore database and possibly do reindex of apps
+    return null;
   }
-  initiateBlockProcessor({ restoreDatabase: true });
+  return { message: 'Collection dropping error' };
 }
 
 /**
@@ -1536,7 +1589,7 @@ async function reindexExplorerApi(req, res) {
   if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     res.json(errMessage);
-    return
+    return;
   }
 
   let { reindexapps } = req.params;
@@ -1546,37 +1599,13 @@ async function reindexExplorerApi(req, res) {
   const error = await reindexExplorer(reindexapps);
 
   if (error) {
-    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code)
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
     return;
   }
 
   const message = messageHelper.createSuccessMessage('Explorer database reindex initiated');
   res.json(message);
-
-}
-
-async function reindexExplorer(reindexOrRescanGlobalApps) {
-  const dbopen = dbHelper.databaseConnection();
-  const database = dbopen.db(config.database.daemon.database);
-
-  if (bpc.locked) {
-    await stopBlockProcessing();
-  }
-
-  const resultOfDropping = await dbHelper.dropCollection(database, scannedHeightCollection).catch((error) => {
-    if (error.message !== 'ns not found') {
-      log.error(error);
-      return error
-    }
-  });
-
-  if (resultOfDropping === true || resultOfDropping === undefined) {
-    initiateBlockProcessor({ restoreDatabase: true, deepRestore: false, reindexOrRescanGlobalApps }); // restore database and possibly do reindex of apps
-    return null;
-  } else {
-    return { message: 'Collection dropping error' };
-  }
 }
 
 /**
@@ -1589,7 +1618,7 @@ async function rescanExplorer(req, res) {
   if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     res.json(errMessage);
-    return
+    return;
   }
 
   // since what blockheight
@@ -1634,7 +1663,7 @@ async function rescanExplorer(req, res) {
   rescanapps = rescanapps ?? req.query.rescanapps ?? false;
   rescanapps = serviceHelper.ensureBoolean(rescanapps);
 
-  await stopBlockProcessing();
+  await stopBlockProcessor();
 
   const update = { $set: { generalScannedHeight: blockheight } };
   const options = {
@@ -1642,7 +1671,7 @@ async function rescanExplorer(req, res) {
   };
   // update scanned Height in scannedBlockHeightCollection
   await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
-  initiateBlockProcessor({ restoreDatabase: true, deepRestore: false, reindexOrRescanGlobalApps: rescanapps }); // restore database and possibly do rescan of apps
+  startBlockProcessor({ restoreDatabase: true, deepRestore: false, reindexOrRescanGlobalApps: rescanapps }); // restore database and possibly do rescan of apps
   const message = messageHelper.createSuccessMessage(`Explorer rescan from blockheight ${blockheight} initiated`);
   res.json(message);
 }
@@ -1713,13 +1742,14 @@ async function getAddressBalance(req, res) {
 // }
 
 module.exports = {
-  initiateBlockProcessor,
+  setupBlockProcessor,
   processBlocks,
   reindexExplorerApi,
   rescanExplorer,
-  stopBlockProcessingApi,
-  stopBlockProcessing,
-  restartBlockProcessingApi,
+  startBlockProcessor,
+  stopBlockProcessorApi,
+  stopBlockProcessor,
+  restartBlockProcessorApi,
   getAllUtxos,
   getAllAddressesWithTransactions,
   getAllAddresses,

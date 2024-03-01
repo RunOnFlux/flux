@@ -1,4 +1,3 @@
-/* global userconfig */
 const config = require('config');
 const log = require('../lib/log');
 
@@ -17,7 +16,7 @@ const pgpService = require('./pgpService');
 const dockerService = require('./dockerService');
 const backupRestoreService = require('./backupRestoreService');
 const serviceHelper = require('./serviceHelper');
-var crypto = require("crypto");
+const crypto = require('crypto');
 
 const apiPort = userconfig.initial.apiport || config.server.apiport;
 const development = userconfig.initial.development || false;
@@ -27,110 +26,39 @@ const timeoutTimers = new Map();
 
 const delayedActions = new Map(
   [
-    [geolocationService.setNodeGeolocation, "90s"],
+    [geolocationService.setNodeGeolocation, '90s'],
     // wait as of restarts due to ui building
-    [explorerService.initiateBlockProcessor, { schedule: "2m", logMsg: 'Flux Block Processing Service started' }],
-    [appsService.checkMyAppsAvailability, "3m"],
-    [appsService.syncthingApps, "3m"],
+    [explorerService.initiateBlockProcessor, { schedule: '2m', logMsg: 'Flux Block Processing Service started' }],
+    [appsService.checkMyAppsAvailability, '3m'],
+    [appsService.syncthingApps, '3m'],
     // stop and starts apps using syncthing g: when a new master is required or was changed.
-    [appsService.masterSlaveApps, "3m30s"],
-    [appsService.checkStorageSpaceForApps, "20m"],
+    [appsService.masterSlaveApps, '3m30s'],
+    [appsService.checkStorageSpaceForApps, '20m'],
     // after 125 minutes of running ok and to make sure we are connected for enough time for receiving all apps running on other nodes
     // 125 minutes should give enough time for node receive currently two times the apprunning messages
-    [appsService.trySpawningGlobalApplication, "2h5m", { logMsg: 'Starting to spawn applications' }],
+    [appsService.trySpawningGlobalApplication, '2h5m', { logMsg: 'Starting to spawn applications' }],
   ],
 );
 
 const recurringActions = new Map(
   [
-    [fluxCommunication.pingAllPeers, { schedule: "15s", logMsg: 'Connections polling prepared' }],
-    [daemonServiceMiscRpcs.fluxDaemonBlockchainInfo, { runImmediate: true, schedule: "1m", logMsg: 'Flux Daemon Info Service Started' }],
+    [fluxCommunication.pingAllPeers, { schedule: '15s', logMsg: 'Connections polling prepared' }],
+    [daemonServiceMiscRpcs.fluxDaemonBlockchainInfo, { runImmediate: true, schedule: '1m', logMsg: 'Flux Daemon Info Service Started' }],
     // the branch changing stuff happens on config change now - this still needs work
-    [fluxService.softUpdateFlux, { schedule: "1m", condition: development === true || development === 'true' || development === 1 || development === '1' }],
+    [fluxService.softUpdateFlux, { schedule: '1m', condition: development === true || development === 'true' || development === 1 || development === '1' }],
     // this waits for updateDeterministicFluxList to finish it's first run (run immediate awaits the first iteration)
-    [fluxCommunicationUtils.updateDeterministicFluxList, { runImmediate: true, schedule: "2m", }],
-    [appsService.restorePortsSupport, { schedule: "10m" }],
-    [backupRestoreService.cleanLocalBackup, { schedule: "25m" }],
-    [appsService.continuousFluxAppHashesCheck, { schedule: "30m", afterDelay: randomMsBetween("15m", "30m") }],
+    [fluxCommunicationUtils.updateDeterministicFluxList, { runImmediate: true, schedule: '2m' }],
+    [appsService.restorePortsSupport, { schedule: '10m' }],
+    [backupRestoreService.cleanLocalBackup, { schedule: '25m' }],
+    [appsService.continuousFluxAppHashesCheck, { schedule: '30m', afterDelay: serviceHelper.randomMsBetween('15m', '30m') }],
     // UPnP has already been verified and setup
-    [upnpService.adjustFirewallForUPNP, { schedule: "1h", condition: upnpService.isUPNP() }],
+    [upnpService.adjustFirewallForUPNP, { schedule: '1h', condition: upnpService.isUPNP() }],
     // first broadcast after 4m of starting fluxos (not really, could base off uptime?)
-    [appsService.checkAndNotifyPeersOfRunningApps, { schedule: "1h", afterDelay: "4m" }],
-    [appsService.checkApplicationsCompliance, { schedule: "1h" }],
-    [appsService.forceAppRemovals, { schedule: "1d", afterDelay: "30m" }],
-  ]
-)
-
-/**
- *  Parse a human readable time string into milliseconds, for timers
- * @param {number|string} userInterval the time period to parse. In the format
- * ```<amount of time>[<unit of time>]+``` For example:
- * ```
- *   200  = 200 milliseconds
- *   15s  = 15 seconds
- *   2m   = 2 minutes
- *   4h   = 4 hours
- *   1d   = 1 day
- *
- *   3m30s   = 3 minutes 30 seconds
- *   1h30m    = 1 hour 30 minutes
- *   1d8h30m5s  = 1 day 8 hours 30 minutes 5 seconds
- * ```
- * @returns number milliseconds
- */
-function parseInterval(userInterval) {
-  // if only numbers are provided, we assume they are ms
-  if (/^\d+$/.test(userInterval)) return userInterval;
-
-  // allows unlimited numbers followed by zero or one of of sSmMhHdD, then allows unlimited repeating of the
-  // previous match, except that if a number is provided, it must be followed with one of sSmMhHdD.
-  if (!/^[0-9]+[s|S|m|M|h|H|d|D]?(?:[0-9]+[s|S|m|M|h|H|d|D]+)*$/.test(userInterval)) return 0;
-
-  const intervalAsArray = userInterval.match(/[0-9]+|[a-zA-Z]+/g);
-  // this should always be true because of the middle regex
-  if (intervalAsArray.length % 2 !== 0) return 0;
-
-  let ms = 0;
-  // iterate of the array objects as pairs
-  for (let i = 0; i < intervalAsArray.length; i += 2) {
-    const measure = intervalAsArray[i];
-    const unit = intervalAsArray[i + 1];
-
-    switch (unit.toLowerCase()) {
-      case "s":
-        ms += measure * 1000;
-        break;
-      case "m":
-        ms += measure * 1000 * 60;
-        break;
-      case "h":
-        ms += measure * 1000 * 3600;
-        break
-      case "d":
-        ms += measure * 1000 * 86400;
-    }
-  }
-  return ms;
-}
-
-/**
- * Generates a random amount of milliseconds between two human
- * readable strings.
- *
- * I.e. 15m and 30m Would return an amount of ms somewhere between
- * 15 minutes and 30 minutes.
- * @param {string|number} minInterval Human readable time string
- * @param {string|number} maxInterval Human readable time string
- * @returns number milliseconds
- */
-async function randomMsBetween(minInterval, maxInterval) {
-  if (minInterval > maxInterval) [minInterval, maxInterval] = [maxInterval, minInterval];
-
-  const min = parseInterval(minInterval);
-  const max = parseInterval(maxInterval);
-  const interval = (Math.floor(Math.random() * (max - min + 1)) + min);
-  return interval;
-}
+    [appsService.checkAndNotifyPeersOfRunningApps, { schedule: '1h', afterDelay: '4m' }],
+    [appsService.checkApplicationsCompliance, { schedule: '1h' }],
+    [appsService.forceAppRemovals, { schedule: '1d', afterDelay: '30m' }],
+  ],
+);
 
 /**
  *
@@ -147,9 +75,9 @@ async function runTimedCallback(interval, callable, method, timer, options = {})
   if (parseInt(interval, 10) === 0) return false;
 
   const name = callable.name || crypto.randomBytes(8).toString('hex');
-  const delay = options.afterDelay ? parseInterval(options.afterDelay) : 0;
+  const delay = options.afterDelay ? serviceHelper.parseInterval(options.afterDelay) : 0;
 
-  const ms = parseInterval(interval);
+  const ms = serviceHelper.parseInterval(interval);
 
   // unparseable
   if (!ms) return false;
@@ -160,14 +88,14 @@ async function runTimedCallback(interval, callable, method, timer, options = {})
   const callback = () => {
     timer.delete(name);
     // only runEvery has delay option
-    if (delay) timeoutTimers.delete(name)
+    if (delay) timeoutTimers.delete(name);
     callable();
-  }
+  };
 
   const run = async () => {
     if (delay) await callable();
     timer.set(name, method(callback, ms));
-  }
+  };
   // only runEvery gets option to delay
   if (delay) {
     timeoutTimers.set(name, setTimeout(run, delay));
@@ -181,8 +109,8 @@ async function runTimedCallback(interval, callable, method, timer, options = {})
 }
 
 async function runAfter(interval, callable, options = {}) {
-  const filterdOptions = options.logMsg ? { logMsg: options.logMsg } : {}
-  return await runTimedCallback(interval, callable, setTimeout, timeoutTimers, filterdOptions);
+  const filterdOptions = options.logMsg ? { logMsg: options.logMsg } : {};
+  return runTimedCallback(interval, callable, setTimeout, timeoutTimers, filterdOptions);
 }
 
 /**
@@ -192,7 +120,7 @@ async function runAfter(interval, callable, options = {}) {
  * @returns {Promise<Boolean>}
  */
 async function runEvery(interval, callable, options = {}) {
-  return await runTimedCallback(interval, callable, setInterval, intervalTimers, options);
+  return runTimedCallback(interval, callable, setInterval, intervalTimers, options);
 }
 
 async function cleanDatabases() {
@@ -272,10 +200,10 @@ async function startFluxFunctions() {
 
     // what is the point of this? if it fails it just keeps going
     await appsService.testAppMount(); // test if our node can mount a volume
-    log.info("Test volume mount completed")
+    log.info('Test volume mount completed');
 
     await appsService.stopAllNonFluxRunningApps();
-    log.info("All non Flux apps stopped");
+    log.info('All non Flux apps stopped');
 
     // this is usually an empty array
     const unreachableApps = await appsService.openAppsPortsToInternet();
@@ -289,21 +217,26 @@ async function startFluxFunctions() {
     log.info('Syncthing service started');
 
     await appsService.startMonitoringOfApps();
-    log.info("App monitoring has begun");
+    log.info('App monitoring has begun');
 
     fluxCommunication.startPeerConnectionSentinel();
     log.info('Flux peer connections initiated');
 
+    // eslint-disable-next-line no-restricted-syntax
     for (const [action, options] of delayedActions.entries()) {
       const delay = typeof options === 'string' ? options : options.schedule;
       const { schedule: _, ...filteredOptions } = typeof options === 'string' ? {} : options;
+      // eslint-disable-next-line no-await-in-loop
       const running = await runAfter(delay, action, filteredOptions);
       if (!running) log.warn(`Action: ${action} with delay: ${delay} not running`);
     }
 
+    // eslint-disable-next-line no-restricted-syntax
     for (const [action, options] of recurringActions.entries()) {
+      // eslint-disable-next-line no-continue
       if (options.condition === false) continue;
       const { schedule, ...filteredOptions } = options;
+      // eslint-disable-next-line no-await-in-loop
       const running = await runEvery(schedule, action, filteredOptions);
       if (!running) log.warn(`Action: ${action} with delay: ${schedule} not running`);
     }
@@ -317,13 +250,15 @@ async function startFluxFunctions() {
 }
 
 async function stopFluxFunctions() {
+  // eslint-disable-next-line no-restricted-syntax
   for (const timer of timeoutTimers.values()) {
     clearTimeout(timer);
   }
   timeoutTimers.clear();
 
+  // eslint-disable-next-line no-restricted-syntax
   for (const timer of intervalTimers.values()) {
-    clearInterval(timer)
+    clearInterval(timer);
   }
   intervalTimers.clear();
 

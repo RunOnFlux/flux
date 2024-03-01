@@ -1,4 +1,3 @@
-/* global userconfig */
 const config = require('config');
 const nodecmd = require('node-cmd');
 const axios = require('axios');
@@ -35,6 +34,7 @@ const goodSyncthingChars = /^[a-zA-Z0-9-_]+$/;
 
 // Syncthing Controller
 let stc = new serviceHelper.FluxController();
+let sentinelTimeout = null;
 
 /**
  * To get syncthing config xml file
@@ -2036,28 +2036,11 @@ async function getSvcReport(req, res) {
 
 /**
  * Returns device id, also checks that syncthing is installed and running and we have the api key.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function getDeviceIdApi(req, res) {
-
-  const deviceId = await getDeviceId();
-
-  if (!deviceId) {
-    const errMsg = 'Syncthing is not running properly';
-    return res.json(messageHelper.createErrorMessage(errMsg));
-  }
-
-  return res.json(messageHelper.createDataMessage(deviceId))
-}
-
-/**
- * Returns device id, also checks that syncthing is installed and running and we have the api key.
  * @returns {Promise<null | string>} Message
  */
 async function getDeviceId() {
   while (getDeviceIDRunning) {
+    // eslint-disable-next-line no-await-in-loop
     await serviceHelper.delay(500);
   }
 
@@ -2078,24 +2061,41 @@ async function getDeviceId() {
     synthingRunning = await cmdAsync(psCmd);
   } finally {
     getDeviceIDRunning = false;
-
-    if (meta.status === 'success' && pingResponse.data.ping === 'pong' && healthy.data.status === 'OK') {
-      syncthingStatusOk = true;
-      const adjustedString = meta.data.slice(15).slice(0, -2);
-      const deviceObject = JSON.parse(adjustedString);
-      const { deviceID } = deviceObject;
-      return deviceID;
-    }
-
-    syncthingStatusOk = false;
-    const msg = 'Syncthing is not running properly';
-    log.error(msg);
-    log.error(synthingRunning);
-    log.error(meta);
-    log.error(healthy);
-    log.error(pingResponse);
-    return null;
   }
+
+  if (meta.status === 'success' && pingResponse.data.ping === 'pong' && healthy.data.status === 'OK') {
+    syncthingStatusOk = true;
+    const adjustedString = meta.data.slice(15).slice(0, -2);
+    const deviceObject = JSON.parse(adjustedString);
+    const { deviceID } = deviceObject;
+    return deviceID;
+  }
+
+  syncthingStatusOk = false;
+  const msg = 'Syncthing is not running properly';
+  log.error(msg);
+  log.error(synthingRunning);
+  log.error(meta);
+  log.error(healthy);
+  log.error(pingResponse);
+  return null;
+}
+
+/**
+ * Returns device id, also checks that syncthing is installed and running and we have the api key.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message
+ */
+async function getDeviceIdApi(req, res) {
+  const deviceId = await getDeviceId();
+
+  if (!deviceId) {
+    const errMsg = 'Syncthing is not running properly';
+    return res.json(messageHelper.createErrorMessage(errMsg));
+  }
+
+  return res.json(messageHelper.createDataMessage(deviceId));
 }
 
 /**
@@ -2109,9 +2109,9 @@ function isRunning() {
 /**
  * Check if Synchtng is installed and if not install it
  */
-let syncthingInstallValidated = false;
 async function installSyncthingIdempotently() { // can throw
-  // check if syncthing is installed or not
+  if (stc.aborted) return;
+
   log.info('Checking if Syncthing is installed...');
   const execIsInstalled = 'syncthing --version';
   const installed = await cmdAsync(execIsInstalled).catch(log.info('Syncthing not installed....'));
@@ -2125,8 +2125,6 @@ async function installSyncthingIdempotently() { // can throw
   } else {
     log.info('Syncthing already installed...');
   }
-  syncthingInstallValidated = true;
-
 }
 
 /**
@@ -2134,7 +2132,8 @@ async function installSyncthingIdempotently() { // can throw
  */
 let adjustSyncthingRunning = false;
 async function adjustSyncthing() {
-  log.debug('Adjusting syncthing...')
+  if (stc.aborted) return;
+
   try {
     if (adjustSyncthingRunning) {
       return;
@@ -2209,6 +2208,8 @@ async function adjustSyncthing() {
 }
 
 async function configureDirectories() {
+  if (stc.aborted) return;
+
   const execDIRcr = 'mkdir -p $HOME/.config'; // create .config folder first for it to have standard user ownership. With -p no error will be thrown in case of exists
   await cmdAsync(execDIRcr).catch((error) => log.error(error));
   const execDIRown = 'sudo chown $USER:$USER $HOME/.config'; // adjust .config folder for ownership of running user
@@ -2222,6 +2223,8 @@ async function configureDirectories() {
  */
 
 async function stopSyncthing() {
+  if (stc.aborted) return;
+
   const execKill = 'sudo killall syncthing';
   const execKillB = 'sudo pkill syncthing';
   const execKillC = 'sudo pkill -9 syncthing';
@@ -2243,46 +2246,60 @@ async function stopSyncthing() {
 }
 
 async function stopSyncthingSentinel() {
+  clearTimeout(sentinelTimeout);
   await stc.abort();
   stc = new serviceHelper.FluxController();
+  sentinelTimeout = null;
+}
+
+async function runSyncthingSentinel() {
+  await stc.lock.enable();
+
+  let counter = 0;
+  try {
+    if (!await getDeviceId()) {
+      log.error('Syncthing Error');
+      await installSyncthingIdempotently();
+      await configureDirectories();
+      await stopSyncthing();
+    }
+
+    if (stc.aborted) return 0;
+
+    const exec = 'sudo nohup syncthing -logfile $HOME/.config/syncthing/syncthing.log --logflags=3 '
+      + '--log-max-old-files=2 --log-max-size=26214400 --allow-newer-config --no-browser '
+      + '--home=$HOME/.config/syncthing >/dev/null 2>&1 </dev/null &';
+    log.info('Spawning Syncthing instance...');
+    await cmdAsync(exec).catch((err) => {
+      log.error(err);
+      log.info('Error starting synchting.');
+    })
+
+    // every 8 minutes call adjustSyncthing to check service folders
+    // this will also run on first iteration
+    if (counter % 8 === 0) {
+      counter = 0;
+      await adjustSyncthing();
+    }
+
+    counter += 1;
+    return 60 * 1000;
+  } catch (err) {
+    log.error(err);
+    return 2 * 60 * 1000;
+  } finally {
+    stc.lock.disable();
+  }
+}
+
+async function loopRunSyncthingSentinel() {
+  const ms = await runSyncthingSentinel();
+  if (stc.aborted) return;
+  sentinelTimeout = setTimeout(loopRunSyncthingSentinel, ms);
 }
 
 async function startSyncthingSentinel() {
-  let counter = 0;
-  while (!stc.aborted) {
-    try {
-      if (!await getDeviceId()) {
-        log.error('Syncthing Error');
-        await installSyncthingIdempotently();
-        await configureDirectories();
-        await stopSyncthing();
-      }
-
-      const exec = 'sudo nohup syncthing -logfile $HOME/.config/syncthing/syncthing.log --logflags=3 '
-        + '--log-max-old-files=2 --log-max-size=26214400 --allow-newer-config --no-browser '
-        + '--home=$HOME/.config/syncthing >/dev/null 2>&1 </dev/null &';
-      log.info('Spawning Syncthing instance...');
-      await cmdAsync(exec).catch((err) => {
-        log.error(err);
-        log.info('Error starting synchting.');
-      })
-
-      // every 8 minutes call adjustSyncthing to check service folders
-      // this will also run on first iteration
-      if (counter % 8 === 0) {
-        await adjustSyncthing();
-        counter = 1;
-      }
-
-      await stc.sleep(60 * 1000);
-      counter += 1;
-    } catch (err) {
-      if (!err.name === 'AbortError') {
-        log.error(err);
-        await stc.sleep(2 * 60 * 1000).catch();
-      }
-    }
-  }
+  loopRunSyncthingSentinel();
 }
 
 // test helper

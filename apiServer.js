@@ -1,7 +1,8 @@
 process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
 
 global.userconfig = require('./config/userconfig');
-global.sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+global.sleep = (ms) => new Promise((r) => { setTimeout(r, ms); });
 
 const config = require('config');
 const fs = require('fs');
@@ -21,21 +22,14 @@ let serviceManager;
 let fluxService;
 let upnpService;
 
-loadFluxModules();
-
-const cmdAsync = util.promisify(nodecmd.get);
-const apiPort = userconfig.initial.apiport || config.server.apiport;
-const apiPortHttps = +apiPort + 1;
-const development = userconfig.initial.development || false;
-let initialHash = hash(fs.readFileSync(path.join(__dirname, '/config/userconfig.js')));
-
 function requireUncached(module) {
   delete require.cache[require.resolve(module)];
+  // eslint-disable-next-line global-require, import/no-dynamic-require
   return require(module);
 }
 
 function loadFluxModules(options = {}) {
-  loader = options.invalidateCache ? requireUncached : require
+  const loader = options.invalidateCache ? requireUncached : require;
 
   app = loader('./ZelBack/src/lib/server');
   log = loader('./ZelBack/src/lib/log');
@@ -45,10 +39,18 @@ function loadFluxModules(options = {}) {
   upnpService = loader('./ZelBack/src/services/upnpService');
 }
 
+loadFluxModules();
+
+const cmdAsync = util.promisify(nodecmd.get);
+const apiPort = userconfig.initial.apiport || config.server.apiport;
+const apiPortHttps = +apiPort + 1;
+const development = userconfig.initial.development || false;
+let initialHash = hash(fs.readFileSync(path.join(__dirname, '/config/userconfig.js')));
+
 async function loadBranch(branch) {
   const res = await fluxService.getCurrentBranch();
   if (res.status === 'success' && res.data.message !== branch) {
-    log.info(`Branch: ${branch} differs from current branch: ${res.data.message}, switching`)
+    log.info(`Branch: ${branch} differs from current branch: ${res.data.message}, switching`);
     const success = await fluxService.checkoutBranch(branch, { pull: true });
     if (success) loadFluxModules({ invalidateCache: true });
   }
@@ -93,7 +95,7 @@ async function configReload() {
         if (userconfig.initial?.apiport) {
           await loadUpnpIfRequired();
         }
-        const branch = development ? userconfig.initial.branch || "development" : "master";
+        const branch = development ? userconfig.initial.branch || 'development' : 'master';
         await loadBranch(branch);
       }
     }
@@ -112,7 +114,7 @@ async function initiate() {
     process.exit();
   }
 
-  const branch = development ? userconfig.initial.branch || "development" : "master";
+  const branch = development ? userconfig.initial.branch || 'development' : 'master';
   await loadBranch(branch);
 
   await loadUpnpIfRequired();

@@ -229,7 +229,7 @@ async function removeDocumentsFromCollection(database, collection, query) {
  * @param {string} database
  * @param {string} collection
  *
- * @returns object
+ * @returns {Boolean}
  */
 async function dropCollection(database, collection) {
   const result = await database.collection(collection).drop();

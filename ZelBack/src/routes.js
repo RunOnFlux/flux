@@ -952,7 +952,7 @@ module.exports = (app, expressWs) => {
   });
   app.get('/flux/getcurrentbranch', (req, res) => {
     fluxService.getCurrentBranch(req, res);
-  })
+  });
   app.get('/flux/enterdevelopment', (req, res) => {
     fluxService.enterDevelopment(req, res);
   });
@@ -1080,10 +1080,10 @@ module.exports = (app, expressWs) => {
     explorerService.reindexExplorerApi(req, res);
   });
   app.get('/explorer/restart', (req, res) => {
-    explorerService.restartBlockProcessingApi(req, res);
+    explorerService.restartBlockProcessorApi(req, res);
   });
   app.get('/explorer/stop', (req, res) => {
-    explorerService.stopBlockProcessingApi(req, res);
+    explorerService.stopBlockProcessorApi(req, res);
   });
   app.get('/explorer/rescan/:blockheight?/:rescanapps?', (req, res) => {
     explorerService.rescanExplorer(req, res);

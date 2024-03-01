@@ -1,4 +1,3 @@
-/* global userconfig */
 /* eslint-disable no-underscore-dangle */
 const config = require('config');
 const zeltrezjs = require('zeltrezjs');
@@ -40,6 +39,7 @@ const myCache = new LRUCache(LRUoptions);
 
 // Flux Network Controller
 let fnc = new serviceHelper.FluxController();
+let sentinelTimeout = null;
 
 // my external Flux IP from benchmark
 let myFluxIP = null;
@@ -831,97 +831,6 @@ async function checkMyFluxAvailability(retryNumber = 0) {
 }
 
 /**
- * Makes sure only this endpoint (ip:port) is activated on the network, if there
- * is more than one, the youngest Fluxnode is shut down. Also checks that this node
- * is reachable from other nodes. Runs every 60 seconds.
- * @returns {Promise<void>}
- */
-async function startNetworkSentinel() {
-  if (fnc.aborted) return;
-
-  try {
-    while (!fnc.aborted) {
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      if (!syncStatus.data.synced) {
-        await fnc.sleep(2 * 60 * 1000);
-        continue;
-      }
-
-      const localEndpoint = await getMyFluxIPandPort();
-      if (!localEndpoint) {
-        dosState += 1;
-        if (dosState > 10) {
-          setDosMessage(dosMessage || 'Flux IP detection failed');
-          log.error(dosMessage);
-          await fnc.sleep(60 * 1000);
-          continue;
-        }
-      }
-
-      const activatedNodes = await fluxCommunicationUtils.deterministicFluxList();
-      const statusRes = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
-
-      // different scenario is caught elsewhere ??? - where?
-      if (!statusRes.status === 'success') {
-        await fnc.sleep(60 * 1000);
-        continue;
-      }
-
-      detectCollision(activatedNodes, statusRes.data);
-      await ensureNodeIsReachable(activatedNodes.length);
-
-      await fnc.sleep(60 * 1000);
-    }
-  } catch (error) {
-    if (error.name !== 'AbortError') {
-      log.error(error);
-      await fnc.sleep(2 * 60 * 1000);
-    }
-  }
-}
-
-async function stopNetworkSentinel() {
-  await fnc.abort();
-  fnc = new serviceHelper.FluxController();
-}
-
-/**
- * Dependent on network size (> 12) reaches out to other nodes and checks that this
- * node is reachable over the internet. If < 12, i.e. testnet, waits until node has been
- * up for 6 hours before reaching out to other nodes, unless there is an error, then it runs
- * immediately (this probably needs a little work)
- * @param {number} networkSize
- *
- * @returns  {Promise<void}
- */
-async function ensureNodeIsReachable(networkSize) {
-  // pulled out of checkDeterministicNodesCollisions, was running every 60 seconds
-
-  // minOut = 8, minIn = 4
-  if (networkSize > config.fluxapps.minIncoming + config.fluxapps.minOutgoing) {
-    const availabilityOk = await checkMyFluxAvailability();
-    if (availabilityOk) {
-      await adjustExternalIP(myIP.split(':')[0]);
-    }
-  } else { // (testnet) wait 6 hours
-    const measuredUptime = fluxUptime();
-    if (measuredUptime.status === 'success' && measuredUptime.data > (config.fluxapps.minUpTime * 12)) {
-      const availabilityOk = await checkMyFluxAvailability();
-      if (availabilityOk) {
-        await adjustExternalIP(myIP.split(':')[0]);
-      }
-      // do this better, it should be it's own DOS score
-    } else if (measuredUptime.status === 'error') {
-      log.error('Flux uptime unavailable');
-      const availabilityOk = await checkMyFluxAvailability();
-      if (availabilityOk) {
-        await adjustExternalIP(myIP.split(':')[0]);
-      }
-    }
-  }
-}
-
-/**
  * To adjust an external IP.
  * @param {string} ip IP address.
  * @returns {Promise<void>} Return statement is only used here to interrupt the function and nothing is returned.
@@ -1015,12 +924,48 @@ async function adjustExternalIP(ip) {
 }
 
 /**
+ * Dependent on network size (> 12) reaches out to other nodes and checks that this
+ * node is reachable over the internet. If < 12, i.e. testnet, waits until node has been
+ * up for 6 hours before reaching out to other nodes, unless there is an error, then it runs
+ * immediately (this probably needs a little work)
+ * @param {number} networkSize
+ *
+ * @returns  {Promise<void}
+ */
+async function ensureNodeIsReachable(networkSize, localEndpoint) {
+  // pulled out of checkDeterministicNodesCollisions, was running every 60 seconds
+
+  // minOut = 8, minIn = 4
+  if (networkSize > config.fluxapps.minIncoming + config.fluxapps.minOutgoing) {
+    const availabilityOk = await checkMyFluxAvailability();
+    if (availabilityOk) {
+      await adjustExternalIP(localEndpoint.split(':')[0]);
+    }
+  } else { // (testnet) wait 6 hours
+    const measuredUptime = fluxUptime();
+    if (measuredUptime.status === 'success' && measuredUptime.data > (config.fluxapps.minUpTime * 12)) {
+      const availabilityOk = await checkMyFluxAvailability();
+      if (availabilityOk) {
+        await adjustExternalIP(localEndpoint.split(':')[0]);
+      }
+      // do this better, it should be it's own DOS score
+    } else if (measuredUptime.status === 'error') {
+      log.error('Flux uptime unavailable');
+      const availabilityOk = await checkMyFluxAvailability();
+      if (availabilityOk) {
+        await adjustExternalIP(localEndpoint.split(':')[0]);
+      }
+    }
+  }
+}
+
+/**
  * To check deterministic node collisions (i.e. same endPoint(ip:port)
  * @param {object[]} activatedNodes the deterministic node list
  * @param {object} nodeStatus the current status of the Fluxnode from fluxd
  * @returns {void}
  */
-function detectCollision(activatedNodes, nodeStatus) {
+function detectCollision(activatedNodes, nodeStatus, localEndpoint) {
   // another precatuion might be comparing node list on multiple nodes. evaluate in the future
 
   const duplicateEndpoints = activatedNodes.filter((node) => node.ip === localEndpoint);
@@ -1036,20 +981,86 @@ function detectCollision(activatedNodes, nodeStatus) {
     log.error(msg);
     dosState = 100;
     setDosMessage(msg);
-  }
-  else if (activated && endpointCount > 1) {
+  } else if (activated && endpointCount > 1) {
     log.warn(`Multiple Fluxnode instances detected on endPoint: ${localEndpoint}`);
     // todo we may want to introduce new readded heights and readded confirmations
     // I removed this, if and when it gets added, we can add it back in
     const olderNodes = duplicateEndpoints.filter((node) => node.confirmed_height <= confirmedHeight);
     // keep running only older collaterals
     if (olderNodes.length) {
-      const msg = `Older node found on same endpoint. Disabling this node.`
+      const msg = 'Older node found on same endpoint. Disabling this node.';
       log.error(msg);
       dosState = 100;
       setDosMessage(msg);
     }
   }
+}
+
+/**
+ * Makes sure only this endpoint (ip:port) is activated on the network, if there
+ * is more than one, the youngest Fluxnode is shut down. Also checks that this node
+ * is reachable from other nodes.
+ * @returns {Promise<number>} ms until the next run (60s by default)
+ */
+async function runNetworkSentinel() {
+  if (fnc.aborted) return 0;
+
+  fnc.lock.enable();
+
+  try {
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    if (!syncStatus.data.synced) {
+      return 2 * 60 * 1000;
+    }
+
+    const localEndpoint = await getMyFluxIPandPort();
+    if (!localEndpoint) {
+      dosState += 1;
+      if (dosState > 10) {
+        setDosMessage(dosMessage || 'Flux IP detection failed');
+        log.error(dosMessage);
+        return 60 * 1000;
+      }
+    }
+
+    const activatedNodes = await fluxCommunicationUtils.deterministicFluxList();
+    const statusRes = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
+
+    // different scenario is caught elsewhere ??? - where?
+    if (!statusRes.status === 'success') {
+      return 60 * 1000;
+    }
+
+    detectCollision(activatedNodes, statusRes.data, localEndpoint);
+    await ensureNodeIsReachable(activatedNodes.length, localEndpoint);
+
+    return 60 * 1000;
+  } catch (error) {
+    if (error.name !== 'AbortError') {
+      log.error(error);
+      return 2 * 60 * 1000;
+    }
+  } finally {
+    fnc.lock.disable();
+  }
+  return 0;
+}
+
+async function loopRunNetworkSentinel() {
+  const ms = await runNetworkSentinel();
+  if (!ms) return;
+  sentinelTimeout = setTimeout(loopRunNetworkSentinel, ms);
+}
+
+function startNetworkSentinel() {
+  loopRunNetworkSentinel();
+}
+
+async function stopNetworkSentinel() {
+  if (sentinelTimeout) clearTimeout(sentinelTimeout);
+  sentinelTimeout = null;
+  await fnc.abort();
+  fnc = new serviceHelper.FluxController();
 }
 
 /**

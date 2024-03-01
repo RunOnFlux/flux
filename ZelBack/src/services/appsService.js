@@ -1,4 +1,3 @@
-/* global userconfig */
 const config = require('config');
 const https = require('https');
 const axios = require('axios');
@@ -5955,10 +5954,10 @@ async function openAppsPortsToInternet() {
     const currentAppsPorts = await assignedPortsInstalledApps();
     const firewallActive = await fluxNetworkHelper.isFirewallActive();
 
-    const ports = currentAppsPorts.flatMap(app => app.ports);
+    const ports = currentAppsPorts.flatMap((app) => app.ports);
 
     if (firewallActive) {
-      const allowPorts = []
+      const allowPorts = [];
       ports.forEach((port) => allowPorts.push(fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(port))));
       // is this dodgey? should be okay... just a child process for each port
       await Promise.all(allowPorts);
@@ -5981,23 +5980,8 @@ async function openAppsPortsToInternet() {
     }
   } catch (error) {
     log.error(error);
-  } finally {
-    return appsToRemove;
   }
-}
-
-/**
- * Restores FluxOS and applications firewall and UPNP rules to open required ports to the internet.
- * If the upnp port opening fails for an app, it removes the app.
- */
-async function openRequiredPortsToInternet() {
-  try {
-    await openFluxPortsToInternet();
-    const appsToRemove = await openAppsPortsToInternet();
-    forceAppsRemoval(appsToRemove);
-  } catch (error) {
-    log.error(error);
-  }
+  return appsToRemove;
 }
 
 /**
@@ -10436,9 +10420,26 @@ async function stopAllNonFluxRunningApps() {
  * @returns {Promise<void>}
  */
 async function forceAppsRemoval(appNames) {
+  // eslint-disable-next-line no-restricted-syntax
   for (const appName of appNames) {
+    // eslint-disable-next-line no-await-in-loop
     await removeAppLocally(appName, null, true, true, true).catch((error) => log.error(error));
+    // eslint-disable-next-line no-await-in-loop
     await serviceHelper.delay(3 * 60 * 1000); // 3 mins
+  }
+}
+
+/**
+ * Restores FluxOS and applications firewall and UPNP rules to open required ports to the internet.
+ * If the upnp port opening fails for an app, it removes the app.
+ */
+async function openRequiredPortsToInternet() {
+  try {
+    await openFluxPortsToInternet();
+    const appsToRemove = await openAppsPortsToInternet();
+    forceAppsRemoval(appsToRemove);
+  } catch (error) {
+    log.error(error);
   }
 }
 
@@ -12788,7 +12789,6 @@ module.exports = {
   expireGlobalApplications,
   fluxUsage,
   forceAppRemovals,
-  forceAppsRemoval,
   getAllGlobalApplications,
   getAppHashes,
   getApplicationGlobalSpecifications,
