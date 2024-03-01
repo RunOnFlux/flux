@@ -128,7 +128,7 @@ async function initiate() {
     process.exit();
   }
 
-  console.log(String.raw`
+  log.info(String.raw`
     ___________.__               ________    _________
     \_   _____/|  |  __ _____  __\_____  \  /   _____/
      |    __)  |  | |  |  \  \/  //   |   \ \_____  \
