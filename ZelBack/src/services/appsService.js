@@ -11511,7 +11511,7 @@ async function removeTestAppMount(specifiedVolume) {
     // prior `grep -qs '${appsFolder + appId} ' /proc/mounts` - note the extra space.
     await cmdAsync(execUnmount).then(() => {
       log.info('Mount Test: Volume unmounted');
-    }).catch();
+    }).catch(() => { });
 
     log.info('Mount Test: Cleaning up data');
     const execDelete = `sudo rm -rf ${appsFolder + appId}`;
