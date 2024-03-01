@@ -820,6 +820,7 @@ async function connectToPeers() {
   if (fcc.aborted) return 0;
 
   fcc.lock.enable();
+
   try {
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     if (!syncStatus.data.synced) {

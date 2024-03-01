@@ -209,14 +209,14 @@ async function startFluxFunctions() {
     const unreachableApps = await appsService.openAppsPortsToInternet();
     appsService.forceAppsRemoval(unreachableApps);
 
-    // change networkHelper name to service, then change to method to start
+    // change networkHelper name to service
     fluxNetworkHelper.startNetworkSentinel();
     log.info('Collision detection running');
 
     syncthingService.startSyncthingSentinel();
     log.info('Syncthing service started');
 
-    await appsService.startMonitoringOfApps();
+    appsService.startMonitoringOfApps();
     log.info('App monitoring has begun');
 
     fluxCommunication.startPeerConnectionSentinel();
