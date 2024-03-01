@@ -2626,7 +2626,7 @@
                     <div class="ml-auto d-flex">
                       <b-form-checkbox
                         v-model="enableUser"
-                        class="ml-4 mr-2 d-flex align-items-center justify-content-center"
+                        class="ml-4 mr-1 d-flex align-items-center justify-content-center"
                         switch
                         :disabled="!!isVisible"
                         @input="onSelectChangeUser"
@@ -2635,7 +2635,7 @@
                           class="d-flex"
                           style="font-size: 14px;"
                         >
-                          Custom User
+                          User
                         </div>
                       </b-form-checkbox>
                       <b-form-checkbox
@@ -2649,7 +2649,7 @@
                           class="d-flex"
                           style="font-size: 14px;"
                         >
-                          Enable Environment
+                          Environment
                         </div>
                       </b-form-checkbox>
                     </div>

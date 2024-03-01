@@ -4,6 +4,8 @@ const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
 const IOUtils = require('./IOUtils');
 const fs = require('fs').promises;
+const util = require('util');
+const exec = util.promisify(require('child_process').exec);
 
 const fluxDirPath = path.join(__dirname, '../../../');
 const appsFolder = `${fluxDirPath}ZelApps/`;
@@ -301,6 +303,8 @@ async function downloadLocalFile(req, res) {
       }
       const fileNameArray = filepath.split('/');
       const fileName = fileNameArray[fileNameArray.length - 1];
+      const cmd = `sudo chmod 777 "${filepath}"`;
+      await exec(cmd, { maxBuffer: 1024 * 1024 * 10 });
       return res.download(filepath, fileName);
     // eslint-disable-next-line no-else-return
     } else {
