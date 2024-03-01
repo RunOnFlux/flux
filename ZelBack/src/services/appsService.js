@@ -12401,6 +12401,8 @@ async function downloadAppsFile(req, res) {
       } else {
         throw new Error('Application volume not found');
       }
+      const cmd = `sudo chmod 777 "${filepath}"`;
+      await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
       // beautify name
       const fileNameArray = filepath.split('/');
       const fileName = fileNameArray[fileNameArray.length - 1];
