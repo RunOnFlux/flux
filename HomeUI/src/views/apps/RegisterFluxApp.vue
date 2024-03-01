@@ -1600,7 +1600,44 @@
         >
           <b-card>
             <b-card-text>
-              To finish the application update, please make a transaction of {{ applicationPrice }} FLUX to address
+              Everything is ready, your application will cost you ${applicationPriceUSD}$ USD.
+            </b-card-text>
+            <br>
+            To finish the application register, pay your application with your preference method or check bellow how to pay with Flux crypto currency.
+            <br><br>
+            The application will be subscribed until {{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}
+          </b-card>
+        </b-col>
+        <b-col
+          xs="6"
+          lg="4"
+        >
+          <b-card title="Pay with">
+            <div class="loginRow">
+              <a @click="initStripePay(registrationHash, appRegistrationSpecification.name, applicationPriceUSD, appRegistrationSpecification.description)">
+                <img
+                  class="stripeLogin"
+                  src="@/assets/images/Stripe.svg"
+                  alt="Stripe"
+                  height="100%"
+                  width="100%"
+                >
+              </a>
+            </div>
+          </b-card>
+        </b-col>
+      </b-row>
+      <b-row
+        v-if="registrationHash && !applicationPriceFluxError"
+        class="match-height"
+      >
+        <b-col
+          xs="6"
+          lg="8"
+        >
+          <b-card>
+            <b-card-text>
+              To finish the application registration, please make a transaction of {{ applicationPrice }} FLUX to address
               '{{ deploymentAddress }}'
               with the following message:
               '{{ registrationHash }}'
@@ -1631,17 +1668,6 @@
                   class="sspLogin"
                   :src="skin === 'dark' ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
                   alt="SSP"
-                  height="100%"
-                  width="100%"
-                >
-              </a>
-            </div>
-            <div class="loginRow">
-              <a @click="initStripePay(registrationHash, appRegistrationSpecification.name, applicationPriceUSD, appRegistrationSpecification.description)">
-                <img
-                  class="stripeLogin"
-                  src="@/assets/images/Stripe.svg"
-                  alt="Stripe"
                   height="100%"
                   width="100%"
                 >
@@ -2254,7 +2280,7 @@ export default {
       },
       dataForAppRegistration: {},
       applicationPrice: 0,
-      applicationPriceAux: 0,
+      applicationPriceFluxError: false,
       applicationPriceUSD: 0,
       deploymentAddress: '',
       minInstances: 3,
@@ -2691,7 +2717,6 @@ export default {
         const appSpecFormatted = responseAppSpecs.data.data;
         let response = await AppsService.appPrice(appSpecFormatted);
         this.applicationPrice = 0;
-        this.applicationPriceAux = 0;
         this.applicationPriceUSD = 0;
         if (response.data.status === 'error') {
           throw new Error(response.data.data.message || response.data.data);
@@ -2704,9 +2729,14 @@ export default {
           throw new Error(response.data.data.message || response.data.data);
         }
         this.applicationPriceUSD = (Math.ceil(((+response.data.data.usd * this.generalMultiplier) * 100))) / 100;
-        this.applicationPrice = (Math.ceil(((+response.data.data.flux * this.generalMultiplier) * 100))) / 100;
         console.log(this.applicationPriceUSD);
-        console.log(this.applicationPrice);
+        if (Number.isNaN(response.data.data.flux)) {
+          this.applicationPriceFluxError = true;
+          this.showToast('danger', 'Not possible to complete payment with Flux crypto currency');
+        } else {
+          this.applicationPrice = (Math.ceil(((+response.data.data.flux * this.generalMultiplier) * 100))) / 100;
+          console.log(this.applicationPrice);
+        }
         this.timestamp = Date.now();
         this.dataForAppRegistration = appSpecFormatted;
         this.dataToSign = this.registrationtype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp;
