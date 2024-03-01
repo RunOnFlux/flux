@@ -17,6 +17,7 @@
     <b-tabs
       class="mt-2"
       pills
+      style="flex-wrap: nowrap;"
       :vertical="windowWidth > 860 ? true : false"
       lazy
       @input="index => updateManagementTab(index)"
@@ -30,7 +31,7 @@
         active
         title="Specifications"
       >
-        <div class="adjustMaxWidth">
+        <div>
           <b-card title="Local application management">
             <b-col
               class="my-1"
@@ -54,7 +55,7 @@
             </b-col>
           </b-card>
         </div>
-        <div class="adjustMaxWidth">
+        <div>
           <b-card>
             <div v-if="callBResponse.data && callResponse.data">
               <div v-if="callBResponse.data.hash !== callResponse.data.hash">
@@ -644,7 +645,7 @@
         title="Information"
       >
         <h3>Application: {{ appSpecification.name }}</h3>
-        <div v-if="appSpecification.version >= 4" class="adjustMaxWidth">
+        <div v-if="appSpecification.version >= 4">
           <div
             v-for="(component, index) in callResponse.data"
             :key="index"
@@ -661,7 +662,7 @@
             </div>
           </div>
         </div>
-        <div v-else class="adjustMaxWidth">
+        <div v-else>
           <div v-if="callResponse.data && callResponse.data[0]">
             <json-viewer
               :value="callResponse.data[0].callData"
@@ -677,13 +678,13 @@
         title="Resources"
       >
         <h3>Application: {{ appSpecification.name }}</h3>
-        <div v-if="commandExecuting" class="adjustMaxWidth">
+        <div v-if="commandExecuting">
           <v-icon
             class="spin-icon"
             name="spinner"
           />
         </div>
-        <div v-if="appSpecification.version >= 4" class="adjustMaxWidth">
+        <div v-if="appSpecification.version >= 4">
           <div
             v-for="(component, index) in callResponse.data"
             :key="index"
@@ -700,7 +701,7 @@
             </div>
           </div>
         </div>
-        <div v-else class="adjustMaxWidth">
+        <div v-else>
           <div v-if="callResponse.data && callResponse.data[0]">
             <json-viewer
               :value="callResponse.data[0].callData"
@@ -716,7 +717,7 @@
         title="Monitoring"
       >
         <h3>History Statistics 1 hour</h3>
-        <div v-if="appSpecification.version >= 4" class="adjustMaxWidth">
+        <div v-if="appSpecification.version >= 4">
           <div
             v-for="(component, index) in callResponse.data"
             :key="index"
@@ -733,7 +734,7 @@
             </div>
           </div>
         </div>
-        <div v-else class="adjustMaxWidth">
+        <div v-else>
           <b-table
             v-if="callResponse.data && callResponse.data[0]"
             class="stats-table"
@@ -746,7 +747,7 @@
         </div>
         <br><br>
         <h3>History Statistics 24 hours</h3>
-        <div v-if="appSpecification.version >= 4" class="adjustMaxWidth">
+        <div v-if="appSpecification.version >= 4">
           <div
             v-for="(component, index) in callResponse.data"
             :key="index"
@@ -763,7 +764,7 @@
             </div>
           </div>
         </div>
-        <div v-else class="adjustMaxWidth">
+        <div v-else>
           <b-table
             v-if="callResponse.data && callResponse.data[0]"
             class="stats-table"
@@ -779,13 +780,13 @@
         title="File Changes"
       >
         <h3>Application: {{ appSpecification.name }}</h3>
-        <div v-if="commandExecuting" class="adjustMaxWidth">
+        <div v-if="commandExecuting">
           <v-icon
             class="spin-icon"
             name="spinner"
           />
         </div>
-        <div v-if="appSpecification.version >= 4" class="adjustMaxWidth">
+        <div v-if="appSpecification.version >= 4">
           <div
             v-for="(component, index) in callResponse.data"
             :key="index"
@@ -802,7 +803,7 @@
             </div>
           </div>
         </div>
-        <div v-else class="adjustMaxWidth">
+        <div v-else>
           <div v-if="callResponse.data && callResponse.data[0]">
             <json-viewer
               :value="callResponse.data[0].callData"
@@ -818,13 +819,13 @@
         title="Processes"
       >
         <h3>Application: {{ appSpecification.name }}</h3>
-        <div v-if="commandExecuting" class="adjustMaxWidth">
+        <div v-if="commandExecuting">
           <v-icon
             class="spin-icon"
             name="spinner"
           />
         </div>
-        <div v-if="appSpecification.version >= 4" class="adjustMaxWidth">
+        <div v-if="appSpecification.version >= 4">
           <div
             v-for="(component, index) in callResponse.data"
             :key="index"
@@ -841,7 +842,7 @@
             </div>
           </div>
         </div>
-        <div v-else class="adjustMaxWidth">
+        <div v-else>
           <div v-if="callResponse.data && callResponse.data[0]">
             <json-viewer
               :value="callResponse.data[0].callData"
@@ -857,7 +858,7 @@
         title="Log File"
       >
         <h3>Application: {{ appSpecification.name }}</h3>
-        <div v-if="appSpecification.version >= 4" class="adjustMaxWidth">
+        <div v-if="appSpecification.version >= 4">
           <div
             v-for="(component, index) in callResponse.data"
             :key="index"
@@ -903,7 +904,7 @@
             </div>
           </div>
         </div>
-        <div v-else class="adjustMaxWidth">
+        <div v-else>
           <div class="text-center">
             <h6>
               Click the 'Download Log File' button to download the Log file from your Application debug file. This may take a few minutes depending on file size.
@@ -947,7 +948,7 @@
       <b-tab
         title="Control"
       >
-        <b-row class="match-height adjustMaxWidth">
+        <b-row class="match-height ">
           <b-col xs="6">
             <b-card title="Control">
               <b-card-text class="mb-2">
@@ -1088,7 +1089,7 @@
             </b-card>
           </b-col>
         </b-row>
-        <b-row class="match-height adjustMaxWidth">
+        <b-row class="match-height ">
           <b-col xs="6">
             <b-card title="Redeploy">
               <b-card-text class="mb-2">
@@ -1159,7 +1160,6 @@
         <b-card
           v-for="(component, index) of appSpecification.compose"
           :key="index"
-          class="adjustMaxWidth"
         >
           <h4>{{ component.name }} Component</h4>
           <b-row class="match-height">
@@ -1308,7 +1308,7 @@
       <b-tab
         title="Backup/Restore"
       >
-        <div class="adjustMaxWidth">
+        <div>
           <b-card no-body>
             <b-tabs pills card>
               <b-tab title="Backup" style="margin: 0; padding-top: 0px;">
@@ -2539,7 +2539,7 @@
       <b-tab
         title="Interactive Terminal"
       >
-        <div class="text-center adjustMaxWidth">
+        <div class="text-center ">
           <div>
             <b-card-group deck>
               <b-card header-tag="header">
@@ -2717,7 +2717,7 @@
             />
           </div>
         </div>
-        <div class="adjustMaxWidth">
+        <div>
           <b-card class="mt-1">
             <div
               class="mb-2"
@@ -3160,7 +3160,7 @@
         </div>
       </b-tab>
       <b-tab title="Running Instances">
-        <div v-if="masterSlaveApp" class="adjustMaxWidth">
+        <div v-if="masterSlaveApp">
           <b-card title="Primary/Standby App Information">
             <list-entry
               title="Current IP selected as Primary running your application"
@@ -3168,7 +3168,7 @@
             />
           </b-card>
         </div>
-        <b-row class="adjustMaxWidth">
+        <b-row>
           <b-col
             md="4"
             sm="4"
@@ -3300,7 +3300,7 @@
       >
         <div
           v-if="!fluxCommunication"
-          class="text-danger adjustMaxWidth"
+          class="text-danger "
         >
           Warning: Connected Flux is not communicating properly with Flux network
         </div>
@@ -3308,7 +3308,7 @@
           Update Application Specifications
         </h2>
 
-        <div v-if="appUpdateSpecification.version >= 4" class="adjustMaxWidth">
+        <div v-if="appUpdateSpecification.version >= 4">
           <b-row class="match-height">
             <b-col xs="6">
               <b-card title="Details">
@@ -4367,7 +4367,7 @@
             </div>
           </b-card>
         </div>
-        <div v-else class="adjustMaxWidth">
+        <div v-else>
           <b-row class="match-height">
             <b-col
               xs="12"
@@ -4774,7 +4774,7 @@
             </b-col>
           </b-row>
         </div>
-        <div class="flex adjustMaxWidth">
+        <div class="flex ">
           <b-form-checkbox
             id="tos"
             v-model="tosAgreed"
@@ -4790,7 +4790,7 @@
           </a>
           <br><br>
         </div>
-        <div class="adjustMaxWidth">
+        <div>
           <b-button
             v-ripple.400="'rgba(255, 255, 255, 0.15)'"
             variant="success"
@@ -4801,7 +4801,7 @@
             Compute Update Message
           </b-button>
         </div>
-        <div v-if="dataToSign" class="adjustMaxWidth">
+        <div v-if="dataToSign">
           <b-form-group
             label-cols="3"
             label-cols-lg="2"
@@ -9404,18 +9404,4 @@ a:hover img {
   padding: 1rem;
 }
 
-.adjustMaxWidth {
-  width: calc(100vw - 585px);
-}
-@media (max-width: 1199px) {
-  .adjustMaxWidth {
-    width: calc(100vw - 310px);
-  }
-}
-@media (max-width: 860px) {
-  .adjustMaxWidth {
-    width: unset;
-    max-width: unset;
-  }
-}
 </style>
