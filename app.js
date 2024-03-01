@@ -4,7 +4,7 @@ const log = require('./ZelBack/src/lib/log');
 const path = require('path');
 const compression = require('compression');
 const express = require('express');
-const apiServer = require('./apiServer');
+// const apiServer = require('./apiServer');
 
 async function initiate() {
   // const apiPort = await apiServer.initiate();
