@@ -58,7 +58,7 @@ const privateIpsList = [
 ];
 
 // Flux Communication Controller
-let fcc = serviceHelper.FluxController();
+let fcc = new serviceHelper.FluxController();
 let connectionTimeout = null;
 
 /**
