@@ -9855,7 +9855,7 @@ async function getAppFiatAndFluxPrice(req, res) {
         timeout: 5000,
       };
       const appPrices = [];
-      const response = await axios.get('https:/stats.runonflux.io/apps/getappspecsusdprice', axiosConfig);
+      const response = await axios.get('https://stats.runonflux.io/apps/getappspecsusdprice', axiosConfig);
       if (response.data.status === 'success') {
         appPrices.push(response.data.data);
       } else {
