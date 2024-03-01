@@ -128,13 +128,13 @@ async function initiate() {
     process.exit();
   }
 
-  log.info(String.raw`
+  console.log(String.raw`
     ___________.__               ________    _________
     \_   _____/|  |  __ _____  __\_____  \  /   _____/
-    |    __)  |  | |  |  \  \/  //   |   \ \_____  \
-    |     \   |  |_|  |  />    </    |    \/        \
-    \___  /   |____/____//__/\_ \_______  /_______  /
-        \/                     \/       \/        \/`)
+     |    __)  |  | |  |  \  \/  //   |   \ \_____  \
+     |     \   |  |_|  |  />    </    |    \/        \
+     \___  /   |____/____//__/\_ \_______  /_______  /
+         \/                     \/       \/        \/`)
 
   const branch = development ? userconfig.initial.branch || 'development' : 'master';
   await loadBranch(branch);
