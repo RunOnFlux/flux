@@ -2721,7 +2721,7 @@ export default {
         if (response.data.status === 'error') {
           throw new Error(response.data.data.message || response.data.data);
         }
-        const fluxOldPrice = Number(+response.data.data * 100).toFixed(2);
+        const fluxOldPrice = (Math.ceil((+response.data.data * 100))) / 100;
         console.log(`OLD FLUX:${fluxOldPrice}`);
 
         response = await AppsService.appPriceUSDandFlux(appSpecFormatted);
