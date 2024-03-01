@@ -6361,11 +6361,10 @@ export default {
       const ip = this.selectedIp.split(':')[0];
       const port = this.selectedIp.split(':')[1] || 16127;
       if (this.currentFolder) {
-          const folder = encodeURIComponent(this.currentFolder);
-          return `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/ioutils/fileupload/volume/${this.appName}/${this.selectedAppVolume}/${folder}`;
+        const folder = encodeURIComponent(this.currentFolder);
+        return `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/ioutils/fileupload/volume/${this.appName}/${this.selectedAppVolume}/${folder}`;
       }
       return `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/ioutils/fileupload/volume/${this.appName}/${this.selectedAppVolume}`;
-      },
     },
     getUploadFolderBackup(saveAs) {
       const ip = this.selectedIp.split(':')[0];
@@ -6639,6 +6638,7 @@ export default {
             });
             self.showToast('danger', `An error occurred while uploading '${file.selected_file.name}' - Status code: ${xhr.status}`);
             reject(xhr.status);
+
             return;
           }
           file.uploaded = true;
