@@ -2721,7 +2721,7 @@ export default {
         if (response.data.status === 'error') {
           throw new Error(response.data.data.message || response.data.data);
         }
-        const fluxOldPrice = (Math.ceil(((+response.data.data * this.generalMultiplier) * 100))) / 100;
+        const fluxOldPrice = (Math.ceil((+response.data.data * 100))) / 100;
         console.log(`OLD FLUX:${fluxOldPrice}`);
 
         response = await AppsService.appPriceUSDandFlux(appSpecFormatted);
@@ -2729,14 +2729,14 @@ export default {
         if (response.data.status === 'error') {
           throw new Error(response.data.data.message || response.data.data);
         }
-        this.applicationPriceUSD = (Math.ceil(((+response.data.data.usd * this.generalMultiplier) * 100))) / 100;
-        console.log(`OLD FLUX:${this.applicationPriceUSD}`);
+        this.applicationPriceUSD = (Math.ceil((+response.data.data.usd * 100))) / 100;
+        console.log(`USD:${this.applicationPriceUSD}`);
         if (Number.isNaN(response.data.data.flux)) {
           this.applicationPriceFluxError = true;
           this.showToast('danger', 'Not possible to complete payment with Flux crypto currency');
         } else {
-          this.applicationPrice = (Math.ceil(((+response.data.data.flux * this.generalMultiplier) * 100))) / 100;
-          console.log(`OLD FLUX:${this.applicationPrice}`);
+          this.applicationPrice = (Math.ceil((+response.data.data.flux * 100))) / 100;
+          console.log(`FLUX:${this.applicationPrice}`);
         }
         this.timestamp = Date.now();
         this.dataForAppRegistration = appSpecFormatted;
