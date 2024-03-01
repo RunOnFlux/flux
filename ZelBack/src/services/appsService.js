@@ -12788,6 +12788,7 @@ module.exports = {
   deploymentInformation,
   expireGlobalApplications,
   fluxUsage,
+  forceAppsRemoval,
   forceAppRemovals,
   getAllGlobalApplications,
   getAppHashes,
