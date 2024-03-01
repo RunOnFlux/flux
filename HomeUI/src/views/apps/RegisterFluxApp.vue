@@ -1526,7 +1526,7 @@
         >
           <b-card title="Register App">
             <b-card-text>
-              Price: {{ applicationPrice }} FLUX
+              Price: {{ applicationPriceUSD }} USD
             </b-card-text>
             <b-card-text>
               Subscription period: {{ getExpireLabel || (appRegistrationSpecification.expire ? `${appRegistrationSpecification.expire} blocks` : '1 month') }}
