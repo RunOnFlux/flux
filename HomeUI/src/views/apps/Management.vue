@@ -6356,19 +6356,15 @@ export default {
       console.log('Radio button clicked. Selected option:', this.selectedOption);
     },
     getUploadFolder() {
-      const ip = this.selectedIp.split(':')[0];
-      const port = this.selectedIp.split(':')[1] || 16127;
       if (this.currentFolder) {
         const folder = encodeURIComponent(this.currentFolder);
-        return `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/ioutils/fileupload/volume/${this.appName}/${this.selectedAppVolume}/${folder}`;
+        return this.executeLocalCommand(`/ioutils/fileupload/volume/${this.appName}/${this.selectedAppVolume}/${folder}`);
       }
-      return `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/ioutils/fileupload/volume/${this.appName}/${this.selectedAppVolume}`;
+      return this.executeLocalCommand(`/ioutils/fileupload/volume/${this.appName}/${this.selectedAppVolume}`);
     },
     getUploadFolderBackup(saveAs) {
-      const ip = this.selectedIp.split(':')[0];
-      const port = this.selectedIp.split(':')[1] || 16127;
       const filename = encodeURIComponent(saveAs);
-      return `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/ioutils/fileupload/backup/${this.appName}/${this.restoreRemoteFile}/null/${filename}`;
+      return this.executeLocalCommand(`ioutils/fileupload/backup/${this.appName}/${this.restoreRemoteFile}/null/${filename}`);
     },
     addAndConvertFileSizes(sizes, targetUnit = 'auto', decimal = 2) {
       const multiplierMap = {
