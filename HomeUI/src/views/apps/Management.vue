@@ -2830,6 +2830,7 @@
                       centered
                       ok-only
                       ok-title="Create Folder"
+                      header-bg-variant="primary"
                       @ok="createFolder(newDirName)"
                     >
                       <b-form-group
@@ -2848,6 +2849,7 @@
                       v-model="uploadFilesDialog"
                       title="Upload Files"
                       size="lg"
+                      header-bg-variant="primary"
                       centered
                       hide-footer
                       @close="refreshFolder()"
