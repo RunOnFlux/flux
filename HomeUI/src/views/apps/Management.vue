@@ -6032,6 +6032,8 @@ export default {
       if (value) {
         if (this.appSpecification.version >= 4) {
           this.selectedApp = this.appSpecification.compose[0].name;
+          this.selectedAppVolume = this.appSpecification.compose[0].name;
+          this.refreshFolder();
         }
       }
     },
