@@ -9857,7 +9857,6 @@ async function getAppFiatAndFluxPrice(req, res) {
       const appPrices = [];
       const response = await axios.get('https://stats.runonflux.io/apps/getappspecsusdprice', axiosConfig);
       if (response.data.status === 'success') {
-        log.info(`Stats Prices: ${response}`);
         appPrices.push(response.data.data);
       } else {
         throw new Error('Unable to get standard usd prices for app specs');
@@ -9871,7 +9870,7 @@ async function getAppFiatAndFluxPrice(req, res) {
       // app prices are ceiled to highest 0.01
       const multiplier = expireIn / defaultExpire;
       actualPriceToPay *= multiplier;
-      actualPriceToPay = Math.ceil(actualPriceToPay * 100) / 100;
+      actualPriceToPay = Number(actualPriceToPay).toFixed(2);
       if (appInfo) {
         let previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices); // calculate previous based on CURRENT height, with current interval of prices!
         let previousExpireIn = previousSpecsPrice.expire || defaultExpire; // bad typo bug line. Leave it like it is, this bug is a feature now.
@@ -9880,7 +9879,7 @@ async function getAppFiatAndFluxPrice(req, res) {
         }
         const multiplierPrevious = previousExpireIn / defaultExpire;
         previousSpecsPrice *= multiplierPrevious;
-        previousSpecsPrice = Math.ceil(previousSpecsPrice * 100) / 100;
+        previousSpecsPrice = Number(previousSpecsPrice).toFixed(2);
         // what is the height difference
         const heightDifference = daemonHeight - appInfo.height;
         const perc = (previousExpireIn - heightDifference) / previousExpireIn;
@@ -9888,7 +9887,7 @@ async function getAppFiatAndFluxPrice(req, res) {
           actualPriceToPay -= (perc * previousSpecsPrice);
         }
       }
-      actualPriceToPay = Number(Math.ceil(actualPriceToPay * 100) / 100);
+      actualPriceToPay = Number(actualPriceToPay).toFixed(2);
       if (actualPriceToPay < priceSpecifications.minPrice) {
         actualPriceToPay = priceSpecifications.minPrice;
       }
@@ -9900,9 +9899,7 @@ async function getAppFiatAndFluxPrice(req, res) {
         throw new Error('Unable to get Flux USD Price.');
       }
       const fiatRate = rateObj.rate * btcRateforFlux;
-      log.info(fiatRate);
-      log.info(appPrices[0].fluxmultiplier);
-      const fluxPrice = Number((Math.ceil((actualPriceToPay / fiatRate) * appPrices[0].fluxmultiplier) * 100) / 100);
+      const fluxPrice = Number((actualPriceToPay / fiatRate) * appPrices[0].fluxmultiplier).toFixed(2);
       const price = {
         usd: actualPriceToPay,
         flux: fluxPrice,
