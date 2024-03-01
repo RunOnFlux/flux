@@ -6361,10 +6361,11 @@ export default {
       const ip = this.selectedIp.split(':')[0];
       const port = this.selectedIp.split(':')[1] || 16127;
       if (this.currentFolder) {
-        const folder = encodeURIComponent(this.currentFolder);
-        return `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/ioutils/fileupload/volume/${this.appName}/${this.selectedAppVolume}/${folder}`;
+          const folder = encodeURIComponent(this.currentFolder);
+          return `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/ioutils/fileupload/volume/${this.appName}/${this.selectedAppVolume}/${folder}`;
       }
       return `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/ioutils/fileupload/volume/${this.appName}/${this.selectedAppVolume}`;
+      },
     },
     getUploadFolderBackup(saveAs) {
       const ip = this.selectedIp.split(':')[0];
