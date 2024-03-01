@@ -6702,7 +6702,7 @@ async function storeAppRemovedMessage(message) {
   }
 
   log.info('New Flux App Removed message received.');
-  log.info(message);
+  // log.info(message);
 
   const validTill = message.broadcastedAt + (65 * 60 * 1000); // 3900 seconds
   if (validTill < Date.now()) {
