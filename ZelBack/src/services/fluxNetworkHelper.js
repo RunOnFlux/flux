@@ -1364,6 +1364,9 @@ async function adjustFirewall() {
     // there was double ups here
     const filteredPorts = new Set(allPorts);
 
+    // only allow tcp NOT udp... as we aren't using it.
+    const portsAsString = `${[...filteredPorts].join(",")}/tcp`;
+
     function logCmdStatus(stdout, direction) {
       if (serviceHelper.ensureString(stdout).includes('updated')
         || serviceHelper.ensureString(stdout).includes('existing')
@@ -1373,9 +1376,6 @@ async function adjustFirewall() {
         log.warn(`Failed to adjust firewall ${direction} for ports: ${portsAsString}`);
       }
     }
-
-    // only allow tcp NOT udp... as we aren't using it.
-    const portsAsString = `${[...filteredPorts].join(",")}/tcp`;
 
     const allowInCmd = `sudo ufw allow ${portsAsString}`;
     const allowOutCmd = `sudo ufw allow out ${portsAsString}`;
