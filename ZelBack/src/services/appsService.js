@@ -11509,9 +11509,7 @@ async function removeTestAppMount(specifiedVolume) {
     const execUnmount = `sudo umount ${appsFolder + appId}`;
     // if umount fails, fail silently. Another option would be to check the following
     // prior `grep -qs '${appsFolder + appId} ' /proc/mounts` - note the extra space.
-    await cmdAsync(execUnmount).then(() => {
-      log.info('Mount Test: Volume unmounted');
-    }).catch(() => { });
+    await cmdAsync(execUnmount).catch(() => { });
 
     log.info('Mount Test: Cleaning up data');
     const execDelete = `sudo rm -rf ${appsFolder + appId}`;
