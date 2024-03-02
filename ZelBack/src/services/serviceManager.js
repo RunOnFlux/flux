@@ -206,13 +206,13 @@ async function startFluxFunctions() {
     log.info('Test volume mount completed');
 
     // update this - it's running every 2 hours, control that here
-    // await appsService.stopAllNonFluxRunningApps();
-    // log.info('All non Flux apps stopped');
+    await appsService.stopAllNonFluxRunningApps();
+    log.info('All non Flux apps stopped');
 
-    // this is usually an empty array
-    const unreachableApps = await appsService.openAppsPortsToInternet();
-    // this should be interruptable with global abortController
-    appsService.forceAppsRemoval(unreachableApps);
+    // // this is usually an empty array
+    // const unreachableApps = await appsService.openAppsPortsToInternet();
+    // // this should be interruptable with global abortController
+    // appsService.forceAppsRemoval(unreachableApps);
 
     setInterval(() => {
       log.info(`Intervals running: ${inspect(intervalTimers, INSPECT_OPTIONS)}`);
