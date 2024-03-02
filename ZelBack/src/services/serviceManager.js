@@ -209,10 +209,10 @@ async function startFluxFunctions() {
     // await appsService.stopAllNonFluxRunningApps();
     // log.info('All non Flux apps stopped');
 
-    // // this is usually an empty array
-    // const unreachableApps = await appsService.openAppsPortsToInternet();
-    // // this should be interruptable with global abortController
-    // appsService.forceAppsRemoval(unreachableApps);
+    // this is usually an empty array
+    const unreachableApps = await appsService.openAppsPortsToInternet();
+    // this should be interruptable with global abortController
+    appsService.forceAppsRemoval(unreachableApps);
 
     setInterval(() => {
       log.info(`Intervals running: ${inspect(intervalTimers, INSPECT_OPTIONS)}`);

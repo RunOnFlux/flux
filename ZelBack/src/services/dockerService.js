@@ -118,7 +118,7 @@ async function dockerNetworkInspect(netw) {
  * @param {bool} [size] - Return the size of container as fields SizeRw and SizeRootFs.
  * @param {string} [filter] Filters to process on the container list, encoded as JSON
 
- * @returns {array} containers list
+ * @returns {Promise<array>} containers list
  */
 async function dockerListContainers(all, limit, size, filter) {
   const options = {
