@@ -1096,28 +1096,37 @@ async function allowUfwPorts(ports, options = {}) {
     }
   }
 
-  const parsedPorts = ports.reduce((acc, p) => {
-    const [port, protocol] = p.toString().split("/");
-    if (protocol) {
-      acc.push(p);
-    } else {
-      acc.push(`${port}/tcp`);
-      acc.push(`${port}/udp`);
+  async function allowPorts(ports, proto) {
+    if (!ports.length) return;
+
+    if (allowIn) {
+      const inCmd = `sudo ufw allow ${ports}/${proto}`
+      const allowedIn = await cmdAsync(inCmd).catch(noop);
+      logCmdStatus(allowedIn, 'inbound');
     }
-    return acc;
-  }, [])
 
-  if (allowIn) {
-    const inCmd = `sudo ufw allow ${parsedPorts}`
-    const allowedIn = await cmdAsync(inCmd);
-    logCmdStatus(allowedIn, 'inbound');
+    if (allowOut) {
+      const outCmd = `sudo ufw allow out ${ports}/${proto}`;
+      const allowedOut = await cmdAsync(outCmd).catch(noop);
+      logCmdStatus(allowedOut, 'outbound');
+    }
   }
 
-  if (allowOut) {
-    const outCmd = `sudo ufw allow out ${parsedPorts}`;
-    const allowedOut = await cmdAsync(outCmd);
-    logCmdStatus(allowedOut, 'outbound');
-  }
+  const parsedPorts = ports.reduce((acc, p) => {
+    const [port, protocol] = p.split("/");
+    if (protocol) {
+      acc[protocol].push(port);
+    } else {
+      acc["tcp"].push(port);
+      acc["udp"].push(port);
+    }
+    return acc
+  }, { 'tcp': [], 'udp': [] })
+
+  await allowPorts(parsedPorts['tcp'], 'tcp');
+  await allowPorts(parsedPorts['udp'], 'udp');
+
+
 }
 
 /**
