@@ -183,7 +183,7 @@ async function startFluxFunctions() {
     await dockerService.dockerLogsFix();
 
     // move this from script to use Dockerode
-    await fluxService.installFluxWatchTower();
+    // await fluxService.installFluxWatchTower();
 
     await fluxNetworkHelper.purgeUFW();
     log.info('Firewall purged');
@@ -217,16 +217,14 @@ async function startFluxFunctions() {
     setInterval(() => {
       log.info(`Intervals running: ${inspect(intervalTimers, INSPECT_OPTIONS)}`);
       log.info(`Timeouts running: ${inspect(intervalTimers, INSPECT_OPTIONS)}`);
-      console.log("stdin isRaw:", process.stdin.isRaw);
-      console.log("stdout isTTY:", process.stdout.isTTY);
     }, 10 * 1000);
 
     // change networkHelper name to service
     fluxNetworkHelper.startNetworkSentinel();
     log.info('Collision detection running');
 
-    // syncthingService.startSyncthingSentinel();
-    // log.info('Syncthing service started');
+    syncthingService.startSyncthingSentinel();
+    log.info('Syncthing service started');
 
     // appsService.startMonitoringOfApps();
     // log.info('App monitoring has begun');

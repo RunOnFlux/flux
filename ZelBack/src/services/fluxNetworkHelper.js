@@ -1086,13 +1086,13 @@ async function allowUfwPorts(ports, options = {}) {
 
   const cmdAsync = util.promisify(nodecmd.get);
 
-  function logCmdStatus(stdout, direction) {
+  function logCmdStatus(stdout, direction, ports, proto) {
     if (serviceHelper.ensureString(stdout).includes('updated')
       || serviceHelper.ensureString(stdout).includes('existing')
       || serviceHelper.ensureString(stdout).includes('added')) {
-      log.info(`Firewall adjusted ${direction} for ports: ${portsAsString}`);
+      log.info(`Firewall adjusted ${direction} for ports: ${ports}/${proto}`);
     } else {
-      log.warn(`Failed to adjust firewall ${direction} for ports: ${portsAsString}`);
+      log.warn(`Failed to adjust firewall ${direction} for ports: ${ports}/${proto}`);
     }
   }
 
@@ -1102,13 +1102,13 @@ async function allowUfwPorts(ports, options = {}) {
     if (allowIn) {
       const inCmd = `sudo ufw allow ${ports}/${proto}`
       const allowedIn = await cmdAsync(inCmd).catch(noop);
-      logCmdStatus(allowedIn, 'inbound');
+      logCmdStatus(allowedIn, 'inbound', ports, proto);
     }
 
     if (allowOut) {
       const outCmd = `sudo ufw allow out ${ports}/${proto}`;
       const allowedOut = await cmdAsync(outCmd).catch(noop);
-      logCmdStatus(allowedOut, 'outbound');
+      logCmdStatus(allowedOut, 'outbound', ports, proto);
     }
   }
 

@@ -28,7 +28,7 @@ function isUPNP() {
 async function isFirewallActive() {
   try {
     const cmdAsync = util.promisify(nodecmd.get);
-    const execA = 'LANG="en_US.UTF-8" && sudo ufw status | grep Status';
+    const execA = 'sudo ufw status | grep Status';
     const cmdresA = await cmdAsync(execA);
     if (serviceHelper.ensureString(cmdresA).includes('Status: active')) {
       return true;

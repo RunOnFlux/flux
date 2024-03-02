@@ -5952,11 +5952,9 @@ async function openAppsPortsToInternet() {
 
   try {
     const currentAppsPorts = await assignedPortsInstalledApps();
-    log.info(currentAppsPorts)
     const firewallActive = await fluxNetworkHelper.isFirewallActive();
 
     const ports = currentAppsPorts.flatMap((app) => app.ports);
-    log.info("current ports:", ports)
 
     if (firewallActive) {
       await fluxNetworkHelper.allowUfwPorts(ports, { in: true, out: true });

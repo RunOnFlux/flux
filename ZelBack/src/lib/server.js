@@ -4,11 +4,13 @@ const cors = require('cors');
 const morgan = require('morgan');
 const compression = require('compression');
 
+const log = require('./log');
+
 const expressWs = eWS(express());
 const { app } = expressWs;
 
 const logger = (req, res, next) => {
-  process.stdout.write(`\n${req.method}\n${req.url}\n${req.ip}\n\n`, 'utf-8')
+  log.info(`\n\n${req.method}\n${req.url}\n${req.ip}\n`)
   next();
 };
 
