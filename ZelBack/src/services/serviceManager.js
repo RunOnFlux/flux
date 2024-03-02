@@ -211,18 +211,22 @@ async function startFluxFunctions() {
     // this should be interruptable with global abortController
     appsService.forceAppsRemoval(unreachableApps);
 
+    setInterval(() => {
+      log.info(`Intervals running: ${intervalTimers}`);
+      log.info(`Timeouts running: ${intervalTimers}`);
+    }, 10 * 1000);
     // change networkHelper name to service
-    fluxNetworkHelper.startNetworkSentinel();
-    log.info('Collision detection running');
+    // fluxNetworkHelper.startNetworkSentinel();
+    // log.info('Collision detection running');
 
-    syncthingService.startSyncthingSentinel();
-    log.info('Syncthing service started');
+    // syncthingService.startSyncthingSentinel();
+    // log.info('Syncthing service started');
 
-    appsService.startMonitoringOfApps();
-    log.info('App monitoring has begun');
+    // appsService.startMonitoringOfApps();
+    // log.info('App monitoring has begun');
 
-    fluxCommunication.startPeerConnectionSentinel();
-    log.info('Flux peer connections initiated');
+    // fluxCommunication.startPeerConnectionSentinel();
+    // log.info('Flux peer connections initiated');
 
     // // eslint-disable-next-line no-restricted-syntax
     // for (const [action, options] of delayedActions.entries()) {
