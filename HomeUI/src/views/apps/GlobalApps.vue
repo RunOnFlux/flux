@@ -14,6 +14,30 @@
         >
           <b-card>
             <b-row>
+              <b-col
+                md="12"
+                class="my-1"
+              >
+                <b-input-group class="mb-1" size="sm">
+                  <b-input-group-prepend is-text>
+                    <b-icon icon="funnel-fill" />
+                  </b-input-group-prepend>
+                  <b-form-input
+                    id="filterInput"
+                    v-model="tableconfig.active.filter"
+                    type="search"
+                    placeholder="Type to Search"
+                  />
+                  <b-input-group-append>
+                    <b-button
+                      :disabled="!tableconfig.active.filter"
+                      @click="tableconfig.active.filter = ''"
+                    >
+                      Clear
+                    </b-button>
+                  </b-input-group-append>
+                </b-input-group>
+              </b-col>
               <b-col cols="12">
                 <b-table
                   class="apps-active-table"
@@ -22,6 +46,11 @@
                   responsive
                   :items="tableconfig.active.apps"
                   :fields="tableconfig.active.fields"
+                  :sort-by.sync="tableconfig.active.sortBy"
+                  :sort-desc.sync="tableconfig.active.sortDesc"
+                  :sort-direction="tableconfig.active.sortDirection"
+                  :filter="tableconfig.active.filter"
+                  :filter-included-fields="tableconfig.active.filterOn"
                   show-empty
                   empty-text="No Flux Apps are active"
                 >
@@ -780,6 +809,11 @@ export default {
             { key: 'visit', label: 'Visit' },
           ],
           loading: true,
+          sortBy: '',
+          sortDesc: false,
+          sortDirection: 'asc',
+          filter: '',
+          filterOn: [],
         },
         active_marketplace: {
           apps: [],
