@@ -15,6 +15,30 @@
         >
           <b-card>
             <b-row>
+              <b-col
+                md="12"
+                class="my-1"
+              >
+                <b-input-group class="mb-1" size="sm">
+                  <b-input-group-prepend is-text>
+                    <b-icon icon="funnel-fill" />
+                  </b-input-group-prepend>
+                  <b-form-input
+                    id="filterInput"
+                    v-model="tableconfig.my.filter"
+                    type="search"
+                    placeholder="Type to Search"
+                  />
+                  <b-input-group-append>
+                    <b-button
+                      :disabled="!tableconfig.my.filter"
+                      @click="tableconfig.my.filter = ''"
+                    >
+                      Clear
+                    </b-button>
+                  </b-input-group-append>
+                </b-input-group>
+              </b-col>
               <b-col cols="12">
                 <b-table
                   class="myapps-table"
@@ -23,6 +47,11 @@
                   responsive
                   :items="myGlobalApps"
                   :fields="tableconfig.my.fields"
+                  :sort-by.sync="tableconfig.my.sortBy"
+                  :sort-desc.sync="tableconfig.my.sortDesc"
+                  :sort-direction="tableconfig.my.sortDirection"
+                  :filter="tableconfig.my.filter"
+                  :filter-included-fields="tableconfig.my.filterOn"
                   show-empty
                   empty-text="No Global Apps are owned"
                 >
@@ -782,6 +811,11 @@ export default {
             { key: 'visit', label: 'Visit' },
             { key: 'manage', label: 'Manage' },
           ],
+          sortBy: '',
+          sortDesc: false,
+          sortDirection: 'asc',
+          filter: '',
+          filterOn: [],
         },
         my_expired: {
           loading: true,
