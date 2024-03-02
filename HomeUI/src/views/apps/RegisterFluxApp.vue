@@ -1600,12 +1600,12 @@
         >
           <b-card>
             <b-card-text>
-              Everything is ready, your application will cost you ${applicationPriceUSD}$ USD.
+              Everything is ready, your application will cost you {{ applicationPriceUSD }} USD.
             </b-card-text>
             <br>
-            To finish the application register, pay your application with your preference method or check bellow how to pay with Flux crypto currency.
-            <br><br>
             The application will be subscribed until {{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}
+            <br>
+            To finish the application register, pay your application with your prefered payment method or check bellow how to pay with Flux crypto currency.
           </b-card>
         </b-col>
         <b-col
@@ -1637,15 +1637,13 @@
         >
           <b-card>
             <b-card-text>
-              To finish the application registration, please make a transaction of {{ applicationPrice }} FLUX to address
+              To pay in Flux, please make a transaction of {{ applicationPrice }} FLUX to address
               '{{ deploymentAddress }}'
               with the following message:
               '{{ registrationHash }}'
             </b-card-text>
             <br>
             The transaction must be mined by {{ new Date(validTill).toLocaleString('en-GB', timeoptions.shortDate) }}
-            <br><br>
-            The application will be subscribed until {{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}
           </b-card>
         </b-col>
         <b-col
@@ -2715,16 +2713,10 @@ export default {
           throw new Error(responseAppSpecs.data.data.message || responseAppSpecs.data.data);
         }
         const appSpecFormatted = responseAppSpecs.data.data;
-        let response = await AppsService.appPrice(appSpecFormatted);
         this.applicationPrice = 0;
         this.applicationPriceUSD = 0;
-        if (response.data.status === 'error') {
-          throw new Error(response.data.data.message || response.data.data);
-        }
-        const fluxOldPrice = (Math.ceil((+response.data.data * 100))) / 100;
-        console.log(`OLD FLUX:${fluxOldPrice}`);
 
-        response = await AppsService.appPriceUSDandFlux(appSpecFormatted);
+        const response = await AppsService.appPriceUSDandFlux(appSpecFormatted);
         if (response.data.status === 'error') {
           throw new Error(response.data.data.message || response.data.data);
         }

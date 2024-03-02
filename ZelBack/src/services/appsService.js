@@ -9735,7 +9735,7 @@ async function reinstallOldApplications() {
 }
 
 /**
- * To get app price.
+ * DEPRECATED: To get app price. Should be used getAppFiatAndFluxPrice method instead
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {object} Message.
@@ -9813,6 +9813,68 @@ async function getAppPrice(req, res) {
       return res.json(errorResponse);
     }
   });
+}
+
+/**
+ * To get app flux onchain price.
+ * @param {object} appSpecification Request.
+ * @returns {number} Flux Chain Price.
+ */
+async function getAppFluxOnChainPrice(appSpecification) {
+  try {
+    const appSpecFormatted = specificationFormatter(appSpecification);
+
+    // check if app exists or its a new registration price
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+    // may throw
+    const query = { name: appSpecFormatted.name };
+    const projection = {
+      projection: {
+        _id: 0,
+      },
+    };
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    if (!syncStatus.data.synced) {
+      throw new Error('Daemon not yet synced.');
+    }
+    const daemonHeight = syncStatus.data.height;
+    const appPrices = await getChainParamsPriceUpdates();
+    const intervals = appPrices.filter((i) => i.height < daemonHeight);
+    const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
+    const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+    const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
+    let actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices);
+    const expireIn = appSpecFormatted.expire || defaultExpire;
+    // app prices are ceiled to highest 0.01
+    const multiplier = expireIn / defaultExpire;
+    actualPriceToPay *= multiplier;
+    actualPriceToPay = Math.ceil(actualPriceToPay * 100) / 100;
+    if (appInfo) {
+      let previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices); // calculate previous based on CURRENT height, with current interval of prices!
+      let previousExpireIn = previousSpecsPrice.expire || defaultExpire; // bad typo bug line. Leave it like it is, this bug is a feature now.
+      if (daemonHeight > 1315000) {
+        previousExpireIn = appInfo.expire || defaultExpire;
+      }
+      const multiplierPrevious = previousExpireIn / defaultExpire;
+      previousSpecsPrice *= multiplierPrevious;
+      previousSpecsPrice = Math.ceil(previousSpecsPrice * 100) / 100;
+      // what is the height difference
+      const heightDifference = daemonHeight - appInfo.height;
+      const perc = (previousExpireIn - heightDifference) / previousExpireIn;
+      if (perc > 0) {
+        actualPriceToPay -= (perc * previousSpecsPrice);
+      }
+    }
+    actualPriceToPay = Number(Math.ceil(actualPriceToPay * 100) / 100);
+    if (actualPriceToPay < priceSpecifications.minPrice) {
+      actualPriceToPay = priceSpecifications.minPrice;
+    }
+    return Number(actualPriceToPay).toFixed(2);
+  } catch (error) {
+    log.warn(error);
+    throw error;
+  }
 }
 
 /**
@@ -9901,9 +9963,10 @@ async function getAppFiatAndFluxPrice(req, res) {
       actualPriceToPay = Number(actualPriceToPay * appPrices[0].multiplier).toFixed(2);
       const fiatRate = rateObj.rate * btcRateforFlux;
       const fluxPrice = Number((actualPriceToPay / fiatRate) * appPrices[0].fluxmultiplier).toFixed(2);
+      const fluxChainPrice = await getAppFluxOnChainPrice(appSpecification);
       const price = {
         usd: actualPriceToPay,
-        flux: fluxPrice,
+        flux: fluxChainPrice > fluxPrice ? 'Not possible to pay with Flux' : fluxPrice,
       };
       const respondPrice = messageHelper.createDataMessage(price);
       return res.json(respondPrice);
