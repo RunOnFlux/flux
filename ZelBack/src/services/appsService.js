@@ -11843,12 +11843,7 @@ async function removeTestAppMount(specifiedVolume) {
     const appId = 'flux_fluxTestVol';
     log.info('Mount Test: Unmounting volume');
     const execUnmount = `sudo umount ${appsFolder + appId}`;
-    await cmdAsync(execUnmount).then(() => {
-      log.info('Mount Test: Volume unmounted');
-    }).catch((e) => {
-      log.error(e);
-      log.error('Mount Test: An error occured while unmounting volume. Continuing. Most likely false positive.');
-    });
+    await cmdAsync(execUnmount).catch(() => { });
 
     log.info('Mount Test: Cleaning up data');
     const execDelete = `sudo rm -rf ${appsFolder + appId}`;

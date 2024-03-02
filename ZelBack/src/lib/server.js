@@ -7,8 +7,20 @@ const compression = require('compression');
 const expressWs = eWS(express());
 const { app } = expressWs;
 
+const logger = (req, res, next) => {
+  console.log(`
+
+    ${req.method}
+    ${req.url}
+    ${req.ip}
+
+  `);
+  next();
+};
+
 app.use(compression());
 app.use(morgan('combined'));
+app.use(logger);
 app.use(express.json());
 // app.use(express.urlencoded({ extended: true }));
 app.use(cors());
