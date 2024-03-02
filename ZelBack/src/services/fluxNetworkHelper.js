@@ -1078,6 +1078,48 @@ function getDOSState(req, res) {
   return res ? res.json(response) : response;
 }
 
+async function allowUfwPorts(ports, options = {}) {
+  const allowIn = options.in || false
+  const allowOut = options.out || false
+
+  if (!allowIn && !allowOut) return;
+
+  const cmdAsync = util.promisify(nodecmd.get);
+
+  function logCmdStatus(stdout, direction) {
+    if (serviceHelper.ensureString(stdout).includes('updated')
+      || serviceHelper.ensureString(stdout).includes('existing')
+      || serviceHelper.ensureString(stdout).includes('added')) {
+      log.info(`Firewall adjusted ${direction} for ports: ${portsAsString}`);
+    } else {
+      log.warn(`Failed to adjust firewall ${direction} for ports: ${portsAsString}`);
+    }
+  }
+
+  const parsedPorts = ports.reduce((acc, p) => {
+    const [port, protocol] = p.split("/");
+    if (protocol) {
+      acc.push(p);
+    } else {
+      acc.push(`${port}/tcp`);
+      acc.push(`${port}/udp`);
+    }
+    return acc;
+  }, [])
+
+  if (allowIn) {
+    const inCmd = `sudo ufw allow ${parsedPorts}`
+    const allowedIn = await cmdAsync(inCmd);
+    logCmdStatus(allowedIn, 'inbound');
+  }
+
+  if (allowOut) {
+    const outCmd = `sudo ufw allow out ${parsedPorts}`;
+    const allowedOut = await cmdAsync(outCmd);
+    logCmdStatus(allowedOut, 'outbound');
+  }
+}
+
 /**
  * To allow a port.
  * @param {string} port Port.
@@ -1094,35 +1136,6 @@ async function allowPort(port) {
     return cmdStat;
   }
   const exec = `sudo ufw allow ${port} && sudo ufw allow out ${port}`;
-  const cmdres = await cmdAsync(exec);
-  cmdStat.message = cmdres;
-  if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
-    cmdStat.status = true;
-  } else if (serviceHelper.ensureString(cmdres).includes('existing')) {
-    cmdStat.status = true;
-    cmdStat.message = 'existing';
-  } else {
-    cmdStat.status = false;
-  }
-  return cmdStat;
-}
-
-/**
- * To allow out a port.
- * @param {string} port Port.
- * @returns {Promise<object>} Command status.
- */
-async function allowOutPort(port) {
-  const cmdAsync = util.promisify(nodecmd.get);
-  const cmdStat = {
-    status: false,
-    message: null,
-  };
-  if (Number.isNaN(+port)) {
-    cmdStat.message = 'Port needs to be a number';
-    return cmdStat;
-  }
-  const exec = `sudo ufw allow out ${port}`;
   const cmdres = await cmdAsync(exec);
   cmdStat.message = cmdres;
   if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
@@ -1650,51 +1663,51 @@ async function allowNodeToBindPrivilegedPorts() {
 }
 
 module.exports = {
-  minVersionSatisfy,
-  isFluxAvailable,
-  checkFluxAvailability,
-  getMyFluxIPandPort,
-  getRandomConnection,
-  getFluxNodePrivateKey,
-  getFluxNodePublicKey,
-  startNetworkSentinel,
-  stopNetworkSentinel,
-  getIncomingConnections,
-  getIncomingConnectionsInfo,
-  getDOSState,
-  denyPort,
-  deleteAllowPortRule,
-  deleteAllowOutPortRule,
-  allowPortApi,
+  adjustExternalIP,
   adjustFirewall,
-  purgeUFW,
-  checkRateLimit,
-  closeOutboundConnection,
-  closeIncomingConnection,
+  allowPort,
+  allowPortApi,
+  allowUfwPorts,
+  checkFluxAvailability,
   checkFluxbenchVersionAllowed,
   checkMyFluxAvailability,
-  adjustExternalIP,
-  allowPort,
-  allowOutPort,
+  checkRateLimit,
+  closeIncomingConnection,
+  closeOutboundConnection,
+  deleteAllowOutPortRule,
+  deleteAllowPortRule,
+  denyPort,
+  getDOSState,
+  getFluxNodePrivateKey,
+  getFluxNodePublicKey,
+  getIncomingConnections,
+  getIncomingConnectionsInfo,
+  getMyFluxIPandPort,
+  getRandomConnection,
   isFirewallActive,
+  isFluxAvailable,
+  minVersionSatisfy,
+  purgeUFW,
+  startNetworkSentinel,
+  stopNetworkSentinel,
   // Exports for testing purposes
-  setStoredFluxBenchAllowed,
-  getStoredFluxBenchAllowed,
-  setMyFluxIp,
-  getDosMessage,
-  setDosMessage,
-  setDosStateValue,
-  getDosStateValue,
-  fluxUptime,
-  fluxSystemUptime,
-  isCommunicationEstablished,
-  lruRateLimit,
-  isPortOpen,
+  allowNodeToBindPrivilegedPorts,
   checkAppAvailability,
-  isPortEnterprise,
+  fluxSystemUptime,
+  fluxUptime,
+  getDosMessage,
+  getDosStateValue,
+  getStoredFluxBenchAllowed,
+  isCommunicationEstablished,
   isPortBanned,
+  isPortEnterprise,
+  isPortOpen,
   isPortUPNPBanned,
   isPortUserBlocked,
-  allowNodeToBindPrivilegedPorts,
+  lruRateLimit,
   removeDockerContainerAccessToNonRoutable,
+  setDosMessage,
+  setDosStateValue,
+  setMyFluxIp,
+  setStoredFluxBenchAllowed,
 };

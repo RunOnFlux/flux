@@ -5959,14 +5959,10 @@ async function openAppsPortsToInternet() {
     log.info("current ports:", ports)
 
     if (firewallActive) {
-      const allowPorts = [];
-      ports.forEach((port) => allowPorts.push(fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(port))));
-      // is this dodgey? should be okay... just a child process for each port
-      await Promise.all(allowPorts);
+      await fluxNetworkHelper.allowUfwPorts(ports, { in: true, out: true });
     }
 
     if (upnpService.isUPNP()) {
-      log.info("Mapping upnp ports")
       // map application ports
       // eslint-disable-next-line no-restricted-syntax
       for (const app of currentAppsPorts) {
