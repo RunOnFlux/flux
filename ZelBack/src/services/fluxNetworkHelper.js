@@ -1324,9 +1324,14 @@ async function adjustFirewall() {
     const homePort = +apiPort - 1;
     const apiSSLPort = +apiPort + 1;
     const syncthingPort = +apiPort + 2;
-    let ports = [apiPort, homePort, apiSSLPort, syncthingPort, 80, 443, 16125];
+
+    const localPorts = [homePort, apiPort, apiSSLPort, syncthingPort, 80, 443, 16125];
     const fluxCommunicationPorts = config.server.allowedPorts;
-    ports = ports.concat(fluxCommunicationPorts);
+    const allPorts = new Uint16Array(localPorts.concat(fluxCommunicationPorts));
+    // just for logs output
+    allPorts.sort();
+    const filteredPorts = new Set(allPorts);
+
     const firewallActive = await isFirewallActive();
 
     if (!firewallActive) {
@@ -1335,7 +1340,7 @@ async function adjustFirewall() {
     }
 
     // only allow tcp NOT udp... as we aren't using it.
-    const portsAsString = `${ports.join(",")}/tcp`;
+    const portsAsString = `${filteredPorts.join(",")}/tcp`;
 
     const allowInCmd = `sudo ufw allow ${portsAsString}`;
     const allowOutCmd = `sudo ufw allow out ${portsAsString}`;
