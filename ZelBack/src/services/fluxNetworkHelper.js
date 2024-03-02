@@ -1113,7 +1113,7 @@ async function allowUfwPorts(ports, options = {}) {
   }
 
   const parsedPorts = ports.reduce((acc, p) => {
-    const [port, protocol] = p.split("/");
+    const [port, protocol] = p.toString().split("/");
     if (protocol) {
       acc[protocol].push(port);
     } else {
