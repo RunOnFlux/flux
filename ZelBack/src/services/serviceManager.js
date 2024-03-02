@@ -18,6 +18,9 @@ const backupRestoreService = require('./backupRestoreService');
 const serviceHelper = require('./serviceHelper');
 const crypto = require('crypto');
 
+const INSPECT_OPTIONS = { showHidden: false, depth: null, colors: true }
+const { inspect } = require('node:utils');
+
 const apiPort = userconfig.initial.apiport || config.server.apiport;
 const development = userconfig.initial.development || false;
 
@@ -203,17 +206,17 @@ async function startFluxFunctions() {
     log.info('Test volume mount completed');
 
     // update this - it's running every 2 hours, control that here
-    await appsService.stopAllNonFluxRunningApps();
-    log.info('All non Flux apps stopped');
+    // await appsService.stopAllNonFluxRunningApps();
+    // log.info('All non Flux apps stopped');
 
-    // this is usually an empty array
-    const unreachableApps = await appsService.openAppsPortsToInternet();
-    // this should be interruptable with global abortController
-    appsService.forceAppsRemoval(unreachableApps);
+    // // this is usually an empty array
+    // const unreachableApps = await appsService.openAppsPortsToInternet();
+    // // this should be interruptable with global abortController
+    // appsService.forceAppsRemoval(unreachableApps);
 
     setInterval(() => {
-      log.info(`Intervals running: ${intervalTimers}`);
-      log.info(`Timeouts running: ${intervalTimers}`);
+      log.info(`Intervals running: ${inspect(intervalTimers, INSPECT_OPTIONS)}`);
+      log.info(`Timeouts running: ${inspect(intervalTimers, INSPECT_OPTIONS)}`);
     }, 10 * 1000);
     // change networkHelper name to service
     // fluxNetworkHelper.startNetworkSentinel();
