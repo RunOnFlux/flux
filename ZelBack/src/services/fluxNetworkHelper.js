@@ -1328,30 +1328,36 @@ async function adjustFirewall() {
     const fluxCommunicationPorts = config.server.allowedPorts;
     ports = ports.concat(fluxCommunicationPorts);
     const firewallActive = await isFirewallActive();
-    if (firewallActive) {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const port of ports) {
-        const execB = `sudo ufw allow ${port}`;
-        const execC = `sudo ufw allow out ${port}`;
 
-        // eslint-disable-next-line no-await-in-loop
-        const cmdresB = await cmdAsync(execB);
-        if (serviceHelper.ensureString(cmdresB).includes('updated') || serviceHelper.ensureString(cmdresB).includes('existing') || serviceHelper.ensureString(cmdresB).includes('added')) {
-          log.info(`Firewall adjusted for port ${port}`);
-        } else {
-          log.info(`Failed to adjust Firewall for port ${port}`);
-        }
-
-        // eslint-disable-next-line no-await-in-loop
-        const cmdresC = await cmdAsync(execC);
-        if (serviceHelper.ensureString(cmdresC).includes('updated') || serviceHelper.ensureString(cmdresC).includes('existing') || serviceHelper.ensureString(cmdresC).includes('added')) {
-          log.info(`Firewall out adjusted for port ${port}`);
-        } else {
-          log.info(`Failed to adjust Firewall out for port ${port}`);
-        }
-      }
-    } else {
+    if (!firewallActive) {
       log.info('Firewall is not active. Adjusting not applied');
+      return;
+    }
+
+    // only allow tcp NOT udp... as we aren't using it.
+    const portsAsString = `${ports.join(",")}/tcp`;
+
+    const allowInCmd = `sudo ufw allow ${portsAsString}`;
+    const allowOutCmd = `sudo ufw allow out ${portsAsString}`;
+
+    const allowedIn = await cmdAsync(allowInCmd);
+
+    if (serviceHelper.ensureString(allowedIn).includes('updated')
+      || serviceHelper.ensureString(allowedIn).includes('existing')
+      || serviceHelper.ensureString(allowedIn).includes('added')) {
+      log.info(`Firewall adjusted inbound for ports: ${portsAsString}`);
+    } else {
+      log.warn(`Failed to adjust firewall inbound for ports: ${portsAsString}`);
+    }
+
+    const allowedOut = await cmdAsync(allowOutCmd);
+
+    if (serviceHelper.ensureString(allowedOut).includes('updated')
+      || serviceHelper.ensureString(allowedOut).includes('existing')
+      || serviceHelper.ensureString(allowedOut).includes('added')) {
+      log.info(`Firewall adjusted outbound for ports: ${portsAsString}`);
+    } else {
+      log.warn(`Failed to adjust firewall outbound for ports: ${portsAsString}`);
     }
   } catch (error) {
     log.error(error);
