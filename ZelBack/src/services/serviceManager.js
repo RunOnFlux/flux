@@ -19,7 +19,7 @@ const serviceHelper = require('./serviceHelper');
 const crypto = require('crypto');
 
 const INSPECT_OPTIONS = { showHidden: false, depth: null, colors: true }
-const { inspect } = require('node:utils');
+const { inspect } = require('node:util');
 
 const apiPort = userconfig.initial.apiport || config.server.apiport;
 const development = userconfig.initial.development || false;
