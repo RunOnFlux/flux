@@ -5963,21 +5963,21 @@ async function openAppsPortsToInternet() {
       await Promise.all(allowPorts);
     }
 
-    // if (upnpService.isUPNP()) {
-    //   // map application ports
-    //   // eslint-disable-next-line no-restricted-syntax
-    //   for (const app of currentAppsPorts) {
-    //     // eslint-disable-next-line no-restricted-syntax
-    //     for (const port of app.ports) {
-    //       // eslint-disable-next-line no-await-in-loop
-    //       const upnpOk = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${app.name}`);
-    //       if (!upnpOk) {
-    //         appsToRemove.push(app.name);
-    //         break;
-    //       }
-    //     }
-    //   }
-    // }
+    if (upnpService.isUPNP()) {
+      // map application ports
+      // eslint-disable-next-line no-restricted-syntax
+      for (const app of currentAppsPorts) {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const port of app.ports) {
+          // eslint-disable-next-line no-await-in-loop
+          const upnpOk = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${app.name}`);
+          if (!upnpOk) {
+            appsToRemove.push(app.name);
+            break;
+          }
+        }
+      }
+    }
   } catch (error) {
     log.error(error);
   }
