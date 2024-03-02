@@ -212,7 +212,7 @@ async function startFluxFunctions() {
     // // this is usually an empty array
     const unreachableApps = await appsService.openAppsPortsToInternet();
     // this should be interruptable with global abortController
-    appsService.forceAppsRemoval(unreachableApps);
+    // appsService.forceAppsRemoval(unreachableApps);
 
     setInterval(() => {
       log.info(`Intervals running: ${inspect(intervalTimers, INSPECT_OPTIONS)}`);
