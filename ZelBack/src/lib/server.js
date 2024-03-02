@@ -8,11 +8,7 @@ const expressWs = eWS(express());
 const { app } = expressWs;
 
 const logger = (req, res, next) => {
-  console.log(`
-    ${req.method}
-    ${req.url}
-    ${req.ip}
-  `);
+  process.stdout.write(`\n${req.method}\n${req.url}\n${req.ip}\n\n`, 'utf-8')
   next();
 };
 

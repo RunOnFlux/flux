@@ -1318,20 +1318,9 @@ async function isFirewallActive() {
  * @returns {Prmoise<void>}
  */
 async function adjustFirewall() {
+  const cmdAsync = util.promisify(nodecmd.get);
+
   try {
-    const cmdAsync = util.promisify(nodecmd.get);
-    const apiPort = userconfig.initial.apiport || config.server.apiport;
-    const homePort = +apiPort - 1;
-    const apiSSLPort = +apiPort + 1;
-    const syncthingPort = +apiPort + 2;
-
-    const localPorts = [homePort, apiPort, apiSSLPort, syncthingPort, 80, 443, 16125];
-    const fluxCommunicationPorts = config.server.allowedPorts;
-    const allPorts = new Uint16Array(localPorts.concat(fluxCommunicationPorts));
-    // just for logs output
-    allPorts.sort();
-    const filteredPorts = new Set(allPorts);
-
     const firewallActive = await isFirewallActive();
 
     if (!firewallActive) {
@@ -1339,31 +1328,42 @@ async function adjustFirewall() {
       return;
     }
 
+    const apiPort = userconfig.initial.apiport || config.server.apiport;
+    const homePort = +apiPort - 1;
+    const apiSSLPort = +apiPort + 1;
+    const syncthingPort = +apiPort + 2;
+
+    const localPorts = [homePort, apiPort, apiSSLPort, syncthingPort, 80, 443, 16125];
+    const fluxCommunicationPorts = config.server.allowedPorts;
+    // if you use a TypedArray, you don't need to pass a comparator to sort
+    const allPorts = new Uint16Array(localPorts.concat(fluxCommunicationPorts));
+    // just for logs output
+    allPorts.sort();
+    // there was double ups here
+    const filteredPorts = new Set(allPorts);
+
+    function logCmdStatus(stdout, direction) {
+      if (serviceHelper.ensureString(stdout).includes('updated')
+        || serviceHelper.ensureString(stdout).includes('existing')
+        || serviceHelper.ensureString(stdout).includes('added')) {
+        log.info(`Firewall adjusted ${direction} for ports: ${portsAsString}`);
+      } else {
+        log.warn(`Failed to adjust firewall ${direction} for ports: ${portsAsString}`);
+      }
+    }
+
     // only allow tcp NOT udp... as we aren't using it.
-    const portsAsString = `${filteredPorts.join(",")}/tcp`;
+    const portsAsString = `${[...filteredPorts].join(",")}/tcp`;
 
     const allowInCmd = `sudo ufw allow ${portsAsString}`;
     const allowOutCmd = `sudo ufw allow out ${portsAsString}`;
 
     const allowedIn = await cmdAsync(allowInCmd);
-
-    if (serviceHelper.ensureString(allowedIn).includes('updated')
-      || serviceHelper.ensureString(allowedIn).includes('existing')
-      || serviceHelper.ensureString(allowedIn).includes('added')) {
-      log.info(`Firewall adjusted inbound for ports: ${portsAsString}`);
-    } else {
-      log.warn(`Failed to adjust firewall inbound for ports: ${portsAsString}`);
-    }
+    logCmdStatus(allowedIn, 'inbound');
 
     const allowedOut = await cmdAsync(allowOutCmd);
+    logCmdStatus(allowedOut, 'outbound');
 
-    if (serviceHelper.ensureString(allowedOut).includes('updated')
-      || serviceHelper.ensureString(allowedOut).includes('existing')
-      || serviceHelper.ensureString(allowedOut).includes('added')) {
-      log.info(`Firewall adjusted outbound for ports: ${portsAsString}`);
-    } else {
-      log.warn(`Failed to adjust firewall outbound for ports: ${portsAsString}`);
-    }
   } catch (error) {
     log.error(error);
   }

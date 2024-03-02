@@ -5952,9 +5952,11 @@ async function openAppsPortsToInternet() {
 
   try {
     const currentAppsPorts = await assignedPortsInstalledApps();
+    log.info(currentAppsPorts)
     const firewallActive = await fluxNetworkHelper.isFirewallActive();
 
     const ports = currentAppsPorts.flatMap((app) => app.ports);
+    log.info("current ports:", ports)
 
     if (firewallActive) {
       const allowPorts = [];
@@ -5964,6 +5966,7 @@ async function openAppsPortsToInternet() {
     }
 
     if (upnpService.isUPNP()) {
+      log.info("Mapping upnp ports")
       // map application ports
       // eslint-disable-next-line no-restricted-syntax
       for (const app of currentAppsPorts) {
@@ -10420,7 +10423,7 @@ async function stopAllNonFluxRunningApps() {
  * @returns {Promise<void>}
  */
 async function forceAppsRemoval(appNames) {
-  log.info(`FORCING: ${appNames}`)
+  log.info("FORCING REMOVAL:", appNames)
   // eslint-disable-next-line no-restricted-syntax
   for (const appName of appNames) {
     // eslint-disable-next-line no-await-in-loop
@@ -10436,7 +10439,7 @@ async function forceAppsRemoval(appNames) {
  */
 async function openRequiredPortsToInternet() {
   try {
-    await openFluxPortsToInternet();
+    // await openFluxPortsToInternet();
     const appsToRemove = await openAppsPortsToInternet();
     forceAppsRemoval(appsToRemove);
   } catch (error) {

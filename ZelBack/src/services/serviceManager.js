@@ -210,21 +210,23 @@ async function startFluxFunctions() {
     log.info('All non Flux apps stopped');
 
     // // this is usually an empty array
-    // const unreachableApps = await appsService.openAppsPortsToInternet();
+    const unreachableApps = await appsService.openAppsPortsToInternet();
     // this should be interruptable with global abortController
-    // appsService.forceAppsRemoval(unreachableApps);
+    appsService.forceAppsRemoval(unreachableApps);
 
     setInterval(() => {
       log.info(`Intervals running: ${inspect(intervalTimers, INSPECT_OPTIONS)}`);
       log.info(`Timeouts running: ${inspect(intervalTimers, INSPECT_OPTIONS)}`);
+      console.log("stdin isRaw:", process.stdin.isRaw);
+      console.log("stdout isTTY:", process.stdout.isTTY);
     }, 10 * 1000);
 
     // change networkHelper name to service
     fluxNetworkHelper.startNetworkSentinel();
     log.info('Collision detection running');
 
-    syncthingService.startSyncthingSentinel();
-    log.info('Syncthing service started');
+    // syncthingService.startSyncthingSentinel();
+    // log.info('Syncthing service started');
 
     // appsService.startMonitoringOfApps();
     // log.info('App monitoring has begun');

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const config = require('config');
+const { format } = require('util')
 
 const levels = {
   off: -1,
@@ -38,7 +39,7 @@ function ensureString(parameter) {
   return typeof parameter === 'string' ? parameter : JSON.stringify(parameter);
 }
 
-function writeToFile(filepath, args) {
+function writeToFile(filepath, ...args) {
   const size = getFilesizeInBytes(filepath);
   let flag = 'a+';
   if (size > 25 * 1024 * 1024) {
@@ -48,7 +49,8 @@ function writeToFile(filepath, args) {
   }
   const stream = fs.createWriteStream(filepath, { flags: flag });
 
-  const content = ensureString(args.message || args);
+  // const content = ensureString(args.message || args);
+  const content = format(...args)
 
   fileSizeCache[filepath] += Buffer.byteLength(content);
 
@@ -62,60 +64,64 @@ function writeToFile(filepath, args) {
   stream.end();
 }
 
-function debug(args) {
+function debug(...args) {
   if (logLevel < levels.debug) {
     return;
   }
   try {
-    console.log(args);
+    console.log("TYPE OF ARGS:", typeof args)
+    console.log("LENGTH OF ARGS:", args.length)
+
+    console.log(...args)
+    // process.stdout.write(args)
     // write to file
     const filepath = `${homeDirPath}debug.log`;
-    writeToFile(filepath, args);
+    writeToFile(filepath, ...args);
   } catch (err) {
     console.error('This should not have happened');
     console.error(err);
   }
 }
 
-function error(args) {
+function error(...args) {
   if (logLevel < levels.error) {
     return;
   }
   try {
     // write to file
     const filepath = `${homeDirPath}error.log`;
-    writeToFile(filepath, args);
-    debug(args);
+    writeToFile(filepath, ...args);
+    debug(...args);
   } catch (err) {
     console.error('This should not have happened');
     console.error(err);
   }
 }
 
-function warn(args) {
+function warn(...args) {
   if (logLevel < levels.warn) {
     return;
   }
   try {
     // write to file
     const filepath = `${homeDirPath}warn.log`;
-    writeToFile(filepath, args);
-    debug(args);
+    writeToFile(filepath, ...args);
+    debug(...args);
   } catch (err) {
     console.error('This should not have happened');
     console.error(err);
   }
 }
 
-function info(args) {
+function info(...args) {
   if (logLevel < levels.info) {
     return;
   }
   try {
     // write to file
     const filepath = `${homeDirPath}info.log`;
-    writeToFile(filepath, args);
-    debug(args);
+    writeToFile(filepath, ...args);
+    debug(...args);
   } catch (err) {
     console.error('This should not have happened');
     console.error(err);
