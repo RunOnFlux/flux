@@ -17,6 +17,8 @@ const dockerService = require('./dockerService');
 const backupRestoreService = require('./backupRestoreService');
 const serviceHelper = require('./serviceHelper');
 const crypto = require('crypto');
+const util = require('util');
+const exec = util.promisify(require('node:child_process').exec);
 
 const INSPECT_OPTIONS = { showHidden: false, depth: null, colors: true }
 const { inspect } = require('node:util');
@@ -29,6 +31,7 @@ const timeoutTimers = new Map();
 
 const delayedActions = new Map(
   [
+    [fluxCommunication.startPeerConnectionSentinel, { schedule: '30s', logMsg: 'Flux peer connections initiated' }],
     [geolocationService.setNodeGeolocation, '90s'],
     // wait as of restarts due to ui building
     [explorerService.startBlockProcessor, { schedule: '2m', logMsg: 'Flux Block Processing Service started' }],
@@ -183,7 +186,7 @@ async function startFluxFunctions() {
     await dockerService.dockerLogsFix();
 
     // move this from script to use Dockerode
-    // await fluxService.installFluxWatchTower();
+    await fluxService.installFluxWatchTower();
 
     await fluxNetworkHelper.purgeUFW();
     log.info('Firewall purged');
@@ -215,9 +218,9 @@ async function startFluxFunctions() {
     appsService.forceAppsRemoval(unreachableApps);
 
     setInterval(() => {
-      log.info(`Intervals running: ${inspect(intervalTimers, INSPECT_OPTIONS)}`);
-      log.info(`Timeouts running: ${inspect(intervalTimers, INSPECT_OPTIONS)}`);
-    }, 10 * 1000);
+      log.info(`Intervals running: ${inspect(intervalTimers.keys(), INSPECT_OPTIONS)}`);
+      log.info(`Timeouts running: ${inspect(timeoutTimers.keys(), INSPECT_OPTIONS)}`);
+    }, 60 * 1000);
 
     // change networkHelper name to service
     fluxNetworkHelper.startNetworkSentinel();
@@ -226,36 +229,40 @@ async function startFluxFunctions() {
     syncthingService.startSyncthingSentinel();
     log.info('Syncthing service started');
 
-    // appsService.startMonitoringOfApps();
-    // log.info('App monitoring has begun');
+    appsService.startMonitoringOfApps();
+    log.info('App monitoring has begun');
 
-    fluxCommunication.startPeerConnectionSentinel();
-    log.info('Flux peer connections initiated');
 
-    // // eslint-disable-next-line no-restricted-syntax
-    // for (const [action, options] of delayedActions.entries()) {
-    //   const delay = typeof options === 'string' ? options : options.schedule;
-    //   const { schedule: _, ...filteredOptions } = typeof options === 'string' ? {} : options;
-    //   // eslint-disable-next-line no-await-in-loop
-    //   const running = await runAfter(delay, action, filteredOptions);
-    //   if (!running) log.warn(`Action: ${action} with delay: ${delay} not running`);
-    // }
+    // eslint - disable - next - line no - restricted - syntax
+    for (const [action, options] of delayedActions.entries()) {
+      const delay = typeof options === 'string' ? options : options.schedule;
+      const { schedule: _, ...filteredOptions } = typeof options === 'string' ? {} : options;
+      // eslint-disable-next-line no-await-in-loop
+      const running = await runAfter(delay, action, filteredOptions);
+      if (!running) log.warn(`Action: ${action} with delay: ${delay} not running`);
+    }
 
-    // // eslint-disable-next-line no-restricted-syntax
-    // for (const [action, options] of recurringActions.entries()) {
-    //   // eslint-disable-next-line no-continue
-    //   if (options.condition === false) continue;
-    //   const { schedule, ...filteredOptions } = options;
-    //   // eslint-disable-next-line no-await-in-loop
-    //   const running = await runEvery(schedule, action, filteredOptions);
-    //   if (!running) log.warn(`Action: ${action} with delay: ${schedule} not running`);
-    // }
+    // eslint-disable-next-line no-restricted-syntax
+    for (const [action, options] of recurringActions.entries()) {
+      // eslint-disable-next-line no-continue
+      if (options.condition === false) continue;
+      const { schedule, ...filteredOptions } = options;
+      // eslint-disable-next-line no-await-in-loop
+      const running = await runEvery(schedule, action, filteredOptions);
+      if (!running) log.warn(`Action: ${action} with delay: ${schedule} not running`);
+    }
+
+    // const res = await exec('stty', ['onlcr']).catch(() => log.eror("FUCKED"));
+    // console.log(res);
+
+
   } catch (e) {
     // ToDo: remove. Should only restart the services that errored
     log.error(e);
-    setTimeout(() => {
-      startFluxFunctions();
-    }, 15000);
+    process.exit();
+    // setTimeout(() => {
+    //   startFluxFunctions();
+    // }, 15000);
   }
 }
 
