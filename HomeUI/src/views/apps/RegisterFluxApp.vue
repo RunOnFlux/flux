@@ -2721,13 +2721,11 @@ export default {
           throw new Error(response.data.data.message || response.data.data);
         }
         this.applicationPriceUSD = +response.data.data.usd;
-        console.log(`USD:${this.applicationPriceUSD}`);
         if (Number.isNaN(+response.data.data.flux)) {
           this.applicationPriceFluxError = true;
           this.showToast('danger', 'Not possible to complete payment with Flux crypto currency');
         } else {
           this.applicationPrice = +response.data.data.flux;
-          console.log(`FLUX:${this.applicationPrice}`);
         }
         this.timestamp = Date.now();
         this.dataForAppRegistration = appSpecFormatted;

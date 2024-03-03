@@ -9949,6 +9949,19 @@ async function getAppFiatAndFluxPrice(req, res) {
           actualPriceToPay -= (perc * previousSpecsPrice);
         }
       }
+      const marketplaceResponse = await axios.get('https://stats.runonflux.io/marketplace/listapps');
+      let marketPlaceApps;
+      if (marketplaceResponse.data.status === 'success') {
+        marketPlaceApps = marketplaceResponse.data.data;
+      } else {
+        throw new Error('Unable to get marketplace information');
+      }
+      const marketPlaceApp = marketPlaceApps.find((app) => this.appUpdateSpecification.name.toLowerCase().startsWith(app.name.toLowerCase()));
+      if (marketPlaceApp) {
+        if (marketPlaceApp.multiplier > 1) {
+          actualPriceToPay *= marketPlaceApp.multiplier;
+        }
+      }
       actualPriceToPay = Number(actualPriceToPay).toFixed(2);
       if (actualPriceToPay < priceSpecifications.minPrice) {
         actualPriceToPay = priceSpecifications.minPrice;

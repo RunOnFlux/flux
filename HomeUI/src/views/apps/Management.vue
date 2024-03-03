@@ -4560,7 +4560,7 @@
                   Note: Data has to be signed by the last application owner
                 </h4>
                 <b-card-text>
-                  Price: {{ appPricePerSpecs }} FLUX
+                  Price: {{ appPricePerSpecsUSD }} USD
                 </b-card-text>
                 <b-button
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -4634,15 +4634,50 @@
             >
               <b-card>
                 <b-card-text>
-                  To finish the application update, please make a transaction of {{ appPricePerSpecs }} FLUX to address
+                  Everything is ready, your application update/renew will cost you {{ appPricePerSpecsUSD }} USD.
+                </b-card-text>
+                <br>
+                The application will be subscribed until {{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}
+                <br>
+                To finish the application update/renew, pay your application with your prefered payment method or check bellow how to pay with Flux crypto currency.
+              </b-card>
+            </b-col>
+            <b-col
+              xs="6"
+              lg="4"
+            >
+              <b-card title="Pay with">
+                <div class="loginRow">
+                  <a @click="initStripePay(updateHash, appUpdateSpecification.name, appPricePerSpecsUSD, appUpdateSpecification.description)">
+                    <img
+                      class="stripeLogin"
+                      src="@/assets/images/Stripe.svg"
+                      alt="Stripe"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                </div>
+              </b-card>
+            </b-col>
+          </b-row>
+          <b-row
+            v-if="updateHash && !applicationPriceFluxError"
+            class="match-height"
+          >
+            <b-col
+              xs="6"
+              lg="8"
+            >
+              <b-card>
+                <b-card-text>
+                  To pay in Flux, please make a transaction of {{ appPricePerSpecs }} FLUX to address
                   '{{ deploymentAddress }}'
                   with the following message:
                   '{{ updateHash }}'
                 </b-card-text>
                 <br>
                 The transaction must be mined by {{ new Date(validTill).toLocaleString('en-GB', timeoptions.shortDate) }}
-                <br><br>
-                The application will be subscribed until {{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}
               </b-card>
             </b-col>
             <b-col
@@ -4960,6 +4995,8 @@ import io from 'socket.io-client';
 import useAppConfig from '@core/app-config/useAppConfig';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
+
+const paymentBridge = 'https://fiatpaymentsbridge.runonflux.io';
 
 const walletConnectOptions = {
   projectId,
@@ -5281,6 +5318,8 @@ export default {
       abortToken: {},
       deploymentAddress: '',
       appPricePerSpecs: 0,
+      appPricePerSpecsUSD: 0,
+      applicationPriceFluxError: false,
       maxInstances: 100,
       minInstances: 3,
       globalZelidAuthorized: false,
@@ -7087,12 +7126,20 @@ export default {
           throw new Error(responseAppSpecs.data.data.message || responseAppSpecs.data.data);
         }
         const appSpecFormatted = responseAppSpecs.data.data;
-        const response = await AppsService.appPrice(appSpecFormatted);
         this.appPricePerSpecs = 0;
+        this.appPricePerSpecsUSD = 0;
+
+        const response = await AppsService.appPriceUSDandFlux(appSpecFormatted);
         if (response.data.status === 'error') {
           throw new Error(response.data.data.message || response.data.data);
         }
-        this.appPricePerSpecs = (Math.ceil(((+response.data.data * this.priceMultiplier) * 100))) / 100;
+        this.appPricePerSpecsUSD = +response.data.data.usd;
+        if (Number.isNaN(+response.data.data.flux)) {
+          this.applicationPriceFluxError = true;
+          this.showToast('danger', 'Not possible to complete payment with Flux crypto currency');
+        } else {
+          this.appPricePerSpecs = +response.data.data.flux;
+        }
         this.timestamp = Date.now();
         this.dataForAppUpdate = appSpecFormatted;
         this.dataToSign = this.updatetype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp;
@@ -8616,6 +8663,33 @@ export default {
         }
       } catch (error) {
         this.showToast('danger', error.message);
+      }
+    },
+    async initStripePay(hash, name, price, description) {
+      try {
+        const zelidauth = localStorage.getItem('zelidauth');
+        const auth = qs.parse(zelidauth);
+        const data = {
+          zelid: auth.zelid,
+          signature: auth.signature,
+          loginPhrase: auth.loginPhrase,
+          details: {
+            name,
+            description,
+            hash,
+            price,
+            productName: name,
+          },
+        };
+        const checkoutURL = await axios.post(`${paymentBridge}/api/v1/stripe/checkout/create`, data);
+        console.log(checkoutURL.data.data);
+        if (checkoutURL.data.status === 'error') {
+          this.showToast('error', 'Failed to create stripe checkout');
+          return;
+        }
+        this.openSite(checkoutURL.data.data);
+      } catch (error) {
+        this.showToast('error', 'Failed to create stripe checkout');
       }
     },
     async getApplicationManagementAndStatus() {
