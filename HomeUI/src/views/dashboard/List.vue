@@ -1,19 +1,50 @@
 <template>
-  <b-overlay :show="fluxListLoading" variant="transparent" blur="5px">
+  <b-overlay
+    :show="fluxListLoading"
+    variant="transparent"
+    blur="5px"
+  >
     <b-card>
       <b-row>
-        <b-col md="4" sm="4" class="my-1">
+        <b-col
+          md="4"
+          sm="4"
+          class="my-1"
+        >
           <b-form-group class="mb-0">
             <label class="d-inline-block text-left mr-50">Per page</label>
-            <b-form-select id="perPageSelect" v-model="perPage" size="sm" :options="pageOptions" class="w-50" />
+            <b-form-select
+              id="perPageSelect"
+              v-model="perPage"
+              size="sm"
+              :options="pageOptions"
+              class="w-50"
+            />
           </b-form-group>
         </b-col>
-        <b-col md="8" class="my-1">
-          <b-form-group label="Filter" label-cols-sm="1" label-align-sm="right" label-for="filterInput" class="mb-0">
+        <b-col
+          md="8"
+          class="my-1"
+        >
+          <b-form-group
+            label="Filter"
+            label-cols-sm="1"
+            label-align-sm="right"
+            label-for="filterInput"
+            class="mb-0"
+          >
             <b-input-group size="sm">
-              <b-form-input id="filterInput" v-model="filter" type="search" placeholder="Type to Search" />
+              <b-form-input
+                id="filterInput"
+                v-model="filter"
+                type="search"
+                placeholder="Type to Search"
+              />
               <b-input-group-append>
-                <b-button :disabled="!filter" @click="filter = ''">
+                <b-button
+                  :disabled="!filter"
+                  @click="filter = ''"
+                >
                   Clear
                 </b-button>
               </b-input-group-append>
@@ -22,9 +53,21 @@
         </b-col>
 
         <b-col cols="12">
-          <b-table striped hover responsive :per-page="perPage" :current-page="currentPage" :items="items"
-            :fields="fields" :sort-by.sync="sortBy" :sort-desc.sync="sortDesc" :sort-direction="sortDirection"
-            :filter="filter" :filter-included-fields="filterOn" @filtered="onFiltered">
+          <b-table
+            striped
+            hover
+            responsive
+            :per-page="perPage"
+            :current-page="currentPage"
+            :items="items"
+            :fields="fields"
+            :sort-by.sync="sortBy"
+            :sort-desc.sync="sortDesc"
+            :sort-direction="sortDirection"
+            :filter="filter"
+            :filter-included-fields="filterOn"
+            @filtered="onFiltered"
+          >
             <template #cell(lastpaid)="data">
               {{ new Date(Number(data.item.lastpaid) * 1000).toLocaleString("en-GB", timeoptions) }}
             </template>
@@ -32,8 +75,14 @@
         </b-col>
 
         <b-col cols="12">
-          <b-pagination v-model="currentPage" :total-rows="totalRows" :per-page="perPage" align="center" size="sm"
-            class="my-0" />
+          <b-pagination
+            v-model="currentPage"
+            :total-rows="totalRows"
+            :per-page="perPage"
+            align="center"
+            size="sm"
+            class="my-0"
+          />
         </b-col>
       </b-row>
     </b-card>
@@ -165,4 +214,6 @@ export default {
 };
 </script>
 
-<style></style>
+<style>
+
+</style>
