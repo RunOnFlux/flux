@@ -7324,6 +7324,11 @@ export default {
           this.applyFilter();
           this.loadBackupList();
           break;
+        case 11:
+          if (!this.appSpecification?.compose) {
+            this.refreshFolder();
+          }
+          break;
         case 14:
           this.getApplicationLocations();
           break;
