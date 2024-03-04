@@ -819,7 +819,7 @@ async function addOutgoingPeer(req, res) {
 async function connectToPeers() {
   if (fcc.aborted) return 0;
 
-  fcc.lock.enable();
+  await fcc.lock.enable();
 
   try {
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
@@ -870,10 +870,10 @@ async function connectToPeers() {
 
     const minDeterministicOutPeers = Math.min(sortedNodeList.length, config.fluxapps.minOutgoing);
 
-    log.info(`Current number of outgoing connections:${outgoingConnections.length}`);
-    log.info(`Current number of incoming connections:${incomingConnections.length}`);
-    log.info(`Current number of outgoing peers:${outgoingPeers.length}`);
-    log.info(`Current number of incoming peers:${incomingPeers.length}`);
+    log.info(`Current number of outgoing connections: ${outgoingConnections.length}`);
+    log.info(`Current number of incoming connections: ${incomingConnections.length}`);
+    log.info(`Current number of outgoing peers: ${outgoingPeers.length}`);
+    log.info(`Current number of incoming peers: ${incomingPeers.length}`);
 
     // always try to connect to deterministic nodes
     let deterministicPeerConnections = false;
@@ -976,7 +976,9 @@ async function connectToPeers() {
 }
 
 async function loopPeerConnections() {
+  log.info("LOOP PEER CONNECTIONS")
   const ms = await connectToPeers();
+  log.info("SLEEP MS", ms)
   if (!ms) return;
   connectionTimeout = setTimeout(loopPeerConnections, ms);
 }

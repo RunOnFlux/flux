@@ -1678,7 +1678,7 @@ async function fluxUsage(req, res) {
  * @returns {object} Message.
  */
 async function appsResources(req, res) {
-  log.info('Checking appsResources');
+  log.info('Checking apps resources');
   try {
     const dbopen = dbHelper.databaseConnection();
     const appsDatabase = dbopen.db(config.database.appslocal.database);
@@ -1733,6 +1733,8 @@ async function appsResources(req, res) {
       error.code,
     );
     return res ? res.json(errorResponse) : errorResponse;
+  } finally {
+    log.info("Finished checking apps resources");
   }
 }
 
@@ -10417,6 +10419,7 @@ async function stopAllNonFluxRunningApps() {
  */
 async function forceAppsRemoval(appNames) {
   log.info(`FORCING REMOVAL: ${appNames}`);
+  log.info(appNames);
   // eslint-disable-next-line no-restricted-syntax
   for (const appName of appNames) {
     // eslint-disable-next-line no-await-in-loop
