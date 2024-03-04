@@ -26,8 +26,9 @@ class FluxLogger {
     this.loggingConsole = true;
     this.defaultConsole = new winston.transports.Console({
       level: "debug",
-      format: winston.format.combine(
+      format: combine(
         winston.format.splat(),
+        winston.format.errors({ stack: true }),
         winston.format.colorize(),
         winston.format.simple()
       )
@@ -51,7 +52,13 @@ class FluxLogger {
         new winston.transports.File({
           level: level,
           filename: options.filePath,
-          format: combine(label({ label: "fluxOS" }), timestamp(), formatter)
+          format: combine(
+            winston.format.splat(),
+            winston.format.errors({ stack: true }),
+            label({ label: "fluxOS" }),
+            timestamp(),
+            formatter
+          )
         })
       );
 

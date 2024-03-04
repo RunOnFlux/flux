@@ -216,6 +216,9 @@ async function startFluxFunctions() {
 
     // // this is usually an empty array
     const unreachableApps = await appsService.openAppsPortsToInternet();
+    log.info(`UNREACHABLE: ${unreachableApps}`)
+    log.info(unreachableApps)
+    console.log("CHUNK", unreachableApps)
     // this should be interruptable with global abortController
     appsService.forceAppsRemoval(unreachableApps);
 

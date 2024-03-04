@@ -25,10 +25,12 @@ let syncthingWorking = false;
 async function confirmNodeTierHardware() {
   try {
     const tier = await generalService.nodeTier().catch((error) => {
+      log.info("HI THERE")
       log.error(error);
     });
 
     const collateral = await generalService.nodeCollateral().catch((error) => {
+      log.info("IN HERE");
       log.error(error);
     });
     const nodeRam = os.totalmem() / 1024 / 1024 / 1024;
@@ -83,6 +85,7 @@ async function confirmNodeTierHardware() {
     return true;
   } catch (error) {
     log.error(error);
+    log.info("AT END OF ID SERVICE")
     return false;
   }
 }

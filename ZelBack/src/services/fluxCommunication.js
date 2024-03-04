@@ -817,7 +817,10 @@ async function addOutgoingPeer(req, res) {
  * @returns {Promise<number>} ms to sleep for until next attempt
  */
 async function connectToPeers() {
-  if (fcc.aborted) return 0;
+  if (fcc.aborted) {
+    log.info("FCC ABORTED shouldn't be here")
+    return 0;
+  }
 
   await fcc.lock.enable();
 
@@ -845,7 +848,9 @@ async function connectToPeers() {
       return 60 * 1000;
     }
 
-    let [sortedNodeList, fluxNodeIndex] = sortedNodeListCache.get('sortedNodeList');
+    const cacheHit = sortedNodeListCache.get('sortedNodeList');
+
+    let [sortedNodeList, fluxNodeIndex] = cacheHit || [undefined, undefined];
 
     if (!sortedNodeList) {
       log.info('sortedNodeList not found in cache');
@@ -965,20 +970,26 @@ async function connectToPeers() {
     }
     return 60 * 1000;
   } catch (err) {
-    if (!err.name === 'AbortError') {
+    console.log("YE ERROR HERE")
+    console.log(err)
+    if (err.name && err.name !== 'AbortError') {
       log.warn(err);
       return 2 * 60 * 120;
+    } else {
+      log.info(err)
+      log.info("ABORTED HEHEHE")
     }
   } finally {
     fcc.lock.disable();
   }
+  log.info("END OF GET PEERS, shouldn't be here")
   return 0;
 }
 
 async function loopPeerConnections() {
   log.info("LOOP PEER CONNECTIONS")
   const ms = await connectToPeers();
-  log.info("SLEEP MS", ms)
+  log.info(`SLEEP MS: ${ms}`)
   if (!ms) return;
   connectionTimeout = setTimeout(loopPeerConnections, ms);
 }

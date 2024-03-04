@@ -51,7 +51,7 @@ async function obtainNodeCollateralInformation() {
 
 /**
  * To return the tier of a node in old naming scheme
- * @returns {string} Name of the node tier in old naming scheme
+ * @returns {Promise<string>} Name of the node tier in old naming scheme
  */
 async function nodeTier() {
   if (storedTier) {

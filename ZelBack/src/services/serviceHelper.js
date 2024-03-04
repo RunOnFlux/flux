@@ -68,6 +68,7 @@ class FluxController extends AbortController {
   }
 
   async abort() {
+    console.log("ABORT WAS CALLED")
     super.abort();
     // eslint-disable-next-line no-restricted-syntax
     for (const [reject, timeout] of this.#timeouts.values()) {
