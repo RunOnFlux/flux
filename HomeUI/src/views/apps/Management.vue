@@ -2557,7 +2557,7 @@
                   <h5><b-icon class="mr-1" scale="1.2" icon="terminal" /> Browser-based Interactive Terminal</h5>
                 </div>
                 <div class="d-flex align-items-center">
-                  <div class="mr-4">
+                  <div v-show="appSpecification?.compose" class="mr-4">
                     <b-form-select
                       v-model="selectedApp"
                       :options="null"
@@ -2570,7 +2570,7 @@
                         -- Please select component --
                       </b-form-select-option>
                       <b-form-select-option
-                        v-for="component in appSpecification.compose"
+                        v-for="component in appSpecification?.compose"
                         :key="component.name"
                         :value="component.name"
                       >
@@ -2619,8 +2619,10 @@
                     variant="outline-primary"
                     disabled
                   >
-                    <b-spinner small />
-                    Connecting...
+                    <div class="d-flex">
+                      <b-spinner class="mr-1" small />
+                      Connecting...
+                    </div>
                   </b-button>
                   <div class="ml-auto mt-1">
                     <div class="ml-auto d-flex">
@@ -2733,12 +2735,13 @@
               "
             >
               <h5><b-icon class="mr-1" scale="1.2" icon="server" /> Volume browser</h5>
-              <h6 v-if="selectedAppVolume" class="progress-label">
-                <b-icon class="mr-1" icon="hdd" scale="1.4" /> {{ `${storage.used.toFixed(2)} / ${storage.total}` }} GB
+              <h6 v-if="selectedAppVolume || !appSpecification?.compose" class="progress-label">
+                <b-icon class="mr-1" icon="hdd" scale="1.4" /> {{ `${storage.used.toFixed(2)} / ${storage.total.toFixed(2)}` }} GB
               </h6>
             </div>
-            <div class="mr-4 mb-2 d-flex" style="max-width: 250px;">
+            <div class="mr-4 d-flex" :class="{ 'mb-2': appSpecification && appSpecification.compose }" style="max-width: 250px;">
               <b-form-select
+                v-show="appSpecification?.compose"
                 v-model="selectedAppVolume"
                 :options="null"
                 :disabled="isComposeSingle"
@@ -2789,7 +2792,7 @@
               </b-progress>
             </div>
             <div>
-              <b-button-toolbar v-if="selectedAppVolume" justify class="mb-1 w-100">
+              <b-button-toolbar v-if="selectedAppVolume || !appSpecification?.compose" justify class="mb-1 w-100">
                 <div class="d-flex flex-row w-100">
                   <b-input-group class="w-100 mr-2">
                     <b-input-group-prepend>
@@ -2864,7 +2867,7 @@
                 </div>
               </b-button-toolbar>
               <b-table
-                v-if="selectedAppVolume"
+                v-if="selectedAppVolume || !appSpecification?.compose"
                 class="fluxshare-table"
                 hover
                 responsive
@@ -6184,6 +6187,7 @@ export default {
         }
         this.loadingFolder = true;
         const response = await this.executeLocalCommand(`/apps/getfolderinfo/${this.appName}/${this.selectedAppVolume}/${encodeURIComponent(path)}`);
+        console.log(response.data.data);
         this.loadingFolder = false;
         if (response.data.status === 'success') {
           this.folderView = response.data.data;
@@ -7292,6 +7296,7 @@ export default {
         await this.getApplicationLocations();
       }
       this.getApplicationManagementAndStatus();
+      this.refreshFolder();
       switch (index) {
         case 1:
           this.getInstalledApplicationSpecifics();
