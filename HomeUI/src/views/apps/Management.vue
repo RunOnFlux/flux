@@ -4667,6 +4667,11 @@
                     >
                   </a>
                 </div>
+                <div v-if="fiatCheckoutURL" className="loginRow">
+                  <a :href="fiatCheckoutURL" target="_blank" rel="noopener noreferrer">
+                    Click here for checkout if not redirected
+                  </a>
+                </div>
               </b-card>
             </b-col>
           </b-row>
@@ -5436,6 +5441,7 @@ export default {
       selectedIp: null,
       masterSlaveApp: false,
       applicationManagementAndStatus: '',
+      fiatCheckoutURL: '',
     };
   },
   computed: {
@@ -8691,11 +8697,11 @@ export default {
           },
         };
         const checkoutURL = await axios.post(`${paymentBridge}/api/v1/stripe/checkout/create`, data);
-        console.log(checkoutURL.data.data);
         if (checkoutURL.data.status === 'error') {
           this.showToast('error', 'Failed to create stripe checkout');
           return;
         }
+        this.fiatCheckoutURL = checkoutURL.data.data;
         this.openSite(checkoutURL.data.data);
       } catch (error) {
         this.showToast('error', 'Failed to create stripe checkout');
@@ -8720,11 +8726,11 @@ export default {
           },
         };
         const checkoutURL = await axios.post(`${paymentBridge}/api/v1/paypal/checkout/create`, data);
-        console.log(checkoutURL.data.data);
         if (checkoutURL.data.status === 'error') {
           this.showToast('error', 'Failed to create PayPal checkout');
           return;
         }
+        this.fiatCheckoutURL = checkoutURL.data.data;
         this.openSite(checkoutURL.data.data);
       } catch (error) {
         this.showToast('error', 'Failed to create PayPal checkout');
