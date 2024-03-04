@@ -145,10 +145,9 @@ async function getRemoteFileSize(fileurl, multiplier, decimal, number = false) {
  * @param {string} multiplier - Unit multiplier for displaying sizes (B, KB, MB, GB).
  * @param {number} decimal - Number of decimal places for precision.
  * @param {string} fields - Optional comma-separated list of fields to include in the response. Possible fields: 'mount', 'size', 'used', 'available', 'capacity', 'filesystem'.
- * @param {string|false} pathfilter - Optional path to filter results. If provided, only entries matching the specified path will be included. Pass `false` to use the default component and appname-based filtering.
  * @returns {Array|boolean} - Array of objects containing volume information for the specified component, or false if no matching mount is found.
  */
-async function getVolumeInfo(appname, component, multiplier, decimal, fields, pathfilter = false) {
+async function getVolumeInfo(appname, component, multiplier, decimal, fields) {
   try {
     const options = {
       prefixMultiplier: multiplier,
@@ -158,8 +157,8 @@ async function getVolumeInfo(appname, component, multiplier, decimal, fields, pa
     const dfAsync = util.promisify(df);
     const dfData = await dfAsync(options);
     let regex;
-    if (pathfilter) {
-      regex = new RegExp(`${pathfilter}`);
+    if (!component) {
+      regex = new RegExp(`flux${appname}$`);
     } else {
       regex = new RegExp(`flux${component}_${appname}$`);
     }
