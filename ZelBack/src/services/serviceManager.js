@@ -92,7 +92,7 @@ async function runTimedCallback(interval, callable, method, timer, options = {})
   if (options.runImmediate) await callable();
 
   const callback = () => {
-    timer.delete(name);
+    if (method.name === 'setTimeout') timer.delete(name);
     callable();
   };
 
