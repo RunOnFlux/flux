@@ -6187,7 +6187,6 @@ export default {
         }
         this.loadingFolder = true;
         const response = await this.executeLocalCommand(`/apps/getfolderinfo/${this.appName}/${this.selectedAppVolume}/${encodeURIComponent(path)}`);
-        console.log(response.data.data);
         this.loadingFolder = false;
         if (response.data.status === 'success') {
           this.folderView = response.data.data;

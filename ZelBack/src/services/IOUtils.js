@@ -157,7 +157,7 @@ async function getVolumeInfo(appname, component, multiplier, decimal, fields) {
     const dfAsync = util.promisify(df);
     const dfData = await dfAsync(options);
     let regex;
-    if (component === null) {
+    if (component === 'null') {
       regex = new RegExp(`flux${appname}$`);
     } else {
       regex = new RegExp(`flux${component}_${appname}$`);
