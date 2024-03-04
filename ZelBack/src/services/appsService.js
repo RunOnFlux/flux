@@ -9956,7 +9956,7 @@ async function getAppFiatAndFluxPrice(req, res) {
       } else {
         throw new Error('Unable to get marketplace information');
       }
-      const marketPlaceApp = marketPlaceApps.find((app) => this.appUpdateSpecification.name.toLowerCase().startsWith(app.name.toLowerCase()));
+      const marketPlaceApp = marketPlaceApps.find((app) => appSpecFormatted.name.toLowerCase().startsWith(app.name.toLowerCase()));
       if (marketPlaceApp) {
         if (marketPlaceApp.multiplier > 1) {
           actualPriceToPay *= marketPlaceApp.multiplier;
