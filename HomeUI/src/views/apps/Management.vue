@@ -1306,8 +1306,8 @@
         </b-card>
       </b-tab>
       <b-tab
-        v-if="appSpecification?.compose"
         title="Backup/Restore"
+        :disabled="!appSpecification?.compose"
       >
         <div>
           <b-card no-body>
@@ -2616,11 +2616,11 @@
                   </b-button>
                   <b-button
                     v-if="isConnecting"
-                    class="col-2"
+                    class="col-2 align-items-center justify-content-center"
                     variant="outline-primary"
                     disabled
                   >
-                    <div class="d-flex">
+                    <div class="d-flex align-items-center justify-content-center">
                       <b-spinner class="mr-1" small />
                       Connecting...
                     </div>
@@ -7296,7 +7296,6 @@ export default {
         await this.getApplicationLocations();
       }
       this.getApplicationManagementAndStatus();
-      this.refreshFolder();
       switch (index) {
         case 1:
           this.getInstalledApplicationSpecifics();
