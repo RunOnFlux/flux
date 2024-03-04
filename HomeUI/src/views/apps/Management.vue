@@ -1306,6 +1306,7 @@
         </b-card>
       </b-tab>
       <b-tab
+        v-if="appSpecification?.compose"
         title="Backup/Restore"
       >
         <div>
