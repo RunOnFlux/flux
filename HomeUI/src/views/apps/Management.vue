@@ -4639,7 +4639,7 @@
                 <br>
                 The application will be subscribed until {{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}
                 <br>
-                To finish the application update/renew, pay your application with your prefered payment method or check bellow how to pay with Flux crypto currency.
+                To finish the application update/renew, pay your application with your prefered payment method or check below how to pay with Flux crypto currency.
               </b-card>
             </b-col>
             <b-col
@@ -4653,6 +4653,15 @@
                       class="stripeLogin"
                       src="@/assets/images/Stripe.svg"
                       alt="Stripe"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                  <a @click="initPaypalPay(registrationHash, appRegistrationSpecification.name, applicationPriceUSD, appRegistrationSpecification.description)">
+                    <img
+                      class="paypalPay"
+                      src="@/assets/images/PayPal.png"
+                      alt="PayPal"
                       height="100%"
                       width="100%"
                     >
@@ -8692,6 +8701,35 @@ export default {
         this.showToast('error', 'Failed to create stripe checkout');
       }
     },
+    async initPaypalPay(hash, name, price, description) {
+      try {
+        const zelidauth = localStorage.getItem('zelidauth');
+        const auth = qs.parse(zelidauth);
+        const data = {
+          zelid: auth.zelid,
+          signature: auth.signature,
+          loginPhrase: auth.loginPhrase,
+          details: {
+            name,
+            description,
+            hash,
+            price,
+            productName: name,
+            return_url: 'https://home.runonflux.io',
+            cancel_url: 'https://home.runonflux.io',
+          },
+        };
+        const checkoutURL = await axios.post(`${paymentBridge}/api/v1/paypal/checkout/create`, data);
+        console.log(checkoutURL.data.data);
+        if (checkoutURL.data.status === 'error') {
+          this.showToast('error', 'Failed to create PayPal checkout');
+          return;
+        }
+        this.openSite(checkoutURL.data.data);
+      } catch (error) {
+        this.showToast('error', 'Failed to create PayPal checkout');
+      }
+    },
     async getApplicationManagementAndStatus() {
       if (this.selectedIp) {
         await this.appsGetListAllApps();
@@ -8812,6 +8850,24 @@ export default {
   margin-left: 5px;
 }
 .sspLogin img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
+.stripePay {
+  margin-left: 5px;
+  height: 90px;
+  padding: 10px;
+}
+.stripePay img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
+.paypalPay {
+  margin-left: 5px;
+  height: 90px;
+  padding: 10px;
+}
+.paypalPay img {
   -webkit-app-region: no-drag;
   transition: 0.1s;
 }
