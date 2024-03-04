@@ -93,15 +93,17 @@ async function runTimedCallback(interval, callable, method, timer, options = {})
 
   const callback = () => {
     timer.delete(name);
-    // only runEvery has delay option
-    if (delay) timeoutTimers.delete(name);
     callable();
   };
 
   const run = async () => {
-    if (delay) await callable();
+    if (delay) {
+      timeoutTimers.delete(name);
+      await callable();
+    }
     timer.set(name, method(callback, ms));
   };
+
   // only runEvery gets option to delay
   if (delay) {
     timeoutTimers.set(name, setTimeout(run, delay));
