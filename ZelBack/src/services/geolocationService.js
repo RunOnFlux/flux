@@ -1,6 +1,7 @@
 const log = require('../lib/log');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const serviceHelper = require('./serviceHelper');
+const { inspect } = require('util');
 
 let storedGeolocation = null;
 let storedIp = null;
@@ -58,7 +59,7 @@ async function setNodeGeolocation() {
         }
       }
     }
-    log.info(`Geolocation of ${myIP} is ${JSON.stringify(storedGeolocation)}`);
+    log.info(`Geolocation of ${myIP} is: ${inspect(storedGeolocation, { showHidden: false, depth: null, colors: true })}`);
     for (let i = 0; i < staticIpOrgs.length; i += 1) {
       const org = staticIpOrgs[i];
       if (storedGeolocation.org.toLowerCase().includes(org)) {
