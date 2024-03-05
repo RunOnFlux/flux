@@ -9969,11 +9969,13 @@ async function getAppFiatAndFluxPrice(req, res) {
       const fiatRates = await axios.get('https://viparates.zelcore.io/rates', axiosConfig).catch(() => { throw new Error('Unable to get Flux Rates'); });
       const rateObj = fiatRates.data[0].find((rate) => rate.code === 'USD');
       const btcRateforFlux = fiatRates.data[1].FLUX;
-      log.info(rateObj.rate);
       if (btcRateforFlux === undefined) {
         throw new Error('Unable to get Flux USD Price.');
       }
       actualPriceToPay = Number(actualPriceToPay * appPrices[0].multiplier).toFixed(2);
+      if (actualPriceToPay < appPrices[0].minUSDPrice) {
+        actualPriceToPay = appPrices[0].minUSDPrice;
+      }
       const fiatRate = rateObj.rate * btcRateforFlux;
       const fluxPrice = Number((actualPriceToPay / fiatRate) * appPrices[0].fluxmultiplier).toFixed(2);
       const fluxChainPrice = await getAppFluxOnChainPrice(appSpecification);
