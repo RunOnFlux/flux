@@ -636,8 +636,12 @@ module.exports = (app, expressWs) => {
     appsService.appendRestoreTask(req, res);
   });
 
-  app.post('/ioutils/fileupload/:type?/:appname?/:component?/:folder?/:filename?', (req, res) => {
+  app.post('/ioutils/fileupload1/:type?/:appname?/:component?/:folder?/:filename?', (req, res) => {
     IOUtils.fileUpload(req, res);
+  });
+
+  app.post('/ioutils/fileupload/:type?/:appname?/:component?/:folder?/:filename?', (req, res) => {
+    IOUtils.fileUpload1(req, res);
   });
 
   // GET PROTECTED API - Fluxnode Owner

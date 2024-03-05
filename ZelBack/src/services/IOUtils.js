@@ -360,6 +360,61 @@ async function removeDirectory(rpath, directory = false) {
   }
 }
 
+async function fileUpload1(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname || '';
+    if (!appname) {
+      throw new Error('appname parameter is mandatory.');
+    }
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    if (!authorized) {
+      throw new Error('Unauthorized. Access denied.');
+    }
+    let { component } = req.params;
+    component = component || req.query.component || '';
+    let { filename } = req.params;
+    filename = filename || req.query.filename || '';
+    let { folder } = req.params;
+    folder = folder || req.query.folder || '';
+    if (folder) {
+      folder += '/';
+    }
+    let { type } = req.params;
+    type = type || req.query.type || '';
+    if (!type || !component) {
+      throw new Error('component and type parameters are mandatory');
+    }
+    let filepath;
+    const appVolumePath = await getVolumeInfo(appname, component, 'B', 'mount', 0);
+    if (appVolumePath.length > 0) {
+      if (type === 'backup') {
+        filepath = `${appVolumePath[0].mount}/backup/upload/`;
+      } else {
+        filepath = `${appVolumePath[0].mount}/appdata/${folder}`;
+      }
+    } else {
+      throw new Error('Application volume not found');
+    }
+
+    await fs.mkdir(filepath, { recursive: true });
+    const permission = `sudo chmod 777 "${filepath}"`;
+    await exec(permission, { maxBuffer: 1024 * 1024 * 10 });
+    req.on('data', async (chunk) => {
+      await fs.append(`${filepath}/${filename}`, chunk);
+    });
+  } catch (error) {
+    log.error(error);
+    if (res) {
+      try {
+        res.connection.destroy();
+      } catch (e) {
+        log.error(e);
+      }
+    }
+  }
+}
+
 /**
  * To upload a specified folder to FluxShare. Checks that there is enough space available. Only accessible by admins.
  * @param {object} req Request.
@@ -510,4 +565,5 @@ module.exports = {
   removeDirectory,
   getFolderSize,
   fileUpload,
+  fileUpload1,
 };
