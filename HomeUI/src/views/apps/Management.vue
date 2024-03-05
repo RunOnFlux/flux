@@ -6602,110 +6602,66 @@ export default {
     /* eslint no-param-reassign: ["error", { "props": false }] */
     upload(file) {
       return new Promise((resolve, reject) => {
-        const zelidauth = localStorage.getItem('zelidauth');
         const self = this;
-        const fileReader = new FileReader();
-        fileReader.readAsArrayBuffer(file.selected_file);
-        fileReader.onload = async (event) => {
-          const content = event.target.result;
-          const CHUNK_SIZE = 1000;
-
-          const totalChunks = Math.ceil(content.byteLength / CHUNK_SIZE);
-          // eslint-disable-next-line no-plusplus
-          for (let chunk = 0; chunk < totalChunks; chunk++) {
-            const start = chunk * CHUNK_SIZE;
-            const end = (chunk + 1) * CHUNK_SIZE;
-            const CHUNK = content.slice(start, end);
-            const action = this.getUploadFolderBackup(file.file_name);
-            console.log(action);
-            // eslint-disable-next-line no-await-in-loop
-            const response = await fetch(action, {
-              method: 'POST',
-              headers: {
-                zelidauth,
-                'Content-Type': 'application/octet-stream',
-                'Content-Length': CHUNK.byteLength.toString(),
-                'Access-Control-Allow-Origin': '*',
-              },
-              body: CHUNK,
-            });
-
-            if (!response.ok) {
-              self.showToast('danger', `An error occurred while uploading ${file.selected_file.name}`);
-              reject();
+        if (typeof XMLHttpRequest === 'undefined') {
+          // eslint-disable-next-line prefer-promise-reject-errors
+          reject('XMLHttpRequest is not supported.');
+          return;
+        }
+        const xhr = new XMLHttpRequest();
+        const action = this.getUploadFolderBackup(file.file_name);
+        if (xhr.upload) {
+          xhr.upload.onprogress = function progress(e) {
+            if (e.total > 0) {
+              e.percent = (e.loaded / e.total) * 100;
             }
-
-            // Calculate and log the progress
-            const progress = ((chunk + 1) / totalChunks) * 100;
-            file.progres = progress;
-            console.log(`Upload Progress: ${progress.toFixed(2)}%`);
-          }
-
-          // Upload completed
-          console.log('Upload completed!');
+            file.progress = e.percent;
+          };
+        }
+        const formData = new FormData();
+        formData.append(file.selected_file.name, file.selected_file);
+        file.uploading = true;
+        xhr.onerror = function error(e) {
+          self.restoreFromUpload = false;
+          self.restoreFromUploadStatus = '';
+          self.files.forEach((entry) => {
+            entry.uploading = false;
+            entry.uploaded = false;
+            entry.progress = 0;
+          });
+          self.showToast('danger', `An error occurred while uploading ${file.selected_file.name}, try to relogin`);
+          reject(e);
         };
-        file.uploaded = true;
-        file.uploading = false;
-        resolve();
-        // if (typeof XMLHttpRequest === 'undefined') {
-        //   // eslint-disable-next-line prefer-promise-reject-errors
-        //   reject('XMLHttpRequest is not supported.');
-        //   return;
-        // }
-        // const xhr = new XMLHttpRequest();
-        // const action = this.getUploadFolderBackup(file.file_name);
-        // if (xhr.upload) {
-        //   xhr.upload.onprogress = function progress(e) {
-        //     if (e.total > 0) {
-        //       e.percent = (e.loaded / e.total) * 100;
-        //     }
-        //     file.progress = e.percent;
-        //   };
-        // }
-        // const formData = new FormData();
-        // formData.append(file.selected_file.name, file.selected_file);
-        // file.uploading = true;
-        // xhr.onerror = function error(e) {
-        //   self.restoreFromUpload = false;
-        //   self.restoreFromUploadStatus = '';
-        //   self.files.forEach((entry) => {
-        //     entry.uploading = false;
-        //     entry.uploaded = false;
-        //     entry.progress = 0;
-        //   });
-        //   self.showToast('danger', `An error occurred while uploading ${file.selected_file.name}, try to relogin`);
-        //   reject(e);
-        // };
-        // xhr.onload = function onload() {
-        //   if (xhr.status < 200 || xhr.status >= 300) {
-        //     console.error(xhr.status);
-        //     self.restoreFromUpload = false;
-        //     self.restoreFromUploadStatus = '';
-        //     self.files.forEach((entry) => {
-        //       entry.uploading = false;
-        //       entry.uploaded = false;
-        //       entry.progress = 0;
-        //     });
-        //     self.showToast('danger', `An error occurred while uploading '${file.selected_file.name}' - Status code: ${xhr.status}`);
-        //     reject(xhr.status);
+        xhr.onload = function onload() {
+          if (xhr.status < 200 || xhr.status >= 300) {
+            console.error(xhr.status);
+            self.restoreFromUpload = false;
+            self.restoreFromUploadStatus = '';
+            self.files.forEach((entry) => {
+              entry.uploading = false;
+              entry.uploaded = false;
+              entry.progress = 0;
+            });
+            self.showToast('danger', `An error occurred while uploading '${file.selected_file.name}' - Status code: ${xhr.status}`);
+            reject(xhr.status);
 
-        //     return;
-        //   }
-        //   file.uploaded = true;
-        //   file.uploading = false;
-        //   self.$emit('complete');
-        //   resolve();
-        // };
-        // xhr.open('post', action, true);
-        // const headers = this.zelidHeader || {};
-        // const headerKeys = Object.keys(headers);
-        // for (let i = 0; i < headerKeys.length; i += 1) {
-        //   const item = headerKeys[i];
-        //   if (Object.prototype.hasOwnProperty.call(headers, item) && headers[item] !== null) {
-        //     xhr.setRequestHeader(item, headers[item]);
-        //   }
-        // }
-        // xhr.send(formData);
+            return;
+          }
+          file.uploaded = true;
+          file.uploading = false;
+          self.$emit('complete');
+          resolve();
+        };
+        xhr.open('post', action, true);
+        const headers = this.zelidHeader || {};
+        const headerKeys = Object.keys(headers);
+        for (let i = 0; i < headerKeys.length; i += 1) {
+          const item = headerKeys[i];
+          if (Object.prototype.hasOwnProperty.call(headers, item) && headers[item] !== null) {
+            xhr.setRequestHeader(item, headers[item]);
+          }
+        }
+        xhr.send(formData);
       });
     },
     removeAllBackup() {
