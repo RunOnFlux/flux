@@ -553,7 +553,7 @@ async function fileUpload(req, res) {
     form
       .on('fileBegin', (name, file) => {
         // eslint-disable-next-line no-param-reassign
-        file.filepath = filepath;
+        file.filepath = `${filepath}${filename}`;
       })
       .on('data', async (chunk) => {
         // Save the chunk to the same location
