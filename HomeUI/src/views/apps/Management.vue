@@ -4657,7 +4657,7 @@
                       width="100%"
                     >
                   </a>
-                  <a @click="initPaypalPay(registrationHash, appRegistrationSpecification.name, applicationPriceUSD, appRegistrationSpecification.description)">
+                  <a @click="initPaypalPay(updateHash, appUpdateSpecification.name, appPricePerSpecsUSD, appUpdateSpecification.description)">
                     <img
                       class="paypalPay"
                       src="@/assets/images/PayPal.png"
