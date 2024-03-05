@@ -41,6 +41,7 @@
                   v-model="selectedIp"
                   style="width: 200px"
                   :options="null"
+                  @change="selectedIpChanged"
                 >
                   <b-form-select-option
                     v-for="instance in instances.data"
@@ -8657,6 +8658,7 @@ export default {
               niceString += niceStringComponent;
             }
             niceString = niceString.substring(0, niceString.length - 1);
+            niceString += ` - ${this.selectedIp}`;
           }
         }
         this.applicationManagementAndStatus = niceString;
@@ -8669,6 +8671,10 @@ export default {
       } catch ($e) {
         this.showToast('danger', 'Failed to Copy to clipboard');
       }
+    },
+    selectedIpChanged() {
+      this.getApplicationManagementAndStatus();
+      this.getInstalledApplicationSpecifics();
     },
   },
 };
