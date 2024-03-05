@@ -6609,6 +6609,7 @@ export default {
         const uploadNextChunk = async (i) => {
           if (i < totalChunks) {
             const start = i * chunkSize;
+            console.log(file.selected_file.size);
             const end = Math.min((i + 1) * chunkSize, file.selected_file.size);
             const chunk = file.selected_file.slice(start, end);
 
@@ -6619,10 +6620,12 @@ export default {
 
             try {
               const action = this.getUploadFolderBackup(file.file_name);
+              console.log(action);
               await this.uploadChunk(formData, action);
               const chunkProgress = 100 / totalChunks;
               totalProgress += chunkProgress;
               file.progress = totalProgress;
+              console.log(totalProgress);
               // Continue uploading next chunk
               await uploadNextChunk(i + 1);
             } catch (error) {

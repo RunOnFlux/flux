@@ -5,8 +5,8 @@ const log = require('../lib/log');
 const axios = require('axios');
 const path = require('path');
 const { formidable } = require('formidable');
-// const serviceHelper = require('./serviceHelper');
-// const messageHelper = require('./messageHelper');
+const serviceHelper = require('./serviceHelper');
+const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
 const exec = util.promisify(require('child_process').exec);
 
@@ -549,71 +549,53 @@ async function fileUpload(req, res) {
     const permission = `sudo chmod 777 "${filepath}"`;
     await exec(permission, { maxBuffer: 1024 * 1024 * 10 });
 
-    // const form = formidable(options);
-    // form
-    //   .on('fileBegin', (name, file) => {
-    //     // eslint-disable-next-line no-param-reassign
-    //     file.filepath = filepath;
-    //   })
-    //   .on('data', async (chunk) => {
-    //     // Save the chunk to the same location
-    //     try {
-    //       await fs.appendFile(path.join(filepath, filename), chunk);
-    //     } catch (error) {
-    //       log.error(error);
-    //     }
-    //   })
-    //   .on('progress', (bytesReceived, bytesExpected) => {
-    //     try {
-    //       res.write(serviceHelper.ensureString([bytesReceived, bytesExpected]));
-    //     } catch (error) {
-    //       log.error(error);
-    //     }
-    //   })
-    //   .on('aborted', () => {
-    //     console.error('Request aborted by the user');
-    //   })
-    //   .on('error', (error) => {
-    //     log.error(error);
-    //     const errorResponse = messageHelper.createErrorMessage(
-    //       error.message || error,
-    //       error.name,
-    //       error.code,
-    //     );
-    //     try {
-    //       res.write(serviceHelper.ensureString(errorResponse));
-    //     } catch (e) {
-    //       log.error(e);
-    //     }
-    //   })
-    //   .on('end', async () => {
-    //     try {
-    //       // Optionally, perform additional tasks with the assembled file
-    //       res.end();
-    //     } catch (error) {
-    //       log.error(error);
-    //     }
-    //   });
     const form = formidable(options);
-    form.on('fileBegin', (name, file) => {
-      // eslint-disable-next-line no-param-reassign
-      if (!filename) {
+    form
+      .on('fileBegin', (name, file) => {
         // eslint-disable-next-line no-param-reassign
-        file.filepath = `${filepath}${name}`;
-      } else {
-        // eslint-disable-next-line no-param-reassign
-        file.filepath = `${filepath}${filename}`;
-      }
-    });
-    // eslint-disable-next-line no-unused-vars
-    form.parse(req, async (err, fields, files) => {
-      if (err) {
-        res.status(500).send('Error parsing form data');
-        return;
-      }
-      // Additional logic for handling the end of the upload
-      res.status(200).send('File uploaded successfully');
-    });
+        file.filepath = filepath;
+      })
+      .on('data', async (chunk) => {
+        // Save the chunk to the same location
+        try {
+          await fs.appendFile(path.join(filepath, filename), chunk);
+        } catch (error) {
+          log.error(error);
+        }
+      })
+      .on('progress', (bytesReceived, bytesExpected) => {
+        try {
+          res.write(serviceHelper.ensureString([bytesReceived, bytesExpected]));
+        } catch (error) {
+          log.error(error);
+        }
+      })
+      .on('aborted', () => {
+        console.error('Request aborted by the user');
+      })
+      .on('error', (error) => {
+        log.error(error);
+        const errorResponse = messageHelper.createErrorMessage(
+          error.message || error,
+          error.name,
+          error.code,
+        );
+        try {
+          res.write(serviceHelper.ensureString(errorResponse));
+        } catch (e) {
+          log.error(e);
+        }
+      })
+      .on('end', async () => {
+        try {
+          // Optionally, perform additional tasks with the assembled file
+          res.end();
+        } catch (error) {
+          log.error(error);
+        }
+      });
+
+    form.parse(req);
   } catch (error) {
     log.error(error);
     if (res) {
