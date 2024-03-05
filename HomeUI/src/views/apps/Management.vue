@@ -6617,6 +6617,7 @@ export default {
             const end = (chunk + 1) * CHUNK_SIZE;
             const CHUNK = content.slice(start, end);
             const action = this.getUploadFolderBackup(file.file_name);
+            console.log(action);
             // eslint-disable-next-line no-await-in-loop
             const response = await fetch(action, {
               method: 'POST',
@@ -6624,6 +6625,7 @@ export default {
                 zelidauth,
                 'Content-Type': 'application/octet-stream',
                 'Content-Length': CHUNK.byteLength.toString(),
+                'Access-Control-Allow-Origin': '*',
               },
               body: CHUNK,
             });
