@@ -365,136 +365,6 @@ async function removeDirectory(rpath, directory = false) {
  * @param {object} req Request.
  * @param {object} res Response.
  */
-// async function fileUpload(req, res) {
-//   try {
-//     let { appname } = req.params;
-//     appname = appname || req.query.appname || '';
-//     if (!appname) {
-//       throw new Error('appname parameter is mandatory.');
-//     }
-//     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
-//     if (!authorized) {
-//       throw new Error('Unauthorized. Access denied.');
-//     }
-//     let { component } = req.params;
-//     component = component || req.query.component || '';
-//     let { filename } = req.params;
-//     filename = filename || req.query.filename || '';
-//     let { folder } = req.params;
-//     folder = folder || req.query.folder || '';
-//     if (folder) {
-//       folder += '/';
-//     }
-//     let { type } = req.params;
-//     type = type || req.query.type || '';
-//     if (!type || !component) {
-//       throw new Error('component and type parameters are mandatory');
-//     }
-//     let filepath;
-//     const appVolumePath = await getVolumeInfo(appname, component, 'B', 'mount', 0);
-//     if (appVolumePath.length > 0) {
-//       if (type === 'backup') {
-//         filepath = `${appVolumePath[0].mount}/backup/upload/`;
-//       } else {
-//         filepath = `${appVolumePath[0].mount}/appdata/${folder}`;
-//       }
-//     } else {
-//       throw new Error('Application volume not found');
-//     }
-//     const options = {
-//       multiples: true,
-//       uploadDir: `${filepath}`,
-//       maxFileSize: 5 * 1024 * 1024 * 1024, // 5gb
-//       hashAlgorithm: false,
-//       keepExtensions: true,
-//       // eslint-disable-next-line no-unused-vars
-//       filename: (name, ext, part, form) => {
-//         const { originalFilename } = part;
-//         return originalFilename;
-//       },
-//     };
-
-//     // const spaceAvailableForFluxShare = await getSpaceAvailableForFluxShare();
-//     // let spaceUsedByFluxShare = getFluxShareSize();
-//     // spaceUsedByFluxShare = Number(spaceUsedByFluxShare.toFixed(6));
-//     // const available = spaceAvailableForFluxShare - spaceUsedByFluxShare;
-//     // if (available <= 0) {
-//     //  throw new Error('FluxShare Storage is full');
-//     // }
-
-//     // eslint-disable-next-line no-bitwise
-//     // await fs.promises.access(uploadDir, fs.constants.F_OK | fs.constants.W_OK); // check folder exists and write ability
-//     await fs.mkdir(filepath, { recursive: true });
-//     const permission = `sudo chmod 777 "${filepath}"`;
-//     await exec(permission, { maxBuffer: 1024 * 1024 * 10 });
-//     const form = formidable(options);
-
-//     form
-//       // eslint-disable-next-line no-unused-vars
-//       .on('fileBegin', (name, file) => {
-//         if (!filename) {
-//           // eslint-disable-next-line no-param-reassign
-//           file.filepath = `${filepath}${name}`;
-//         } else {
-//           // eslint-disable-next-line no-param-reassign
-//           file.filepath = `${filepath}${filename}`;
-//         }
-//       })
-//       .on('progress', (bytesReceived, bytesExpected) => {
-//         try {
-//           res.write(serviceHelper.ensureString([bytesReceived, bytesExpected]));
-//         } catch (error) {
-//           log.error(error);
-//         }
-//       })
-//       // eslint-disable-next-line no-unused-vars
-//       .on('field', (name, field) => {
-
-//       })
-//       // eslint-disable-next-line no-unused-vars
-//       .on('file', (name, file) => {
-//         try {
-//           res.write(serviceHelper.ensureString(name));
-//         } catch (error) {
-//           log.error(error);
-//         }
-//       })
-//       .on('aborted', () => {
-//         console.error('Request aborted by the user');
-//       })
-//       .on('error', (error) => {
-//         log.error(error);
-//         const errorResponse = messageHelper.createErrorMessage(
-//           error.message || error,
-//           error.name,
-//           error.code,
-//         );
-//         try {
-//           res.write(serviceHelper.ensureString(errorResponse));
-//         } catch (e) {
-//           log.error(e);
-//         }
-//       })
-//       .on('end', () => {
-//         try {
-//           res.end();
-//         } catch (error) {
-//           log.error(error);
-//         }
-//       });
-
-//     form.parse(req);
-//   } catch (error) {
-//     log.error(error);
-//     if (res) {
-//       try {
-//         res.connection.destroy();
-//       } catch (e) {
-//         log.error(e);
-//       }
-//     }
-//   }
-// }
 async function fileUpload(req, res) {
   try {
     let { appname } = req.params;
@@ -531,10 +401,9 @@ async function fileUpload(req, res) {
     } else {
       throw new Error('Application volume not found');
     }
-
     const options = {
       multiples: true,
-      uploadDir: filepath, // Save all chunks in the same location
+      uploadDir: `${filepath}`,
       maxFileSize: 5 * 1024 * 1024 * 1024, // 5gb
       hashAlgorithm: false,
       keepExtensions: true,
@@ -545,27 +414,47 @@ async function fileUpload(req, res) {
       },
     };
 
+    // const spaceAvailableForFluxShare = await getSpaceAvailableForFluxShare();
+    // let spaceUsedByFluxShare = getFluxShareSize();
+    // spaceUsedByFluxShare = Number(spaceUsedByFluxShare.toFixed(6));
+    // const available = spaceAvailableForFluxShare - spaceUsedByFluxShare;
+    // if (available <= 0) {
+    //  throw new Error('FluxShare Storage is full');
+    // }
+
+    // eslint-disable-next-line no-bitwise
+    // await fs.promises.access(uploadDir, fs.constants.F_OK | fs.constants.W_OK); // check folder exists and write ability
     await fs.mkdir(filepath, { recursive: true });
     const permission = `sudo chmod 777 "${filepath}"`;
     await exec(permission, { maxBuffer: 1024 * 1024 * 10 });
-
     const form = formidable(options);
+
     form
+      // eslint-disable-next-line no-unused-vars
       .on('fileBegin', (name, file) => {
-        // eslint-disable-next-line no-param-reassign
-        file.filepath = `${filepath}${filename}`;
-      })
-      .on('data', async (chunk) => {
-        // Save the chunk to the same location
-        try {
-          await fs.appendFile(path.join(filepath, filename), chunk);
-        } catch (error) {
-          log.error(error);
+        if (!filename) {
+          // eslint-disable-next-line no-param-reassign
+          file.filepath = `${filepath}${name}`;
+        } else {
+          // eslint-disable-next-line no-param-reassign
+          file.filepath = `${filepath}${filename}`;
         }
       })
       .on('progress', (bytesReceived, bytesExpected) => {
         try {
           res.write(serviceHelper.ensureString([bytesReceived, bytesExpected]));
+        } catch (error) {
+          log.error(error);
+        }
+      })
+      // eslint-disable-next-line no-unused-vars
+      .on('field', (name, field) => {
+
+      })
+      // eslint-disable-next-line no-unused-vars
+      .on('file', (name, file) => {
+        try {
+          res.write(serviceHelper.ensureString(name));
         } catch (error) {
           log.error(error);
         }
@@ -586,9 +475,8 @@ async function fileUpload(req, res) {
           log.error(e);
         }
       })
-      .on('end', async () => {
+      .on('end', () => {
         try {
-          // Optionally, perform additional tasks with the assembled file
           res.end();
         } catch (error) {
           log.error(error);

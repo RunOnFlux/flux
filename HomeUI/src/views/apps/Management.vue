@@ -6600,69 +6600,134 @@ export default {
       });
     },
     /* eslint no-param-reassign: ["error", { "props": false }] */
-    splitAndUploadChunks(file) {
+    // splitAndUploadChunks(file) {
+    //   return new Promise((resolve, reject) => {
+    //     const chunkSize = 1024 * 1024; // 1 MB chunks (adjust as needed)
+    //     const totalChunks = Math.ceil(file.selected_file.size / chunkSize);
+    //     let totalProgress = 0;
+
+    //     const uploadNextChunk = async (i) => {
+    //       if (i < totalChunks) {
+    //         const start = i * chunkSize;
+    //         console.log(file.selected_file.size);
+    //         const end = Math.min((i + 1) * chunkSize, file.selected_file.size);
+    //         const chunk = file.selected_file.slice(start, end);
+
+    //         const formData = new FormData();
+    //         formData.append('file', chunk, `${file.file_name}_part${i + 1}`);
+    //         formData.append('totalChunks', totalChunks.toString());
+    //         formData.append('currentChunk', (i + 1).toString());
+
+    //         try {
+    //           const action = this.getUploadFolderBackup(file.file_name);
+    //           console.log(action);
+    //           await this.uploadChunk(formData, action);
+    //           const chunkProgress = 100 / totalChunks;
+    //           totalProgress += chunkProgress;
+    //           file.progress = totalProgress;
+    //           console.log(totalProgress);
+    //           // Continue uploading next chunk
+    //           await uploadNextChunk(i + 1);
+    //         } catch (error) {
+    //           console.error(`Failed to upload File: ${file.file_name}, Chunk ${i + 1}`, error);
+    //           reject(error);
+    //         }
+    //       } else {
+    //         file.uploaded = true;
+    //         file.uploading = false;
+    //         // All chunks uploaded successfully
+    //         resolve();
+    //       }
+    //     };
+
+    //     uploadNextChunk(0);
+    //   });
+    // },
+    // async uploadChunk(formData, action) {
+    //   return new Promise((resolve, reject) => {
+    //     const xhr = new XMLHttpRequest();
+    //     xhr.upload.addEventListener('progress', (event) => {
+    //       if (event.lengthComputable) {
+    //         const currentProgress = Math.round((event.loaded / event.total) * 100);
+    //         this.progress = currentProgress;
+    //       }
+    //     });
+
+    //     xhr.onreadystatechange = () => {
+    //       if (xhr.readyState === XMLHttpRequest.DONE) {
+    //         if (xhr.status === 200) {
+    //           resolve();
+    //         } else {
+    //           reject(xhr.statusText);
+    //         }
+    //       }
+    //     };
+
+    //     xhr.open('post', action, true);
+    //     const headers = this.zelidHeader || {};
+    //     const headerKeys = Object.keys(headers);
+    //     for (let i = 0; i < headerKeys.length; i += 1) {
+    //       const item = headerKeys[i];
+    //       if (Object.prototype.hasOwnProperty.call(headers, item) && headers[item] !== null) {
+    //         xhr.setRequestHeader(item, headers[item]);
+    //       }
+    //     }
+    //     xhr.send(formData);
+    //   });
+    // },
+    async upload(file) {
+      // await this.splitAndUploadChunks(file);
       return new Promise((resolve, reject) => {
-        const chunkSize = 1024 * 1024; // 1 MB chunks (adjust as needed)
-        const totalChunks = Math.ceil(file.selected_file.size / chunkSize);
-        let totalProgress = 0;
-
-        const uploadNextChunk = async (i) => {
-          if (i < totalChunks) {
-            const start = i * chunkSize;
-            console.log(file.selected_file.size);
-            const end = Math.min((i + 1) * chunkSize, file.selected_file.size);
-            const chunk = file.selected_file.slice(start, end);
-
-            const formData = new FormData();
-            formData.append('file', chunk, `${file.file_name}_part${i + 1}`);
-            formData.append('totalChunks', totalChunks.toString());
-            formData.append('currentChunk', (i + 1).toString());
-
-            try {
-              const action = this.getUploadFolderBackup(file.file_name);
-              console.log(action);
-              await this.uploadChunk(formData, action);
-              const chunkProgress = 100 / totalChunks;
-              totalProgress += chunkProgress;
-              file.progress = totalProgress;
-              console.log(totalProgress);
-              // Continue uploading next chunk
-              await uploadNextChunk(i + 1);
-            } catch (error) {
-              console.error(`Failed to upload File: ${file.file_name}, Chunk ${i + 1}`, error);
-              reject(error);
-            }
-          } else {
-            file.uploaded = true;
-            file.uploading = false;
-            // All chunks uploaded successfully
-            resolve();
-          }
-        };
-
-        uploadNextChunk(0);
-      });
-    },
-    async uploadChunk(formData, action) {
-      return new Promise((resolve, reject) => {
+        const self = this;
+        if (typeof XMLHttpRequest === 'undefined') {
+          // eslint-disable-next-line prefer-promise-reject-errors
+          reject('XMLHttpRequest is not supported.');
+          return;
+        }
         const xhr = new XMLHttpRequest();
-        xhr.upload.addEventListener('progress', (event) => {
-          if (event.lengthComputable) {
-            const currentProgress = Math.round((event.loaded / event.total) * 100);
-            this.progress = currentProgress;
-          }
-        });
-
-        xhr.onreadystatechange = () => {
-          if (xhr.readyState === XMLHttpRequest.DONE) {
-            if (xhr.status === 200) {
-              resolve();
-            } else {
-              reject(xhr.statusText);
+        const action = this.getUploadFolderBackup(file.file_name);
+        if (xhr.upload) {
+          xhr.upload.onprogress = function progress(e) {
+            if (e.total > 0) {
+              e.percent = (e.loaded / e.total) * 100;
             }
-          }
+            file.progress = e.percent;
+          };
+        }
+        const formData = new FormData();
+        formData.append(file.selected_file.name, file.selected_file);
+        file.uploading = true;
+        xhr.onerror = function error(e) {
+          self.restoreFromUpload = false;
+          self.restoreFromUploadStatus = '';
+          self.files.forEach((entry) => {
+            entry.uploading = false;
+            entry.uploaded = false;
+            entry.progress = 0;
+          });
+          self.showToast('danger', `An error occurred while uploading ${file.selected_file.name}, try to relogin`);
+          reject(e);
         };
+        xhr.onload = function onload() {
+          if (xhr.status < 200 || xhr.status >= 300) {
+            console.error(xhr.status);
+            self.restoreFromUpload = false;
+            self.restoreFromUploadStatus = '';
+            self.files.forEach((entry) => {
+              entry.uploading = false;
+              entry.uploaded = false;
+              entry.progress = 0;
+            });
+            self.showToast('danger', `An error occurred while uploading '${file.selected_file.name}' - Status code: ${xhr.status}`);
+            reject(xhr.status);
 
+            return;
+          }
+          file.uploaded = true;
+          file.uploading = false;
+          self.$emit('complete');
+          resolve();
+        };
         xhr.open('post', action, true);
         const headers = this.zelidHeader || {};
         const headerKeys = Object.keys(headers);
@@ -6674,71 +6739,6 @@ export default {
         }
         xhr.send(formData);
       });
-    },
-    async upload(file) {
-      await this.splitAndUploadChunks(file);
-      // return new Promise((resolve, reject) => {
-      //   const self = this;
-      //   if (typeof XMLHttpRequest === 'undefined') {
-      //     // eslint-disable-next-line prefer-promise-reject-errors
-      //     reject('XMLHttpRequest is not supported.');
-      //     return;
-      //   }
-      //   const xhr = new XMLHttpRequest();
-      //   const action = this.getUploadFolderBackup(file.file_name);
-      //   if (xhr.upload) {
-      //     xhr.upload.onprogress = function progress(e) {
-      //       if (e.total > 0) {
-      //         e.percent = (e.loaded / e.total) * 100;
-      //       }
-      //       file.progress = e.percent;
-      //     };
-      //   }
-      //   const formData = new FormData();
-      //   formData.append(file.selected_file.name, file.selected_file);
-      //   file.uploading = true;
-      //   xhr.onerror = function error(e) {
-      //     self.restoreFromUpload = false;
-      //     self.restoreFromUploadStatus = '';
-      //     self.files.forEach((entry) => {
-      //       entry.uploading = false;
-      //       entry.uploaded = false;
-      //       entry.progress = 0;
-      //     });
-      //     self.showToast('danger', `An error occurred while uploading ${file.selected_file.name}, try to relogin`);
-      //     reject(e);
-      //   };
-      //   xhr.onload = function onload() {
-      //     if (xhr.status < 200 || xhr.status >= 300) {
-      //       console.error(xhr.status);
-      //       self.restoreFromUpload = false;
-      //       self.restoreFromUploadStatus = '';
-      //       self.files.forEach((entry) => {
-      //         entry.uploading = false;
-      //         entry.uploaded = false;
-      //         entry.progress = 0;
-      //       });
-      //       self.showToast('danger', `An error occurred while uploading '${file.selected_file.name}' - Status code: ${xhr.status}`);
-      //       reject(xhr.status);
-
-      //       return;
-      //     }
-      //     file.uploaded = true;
-      //     file.uploading = false;
-      //     self.$emit('complete');
-      //     resolve();
-      //   };
-      //   xhr.open('post', action, true);
-      //   const headers = this.zelidHeader || {};
-      //   const headerKeys = Object.keys(headers);
-      //   for (let i = 0; i < headerKeys.length; i += 1) {
-      //     const item = headerKeys[i];
-      //     if (Object.prototype.hasOwnProperty.call(headers, item) && headers[item] !== null) {
-      //       xhr.setRequestHeader(item, headers[item]);
-      //     }
-      //   }
-      //   xhr.send(formData);
-      // });
     },
     removeAllBackup() {
       this.backupList = [];
