@@ -6610,7 +6610,7 @@ export default {
           if (i < totalChunks) {
             const start = i * chunkSize;
             const end = Math.min((i + 1) * chunkSize, file.selected_file.size);
-            const chunk = file.slice(start, end);
+            const chunk = file.selected_file.slice(start, end);
 
             const formData = new FormData();
             formData.append('file', chunk, `${file.file_name}_part${i + 1}`);
