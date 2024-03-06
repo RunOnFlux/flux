@@ -413,17 +413,6 @@ async function fileUpload(req, res) {
         return originalFilename;
       },
     };
-
-    // const spaceAvailableForFluxShare = await getSpaceAvailableForFluxShare();
-    // let spaceUsedByFluxShare = getFluxShareSize();
-    // spaceUsedByFluxShare = Number(spaceUsedByFluxShare.toFixed(6));
-    // const available = spaceAvailableForFluxShare - spaceUsedByFluxShare;
-    // if (available <= 0) {
-    //  throw new Error('FluxShare Storage is full');
-    // }
-
-    // eslint-disable-next-line no-bitwise
-    // await fs.promises.access(uploadDir, fs.constants.F_OK | fs.constants.W_OK); // check folder exists and write ability
     await fs.mkdir(filepath, { recursive: true });
     const permission = `sudo chmod 777 "${filepath}"`;
     await exec(permission, { maxBuffer: 1024 * 1024 * 10 });
