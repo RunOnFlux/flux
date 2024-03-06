@@ -3560,6 +3560,11 @@ export default {
             hash,
             price,
             productName: name,
+            kpi: {
+              origin: 'FluxOS',
+              marketplace: false,
+              registration: true,
+            },
           },
         };
         const checkoutURL = await axios.post(`${paymentBridge}/api/v1/stripe/checkout/create`, data);
@@ -3589,6 +3594,11 @@ export default {
             productName: name,
             return_url: 'home.runonflux.io',
             cancel_url: 'home.runonflux.io',
+            kpi: {
+              origin: 'FluxOS',
+              marketplace: false,
+              registration: true,
+            },
           },
         };
         const checkoutURL = await axios.post(`${paymentBridge}/api/v1/paypal/checkout/create`, data);
