@@ -1507,6 +1507,15 @@
           rows="6"
           readonly
         />
+        <b-button
+          v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+          variant="success"
+          aria-label="Copy Message to Sign to Clipboard"
+          class="my-1"
+          @click="copyMessageToSign"
+        >
+          Copy
+        </b-button>
       </b-form-group>
       <b-form-group
         label-cols="3"
@@ -3585,6 +3594,14 @@ export default {
       } else {
         this.appRegistrationSpecification.owner = '';
         this.showToast('warning', 'Please log in first before registering an application');
+      }
+    },
+    async copyMessageToSign() {
+      try {
+        await navigator.clipboard.writeText(this.dataToSign);
+        this.showToast('success', 'Copied to clipboard');
+      } catch ($e) {
+        this.showToast('danger', 'Failed to Copy to clipboard');
       }
     },
   },
