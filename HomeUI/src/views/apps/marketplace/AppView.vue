@@ -1939,6 +1939,7 @@ export default {
       appPricePerDeploymentUSD,
       applicationPriceFluxDiscount,
       applicationPriceFluxError,
+      fiatCheckoutURL,
       registrationHash,
       deploymentAddress,
 
