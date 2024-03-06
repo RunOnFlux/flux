@@ -4685,7 +4685,7 @@
             >
               <b-card>
                 <b-card-text>
-                  To pay in Flux, please make a transaction of {{ appPricePerSpecs }} FLUX to address
+                  To pay in Flux {{ applicationPriceFluxDiscount }}, please make a transaction of {{ appPricePerSpecs }} FLUX to address
                   '{{ deploymentAddress }}'
                   with the following message:
                   '{{ updateHash }}'
@@ -5333,6 +5333,7 @@ export default {
       deploymentAddress: '',
       appPricePerSpecs: 0,
       appPricePerSpecsUSD: 0,
+      applicationPriceFluxDiscount: '',
       applicationPriceFluxError: false,
       maxInstances: 100,
       minInstances: 3,
@@ -7143,6 +7144,7 @@ export default {
         const appSpecFormatted = responseAppSpecs.data.data;
         this.appPricePerSpecs = 0;
         this.appPricePerSpecsUSD = 0;
+        this.applicationPriceFluxDiscount = '';
         this.applicationPriceFluxError = false;
 
         const response = await AppsService.appPriceUSDandFlux(appSpecFormatted);
@@ -7155,6 +7157,7 @@ export default {
           this.showToast('danger', 'Not possible to complete payment with Flux crypto currency');
         } else {
           this.appPricePerSpecs = +response.data.data.flux;
+          this.applicationPriceFluxDiscount = +response.data.data.fluxDiscount > 0 ? `with ${+response.data.data.fluxDiscount}% discount` : '';
         }
         this.timestamp = Date.now();
         this.dataForAppUpdate = appSpecFormatted;
