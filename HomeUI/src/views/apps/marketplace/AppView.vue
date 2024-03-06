@@ -519,7 +519,7 @@
             class="text-center wizard-card"
           >
             <b-card-text>
-              Price: {{ appPricePerDeployment }} FLUX
+              Price: {{ appPricePerDeploymentUSD }} USD
             </b-card-text>
             <b-button
               v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -542,27 +542,76 @@
           </b-card>
         </tab-content>
         <tab-content title="Send Payment">
-          <b-row class="match-height">
+          <b-row
+            class="match-height"
+          >
+            <b-col
+              lg="8"
+            >
+              <b-card>
+                <b-card-text>
+                  Everything is ready, your application will cost you {{ appPricePerDeploymentUSD }} USD.
+                </b-card-text>
+                <br>
+                The application will be subscribed until {{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}
+                <br>
+                To finish the application registration, pay your application with your prefered payment method or check below how to pay with Flux crypto currency.
+              </b-card>
+            </b-col>
+            <b-col
+              lg="4"
+            >
+              <b-card title="Pay with Stripe/Paypal">
+                <div class="loginRow">
+                  <a @click="initStripePay(registrationHash, appRegistrationSpecification.name, appPricePerDeploymentUSD, appRegistrationSpecification.description)">
+                    <img
+                      class="stripePay"
+                      src="@/assets/images/Stripe.svg"
+                      alt="Stripe"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                  <a @click="initPaypalPay(registrationHash, appRegistrationSpecification.name, appPricePerDeploymentUSD, appRegistrationSpecification.description)">
+                    <img
+                      class="paypalPay"
+                      src="@/assets/images/PayPal.png"
+                      alt="PayPal"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                </div>
+                <div v-if="fiatCheckoutURL" className="loginRow">
+                  <a :href="fiatCheckoutURL" target="_blank" rel="noopener noreferrer">
+                    Click here for checkout if not redirected
+                  </a>
+                </div>
+              </b-card>
+            </b-col>
+          </b-row>
+          <b-row
+            v-if="!applicationPriceFluxError"
+            class="match-height"
+          >
             <b-col lg="8">
               <b-card
                 title="Send Payment"
                 class="text-center wizard-card"
               >
                 <b-card-text>
-                  To finish the application update, please make a transaction of {{ appPricePerDeployment }} FLUX to address<br>
+                  To pay in Flux, please make a transaction of {{ appPricePerDeployment }} FLUX to address<br>
                   '{{ deploymentAddress }}'<br>
                   with the following message<br>
                   '{{ registrationHash }}'
                 </b-card-text>
                 <br>
                 The transaction must be mined by {{ new Date(validTill).toLocaleString('en-GB', timeoptions.shortDate) }}
-                <br><br>
-                The application will be subscribed until {{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}
               </b-card>
             </b-col>
             <b-col lg="4">
               <b-card
-                title="Pay with Zelcore"
+                title="Pay with Zelcore/SSP"
                 class="text-center wizard-card"
               >
                 <div class="loginRow">
@@ -765,12 +814,15 @@ export default {
     const dataForAppRegistration = ref(null);
     const timestamp = ref(null);
     const appPricePerDeployment = ref(0);
+    const appPricePerDeploymentUSD = ref(0);
+    const applicationPriceFluxError = ref(false);
     const registrationHash = ref(null);
     const websocket = ref(null);
     const selectedEnterpriseNodes = ref([]);
     const enterprisePublicKeys = ref([]);
     const selectedGeolocation = ref(null);
     const contact = ref(null);
+    const appRegistrationSpecification = ref(null);
 
     const config = computed(() => vm.$store.state.flux.config);
     const validTill = computed(() => timestamp.value + 60 * 60 * 1000); // 1 hour
@@ -1322,6 +1374,7 @@ export default {
           }
           appSpecification.compose.push(appComponent);
         }
+        appRegistrationSpecification.value = appSpecification;
 
         // call api for verification of app registration specifications that returns formatted specs
         const responseAppSpecs = await AppsService.appRegistrationVerificaiton(appSpecification);
@@ -1330,12 +1383,22 @@ export default {
           throw new Error(responseAppSpecs.data.data.message || responseAppSpecs.data.data);
         }
         const appSpecFormatted = responseAppSpecs.data.data;
-        const response = await AppsService.appPrice(appSpecFormatted);
+        appPricePerDeployment.value = 0;
+        appPricePerDeploymentUSD.value = 0;
+        applicationPriceFluxError.value = false;
+        const auxSpecsFormatted = appSpecFormatted;
+        auxSpecsFormatted.priceUSD = props.appData.priceUSD;
+
+        const response = await AppsService.appPriceUSDandFlux(auxSpecsFormatted);
         if (response.data.status === 'error') {
           throw new Error(response.data.data.message || response.data.data);
         }
-        if (response.data.data > props.appData.price) {
-          throw new Error('Marketplace App Price is too low');
+        appPricePerDeploymentUSD.value = +response.data.data.usd;
+        if (Number.isNaN(+response.data.data.flux)) {
+          applicationPriceFluxError.value = true;
+          showToast('danger', 'Not possible to complete payment with Flux crypto currency');
+        } else {
+          appPricePerDeployment.value = +response.data.data.flux;
         }
         if (websocket.value !== null) {
           websocket.value.close();
@@ -1343,7 +1406,6 @@ export default {
         }
         timestamp.value = Date.now();
         dataForAppRegistration.value = appSpecFormatted;
-        appPricePerDeployment.value = props.appData.price;
         dataToSign.value = `${registrationtype.value}${version.value}${JSON.stringify(appSpecFormatted)}${Date.now()}`;
         registrationHash.value = null;
         signature.value = null;
@@ -1793,6 +1855,8 @@ export default {
       signClient,
       signature,
       appPricePerDeployment,
+      appPricePerDeploymentUSD,
+      applicationPriceFluxError,
       registrationHash,
       deploymentAddress,
 

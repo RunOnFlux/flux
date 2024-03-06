@@ -1612,7 +1612,7 @@
           xs="6"
           lg="4"
         >
-          <b-card title="Pay with">
+          <b-card title="Pay with Stripe/Paypal">
             <div class="loginRow">
               <a @click="initStripePay(registrationHash, appRegistrationSpecification.name, applicationPriceUSD, appRegistrationSpecification.description)">
                 <img
@@ -1664,7 +1664,7 @@
           xs="6"
           lg="4"
         >
-          <b-card title="Pay with">
+          <b-card title="Pay with Zelcore/SSP">
             <div class="loginRow">
               <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${applicationPrice}&message=${registrationHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
                 <img
@@ -2730,6 +2730,7 @@ export default {
         const appSpecFormatted = responseAppSpecs.data.data;
         this.applicationPrice = 0;
         this.applicationPriceUSD = 0;
+        this.applicationPriceFluxError = false;
 
         const response = await AppsService.appPriceUSDandFlux(appSpecFormatted);
         if (response.data.status === 'error') {

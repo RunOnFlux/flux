@@ -9923,11 +9923,34 @@ async function getAppFiatAndFluxPrice(req, res) {
       } else {
         throw new Error('Unable to get standard usd prices for app specs');
       }
+      let actualPriceToPay = 0;
+      if (appSpecification.priceUSD) {
+        const fiatRates = await axios.get('https://viparates.zelcore.io/rates', axiosConfig).catch(() => { throw new Error('Unable to get Flux Rates'); });
+        const rateObj = fiatRates.data[0].find((rate) => rate.code === 'USD');
+        const btcRateforFlux = fiatRates.data[1].FLUX;
+        if (btcRateforFlux === undefined) {
+          throw new Error('Unable to get Flux USD Price.');
+        }
+        actualPriceToPay = Number(appSpecification.priceUSD).toFixed(2);
+        if (actualPriceToPay < appPrices[0].minUSDPrice) {
+          actualPriceToPay = appPrices[0].minUSDPrice;
+        }
+        const fiatRate = rateObj.rate * btcRateforFlux;
+        const fluxPrice = Number((actualPriceToPay / fiatRate) * appPrices[0].fluxmultiplier).toFixed(2);
+        const fluxChainPrice = await getAppFluxOnChainPrice(appSpecification);
+        const price = {
+          usd: actualPriceToPay,
+          flux: fluxChainPrice > fluxPrice ? 'Not possible to pay with Flux' : fluxPrice,
+          fluxDiscount: 100 - (appPrices[0].fluxmultiplier * 100),
+        };
+        const respondPrice = messageHelper.createDataMessage(price);
+        return res.json(respondPrice);
+      }
       const intervals = appPrices.filter((i) => i.height < daemonHeight);
       const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
       const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
       const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
-      let actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices);
+      actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices);
       const expireIn = appSpecFormatted.expire || defaultExpire;
       // app prices are ceiled to highest 0.01
       const multiplier = expireIn / defaultExpire;
@@ -9982,6 +10005,7 @@ async function getAppFiatAndFluxPrice(req, res) {
       const price = {
         usd: actualPriceToPay,
         flux: fluxChainPrice > fluxPrice ? 'Not possible to pay with Flux' : fluxPrice,
+        fluxDiscount: 100 - (appPrices[0].fluxmultiplier * 100),
       };
       const respondPrice = messageHelper.createDataMessage(price);
       return res.json(respondPrice);
