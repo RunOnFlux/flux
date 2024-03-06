@@ -1651,7 +1651,7 @@
         >
           <b-card>
             <b-card-text>
-              To pay in Flux {{ applicationPriceFluxDiscount }}, please make a transaction of {{ applicationPrice }} FLUX to address
+              To pay in Flux{{ applicationPriceFluxDiscount }}, please make a transaction of {{ applicationPrice }} FLUX to address
               '{{ deploymentAddress }}'
               with the following message:
               '{{ registrationHash }}'
@@ -2744,7 +2744,7 @@ export default {
           this.showToast('danger', 'Not possible to complete payment with Flux crypto currency');
         } else {
           this.applicationPrice = +response.data.data.flux;
-          this.applicationPriceFluxDiscount = +response.data.data.fluxDiscount > 0 ? `with ${+response.data.data.fluxDiscount}% discount` : '';
+          this.applicationPriceFluxDiscount = +response.data.data.fluxDiscount > 0 ? ` with ${+response.data.data.fluxDiscount}% discount` : '';
         }
         this.timestamp = Date.now();
         this.dataForAppRegistration = appSpecFormatted;

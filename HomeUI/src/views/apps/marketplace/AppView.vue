@@ -604,7 +604,7 @@
                 class="text-center wizard-card"
               >
                 <b-card-text>
-                  To pay in Flux {{ applicationPriceFluxDiscount }}, please make a transaction of {{ appPricePerDeployment }} FLUX to address<br>
+                  To pay in Flux{{ applicationPriceFluxDiscount }}, please make a transaction of {{ appPricePerDeployment }} FLUX to address<br>
                   '{{ deploymentAddress }}'<br>
                   with the following message<br>
                   '{{ registrationHash }}'
@@ -821,7 +821,7 @@ export default {
     const appPricePerDeploymentUSD = ref(0);
     const fiatCheckoutURL = ref(null);
     const applicationPriceFluxError = ref(false);
-    const applicationPriceFluxDiscount = ref(null);
+    const applicationPriceFluxDiscount = ref('');
     const registrationHash = ref(null);
     const websocket = ref(null);
     const selectedEnterpriseNodes = ref([]);
@@ -1478,7 +1478,7 @@ export default {
           showToast('danger', 'Not possible to complete payment with Flux crypto currency');
         } else {
           appPricePerDeployment.value = +response.data.data.flux;
-          applicationPriceFluxDiscount.value = +response.data.data.fluxDiscount > 0 ? `with ${+response.data.data.fluxDiscount}% discount` : '';
+          applicationPriceFluxDiscount.value = +response.data.data.fluxDiscount > 0 ? ` with ${+response.data.data.fluxDiscount}% discount` : '';
         }
         if (websocket.value !== null) {
           websocket.value.close();
@@ -1937,6 +1937,7 @@ export default {
       signature,
       appPricePerDeployment,
       appPricePerDeploymentUSD,
+      applicationPriceFluxDiscount,
       applicationPriceFluxError,
       registrationHash,
       deploymentAddress,
