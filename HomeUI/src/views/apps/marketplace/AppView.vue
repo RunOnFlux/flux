@@ -546,9 +546,13 @@
             class="match-height"
           >
             <b-col
+              xs="6"
               lg="8"
             >
-              <b-card>
+              <b-card
+                title="Send Payment"
+                class="text-center wizard-card"
+              >
                 <b-card-text>
                   Everything is ready, your application will cost you {{ appPricePerDeploymentUSD }} USD.
                 </b-card-text>
@@ -559,11 +563,12 @@
               </b-card>
             </b-col>
             <b-col
+              xs="6"
               lg="4"
             >
-              <b-card title="Pay with Stripe/Paypal">
+              <b-card title="Pay with Stripe/PayPal">
                 <div class="loginRow">
-                  <a @click="initStripePay(registrationHash, appRegistrationSpecification.name, appPricePerDeploymentUSD, appRegistrationSpecification.description)">
+                  <a @click="initStripePay">
                     <img
                       class="stripePay"
                       src="@/assets/images/Stripe.svg"
@@ -572,7 +577,7 @@
                       width="100%"
                     >
                   </a>
-                  <a @click="initPaypalPay(registrationHash, appRegistrationSpecification.name, appPricePerDeploymentUSD, appRegistrationSpecification.description)">
+                  <a @click="initPaypalPay">
                     <img
                       class="paypalPay"
                       src="@/assets/images/PayPal.png"
@@ -594,9 +599,8 @@
             v-if="!applicationPriceFluxError"
             class="match-height"
           >
-            <b-col lg="8">
+            <b-col xs="6" lg="8">
               <b-card
-                title="Send Payment"
                 class="text-center wizard-card"
               >
                 <b-card-text>
@@ -609,7 +613,7 @@
                 The transaction must be mined by {{ new Date(validTill).toLocaleString('en-GB', timeoptions.shortDate) }}
               </b-card>
             </b-col>
-            <b-col lg="4">
+            <b-col xs="6" lg="4">
               <b-card
                 title="Pay with Zelcore/SSP"
                 class="text-center wizard-card"
@@ -815,6 +819,7 @@ export default {
     const timestamp = ref(null);
     const appPricePerDeployment = ref(0);
     const appPricePerDeploymentUSD = ref(0);
+    const fiatCheckoutURL = ref(null);
     const applicationPriceFluxError = ref(false);
     const registrationHash = ref(null);
     const websocket = ref(null);
@@ -823,6 +828,7 @@ export default {
     const selectedGeolocation = ref(null);
     const contact = ref(null);
     const appRegistrationSpecification = ref(null);
+    const paymentBridge = 'https://fiatpaymentsbridge.runonflux.io';
 
     const config = computed(() => vm.$store.state.flux.config);
     const validTill = computed(() => timestamp.value + 60 * 60 * 1000); // 1 hour
@@ -990,7 +996,7 @@ export default {
     const initSSPpay = async () => {
       try {
         if (!window.ssp) {
-          this.showToast('danger', 'SSP Wallet not installed');
+          showToast('danger', 'SSP Wallet not installed');
           return;
         }
         const data = {
@@ -1003,10 +1009,81 @@ export default {
         if (responseData.status === 'ERROR') {
           throw new Error(responseData.data || responseData.result);
         } else {
-          this.showToast('success', `${responseData.data}: ${responseData.txid}`);
+          showToast('success', `${responseData.data}: ${responseData.txid}`);
         }
       } catch (error) {
         showToast('danger', error.message);
+      }
+    };
+
+    const openSite = (url) => {
+      const win = window.open(url, '_blank');
+      win.focus();
+    };
+
+    const initStripePay = async () => {
+      try {
+        const hash = registrationHash.value;
+        const { name } = appRegistrationSpecification.value;
+        const price = appPricePerDeploymentUSD.value;
+        const { description } = appRegistrationSpecification.value;
+        const zelidauth = localStorage.getItem('zelidauth');
+        const auth = qs.parse(zelidauth);
+        const data = {
+          zelid: auth.zelid,
+          signature: auth.signature,
+          loginPhrase: auth.loginPhrase,
+          details: {
+            name,
+            description,
+            hash,
+            price,
+            productName: name,
+          },
+        };
+        const checkoutURL = await axios.post(`${paymentBridge}/api/v1/stripe/checkout/create`, data);
+        if (checkoutURL.data.status === 'error') {
+          showToast('error', 'Failed to create stripe checkout');
+          return;
+        }
+        fiatCheckoutURL.value = checkoutURL.data.data;
+        openSite(checkoutURL.data.data);
+      } catch (error) {
+        showToast('error', 'Failed to create stripe checkout');
+      }
+    };
+
+    const initPaypalPay = async () => {
+      try {
+        const hash = registrationHash.value;
+        const { name } = appRegistrationSpecification.value;
+        const price = appPricePerDeploymentUSD.value;
+        const { description } = appRegistrationSpecification.value;
+        const zelidauth = localStorage.getItem('zelidauth');
+        const auth = qs.parse(zelidauth);
+        const data = {
+          zelid: auth.zelid,
+          signature: auth.signature,
+          loginPhrase: auth.loginPhrase,
+          details: {
+            name,
+            description,
+            hash,
+            price,
+            productName: name,
+            return_url: 'home.runonflux.io',
+            cancel_url: 'home.runonflux.io',
+          },
+        };
+        const checkoutURL = await axios.post(`${paymentBridge}/api/v1/paypal/checkout/create`, data);
+        if (checkoutURL.data.status === 'error') {
+          showToast('error', 'Failed to create PayPal checkout');
+          return;
+        }
+        fiatCheckoutURL.value = checkoutURL.data.data;
+        openSite(checkoutURL.data.data);
+      } catch (error) {
+        showToast('error', 'Failed to create PayPal checkout');
       }
     };
 
@@ -1386,7 +1463,7 @@ export default {
         appPricePerDeployment.value = 0;
         appPricePerDeploymentUSD.value = 0;
         applicationPriceFluxError.value = false;
-        const auxSpecsFormatted = appSpecFormatted;
+        const auxSpecsFormatted = JSON.parse(JSON.stringify(appSpecFormatted));
         auxSpecsFormatted.priceUSD = props.appData.priceUSD;
 
         const response = await AppsService.appPriceUSDandFlux(auxSpecsFormatted);
@@ -1821,6 +1898,7 @@ export default {
         confirmLaunchDialogCloseShowing.value = true;
       }
     };
+
     return {
 
       // UI
@@ -1869,6 +1947,9 @@ export default {
       initMetamask,
       initSSP,
       initSSPpay,
+      initPaypalPay,
+      initStripePay,
+      openSite,
       initWalletConnect,
       onSessionConnect,
       siwe,

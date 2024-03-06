@@ -4646,7 +4646,7 @@
               xs="6"
               lg="4"
             >
-              <b-card title="Pay with Stripe/Paypal">
+              <b-card title="Pay with Stripe/PayPal">
                 <div class="loginRow">
                   <a @click="initStripePay(updateHash, appUpdateSpecification.name, appPricePerSpecsUSD, appUpdateSpecification.description)">
                     <img
@@ -8722,8 +8722,8 @@ export default {
             hash,
             price,
             productName: name,
-            return_url: 'https://home.runonflux.io',
-            cancel_url: 'https://home.runonflux.io',
+            return_url: 'home.runonflux.io',
+            cancel_url: 'home.runonflux.io',
           },
         };
         const checkoutURL = await axios.post(`${paymentBridge}/api/v1/paypal/checkout/create`, data);
