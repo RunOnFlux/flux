@@ -2026,6 +2026,25 @@ export default {
   transition: 0.1s;
 }
 
+.stripePay {
+  margin-left: 5px;
+  height: 90px;
+  padding: 10px;
+}
+.stripePay img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
+.paypalPay {
+  margin-left: 5px;
+  height: 90px;
+  padding: 10px;
+}
+.paypalPay img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
+
 a img {
   transition: all 0.05s ease-in-out;
 }
