@@ -93,9 +93,7 @@
     "inquirer": "~8.2.6",
     "lru-cache": "~10.1.0",
     "mongodb": "~4.17.2",
-    "morgan": "~1.10.0",
     "nano-ethereum-signer": "~0.1.2",
-    "node-cmd": "~3.0.0",
     "node-df": "~0.1.4",
     "nodemon": "~2.0.22",
     "object-hash": "~3.0.0",
@@ -105,6 +103,7 @@
     "socket.io": "~4.7.2",
     "splitargs": "~0.0.7",
     "store": "~2.0.12",
+    "winston": "~3.12.0",
     "ws": "~7.5.9",
     "xterm": "~5.1.0",
     "zeltrezjs": "~2.12.0"

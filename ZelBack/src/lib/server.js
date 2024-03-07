@@ -16,7 +16,7 @@ const logger = (req, res, next) => {
 
 app.use(compression());
 app.use(morgan('combined'));
-app.use(logger);
+app.use(logger());
 app.use(express.json());
 // app.use(express.urlencoded({ extended: true }));
 app.use(cors());

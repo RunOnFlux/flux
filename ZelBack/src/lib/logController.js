@@ -2,8 +2,12 @@ const winston = require("winston");
 
 const { combine, timestamp, label, printf } = winston.format;
 
-const formatter = printf(({ level, message, label, timestamp }) => {
+const formatter = printf(({ level, message, label, timestamp, stack }) => {
   return `${timestamp} [${label}] ${level}: ${message}`;
+});
+
+const consoleFormatter = printf(({ level, message, label, timestamp, stack }) => {
+  return `${timestamp} [${label}] ${level}: ${message} ${stack}`;
 });
 
 const colorsLogger = {
@@ -30,7 +34,8 @@ class FluxLogger {
         winston.format.splat(),
         winston.format.errors({ stack: true }),
         winston.format.colorize(),
-        winston.format.simple()
+        // winston.format.simple()
+        consoleFormatter
       )
     });
 
