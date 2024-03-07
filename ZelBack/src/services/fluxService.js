@@ -1,8 +1,6 @@
-const nodecmd = require('node-cmd');
 const path = require('path');
 const config = require('config');
 const fullnode = require('fullnode');
-const util = require('util');
 const fs = require('fs');
 
 const fsPromises = fs.promises;
@@ -52,6 +50,7 @@ async function fluxBackendFolder(req, res) {
  */
 // eslint-disable-next-line consistent-return
 async function getCurrentCommitId(req, res) {
+  // Fix - this breaks if head in detached state? (or something, can't remember)
   if (req) {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized !== true) {
@@ -60,15 +59,23 @@ async function getCurrentCommitId(req, res) {
     }
   }
 
-  const cmdAsync = util.promisify(nodecmd.get);
-  const showBranchCmd = 'git rev-parse --short HEAD';
-
-  const branch = await cmdAsync(showBranchCmd).catch((err) => {
-    const errMsg = messageHelper.createErrorMessage(`Error getting current commit id of Flux: ${err.message}`, err.name, err.code);
-    return res ? res.json(errMsg) : errMsg;
+  const { stdout: commitId, error } = await serviceHelper.runCommand('git', {
+    logError: false, params: ['rev-parse', '--short', 'HEAD'],
   });
 
-  const successMsg = messageHelper.createSuccessMessage(branch.replace('\n', ''));
+  // const cmdAsync = util.promisify(nodecmd.get);
+  // const showBranchCmd = 'git rev-parse --short HEAD';
+
+  if (error) {
+    const errMsg = messageHelper.createErrorMessage(
+      `Error getting current commit id of Flux: ${error.message}`,
+      error.name,
+      error.code
+    );
+    return res ? res.json(errMsg) : errMsg;
+  }
+
+  const successMsg = messageHelper.createSuccessMessage(commitId.trim());
   return res ? res.json(successMsg) : successMsg;
 }
 
@@ -80,6 +87,7 @@ async function getCurrentCommitId(req, res) {
  */
 // eslint-disable-next-line consistent-return
 async function getCurrentBranch(req, res) {
+  // Fix - this breaks if head in detached state? (or something, can't remember)
   if (req) {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized !== true) {
@@ -88,15 +96,23 @@ async function getCurrentBranch(req, res) {
     }
   }
 
-  const cmdAsync = util.promisify(nodecmd.get);
-  const showBranchCmd = 'git rev-parse --abbrev-ref HEAD';
-
-  const branch = await cmdAsync(showBranchCmd).catch((err) => {
-    const errMsg = messageHelper.createErrorMessage(`Error getting current branch of Flux: ${err.message}`, err.name, err.code);
-    return res ? res.json(errMsg) : errMsg;
+  const { stdout: commitId, error } = await serviceHelper.runCommand('git', {
+    logError: false, params: ['rev-parse', '--abbrev-ref', 'HEAD'],
   });
 
-  const successMsg = messageHelper.createSuccessMessage(branch.replace('\n', ''));
+  // const cmdAsync = util.promisify(nodecmd.get);
+  // const showBranchCmd = 'git rev-parse --short HEAD';
+
+  if (error) {
+    const errMsg = messageHelper.createErrorMessage(
+      `Error getting current branch of Flux: ${error.message}`,
+      error.name,
+      error.code
+    );
+    return res ? res.json(errMsg) : errMsg;
+  }
+
+  const successMsg = messageHelper.createSuccessMessage(commitId.trim());
   return res ? res.json(successMsg) : successMsg;
 }
 
@@ -107,18 +123,35 @@ async function getCurrentBranch(req, res) {
  * @returns {Boolean}
  */
 async function checkoutBranch(branch, options = {}) {
-  const cmdAsync = util.promisify(nodecmd.get);
-  const verifyBranch = `git rev-parse --verify ${branch}`;
-  const pull = options.pull ? ' && git pull' : '';
-  const checkoutAndPull = `git checkout ${branch}${pull}`;
+  const { error: verifyError } = await serviceHelper.runCommand('git', {
+    params: ['rev-parse', '--verify', branch],
+  });
 
-  const verified = await cmdAsync(verifyBranch).catch((err) => log.error(err));
+  if (verifyError) return false
 
-  if (verified) {
-    const checkedOut = await cmdAsync(checkoutAndPull).catch((err) => log.error(err));
-    if (checkedOut) return true;
+  // const verifyBranch = `git rev-parse --verify ${branch}`;
+  // const pull = options.pull ? ' && git pull' : '';
+  // const checkoutAndPull = `git checkout ${branch}${pull}`;
+
+  const { error: checkoutError } = await serviceHelper.runCommand('git', {
+    params: ['checkout', branch],
+  });
+
+  if (checkoutError) return false;
+
+  if (options.pull) {
+    const { error: pullError } = await serviceHelper.runCommand('git', { params: ['pull'] })
+    if (pullError) return false;
   }
-  return false;
+
+  return true;
+  // const verified = await cmdAsync(verifyBranch).catch((err) => log.error(err));
+
+  // if (verified) {
+  //   const checkedOut = await cmdAsync(checkoutAndPull).catch((err) => log.error(err));
+  //   if (checkedOut) return true;
+  // }
+  // return false;
 }
 
 /**
@@ -129,6 +162,7 @@ async function checkoutBranch(branch, options = {}) {
  */
 // eslint-disable-next-line consistent-return
 async function enterMaster(req, res) {
+  // don't use npm for this
   if (req) {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized !== true) {
@@ -136,17 +170,28 @@ async function enterMaster(req, res) {
       return res ? res.json(errMessage) : errMessage;
     }
   }
-  const nodedpath = path.join(__dirname, '../../../');
-  const exec = `cd ${nodedpath} && npm run entermaster`;
-  nodecmd.get(exec, (err) => {
-    if (err) {
-      log.error(err);
-      const errMessage = messageHelper.createErrorMessage(`Error entering master branch of Flux: ${err.message}`, err.name, err.code);
-      return res ? res.json(errMessage) : errMessage;
-    }
-    const message = messageHelper.createSuccessMessage('Master branch successfully entered');
-    return res ? res.json(message) : message;
-  });
+  const cwd = path.join(__dirname, '../../../');
+
+  const { error } = await serviceHelper.runCommand('npm', { cwd, params: ['run', 'entermaster'] });
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error entering master branch of Flux: ${error.message}`, error.name, error.code);
+    return res ? res.json(errMessage) : errMessage;
+  }
+
+  const message = messageHelper.createSuccessMessage('Master branch successfully entered');
+  return res ? res.json(message) : message;
+
+  // const exec = `cd ${nodedpath} && npm run entermaster`;
+  // nodecmd.get(exec, (err) => {
+  //   if (err) {
+  //     log.error(err);
+  //     const errMessage = messageHelper.createErrorMessage(`Error entering master branch of Flux: ${err.message}`, err.name, err.code);
+  //     return res ? res.json(errMessage) : errMessage;
+  //   }
+  // const message = messageHelper.createSuccessMessage('Master branch successfully entered');
+  // return res ? res.json(message) : message;
+  // });
 }
 
 /**
@@ -164,17 +209,27 @@ async function enterDevelopment(req, res) {
       return res ? res.json(errMessage) : errMessage;
     }
   }
-  const nodedpath = path.join(__dirname, '../../../');
-  const exec = `cd ${nodedpath} && npm run enterdevelopment`;
-  nodecmd.get(exec, (err) => {
-    if (err) {
-      log.error(err);
-      const errMessage = messageHelper.createErrorMessage(`Error entering development branch of Flux: ${err.message}`, err.name, err.code);
-      return res ? res.json(errMessage) : errMessage;
-    }
-    const message = messageHelper.createSuccessMessage('Development branch successfully entered');
-    return res ? res.json(message) : message;
-  });
+  const cwd = path.join(__dirname, '../../../');
+
+  const { error } = await serviceHelper.runCommand('npm', { cwd, params: ['run', 'enterdevelopment'] });
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error entering development branch of Flux: ${error.message}`, error.name, error.code);
+    return res ? res.json(errMessage) : errMessage;
+  }
+
+  const message = messageHelper.createSuccessMessage('Development branch successfully entered');
+  return res ? res.json(message) : message;
+  // const exec = `cd ${nodedpath} && npm run enterdevelopment`;
+  // nodecmd.get(exec, (err) => {
+  //   if (err) {
+  //     log.error(err);
+  //     const errMessage = messageHelper.createErrorMessage(`Error entering development branch of Flux: ${err.message}`, err.name, err.code);
+  //     return res ? res.json(errMessage) : errMessage;
+  //   }
+  //   const message = messageHelper.createSuccessMessage('Development branch successfully entered');
+  //   return res ? res.json(message) : message;
+  // });
 }
 
 /**
@@ -190,17 +245,30 @@ async function updateFlux(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
-  const nodedpath = path.join(__dirname, '../../../');
-  const exec = `cd ${nodedpath} && npm run updateflux`;
-  nodecmd.get(exec, (err) => {
-    if (err) {
-      log.error(err);
-      const errMessage = messageHelper.createErrorMessage(`Error updating Flux: ${err.message}`, err.name, err.code);
-      return res.json(errMessage);
-    }
-    const message = messageHelper.createSuccessMessage('Flux successfully updated');
-    return res.json(message);
-  });
+
+  const cwd = path.join(__dirname, '../../../');
+
+  const { error } = await serviceHelper.runCommand('npm', { cwd, params: ['run', 'updateflux'] });
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error updating Flux: ${error.message}`, error.name, error.code);
+    return res ? res.json(errMessage) : errMessage;
+  }
+
+  const message = messageHelper.createSuccessMessage('Flux successfully updated');
+  return res ? res.json(message) : message;
+
+  // const nodedpath = path.join(__dirname, '../../../');
+  // const exec = `cd ${nodedpath} && npm run updateflux`;
+  // nodecmd.get(exec, (err) => {
+  //   if (err) {
+  //     log.error(err);
+  //     const errMessage = messageHelper.createErrorMessage(`Error updating Flux: ${err.message}`, err.name, err.code);
+  //     return res.json(errMessage);
+  //   }
+  //   const message = messageHelper.createSuccessMessage('Flux successfully updated');
+  //   return res.json(message);
+  // });
 }
 
 /**
@@ -218,16 +286,29 @@ async function softUpdateFlux(req, res) {
       return res ? res.json(errMessage) : errMessage;
     }
   }
-  const nodedpath = path.join(__dirname, '../../../');
-  const exec = `cd ${nodedpath} && npm run softupdate`;
-  nodecmd.get(exec, (err) => {
-    if (err) {
-      const errMessage = messageHelper.createErrorMessage(`Error softly updating Flux: ${err.message}`, err.name, err.code);
-      return res ? res.json(errMessage) : errMessage;
-    }
-    const message = messageHelper.createSuccessMessage('Flux successfully soft updated');
-    return res ? res.json(message) : message;
-  });
+
+  const cwd = path.join(__dirname, '../../../');
+
+  const { error } = await serviceHelper.runCommand('npm', { cwd, params: ['run', 'softupdate'] });
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error soft updating Flux: ${error.message}`, error.name, error.code);
+    return res ? res.json(errMessage) : errMessage;
+  }
+
+  const message = messageHelper.createSuccessMessage('Flux successfully soft updated');
+  return res ? res.json(message) : message;
+
+  // const nodedpath = path.join(__dirname, '../../../');
+  // const exec = `cd ${nodedpath} && npm run softupdate`;
+  // nodecmd.get(exec, (err) => {
+  //   if (err) {
+  //     const errMessage = messageHelper.createErrorMessage(`Error softly updating Flux: ${err.message}`, err.name, err.code);
+  //     return res ? res.json(errMessage) : errMessage;
+  //   }
+  //   const message = messageHelper.createSuccessMessage('Flux successfully soft updated');
+  //   return res ? res.json(message) : message;
+  // });
 }
 
 /**
@@ -245,16 +326,29 @@ async function softUpdateFluxInstall(req, res) {
       return res ? res.json(errMessage) : errMessage;
     }
   }
-  const nodedpath = path.join(__dirname, '../../../');
-  const exec = `cd ${nodedpath} && npm run softupdateinstall`;
-  nodecmd.get(exec, (err) => {
-    if (err) {
-      const errMessage = messageHelper.createErrorMessage(`Error softly updating Flux with installation: ${err.message}`, err.name, err.code);
-      return res ? res.json(errMessage) : errMessage;
-    }
-    const message = messageHelper.createSuccessMessage('Flux successfully updated softly with installation');
-    return res ? res.json(message) : message;
-  });
+
+  const cwd = path.join(__dirname, '../../../');
+
+  const { error } = await serviceHelper.runCommand('npm', { cwd, params: ['run', 'softupdateinstall'] });
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error soft updating Flux with installation: ${error.message}`, error.name, error.code);
+    return res ? res.json(errMessage) : errMessage;
+  }
+
+  const message = messageHelper.createSuccessMessage('Flux successfully soft updated with installation');
+  return res ? res.json(message) : message;
+
+  // const nodedpath = path.join(__dirname, '../../../');
+  // const exec = `cd ${nodedpath} && npm run softupdateinstall`;
+  // nodecmd.get(exec, (err) => {
+  //   if (err) {
+  //     const errMessage = messageHelper.createErrorMessage(`Error softly updating Flux with installation: ${err.message}`, err.name, err.code);
+  //     return res ? res.json(errMessage) : errMessage;
+  //   }
+  //   const message = messageHelper.createSuccessMessage('Flux successfully updated softly with installation');
+  //   return res ? res.json(message) : message;
+  // });
 }
 
 /**
@@ -270,16 +364,29 @@ async function hardUpdateFlux(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
-  const nodedpath = path.join(__dirname, '../../../');
-  const exec = `cd ${nodedpath} && npm run hardupdateflux`;
-  nodecmd.get(exec, (err) => {
-    if (err) {
-      const errMessage = messageHelper.createErrorMessage(`Error hardupdating Flux: ${err.message}`, err.name, err.code);
-      return res.json(errMessage);
-    }
-    const message = messageHelper.createSuccessMessage('Flux successfully updating');
-    return res.json(message);
-  });
+
+  const cwd = path.join(__dirname, '../../../');
+
+  const { error } = await serviceHelper.runCommand('npm', { cwd, params: ['run', 'hardupdateflux'] });
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error hard updating Flux: ${error.message}`, error.name, error.code);
+    return res ? res.json(errMessage) : errMessage;
+  }
+
+  const message = messageHelper.createSuccessMessage('Flux successfully hard updated');
+  return res ? res.json(message) : message;
+
+  // const nodedpath = path.join(__dirname, '../../../');
+  // const exec = `cd ${nodedpath} && npm run hardupdateflux`;
+  // nodecmd.get(exec, (err) => {
+  //   if (err) {
+  //     const errMessage = messageHelper.createErrorMessage(`Error hardupdating Flux: ${err.message}`, err.name, err.code);
+  //     return res.json(errMessage);
+  //   }
+  //   const message = messageHelper.createSuccessMessage('Flux successfully updating');
+  //   return res.json(message);
+  // });
 }
 
 /**
@@ -295,16 +402,29 @@ async function rebuildHome(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
-  const nodedpath = path.join(__dirname, '../../../');
-  const exec = `cd ${nodedpath} && npm run homebuild`;
-  nodecmd.get(exec, (err) => {
-    if (err) {
-      const errMessage = messageHelper.createErrorMessage(`Error rebuilding Flux: ${err.message}`, err.name, err.code);
-      return res.json(errMessage);
-    }
-    const message = messageHelper.createSuccessMessage('Flux successfully rebuilt');
-    return res.json(message);
-  });
+
+  const cwd = path.join(__dirname, '../../../');
+
+  const { error } = await serviceHelper.runCommand('npm', { cwd, params: ['run', 'homebuild'] });
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error rebuilding Flux UI: ${error.message}`, error.name, error.code);
+    return res ? res.json(errMessage) : errMessage;
+  }
+
+  const message = messageHelper.createSuccessMessage('Flux UI successfully rebuilt');
+  return res ? res.json(message) : message;
+
+  // const nodedpath = path.join(__dirname, '../../../');
+  // const exec = `cd ${nodedpath} && npm run homebuild`;
+  // nodecmd.get(exec, (err) => {
+  //   if (err) {
+  //     const errMessage = messageHelper.createErrorMessage(`Error rebuilding Flux: ${err.message}`, err.name, err.code);
+  //     return res.json(errMessage);
+  //   }
+  //   const message = messageHelper.createSuccessMessage('Flux successfully rebuilt');
+  //   return res.json(message);
+  // });
 }
 
 /**
@@ -320,16 +440,30 @@ async function updateDaemon(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
-  const nodedpath = path.join(__dirname, '../../../helpers');
-  const exec = `cd ${nodedpath} && bash updateDaemon.sh`;
-  nodecmd.get(exec, (err) => {
-    if (err) {
-      const errMessage = messageHelper.createErrorMessage(`Error updating Daemon: ${err.message}`, err.name, err.code);
-      return res.json(errMessage);
-    }
-    const message = messageHelper.createSuccessMessage('Daemon successfully updated');
-    return res.json(message);
-  });
+
+  const cwd = path.join(__dirname, '../../../helpers');
+  const scriptPath = path.join(cwd, 'updateDaemon.sh');
+
+  const { error } = await serviceHelper.runCommand(scriptPath, { cwd });
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error updating Daemon: ${error.message}`, error.name, error.code);
+    return res ? res.json(errMessage) : errMessage;
+  }
+
+  const message = messageHelper.createSuccessMessage('Daemon successfully updated');
+  return res ? res.json(message) : message;
+
+  // const nodedpath = path.join(__dirname, '../../../helpers');
+  // const exec = `cd ${nodedpath} && bash updateDaemon.sh`;
+  // nodecmd.get(exec, (err) => {
+  //   if (err) {
+  //     const errMessage = messageHelper.createErrorMessage(`Error updating Daemon: ${err.message}`, err.name, err.code);
+  //     return res.json(errMessage);
+  //   }
+  //   const message = messageHelper.createSuccessMessage('Daemon successfully updated');
+  //   return res.json(message);
+  // });
 }
 
 /**
@@ -345,16 +479,30 @@ async function updateBenchmark(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
-  const nodedpath = path.join(__dirname, '../../../helpers');
-  const exec = `cd ${nodedpath} && bash updateBenchmark.sh`;
-  nodecmd.get(exec, (err) => {
-    if (err) {
-      const errMessage = messageHelper.createErrorMessage(`Error updating Benchmark: ${err.message}`, err.name, err.code);
-      return res.json(errMessage);
-    }
-    const message = messageHelper.createSuccessMessage('Benchmark successfully updated');
-    return res.json(message);
-  });
+
+  const cwd = path.join(__dirname, '../../../helpers');
+  const scriptPath = path.join(cwd, 'updateBenchmark.sh');
+
+  const { error } = await serviceHelper.runCommand(scriptPath, { cwd });
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error updating Benchmark: ${error.message}`, error.name, error.code);
+    return res ? res.json(errMessage) : errMessage;
+  }
+
+  const message = messageHelper.createSuccessMessage('Benchmark successfully updated');
+  return res ? res.json(message) : message;
+
+  // const nodedpath = path.join(__dirname, '../../../helpers');
+  // const exec = `cd ${nodedpath} && bash updateBenchmark.sh`;
+  // nodecmd.get(exec, (err) => {
+  //   if (err) {
+  //     const errMessage = messageHelper.createErrorMessage(`Error updating Benchmark: ${err.message}`, err.name, err.code);
+  //     return res.json(errMessage);
+  //   }
+  //   const message = messageHelper.createSuccessMessage('Benchmark successfully updated');
+  //   return res.json(message);
+  // });
 }
 
 /**
@@ -370,20 +518,32 @@ async function startBenchmark(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
-  let exec = 'zelbenchd -daemon';
+
+  let bin = 'zelbenchd';
   if (fs.existsSync('/usr/local/bin/fluxbenchd')) {
-    exec = 'fluxbenchd -daemon';
+    bin = 'fluxbenchd';
   }
-  nodecmd.get(exec, (err, data) => {
-    if (err) {
-      log.error(err);
-      const errMessage = messageHelper.createErrorMessage(`Error starting Benchmark: ${err.message}`, err.name, err.code);
-      return res.json(errMessage);
-    }
-    console.log(data);
-    const message = messageHelper.createSuccessMessage('Benchmark successfully started');
-    return res.json(message);
-  });
+
+  const { error } = await serviceHelper.runCommand(bin, { params: ['-daemon'] });
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error starting Benchmark ${error.message}`, error.name, error.code);
+    return res ? res.json(errMessage) : errMessage;
+  }
+
+  const message = messageHelper.createSuccessMessage('Benchmark successfully started');
+  return res ? res.json(message) : message;
+
+  // nodecmd.get(exec, (err, data) => {
+  //   if (err) {
+  //     log.error(err);
+  //     const errMessage = messageHelper.createErrorMessage(`Error starting Benchmark: ${err.message}`, err.name, err.code);
+  //     return res.json(errMessage);
+  //   }
+  //   console.log(data);
+  //   const message = messageHelper.createSuccessMessage('Benchmark successfully started');
+  //   return res.json(message);
+  // });
 }
 
 /**
@@ -399,16 +559,30 @@ async function restartBenchmark(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
-  const nodedpath = path.join(__dirname, '../../../helpers');
-  const exec = `cd ${nodedpath} && bash restartBenchmark.sh`;
-  nodecmd.get(exec, (err) => {
-    if (err) {
-      const errMessage = messageHelper.createErrorMessage(`Error restarting Benchmark: ${err.message}`, err.name, err.code);
-      return res.json(errMessage);
-    }
-    const message = messageHelper.createSuccessMessage('Benchmark successfully restarted');
-    return res.json(message);
-  });
+
+  const cwd = path.join(__dirname, '../../../helpers');
+  const scriptPath = path.join(cwd, 'restartBenchmark.sh');
+
+  const { error } = await serviceHelper.runCommand(scriptPath, { cwd });
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error restarting Benchmark: ${error.message}`, error.name, error.code);
+    return res ? res.json(errMessage) : errMessage;
+  }
+
+  const message = messageHelper.createSuccessMessage('Benchmark successfully restarted');
+  return res ? res.json(message) : message;
+
+  // const nodedpath = path.join(__dirname, '../../../helpers');
+  // const exec = `cd ${nodedpath} && bash restartBenchmark.sh`;
+  // nodecmd.get(exec, (err) => {
+  //   if (err) {
+  //     const errMessage = messageHelper.createErrorMessage(`Error restarting Benchmark: ${err.message}`, err.name, err.code);
+  //     return res.json(errMessage);
+  //   }
+  //   const message = messageHelper.createSuccessMessage('Benchmark successfully restarted');
+  //   return res.json(message);
+  // });
 }
 
 /**
@@ -424,20 +598,36 @@ async function startDaemon(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
-  let exec = 'zelcashd';
-  if (fs.existsSync('/usr/local/bin/fluxd')) {
-    exec = 'fluxd';
+
+  let bin = 'zelcashd';
+  if (fs.existsSync('/usr/local/bin/fluxbenchd')) {
+    bin = 'fluxd';
   }
-  nodecmd.get(exec, (err, data) => {
-    if (err) {
-      log.error(err);
-      const errMessage = messageHelper.createErrorMessage(`Error starting Daemon: ${err.message}`, err.name, err.code);
-      return res.json(errMessage);
-    }
-    console.log(data);
-    const message = messageHelper.createSuccessMessage('Daemon successfully started');
-    return res.json(message);
-  });
+
+  const { error } = await serviceHelper.runCommand(bin);
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error starting Daemon ${error.message}`, error.name, error.code);
+    return res ? res.json(errMessage) : errMessage;
+  }
+
+  const message = messageHelper.createSuccessMessage('Daemon successfully started');
+  return res ? res.json(message) : message;
+
+  // let exec = 'zelcashd';
+  // if (fs.existsSync('/usr/local/bin/fluxd')) {
+  //   exec = 'fluxd';
+  // }
+  // nodecmd.get(exec, (err, data) => {
+  //   if (err) {
+  //     log.error(err);
+  //     const errMessage = messageHelper.createErrorMessage(`Error starting Daemon: ${err.message}`, err.name, err.code);
+  //     return res.json(errMessage);
+  //   }
+  //   console.log(data);
+  //   const message = messageHelper.createSuccessMessage('Daemon successfully started');
+  //   return res.json(message);
+  // });
 }
 
 /**
@@ -453,16 +643,30 @@ async function restartDaemon(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
-  const nodedpath = path.join(__dirname, '../../../helpers');
-  const exec = `cd ${nodedpath} && bash restartDaemon.sh`;
-  nodecmd.get(exec, (err) => {
-    if (err) {
-      const errMessage = messageHelper.createErrorMessage(`Error restarting Daemon: ${err.message}`, err.name, err.code);
-      return res.json(errMessage);
-    }
-    const message = messageHelper.createSuccessMessage('Daemon successfully restarted');
-    return res.json(message);
-  });
+
+  const cwd = path.join(__dirname, '../../../helpers');
+  const scriptPath = path.join(cwd, 'restartDaemon.sh');
+
+  const { error } = await serviceHelper.runCommand(scriptPath, { cwd });
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error restarting Daemon: ${error.message}`, error.name, error.code);
+    return res ? res.json(errMessage) : errMessage;
+  }
+
+  const message = messageHelper.createSuccessMessage('Daemon successfully restarted');
+  return res ? res.json(message) : message;
+
+  // const nodedpath = path.join(__dirname, '../../../helpers');
+  // const exec = `cd ${nodedpath} && bash restartDaemon.sh`;
+  // nodecmd.get(exec, (err) => {
+  //   if (err) {
+  //     const errMessage = messageHelper.createErrorMessage(`Error restarting Daemon: ${err.message}`, err.name, err.code);
+  //     return res.json(errMessage);
+  //   }
+  //   const message = messageHelper.createSuccessMessage('Daemon successfully restarted');
+  //   return res.json(message);
+  // });
 }
 
 /**
@@ -478,16 +682,30 @@ async function reindexDaemon(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
-  const nodedpath = path.join(__dirname, '../../../helpers');
-  const exec = `cd ${nodedpath} && bash reindexDaemon.sh`;
-  nodecmd.get(exec, (err) => {
-    if (err) {
-      const errMessage = messageHelper.createErrorMessage(`Error reindexing Daemon: ${err.message}`, err.name, err.code);
-      return res.json(errMessage);
-    }
-    const message = messageHelper.createSuccessMessage('Daemon successfully reindexing');
-    return res.json(message);
-  });
+
+  const cwd = path.join(__dirname, '../../../helpers');
+  const scriptPath = path.join(cwd, 'reindexDaemon.sh');
+
+  const { error } = await serviceHelper.runCommand(scriptPath, { cwd });
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error reindexing Daemon: ${error.message}`, error.name, error.code);
+    return res ? res.json(errMessage) : errMessage;
+  }
+
+  const message = messageHelper.createSuccessMessage('Daemon successfully reindexing');
+  return res ? res.json(message) : message;
+
+  // const nodedpath = path.join(__dirname, '../../../helpers');
+  // const exec = `cd ${nodedpath} && bash reindexDaemon.sh`;
+  // nodecmd.get(exec, (err) => {
+  //   if (err) {
+  //     const errMessage = messageHelper.createErrorMessage(`Error reindexing Daemon: ${err.message}`, err.name, err.code);
+  //     return res.json(errMessage);
+  //   }
+  //   const message = messageHelper.createSuccessMessage('Daemon successfully reindexing');
+  //   return res.json(message);
+  // });
 }
 
 /**
@@ -719,24 +937,39 @@ async function benchmarkDebug(req, res) {
  */
 async function tailDaemonDebug(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized === true) {
-    const defaultDir = new fullnode.Config().defaultFolder();
-    const datadir = daemonServiceUtils.getConfigValue('datadir') || defaultDir;
-    const filepath = `${datadir}/debug.log`;
-    const exec = `tail -n 100 ${filepath}`;
-    nodecmd.get(exec, (err, data) => {
-      if (err) {
-        const errMessage = messageHelper.createErrorMessage(`Error obtaining Daemon debug file: ${err.message}`, err.name, err.code);
-        res.json(errMessage);
-        return;
-      }
-      const message = messageHelper.createSuccessMessage(data);
-      res.json(message);
-    });
-  } else {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     res.json(errMessage);
+    return;
   }
+
+  const defaultDir = new fullnode.Config().defaultFolder();
+  const datadir = daemonServiceUtils.getConfigValue('datadir') || defaultDir;
+  const filepath = path.join(datadir, 'debug.log');
+
+  const { stdout, error } = await serviceHelper.runCommand('tail', {
+    params: ['-n', '100', filepath],
+  });
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error obtaining Daemon debug file: ${err.message}`, err.name, err.code);
+    res.json(errMessage);
+    return;
+  }
+
+  const message = messageHelper.createSuccessMessage(stdout);
+  res.json(message);
+
+  // const exec = `tail -n 100 ${filepath}`;
+  // nodecmd.get(exec, (err, data) => {
+  //   if (err) {
+  //     const errMessage = messageHelper.createErrorMessage(`Error obtaining Daemon debug file: ${err.message}`, err.name, err.code);
+  //     res.json(errMessage);
+  //     return;
+  //   }
+  //   const message = messageHelper.createSuccessMessage(data);
+  //   res.json(message);
+  // });
 }
 
 /**
@@ -746,28 +979,44 @@ async function tailDaemonDebug(req, res) {
  */
 async function tailBenchmarkDebug(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized === true) {
-    const homeDirPath = path.join(__dirname, '../../../../');
-    const newBenchmarkPath = path.join(homeDirPath, '.fluxbenchmark');
-    let datadir = `${homeDirPath}.zelbenchmark`;
-    if (fs.existsSync(newBenchmarkPath)) {
-      datadir = newBenchmarkPath;
-    }
-    const filepath = `${datadir}/debug.log`;
-    const exec = `tail -n 100 ${filepath}`;
-    nodecmd.get(exec, (err, data) => {
-      if (err) {
-        const errMessage = messageHelper.createErrorMessage(`Error obtaining Benchmark debug file: ${err.message}`, err.name, err.code);
-        res.json(errMessage);
-        return;
-      }
-      const message = messageHelper.createSuccessMessage(data);
-      res.json(message);
-    });
-  } else {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     res.json(errMessage);
+    return;
   }
+
+  const homeDirPath = path.join(__dirname, '../../../../');
+  const newBenchmarkPath = path.join(homeDirPath, '.fluxbenchmark');
+  let datadir = path.join(homeDirPath, '.zelbenchmark');
+  if (fs.existsSync(newBenchmarkPath)) {
+    datadir = newBenchmarkPath;
+  }
+  const filepath = path.join(datadir, 'debug.log');
+
+  const { stdout, error } = await serviceHelper.runCommand('tail', {
+    params: ['-n', '100', filepath],
+  });
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error obtaining Daemon debug file: ${err.message}`, err.name, err.code);
+    res.json(errMessage);
+    return;
+  }
+
+  const message = messageHelper.createSuccessMessage(stdout);
+  res.json(message);
+
+  // const filepath = `${datadir}/debug.log`;
+  // const exec = `tail -n 100 ${filepath}`;
+  // nodecmd.get(exec, (err, data) => {
+  //   if (err) {
+  //     const errMessage = messageHelper.createErrorMessage(`Error obtaining Benchmark debug file: ${err.message}`, err.name, err.code);
+  //     res.json(errMessage);
+  //     return;
+  //   }
+  //   const message = messageHelper.createSuccessMessage(data);
+  //   res.json(message);
+  // });
 }
 
 /**
@@ -871,23 +1120,39 @@ async function fluxDebugLog(req, res) {
  */
 async function tailFluxLog(req, res, logfile) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized === true) {
-    const homeDirPath = path.join(__dirname, '../../../');
-    const filepath = `${homeDirPath}${logfile}.log`;
-    const exec = `tail -n 100 ${filepath}`;
-    nodecmd.get(exec, (err, data) => {
-      if (err) {
-        const errMessage = messageHelper.createErrorMessage(`Error obtaining Flux ${logfile} file: ${err.message}`, err.name, err.code);
-        res.json(errMessage);
-        return;
-      }
-      const message = messageHelper.createSuccessMessage(data);
-      res.json(message);
-    });
-  } else {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     res.json(errMessage);
+    return;
   }
+
+  const homeDirPath = path.join(__dirname, '../../../');
+  const filepath = path.join(homeDirPath, `${logfile}.log`);
+
+  const { stdout, error } = await serviceHelper.runCommand('tail', {
+    params: ['-n', '100', filepath],
+  });
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error obtaining Daemon debug file: ${err.message}`, err.name, err.code);
+    res.json(errMessage);
+    return;
+  }
+
+  const message = messageHelper.createSuccessMessage(stdout);
+  res.json(message);
+
+
+  // const exec = `tail -n 100 ${filepath}`;
+  // nodecmd.get(exec, (err, data) => {
+  //   if (err) {
+  //     const errMessage = messageHelper.createErrorMessage(`Error obtaining Flux ${logfile} file: ${err.message}`, err.name, err.code);
+  //     res.json(errMessage);
+  //     return;
+  //   }
+  //   const message = messageHelper.createSuccessMessage(data);
+  //   res.json(message);
+  // });
 }
 
 /**
@@ -1506,15 +1771,24 @@ async function getNodeTier(req, res) {
  * To install Flux Watch Tower (executes the command `bash fluxwatchtower.sh` in the relevent directory on the node machine).
  */
 async function installFluxWatchTower() {
-  try {
-    const nodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${nodedpath} && bash fluxwatchtower.sh`;
-    const cmdAsync = util.promisify(nodecmd.get);
-    const cmdres = await cmdAsync(exec);
-    log.info(cmdres);
-  } catch (error) {
-    log.error(error);
-  }
+  const cwd = path.join(__dirname, '../../../helpers');
+  const scriptPath = path.join(cwd, 'fluxwatchtower.sh');
+
+  const { stdout, error } = await serviceHelper.runCommand(scriptPath, { cwd });
+
+  if (error) return;
+
+  log.info(stdout);
+
+  // try {
+  //   const nodedpath = path.join(__dirname, '../../../helpers');
+  //   const exec = `cd ${nodedpath} && bash fluxwatchtower.sh`;
+  //   const cmdAsync = util.promisify(nodecmd.get);
+  //   const cmdres = await cmdAsync(exec);
+  //   log.info(cmdres);
+  // } catch (error) {
+  //   log.error(error);
+  // }
 }
 
 /**
@@ -1523,24 +1797,28 @@ async function installFluxWatchTower() {
  * @param {object} res Response.
  */
 async function restartFluxOS(req, res) {
-  try {
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    if (authorized === true) {
-      const exec = 'pm2 restart flux';
-      const cmdAsync = util.promisify(nodecmd.get);
-      await cmdAsync(exec);
-      log.info('Restarting FluxOS..');
-      const response = messageHelper.createDataMessage('Restarting FluxOS');
-      res.json(response);
-    } else {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-    }
-  } catch (error) {
-    log.error(error);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
+  if (authorized !== true) {
+    const errMessage = messageHelper.errUnauthorizedMessage();
+    res.json(errMessage);
+    return
+  }
+
+  // const exec = 'pm2 restart flux';
+  // const cmdAsync = util.promisify(nodecmd.get);
+  // await cmdAsync(exec);
+  log.info('Restarting FluxOS..');
+
+  const { error } = await serviceHelper.runCommand('pm2', { params: ['restart', 'flux'] });
+
+  if (error) {
     const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
+    return;
   }
+
+  const response = messageHelper.createDataMessage('Restarting FluxOS');
+  res.json(response);
 }
 
 module.exports = {
