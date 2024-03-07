@@ -1,5 +1,4 @@
 const config = require('config');
-const nodecmd = require('node-cmd');
 const axios = require('axios');
 const { XMLParser } = require('fast-xml-parser');
 const fs = require('fs');
