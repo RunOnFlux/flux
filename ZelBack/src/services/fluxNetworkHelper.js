@@ -1168,7 +1168,7 @@ async function allowPort(port) {
   });
 
   cmdStat.message = allowIn + allowOut;
-  if (serviceHelper.ensureString(cmdStat.message).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
+  if (serviceHelper.ensureString(cmdStat.message).includes('updated') || serviceHelper.ensureString(cmdStat.message).includes('added')) {
     cmdStat.status = true;
   } else if (serviceHelper.ensureString(cmdStat.message).includes('existing')) {
     cmdStat.status = true;

@@ -112,6 +112,7 @@ async function runCommand(userCmd, options = {}) {
   }
 
   const { runAsRoot, logError, ...execOptions } = options;
+  execOptions.stdio = 'ignore';
 
   if (runAsRoot) {
     params.unshift(userCmd);
