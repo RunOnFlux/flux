@@ -3,9 +3,6 @@ const natUpnp = require('@runonflux/nat-upnp');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
-const nodecmd = require('node-cmd');
-// eslint-disable-next-line import/no-extraneous-dependencies
-const util = require('util');
 
 const log = require('../lib/log');
 
