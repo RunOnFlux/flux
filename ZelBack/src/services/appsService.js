@@ -6753,7 +6753,7 @@ async function storeAppRunningMessage(message) {
       upsert: true,
     };
 
-    log.info(`App: ${app.name} added to: ${message.ip}`);
+    // log.info(`App: ${app.name} added to: ${message.ip}`);
 
     // eslint-disable-next-line no-await-in-loop
     await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
