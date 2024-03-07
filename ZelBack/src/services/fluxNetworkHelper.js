@@ -1457,6 +1457,9 @@ async function purgeUFW() {
 
   if (error) return;
 
+  console.log("ERROR", error)
+  console.log("UFW STATUS", ufwStatus)
+
   // matches any group of ports, single port or ports list, followed by an optional
   // tcp or udp, followed by any amount of whitespace, followed by a DENY or
   // DENY OUT, followed by any amount of whitespace and the literal Anywhere.

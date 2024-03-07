@@ -98,7 +98,7 @@ function delay(ms) {
    @returns {Promise<{error: (Error|null), stdout: (string|null), stderr: (string|null)}>}
  */
 async function runCommand(userCmd, options = {}) {
-  console.log('runcommand', userCmd)
+  console.log('runcommand', userCmd, options)
   const res = { error: null, stdout: null, stderr: null }
   const params = options.params || [];
 
@@ -124,9 +124,12 @@ async function runCommand(userCmd, options = {}) {
   const { stdout, stderr } = await execFile(cmd, params, execOptions).catch((err) => {
     const { stdout: errStdout, stderr: errStderr, ...error } = err;
     res.error = error;
+    console.log("ERR HERE", err)
     if (logError !== false) log.error(error);
     return [errStdout, errStderr];
   });
+
+  console.log(stdout)
 
   res.stdout = stdout;
   res.stderr = stderr;
@@ -147,7 +150,7 @@ async function isFirewallActive() {
   if (error) return false;
 
   // install jc. Then can get this command (and others, like iptables) as json
-  if (serviceHelper.ensureString(stdout).includes('Status: active')) {
+  if (ensureString(stdout).includes('Status: active')) {
     return true;
   }
 
