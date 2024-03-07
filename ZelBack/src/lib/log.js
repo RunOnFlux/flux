@@ -27,7 +27,7 @@ const transport = pino.transport({
   level: 'debug',
   target: 'pino-pretty',
   options: {
-    destination: 1
+    // destination: 1
     // translateTime: 'yyyy-mm-dd HH:MM:ss:L',
   }
 })

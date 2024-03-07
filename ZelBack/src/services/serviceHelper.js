@@ -91,6 +91,8 @@ function delay(ms) {
   });
 }
 
+locked = false
+
 /**
  *
  * @param {string} cmd The binary to run. Must be in PATH
@@ -98,6 +100,13 @@ function delay(ms) {
    @returns {Promise<{error: (Error|null), stdout: (string|null), stderr: (string|null)}>}
  */
 async function runCommand(userCmd, options = {}) {
+  // testing.
+  console.log("RUN COMMAND", userCmd)
+  while (locked) {
+    console.log("LOCKED")
+    await sleep(100);
+  }
+
   const res = { error: null, stdout: null, stderr: null }
   const params = options.params || [];
 
@@ -112,7 +121,6 @@ async function runCommand(userCmd, options = {}) {
   }
 
   const { runAsRoot, logError, ...execOptions } = options;
-  execOptions.stdio = 'ignore';
 
   if (runAsRoot) {
     params.unshift(userCmd);
@@ -121,16 +129,19 @@ async function runCommand(userCmd, options = {}) {
     cmd = userCmd;
   }
 
+  locked = true;
   const { stdout, stderr } = await execFile(cmd, params, execOptions).catch((err) => {
     const { stdout: errStdout, stderr: errStderr, ...error } = err;
     res.error = error;
     if (logError !== false) log.error(error);
+    locked = false;
     return [errStdout, errStderr];
   });
 
   res.stdout = stdout;
   res.stderr = stderr;
 
+  locked = false;
   return res;
 }
 
