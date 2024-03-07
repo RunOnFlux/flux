@@ -84,12 +84,10 @@ async function initiate() {
     configReload();
   }, 2 * 1000);
 
-  const server = app.listen(apiPort, () => {
+  app.listen(apiPort, () => {
     log.info(`Flux listening on port ${apiPort}!`);
     serviceManager.startFluxFunctions();
   });
-
-  socket.initIO(server);
 
   try {
     const certExists = fs.existsSync(path.join(__dirname, './certs/v1.key'));
@@ -102,9 +100,10 @@ async function initiate() {
     const cert = fs.readFileSync(path.join(__dirname, './certs/v1.crt'), 'utf8');
     const credentials = { key, cert };
     const httpsServer = https.createServer(credentials, app);
-    httpsServer.listen(apiPortHttps, () => {
+    const serverHttps = httpsServer.listen(apiPortHttps, () => {
       log.info(`Flux https listening on port ${apiPortHttps}!`);
     });
+    socket.initIO(serverHttps);
   } catch (error) {
     log.error(error);
   }
