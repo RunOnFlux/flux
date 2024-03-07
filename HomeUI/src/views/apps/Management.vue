@@ -7160,7 +7160,7 @@ export default {
           this.appPricePerSpecs = +response.data.data.flux;
           this.applicationPriceFluxDiscount = +response.data.data.fluxDiscount > 0 ? ` with ${+response.data.data.fluxDiscount}% discount` : '';
         }
-        this.isMarketplaceApp = this.marketPlaceApps.includes((app) => this.appSpecification.name.toLowerCase().startsWith(app.name.toLowerCase()));
+        this.isMarketplaceApp = this.marketPlaceApps.includes((app) => this.appUpdateSpecification.name.toLowerCase().startsWith(app.name.toLowerCase()));
         this.timestamp = Date.now();
         this.dataForAppUpdate = appSpecFormatted;
         this.dataToSign = this.updatetype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp;
@@ -8700,8 +8700,8 @@ export default {
             hash,
             price,
             productName: name,
-            success_url: 'home.runonflux.io',
-            cancel_url: 'home.runonflux.io',
+            success_url: 'https://home.runonflux.io',
+            cancel_url: 'https://home.runonflux.io',
             kpi: {
               origin: 'FluxOS',
               marketplace: this.isMarketplaceApp,
@@ -8735,7 +8735,7 @@ export default {
             price,
             productName: name,
             return_url: 'home.runonflux.io',
-            cancel_url: 'home.runonflux.io',
+            cancel_url: 'https://home.runonflux.io',
             kpi: {
               origin: 'FluxOS',
               marketplace: this.isMarketplaceApp,
