@@ -9924,30 +9924,6 @@ async function getAppFiatAndFluxPrice(req, res) {
         throw new Error('Unable to get standard usd prices for app specs');
       }
       let actualPriceToPay = 0;
-      if (appSpecification.priceUSD) {
-        const fiatRates = await axios.get('https://viparates.zelcore.io/rates', axiosConfig).catch(() => { throw new Error('Unable to get Flux Rates'); });
-        const rateObj = fiatRates.data[0].find((rate) => rate.code === 'USD');
-        const btcRateforFlux = fiatRates.data[1].FLUX;
-        if (btcRateforFlux === undefined) {
-          throw new Error('Unable to get Flux USD Price.');
-        }
-        actualPriceToPay = Number(appSpecification.priceUSD).toFixed(2);
-        if (actualPriceToPay < appPrices[0].minUSDPrice) {
-          actualPriceToPay = appPrices[0].minUSDPrice;
-        }
-        const fiatRate = rateObj.rate * btcRateforFlux;
-        const fluxPrice = Number((actualPriceToPay / fiatRate) * appPrices[0].fluxmultiplier).toFixed(2);
-        const fluxChainPrice = await getAppFluxOnChainPrice(appSpecification);
-        const price = {
-          usd: actualPriceToPay,
-          flux: fluxChainPrice > fluxPrice ? 'Not possible to pay with Flux' : fluxPrice,
-          fluxDiscount: 100 - (appPrices[0].fluxmultiplier * 100),
-        };
-        const respondPrice = messageHelper.createDataMessage(price);
-        return res.json(respondPrice);
-      }
-      const intervals = appPrices.filter((i) => i.height < daemonHeight);
-      const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
       const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
       const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
       actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices);
@@ -9979,25 +9955,36 @@ async function getAppFiatAndFluxPrice(req, res) {
       } else {
         throw new Error('Unable to get marketplace information');
       }
-      const marketPlaceApp = marketPlaceApps.find((app) => appSpecFormatted.name.toLowerCase().startsWith(app.name.toLowerCase()));
-      if (marketPlaceApp) {
-        if (marketPlaceApp.multiplier > 1) {
-          actualPriceToPay *= marketPlaceApp.multiplier;
+
+      if (appSpecification.priceUSD) {
+        if (appSpecification.priceUSD < actualPriceToPay) {
+          const price = {
+            usd: 'Not possible to pay with USD',
+            flux: 'Not possible to pay with Flux',
+            fluxDiscount: 0,
+          };
+          const respondPrice = messageHelper.createDataMessage(price);
+          return res.json(respondPrice);
         }
-      }
-      actualPriceToPay = Number(actualPriceToPay).toFixed(2);
-      if (actualPriceToPay < priceSpecifications.minPrice) {
-        actualPriceToPay = priceSpecifications.minPrice;
+        actualPriceToPay = Number(appSpecification.priceUSD).toFixed(2);
+      } else {
+        const marketPlaceApp = marketPlaceApps.find((app) => appSpecFormatted.name.toLowerCase().startsWith(app.name.toLowerCase()));
+        if (marketPlaceApp) {
+          if (marketPlaceApp.multiplier > 1) {
+            actualPriceToPay *= marketPlaceApp.multiplier;
+          }
+        }
+
+        actualPriceToPay = Number(actualPriceToPay * appPrices[0].multiplier).toFixed(2);
+        if (actualPriceToPay < appPrices[0].minUSDPrice) {
+          actualPriceToPay = Number(appPrices[0].minUSDPrice).toFixed(2);
+        }
       }
       const fiatRates = await axios.get('https://viparates.zelcore.io/rates', axiosConfig).catch(() => { throw new Error('Unable to get Flux Rates'); });
       const rateObj = fiatRates.data[0].find((rate) => rate.code === 'USD');
       const btcRateforFlux = fiatRates.data[1].FLUX;
       if (btcRateforFlux === undefined) {
         throw new Error('Unable to get Flux USD Price.');
-      }
-      actualPriceToPay = Number(actualPriceToPay * appPrices[0].multiplier).toFixed(2);
-      if (actualPriceToPay < appPrices[0].minUSDPrice) {
-        actualPriceToPay = appPrices[0].minUSDPrice;
       }
       const fiatRate = rateObj.rate * btcRateforFlux;
       const fluxPrice = Number((actualPriceToPay / fiatRate) * appPrices[0].fluxmultiplier).toFixed(2);
