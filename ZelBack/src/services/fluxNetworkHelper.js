@@ -1256,7 +1256,7 @@ async function deleteAllowPortRule(port) {
   // const exec = `sudo ufw delete allow ${port} && sudo ufw delete allow out ${port}`;
   // const cmdres = await cmdAsync(exec);
   cmdStat.message = deleteAllowIn + deleteAllowOut;
-  if (serviceHelper.ensureString(cmdres).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
+  if (serviceHelper.ensureString(cmdStat.message).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
     cmdStat.status = true;
   } else {
     cmdStat.status = false;
