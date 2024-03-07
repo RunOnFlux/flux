@@ -880,7 +880,7 @@ async function connectToPeers() {
 
     while (!fcc.aborted && outgoingConnections.length < minDeterministicOutPeers) {
       const { ip: endpoint } = sortedNodeList.shift();
-      const [ip, port] = endpoint.includes(':') ? endpoint.split() : [endpoint, 16127];
+      const [ip, port] = endpoint.includes(':') ? endpoint.split(':') : [endpoint, 16127];
 
       // change these to maps
       const outgoing = outgoingConnections.find((client) => client.ip === ip && client.port === port);
@@ -898,7 +898,7 @@ async function connectToPeers() {
     // established deterministic 8 incoming connections
     while (!fcc.aborted && incomingConnections.length < minDeterministicOutPeers) {
       const { ip: endpoint } = sortedNodeList.shift();
-      const [ip, port] = endpoint.includes(':') ? endpoint.split() : [endpoint, 16127];
+      const [ip, port] = endpoint.includes(':') ? endpoint.split(':') : [endpoint, 16127];
 
       // change these to maps
       const outgoing = outgoingConnections.find((client) => client.ip === ip && client.port === port);

@@ -1168,9 +1168,9 @@ async function allowPort(port) {
   });
 
   cmdStat.message = allowIn + allowOut;
-  if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
+  if (serviceHelper.ensureString(cmdStat.message).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
     cmdStat.status = true;
-  } else if (serviceHelper.ensureString(cmdres).includes('existing')) {
+  } else if (serviceHelper.ensureString(cmdStat.message).includes('existing')) {
     cmdStat.status = true;
     cmdStat.message = 'existing';
   } else {
@@ -1212,9 +1212,9 @@ async function denyPort(port) {
   // const exec = `sudo ufw deny ${port} && sudo ufw deny out ${port}`;
   // const cmdres = await cmdAsync(exec);
   cmdStat.message = denyIn + denyOut;
-  if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
+  if (serviceHelper.ensureString(cmdStat.message).includes('updated') || serviceHelper.ensureString(cmdStat.message).includes('added')) {
     cmdStat.status = true;
-  } else if (serviceHelper.ensureString(cmdres).includes('existing')) {
+  } else if (serviceHelper.ensureString(cmdStat.message).includes('existing')) {
     cmdStat.status = true;
     cmdStat.message = 'existing';
   } else {
@@ -1341,7 +1341,7 @@ async function deleteAllowOutPortRule(port) {
   // const cmdres = await cmdAsync(exec);
 
   cmdStat.message = stdout;
-  if (serviceHelper.ensureString(cmdres).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
+  if (serviceHelper.ensureString(cmdStat.message).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
     cmdStat.status = true;
   } else {
     cmdStat.status = false;
