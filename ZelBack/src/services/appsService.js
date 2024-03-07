@@ -46,7 +46,6 @@ const { invalidMessages } = require('./invalidMessages');
 const fluxDirPath = path.join(__dirname, '../../../');
 const appsFolder = `${fluxDirPath}ZelApps/`;
 
-const cmdAsync = util.promisify(nodecmd.get);
 const crontabLoad = util.promisify(systemcrontab.load);
 const dockerPullStreamPromise = util.promisify(dockerService.dockerPullStream);
 const dockerStatsStreamPromise = util.promisify(dockerService.dockerContainerStatsStream);
