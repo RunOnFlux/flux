@@ -1040,6 +1040,8 @@ export default {
             hash,
             price,
             productName: name,
+            success_url: 'home.runonflux.io',
+            cancel_url: 'home.runonflux.io',
             kpi: {
               origin: 'FluxOS',
               marketplace: true,
