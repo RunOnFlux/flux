@@ -20,17 +20,15 @@ let syncthingWorking = false;
 
 /**
  * To check if the hardware specification requirements of the node tier are being met by the node (RAM and CPU threads).
- * @returns {boolean} True or an error is thrown.
+ * @returns {Promise<boolean>} True or an error is thrown.
  */
 async function confirmNodeTierHardware() {
   try {
     const tier = await generalService.nodeTier().catch((error) => {
-      log.info("HI THERE")
       log.error(error);
     });
 
     const collateral = await generalService.nodeCollateral().catch((error) => {
-      log.info("IN HERE");
       log.error(error);
     });
     const nodeRam = os.totalmem() / 1024 / 1024 / 1024;
@@ -85,7 +83,6 @@ async function confirmNodeTierHardware() {
     return true;
   } catch (error) {
     log.error(error);
-    log.info("AT END OF ID SERVICE")
     return false;
   }
 }
