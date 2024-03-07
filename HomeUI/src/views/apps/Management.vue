@@ -5737,7 +5737,7 @@ export default {
         return `${store.get('backendURL').split(':')[0]}:${store.get('backendURL').split(':')[1]}`;
       }
       const { hostname } = window.location;
-      return `http://${hostname}`;
+      return `${hostname}`;
     },
     filesToUpload() {
       return this.files.length > 0 && this.files.some((file) => !file.uploading && !file.uploaded && file.progress === 0);
@@ -7753,12 +7753,6 @@ export default {
         this.showToast('danger', error.message || error);
       }
     },
-
-    // cancelDownload() {
-    //   this.abortToken.cancel('User download cancelled');
-    //   this.downloaded = '';
-    //   this.total = '';
-    // },
     async downloadApplicationLog(appName) {
       const self = this;
       this.downloaded = '';
@@ -8141,7 +8135,6 @@ export default {
                 } else {
                   this.selectedIp = ipElement.value.value;
                 }
-                console.log(this.selectedIp);
               }
               return;
             }
@@ -8152,6 +8145,12 @@ export default {
           this.masterIP = 'Defining New Primary In Progress';
         } else if (!this.selectedIp) {
           this.selectedIp = this.instances.data[0].ip;
+        }
+        const withoutProtocol = this.ipAddress.replace('http://', '');
+        const desiredIP = this.config.apiPort === 16127 ? withoutProtocol : `${withoutProtocol}:${this.config.apiPort}`;
+        const matchingInstances = this.instances.data.filter((instance) => instance.ip === desiredIP);
+        if (matchingInstances.length > 0) {
+          this.selectedIp = desiredIP;
         }
         console.log(this.selectedIp);
       }
