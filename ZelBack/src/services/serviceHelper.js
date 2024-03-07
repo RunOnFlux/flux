@@ -5,6 +5,8 @@ const axios = require('axios');
 const config = require('config');
 const splitargs = require('splitargs');
 const qs = require('qs');
+const util = require('node:util');
+const execFile = util.promisify(require('node:child_process').execFile);
 
 const dbHelper = require('./dbHelper');
 const log = require('../lib/log');
