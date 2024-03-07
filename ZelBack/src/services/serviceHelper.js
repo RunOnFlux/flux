@@ -98,6 +98,7 @@ function delay(ms) {
    @returns {Promise<{error: (Error|null), stdout: (string|null), stderr: (string|null)}>}
  */
 async function runCommand(userCmd, options = {}) {
+  console.log('runcommand', userCmd)
   const res = { error: null, stdout: null, stderr: null }
   const params = options.params || [];
 

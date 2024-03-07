@@ -36,6 +36,7 @@ async function adjustFirewallForUPNP() {
     return;
   }
 
+  console.log("ADJUST FIREALL")
   // should just use iptables instead of ufw
   // these allow outs are unnecessary, but have included them anyway. No one blocks outbound traffic.
   // and if they do, we should remove that block, instead of allowing things piecemeal.
@@ -113,6 +114,7 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
     // run test on apiport + 1
     await client.getPublicIp();
   } catch (error) {
+    console.log(" HERE ERROR", error)
     log.error(error);
     log.error('VerifyUPNPsupport - Failed get public ip');
     upnpMachine = false;
