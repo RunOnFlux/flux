@@ -21,16 +21,18 @@ class FluxLogger {
 
   constructor() {
     this.logger = winston.createLogger({
-      silent: true
+      silent: true,
+      format: combine(
+        winston.format.splat(),
+        winston.format.errors({ stack: true }),
+      )
     });
     this.loggingConsole = true;
     this.defaultConsole = new winston.transports.Console({
       level: "debug",
       format: combine(
-        winston.format.splat(),
-        winston.format.errors({ stack: true }),
         winston.format.colorize(),
-        // winston.format.simple()
+        winston.format.simple()
       )
     });
 
@@ -53,8 +55,6 @@ class FluxLogger {
           level: level,
           filename: options.filePath,
           format: combine(
-            winston.format.splat(),
-            winston.format.errors({ stack: true }),
             label({ label: "fluxOS" }),
             timestamp(),
             formatter
