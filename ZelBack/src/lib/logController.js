@@ -6,6 +6,16 @@ const formatter = printf(({ level, message, label, timestamp, stack }) => {
   return `${timestamp} [${label}] ${level}: ${message}`;
 });
 
+// const errorStackFormat = winston.format(info => {
+//   if (info instanceof Error) {
+//     return Object.assign({}, info, {
+//       stack: info.stack,
+//       message: info.message
+//     })
+//   }
+//   return info
+// })
+
 const colorsLogger = {
   error: "red",
   warn: "yellow"
@@ -23,8 +33,10 @@ class FluxLogger {
     this.logger = winston.createLogger({
       silent: true,
       format: combine(
-        winston.format.splat(),
+        // errorStackFormat(),
         winston.format.errors({ stack: true }),
+        winston.format.splat(),
+
       )
     });
     this.loggingConsole = true;

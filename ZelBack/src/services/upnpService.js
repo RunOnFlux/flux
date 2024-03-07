@@ -114,7 +114,6 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
     // run test on apiport + 1
     await client.getPublicIp();
   } catch (error) {
-    console.log(" HERE ERROR", error)
     log.error(error);
     log.error('VerifyUPNPsupport - Failed get public ip');
     upnpMachine = false;
