@@ -1717,7 +1717,7 @@ async function removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces) {
   // eslint-disable-next-line no-restricted-syntax
   for (const int of fluxNetworkInterfaces) {
     // if this errors, we need to bail, as if the deny succeedes, we may cut off access
-    const fluxNetworkAccessParams = baseAllowToFluxNetworksParams.map((item) => item === '#INT' ? network : item);
+    const fluxNetworkAccessParams = baseAllowToFluxNetworksParams.map((item) => item === '#INT' ? int : item);
     // eslint-disable-next-line no-await-in-loop
     const { error: fluxNetworkAccessError } = await serviceHelper.runCommand(
       'iptables',
