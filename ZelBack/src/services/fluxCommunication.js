@@ -817,10 +817,7 @@ async function addOutgoingPeer(req, res) {
  * @returns {Promise<number>} ms to sleep for until next attempt
  */
 async function connectToPeers() {
-  if (fcc.aborted) {
-    log.info("FCC ABORTED shouldn't be here")
-    return 0;
-  }
+  if (fcc.aborted) return 0;
 
   await fcc.lock.enable();
 
@@ -875,10 +872,8 @@ async function connectToPeers() {
 
     const minDeterministicOutPeers = Math.min(sortedNodeList.length, config.fluxapps.minOutgoing);
 
-    log.info(`Current number of outgoing connections: ${outgoingConnections.length}`);
-    log.info(`Current number of incoming connections: ${incomingConnections.length}`);
-    log.info(`Current number of outgoing peers: ${outgoingPeers.length}`);
-    log.info(`Current number of incoming peers: ${incomingPeers.length}`);
+    log.info(`Inbound/Outbound connection count: ${incomingConnections.length}/${outgoingConnections.length}`);
+    log.info(`Inbound/Outbound peer count: ${incomingPeers.length}/${outgoingPeers.length}`);
 
     // always try to connect to deterministic nodes
     let deterministicPeerConnections = false;
@@ -970,26 +965,19 @@ async function connectToPeers() {
     }
     return 60 * 1000;
   } catch (err) {
-    console.log("YE ERROR HERE")
-    console.log(err)
-    if (err.name && err.name !== 'AbortError') {
+    if (err.name === 'AbortError') {
+      return 0;
+    } else {
       log.warn(err);
       return 2 * 60 * 120;
-    } else {
-      log.info(err)
-      log.info("ABORTED HEHEHE")
     }
   } finally {
     fcc.lock.disable();
   }
-  log.info("END OF GET PEERS, shouldn't be here")
-  return 0;
 }
 
 async function loopPeerConnections() {
-  log.info("LOOP PEER CONNECTIONS")
   const ms = await connectToPeers();
-  log.info(`SLEEP MS: ${ms}`)
   if (!ms) return;
   connectionTimeout = setTimeout(loopPeerConnections, ms);
 }

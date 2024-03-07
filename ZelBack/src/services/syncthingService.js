@@ -5,16 +5,16 @@ const { XMLParser } = require('fast-xml-parser');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const util = require('util');
 const qs = require('qs');
 const verificationHelper = require('./verificationHelper');
 // eslint-disable-next-line import/no-extraneous-dependencies
 
-const cmdAsync = util.promisify(nodecmd.get);
 const fsPromises = fs.promises;
 
 const messageHelper = require('./messageHelper');
 const serviceHelper = require('./serviceHelper');
+const { spawn } = require('node:child_process');
+
 const log = require('../lib/log');
 
 const syncthingURL = `http://${config.syncthing.ip}:${config.syncthing.port}`;
@@ -38,25 +38,52 @@ let sentinelTimeout = null;
 
 /**
  * To get syncthing config xml file
- * @returns {string} config gile (XML).
+ * @returns {Promise<(string|null)>} config gile (XML).
  */
 async function getConfigFile() {
-  try {
-    const homedir = os.homedir();
-    // fs may fail to read that as of eaccess
-    // change permissions of the file first so we can read it and get api key properly
-    const execDIRown = 'sudo chown $USER:$USER $HOME/.config'; // adjust .config folder for ownership of running user
-    await cmdAsync(execDIRown).catch((error) => log.error(error));
-    const execDIRownSyncthing = 'sudo chown $USER:$USER $HOME/.config/syncthing'; // adjust .config/syncthing folder for ownership of running user
-    await cmdAsync(execDIRownSyncthing).catch((error) => log.error(error));
-    const execPERM = `sudo chmod 644 ${homedir}/.config/syncthing/config.xml`;
-    await cmdAsync(execPERM);
-    const result = await fsPromises.readFile(`${homedir}/.config/syncthing/config.xml`, 'utf8');
-    return result;
-  } catch (error) {
-    log.error(error);
-    return null;
-  }
+  const homedir = os.homedir();
+  const configDir = path.join(homedir, '.config');
+  const syncthingDir = path.join(configDir, 'syncthing');
+  const configFile = path.join(syncthingDir, 'config.xml');
+
+  const user = os.userInfo().username;
+  const owner = `${user}:${user}`;
+
+  // fs may fail to read that as of eaccess
+  // change permissions of the file first so we can read it and get api key properly
+  // adjust .config folder for ownership of running user
+  const { error: chownMainError } = await serviceHelper.runCommand('chown', {
+    runAsRoot: true,
+    params: [owner, configDir],
+  });
+
+  if (chownMainError) return null;
+
+  // const execDIRown = 'sudo chown $USER:$USER $HOME/.config';
+  // await cmdAsync(execDIRown).catch((error) => log.error(error));
+
+  const { error: chownSyncthingError } = await serviceHelper.runCommand('chown', {
+    runAsRoot: true,
+    params: [owner, syncthingDir],
+  });
+
+  if (chownSyncthingError) return null;
+
+  // const execDIRownSyncthing = 'sudo chown $USER:$USER $HOME/.config/syncthing'; // adjust .config/syncthing folder for ownership of running user
+  // await cmdAsync(execDIRownSyncthing).catch((error) => log.error(error));
+
+  const { error: chmodError } = await serviceHelper.runCommand('chmod', {
+    runAsRoot: true,
+    params: ['644', configFile],
+  });
+
+  if (chmodError) return null;
+
+  // const execPERM = `sudo chmod 644 ${homedir}/.config/syncthing/config.xml`;
+  // await cmdAsync(execPERM);
+
+  const result = await fsPromises.readFile(configFile, 'utf8');
+  return result;
 }
 
 /**
@@ -2044,37 +2071,41 @@ async function getDeviceId() {
     await serviceHelper.delay(500);
   }
 
+  // not sure why this is necessary?
   getDeviceIDRunning = true;
 
-  let meta;
-  let healthy;
-  let pingResponse;
-  let synthingRunning;
+  let meta = {};
+  let healthy = {};
+  let pingResponse = {};
 
   try {
     meta = await getMeta();
     healthy = await getHealth();
     // check that flux has proper api key
     pingResponse = await systemPing();
-  } catch (error) {
-    const psCmd = 'ps aux | grep -i syncthing';
-    synthingRunning = await cmdAsync(psCmd);
+  } catch {
+    // do nothing
   } finally {
     getDeviceIDRunning = false;
   }
 
-  if (meta.status === 'success' && pingResponse.data.ping === 'pong' && healthy.data.status === 'OK') {
+  if (meta.status === 'success' && pingResponse.data?.ping === 'pong' && healthy.data?.status === 'OK') {
     syncthingStatusOk = true;
     const adjustedString = meta.data.slice(15).slice(0, -2);
     const deviceObject = JSON.parse(adjustedString);
     const { deviceID } = deviceObject;
     return deviceID;
   }
-
   syncthingStatusOk = false;
+
+  const { stdout } = await serviceHelper.runCommand('ps', {
+    params: ['-fC', 'syncthing'],
+    logError: false,
+  });
+
   const msg = 'Syncthing is not running properly';
   log.error(msg);
-  log.error(synthingRunning);
+  log.error(stdout);
   log.error(meta);
   log.error(healthy);
   log.error(pingResponse);
@@ -2107,21 +2138,34 @@ function isRunning() {
 }
 
 /**
- * Check if Synchtng is installed and if not install it
+ * Check if syncthing is installed, and if not, install it
  */
 async function installSyncthingIdempotently() { // can throw
   if (stc.aborted) return;
 
   log.info('Checking if Syncthing is installed...');
-  const execIsInstalled = 'syncthing --version';
-  const installed = await cmdAsync(execIsInstalled).catch(() => log.info('Syncthing not installed....'));
+  // const execIsInstalled = 'syncthing --version';
+
+  const { stdout: installed } = await serviceHelper.runCommand('syncthing', {
+    params: ['--version'],
+    logError: false,
+  });
+  // const installed = await cmdAsync(execIsInstalled).catch(() => log.info('Syncthing not installed....'));
 
   if (!installed) {
     log.info('Installing Syncthing...');
-    const nodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${nodedpath} && bash installSyncthing.sh`;
-    await cmdAsync(exec);
-    log.info('Syncthing installed');
+    const helpers = path.join(__dirname, '../../../helpers');
+    // Git will store the executable bit, so I change all the scripts to executable,
+    // now they can just be called by themselves
+    const installScript = path.join(helpers, 'installSyncthing.sh');
+    // const exec = `cd ${nodedpath} && bash installSyncthing.sh`;
+    // await cmdAsync(exec);
+    const { error } = await serviceHelper.runCommand(installScript);
+    if (!error) {
+      log.info('Syncthing installed');
+    } else {
+      log.error('Error installing syncthing');
+    }
   } else {
     log.info('Syncthing already installed...');
   }
@@ -2210,38 +2254,93 @@ async function adjustSyncthing() {
 async function configureDirectories() {
   if (stc.aborted) return;
 
-  const execDIRcr = 'mkdir -p $HOME/.config'; // create .config folder first for it to have standard user ownership. With -p no error will be thrown in case of exists
-  await cmdAsync(execDIRcr).catch((error) => log.error(error));
-  const execDIRown = 'sudo chown $USER:$USER $HOME/.config'; // adjust .config folder for ownership of running user
-  await cmdAsync(execDIRown).catch((error) => log.error(error));
-  const execDIRownSyncthing = 'sudo chown $USER:$USER $HOME/.config/syncthing'; // adjust .config/syncthing folder for ownership of running user
-  await cmdAsync(execDIRownSyncthing).catch((error) => log.error(error));
+  // this doesn't really make sense. We're making the root .config dir,
+  // but then not creating the syncthing dir?
+
+  const homedir = os.homedir();
+  const configDir = path.join(homedir, '.config');
+  const syncthingDir = path.join(configDir, 'syncthing');
+
+  const user = os.userInfo().username;
+  const owner = `${user}:${user}`;
+
+  await serviceHelper.runCommand('mkdir', {
+    params: ['-p', configDir]
+  })
+
+  await serviceHelper.runCommand('chown', {
+    runAsRoot: true,
+    params: [owner, configDir],
+  });
+
+  await serviceHelper.runCommand('chown', {
+    runAsRoot: true,
+    params: [owner, syncthingDir],
+  });
+
+  // const execDIRcr = 'mkdir -p $HOME/.config'; // create .config folder first for it to have standard user ownership. With -p no error will be thrown in case of exists
+  // await cmdAsync(execDIRcr).catch((error) => log.error(error));
+  // const execDIRown = 'sudo chown $USER:$USER $HOME/.config'; // adjust .config folder for ownership of running user
+  // await cmdAsync(execDIRown).catch((error) => log.error(error));
+  // const execDIRownSyncthing = 'sudo chown $USER:$USER $HOME/.config/syncthing'; // adjust .config/syncthing folder for ownership of running user
+  // await cmdAsync(execDIRownSyncthing).catch((error) => log.error(error));
 }
 
 /**
- * To Stop Syncthing
+ * Stops syncthing if it is running
+ * @returns {Promise<void>}
  */
-
 async function stopSyncthing() {
   if (stc.aborted) return;
 
-  const execKill = 'sudo killall syncthing';
-  const execKillB = 'sudo pkill syncthing';
-  const execKillC = 'sudo pkill -9 syncthing';
-  const runningCmd = 'sudo pgrep syncthing';
+  // const execKill = 'sudo killall syncthing';
+  // const execKillB = 'sudo pkill syncthing';
+  // const execKillC = 'sudo pkill -9 syncthing';
+  // const runningCmd = 'sudo pgrep syncthing';
 
-  const isRunningA = await cmdAsync(runningCmd).catch(noop);
-  if (isRunningA) {
-    log.info('Stopping gracefully syncthing service');
-    await cmdAsync(execKill).catch((error) => log.error(error));
-    await cmdAsync(execKillB).catch((error) => log.error(error));
-    await serviceHelper.delay(2 * 1000);
+  // pgrep doesn't need to be run as root
+  const { stdout: syncthingRunningA } = await serviceHelper.runCommand('pgrep', {
+    params: ['syncthing'],
+    logError: false,
+  });
 
-    const isRunningB = await cmdAsync(runningCmd).catch(noop);
-    if (isRunningB) {
-      log.info('Stopping syncthing service');
-      await cmdAsync(execKillC).catch((error) => log.error(error));
-    }
+  if (!syncthingRunningA) return;
+
+  log.info('Stopping syncthing service gracefully');
+
+  // killall will error if process not found
+  await serviceHelper.runCommand('killall', {
+    runAsRoot: true,
+    params: ['syncthing'],
+    logError: false
+  })
+
+  // pkill will error if process not found
+  await serviceHelper.runCommand('pkill', {
+    runAsRoot: true,
+    params: ['syncthing'],
+    logError: false
+  })
+
+  // await cmdAsync(execKill).catch((error) => log.error(error));
+  // await cmdAsync(execKillB).catch((error) => log.error(error));
+
+  await serviceHelper.delay(2 * 1000);
+
+  // const isRunningB = await cmdAsync(runningCmd).catch(noop);
+
+  const { stdout: syncthingRunningB } = await serviceHelper.runCommand('pgrep', {
+    params: ['syncthing'],
+    logError: false,
+  });
+
+  if (syncthingRunningB) {
+    log.info('Sending SIGKILL to syncthing service');
+    // await cmdAsync(execKillC).catch((error) => log.error(error));
+    await serviceHelper.runCommand('kill', {
+      runAsRoot: true,
+      params: ['-9', 'syncthing'],
+    })
   }
 }
 
@@ -2263,38 +2362,69 @@ async function runSyncthingSentinel() {
       await configureDirectories();
       await stopSyncthing();
 
-      const exec = 'sudo nohup syncthing -logfile $HOME/.config/syncthing/syncthing.log --logflags=3 '
-        + '--log-max-old-files=2 --log-max-size=26214400 --allow-newer-config --no-browser '
-        + '--home=$HOME/.config/syncthing >/dev/null 2>&1 </dev/null &';
+      const homedir = os.homedir();
+      const syncthingHome = path.join(homedir, '.config/syncthing')
+      const logFile = path.join(syncthingHome, 'syncthing.log');
+
+
       log.info('Spawning Syncthing instance...');
-      await cmdAsync(exec).catch((err) => {
-        log.error(err);
-        log.info('Error starting syncthing.');
-      });
+
+      // this shouldn't be managed by FluxOS.
+      // if nodeJS binary has the CAP_SETUID capability, can then set the uid to 0,
+      // without having to call sudo
+      const syncthingProcess = spawn(
+        'sudo',
+        [
+          'syncthing',
+          '--logfile',
+          logFile,
+          '--logflags=3',
+          '--log-max-old-files=2',
+          '--log-max-size=26214400',
+          '--allow-newer-config',
+          '--no-browser',
+          '--home',
+          syncthingHome,
+        ],
+        {
+          detached: true,
+          stdio: ['ignore'],
+          // uid: 0,
+        }
+      );
+
+      syncthingProcess.unref();
+
+      // const exec = 'sudo nohup syncthing -logfile $HOME/.config/syncthing/syncthing.log --logflags=3 --log-max-old-files=2 --log-max-size=26214400 --allow-newer-config --no-browser --home=$HOME/.config/syncthing &';
+
+      // await cmdAsync(exec).catch((err) => {
+      //   log.error(err);
+      //   log.info('Error starting syncthing.');
+      // });
 
     }
 
     if (stc.aborted) return 0;
 
-  }
+    // }
 
     if (stc.aborted) return 0;
 
-  // every 8 minutes call adjustSyncthing to check service folders
-  // this will also run on first iteration
-  if (counter % 8 === 0) {
-    counter = 0;
-    await adjustSyncthing();
-  }
+    // every 8 minutes call adjustSyncthing to check service folders
+    // this will also run on first iteration
+    if (counter % 8 === 0) {
+      counter = 0;
+      await adjustSyncthing();
+    }
 
-  counter += 1;
-  return 60 * 1000;
-} catch (err) {
-  log.error(err);
-  return 2 * 60 * 1000;
-} finally {
-  stc.lock.disable();
-}
+    counter += 1;
+    return 60 * 1000;
+  } catch (err) {
+    log.error(err);
+    return 2 * 60 * 1000;
+  } finally {
+    stc.lock.disable();
+  }
 }
 
 async function loopRunSyncthingSentinel() {

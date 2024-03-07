@@ -22,52 +22,85 @@ function isUPNP() {
 }
 
 /**
- * To check if a firewall is active.
- * @returns {Promise<boolean>} True if a firewall is active. Otherwise false.
- */
-async function isFirewallActive() {
-  try {
-    const cmdAsync = util.promisify(nodecmd.get);
-    const execA = 'sudo ufw status | grep Status';
-    const cmdresA = await cmdAsync(execA);
-    if (serviceHelper.ensureString(cmdresA).includes('Status: active')) {
-      return true;
-    }
-    return false;
-  } catch (error) {
-    // command ufw not found is the most likely reason
-    log.error(error);
-    return false;
-  }
-}
-
-/**
  * To adjust a firewall to allow comms between host and router.
+ * @returns {Promise<void>}
  */
 async function adjustFirewallForUPNP() {
-  try {
-    let { routerIP } = userconfig.initial;
-    routerIP = serviceHelper.ensureString(routerIP);
-    if (routerIP) {
-      const cmdAsync = util.promisify(nodecmd.get);
-      const firewallActive = await isFirewallActive();
-      if (firewallActive) {
-        const execA = 'sudo ufw allow out from any to 239.255.255.250 port 1900 proto udp > /dev/null 2>&1';
-        const execB = `sudo ufw allow from ${routerIP} port 1900 to any proto udp > /dev/null 2>&1`;
-        const execC = `sudo ufw allow out from any to ${routerIP} proto tcp > /dev/null 2>&1`;
-        const execD = `sudo ufw allow from ${routerIP} to any proto udp > /dev/null 2>&1`;
-        await cmdAsync(execA);
-        await cmdAsync(execB);
-        await cmdAsync(execC);
-        await cmdAsync(execD);
-        log.info('Firewall adjusted for UPNP');
-      } else {
-        log.info('RouterIP is set but firewall is not active. Adjusting not applied for UPNP');
-      }
-    }
-  } catch (error) {
-    log.error(error);
+  let { routerIP } = userconfig.initial;
+  // this should be sanitized up front at init, not in the code
+  routerIP = serviceHelper.ensureString(routerIP);
+
+  if (!routerIP) return;
+
+  const firewallActive = await serviceHelper.isFirewallActive();
+
+  if (!firewallActive) {
+    log.info('RouterIP is set but firewall is not active. Adjusting not applied for UPNP');
+    return;
   }
+
+  // should just use iptables instead of ufw
+  // these allow outs are unnecessary, but have included them anyway. No one blocks outbound traffic.
+  // and if they do, we should remove that block, instead of allowing things piecemeal.
+  const { error: allowSsdpError } = await serviceHelper.runCommand('ufw', {
+    runAsRoot: true,
+    params: [
+      'allow',
+      'out',
+      'from',
+      'any',
+      'to',
+      '239.255.255.250',
+      'port',
+      '1900',
+      'proto',
+      'udp',
+    ],
+  });
+
+  if (allowSsdpError) return;
+
+  const { error: allowTcpToRouterError } = await serviceHelper.runCommand('ufw', {
+    runAsRoot: true,
+    params: [
+      'allow',
+      'out',
+      'from',
+      'any',
+      'to',
+      routerIP,
+      'proto',
+      'tcp',
+    ],
+  });
+
+  if (allowTcpToRouterError) return;
+
+  const { error: allowRouterUdpError } = await serviceHelper.runCommand('ufw', {
+    runAsRoot: true,
+    params: [
+      'allow',
+      'from',
+      routerIP,
+      'to',
+      'any',
+      'proto',
+      'udp',
+    ],
+  });
+
+  if (allowRouterUdpError) return;
+
+  // const execA = 'sudo ufw allow out from any to 239.255.255.250 port 1900 proto udp';
+  // removed this, it's convered by the allow from routerIP below
+  // const execB = `sudo ufw allow from ${routerIP} port 1900 to any proto udp`;
+  // const execC = `sudo ufw allow out from any to ${routerIP} proto tcp`;
+  // const execD = `sudo ufw allow from ${routerIP} to any proto udp`;
+  // await cmdAsync(execA);
+  // await cmdAsync(execB);
+  // await cmdAsync(execC);
+  // await cmdAsync(execD);
+  log.info('Firewall adjusted for UPNP');
 }
 
 /**

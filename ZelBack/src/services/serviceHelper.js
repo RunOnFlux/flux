@@ -5,8 +5,6 @@ const axios = require('axios');
 const config = require('config');
 const splitargs = require('splitargs');
 const qs = require('qs');
-const nodecmd = require('node-cmd');
-const util = require('util');
 
 const dbHelper = require('./dbHelper');
 const log = require('../lib/log');
@@ -89,6 +87,68 @@ function delay(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+/**
+ *
+ * @param {string} cmd The binary to run. Must be in PATH
+ * @param {{params?: string[], runAsRoot?: Boolean, logError?: Boolean, cwd?: string, timeout?: number, signal?: AbortSignal, shell?: (Boolean|string)}} options
+   @returns {Promise<{error: (Error|null), stdout: (string|null), stderr: (string|null)}>}
+ */
+async function runCommand(userCmd, options = {}) {
+  const res = { error: null, stdout: null, stderr: null }
+  const params = options.params || [];
+
+  if (!userCmd) {
+    res.error = new Error("Command must be present")
+    return res
+  }
+
+  if (!Array.isArray(params) || !params.every((p) => typeof p === 'string')) {
+    res.error = new Error("Invalid params for command, must be an Array of strings")
+    return res;
+  }
+
+  const { runAsRoot, logError, ...execOptions } = options;
+
+  if (runAsRoot) {
+    params.unshift(userCmd);
+    cmd = 'sudo';
+  } else {
+    cmd = userCmd;
+  }
+
+  const { stdout, stderr } = await execFile(cmd, params, execOptions).catch((err) => {
+    const { stdout: errStdout, stderr: errStderr, ...error } = err;
+    res.error = error;
+    if (logError !== false) log.error(error);
+    return [errStdout, errStderr];
+  });
+
+  res.stdout = stdout;
+  res.stderr = stderr;
+
+  return res;
+}
+
+/**
+ * To check if a firewall is active.
+ * @returns {Promise<boolean>} True if a firewall is active. Otherwise false.
+ */
+async function isFirewallActive() {
+  const { stdout, error } = await runCommand('ufw', {
+    runAsRoot: true,
+    params: ['status'],
+  });
+
+  if (error) return false;
+
+  // install jc. Then can get this command (and others, like iptables) as json
+  if (serviceHelper.ensureString(stdout).includes('Status: active')) {
+    return true;
+  }
+
+  return false;
 }
 
 /**
@@ -390,10 +450,21 @@ function ipInSubnet(ip, subnet) {
  * @returns {Prmoise<void>}
  */
 async function installAptPackage(packageName) {
-  const cmdAsync = util.promisify(nodecmd.get);
-  await cmdAsync(`dpkg -l ${packageName}`).catch(async () => {
-    await cmdAsync(`sudo apt install ${packageName} -y`).catch((err) => log.error(err));
+  const { error: notInstalled } = await runCommand('dpkg', {
+    params: ['-l', packageName],
+    logError: false
   });
+
+  if (notInstalled) {
+    await runCommand('apt', {
+      runAsRoot: true,
+      params: ['install', packageName, '-y'],
+    });
+  }
+
+  // await cmdAsync(`dpkg -l ${packageName}`).catch(async () => {
+  //   await cmdAsync(`sudo apt install ${packageName} -y`).catch((err) => log.error(err));
+  // });
 }
 
 module.exports = {
@@ -406,12 +477,14 @@ module.exports = {
   ensureNumber,
   ensureObject,
   ensureString,
+  FluxController,
   getApplicationOwner,
   installAptPackage,
   ipInSubnet,
   isDecimalLimit,
+  isFirewallActive,
   parseInterval,
   randomMsBetween,
+  runCommand,
   validIpv4Address,
-  FluxController,
 };
