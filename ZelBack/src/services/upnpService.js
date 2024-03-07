@@ -36,7 +36,6 @@ async function adjustFirewallForUPNP() {
     return;
   }
 
-  console.log("ADJUST FIREALL")
   // should just use iptables instead of ufw
   // these allow outs are unnecessary, but have included them anyway. No one blocks outbound traffic.
   // and if they do, we should remove that block, instead of allowing things piecemeal.

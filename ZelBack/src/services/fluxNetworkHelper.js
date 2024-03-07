@@ -1157,12 +1157,12 @@ async function allowPort(port) {
   // const exec = `sudo ufw allow ${port} && sudo ufw allow out ${port}`;
   // const cmdres = await cmdAsync(exec);
 
-  const { stdout: allowIn } = serviceHelper.runCommand('ufw', {
+  const { stdout: allowIn } = await serviceHelper.runCommand('ufw', {
     runAsRoot: true,
     params: ['allow', port],
   });
 
-  const { stdout: allowOut } = serviceHelper.runCommand('ufw', {
+  const { stdout: allowOut } = await serviceHelper.runCommand('ufw', {
     runAsRoot: true,
     params: ['allow', 'out', port],
   });
@@ -1199,12 +1199,12 @@ async function denyPort(port) {
     return cmdStat;
   }
 
-  const { stdout: denyIn } = serviceHelper.runCommand('ufw', {
+  const { stdout: denyIn } = await serviceHelper.runCommand('ufw', {
     runAsRoot: true,
     params: ['deny', port],
   });
 
-  const { stdout: denyOut } = serviceHelper.runCommand('ufw', {
+  const { stdout: denyOut } = await serviceHelper.runCommand('ufw', {
     runAsRoot: true,
     params: ['deny', 'out', port],
   });
@@ -1243,12 +1243,12 @@ async function deleteAllowPortRule(port) {
     return cmdStat;
   }
 
-  const { stdout: deleteAllowIn } = serviceHelper.runCommand('ufw', {
+  const { stdout: deleteAllowIn } = await serviceHelper.runCommand('ufw', {
     runAsRoot: true,
     params: ['delete', 'allow', port],
   });
 
-  const { stdout: deleteAllowOut } = serviceHelper.runCommand('ufw', {
+  const { stdout: deleteAllowOut } = await serviceHelper.runCommand('ufw', {
     runAsRoot: true,
     params: ['delete', 'allow', 'out', port],
   });
@@ -1291,12 +1291,12 @@ async function deleteDenyPortRule(portWithOptionalProto) {
     return cmdStat;
   }
 
-  const { stdout: deleteDenyIn } = serviceHelper.runCommand('ufw', {
+  const { stdout: deleteDenyIn } = await serviceHelper.runCommand('ufw', {
     runAsRoot: true,
     params: ['delete', 'deny', portWithOptionalProto],
   });
 
-  const { stdout: deleteDenyOut } = serviceHelper.runCommand('ufw', {
+  const { stdout: deleteDenyOut } = await serviceHelper.runCommand('ufw', {
     runAsRoot: true,
     params: ['delete', 'deny', 'out', portWithOptionalProto],
   });
@@ -1304,7 +1304,7 @@ async function deleteDenyPortRule(portWithOptionalProto) {
   // const exec = `sudo ufw delete deny ${port} && sudo ufw delete deny out ${port}`;
   // const cmdres = await cmdAsync(exec);
   cmdStat.message = deleteDenyIn + deleteDenyOut;
-  if (serviceHelper.ensureString(cmdres).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
+  if (serviceHelper.ensureString(cmdStat.message).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
     cmdStat.status = true;
   } else {
     cmdStat.status = false;
@@ -1332,7 +1332,7 @@ async function deleteAllowOutPortRule(port) {
     return cmdStat;
   }
 
-  const { stdout } = serviceHelper.runCommand('ufw', {
+  const { stdout } = await serviceHelper.runCommand('ufw', {
     runAsRoot: true,
     params: ['delete', 'allow', 'out', port],
   });
@@ -1418,12 +1418,12 @@ async function adjustFirewall() {
     }
   }
 
-  const { stdout: allowedIn } = serviceHelper.runCommand('ufw', {
+  const { stdout: allowedIn } = await serviceHelper.runCommand('ufw', {
     runAsRoot: true,
     params: ['allow', portsAsString],
   });
 
-  const { stdout: allowedOut } = serviceHelper.runCommand('ufw', {
+  const { stdout: allowedOut } = await serviceHelper.runCommand('ufw', {
     runAsRoot: true,
     params: ['allow', 'out', portsAsString],
   });
@@ -1449,16 +1449,13 @@ async function purgeUFW() {
 
   if (!firewallActive) return;
 
-  const { stdout: ufwStatus, error } = serviceHelper.runCommand('ufw', {
+  const { stdout: ufwStatus, error } = await serviceHelper.runCommand('ufw', {
     runAsRoot: true,
     params: ['status'],
     logError: false
   });
 
   if (error) return;
-
-  console.log("ERROR", error)
-  console.log("UFW STATUS", ufwStatus)
 
   // matches any group of ports, single port or ports list, followed by an optional
   // tcp or udp, followed by any amount of whitespace, followed by a DENY or
@@ -1579,7 +1576,7 @@ async function removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces) {
   // if (!iptablesInstalled) return false;
 
   // this doesn't need to be run as root, but just checking it's in root's PATH
-  const { iptablesExistsError } = serviceHelper.runCommand('iptables', {
+  const { iptablesExistsError } = await serviceHelper.runCommand('iptables', {
     runAsRoot: true,
     logError: false,
     params: ['--version'],
