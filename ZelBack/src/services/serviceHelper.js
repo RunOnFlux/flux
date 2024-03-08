@@ -7,6 +7,7 @@ const splitargs = require('splitargs');
 const qs = require('qs');
 const util = require('node:util');
 const execFile = util.promisify(require('node:child_process').execFile);
+const { spawn } = require('node:child_process');
 
 const dbHelper = require('./dbHelper');
 const log = require('../lib/log');
@@ -101,8 +102,8 @@ subprocessLock = new AsyncLock()
  */
 async function runCommand(userCmd, options = {}) {
   // testing.
+  // await subprocessLock.enable();
   await sleep(1000)
-  await subprocessLock.enable();
 
   const res = { error: null, stdout: null, stderr: null }
   const params = options.params || [];
@@ -111,13 +112,13 @@ async function runCommand(userCmd, options = {}) {
 
   if (!userCmd) {
     res.error = new Error("Command must be present")
-    subprocessLock.disable()
+    // subprocessLock.disable()
     return res
   }
 
   if (!Array.isArray(params) || !params.every((p) => typeof p === 'string')) {
     res.error = new Error("Invalid params for command, must be an Array of strings")
-    subprocessLock.disable()
+    // subprocessLock.disable()
     return res;
   }
 
@@ -130,22 +131,46 @@ async function runCommand(userCmd, options = {}) {
     cmd = userCmd;
   }
 
-  locked = true;
-  const { stdout, stderr } = await execFile(cmd, params, execOptions).catch((err) => {
-    const { stdout: errStdout, stderr: errStderr, ...error } = err;
-    res.error = error;
-    if (logError !== false) log.error(error);
-    subprocessLock.disable()
-    return [errStdout, errStderr];
-  });
+  let stdoutBuf = '';
+  let stderrBuf = '';
 
-  if (stderr) console.log("STDERR FOUND!!!!!", stderr)
+  return new Promise((resolve, reject) => {
+    execOptions.stdio = ['ignore', 'pipe', 'pipe']
+    const child = spawn(cmd, params, execOptions)
 
-  res.stdout = stdout;
-  res.stderr = stderr;
+    child.stdout.on('data', (data) => {
+      stdoutBuf += data.toString();
+    });
 
-  subprocessLock.disable()
-  return res;
+    child.stderr.on('data', (data) => {
+      stderrBuf += data.toString();
+    });
+
+    child.on('error', (error) => {
+      reject({ stdout: stdoutBuf, stderr: stderrBuf, error })
+    })
+
+    child.on('close', (code) => {
+      process.stdout.write(`Exited with code: ${code}\n`)
+      resolve({ stdout: stdoutBuf, stderr: stderrBuf, error: null })
+    });
+  })
+
+  // const { stdout, stderr } = await execFile(cmd, params, execOptions).catch((err) => {
+  //   const { stdout: errStdout, stderr: errStderr, ...error } = err;
+  //   res.error = error;
+  //   if (logError !== false) log.error(error);
+  //   subprocessLock.disable()
+  //   return [errStdout, errStderr];
+  // });
+
+  // if (stderr) console.log("STDERR FOUND!!!!!", stderr)
+
+  // res.stdout = stdout;
+  // res.stderr = stderr;
+
+  // subprocessLock.disable()
+  // return res;
 }
 
 /**
