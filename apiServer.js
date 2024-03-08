@@ -1,5 +1,7 @@
 process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
 
+process.stdin.destroy()
+
 /**
  * A global function to be used as a no-operation. See apiServer.js
  * @returns {void}
