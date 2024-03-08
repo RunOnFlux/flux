@@ -8,6 +8,8 @@ const compression = require('compression');
 
 const log = require('./log');
 
+console.log(log)
+
 const expressWs = eWS(express());
 const { app } = expressWs;
 
@@ -17,16 +19,6 @@ const logger = () => {
     next();
   }
 };
-
-async function blah() {
-  while (true) {
-    await sleep(5)
-    log.info("HI THERE")
-  }
-}
-
-blah()
-
 
 app.use(logger());
 app.use(express.json());

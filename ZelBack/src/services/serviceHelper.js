@@ -101,7 +101,6 @@ locked = false
  */
 async function runCommand(userCmd, options = {}) {
   // testing.
-  log.info("RUN COMMAND", userCmd)
   while (locked) {
     log.info("LOCKED")
     await sleep(100);
@@ -109,6 +108,8 @@ async function runCommand(userCmd, options = {}) {
 
   const res = { error: null, stdout: null, stderr: null }
   const params = options.params || [];
+
+  log.info("RUN COMMAND", userCmd, params.join(" "))
 
   if (!userCmd) {
     res.error = new Error("Command must be present")
