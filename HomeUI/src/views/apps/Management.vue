@@ -7383,7 +7383,9 @@ export default {
           this.loadBackupList();
           break;
         case 11:
-          this.refreshFolder();
+          if (!this.appSpecification?.compose || this.appSpecification?.compose?.length === 1) {
+            this.refreshFolder();
+          }
           break;
         case 14:
           this.getApplicationLocations();
