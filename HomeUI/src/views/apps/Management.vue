@@ -8210,6 +8210,7 @@ export default {
         } else if (!this.selectedIp) {
           this.selectedIp = this.instances.data[0].ip;
         }
+        console.log(this.ipAccess);
         if (this.ipAccess) {
           const withoutProtocol = this.ipAddress.replace('http://', '');
           const desiredIP = this.config.apiPort === 16127 ? withoutProtocol : `${withoutProtocol}:${this.config.apiPort}`;
