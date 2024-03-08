@@ -4559,7 +4559,7 @@
                 <h4>
                   Note: Data has to be signed by the last application owner
                 </h4>
-                <b-card-text>
+                <b-card-text v-if="!freeUpdate">
                   Price: {{ appPricePerSpecsUSD }} USD
                 </b-card-text>
                 <b-button
@@ -4625,7 +4625,7 @@
             </b-col>
           </b-row>
           <b-row
-            v-if="updateHash"
+            v-if="updateHash && !freeUpdate"
             class="match-height"
           >
             <b-col
@@ -4676,7 +4676,7 @@
             </b-col>
           </b-row>
           <b-row
-            v-if="updateHash && !applicationPriceFluxError"
+            v-if="updateHash && !applicationPriceFluxError && !freeUpdate"
             class="match-height"
           >
             <b-col
@@ -4721,6 +4721,16 @@
                 </div>
               </b-card>
             </b-col>
+          </b-row>
+          <b-row
+            v-if="updateHash && freeUpdate"
+            class="match-height"
+          >
+            <b-card>
+              <b-card-text>
+                Everything is ready, your application update should be effective automatically in less than 30 minutes.
+              </b-card-text>
+            </b-card>
           </b-row>
         </div>
       </b-tab>
@@ -7147,20 +7157,27 @@ export default {
         this.appPricePerSpecsUSD = 0;
         this.applicationPriceFluxDiscount = '';
         this.applicationPriceFluxError = false;
+        this.freeUpdate = false;
 
         const response = await AppsService.appPriceUSDandFlux(appSpecFormatted);
         if (response.data.status === 'error') {
           throw new Error(response.data.data.message || response.data.data);
         }
         this.appPricePerSpecsUSD = +response.data.data.usd;
-        if (Number.isNaN(+response.data.data.flux)) {
+        if (!this.extendSubscription && this.appPricePerSpecsUSD <= 0.50) {
+          this.freeUpdate = true;
+        } else if (Number.isNaN(+response.data.data.flux)) {
           this.applicationPriceFluxError = true;
           this.showToast('danger', 'Not possible to complete payment with Flux crypto currency');
         } else {
           this.appPricePerSpecs = +response.data.data.flux;
           this.applicationPriceFluxDiscount = +response.data.data.fluxDiscount > 0 ? ` with ${+response.data.data.fluxDiscount}% discount` : '';
         }
-        this.isMarketplaceApp = this.marketPlaceApps.includes((app) => this.appUpdateSpecification.name.toLowerCase().startsWith(app.name.toLowerCase()));
+
+        const marketPlaceApp = this.marketPlaceApps.find((app) => this.appUpdateSpecification.name.toLowerCase().startsWith(app.name.toLowerCase()));
+        if (marketPlaceApp) {
+          this.isMarketplaceApp = true;
+        }
         this.timestamp = Date.now();
         this.dataForAppUpdate = appSpecFormatted;
         this.dataToSign = this.updatetype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp;
