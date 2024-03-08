@@ -2333,6 +2333,7 @@ export default {
       },
       chooseEnterpriseDialog: false,
       signClient: null,
+      ipAccess: false,
     };
   },
   computed: {
@@ -2454,6 +2455,13 @@ export default {
     this.appRegistrationSpecification = this.appRegistrationSpecificationV7Template;
   },
   mounted() {
+    const { hostname } = window.location;
+    const regex = /[A-Za-z]/g;
+    if (hostname.match(regex)) {
+      this.ipAccess = false;
+    } else {
+      this.ipAccess = true;
+    }
     this.initMMSDK();
     this.getGeolocationData();
     this.getDaemonInfo();
@@ -3341,7 +3349,11 @@ export default {
         // const agent = new https.Agent({
         //   rejectUnauthorized: false,
         // });
-        const response = await axios.get(`https://${node.replace(/\./g, '-')}-${port}.node.api.runonflux.io/flux/pgp`); // ip with port
+        let queryUrl = `https://${node.replace(/\./g, '-')}-${port}.node.api.runonflux.io/flux/pgp`;
+        if (this.ipAccess) {
+          queryUrl = `http://${node}:${port}/flux/pgp`;
+        }
+        const response = await axios.get(queryUrl); // ip with port
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data);
         } else {

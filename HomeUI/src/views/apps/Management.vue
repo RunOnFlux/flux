@@ -5718,6 +5718,7 @@ export default {
       selectedIp: null,
       masterSlaveApp: false,
       applicationManagementAndStatus: '',
+      ipAccess: false,
     };
   },
   computed: {
@@ -6094,6 +6095,13 @@ export default {
     },
   },
   async mounted() {
+    const { hostname } = window.location;
+    const regex = /[A-Za-z]/g;
+    if (hostname.match(regex)) {
+      this.ipAccess = false;
+    } else {
+      this.ipAccess = true;
+    }
     const self = this;
     this.$nextTick(() => {
       window.addEventListener('resize', self.onResize);
@@ -6370,7 +6378,13 @@ export default {
         const port = this.selectedIp.split(':')[1] || 16127;
         if (this.currentFolder) {
           const folder = encodeURIComponent(this.currentFolder);
+          if (this.ipAccess) {
+            return `http://${ip}:${port}/ioutils/fileupload/volume/${this.appName}/${this.selectedAppVolume}/${folder}`;
+          }
           return `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/ioutils/fileupload/volume/${this.appName}/${this.selectedAppVolume}/${folder}`;
+        }
+        if (this.ipAccess) {
+          return `http://${ip}:${port}/ioutils/fileupload/volume/${this.appName}/${this.selectedAppVolume}`;
         }
         return `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/ioutils/fileupload/volume/${this.appName}/${this.selectedAppVolume}`;
       }
@@ -6379,6 +6393,9 @@ export default {
       const ip = this.selectedIp.split(':')[0];
       const port = this.selectedIp.split(':')[1] || 16127;
       const filename = encodeURIComponent(saveAs);
+      if (this.ipAccess) {
+        return `http://${ip}:${port}/ioutils/fileupload/backup/${this.appName}/${this.restoreRemoteFile}/null/${filename}`;
+      }
       return `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/ioutils/fileupload/backup/${this.appName}/${this.restoreRemoteFile}/null/${filename}`;
     },
     addAndConvertFileSizes(sizes, targetUnit = 'auto', decimal = 2) {
@@ -6570,7 +6587,11 @@ export default {
           };
           const url = this.selectedIp.split(':')[0];
           const urlPort = this.selectedIp.split(':')[1] || 16127;
-          const response = await fetch(`https://${url.replace(/\./g, '-')}-${urlPort}.node.api.runonflux.io/apps/appendrestoretask`, {
+          let queryUrl = `https://${url.replace(/\./g, '-')}-${urlPort}.node.api.runonflux.io/apps/appendrestoretask`;
+          if (this.ipAccess) {
+            queryUrl = `http://${url}:${urlPort}/apps/appendrestoretask`;
+          }
+          const response = await fetch(queryUrl, {
             method: 'POST',
             body: JSON.stringify(postRestoreData),
             headers,
@@ -6751,7 +6772,11 @@ export default {
       }
       const url = this.selectedIp.split(':')[0];
       const urlPort = this.selectedIp.split(':')[1] || 16127;
-      const response = await fetch(`https://${url.replace(/\./g, '-')}-${urlPort}.node.api.runonflux.io/apps/appendbackuptask`, {
+      let queryUrl = `https://${url.replace(/\./g, '-')}-${urlPort}.node.api.runonflux.io/apps/appendbackuptask`;
+      if (this.ipAccess) {
+        queryUrl = `http://${url}:${urlPort}/apps/appendbackuptask`;
+      }
+      const response = await fetch(queryUrl, {
         method: 'POST',
         body: JSON.stringify(postBackupData),
         headers,
@@ -6868,7 +6893,11 @@ export default {
       }
       const url = this.selectedIp.split(':')[0];
       const urlPort = this.selectedIp.split(':')[1] || 16127;
-      const response = await fetch(`https://${url.replace(/\./g, '-')}-${urlPort}.node.api.runonflux.io/apps/appendrestoretask`, {
+      let queryUrl = `https://${url.replace(/\./g, '-')}-${urlPort}.node.api.runonflux.io/apps/appendrestoretask`;
+      if (this.ipAccess) {
+        queryUrl = `http://${url}:${urlPort}/apps/appendrestoretask`;
+      }
+      const response = await fetch(queryUrl, {
         method: 'POST',
         body: JSON.stringify(postBackupData),
         headers,
@@ -7145,7 +7174,11 @@ export default {
       const url = this.selectedIp.split(':')[0];
       const urlPort = this.selectedIp.split(':')[1] || 16127;
       const zelidauth = localStorage.getItem('zelidauth');
-      this.socket = io.connect(`https://${url.replace(/\./g, '-')}-${urlPort}.node.api.runonflux.io`);
+      let queryUrl = `https://${url.replace(/\./g, '-')}-${urlPort}.node.api.runonflux.io`;
+      if (this.ipAccess) {
+        queryUrl = `http://${url}:${urlPort}`;
+      }
+      this.socket = io.connect(queryUrl);
 
       let userValue = '';
       if (this.enableUser) {
@@ -8091,7 +8124,10 @@ export default {
         for (const node of this.instances.data) {
           const ip = node.ip.split(':')[0];
           const port = node.ip.split(':')[1] || 16127;
-          const url = `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/flux/geolocation`;
+          let url = `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/flux/geolocation`;
+          if (this.ipAccess) {
+            url = `http://${ip}:${port}/flux/geolocation`;
+          }
           let errorFluxOs = false;
           // eslint-disable-next-line no-await-in-loop
           const fluxGeo = await axios.get(url).catch((error) => {
@@ -8326,10 +8362,14 @@ export default {
         const url = this.selectedIp.split(':')[0];
         const urlPort = this.selectedIp.split(':')[1] || 16127;
         let response = null;
+        let queryUrl = `https://${url.replace(/\./g, '-')}-${urlPort}.node.api.runonflux.io${command}`;
+        if (this.ipAccess) {
+          queryUrl = `http://${url}:${urlPort}${command}`;
+        }
         if (postObject) {
-          response = await axios.post(`https://${url.replace(/\./g, '-')}-${urlPort}.node.api.runonflux.io${command}`, postObject, axiosConfig);
+          response = await axios.post(queryUrl, postObject, axiosConfig);
         } else {
-          response = await axios.get(`https://${url.replace(/\./g, '-')}-${urlPort}.node.api.runonflux.io${command}`, axiosConfig);
+          response = await axios.get(queryUrl, axiosConfig);
         }
         return response;
       } catch (error) {
@@ -9086,7 +9126,11 @@ export default {
         // const agent = new https.Agent({
         //   rejectUnauthorized: false,
         // });
-        const response = await axios.get(`https://${node.replace(/\./g, '-')}-${port}.node.api.runonflux.io/flux/pgp`); // ip with port
+        let queryUrl = `https://${node.replace(/\./g, '-')}-${port}.node.api.runonflux.io/flux/pgp`;
+        if (this.ipAccess) {
+          queryUrl = `http://${node}:${port}/flux/pgp`;
+        }
+        const response = await axios.get(queryUrl); // ip with port
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data);
         } else {
