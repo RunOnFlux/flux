@@ -1,11 +1,3 @@
-process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
-
-process.stdin.destroy()
-process.stderr.destroy()
-process.stdout.on('error', () => {
-  console.log("ERRRORROROROOROROROROROROROR")
-})
-
 /**
  * A global function to be used as a no-operation. See apiServer.js
  * @returns {void}
@@ -24,13 +16,20 @@ globalThis.sleep = (ms) => new Promise((r) => { setTimeout(r, ms); });
  */
 globalThis.userconfig = require('./config/userconfig');
 
+process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
+
 const config = require('config');
-const fs = require('fs');
+const fs = require('node:fs/promises');
 const https = require('https');
 const path = require('path');
 const hash = require('object-hash');
 const { watch } = require('fs/promises');
 const eWS = require('express-ws');
+
+const apiPort = userconfig.initial.apiport || config.server.apiport;
+const apiPortHttps = +apiPort + 1;
+const development = userconfig.initial.development || false;
+let initialHash = '';
 
 // Flux requires
 let app;
@@ -56,13 +55,6 @@ function loadFluxModules(options = {}) {
   fluxService = loader('./ZelBack/src/services/fluxService');
   upnpService = loader('./ZelBack/src/services/upnpService');
 }
-
-loadFluxModules();
-
-const apiPort = userconfig.initial.apiport || config.server.apiport;
-const apiPortHttps = +apiPort + 1;
-const development = userconfig.initial.development || false;
-let initialHash = hash(fs.readFileSync(path.join(__dirname, '/config/userconfig.js')));
 
 async function loadBranch(branch) {
   const res = await fluxService.getCurrentBranch();
@@ -126,10 +118,25 @@ async function configReload() {
  * @returns {Promise<String>}
  */
 async function initiate() {
+  loadFluxModules();
+
   if (!config.server.allowedPorts.includes(+apiPort)) {
     log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
     process.exit();
   }
+
+
+
+  process.stdin.destroy()
+  process.stderr.destroy()
+  process.stdout.on('error', () => {
+    console.log("ERRRORROROROOROROROROROROROR")
+  })
+
+  const toHash = await fs.readFile(path.join(__dirname, '/config/userconfig.js'));
+  initialHash = hash(toHash);
+
+  await sleep(2000);
 
   log.info(String.raw`
 
