@@ -18,6 +18,16 @@ const logger = () => {
   }
 };
 
+async function blah() {
+  while (true) {
+    await sleep(5)
+    log.info("HI THERE")
+  }
+}
+
+blah()
+
+
 app.use(logger());
 app.use(express.json());
 // app.use(express.urlencoded({ extended: true }));
