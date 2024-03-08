@@ -7351,6 +7351,7 @@ export default {
       }
       if (!this.selectedIp) {
         await this.getInstancesForDropDown();
+        this.getInstalledApplicationSpecifics();
       }
       this.getApplicationManagementAndStatus();
       switch (index) {
