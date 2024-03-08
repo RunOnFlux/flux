@@ -16,6 +16,7 @@ const serviceManager = require('./ZelBack/src/services/serviceManager');
 const upnpService = require('./ZelBack/src/services/upnpService');
 const hash = require('object-hash');
 const { watch } = require('fs/promises');
+const eWS = require('express-ws');
 
 const cmdAsync = util.promisify(nodecmd.get);
 const apiPort = userconfig.initial.apiport || config.server.apiport;
@@ -84,10 +85,12 @@ async function initiate() {
     configReload();
   }, 2 * 1000);
 
-  app.listen(apiPort, () => {
+  const server = app.listen(apiPort, () => {
     log.info(`Flux listening on port ${apiPort}!`);
     serviceManager.startFluxFunctions();
   });
+
+  socket.initIO(server);
 
   try {
     const certExists = fs.existsSync(path.join(__dirname, './certs/v1.key'));
@@ -100,6 +103,7 @@ async function initiate() {
     const cert = fs.readFileSync(path.join(__dirname, './certs/v1.crt'), 'utf8');
     const credentials = { key, cert };
     const httpsServer = https.createServer(credentials, app);
+    eWS(app, httpsServer);
     const serverHttps = httpsServer.listen(apiPortHttps, () => {
       log.info(`Flux https listening on port ${apiPortHttps}!`);
     });

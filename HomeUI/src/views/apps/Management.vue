@@ -42,6 +42,7 @@
                   v-model="selectedIp"
                   style="width: 200px"
                   :options="null"
+                  @change="selectedIpChanged"
                 >
                   <b-form-select-option
                     v-for="instance in instances.data"
@@ -4818,6 +4819,15 @@
               rows="6"
               readonly
             />
+            <b-button
+              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+              variant="success"
+              aria-label="Copy Message to Sign to Clipboard"
+              class="my-1"
+              @click="copyMessageToSign"
+            >
+              Copy
+            </b-button>
           </b-form-group>
           <b-form-group
             label-cols="3"
@@ -5895,7 +5905,16 @@ export default {
       mybackend += protocol;
       mybackend += '//';
       const regex = /[A-Za-z]/g;
-      if (hostname.match(regex)) {
+      if (hostname.split('-')[4]) { // node specific domain
+        const splitted = hostname.split('-');
+        const names = splitted[4].split('.');
+        const adjP = +names[0] + 1;
+        names[0] = adjP.toString();
+        names[2] = 'api';
+        splitted[4] = '';
+        mybackend += splitted.join('-');
+        mybackend += names.join('.');
+      } else if (hostname.match(regex)) { // home.runonflux.io -> api.runonflux.io
         const names = hostname.split('.');
         names[0] = 'api';
         mybackend += names.join('.');
@@ -7409,7 +7428,16 @@ export default {
       mybackend += protocol;
       mybackend += '//';
       const regex = /[A-Za-z]/g;
-      if (hostname.match(regex)) {
+      if (hostname.split('-')[4]) { // node specific domain
+        const splitted = hostname.split('-');
+        const names = splitted[4].split('.');
+        const adjP = +names[0] + 1;
+        names[0] = adjP.toString();
+        names[2] = 'api';
+        splitted[4] = '';
+        mybackend += splitted.join('-');
+        mybackend += names.join('.');
+      } else if (hostname.match(regex)) { // home.runonflux.io -> api.runonflux.io
         const names = hostname.split('.');
         names[0] = 'api';
         mybackend += names.join('.');
@@ -9299,10 +9327,23 @@ export default {
               niceString += niceStringComponent;
             }
             niceString = niceString.substring(0, niceString.length - 1);
+            niceString += ` - ${this.selectedIp}`;
           }
         }
         this.applicationManagementAndStatus = niceString;
       }
+    },
+    async copyMessageToSign() {
+      try {
+        await navigator.clipboard.writeText(this.dataToSign);
+        this.showToast('success', 'Copied to clipboard');
+      } catch ($e) {
+        this.showToast('danger', 'Failed to Copy to clipboard');
+      }
+    },
+    selectedIpChanged() {
+      this.getApplicationManagementAndStatus();
+      this.getInstalledApplicationSpecifics();
     },
   },
 };
