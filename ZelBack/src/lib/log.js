@@ -10,7 +10,7 @@
 //   logController.addLoggerTransport("file", { level, filePath });
 // });
 
-// const pino = require('pino');
+const pino = require('pino');
 
 // const transports = pino.transport({
 //     targets: [{
@@ -25,21 +25,21 @@
 
 
 // console.log("CREATING TRANSPORT")
-// const transport = pino.transport({
-//   level: 'debug',
-//   target: 'pino-pretty',
-//   options: {
-//     // destination: 1
-//     // translateTime: 'yyyy-mm-dd HH:MM:ss:L',
-//   }
-// })
+const transport = pino.transport({
+  level: 'debug',
+  target: 'pino-pretty',
+  options: {
+    // destination: 1
+    // translateTime: 'yyyy-mm-dd HH:MM:ss:L',
+  }
+})
 
-// const log = pino(transport);
-// module.exports = log
+const log = pino(transport);
+module.exports = log
 
-const logger = (...args) => {
-  const time = new Date().toISOString()
-  console.log(time, ...args)
-}
+// const logger = (...args) => {
+//   const time = new Date().toISOString()
+//   console.log(time, ...args)
+// }
 
-module.exports = { info: logger, debug: logger, error: logger, warn: logger }
+// module.exports = { info: logger, debug: logger, error: logger, warn: logger }
