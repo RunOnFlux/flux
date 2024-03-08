@@ -91,7 +91,7 @@ function delay(ms) {
   });
 }
 
-locked = false
+subprocessLock = new AsyncLock()
 
 /**
  *
@@ -101,10 +101,7 @@ locked = false
  */
 async function runCommand(userCmd, options = {}) {
   // testing.
-  while (locked) {
-    log.info("LOCKED")
-    await sleep(100);
-  }
+  await subprocessLock.enable();
 
   const res = { error: null, stdout: null, stderr: null }
   const params = options.params || [];
@@ -113,11 +110,13 @@ async function runCommand(userCmd, options = {}) {
 
   if (!userCmd) {
     res.error = new Error("Command must be present")
+    subprocessLock.disable()
     return res
   }
 
   if (!Array.isArray(params) || !params.every((p) => typeof p === 'string')) {
     res.error = new Error("Invalid params for command, must be an Array of strings")
+    subprocessLock.disable()
     return res;
   }
 
@@ -135,14 +134,14 @@ async function runCommand(userCmd, options = {}) {
     const { stdout: errStdout, stderr: errStderr, ...error } = err;
     res.error = error;
     if (logError !== false) log.error(error);
-    locked = false;
+    subprocessLock.disable()
     return [errStdout, errStderr];
   });
 
   res.stdout = stdout;
   res.stderr = stderr;
 
-  locked = false;
+  subprocessLock.disable()
   return res;
 }
 
