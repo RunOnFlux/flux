@@ -203,6 +203,7 @@ export default {
       xhr.onerror = function error(e) {
         console.log(e);
         self.showToast('danger', `An error occurred while uploading '${file.file.name}' - ${e}`);
+        self.removeFile(file);
       };
 
       xhr.onload = function onload() {
@@ -210,6 +211,7 @@ export default {
           console.log('error');
           console.log(xhr.status);
           self.showToast('danger', `An error occurred while uploading '${file.file.name}' - Status code: ${xhr.status}`);
+          self.removeFile(file);
           return;
         }
 

@@ -124,17 +124,17 @@
                   />
                 </b-form-group>
               </b-col>
-
-              <!-- submit and reset -->
-              <b-col offset-md="5">
-                <b-button
-                  type="submit"
-                  variant="primary"
-                  class="mr-1"
-                  @click="login"
-                >
-                  Login
-                </b-button>
+              <b-col cols="12">
+                <b-form-group label-cols-md="3">
+                  <b-button
+                    type="submit"
+                    variant="primary"
+                    class="w-100"
+                    @click="login"
+                  >
+                    Login
+                  </b-button>
+                </b-form-group>
               </b-col>
             </b-row>
           </b-form>

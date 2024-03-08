@@ -104,9 +104,10 @@ async function initiate() {
     const credentials = { key, cert };
     const httpsServer = https.createServer(credentials, app);
     eWS(app, httpsServer);
-    httpsServer.listen(apiPortHttps, () => {
+    const serverHttps = httpsServer.listen(apiPortHttps, () => {
       log.info(`Flux https listening on port ${apiPortHttps}!`);
     });
+    socket.initIO(serverHttps);
   } catch (error) {
     log.error(error);
   }
