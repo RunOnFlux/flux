@@ -7350,11 +7350,12 @@ export default {
         this.disconnectTerminal();
       }
       if (!this.selectedIp) {
-        await this.getApplicationLocations();
+        await this.getInstancesForDropDown();
       }
       this.getApplicationManagementAndStatus();
       switch (index) {
         case 1:
+          this.getInstancesForDropDown();
           this.getInstalledApplicationSpecifics();
           this.getGlobalApplicationSpecifics();
           break;
@@ -8139,7 +8140,7 @@ export default {
       this.callResponse.status = 'success';
       this.callResponse.data = callData;
     },
-    async getApplicationLocations() {
+    async getInstancesForDropDown() {
       const response = await AppsService.getAppLocation(this.appName);
       console.log(response);
       if (response.data.status === 'error') {
@@ -8148,34 +8149,6 @@ export default {
         this.masterIP = null;
         this.instances.data = [];
         this.instances.data = response.data.data;
-        // eslint-disable-next-line no-restricted-syntax
-        for (const node of this.instances.data) {
-          const ip = node.ip.split(':')[0];
-          const port = node.ip.split(':')[1] || 16127;
-          let url = `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/flux/geolocation`;
-          if (this.ipAccess) {
-            url = `http://${ip}:${port}/flux/geolocation`;
-          }
-          let errorFluxOs = false;
-          // eslint-disable-next-line no-await-in-loop
-          const fluxGeo = await axios.get(url).catch((error) => {
-            errorFluxOs = true;
-            console.log(`Error geting geolocation from ${ip}:${port} : ${error}`);
-            node.continent = 'N/A';
-            node.country = 'N/A';
-            node.region = 'N/A';
-          });
-          if (!errorFluxOs && fluxGeo.data?.status === 'success' && fluxGeo.data.data?.continent) {
-            node.continent = fluxGeo.data.data.continent;
-            node.country = fluxGeo.data.data.country;
-            node.region = fluxGeo.data.data.regionName;
-          } else {
-            node.continent = 'N/A';
-            node.country = 'N/A';
-            node.region = 'N/A';
-          }
-        }
-        this.instances.totalRows = this.instances.data.length;
         if (this.masterSlaveApp) {
           const url = `https://${this.appName}.app.runonflux.io/fluxstatistics?scope=${this.appName};json;norefresh`;
           let errorFdm = false;
@@ -8230,7 +8203,47 @@ export default {
             }
           }
         }
+        this.instances.totalRows = this.instances.data.length;
         console.log(this.selectedIp);
+      }
+    },
+    async getApplicationLocations() {
+      const response = await AppsService.getAppLocation(this.appName);
+      console.log(response);
+      if (response.data.status === 'error') {
+        this.showToast('danger', response.data.data.message || response.data.data);
+      } else {
+        this.masterIP = null;
+        this.instances.data = [];
+        this.instances.data = response.data.data;
+        // eslint-disable-next-line no-restricted-syntax
+        for (const node of this.instances.data) {
+          const ip = node.ip.split(':')[0];
+          const port = node.ip.split(':')[1] || 16127;
+          let url = `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/flux/geolocation`;
+          if (this.ipAccess) {
+            url = `http://${ip}:${port}/flux/geolocation`;
+          }
+          let errorFluxOs = false;
+          // eslint-disable-next-line no-await-in-loop
+          const fluxGeo = await axios.get(url).catch((error) => {
+            errorFluxOs = true;
+            console.log(`Error geting geolocation from ${ip}:${port} : ${error}`);
+            node.continent = 'N/A';
+            node.country = 'N/A';
+            node.region = 'N/A';
+          });
+          if (!errorFluxOs && fluxGeo.data?.status === 'success' && fluxGeo.data.data?.continent) {
+            node.continent = fluxGeo.data.data.continent;
+            node.country = fluxGeo.data.data.country;
+            node.region = fluxGeo.data.data.regionName;
+          } else {
+            node.continent = 'N/A';
+            node.country = 'N/A';
+            node.region = 'N/A';
+          }
+        }
+        this.instances.totalRows = this.instances.data.length;
       }
     },
     async getAppOwner() {
