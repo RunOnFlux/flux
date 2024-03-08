@@ -17,8 +17,6 @@ const dockerService = require('./dockerService');
 const backupRestoreService = require('./backupRestoreService');
 const serviceHelper = require('./serviceHelper');
 const crypto = require('crypto');
-const util = require('util');
-const exec = util.promisify(require('node:child_process').exec);
 
 const INSPECT_OPTIONS = { showHidden: false, depth: null, colors: true }
 const { inspect } = require('node:util');
@@ -245,24 +243,24 @@ async function startFluxFunctions() {
     log.info('App monitoring has begun');
 
 
-    // eslint - disable - next - line no - restricted - syntax
-    for (const [action, options] of delayedActions.entries()) {
-      const delay = typeof options === 'string' ? options : options.schedule;
-      const { schedule: _, ...filteredOptions } = typeof options === 'string' ? {} : options;
-      // eslint-disable-next-line no-await-in-loop
-      const running = await runAfter(delay, action, filteredOptions);
-      if (!running) log.warn(`Action: ${action} with delay: ${delay} not running`);
-    }
+    // // eslint - disable - next - line no - restricted - syntax
+    // for (const [action, options] of delayedActions.entries()) {
+    //   const delay = typeof options === 'string' ? options : options.schedule;
+    //   const { schedule: _, ...filteredOptions } = typeof options === 'string' ? {} : options;
+    //   // eslint-disable-next-line no-await-in-loop
+    //   const running = await runAfter(delay, action, filteredOptions);
+    //   if (!running) log.warn(`Action: ${action} with delay: ${delay} not running`);
+    // }
 
-    // eslint-disable-next-line no-restricted-syntax
-    for (const [action, options] of recurringActions.entries()) {
-      // eslint-disable-next-line no-continue
-      if (options.condition === false) continue;
-      const { schedule, ...filteredOptions } = options;
-      // eslint-disable-next-line no-await-in-loop
-      const running = await runEvery(schedule, action, filteredOptions);
-      if (!running) log.warn(`Action: ${action} with delay: ${schedule} not running`);
-    }
+    // // eslint-disable-next-line no-restricted-syntax
+    // for (const [action, options] of recurringActions.entries()) {
+    //   // eslint-disable-next-line no-continue
+    //   if (options.condition === false) continue;
+    //   const { schedule, ...filteredOptions } = options;
+    //   // eslint-disable-next-line no-await-in-loop
+    //   const running = await runEvery(schedule, action, filteredOptions);
+    //   if (!running) log.warn(`Action: ${action} with delay: ${schedule} not running`);
+    // }
 
     // const res = await exec('stty', ['onlcr']).catch(() => log.eror("FUCKED"));
     // console.log(res);
