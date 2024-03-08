@@ -185,16 +185,13 @@ export default {
         const fluxList = resList.data.data;
 
         // Convert locations to a map for quick lookup
-        const locationMap = locations.reduce((map, location) => {
-          map[location.ip] = location;
-          return map;
-        }, {});
+        const locationMap = locations.reduce((map, location) => ({ ...map, [location.ip]: location }), {});
 
         // Adjust fluxList with location from the map
-        const adjustedFluxList = fluxList.map(node => ({
+        const adjustedFluxList = fluxList.map((node) => ({
           ...node,
           location: locationMap[node.ip.split(':')[0]],
-        })).filter(node => node.ip);
+        })).filter((node) => node.ip);
 
         this.items = adjustedFluxList;
         this.totalRows = this.items.length;
