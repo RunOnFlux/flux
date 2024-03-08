@@ -304,7 +304,6 @@ async function checkWhitelistedRepository(targetDockerTag) {
   }
 
   const parsedTag = parseDockerTag(targetDockerTag);
-  console.log(parsedTag);
 
   // Cache?
   const res = await serviceHelper.axiosGet(

@@ -50,16 +50,16 @@ function convertFileSize(sizes, targetUnit = 'auto', decimal = 2, returnNumber =
     });
     if (returnNumber) {
       return bestMatchResult;
-    // eslint-disable-next-line no-else-return
+      // eslint-disable-next-line no-else-return
     } else {
       return formatResult(bestMatchResult, bestMatchUnit);
     }
-  // eslint-disable-next-line no-else-return
+    // eslint-disable-next-line no-else-return
   } else {
     const result = getSizeWithMultiplier(totalSizeInBytes, targetUnit);
     if (returnNumber) {
       return result;
-    // eslint-disable-next-line no-else-return
+      // eslint-disable-next-line no-else-return
     } else {
       return formatResult(result, targetUnit);
     }
@@ -79,7 +79,7 @@ async function getFolderSize(folderPath) {
 
       if (stats.isFile()) {
         return stats.size;
-      // eslint-disable-next-line no-else-return
+        // eslint-disable-next-line no-else-return
       } else if (stats.isDirectory()) {
         const files = await fs.readdir(filePath);
         const sizes = await Promise.all(files.map((file) => calculateSize(path.join(filePath, file))));
@@ -92,7 +92,7 @@ async function getFolderSize(folderPath) {
     totalSize = await calculateSize(folderPath);
     return totalSize;
   } catch (err) {
-    console.error(`Error getting folder size: ${err}`);
+    log.error(`Error getting folder size: ${err}`);
     return false;
   }
 }
@@ -109,7 +109,7 @@ async function getFileSize(filePath) {
     const fileSizeInBytes = stats.size;
     return fileSizeInBytes;
   } catch (err) {
-    console.error(`Error getting file size: ${err}`);
+    log.error(`Error getting file size: ${err}`);
     return false;
   }
 }
@@ -186,7 +186,7 @@ async function getVolumeInfo(appname, component, multiplier, decimal, fields) {
       .filter((entry) => {
         if (allowedFields) {
           return Object.keys(entry).length > 0;
-        // eslint-disable-next-line no-else-return
+          // eslint-disable-next-line no-else-return
         } else {
           return true;
         }
@@ -449,7 +449,7 @@ async function fileUpload(req, res) {
         }
       })
       .on('aborted', () => {
-        console.error('Request aborted by the user');
+        log.error('Request aborted by the user');
       })
       .on('error', (error) => {
         log.error(error);

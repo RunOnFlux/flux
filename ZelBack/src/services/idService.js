@@ -663,7 +663,7 @@ async function wsRespondLoginPhrase(ws, req) {
   let connclosed = false;
   // eslint-disable-next-line no-param-reassign
   ws.onclose = (evt) => {
-    console.log(evt.code);
+    log.info(evt.code);
     connclosed = true;
   };
   // eslint-disable-next-line no-param-reassign
@@ -753,12 +753,12 @@ async function wsRespondLoginPhrase(ws, req) {
  */
 async function wsRespondSignature(ws, req) {
   const { message } = req.params;
-  console.log(message);
+  log.info(message);
 
   let connclosed = false;
   // eslint-disable-next-line no-param-reassign
   ws.onclose = (evt) => {
-    console.log(evt.code);
+    log.info(evt.code);
     connclosed = true;
   };
   // eslint-disable-next-line no-param-reassign

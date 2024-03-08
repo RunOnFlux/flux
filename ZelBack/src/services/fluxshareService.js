@@ -855,7 +855,7 @@ async function fluxShareUpload(req, res) {
         }
       })
       .on('aborted', () => {
-        console.error('Request aborted by the user');
+        log.error('Request aborted by the user');
       })
       .on('error', (error) => {
         log.error(error);

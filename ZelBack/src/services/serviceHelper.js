@@ -68,7 +68,7 @@ class FluxController extends AbortController {
   }
 
   async abort() {
-    console.log("ABORT WAS CALLED")
+    log.info("ABORT WAS CALLED")
     super.abort();
     // eslint-disable-next-line no-restricted-syntax
     for (const [reject, timeout] of this.#timeouts.values()) {
@@ -101,9 +101,9 @@ locked = false
  */
 async function runCommand(userCmd, options = {}) {
   // testing.
-  console.log("RUN COMMAND", userCmd)
+  log.info("RUN COMMAND", userCmd)
   while (locked) {
-    console.log("LOCKED")
+    log.info("LOCKED")
     await sleep(100);
   }
 

@@ -153,24 +153,28 @@ async function cleanDatabases() {
       log.error(error);
     }
   });
-  await database.collection(config.database.local.collections.loggedUsers).createIndex({ createdAt: 1 }, { expireAfterSeconds: 14 * 24 * 60 * 60 }); // 2days
+  await database.collection(config.database.local.collections.loggedUsers).createIndex({ createdAt: 1 }, { expireAfterSeconds: 14 * 24 * 60 * 60 }); // 2weeks
   await database.collection(config.database.local.collections.activeLoginPhrases).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
   await database.collection(config.database.local.collections.activeSignatures).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
   log.info('Local database prepared');
   log.info('Preparing temporary database...');
   // no need to drop temporary messages
   const databaseTemp = db.db(config.database.appsglobal.database);
-  await databaseTemp.collection(config.database.appsglobal.collections.appsTemporaryMessages).createIndex({ receivedAt: 1 }, { expireAfterSeconds: 3600 }); // todo longer time? dropIndexes()
+  // todo longer time? dropIndexes()
+  await databaseTemp.collection(config.database.appsglobal.collections.appsTemporaryMessages).createIndex({ receivedAt: 1 }, { expireAfterSeconds: 3600 });
   log.info('Temporary database prepared');
   log.info('Preparing Flux Apps locations');
-  await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).dropIndex({ broadcastedAt: 1 }).catch(() => { console.log('Welcome to FluxOS'); }); // drop old index or display message for new installations
+  // drop old index or display message for new installations
+  await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).dropIndex({ broadcastedAt: 1 }).catch(noop);
   // more than 2 hours and 5m. Meaning we have not received status message for a long time. So that node is no longer on a network or app is down.
   await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 7500 });
   log.info('Flux Apps locations prepared');
 }
 
 /**
- * To start FluxOS. A series of checks are performed on port and UPnP (Universal Plug and Play) support and mapping. Database connections are established. The other relevant functions required to start FluxOS services are called.
+ * To start FluxOS. A series of checks are performed on port and UPnP (Universal Plug and Play)
+ * support and mapping. Database connections are established. The other relevant functions required
+ * to start FluxOS services are called.
  */
 async function startFluxFunctions() {
   if (!config.server.allowedPorts.includes(+apiPort)) {
@@ -218,7 +222,7 @@ async function startFluxFunctions() {
     const unreachableApps = await appsService.openAppsPortsToInternet();
     log.info(`UNREACHABLE: ${unreachableApps}`)
     log.info(unreachableApps)
-    console.log("CHUNK", unreachableApps)
+    log.info("CHUNK", unreachableApps)
     // this should be interruptable with global abortController
     appsService.forceAppsRemoval(unreachableApps);
 
