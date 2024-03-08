@@ -19,12 +19,12 @@ globalThis.userconfig = require('./config/userconfig');
 process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
 
 const config = require('config');
-const fs = require('node:fs/promises');
 const https = require('https');
 const path = require('path');
 const hash = require('object-hash');
 const { watch } = require('fs/promises');
 const eWS = require('express-ws');
+const fs = require('fs/promises');
 
 const apiPort = userconfig.initial.apiport || config.server.apiport;
 const apiPortHttps = +apiPort + 1;
@@ -88,7 +88,7 @@ async function loadUpnpIfRequired() {
 
 async function configReload() {
   try {
-    const watcher = watch(path.join(__dirname, '/config'));
+    const watcher = fs.watch(path.join(__dirname, '/config'));
     // eslint-disable-next-line
     for await (const event of watcher) {
       if (event.eventType === 'change' && event.filename === 'userconfig.js') {
@@ -181,7 +181,7 @@ async function initiate() {
     const credentials = { key, cert };
     const httpsServer = https.createServer(credentials, app);
     eWS(app, httpsServer);
-    const serverHttps = httpsServer.listen(apiPortHttps, () => {
+    httpsServer.listen(apiPortHttps, () => {
       log.info(`Flux https listening on port ${apiPortHttps}!`);
     });
     socket.initIO(serverHttps);

@@ -101,6 +101,7 @@ subprocessLock = new AsyncLock()
  */
 async function runCommand(userCmd, options = {}) {
   // testing.
+  await sleep(1000)
   await subprocessLock.enable();
 
   const res = { error: null, stdout: null, stderr: null }
@@ -137,6 +138,8 @@ async function runCommand(userCmd, options = {}) {
     subprocessLock.disable()
     return [errStdout, errStderr];
   });
+
+  if (stderr) console.log("STDERR FOUND!!!!!", stderr)
 
   res.stdout = stdout;
   res.stderr = stderr;
