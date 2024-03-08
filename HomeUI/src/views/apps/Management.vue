@@ -6057,7 +6057,6 @@ export default {
         if (this.appSpecification.version >= 4) {
           this.selectedApp = this.appSpecification.compose[0].name;
           this.selectedAppVolume = this.appSpecification.compose[0].name;
-          this.refreshFolder();
         }
       }
     },
@@ -7384,9 +7383,7 @@ export default {
           this.loadBackupList();
           break;
         case 11:
-          if (!this.appSpecification?.compose) {
-            this.refreshFolder();
-          }
+          this.refreshFolder();
           break;
         case 14:
           this.getApplicationLocations();
