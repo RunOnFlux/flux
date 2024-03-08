@@ -6279,6 +6279,7 @@ export default {
         };
         let response;
         if (isFolder) {
+          this.showToast('info', 'Directory download initiated. Please wait...');
           response = await this.executeLocalCommand(`/apps/downloadfolder/${this.appName}/${this.selectedAppVolume}/${encodeURIComponent(fileName)}`, null, axiosConfig);
         } else {
           response = await this.executeLocalCommand(`/apps/downloadfile/${this.appName}/${this.selectedAppVolume}/${encodeURIComponent(fileName)}`, null, axiosConfig);
