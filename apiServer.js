@@ -48,22 +48,22 @@ function requireUncached(module) {
 function loadFluxModules(options = {}) {
   const loader = options.invalidateCache ? requireUncached : require;
 
-  // app = loader('./ZelBack/src/lib/server');
+  app = loader('./ZelBack/src/lib/server');
   log = loader('./ZelBack/src/lib/log');
-  // socket = loader('./ZelBack/src/lib/socket');
-  // serviceManager = loader('./ZelBack/src/services/serviceManager');
-  // fluxService = loader('./ZelBack/src/services/fluxService');
+  socket = loader('./ZelBack/src/lib/socket');
+  serviceManager = loader('./ZelBack/src/services/serviceManager');
+  fluxService = loader('./ZelBack/src/services/fluxService');
   upnpService = loader('./ZelBack/src/services/upnpService');
 }
 
-// async function loadBranch(branch) {
-//   const res = await fluxService.getCurrentBranch();
-//   if (res.status === 'success' && res.data.message !== branch) {
-//     log.info(`Branch: ${branch} differs from current branch: ${res.data.message}, switching`);
-//     const success = await fluxService.checkoutBranch(branch, { pull: true });
-//     if (success) loadFluxModules({ invalidateCache: true });
-//   }
-// }
+async function loadBranch(branch) {
+  const res = await fluxService.getCurrentBranch();
+  if (res.status === 'success' && res.data.message !== branch) {
+    log.info(`Branch: ${branch} differs from current branch: ${res.data.message}, switching`);
+    const success = await fluxService.checkoutBranch(branch, { pull: true });
+    if (success) loadFluxModules({ invalidateCache: true });
+  }
+}
 
 async function loadUpnpIfRequired() {
   let verifyUpnp = false;
@@ -130,7 +130,7 @@ async function initiate() {
   const toHash = await fs.readFile(path.join(__dirname, '/config/userconfig.js'));
   initialHash = hash(toHash);
 
-  log.info(String.raw`
+  console.log(String.raw`
 
 
     ___________.__               ________    _________
@@ -150,32 +150,32 @@ async function initiate() {
   await loadUpnpIfRequired();
 
   // store timer
-  // setInterval(configReload, 2 * 1000);
+  setInterval(configReload, 2 * 1000);
 
-  // const server = await app.listen(apiPort);
+  const server = await app.listen(apiPort);
 
-  // log.info(`Flux listening on port ${apiPort}!`);
-  // serviceManager.startFluxFunctions();
+  log.info(`Flux listening on port ${apiPort}!`);
+  serviceManager.startFluxFunctions();
 
-  // socket.initIO(server);
+  socket.initIO(server);
 
 
-  // const keyPath = path.join(__dirname, './certs/v1.key');
-  // await fs.stat(keyPath).catch(async () => {
-  //   const scriptDir = path.join(__dirname, './helpers');
-  //   const scriptPath = path.join(scriptDir, 'createSSLcert.sh');
-  //   await serviceHelper.runCommand(scriptPath, { cwd: scriptDir });
-  // })
+  const keyPath = path.join(__dirname, './certs/v1.key');
+  await fs.stat(keyPath).catch(async () => {
+    const scriptDir = path.join(__dirname, './helpers');
+    const scriptPath = path.join(scriptDir, 'createSSLcert.sh');
+    await serviceHelper.runCommand(scriptPath, { cwd: scriptDir });
+  })
 
-  // const key = await fs.readFile(path.join(__dirname, './certs/v1.key'), 'utf8');
-  // const cert = await fs.readFile(path.join(__dirname, './certs/v1.crt'), 'utf8');
-  // const credentials = { key, cert };
-  // const httpsServer = https.createServer(credentials, app);
-  // httpsServer.listen(apiPortHttps, () => {
-  //   log.info(`Flux https listening on port ${apiPortHttps}!`);
-  // });
+  const key = await fs.readFile(path.join(__dirname, './certs/v1.key'), 'utf8');
+  const cert = await fs.readFile(path.join(__dirname, './certs/v1.crt'), 'utf8');
+  const credentials = { key, cert };
+  const httpsServer = https.createServer(credentials, app);
+  httpsServer.listen(apiPortHttps, () => {
+    log.info(`Flux https listening on port ${apiPortHttps}!`);
+  });
 
-  // return apiPort;
+  return apiPort;
 }
 
 module.exports = {
