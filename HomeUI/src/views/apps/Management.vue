@@ -41,6 +41,7 @@
                   v-model="selectedIp"
                   style="width: 200px"
                   :options="null"
+                  @change="selectedIpChanged"
                 >
                   <b-form-select-option
                     v-for="instance in instances.data"
@@ -4538,6 +4539,15 @@
               rows="6"
               readonly
             />
+            <b-button
+              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+              variant="success"
+              aria-label="Copy Message to Sign to Clipboard"
+              class="my-1"
+              @click="copyMessageToSign"
+            >
+              Copy
+            </b-button>
           </b-form-group>
           <b-form-group
             label-cols="3"
@@ -8648,10 +8658,23 @@ export default {
               niceString += niceStringComponent;
             }
             niceString = niceString.substring(0, niceString.length - 1);
+            niceString += ` - ${this.selectedIp}`;
           }
         }
         this.applicationManagementAndStatus = niceString;
       }
+    },
+    async copyMessageToSign() {
+      try {
+        await navigator.clipboard.writeText(this.dataToSign);
+        this.showToast('success', 'Copied to clipboard');
+      } catch ($e) {
+        this.showToast('danger', 'Failed to Copy to clipboard');
+      }
+    },
+    selectedIpChanged() {
+      this.getApplicationManagementAndStatus();
+      this.getInstalledApplicationSpecifics();
     },
   },
 };
