@@ -8210,11 +8210,24 @@ export default {
         } else if (!this.selectedIp) {
           this.selectedIp = this.instances.data[0].ip;
         }
-        const withoutProtocol = this.ipAddress.replace('http://', '');
-        const desiredIP = this.config.apiPort === 16127 ? withoutProtocol : `${withoutProtocol}:${this.config.apiPort}`;
-        const matchingInstances = this.instances.data.filter((instance) => instance.ip === desiredIP);
-        if (matchingInstances.length > 0) {
-          this.selectedIp = desiredIP;
+        if (this.ipAccess) {
+          const withoutProtocol = this.ipAddress.replace('http://', '');
+          const desiredIP = this.config.apiPort === 16127 ? withoutProtocol : `${withoutProtocol}:${this.config.apiPort}`;
+          const matchingInstances = this.instances.data.filter((instance) => instance.ip === desiredIP);
+          if (matchingInstances.length > 0) {
+            this.selectedIp = desiredIP;
+          }
+        } else {
+          const regex = /https:\/\/(\d+-\d+-\d+-\d+)-(\d+)/;
+          const match = this.ipAddress.match(regex);
+          if (match) {
+            const ip = match[1].replace(/-/g, '.');
+            const desiredIP = this.config.apiPort === 16127 ? ip : `${ip}:${this.config.apiPort}`;
+            const matchingInstances = this.instances.data.filter((instance) => instance.ip === desiredIP);
+            if (matchingInstances.length > 0) {
+              this.selectedIp = desiredIP;
+            }
+          }
         }
         console.log(this.selectedIp);
       }
