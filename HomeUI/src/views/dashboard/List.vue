@@ -174,17 +174,29 @@ export default {
     async getFluxList() {
       try {
         this.fluxListLoading = true;
-        const resLoc = await axios.get('https://stats.runonflux.io/fluxlocations');
+
+        // Send parallel requests
+        const [resLoc, resList] = await Promise.all([
+          axios.get('https://stats.runonflux.io/fluxlocations'),
+          DashboardService.listFluxNodes(),
+        ]);
+
         const locations = resLoc.data.data;
-        const resList = await DashboardService.listFluxNodes();
         const fluxList = resList.data.data;
-        const adjustedFluxList = [];
-        fluxList.forEach((node) => {
-          const adjustedNode = node;
-          adjustedNode.location = locations.find((location) => location.ip === adjustedNode.ip.split(':')[0]);
-          adjustedFluxList.push(adjustedNode);
-        });
-        this.items = adjustedFluxList.filter((node) => node.ip);
+
+        // Convert locations to a map for quick lookup
+        const locationMap = locations.reduce((map, location) => {
+          map[location.ip] = location;
+          return map;
+        }, {});
+
+        // Adjust fluxList with location from the map
+        const adjustedFluxList = fluxList.map(node => ({
+          ...node,
+          location: locationMap[node.ip.split(':')[0]],
+        })).filter(node => node.ip);
+
+        this.items = adjustedFluxList;
         this.totalRows = this.items.length;
         this.currentPage = 1;
         this.fluxListLoading = false;
