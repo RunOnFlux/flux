@@ -7,6 +7,7 @@
     <b-card>
       <b-row>
         <b-col
+          md="2"
           class="my-1"
         >
           <b-form-group class="mb-0">
@@ -20,7 +21,6 @@
           </b-form-group>
         </b-col>
         <b-col
-          md="8"
           class="my-1"
         >
           <b-form-group
