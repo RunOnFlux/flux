@@ -51,7 +51,7 @@ const recurringActions = new Map(
     [fluxCommunication.pingAllPeers, { schedule: '15s', logMsg: 'Connections polling prepared' }],
     [daemonServiceMiscRpcs.fluxDaemonBlockchainInfo, { runImmediate: true, schedule: '1m', logMsg: 'Flux Daemon Info Service Started' }],
     // the branch changing stuff happens on config change now - this still needs work
-    [fluxService.softUpdateFlux, { schedule: '1m', condition: development === true || development === 'true' || development === 1 || development === '1' }],
+    // [fluxService.softUpdateFlux, { schedule: '1m', condition: development === true || development === 'true' || development === 1 || development === '1' }],
     // this waits for updateDeterministicFluxList to finish it's first run (run immediate awaits the first iteration)
     [fluxCommunicationUtils.updateDeterministicFluxList, { runImmediate: true, schedule: '2m' }],
     [appsService.openRequiredPortsToInternet, { schedule: '10m' }],

@@ -2,6 +2,9 @@ process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
 
 process.stdin.destroy()
 process.stderr.destroy()
+process.stdout.on('error', () => {
+  console.log("ERRRORROROROOROROROROROROROR")
+})
 
 /**
  * A global function to be used as a no-operation. See apiServer.js
@@ -150,10 +153,10 @@ async function initiate() {
   // store timer
   setInterval(configReload, 2 * 1000);
 
-  const server = app.listen(apiPort, () => {
-    log.info(`Flux listening on port ${apiPort}!`);
-    serviceManager.startFluxFunctions();
-  });
+  const server = await app.listen(apiPort);
+
+  log.info(`Flux listening on port ${apiPort}!`);
+  serviceManager.startFluxFunctions();
 
   socket.initIO(server);
 

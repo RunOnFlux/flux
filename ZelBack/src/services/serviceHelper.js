@@ -106,7 +106,7 @@ async function runCommand(userCmd, options = {}) {
   const res = { error: null, stdout: null, stderr: null }
   const params = options.params || [];
 
-  log.info("RUN COMMAND", userCmd, params.join(" "))
+  log.info(`RUN COMMAND: ${userCmd} ${params.join(" ")}`)
 
   if (!userCmd) {
     res.error = new Error("Command must be present")
