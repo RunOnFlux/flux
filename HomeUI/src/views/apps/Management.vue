@@ -2738,7 +2738,7 @@
             >
               <h5><b-icon class="mr-1" scale="1.2" icon="server" /> Volume browser</h5>
               <h6 v-if="selectedAppVolume || !appSpecification?.compose" class="progress-label">
-                <b-icon class="mr-1" icon="hdd" scale="1.4" /> {{ `${storage.used.toFixed(2)} / ${storage.total.toFixed(2)}` }} GB
+                <b-icon class="mr-1" :style="getIconColorStyle(storage.used, storage.total)" :icon="getIconName(storage.used, storage.total)" scale="1.4" /> {{ `${storage.used.toFixed(2)} / ${storage.total.toFixed(2)}` }} GB
               </h6>
             </div>
             <div class="mr-4 d-flex" :class="{ 'mb-2': appSpecification && appSpecification.compose }" style="max-width: 250px;">
@@ -6150,6 +6150,30 @@ export default {
     window.removeEventListener('resize', this.onResize);
   },
   methods: {
+    getIconName(used, total) {
+      const percentage = (used / total) * 100;
+      let icon;
+      if (percentage <= 60) {
+        icon = 'battery-full';
+      } else if (percentage > 60 && percentage <= 80) {
+        icon = 'battery-half';
+      } else {
+        icon = 'battery';
+      }
+      return icon;
+    },
+    getIconColorStyle(used, total) {
+      const percentage = (used / total) * 100;
+      let color;
+      if (percentage <= 60) {
+        color = 'green';
+      } else if (percentage > 60 && percentage <= 80) {
+        color = 'yellow';
+      } else {
+        color = 'red';
+      }
+      return { color };
+    },
     sortNameFolder(a, b) {
       return (a.isDirectory ? `..${a.name}` : a.name).localeCompare(b.isDirectory ? `..${b.name}` : b.name);
     },
