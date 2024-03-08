@@ -7,8 +7,6 @@
     <b-card>
       <b-row>
         <b-col
-          md="4"
-          sm="4"
           class="my-1"
         >
           <b-form-group class="mb-0">
@@ -18,7 +16,6 @@
               v-model="perPage"
               size="sm"
               :options="pageOptions"
-              class="w-50"
             />
           </b-form-group>
         </b-col>
@@ -27,12 +24,10 @@
           class="my-1"
         >
           <b-form-group
-            label="Filter"
-            label-cols-sm="1"
-            label-align-sm="right"
             label-for="filterInput"
             class="mb-0"
           >
+            <label class="d-inline-block text-left mr-50">Filter</label>
             <b-input-group size="sm">
               <b-form-input
                 id="filterInput"
