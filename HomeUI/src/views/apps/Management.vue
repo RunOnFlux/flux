@@ -780,7 +780,7 @@
       <b-tab
         title="File Changes"
       >
-        <h3>Application: {{ appSpecification.name }}</h3>
+        <h3>{{ appSpecification.name }}</h3>
         <div v-if="commandExecuting">
           <v-icon
             class="spin-icon"
@@ -794,7 +794,11 @@
           >
             <h4>Component: {{ component.name }}</h4>
             <div v-if="component.callData">
+              <kbd class="bg-primary mr-1">Kind: 0 = Modified</kbd>
+              <kbd class="bg-success mr-1">Kind: 1 = Added </kbd>
+              <kbd class="bg-danger">Kind: 2 = Deleted</kbd>
               <json-viewer
+                class="mt-1"
                 :value="component.callData"
                 :expand-depth="5"
                 copyable
@@ -806,7 +810,11 @@
         </div>
         <div v-else>
           <div v-if="callResponse.data && callResponse.data[0]">
+            <kbd class="bg-primary mr-1">Kind: 0 = Modified</kbd>
+            <kbd class="bg-success mr-1">Kind: 1 = Added </kbd>
+            <kbd class="bg-danger">Kind: 2 = Deleted</kbd>
             <json-viewer
+              class="mt-1"
               :value="callResponse.data[0].callData"
               :expand-depth="5"
               copyable
