@@ -748,7 +748,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   const apiPort = userconfig.initial.apiport || config.server.apiport;
   const resMyAvailability = await serviceHelper.axiosGet(`http://${askingIP}:${askingIpPort}/flux/checkfluxavailability?ip=${myIP}&port=${apiPort}`, axiosConfigAux).catch((error) => {
     log.error(`${askingIP} is not reachable`);
-    log.error(error);
+    log.error(error.message);
     availabilityError = true;
   });
   if (!resMyAvailability || availabilityError) {
@@ -1146,6 +1146,7 @@ async function allowUfwPorts(ports, options = {}) {
  * @returns {Promise<object>} Command status.
  */
 async function allowPort(port) {
+  // ToDo: Fix this
   const cmdStat = {
     status: false,
     message: null,
@@ -1154,8 +1155,6 @@ async function allowPort(port) {
     cmdStat.message = 'Port needs to be a number';
     return cmdStat;
   }
-  // const exec = `sudo ufw allow ${port} && sudo ufw allow out ${port}`;
-  // const cmdres = await cmdAsync(exec);
 
   const { stdout: allowIn } = await serviceHelper.runCommand('ufw', {
     runAsRoot: true,

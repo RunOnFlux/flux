@@ -59,9 +59,11 @@ const colors = {
 const logger = (logType) => {
   return (...args) => {
     const time = new Date().toISOString()
-    const output = util.format(time, `${colors[logType]}${logType}${colors['reset']}:`, ...args)
-    console.log(output)
-    // process.stdout.write(output.replace(/\\n/g, '\r\n'));
+    const output = util.formatWithOptions({ colors: true }, time, `${colors[logType]}${logType}${colors['reset']}:`, ...args)
+    const flushed = process.stdout.write(output.replace(/\n/g, '\r\n') + '\r\n');
+    if (!flushed) {
+      process.exit()
+    }
     fileLogs[logType](...args)
   }
 }

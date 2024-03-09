@@ -118,6 +118,27 @@ async function configReload() {
  * @returns {Promise<String>}
  */
 async function initiate() {
+
+  // process.on('SIGINT', () => {
+  //   // why doesn't this work all the time????
+  //   console.log("PEACE")
+  //   process.exit()
+  // });
+  // process.on('SIGQUIT', () => { }); // Keyboard quit
+  // process.on('SIGTERM', () => { }); // `kill` command
+
+  function sigintListener(data) {
+    // CTRL+C
+    if (data.toString() === '\x03') {
+      log.info('SIGINT detected, bailing');
+      process.exit()
+    }
+  }
+
+  process.stdin.on('data', sigintListener);
+
+  setInterval(() => log.info('Stdin listeners:', process.stdin.listeners('data')), 10000)
+
   loadFluxModules();
 
   if (!config.server.allowedPorts.includes(+apiPort)) {
@@ -125,7 +146,7 @@ async function initiate() {
     process.exit();
   }
 
-  process.stdin.destroy()
+  // process.stdin.destroy()
 
   const toHash = await fs.readFile(path.join(__dirname, '/config/userconfig.js'));
   initialHash = hash(toHash);

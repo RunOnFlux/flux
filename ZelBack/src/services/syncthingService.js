@@ -2387,7 +2387,7 @@ async function runSyncthingSentinel() {
         ],
         {
           detached: true,
-          stdio: ['ignore'],
+          stdio: 'ignore',
           // uid: 0,
         }
       );

@@ -37,7 +37,7 @@ async function getWorker() {
 }
 
 while (workerPool.length < WORKER_COUNT) {
-  const cmdWorker = new Worker(path.join(__dirname, 'runCommandWorker.js'), { stdin: true, stderr: true, stdout: true });
+  const cmdWorker = new Worker(path.join(__dirname, 'runCommandWorker.js'), { stdin: false, stderr: false, stdout: false });
   cmdWorker.on('message', workerHandler);
   workerPool.push(cmdWorker);
 }
@@ -125,6 +125,8 @@ function delay(ms) {
 }
 
 async function runCommand(cmd, options = {}) {
+  const params = options.params || [];
+  log.info("Run command:", cmd, params.join(" "));
   return new Promise(async (resolve, reject) => {
     const worker = await getWorker()
     const id = worker.threadId;

@@ -10563,8 +10563,7 @@ async function stopAllNonFluxRunningApps() {
  * @returns {Promise<void>}
  */
 async function forceAppsRemoval(appNames) {
-  log.info(`FORCING REMOVAL: ${appNames}`);
-  log.info(appNames);
+  log.info('FORCING REMOVAL:', appNames);
   // eslint-disable-next-line no-restricted-syntax
   for (const appName of appNames) {
     // eslint-disable-next-line no-await-in-loop
@@ -11702,6 +11701,7 @@ async function checkMyAppsAvailability() {
     // now open this port properly and launch listening on it
     const firewallActive = await serviceHelper.isFirewallActive();
     if (firewallActive) {
+      // should check this is true
       await fluxNetworkHelper.allowPort(testingPort);
     }
     if (isUPNP) {
@@ -11773,7 +11773,7 @@ async function checkMyAppsAvailability() {
     });
     if (resMyAppAvailability && resMyAppAvailability.data.status === 'error') {
       log.warn(`checkMyAppsAvailability - Applications port range unavailability detected from ${askingIP}:${askingIpPort} on ${testingPort}`);
-      log.warn(JSON.stringify(data));
+      log.warn(data);
       portTestFailed = true;
       dosState += 0.4;
       failedPort = testingPort;
