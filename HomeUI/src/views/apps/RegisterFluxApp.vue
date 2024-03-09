@@ -3560,7 +3560,7 @@ export default {
             hash,
             price,
             productName: name,
-            success_url: 'https://home.runonflux.io',
+            success_url: 'https://home.runonflux.io/successcheckout',
             cancel_url: 'https://home.runonflux.io',
             kpi: {
               origin: 'FluxOS',
@@ -3594,8 +3594,8 @@ export default {
             hash,
             price,
             productName: name,
-            return_url: 'home.runonflux.io',
-            cancel_url: 'https://home.runonflux.io',
+            return_url: 'home.runonflux.io/successcheckout',
+            cancel_url: 'home.runonflux.io',
             kpi: {
               origin: 'FluxOS',
               marketplace: false,
