@@ -39,7 +39,6 @@
 // module.exports = log
 
 // https://en.m.wikipedia.org/wiki/ANSI_escape_code#Colors
-
 const colors = {
   error: "\x1b[91m", // bright red
   warn: "\x1b[33m", // yellow
@@ -53,7 +52,6 @@ const logger = (logType) => {
     const time = new Date().toISOString()
     console.log(time, `${colors[logType]}${logType}${colors['reset']}:`, ...args)
   }
-
 }
 
 module.exports = {
