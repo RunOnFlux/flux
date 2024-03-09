@@ -16,15 +16,33 @@ const path = require('node:path')
 const { Worker } = require('node:worker_threads');
 
 const actions = new Map();
+const WORKER_COUNT = 4;
+const workerPool = [];
 
-const cmdWorker = new Worker(path.join(__dirname, 'runCommandWorker.js'), { stdin: true, stderr: true, stdout: true });
-cmdWorker.on('message', (msg) => {
-  const { id, response } = msg;
-  const [resolve, reject] = actions.get(id);
+function workerHandler(message) {
+  const { id, response } = message;
+  const [worker, resolve, reject] = actions.get(id);
   actions.delete(id);
-  if (response.error && response.logError) console.error(response.error);
+  if (response.error && response.logError) log.error(response.error);
+  workerPool.push(worker);
   resolve(response);
-})
+}
+
+async function getWorker() {
+  return new Promise(async (resolve) => {
+    while (!workerPool.length) await sleep(50)
+    const worker = workerPool.shift();
+    resolve(worker);
+  })
+}
+
+while (workerPool.length < WORKER_COUNT) {
+  const cmdWorker = new Worker(path.join(__dirname, 'runCommandWorker.js'), { stdin: true, stderr: true, stdout: true });
+  cmdWorker.on('message', workerHandler);
+  workerPool.push(cmdWorker);
+}
+
+
 
 class AsyncLock {
   ready = Promise.resolve();
@@ -107,10 +125,11 @@ function delay(ms) {
 }
 
 async function runCommand(cmd, options = {}) {
-  return new Promise((resolve, reject) => {
-    const id = randomBytes(8).toString('hex');
-    actions.set(id, [resolve, reject])
-    cmdWorker.postMessage({ id, cmd, options })
+  return new Promise(async (resolve, reject) => {
+    const worker = await getWorker()
+    const id = worker.threadId;
+    actions.set(id, [worker, resolve, reject])
+    worker.postMessage({ id, cmd, options })
   })
 }
 
