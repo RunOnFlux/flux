@@ -34,6 +34,7 @@
                 v-model="filter"
                 type="search"
                 placeholder="Type to Search"
+                debounce="1500"
               />
               <b-input-group-append>
                 <b-button
