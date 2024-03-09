@@ -59,7 +59,8 @@ const colors = {
 const logger = (logType) => {
   return (...args) => {
     const time = new Date().toISOString()
-    console.log(time, `${colors[logType]}${logType}${colors['reset']}:`, ...args)
+    const output = util.format(time, `${colors[logType]}${logType}${colors['reset']}:`, ...args)
+    process.stdout.write(output.replace(/\\n/g, '\r\n'));
     fileLogs[logType](...args)
   }
 }
