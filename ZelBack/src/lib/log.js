@@ -1,5 +1,5 @@
 const pino = require('pino');
-// const util = require('util')
+const util = require('util')
 const path = require('path')
 
 // const logController = require('./logController')
@@ -60,7 +60,8 @@ const logger = (logType) => {
   return (...args) => {
     const time = new Date().toISOString()
     const output = util.format(time, `${colors[logType]}${logType}${colors['reset']}:`, ...args)
-    process.stdout.write(output.replace(/\\n/g, '\r\n'));
+    console.log(output)
+    // process.stdout.write(output.replace(/\\n/g, '\r\n'));
     fileLogs[logType](...args)
   }
 }

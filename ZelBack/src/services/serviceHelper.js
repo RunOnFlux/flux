@@ -17,7 +17,7 @@ const { Worker } = require('node:worker_threads');
 
 const actions = new Map();
 
-const cmdWorker = new Worker(path.join(__dirname, 'runCommandWorker.js'));
+const cmdWorker = new Worker(path.join(__dirname, 'runCommandWorker.js'), { stdin: true, stderr: true, stdout: true });
 cmdWorker.on('message', (msg) => {
   const { id, response } = msg;
   const [resolve, reject] = actions.get(id);
