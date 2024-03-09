@@ -5371,8 +5371,8 @@ export default {
       fileRenaming: '',
       newDirName: '',
       abortToken: {},
-      downloaded: {},
-      total: {},
+      downloaded: '',
+      total: '',
       timeStamp: {},
       working: false,
       storage: {
@@ -7854,6 +7854,12 @@ export default {
         onDownloadProgress(progressEvent) {
           self.downloaded = progressEvent.loaded;
           self.total = progressEvent.total;
+          if (self.downloaded === self.total) {
+            setTimeout(() => {
+              self.downloaded = '';
+              self.total = '';
+            }, 5000);
+          }
         },
         // cancelToken: self.abortToken.token,
       };
