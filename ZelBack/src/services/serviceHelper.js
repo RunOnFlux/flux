@@ -110,7 +110,7 @@ async function runCommand(cmd, options = {}) {
   return new Promise((resolve, reject) => {
     const id = randomBytes(8).toString('hex');
     actions.set(id, [resolve, reject])
-    worker.postMessage({ id, cmd, options })
+    cmdWorker.postMessage({ id, cmd, options })
   })
 }
 
