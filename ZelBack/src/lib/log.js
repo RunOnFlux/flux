@@ -1,16 +1,16 @@
-// const logController = require('./logController')
-// const path = require('path')
+// const pino = require('pino');
 
-// const log = logController.getLogger();
-// const homeDir = path.join(__dirname, '../../../');
-// const levels = ["debug", "info", "error"];
+const logController = require('./logController')
+const path = require('path')
 
-// levels.forEach((level) => {
-//   const filePath = path.join(homeDir, `${level}.log`);
-//   logController.addLoggerTransport("file", { level, filePath });
-// });
+const log = logController.getLogger();
+const homeDir = path.join(__dirname, '../../../');
+const levels = ["debug", "info", "error"];
 
-const pino = require('pino');
+levels.forEach((level) => {
+  const filePath = path.join(homeDir, `${level}.log`);
+  logController.addLoggerTransport("file", { level, filePath });
+});
 
 // const transports = pino.transport({
 //     targets: [{
@@ -24,7 +24,6 @@ const pino = require('pino');
 // })
 
 
-// console.log("CREATING TRANSPORT")
 const transport = pino.transport({
   level: 'debug',
   target: 'pino-pretty',
@@ -35,7 +34,8 @@ const transport = pino.transport({
   }
 })
 
-const log = pino(transport);
+// const log = pino(transport);
+
 module.exports = log
 
 // const logger = (...args) => {
