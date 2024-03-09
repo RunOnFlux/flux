@@ -131,8 +131,8 @@ async function runCommand(userCmd, options = {}) {
     cmd = userCmd;
   }
 
-  let stdoutBuf = '';
-  let stderrBuf = '';
+  // let stdoutBuf = '';
+  // let stderrBuf = '';
 
   // return new Promise((resolve, reject) => {
   //   execOptions.stdio = ['ignore', 'pipe', 'pipe']

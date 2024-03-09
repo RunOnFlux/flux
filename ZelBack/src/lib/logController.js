@@ -16,6 +16,14 @@ const formatter = printf(({ level, message, label, timestamp, stack }) => {
 //   return info
 // })
 
+
+const simpleConsole = printf(({ level, message, timestamp, stack }) => {
+  if (stack) {
+    return `${timestamp} ${level}: ${message} - ${stack}`;
+  }
+  return `${timestamp} ${level}: ${message}`;
+});
+
 const colorsLogger = {
   error: "red",
   warn: "yellow"
@@ -44,7 +52,8 @@ class FluxLogger {
       level: "debug",
       format: combine(
         winston.format.colorize(),
-        winston.format.simple()
+        // winston.format.simple()
+        simpleConsole
       )
     });
 
