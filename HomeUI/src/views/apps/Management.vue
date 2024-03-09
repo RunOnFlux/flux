@@ -780,7 +780,7 @@
       <b-tab
         title="File Changes"
       >
-        <h3>{{ appSpecification.name }}</h3>
+        <h3><b-icon icon="eye" /> {{ appSpecification.name }}</h3>
         <div v-if="commandExecuting">
           <v-icon
             class="spin-icon"
