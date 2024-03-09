@@ -1779,20 +1779,11 @@ async function installFluxWatchTower() {
 
   if (error) return;
 
+  // could maybe print this anyway is error?
   const lines = stdout.split('\n');
-  if (lines[-1] === '') lines.pop();
+  if (lines.slice(-1) === '') lines.pop();
 
   lines.forEach((line) => log.info(line));
-
-  // try {
-  //   const nodedpath = path.join(__dirname, '../../../helpers');
-  //   const exec = `cd ${nodedpath} && bash fluxwatchtower.sh`;
-  //   const cmdAsync = util.promisify(nodecmd.get);
-  //   const cmdres = await cmdAsync(exec);
-  //   log.info(cmdres);
-  // } catch (error) {
-  //   log.error(error);
-  // }
 }
 
 /**

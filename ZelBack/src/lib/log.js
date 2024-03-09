@@ -1,27 +1,35 @@
-// const pino = require('pino');
+const pino = require('pino');
+const util = require('util')
 
 // const logController = require('./logController')
 // const path = require('path')
 
 // const log = logController.getLogger();
-// const homeDir = path.join(__dirname, '../../../');
-// const levels = ["debug", "info", "error"];
+const homeDir = path.join(__dirname, '../../../');
+const levels = ["debug", "info", "error"];
 
 // levels.forEach((level) => {
 //   const filePath = path.join(homeDir, `${level}.log`);
 //   logController.addLoggerTransport("file", { level, filePath });
 // });
 
+const targets = levels.map((level) => {
+  const destination = path.join(homeDir, `${level}.log`);
+  return { level, target: 'pino/file', options: { destination } }
+})
+
 // const transports = pino.transport({
-//     targets: [{
-//         level: 'info',
-//         target: 'pino/file'
-//     }, {
-//         level: 'trace',
-//         target: 'pino/file',
-//         options: { destination: '/path/to/store/logs' }
-//     }]
+//   targets: [{
+//     level: 'info',
+//     target: 'pino/file'
+//   }, {
+//     level: 'trace',
+//     target: 'pino/file',
+//     options: { destination: '/path/to/store/logs' }
+//   }]
 // })
+
+fileLogs = pino(pino.transport({ targets }))
 
 
 // const transport = pino.transport({
@@ -51,6 +59,7 @@ const logger = (logType) => {
   return (...args) => {
     const time = new Date().toISOString()
     console.log(time, `${colors[logType]}${logType}${colors['reset']}:`, ...args)
+    fileLogs[logType](...args)
   }
 }
 

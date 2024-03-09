@@ -5,12 +5,26 @@ const axios = require('axios');
 const config = require('config');
 const splitargs = require('splitargs');
 const qs = require('qs');
-const util = require('node:util');
-const execFile = util.promisify(require('node:child_process').execFile);
-const { spawn } = require('node:child_process');
+// const util = require('node:util');
+// const execFile = util.promisify(require('node:child_process').execFile);
+// const { spawn } = require('node:child_process');
 
 const dbHelper = require('./dbHelper');
 const log = require('../lib/log');
+
+const path = require('node:path')
+const { Worker } = require('node:worker_threads');
+
+const actions = new Map();
+
+const cmdWorker = new Worker(path.join(__dirname, 'runCmdWorker.js'));
+cmdWorker.on('message', (msg) => {
+  const { id, response } = msg;
+  const [resolve, reject] = actions.get(id);
+  actions.delete(id);
+  if (response.error && response.logError) console.error(response.error);
+  resolve(response);
+})
 
 class AsyncLock {
   ready = Promise.resolve();
@@ -92,86 +106,94 @@ function delay(ms) {
   });
 }
 
-subprocessLock = new AsyncLock()
-
-/**
- *
- * @param {string} cmd The binary to run. Must be in PATH
- * @param {{params?: string[], runAsRoot?: Boolean, logError?: Boolean, cwd?: string, timeout?: number, signal?: AbortSignal, shell?: (Boolean|string)}} options
-   @returns {Promise<{error: (Error|null), stdout: (string|null), stderr: (string|null)}>}
- */
-async function runCommand(userCmd, options = {}) {
-  // testing.
-  await subprocessLock.enable();
-  // await sleep(1000)
-
-  const res = { error: null, stdout: null, stderr: null }
-  const params = options.params || [];
-
-  log.info(`RUN COMMAND: ${userCmd} ${params.join(" ")}`)
-
-  if (!userCmd) {
-    res.error = new Error("Command must be present")
-    subprocessLock.disable()
-    return res
-  }
-
-  if (!Array.isArray(params) || !params.every((p) => typeof p === 'string')) {
-    res.error = new Error("Invalid params for command, must be an Array of strings")
-    subprocessLock.disable()
-    return res;
-  }
-
-  const { runAsRoot, logError, ...execOptions } = options;
-
-  if (runAsRoot) {
-    params.unshift(userCmd);
-    cmd = 'sudo';
-  } else {
-    cmd = userCmd;
-  }
-
-  // let stdoutBuf = '';
-  // let stderrBuf = '';
-
-  // return new Promise((resolve, reject) => {
-  //   execOptions.stdio = ['ignore', 'pipe', 'pipe']
-  //   const child = spawn(cmd, params, execOptions)
-
-  //   child.stdout.on('data', (data) => {
-  //     stdoutBuf += data.toString();
-  //   });
-
-  //   child.stderr.on('data', (data) => {
-  //     stderrBuf += data.toString();
-  //   });
-
-  //   child.on('error', (error) => {
-  //     reject({ stdout: stdoutBuf, stderr: stderrBuf, error })
-  //   })
-
-  //   child.on('close', (code) => {
-  //     process.stdout.write(`Exited with code: ${code}\n`)
-  //     resolve({ stdout: stdoutBuf, stderr: stderrBuf, error: null })
-  //   });
-  // })
-
-  const { stdout, stderr } = await execFile(cmd, params, execOptions).catch((err) => {
-    const { stdout: errStdout, stderr: errStderr, ...error } = err;
-    res.error = error;
-    if (logError !== false) log.error(error);
-    subprocessLock.disable()
-    return [errStdout, errStderr];
-  });
-
-  if (stderr) console.log("STDERR FOUND!!!!!", stderr)
-
-  res.stdout = stdout;
-  res.stderr = stderr;
-
-  subprocessLock.disable()
-  return res;
+async function runCommand(cmd, options = {}) {
+  return new Promise((resolve, reject) => {
+    const id = randomBytes(8).toString('hex');
+    actions.set(id, [resolve, reject])
+    worker.postMessage({ id, cmd, options })
+  })
 }
+
+// subprocessLock = new AsyncLock()
+
+// /**
+//  *
+//  * @param {string} cmd The binary to run. Must be in PATH
+//  * @param {{params?: string[], runAsRoot?: Boolean, logError?: Boolean, cwd?: string, timeout?: number, signal?: AbortSignal, shell?: (Boolean|string)}} options
+//    @returns {Promise<{error: (Error|null), stdout: (string|null), stderr: (string|null)}>}
+//  */
+// async function runCommand(userCmd, options = {}) {
+//   // testing.
+//   await subprocessLock.enable();
+//   // await sleep(1000)
+
+//   const res = { error: null, stdout: null, stderr: null }
+//   const params = options.params || [];
+
+//   log.info(`RUN COMMAND: ${userCmd} ${params.join(" ")}`)
+
+//   if (!userCmd) {
+//     res.error = new Error("Command must be present")
+//     subprocessLock.disable()
+//     return res
+//   }
+
+//   if (!Array.isArray(params) || !params.every((p) => typeof p === 'string')) {
+//     res.error = new Error("Invalid params for command, must be an Array of strings")
+//     subprocessLock.disable()
+//     return res;
+//   }
+
+//   const { runAsRoot, logError, ...execOptions } = options;
+
+//   if (runAsRoot) {
+//     params.unshift(userCmd);
+//     cmd = 'sudo';
+//   } else {
+//     cmd = userCmd;
+//   }
+
+//   // let stdoutBuf = '';
+//   // let stderrBuf = '';
+
+//   // return new Promise((resolve, reject) => {
+//   //   execOptions.stdio = ['ignore', 'pipe', 'pipe']
+//   //   const child = spawn(cmd, params, execOptions)
+
+//   //   child.stdout.on('data', (data) => {
+//   //     stdoutBuf += data.toString();
+//   //   });
+
+//   //   child.stderr.on('data', (data) => {
+//   //     stderrBuf += data.toString();
+//   //   });
+
+//   //   child.on('error', (error) => {
+//   //     reject({ stdout: stdoutBuf, stderr: stderrBuf, error })
+//   //   })
+
+//   //   child.on('close', (code) => {
+//   //     process.stdout.write(`Exited with code: ${code}\n`)
+//   //     resolve({ stdout: stdoutBuf, stderr: stderrBuf, error: null })
+//   //   });
+//   // })
+
+//   const { stdout, stderr } = await execFile(cmd, params, execOptions).catch((err) => {
+//     const { stdout: errStdout, stderr: errStderr, ...error } = err;
+//     res.error = error;
+//     if (logError !== false) log.error(error);
+//     subprocessLock.disable()
+//     return [errStdout, errStderr];
+//   });
+
+//   if (stderr) console.log("STDERR FOUND!!!!!", stderr)
+
+//   res.stdout = stdout;
+//   res.stderr = stderr;
+
+//   subprocessLock.disable()
+//   return res;
+// }
 
 /**
  * To check if a firewall is active.
