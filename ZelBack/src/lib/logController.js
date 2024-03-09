@@ -2,6 +2,8 @@ const winston = require("winston");
 
 const { combine, timestamp, label, printf } = winston.format;
 
+const util = require('node:util');
+
 const formatter = printf(({ level, message, label, timestamp, stack }) => {
   return `${timestamp} [${label}] ${level}: ${message}`;
 });
@@ -17,12 +19,13 @@ const formatter = printf(({ level, message, label, timestamp, stack }) => {
 // })
 
 
-const simpleConsole = printf(({ level, message, stack }) => {
-  if (stack) {
-    return `${level}: ${stack}`;
-  }
-  return `${level}: ${message}`;
-});
+// const simpleConsole = printf(({ level, message, stack }) => {
+//   if (stack) {
+//     return `${level}: ${stack}`;
+//   }
+
+//   return `${level}: ${util.format(message)}`;
+// });
 
 const colorsLogger = {
   error: "red",
@@ -44,16 +47,17 @@ class FluxLogger {
         // errorStackFormat(),
         winston.format.errors({ stack: true }),
         winston.format.splat(),
-
       )
     });
     this.loggingConsole = true;
     this.defaultConsole = new winston.transports.Console({
       level: "debug",
+      // prettyPrint: true,
+      // eol: '\r\n',
       format: combine(
         winston.format.colorize(),
-        // winston.format.simple()
-        simpleConsole
+        winston.format.simple()
+        // simpleConsole
       )
     });
 

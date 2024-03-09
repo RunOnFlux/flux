@@ -1,16 +1,16 @@
 // const pino = require('pino');
 
-const logController = require('./logController')
-const path = require('path')
+// const logController = require('./logController')
+// const path = require('path')
 
-const log = logController.getLogger();
-const homeDir = path.join(__dirname, '../../../');
-const levels = ["debug", "info", "error"];
+// const log = logController.getLogger();
+// const homeDir = path.join(__dirname, '../../../');
+// const levels = ["debug", "info", "error"];
 
-levels.forEach((level) => {
-  const filePath = path.join(homeDir, `${level}.log`);
-  logController.addLoggerTransport("file", { level, filePath });
-});
+// levels.forEach((level) => {
+//   const filePath = path.join(homeDir, `${level}.log`);
+//   logController.addLoggerTransport("file", { level, filePath });
+// });
 
 // const transports = pino.transport({
 //     targets: [{
@@ -36,11 +36,29 @@ levels.forEach((level) => {
 
 // const log = pino(transport);
 
-module.exports = log
+// module.exports = log
 
-// const logger = (...args) => {
-//   const time = new Date().toISOString()
-//   console.log(time, ...args)
-// }
+// https://en.m.wikipedia.org/wiki/ANSI_escape_code#Colors
 
-// module.exports = { info: logger, debug: logger, error: logger, warn: logger }
+const colors = {
+  error: "\x1b[91m", // bright red
+  warn: "\x1b[33m", // yellow
+  info: '\x1b[32m', // green
+  debug: "\x1b36m", // cyan
+  reset: "\x1b[0m"
+};
+
+const logger = (logType) => {
+  return (...args) => {
+    const time = new Date().toISOString()
+    console.log(time, `${colors[logType]}${logType}${colors['reset']}:`, ...args)
+  }
+
+}
+
+module.exports = {
+  info: logger('info'),
+  debug: logger('debug'),
+  error: logger('error'),
+  warn: logger('warn'),
+};

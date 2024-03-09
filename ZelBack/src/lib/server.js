@@ -1,6 +1,7 @@
 const express = require('express');
 const eWS = require('express-ws');
 const cors = require('cors');
+const util = require('util');
 
 const log = require('./log');
 const morgan = require('morgan');
@@ -13,7 +14,9 @@ const { app } = expressWs;
 
 const logger = () => {
   return (req, res, next) => {
-    log.info({ url: req.url, method: req.method, ip: req.ip });
+    // const output = util.format({ url: req.url, method: req.method, ip: req.ip })
+    // log.info(output.replace(/\\n/g, '\r\n'));
+    log.info({ url: req.url, method: req.method, ip: req.ip })
     next();
   }
 };
