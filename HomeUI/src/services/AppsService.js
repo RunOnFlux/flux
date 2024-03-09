@@ -266,7 +266,7 @@ export default {
     return Api().post('/apps/calculateprice', JSON.stringify(data));
   },
   appPriceUSDandFlux(data) {
-    return Api().post('/apps/calculateusdandfluxprice', JSON.stringify(data));
+    return Api().post('/apps/calculatefiatandfluxprice', JSON.stringify(data));
   },
   appRegistrationVerificaiton(data) {
     return Api().post('/apps/verifyappregistrationspecifications', JSON.stringify(data));

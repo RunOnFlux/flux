@@ -66,6 +66,11 @@ const GlobalAppsSpawnLRUoptions = {
   ttl: 1000 * 60 * 60 * 2, // 2 hours
   maxAge: 1000 * 60 * 60 * 2, // 2 hours
 };
+const shortCache = {
+  max: 500,
+  ttl: 1000 * 60 * 5, // 5 minutes
+  maxAge: 1000 * 60 * 5, // 5 minutes
+};
 const longCache = {
   max: 500,
   ttl: 1000 * 60 * 60 * 3, // 3 hours
@@ -89,6 +94,7 @@ const stopedAppsCache = {
 };
 
 const trySpawningGlobalAppCache = new LRUCache(GlobalAppsSpawnLRUoptions);
+const myShortCache = new LRUCache(shortCache);
 const myLongCache = new LRUCache(longCache);
 const failedNodesTestPortsCache = new LRUCache(testPortsCache);
 const receiveOnlySyncthingAppsCache = new LRUCache(syncthingAppsCache);
@@ -9917,11 +9923,16 @@ async function getAppFiatAndFluxPrice(req, res) {
         timeout: 5000,
       };
       const appPrices = [];
-      const response = await axios.get('https://stats.runonflux.io/apps/getappspecsusdprice', axiosConfig);
-      if (response.data.status === 'success') {
-        appPrices.push(response.data.data);
+      if (myLongCache.has('appPrices')) {
+        appPrices.push(myLongCache.get('appPrices'));
       } else {
-        throw new Error('Unable to get standard usd prices for app specs');
+        const response = await axios.get('https://stats.runonflux.io/apps/getappspecsusdprice', axiosConfig);
+        if (response.data.status === 'success') {
+          myLongCache.set('appPrices', response.data.data);
+          appPrices.push(response.data.data);
+        } else {
+          throw new Error('Unable to get standard usd prices for app specs');
+        }
       }
       let actualPriceToPay = 0;
       const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
@@ -9980,7 +9991,13 @@ async function getAppFiatAndFluxPrice(req, res) {
           actualPriceToPay = Number(appPrices[0].minUSDPrice).toFixed(2);
         }
       }
-      const fiatRates = await axios.get('https://viparates.zelcore.io/rates', axiosConfig).catch(() => { throw new Error('Unable to get Flux Rates'); });
+      let fiatRates;
+      if (myShortCache.has('fluxRates')) {
+        fiatRates = myShortCache.get('fluxRates');
+      } else {
+        fiatRates = await axios.get('https://viprates.runonflux.io/rates', axiosConfig).catch(() => { throw new Error('Unable to get Flux Rates'); });
+        myShortCache.set('fluxRates', fiatRates);
+      }
       const rateObj = fiatRates.data[0].find((rate) => rate.code === 'USD');
       const btcRateforFlux = fiatRates.data[1].FLUX;
       if (btcRateforFlux === undefined) {
@@ -12087,7 +12104,7 @@ async function appendBackupTask(req, res) {
       backupInProgress.splice(indexToRemove, 1);
       res.end();
       return true;
-    // eslint-disable-next-line no-else-return
+      // eslint-disable-next-line no-else-return
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res.json(errMessage);
@@ -12239,7 +12256,7 @@ async function appendRestoreTask(req, res) {
       restoreInProgress.splice(indexToRemove, 1);
       res.end();
       return true;
-    // eslint-disable-next-line no-else-return
+      // eslint-disable-next-line no-else-return
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res.json(errMessage);

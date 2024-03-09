@@ -352,7 +352,7 @@ module.exports = (app, expressWs) => {
   app.post('/apps/calculateprice', (req, res) => { // returns price in flux for both new registration of app and update of app
     appsService.getAppPrice(req, res);
   });
-  app.post('/apps/calculateusdandfluxprice', (req, res) => { // returns price in usd and flux for both new registration of app and update of app
+  app.post('/apps/calculatefiatandfluxprice', (req, res) => { // returns price in usd and flux for both new registration of app and update of app
     appsService.getAppFiatAndFluxPrice(req, res);
   });
   app.get('/apps/whitelistedrepositories', cache('30 seconds'), (req, res) => {
