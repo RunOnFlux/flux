@@ -1779,7 +1779,10 @@ async function installFluxWatchTower() {
 
   if (error) return;
 
-  stdout.split('\n').forEach((line) => log.info(line));
+  const lines = stdout.split('\n');
+  if (lines[-1] === '') lines.pop();
+
+  lines.forEach((line) => log.info(line));
 
   // try {
   //   const nodedpath = path.join(__dirname, '../../../helpers');

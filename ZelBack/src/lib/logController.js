@@ -17,11 +17,11 @@ const formatter = printf(({ level, message, label, timestamp, stack }) => {
 // })
 
 
-const simpleConsole = printf(({ level, message, timestamp, stack }) => {
+const simpleConsole = printf(({ level, message, stack }) => {
   if (stack) {
-    return `${timestamp} ${level}: ${message} - ${stack}`;
+    return `${level}: ${stack}`;
   }
-  return `${timestamp} ${level}: ${message}`;
+  return `${level}: ${message}`;
 });
 
 const colorsLogger = {
