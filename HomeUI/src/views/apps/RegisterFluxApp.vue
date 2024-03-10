@@ -1501,21 +1501,16 @@
         label="Registration Message"
         label-for="registrationmessage"
       >
-        <b-form-textarea
-          id="registrationmessage"
-          v-model="dataToSign"
-          rows="6"
-          readonly
-        />
-        <b-button
-          v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-          variant="success"
-          aria-label="Copy Message to Sign to Clipboard"
-          class="my-1"
-          @click="copyMessageToSign"
-        >
-          Copy
-        </b-button>
+        <div class="text-wrap">
+          <b-form-textarea
+            id="registrationmessage"
+            v-model="dataToSign"
+            style="padding-top: 15px;"
+            rows="6"
+            readonly
+          />
+          <b-icon v-b-tooltip.hover.top="'Copy to clipboard'" class="clipboard icon" scale="1.5" icon="clipboard" @click="copyMessageToSign" />
+        </div>
       </b-form-group>
       <b-form-group
         label-cols="3"
@@ -3774,6 +3769,46 @@ export default {
 </script>
 
 <style scoped>
+#registrationmessage {
+  padding-right: 25px !important;
+}
+.text-wrap {
+  position: relative;
+  padding: 0em;
+}
+.clipboard.icon {
+  position: absolute;
+    top: 0.4em;
+    right: 1.0em;
+  margin-top: 4px;
+  margin-left: 4px;
+  width: 12px;
+  height: 12px;
+  border: solid 1px #333333;
+  border-top: none;
+  border-radius: 1px;
+  cursor: pointer;
+}
+.clipboard.icon:before {
+  top: -1px;
+  left: 2px;
+  width: 5px;
+  height: 1px;
+  border: solid 1px #333333;
+  border-radius: 1px;
+}
+.clipboard.icon:after {
+  width: 3px;
+  height: 1px;
+  background-color: #333333;
+  box-shadow: 8px 0 0 0 #333333;
+}
+
+.icon:before, .icon:after {
+  content: '';
+  position: absolute;
+  display: block;
+}
 .inline {
   display: inline;
   padding-left: 5px;
