@@ -1535,10 +1535,10 @@
         >
           <b-card title="Register App">
             <b-card-text>
-              Price: {{ applicationPriceUSD }} USD
+              <b-icon class="mr-1" scale="1.4" icon="cash-coin" />Price: <b>{{ applicationPriceUSD }} USD</b>
             </b-card-text>
             <b-card-text>
-              Subscription period: {{ getExpireLabel || (appRegistrationSpecification.expire ? `${appRegistrationSpecification.expire} blocks` : '1 month') }}
+              <b-icon class="mr-1" scale="1.4" icon="clock" />Subscription period: <b>{{ getExpireLabel || (appRegistrationSpecification.expire ? `${appRegistrationSpecification.expire} blocks` : '1 month') }}</b>
             </b-card-text>
             <b-button
               v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -1609,10 +1609,10 @@
         >
           <b-card>
             <b-card-text>
-              Everything is ready, your application will cost you {{ applicationPriceUSD }} USD.
+              Everything is ready, your application will cost you <b>{{ applicationPriceUSD }} USD</b>.
             </b-card-text>
             <br>
-            The application will be subscribed until {{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}
+            The application will be subscribed until <b>{{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}</b>
             <br>
             To finish the application registration, pay your application with your prefered payment method or check below how to pay with Flux crypto currency.
           </b-card>
@@ -1660,13 +1660,13 @@
         >
           <b-card>
             <b-card-text>
-              To pay in Flux{{ applicationPriceFluxDiscount }}, please make a transaction of {{ applicationPrice }} FLUX to address
-              '{{ deploymentAddress }}'
+              To pay in <kbd class="bg-primary"><b>Flux{{ applicationPriceFluxDiscount }}</b></kbd>, please make a transaction of <b>{{ applicationPrice }} FLUX</b> to address
+              <b>'{{ deploymentAddress }}'</b>
               with the following message:
-              '{{ registrationHash }}'
+              <b>'{{ registrationHash }}'</b>
             </b-card-text>
             <br>
-            The transaction must be mined by {{ new Date(validTill).toLocaleString('en-GB', timeoptions.shortDate) }}
+            <kbd class="bg-danger">The transaction must be mined by <b>{{ new Date(validTill).toLocaleString('en-GB', timeoptions.shortDate) }}</b></kbd>
           </b-card>
         </b-col>
         <b-col
