@@ -1655,7 +1655,7 @@
         >
           <b-card>
             <b-card-text>
-              To pay in <kbd class="bg-primary"><b>Flux{{ applicationPriceFluxDiscount }}</b></kbd>, please make a transaction of <b>{{ applicationPrice }} FLUX</b> to address
+              To pay in <kbd class="bg-primary"><b>FLUX{{ applicationPriceFluxDiscount }}</b></kbd>, please make a transaction of <b>{{ applicationPrice }} FLUX</b> to address
               <b>'{{ deploymentAddress }}'</b>
               with the following message:
               <b>'{{ registrationHash }}'</b>
@@ -3779,7 +3779,7 @@ export default {
 .clipboard.icon {
   position: absolute;
     top: 0.4em;
-    right: 1.0em;
+    right: 1.7em;
   margin-top: 4px;
   margin-left: 4px;
   width: 12px;

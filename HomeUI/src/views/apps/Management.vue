@@ -3306,28 +3306,41 @@
         >
           Warning: Connected Flux is not communicating properly with Flux network
         </div>
-        <h2 class="mb-2">
-          Update Application Specifications/Extend subscription
-        </h2>
+        <div
+          style="
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            height: 45px;
+            padding: 12px;
+            line-height: 0px;
+          "
+        >
+          <h5><b-icon class="mr-1" icon="ui-checks-grid" /> Update Application Specifications / Extend subscription</h5>
+        </div>
         <div
           class="form-row form-group"
         >
-          <label class="col-form-label">
-            Update Specifications
-            <v-icon
-              v-b-tooltip.hover.top="'Select if you want to change your application specifications'"
-              name="info-circle"
-              class="mr-1"
-            />
-          </label>
-          <div class="col">
-            <b-form-checkbox
-              id="updateSpecifications"
-              v-model="updateSpecifications"
-              switch
-              class="custom-control-primary inline"
-            />
-          </div>
+          <b-input-group class="mt-2">
+            <b-input-group-prepend>
+              <b-input-group-text>
+                <b-icon class="mr-1" icon="plus-square" />
+                Update Specifications
+                <v-icon
+                  v-b-tooltip.hover.top="'Select if you want to change your application specifications'"
+                  name="info-circle"
+                  class="ml-1"
+                />
+              </b-input-group-text>
+            </b-input-group-prepend>
+            <b-input-group-append is-text>
+              <b-form-checkbox
+                id="updateSpecifications"
+                v-model="updateSpecifications"
+                switch
+                class="custom-control-primary"
+              />
+            </b-input-group-append>
+          </b-input-group>
         </div>
         <div v-if="updateSpecifications">
           <div v-if="appUpdateSpecification.version >= 4">
@@ -4750,24 +4763,29 @@
         </div>
         <div
           v-if="appUpdateSpecification.version >= 6"
-          class="form-row form-group"
+          class="form-row form-group d-flex align-items-center"
         >
-          <label class="col-form-label">
-            Extend Subscription
-            <v-icon
-              v-b-tooltip.hover.top="'Select if you want to extend your subscription period'"
-              name="info-circle"
-              class="mr-1"
-            />
-          </label>
-          <div class="col">
-            <b-form-checkbox
-              id="extendSubscription"
-              v-model="extendSubscription"
-              switch
-              class="custom-control-primary inline"
-            />
-          </div>
+          <b-input-group>
+            <b-input-group-prepend>
+              <b-input-group-text>
+                <b-icon class="mr-1" icon="clock-history" />
+                Extend Subscription
+                <v-icon
+                  v-b-tooltip.hover.top="'Select if you want to extend your subscription period'"
+                  name="info-circle"
+                  class="ml-1"
+                />&nbsp; &nbsp;
+              </b-input-group-text>
+            </b-input-group-prepend>
+            <b-input-group-append is-text>
+              <b-form-checkbox
+                id="extendSubscription"
+                v-model="extendSubscription"
+                switch
+                class="custom-control-primary"
+              />
+            </b-input-group-append>
+          </b-input-group>
         </div>
         <div
           v-if="extendSubscription"
@@ -4778,23 +4796,24 @@
             <v-icon
               v-b-tooltip.hover.top="'Time you want to extend your subscription from today'"
               name="info-circle"
-              class="mr-1"
+              class="mr-2"
             />
+            <kbd class="bg-primary mr-1"><b>{{ getExpireLabel || (appUpdateSpecification.expire ? `${appUpdateSpecification.expire} blocks` : '1 month') }}</b></kbd>
           </label>
-          <div class="mx-1">
-            {{ getExpireLabel || (appUpdateSpecification.expire ? `${appUpdateSpecification.expire} blocks` : '1 month') }}
+          <div class="w-100" style="flex: 1; padding: 10px;">
+            <input
+              id="period"
+              v-model="expirePosition"
+              v-range-color
+              type="range"
+              class="form-control-range"
+              style="width: 100%; outline: none;"
+              :min="0"
+              :max="5"
+              :step="1"
+            />
           </div>
-          <b-form-input
-            id="period"
-            v-model="expirePosition"
-            placeholder="How long an application will live on Flux network"
-            type="range"
-            :min="0"
-            :max="5"
-            :step="1"
-          />
         </div>
-        <br>
         <div class="flex ">
           <b-form-checkbox
             id="tos"
@@ -4807,7 +4826,7 @@
             target="_blank"
             rel="noopener noreferrer"
           >
-            Terms of Service
+            &nbsp;<b>Terms of Service</b>
           </a>
           <br><br>
         </div>
@@ -4817,6 +4836,7 @@
             variant="success"
             aria-label="Compute Update Message"
             class="mb-2"
+            :disabled="tosAgreed === false"
             @click="checkFluxUpdateSpecificationsAndFormatMessage"
           >
             Compute Update Message
@@ -4860,7 +4880,7 @@
                   Note: Data has to be signed by the last application owner
                 </h4>
                 <b-card-text v-if="!freeUpdate">
-                  Price: {{ appPricePerSpecsUSD }} USD
+                  &nbsp;<b-icon class="mr-1" scale="1.4" icon="cash-coin" />Price: <b>{{ appPricePerSpecsUSD }} USD</b>
                 </b-card-text>
                 <b-button
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -4937,7 +4957,7 @@
                   Everything is ready, your payment option links are valid for the next 30 minutes.
                 </b-card-text>
                 <br>
-                The application will be subscribed until {{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}
+                The application will be subscribed until <b>{{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}</b>
                 <br>
                 To finish the application update/renew, pay your application with your prefered payment method or check below how to pay with Flux crypto currency.
               </b-card>
@@ -4985,13 +5005,13 @@
             >
               <b-card>
                 <b-card-text>
-                  To pay in Flux{{ applicationPriceFluxDiscount }}, please make a transaction of {{ appPricePerSpecs }} FLUX to address
-                  '{{ deploymentAddress }}'
+                  To pay in  <kbd class="bg-primary"><b>FLUX{{ applicationPriceFluxDiscount }}</b></kbd>, please make a transaction of <b>{{ appPricePerSpecs }} FLUX</b> to address
+                  <b>'{{ deploymentAddress }}'</b>
                   with the following message:
-                  '{{ updateHash }}'
+                  <b>'{{ updateHash }}'</b>
                 </b-card-text>
                 <br>
-                The transaction must be mined by {{ new Date(validTill).toLocaleString('en-GB', timeoptions.shortDate) }}
+                <kbd class="bg-danger">The transaction must be mined by <b>{{ new Date(validTill).toLocaleString('en-GB', timeoptions.shortDate) }}</b></kbd>
               </b-card>
             </b-col>
             <b-col
