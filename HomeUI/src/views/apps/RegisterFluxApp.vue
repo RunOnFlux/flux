@@ -1507,6 +1507,15 @@
           rows="6"
           readonly
         />
+        <b-button
+          v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+          variant="success"
+          aria-label="Copy Message to Sign to Clipboard"
+          class="my-1"
+          @click="copyMessageToSign"
+        >
+          Copy
+        </b-button>
       </b-form-group>
       <b-form-group
         label-cols="3"
@@ -2388,6 +2397,7 @@ export default {
       chooseEnterpriseDialog: false,
       signClient: null,
       fiatCheckoutURL: '',
+      ipAccess: false,
     };
   },
   computed: {
@@ -2424,7 +2434,16 @@ export default {
       mybackend += protocol;
       mybackend += '//';
       const regex = /[A-Za-z]/g;
-      if (hostname.match(regex)) {
+      if (hostname.split('-')[4]) { // node specific domain
+        const splitted = hostname.split('-');
+        const names = splitted[4].split('.');
+        const adjP = +names[0] + 1;
+        names[0] = adjP.toString();
+        names[2] = 'api';
+        splitted[4] = '';
+        mybackend += splitted.join('-');
+        mybackend += names.join('.');
+      } else if (hostname.match(regex)) { // home.runonflux.io -> api.runonflux.io
         const names = hostname.split('.');
         names[0] = 'api';
         mybackend += names.join('.');
@@ -2509,6 +2528,13 @@ export default {
     this.appRegistrationSpecification = this.appRegistrationSpecificationV7Template;
   },
   mounted() {
+    const { hostname } = window.location;
+    const regex = /[A-Za-z]/g;
+    if (hostname.match(regex)) {
+      this.ipAccess = false;
+    } else {
+      this.ipAccess = true;
+    }
     this.initMMSDK();
     this.getGeolocationData();
     this.getDaemonInfo();
@@ -2832,7 +2858,16 @@ export default {
       mybackend += protocol;
       mybackend += '//';
       const regex = /[A-Za-z]/g;
-      if (hostname.match(regex)) {
+      if (hostname.split('-')[4]) { // node specific domain
+        const splitted = hostname.split('-');
+        const names = splitted[4].split('.');
+        const adjP = +names[0] + 1;
+        names[0] = adjP.toString();
+        names[2] = 'api';
+        splitted[4] = '';
+        mybackend += splitted.join('-');
+        mybackend += names.join('.');
+      } else if (hostname.match(regex)) { // home.runonflux.io -> api.runonflux.io
         const names = hostname.split('.');
         names[0] = 'api';
         mybackend += names.join('.');
@@ -3407,7 +3442,11 @@ export default {
         // const agent = new https.Agent({
         //   rejectUnauthorized: false,
         // });
-        const response = await axios.get(`https://${node.replace(/\./g, '-')}-${port}.node.api.runonflux.io/flux/pgp`); // ip with port
+        let queryUrl = `https://${node.replace(/\./g, '-')}-${port}.node.api.runonflux.io/flux/pgp`;
+        if (this.ipAccess) {
+          queryUrl = `http://${node}:${port}/flux/pgp`;
+        }
+        const response = await axios.get(queryUrl); // ip with port
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data);
         } else {
@@ -3719,6 +3758,14 @@ export default {
       } else {
         this.appRegistrationSpecification.owner = '';
         this.showToast('warning', 'Please log in first before registering an application');
+      }
+    },
+    async copyMessageToSign() {
+      try {
+        await navigator.clipboard.writeText(this.dataToSign);
+        this.showToast('success', 'Copied to clipboard');
+      } catch ($e) {
+        this.showToast('danger', 'Failed to Copy to clipboard');
       }
     },
   },

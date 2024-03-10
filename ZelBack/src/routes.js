@@ -639,7 +639,7 @@ module.exports = (app, expressWs) => {
     appsService.appendRestoreTask(req, res);
   });
 
-  app.post('/ioutils/fileupload/:fullpath?/:filename?/:appname?', (req, res) => {
+  app.post('/ioutils/fileupload/:type?/:appname?/:component?/:folder?/:filename?', (req, res) => {
     IOUtils.fileUpload(req, res);
   });
 
@@ -1410,5 +1410,24 @@ module.exports = (app, expressWs) => {
   });
   app.get('/apps/fluxshare/downloadfolder/:folder?', (req, res) => {
     fluxshareService.fluxShareDownloadFolder(req, res);
+  });
+  // Volume Browser
+  app.get('/apps/getfolderinfo/:appname?/:component?/:folder?', (req, res) => {
+    appsService.getAppsFolder(req, res);
+  });
+  app.get('/apps/createfolder/:appname?/:component?/:folder?', (req, res) => {
+    appsService.createAppsFolder(req, res);
+  });
+  app.get('/apps/renameobject/:appname?/:component?/:oldpath?/:newname?', (req, res) => {
+    appsService.renameAppsObject(req, res);
+  });
+  app.get('/apps/removeobject/:appname?/:component?/:object?', (req, res) => {
+    appsService.removeAppsObject(req, res);
+  });
+  app.get('/apps/downloadfile/:appname?/:component?/:file?', (req, res) => {
+    appsService.downloadAppsFile(req, res);
+  });
+  app.get('/apps/downloadfolder/:appname?/:component?/:folder?', (req, res) => {
+    appsService.downloadAppsFolder(req, res);
   });
 };

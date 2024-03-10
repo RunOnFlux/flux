@@ -841,7 +841,16 @@ export default {
       mybackend += protocol;
       mybackend += '//';
       const regex = /[A-Za-z]/g;
-      if (hostname.match(regex)) {
+      if (hostname.split('-')[4]) { // node specific domain
+        const splitted = hostname.split('-');
+        const names = splitted[4].split('.');
+        const adjP = +names[0] + 1;
+        names[0] = adjP.toString();
+        names[2] = 'api';
+        splitted[4] = '';
+        mybackend += splitted.join('-');
+        mybackend += names.join('.');
+      } else if (hostname.match(regex)) { // home.runonflux.io -> api.runonflux.io
         const names = hostname.split('.');
         names[0] = 'api';
         mybackend += names.join('.');
@@ -903,7 +912,16 @@ export default {
       mybackend += protocol;
       mybackend += '//';
       const regex = /[A-Za-z]/g;
-      if (hostname.match(regex)) {
+      if (hostname.split('-')[4]) { // node specific domain
+        const splitted = hostname.split('-');
+        const names = splitted[4].split('.');
+        const adjP = +names[0] + 1;
+        names[0] = adjP.toString();
+        names[2] = 'api';
+        splitted[4] = '';
+        mybackend += splitted.join('-');
+        mybackend += names.join('.');
+      } else if (hostname.match(regex)) { // home.runonflux.io -> api.runonflux.io
         const names = hostname.split('.');
         names[0] = 'api';
         mybackend += names.join('.');
@@ -1162,7 +1180,17 @@ export default {
         // const agent = new https.Agent({
         //   rejectUnauthorized: false,
         // });
-        const response = await axios.get(`https://${node.replace(/\./g, '-')}-${port}.node.api.runonflux.io/flux/pgp`); // ip with port
+        const { hostname } = window.location;
+        const regex = /[A-Za-z]/g;
+        let ipAccess = true;
+        if (hostname.match(regex)) {
+          ipAccess = false;
+        }
+        let queryUrl = `https://${node.replace(/\./g, '-')}-${port}.node.api.runonflux.io/flux/pgp`;
+        if (ipAccess) {
+          queryUrl = `http://${node}:${port}/flux/pgp`;
+        }
+        const response = await axios.get(queryUrl); // ip with port
         if (response.data.status === 'error') {
           showToast('danger', response.data.data.message || response.data.data);
         } else {

@@ -33,6 +33,7 @@
           centered
           ok-only
           ok-title="Create Folder"
+          header-bg-variant="primary"
           @ok="createFolder(newDirName)"
         >
           <b-form-group
@@ -53,6 +54,7 @@
           size="lg"
           centered
           hide-footer
+          header-bg-variant="primary"
           @close="refreshFolder()"
         >
           <file-upload
