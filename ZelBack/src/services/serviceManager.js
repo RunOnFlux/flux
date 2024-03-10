@@ -36,7 +36,8 @@ async function startFluxFunctions() {
         upnpService.adjustFirewallForUPNP();
       }, 1 * 60 * 60 * 1000); // every 1 hours
     }
-
+    log.info('Checking docker log for corruption...');
+    await dockerService.dockerLogsFix();
     fluxNetworkHelper.installNetcat();
     log.info('Initiating MongoDB connection');
     await dbHelper.initiateDB(); // either true or throws error
