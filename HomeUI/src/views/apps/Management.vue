@@ -4857,8 +4857,8 @@
                 <h4>
                   Note: Data has to be signed by the last application owner
                 </h4>
-                <b-card-text>
-                  Price: {{ appPricePerSpecs }} FLUX
+                <b-card-text v-if="!freeUpdate">
+                  Price: {{ appPricePerSpecsUSD }} USD
                 </b-card-text>
                 <b-button
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -4923,7 +4923,7 @@
             </b-col>
           </b-row>
           <b-row
-            v-if="updateHash"
+            v-if="updateHash && !freeUpdate"
             class="match-height"
           >
             <b-col
@@ -4932,22 +4932,71 @@
             >
               <b-card>
                 <b-card-text>
-                  To finish the application update, please make a transaction of {{ appPricePerSpecs }} FLUX to address
-                  '{{ deploymentAddress }}'
-                  with the following message:
-                  '{{ updateHash }}'
+                  Everything is ready, your application update/renew will cost you {{ appPricePerSpecsUSD }} USD.
                 </b-card-text>
                 <br>
-                The transaction must be mined by {{ new Date(validTill).toLocaleString('en-GB', timeoptions.shortDate) }}
-                <br><br>
                 The application will be subscribed until {{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}
+                <br>
+                To finish the application update/renew, pay your application with your prefered payment method or check below how to pay with Flux crypto currency.
               </b-card>
             </b-col>
             <b-col
               xs="6"
               lg="4"
             >
-              <b-card title="Pay with Zelcore">
+              <b-card title="Pay with Stripe/PayPal">
+                <div class="loginRow">
+                  <a @click="initStripePay(updateHash, appUpdateSpecification.name, appPricePerSpecsUSD, appUpdateSpecification.description)">
+                    <img
+                      class="stripeLogin"
+                      src="@/assets/images/Stripe.svg"
+                      alt="Stripe"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                  <a @click="initPaypalPay(updateHash, appUpdateSpecification.name, appPricePerSpecsUSD, appUpdateSpecification.description)">
+                    <img
+                      class="paypalPay"
+                      src="@/assets/images/PayPal.png"
+                      alt="PayPal"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                </div>
+                <div v-if="fiatCheckoutURL" className="loginRow">
+                  <a :href="fiatCheckoutURL" target="_blank" rel="noopener noreferrer">
+                    Click here for checkout if not redirected
+                  </a>
+                </div>
+              </b-card>
+            </b-col>
+          </b-row>
+          <b-row
+            v-if="updateHash && !applicationPriceFluxError && !freeUpdate"
+            class="match-height"
+          >
+            <b-col
+              xs="6"
+              lg="8"
+            >
+              <b-card>
+                <b-card-text>
+                  To pay in Flux{{ applicationPriceFluxDiscount }}, please make a transaction of {{ appPricePerSpecs }} FLUX to address
+                  '{{ deploymentAddress }}'
+                  with the following message:
+                  '{{ updateHash }}'
+                </b-card-text>
+                <br>
+                The transaction must be mined by {{ new Date(validTill).toLocaleString('en-GB', timeoptions.shortDate) }}
+              </b-card>
+            </b-col>
+            <b-col
+              xs="6"
+              lg="4"
+            >
+              <b-card title="Pay with Zelcore/SSP">
                 <div class="loginRow">
                   <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${appPricePerSpecs}&message=${updateHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
                     <img
@@ -4970,6 +5019,16 @@
                 </div>
               </b-card>
             </b-col>
+          </b-row>
+          <b-row
+            v-if="updateHash && freeUpdate"
+            class="match-height"
+          >
+            <b-card>
+              <b-card-text>
+                Everything is ready, your application update should be effective automatically in less than 30 minutes.
+              </b-card-text>
+            </b-card>
           </b-row>
         </div>
       </b-tab>
@@ -5259,6 +5318,8 @@ import io from 'socket.io-client';
 import useAppConfig from '@core/app-config/useAppConfig';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
+
+const paymentBridge = 'https://fiatpaymentsbridge.runonflux.io';
 
 const walletConnectOptions = {
   projectId,
@@ -5629,6 +5690,9 @@ export default {
       downloadedSize: '',
       deploymentAddress: '',
       appPricePerSpecs: 0,
+      appPricePerSpecsUSD: 0,
+      applicationPriceFluxDiscount: '',
+      applicationPriceFluxError: false,
       maxInstances: 100,
       minInstances: 3,
       globalZelidAuthorized: false,
@@ -5736,6 +5800,8 @@ export default {
       selectedIp: null,
       masterSlaveApp: false,
       applicationManagementAndStatus: '',
+      fiatCheckoutURL: '',
+      isMarketplaceApp: false,
       ipAccess: false,
     };
   },
@@ -7790,12 +7856,31 @@ export default {
           throw new Error(responseAppSpecs.data.data.message || responseAppSpecs.data.data);
         }
         const appSpecFormatted = responseAppSpecs.data.data;
-        const response = await AppsService.appPrice(appSpecFormatted);
         this.appPricePerSpecs = 0;
+        this.appPricePerSpecsUSD = 0;
+        this.applicationPriceFluxDiscount = '';
+        this.applicationPriceFluxError = false;
+        this.freeUpdate = false;
+
+        const response = await AppsService.appPriceUSDandFlux(appSpecFormatted);
         if (response.data.status === 'error') {
           throw new Error(response.data.data.message || response.data.data);
         }
-        this.appPricePerSpecs = (Math.ceil(((+response.data.data * this.priceMultiplier) * 100))) / 100;
+        this.appPricePerSpecsUSD = +response.data.data.usd;
+        if (!this.extendSubscription && this.appPricePerSpecsUSD <= 0.50) {
+          this.freeUpdate = true;
+        } else if (Number.isNaN(+response.data.data.flux)) {
+          this.applicationPriceFluxError = true;
+          this.showToast('danger', 'Not possible to complete payment with Flux crypto currency');
+        } else {
+          this.appPricePerSpecs = +response.data.data.flux;
+          this.applicationPriceFluxDiscount = +response.data.data.fluxDiscount > 0 ? ` with ${+response.data.data.fluxDiscount}% discount` : '';
+        }
+
+        const marketPlaceApp = this.marketPlaceApps.find((app) => this.appUpdateSpecification.name.toLowerCase().startsWith(app.name.toLowerCase()));
+        if (marketPlaceApp) {
+          this.isMarketplaceApp = true;
+        }
         this.timestamp = Date.now();
         this.dataForAppUpdate = appSpecFormatted;
         this.dataToSign = this.updatetype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp;
@@ -9363,6 +9448,74 @@ export default {
         this.showToast('danger', error.message);
       }
     },
+    async initStripePay(hash, name, price, description) {
+      try {
+        const zelidauth = localStorage.getItem('zelidauth');
+        const auth = qs.parse(zelidauth);
+        const data = {
+          zelid: auth.zelid,
+          signature: auth.signature,
+          loginPhrase: auth.loginPhrase,
+          details: {
+            name,
+            description,
+            hash,
+            price,
+            productName: name,
+            success_url: 'https://home.runonflux.io/successcheckout',
+            cancel_url: 'https://home.runonflux.io',
+            kpi: {
+              origin: 'FluxOS',
+              marketplace: this.isMarketplaceApp,
+              registration: false,
+            },
+          },
+        };
+        const checkoutURL = await axios.post(`${paymentBridge}/api/v1/stripe/checkout/create`, data);
+        if (checkoutURL.data.status === 'error') {
+          this.showToast('error', 'Failed to create stripe checkout');
+          return;
+        }
+        this.fiatCheckoutURL = checkoutURL.data.data;
+        this.openSite(checkoutURL.data.data);
+      } catch (error) {
+        this.showToast('error', 'Failed to create stripe checkout');
+      }
+    },
+    async initPaypalPay(hash, name, price, description) {
+      try {
+        const zelidauth = localStorage.getItem('zelidauth');
+        const auth = qs.parse(zelidauth);
+        const data = {
+          zelid: auth.zelid,
+          signature: auth.signature,
+          loginPhrase: auth.loginPhrase,
+          details: {
+            name,
+            description,
+            hash,
+            price,
+            productName: name,
+            return_url: 'home.runonflux.io/successcheckout',
+            cancel_url: 'home.runonflux.io',
+            kpi: {
+              origin: 'FluxOS',
+              marketplace: this.isMarketplaceApp,
+              registration: false,
+            },
+          },
+        };
+        const checkoutURL = await axios.post(`${paymentBridge}/api/v1/paypal/checkout/create`, data);
+        if (checkoutURL.data.status === 'error') {
+          this.showToast('error', 'Failed to create PayPal checkout');
+          return;
+        }
+        this.fiatCheckoutURL = checkoutURL.data.data;
+        this.openSite(checkoutURL.data.data);
+      } catch (error) {
+        this.showToast('error', 'Failed to create PayPal checkout');
+      }
+    },
     async getApplicationManagementAndStatus() {
       if (this.selectedIp) {
         await this.appsGetListAllApps();
@@ -9496,6 +9649,24 @@ export default {
   margin-left: 5px;
 }
 .sspLogin img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
+.stripePay {
+  margin-left: 5px;
+  height: 90px;
+  padding: 10px;
+}
+.stripePay img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
+.paypalPay {
+  margin-left: 5px;
+  height: 90px;
+  padding: 10px;
+}
+.paypalPay img {
   -webkit-app-region: no-drag;
   transition: 0.1s;
 }

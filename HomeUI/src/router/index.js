@@ -62,6 +62,14 @@ const router = new VueRouter({
     ...fluxadmin,
     ...xdao,
     {
+      path: '/successcheckout',
+      name: 'successcheckout',
+      component: () => import('@/views/successcheckout/SuccessCheckout.vue'),
+      meta: {
+        layout: 'full',
+      },
+    },
+    {
       path: '/error-404',
       name: 'error-404',
       component: () => import('@/views/error/Error404.vue'),
