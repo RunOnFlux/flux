@@ -4934,7 +4934,7 @@
             >
               <b-card>
                 <b-card-text>
-                  Everything is ready, your application update/renew will cost you {{ appPricePerSpecsUSD }} USD.
+                  Everything is ready, your payment option links are valid for the next 30 minutes.
                 </b-card-text>
                 <br>
                 The application will be subscribed until {{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}

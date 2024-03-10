@@ -1604,7 +1604,7 @@
         >
           <b-card>
             <b-card-text>
-              Everything is ready, your application will cost you <b>{{ applicationPriceUSD }} USD</b>.
+              Everything is ready, your payment option links are valid for the next 30 minutes.
             </b-card-text>
             <br>
             The application will be subscribed until <b>{{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}</b>
