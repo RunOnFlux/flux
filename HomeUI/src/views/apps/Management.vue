@@ -645,7 +645,7 @@
       <b-tab
         title="Information"
       >
-        <h3>Application: {{ appSpecification.name }}</h3>
+        <h3><b-icon icon="app-indicator" /> {{ appSpecification.name }}</h3>
         <div v-if="appSpecification.version >= 4">
           <div
             v-for="(component, index) in callResponse.data"
@@ -678,7 +678,7 @@
       <b-tab
         title="Resources"
       >
-        <h3>Application: {{ appSpecification.name }}</h3>
+        <h3><b-icon icon="app-indicator" /> {{ appSpecification.name }}</h3>
         <div v-if="commandExecuting">
           <v-icon
             class="spin-icon"
@@ -780,7 +780,7 @@
       <b-tab
         title="File Changes"
       >
-        <h3><b-icon icon="eye" /> {{ appSpecification.name }}</h3>
+        <h3><b-icon icon="app-indicator" /> {{ appSpecification.name }}</h3>
         <div v-if="commandExecuting">
           <v-icon
             class="spin-icon"
@@ -827,7 +827,7 @@
       <b-tab
         title="Processes"
       >
-        <h3>Application: {{ appSpecification.name }}</h3>
+        <h3><b-icon icon="app-indicator" /> {{ appSpecification.name }}</h3>
         <div v-if="commandExecuting">
           <v-icon
             class="spin-icon"
@@ -866,26 +866,40 @@
       <b-tab
         title="Log File"
       >
-        <h3>Application: {{ appSpecification.name }}</h3>
+        <h3><b-icon icon="app-indicator" /> {{ appSpecification.name }}</h3>
+        <h6 class="mb-2">
+          Click the 'Download' button to download the Log file from your Application debug file. This may take a few minutes depending on file size.
+        </h6>
         <div v-if="appSpecification.version >= 4">
           <div
             v-for="(component, index) in callResponse.data"
             :key="index"
           >
             <h4>Component: {{ component.name }}</h4>
-            <div class="text-center">
-              <h6>
-                Click the 'Download Log File' button to download the Log file from your Application debug file. This may take a few minutes depending on file size.
-              </h6>
+            <div>
               <div>
+                <div class="d-flex align-items-center">
+                  <h5 class="mt-1">
+                    <kbd class="bg-primary">Last 100 lines of the log file</kbd>
+                  </h5>
+                </div>
+                <b-form-textarea
+                  v-if="component.callData"
+                  plaintext
+                  no-resize
+                  rows="15"
+                  :value="decodeAsciiResponse(component.callData)"
+                  class="mt-1 mb-1"
+                  style="background-color: black; color: white; padding: 20px; font-family: monospace; margin-bottom: 25px"
+                />
                 <b-button
                   :id="`start-download-log-${component.name}_${appSpecification.name}`"
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
                   variant="outline-primary"
                   size="md"
-                  class="mt-2"
+                  class="w-100 mb-2"
                 >
-                  Download Debug File
+                  Download
                 </b-button>
                 <confirm-dialog
                   :target="`start-download-log-${component.name}_${appSpecification.name}`"
@@ -893,53 +907,14 @@
                   @confirm="downloadApplicationLog(`${component.name}_${appSpecification.name}`)"
                 />
               </div>
-              <div>
-                <b-card-text v-if="total && downloaded">
-                  {{ `${(downloaded / 1e6).toFixed(2)} / ${(total / 1e6).toFixed(2)}` }} MB - {{ `${((downloaded / total) * 100).toFixed(2)}%` }}
-                </b-card-text>
-                <h6 class="mb-1 mt-2">
-                  Last 100 lines of the log file
-                </h6>
-                <b-form-textarea
-                  v-if="component.callData"
-                  plaintext
-                  no-resize
-                  rows="15"
-                  :value="decodeAsciiResponse(component.callData)"
-                  class="mt-1"
-                  style="background-color: black; color: white; padding: 20px; font-family: monospace; margin-bottom: 25px"
-                />
-              </div>
             </div>
           </div>
         </div>
         <div v-else>
-          <div class="text-center">
-            <h6>
-              Click the 'Download Log File' button to download the Log file from your Application debug file. This may take a few minutes depending on file size.
-            </h6>
+          <div>
             <div>
-              <b-button
-                id="start-download-log"
-                v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                variant="outline-primary"
-                size="md"
-                class="mt-2"
-              >
-                Download Debug File
-              </b-button>
-              <confirm-dialog
-                target="start-download-log"
-                confirm-button="Download Log"
-                @confirm="downloadApplicationLog(appSpecification.name)"
-              />
-            </div>
-            <div>
-              <b-card-text v-if="total && downloaded">
-                {{ `${(downloaded / 1e6).toFixed(2)} / ${(total / 1e6).toFixed(2)}` }} MB - {{ `${((downloaded / total) * 100).toFixed(2)}%` }}
-              </b-card-text>
-              <h6 class="mb-1 mt-2">
-                Last 100 lines of the log file
+              <h6 class="mb-1 mt-1">
+                <kbd class="bg-primary">Last 100 lines of the log file</kbd>
               </h6>
               <b-form-textarea
                 v-if="callResponse.data && callResponse.data[0]"
@@ -947,8 +922,22 @@
                 no-resize
                 rows="15"
                 :value="decodeAsciiResponse(callResponse.data[0].callData)"
-                class="mt-1"
+                class="mt-1 mb-1"
                 style="background-color: black; color: white; padding: 20px; font-family: monospace; margin-bottom: 25px"
+              />
+              <b-button
+                id="start-download-log"
+                v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                variant="outline-primary"
+                size="md"
+                class="w-100 mb-2"
+              >
+                Download Debug File
+              </b-button>
+              <confirm-dialog
+                target="start-download-log"
+                confirm-button="Download Log"
+                @confirm="downloadApplicationLog(appSpecification.name)"
               />
             </div>
           </div>
