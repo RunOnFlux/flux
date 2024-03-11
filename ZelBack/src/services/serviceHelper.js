@@ -165,10 +165,6 @@ function delay(ms) {
    @returns {Promise<{error: (Error|null), stdout: (string|null), stderr: (string|null)}>}
  */
 async function runCommand(userCmd, options = {}) {
-  // testing.
-  // await subprocessLock.enable();
-  // await sleep(1000)
-
   const res = { error: null, stdout: null, stderr: null }
   const params = options.params || [];
 
@@ -176,13 +172,12 @@ async function runCommand(userCmd, options = {}) {
 
   if (!userCmd) {
     res.error = new Error("Command must be present")
-    // subprocessLock.disable()
     return res
   }
 
-  if (!Array.isArray(params) || !params.every((p) => typeof p === 'string')) {
+  // number seems to get coerced to string in the execFile command, so have allowed
+  if (!Array.isArray(params) || !params.every((p) => typeof p === 'string' || typeof p === 'number')) {
     res.error = new Error("Invalid params for command, must be an Array of strings")
-    // subprocessLock.disable()
     return res;
   }
 
@@ -231,7 +226,6 @@ async function runCommand(userCmd, options = {}) {
     const { stdout: errStdout, stderr: errStderr, ...error } = err;
     res.error = error;
     if (logError !== false) log.error(error);
-    // subprocessLock.disable()
     return [errStdout, errStderr];
   });
 
@@ -245,7 +239,6 @@ async function runCommand(userCmd, options = {}) {
   res.stdout = stdout;
   res.stderr = stderr;
 
-  // subprocessLock.disable()
   return res;
 }
 
