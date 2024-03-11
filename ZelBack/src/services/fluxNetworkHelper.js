@@ -1476,7 +1476,13 @@ async function purgeUFW() {
     2655,3678,6543/tcp         DENY OUT    Anywhere
     2888:4311/udp              DENY        Anywhere
    */
-  // deniedPortsRegex = /(?<portgroup>(?:\d{1,5},)*(?:\d{1,5})(?:\/tcp|\/udp)?)\s+(?<direction>DENY|DENY OUT)\s+Anywhere/g;
+
+  // it will not match rules like the following:
+  /**
+   169.254.44.254 80/tcp      DENY        Anywhere
+   172.16.32.1                DENY OUT    Anywhere on docker0
+  */
+
   const deniedPortsRegex = /(?<portgroup>^(?!\d{1,3}\.)(?:(?=\d{1,5}:)(?:\d{1,5}:)|(?:\d{1,5},)*)(?:\d{1,5})(?:\/tcp|\/udp)?)\s+(?<direction>DENY|DENY OUT)\s+Anywhere$/g;
   // matchAll returns an iterator, spread so we can get length
   const matches = [...ufwStatus.matchAll(deniedPortsRegex)];
