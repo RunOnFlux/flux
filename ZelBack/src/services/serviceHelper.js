@@ -212,7 +212,7 @@ async function runCommand(userCmd, options = {}) {
   res.stdout = stdout;
   res.stderr = stderr;
 
-  subprocessLock.disable()
+  // subprocessLock.disable()
   return res;
 }
 
