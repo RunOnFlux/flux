@@ -5039,7 +5039,7 @@
           </span>
           <span v-if="appRunningTill.new < appRunningTill.current" style="color: red">
             <br>
-            WARNING: Your selected subscription period will decrease the current subscription time!
+            <b>WARNING: Your selected subscription period will decrease the current subscription time!</b>
           </span>
         </div>
         <br>

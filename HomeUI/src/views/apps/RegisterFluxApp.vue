@@ -1530,10 +1530,10 @@
         >
           <b-card title="Register App">
             <b-card-text>
-              <b-icon class="mr-1" scale="1.4" icon="cash-coin" />Price: <b>{{ applicationPriceUSD }} USD</b>
+              &nbsp;<b-icon class="mr-1" scale="1.4" icon="cash-coin" />Price: <b>{{ applicationPriceUSD }} USD</b>
             </b-card-text>
             <b-card-text>
-              <b-icon class="mr-1" scale="1.4" icon="clock" />Subscription period: <b>{{ getExpireLabel || (appRegistrationSpecification.expire ? `${appRegistrationSpecification.expire} blocks` : '1 month') }}</b>
+              &nbsp;<b-icon class="mr-1" scale="1.4" icon="clock" />Subscription period: <b>{{ getExpireLabel || (appRegistrationSpecification.expire ? `${appRegistrationSpecification.expire} blocks` : '1 month') }}</b>
             </b-card-text>
             <b-button
               v-ripple.400="'rgba(255, 255, 255, 0.15)'"
