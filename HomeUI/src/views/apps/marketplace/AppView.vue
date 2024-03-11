@@ -554,7 +554,7 @@
                 class="text-center wizard-card"
               >
                 <b-card-text>
-                  Everything is ready, your payment option links are valid for the next 30 minutes.
+                  Everything is ready, your payment option links are valid for the next 30 minutes. {{ appPricePerSpecsUSD }} USD + local VAT
                 </b-card-text>
                 <br>
                 The application will be subscribed until {{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}
