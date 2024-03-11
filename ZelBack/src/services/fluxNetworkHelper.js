@@ -1476,7 +1476,8 @@ async function purgeUFW() {
     2655,3678,6543/tcp         DENY OUT    Anywhere
     2888:4311/udp              DENY        Anywhere
    */
-  deniedPortsRegex = /(?<portgroup>(?:\d{1,5},)*(?:\d{1,5})(?:\/tcp|\/udp)?)\s+(?<direction>DENY|DENY OUT)\s+Anywhere/g;
+  // deniedPortsRegex = /(?<portgroup>(?:\d{1,5},)*(?:\d{1,5})(?:\/tcp|\/udp)?)\s+(?<direction>DENY|DENY OUT)\s+Anywhere/g;
+  const deniedPortsRegex = /(?<portgroup>^(?!\d{1,3}\.)(?:(?=\d{1,5}:)(?:\d{1,5}:)|(?:\d{1,5},)*)(?:\d{1,5})(?:\/tcp|\/udp)?)\s+(?<direction>DENY|DENY OUT)\s+Anywhere$/
   // matchAll returns an iterator, spread so we can get length
   const matches = [...ufwStatus.matchAll(deniedPortsRegex)];
 

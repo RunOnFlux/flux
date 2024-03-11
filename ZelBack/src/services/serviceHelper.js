@@ -224,7 +224,7 @@ async function runCommand(userCmd, options = {}) {
   if (options.exclusive) {
     if (!locks.has(userCmd)) locks[userCmd] = new AsyncLock();
     await locks[userCmd].enable();
-    log.info("EXCLUSIVE LOCK ENABLED FOR CMD", userCmd)
+    log.info("Exclusive lock enabled for command:", userCmd);
   }
 
   const { stdout, stderr } = await execFile(cmd, params, execOptions).catch((err) => {
@@ -237,7 +237,7 @@ async function runCommand(userCmd, options = {}) {
 
   if (options.exclusive) {
     locks[userCmd].disable();
-    log.info("EXCLUSIVE LOCK DISABLED FOR CMD", userCmd)
+    log.info("Exclusive lock disabled for command:", userCmd);
   }
 
   // if (stderr) console.log("STDERR FOUND!!!!!", stderr)
