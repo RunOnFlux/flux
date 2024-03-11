@@ -8,10 +8,8 @@ const levels = ["debug", "info", "warn", "error"];
 
 const targets = levels.map((level) => {
   const destination = path.join(homeDir, `${level}.log`);
-  return { level, target: 'pino/file', options: { destination } }
+  return { target: 'pino/file', level, options: { destination, colorize: false } }
 })
-
-console.log(targets)
 
 fileLogs = pino(pino.transport({ targets }))
 
