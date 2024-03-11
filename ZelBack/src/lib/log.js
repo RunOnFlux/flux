@@ -15,7 +15,7 @@ fileLogs = pino(pino.transport({ targets }))
 
 // https://en.m.wikipedia.org/wiki/ANSI_escape_code#Colors
 const colors = {
-  debug: "\x1b36m", // cyan
+  debug: "\x1b[36m", // cyan
   info: '\x1b[32m', // green
   warn: "\x1b[33m", // yellow
   error: "\x1b[91m", // bright red
