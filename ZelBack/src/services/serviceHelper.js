@@ -6,41 +6,41 @@ const config = require('config');
 const splitargs = require('splitargs');
 const qs = require('qs');
 // const util = require('node:util');
-// const execFile = util.promisify(require('node:child_process').execFile);
+const execFile = util.promisify(require('node:child_process').execFile);
 // const { spawn } = require('node:child_process');
 
 const dbHelper = require('./dbHelper');
 const log = require('../lib/log');
 
-const path = require('node:path')
-const { Worker } = require('node:worker_threads');
+// const path = require('node:path')
+// const { Worker } = require('node:worker_threads');
 
-const actions = new Map();
-const WORKER_COUNT = 4;
-const workerPool = [];
+// const actions = new Map();
+// const WORKER_COUNT = 4;
+// const workerPool = [];
 
-function workerHandler(message) {
-  const { id, response } = message;
-  const [worker, resolve, reject] = actions.get(id);
-  actions.delete(id);
-  if (response.error && response.logError) log.error(response.error);
-  workerPool.push(worker);
-  resolve(response);
-}
+// function workerHandler(message) {
+//   const { id, response } = message;
+//   const [worker, resolve, reject] = actions.get(id);
+//   actions.delete(id);
+//   if (response.error && response.logError) log.error(response.error);
+//   workerPool.push(worker);
+//   resolve(response);
+// }
 
-async function getWorker() {
-  return new Promise(async (resolve) => {
-    while (!workerPool.length) await sleep(50)
-    const worker = workerPool.shift();
-    resolve(worker);
-  })
-}
+// async function getWorker() {
+//   return new Promise(async (resolve) => {
+//     while (!workerPool.length) await sleep(50)
+//     const worker = workerPool.shift();
+//     resolve(worker);
+//   })
+// }
 
-while (workerPool.length < WORKER_COUNT) {
-  const cmdWorker = new Worker(path.join(__dirname, 'runCommandWorker.js'), { stdin: false, stderr: false, stdout: false });
-  cmdWorker.on('message', workerHandler);
-  workerPool.push(cmdWorker);
-}
+// while (workerPool.length < WORKER_COUNT) {
+//   const cmdWorker = new Worker(path.join(__dirname, 'runCommandWorker.js'), { stdin: false, stderr: false, stdout: false });
+//   cmdWorker.on('message', workerHandler);
+//   workerPool.push(cmdWorker);
+// }
 
 
 
@@ -124,97 +124,97 @@ function delay(ms) {
   });
 }
 
-async function runCommand(cmd, options = {}) {
-  const params = options.params || [];
-  log.info("Run command:", cmd, params.join(" "));
-  return new Promise(async (resolve, reject) => {
-    const worker = await getWorker()
-    const id = worker.threadId;
-    actions.set(id, [worker, resolve, reject])
-    worker.postMessage({ id, cmd, options })
-  })
-}
+// async function runCommand(cmd, options = {}) {
+//   const params = options.params || [];
+//   log.info("Run command:", cmd, params.join(" "));
+//   return new Promise(async (resolve, reject) => {
+//     const worker = await getWorker()
+//     const id = worker.threadId;
+//     actions.set(id, [worker, resolve, reject])
+//     worker.postMessage({ id, cmd, options })
+//   })
+// }
 
 // subprocessLock = new AsyncLock()
 
-// /**
-//  *
-//  * @param {string} cmd The binary to run. Must be in PATH
-//  * @param {{params?: string[], runAsRoot?: Boolean, logError?: Boolean, cwd?: string, timeout?: number, signal?: AbortSignal, shell?: (Boolean|string)}} options
-//    @returns {Promise<{error: (Error|null), stdout: (string|null), stderr: (string|null)}>}
-//  */
-// async function runCommand(userCmd, options = {}) {
-//   // testing.
-//   await subprocessLock.enable();
-//   // await sleep(1000)
+/**
+ *
+ * @param {string} cmd The binary to run. Must be in PATH
+ * @param {{params?: string[], runAsRoot?: Boolean, logError?: Boolean, cwd?: string, timeout?: number, signal?: AbortSignal, shell?: (Boolean|string)}} options
+   @returns {Promise<{error: (Error|null), stdout: (string|null), stderr: (string|null)}>}
+ */
+async function runCommand(userCmd, options = {}) {
+  // testing.
+  // await subprocessLock.enable();
+  // await sleep(1000)
 
-//   const res = { error: null, stdout: null, stderr: null }
-//   const params = options.params || [];
+  const res = { error: null, stdout: null, stderr: null }
+  const params = options.params || [];
 
-//   log.info(`RUN COMMAND: ${userCmd} ${params.join(" ")}`)
+  log.info(`RUN COMMAND: ${userCmd} ${params.join(" ")}`)
 
-//   if (!userCmd) {
-//     res.error = new Error("Command must be present")
-//     subprocessLock.disable()
-//     return res
-//   }
+  if (!userCmd) {
+    res.error = new Error("Command must be present")
+    // subprocessLock.disable()
+    return res
+  }
 
-//   if (!Array.isArray(params) || !params.every((p) => typeof p === 'string')) {
-//     res.error = new Error("Invalid params for command, must be an Array of strings")
-//     subprocessLock.disable()
-//     return res;
-//   }
+  if (!Array.isArray(params) || !params.every((p) => typeof p === 'string')) {
+    res.error = new Error("Invalid params for command, must be an Array of strings")
+    // subprocessLock.disable()
+    return res;
+  }
 
-//   const { runAsRoot, logError, ...execOptions } = options;
+  const { runAsRoot, logError, ...execOptions } = options;
 
-//   if (runAsRoot) {
-//     params.unshift(userCmd);
-//     cmd = 'sudo';
-//   } else {
-//     cmd = userCmd;
-//   }
+  if (runAsRoot) {
+    params.unshift(userCmd);
+    cmd = 'sudo';
+  } else {
+    cmd = userCmd;
+  }
 
-//   // let stdoutBuf = '';
-//   // let stderrBuf = '';
+  // let stdoutBuf = '';
+  // let stderrBuf = '';
 
-//   // return new Promise((resolve, reject) => {
-//   //   execOptions.stdio = ['ignore', 'pipe', 'pipe']
-//   //   const child = spawn(cmd, params, execOptions)
+  // return new Promise((resolve, reject) => {
+  //   execOptions.stdio = ['ignore', 'pipe', 'pipe']
+  //   const child = spawn(cmd, params, execOptions)
 
-//   //   child.stdout.on('data', (data) => {
-//   //     stdoutBuf += data.toString();
-//   //   });
+  //   child.stdout.on('data', (data) => {
+  //     stdoutBuf += data.toString();
+  //   });
 
-//   //   child.stderr.on('data', (data) => {
-//   //     stderrBuf += data.toString();
-//   //   });
+  //   child.stderr.on('data', (data) => {
+  //     stderrBuf += data.toString();
+  //   });
 
-//   //   child.on('error', (error) => {
-//   //     reject({ stdout: stdoutBuf, stderr: stderrBuf, error })
-//   //   })
+  //   child.on('error', (error) => {
+  //     reject({ stdout: stdoutBuf, stderr: stderrBuf, error })
+  //   })
 
-//   //   child.on('close', (code) => {
-//   //     process.stdout.write(`Exited with code: ${code}\n`)
-//   //     resolve({ stdout: stdoutBuf, stderr: stderrBuf, error: null })
-//   //   });
-//   // })
+  //   child.on('close', (code) => {
+  //     process.stdout.write(`Exited with code: ${code}\n`)
+  //     resolve({ stdout: stdoutBuf, stderr: stderrBuf, error: null })
+  //   });
+  // })
 
-//   const { stdout, stderr } = await execFile(cmd, params, execOptions).catch((err) => {
-//     const { stdout: errStdout, stderr: errStderr, ...error } = err;
-//     res.error = error;
-//     if (logError !== false) log.error(error);
-//     subprocessLock.disable()
-//     return [errStdout, errStderr];
-//   });
+  const { stdout, stderr } = await execFile(cmd, params, execOptions).catch((err) => {
+    const { stdout: errStdout, stderr: errStderr, ...error } = err;
+    res.error = error;
+    if (logError !== false) log.error(error);
+    // subprocessLock.disable()
+    return [errStdout, errStderr];
+  });
 
-//   if (stderr) console.log("STDERR FOUND!!!!!", stderr)
+  if (stderr) console.log("STDERR FOUND!!!!!", stderr)
 
-//   res.stdout = stdout;
-//   res.stderr = stderr;
+  res.stdout = stdout;
+  res.stderr = stderr;
 
-//   subprocessLock.disable()
-//   return res;
-// }
+  subprocessLock.disable()
+  return res;
+}
 
 /**
  * To check if a firewall is active.

@@ -123,7 +123,7 @@ async function initiate() {
   process.stdin.on('data', sigintListener);
 
   // temp debug
-  setInterval(() => log.info('Stdin listeners:', process.stdin.listeners('data')), 10000)
+  // setInterval(() => log.info('Stdin listeners:', process.stdin.listeners('data')), 10000)
 
   log.info(String.raw`
 
