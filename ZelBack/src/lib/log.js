@@ -37,6 +37,8 @@ const logger = (logType) => {
   return (...args) => {
     if (process.stdout.isTTY) {
       const time = new Date().toISOString();
+      // if first arg is object, swap for formatting.
+      if (args.length > 1 && typeof args[0] === 'object') args.splice(1, 0, args.shift());
       const output = util.formatWithOptions(
         { colors: true },
         time,

@@ -222,8 +222,9 @@ async function startFluxFunctions() {
     appsService.forceAppsRemoval(unreachableApps);
 
     setInterval(() => {
-      log.info(`Intervals running: ${inspect(intervalTimers.keys(), INSPECT_OPTIONS)}`);
-      log.info(`Timeouts running: ${inspect(timeoutTimers.keys(), INSPECT_OPTIONS)}`);
+      log.info(intervalTimers.keys(), 'Intervals running:');
+      log.info(timeoutTimers.keys(), 'Intervals running:');
+
       const uptime = process.uptime()
       const formattedUptime = (Math.floor(uptime / 86400) + ":" + (new Date(uptime * 1000)).toISOString().slice(11, 19));
       log.info(`Uptime: ${formattedUptime}`)
