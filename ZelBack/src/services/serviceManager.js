@@ -46,7 +46,7 @@ const delayedActions = new Map(
 
 const recurringActions = new Map(
   [
-    [fluxCommunication.pingAllPeers, { schedule: '15s', logMsg: 'Connections polling prepared' }],
+    [fluxCommunication.pingAllPeers, { schedule: '15s', logMsg: 'Connections polling service started' }],
     [daemonServiceMiscRpcs.fluxDaemonBlockchainInfo, { runImmediate: true, schedule: '1m', logMsg: 'Flux Daemon Info Service Started' }],
     // the branch changing stuff happens on config change now - this still needs work
     // [fluxService.softUpdateFlux, { schedule: '1m', condition: development === true || development === 'true' || development === 1 || development === '1' }],
@@ -231,13 +231,13 @@ async function startFluxFunctions() {
 
     // change networkHelper name to service
     fluxNetworkHelper.startNetworkSentinel();
-    log.info('Collision detection running');
+    log.info('Collision detection service started');
 
     syncthingService.startSyncthingSentinel();
     log.info('Syncthing service started');
 
     appsService.startMonitoringOfApps();
-    log.info('App monitoring has begun');
+    log.info('App monitoring service started');
 
 
     // eslint - disable - next - line no - restricted - syntax
