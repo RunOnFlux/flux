@@ -181,14 +181,14 @@ async function runCommand(userCmd, options = {}) {
 
   const { runAsRoot, logError, ...execOptions } = options;
 
-  log.debug(`Spawning Child Process. Root: ${runAsRoot}. Cmd: ${userCmd} ${params.join(" ")}`)
-
   if (runAsRoot) {
     params.unshift(userCmd);
     cmd = 'sudo';
   } else {
     cmd = userCmd;
   }
+
+  log.debug(`Run Cmd: ${cmd} ${params.join(" ")}`)
 
   // let stdoutBuf = '';
   // let stderrBuf = '';

@@ -11617,9 +11617,8 @@ async function checkMyAppsAvailability() {
       checkMyAppsAvailability();
       return;
     }
-    let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
-    myIP = myIP.split(':')[0];
-    const myPort = myIP.split(':')[1] || 16127;
+    const endpoint = await fluxNetworkHelper.getMyFluxIPandPort();
+    const [myIP, myPort] = endpoint.includes(':') ? endpoint.split(':') : [endpoint, 16127];
     // go through all our installed apps and test if they are available on a random node
     let portTestFailed = false;
     const installedAppsRes = await installedApps();
@@ -11704,7 +11703,9 @@ async function checkMyAppsAvailability() {
     if (firewallActive) {
       // should check this is true
       const allowed = await fluxNetworkHelper.allowPort(testingPort);
-      log.info('PORT ALLOWED', allowed)
+      if (!allowed) {
+        throw new Error(`Unable to open port on firewall: ${testingPort}`);
+      }
     }
     if (isUPNP) {
       const upnpMapResult = await upnpService.mapUpnpPort(testingPort, 'Flux_Test_App');

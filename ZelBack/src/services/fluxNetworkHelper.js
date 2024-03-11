@@ -202,15 +202,17 @@ function isPortUPNPBanned(port) {
  * To perform a basic check if port on an ip is opened
  * @param {string} ip IP address.
  * @param {number} port Port.
- * @returns {boolean} Returns true if opened, otherwise false
+ * @returns {Promise<boolean>} Returns true if opened, otherwise false
  */
 async function isPortOpen(ip, port) {
   // -w = wait
   // -z = only check that SYN,ACK is received, don't send data
   const timeout = '5'; // seconds
-  const { stdout, error } = await serviceHelper.runCommand('nc', {
+  const { error } = await serviceHelper.runCommand('nc', {
     params: ['-w', timeout, '-z', ip, port],
   });
+
+  return !Boolean(error);
 
   // try {
   //   const exec = `nc -w 5 -z -v ${ip} ${port} </dev/null; echo $?`;
