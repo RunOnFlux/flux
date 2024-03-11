@@ -232,18 +232,26 @@ async function runCommand(userCmd, options = {}) {
   return res;
 }
 
+const firewallLock = new AsyncLock()
 /**
  * To check if a firewall is active, will cache for 10 seconds.
  * @returns {Promise<boolean>} True if a firewall is active. Otherwise false.
  */
 async function isFirewallActive() {
   const cachedStatus = firewallStatus.get();
+  log.info("CACHED STATUS", cachedStatus)
   if (cachedStatus !== null) return cachedStatus;
+
+  log.info("LOCKING FIREWALL")
+  await firewallLock.enable();
 
   const { stdout, error } = await runCommand('ufw', {
     runAsRoot: true,
     params: ['status'],
   });
+
+  log.info("UNLOCKING FIREWALL")
+  firewallLock.disable()
 
   // not sure this makes sense
   if (error) return false;
