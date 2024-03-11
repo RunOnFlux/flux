@@ -3428,6 +3428,7 @@
               class="app-instances-table"
               striped
               hover
+              outlined
               responsive
               :busy="isBusy"
               :per-page="instances.perPage"
@@ -3452,10 +3453,12 @@
                 <a @click="row.toggleDetails">
                   <v-icon
                     v-if="!row.detailsShowing"
+                    class="ml-2"
                     name="chevron-down"
                   />
                   <v-icon
                     v-if="row.detailsShowing"
+                    class="ml-2"
                     name="chevron-up"
                   />
                 </a>
@@ -3479,18 +3482,18 @@
                   <b-button
                     size="sm"
                     class="mr-1"
-                    variant="danger"
+                    variant="outline-secondary"
                     @click="openApp(locationRow.item.name, locationRow.item.ip.split(':')[0], getProperPort())"
                   >
-                    Visit App
+                    App
                   </b-button>
                   <b-button
                     size="sm"
                     class="mr-0"
-                    variant="danger"
+                    variant="outline-primary"
                     @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
                   >
-                    Visit FluxNode
+                    FluxNode
                   </b-button>
                 </div>
               </template>
@@ -5951,8 +5954,9 @@ export default {
           { key: 'ip', label: 'IP Address', sortable: true },
           { key: 'continent', label: 'Continent', sortable: true },
           { key: 'country', label: 'Country', sortable: true },
-          { key: 'region', label: 'Region', sortable: true },
-          { key: 'visit', label: 'Visit' },
+          // eslint-disable-next-line object-curly-newline
+          { key: 'region', label: 'Region', sortable: true, thStyle: { width: '20%' } },
+          { key: 'visit', label: 'Visit', thStyle: { width: '10%' } },
         ],
         perPage: 10,
         pageOptions: [10, 25, 50, 100],
