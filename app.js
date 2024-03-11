@@ -148,7 +148,7 @@ async function initiate() {
 
 `)
 
-  log.info(`Running as TTY: ${process.stdout.isTTY}`);
+  log.info(`Running as TTY: ${Boolean(process.stdout.isTTY)}`);
 
   const args = process.argv.slice(2);
   const {

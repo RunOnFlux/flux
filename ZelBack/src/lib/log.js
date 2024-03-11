@@ -47,6 +47,7 @@ const dtFormat = new Intl.DateTimeFormat('en-GB', {
 
 const logger = (logType) => {
   return (...args) => {
+    // undefined if being piped etc. Could use Boolean here
     if (process.stdout.isTTY) {
       const time = dtFormat.format(new Date());
       // if first arg is object, swap for formatting. I don't like this.
