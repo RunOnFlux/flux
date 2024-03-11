@@ -9871,14 +9871,13 @@ export default {
         this.applicationManagementAndStatus = niceString;
       }
     },
-    copyMessageToSign() {
-      const textarea = document.createElement('textarea');
-      textarea.value = this.dataToSign;
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-      this.showToast('success', 'Copied to clipboard');
+    async copyMessageToSign() {
+      try {
+        await navigator.clipboard.writeText(this.dataToSign);
+        this.showToast('success', 'Copied to clipboard');
+      } catch ($e) {
+        this.showToast('danger', 'Failed to Copy to clipboard');
+      }
     },
     selectedIpChanged() {
       this.getApplicationManagementAndStatus();

@@ -448,15 +448,7 @@
               rows="6"
               readonly
             />
-            <b-button
-              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-              variant="success"
-              aria-label="Copy Message to Sign to Clipboard"
-              class="my-1"
-              @click="copyMessageToSign"
-            >
-              Copy
-            </b-button>
+            <b-icon v-b-tooltip.hover.top="'Copy to clipboard'" class="clipboard icon" scale="1.5" icon="clipboard" @click="copyMessageToSign" />
           </b-card>
         </tab-content>
         <tab-content
@@ -554,7 +546,7 @@
                 class="text-center wizard-card"
               >
                 <b-card-text>
-                  Everything is ready, your payment option links are valid for the next 30 minutes. {{ appPricePerSpecsUSD }} USD + local VAT
+                  Everything is ready, your payment option links are valid for the next 30 minutes. {{ appPricePerDeploymentUSD }} USD + local VAT
                 </b-card-text>
                 <br>
                 The application will be subscribed until {{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}
