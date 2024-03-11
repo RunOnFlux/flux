@@ -33,9 +33,7 @@
       >
         <div>
           <b-card title="Local application management">
-            <b-col
-              class="my-1"
-            >
+            <b-col class="my-1">
               <b-form-group class="mb-0">
                 <label class="d-inline-block text-left mr-50">Select IP to run local application management:</label>
                 <b-form-select
@@ -642,9 +640,7 @@
           </b-card>
         </div>
       </b-tab>
-      <b-tab
-        title="Information"
-      >
+      <b-tab title="Information">
         <h3><b-icon icon="app-indicator" /> {{ appSpecification.name }}</h3>
         <div v-if="appSpecification.version >= 4">
           <div
@@ -675,9 +671,7 @@
           </div>
         </div>
       </b-tab>
-      <b-tab
-        title="Resources"
-      >
+      <b-tab title="Resources">
         <h3><b-icon icon="app-indicator" /> {{ appSpecification.name }}</h3>
         <div v-if="commandExecuting">
           <v-icon
@@ -714,9 +708,7 @@
           </div>
         </div>
       </b-tab>
-      <b-tab
-        title="Monitoring"
-      >
+      <b-tab title="Monitoring">
         <h3>History Statistics 1 hour</h3>
         <div v-if="appSpecification.version >= 4">
           <div
@@ -777,9 +769,7 @@
           </div>
         </div>
       </b-tab>
-      <b-tab
-        title="File Changes"
-      >
+      <b-tab title="File Changes">
         <h3><b-icon icon="app-indicator" /> {{ appSpecification.name }}</h3>
         <div v-if="commandExecuting">
           <v-icon
@@ -824,9 +814,7 @@
           </div>
         </div>
       </b-tab>
-      <b-tab
-        title="Processes"
-      >
+      <b-tab title="Processes">
         <h3><b-icon icon="app-indicator" /> {{ appSpecification.name }}</h3>
         <div v-if="commandExecuting">
           <v-icon
@@ -863,9 +851,7 @@
           </div>
         </div>
       </b-tab>
-      <b-tab
-        title="Log File"
-      >
+      <b-tab title="Log File">
         <h3><b-icon icon="app-indicator" /> {{ appSpecification.name }}</h3>
         <h6 class="mb-2">
           Click the 'Download' button to download the Log file from your Application debug file. This may take a few minutes depending on file size.
@@ -943,9 +929,7 @@
           </div>
         </div>
       </b-tab>
-      <b-tab
-        title="Control"
-      >
+      <b-tab title="Control">
         <b-row class="match-height ">
           <b-col xs="6">
             <b-card title="Control">
@@ -1309,8 +1293,14 @@
       >
         <div>
           <b-card no-body>
-            <b-tabs pills card>
-              <b-tab title="Backup" style="margin: 0; padding-top: 0px;">
+            <b-tabs
+              pills
+              card
+            >
+              <b-tab
+                title="Backup"
+                style="margin: 0; padding-top: 0px;"
+              >
                 <div
                   class="mb-2"
                   style="
@@ -1321,7 +1311,12 @@
                     line-height: 0px;
                   "
                 >
-                  <h5><b-icon class="mr-1" icon="back" /> Manual Backup Container Data</h5>
+                  <h5>
+                    <b-icon
+                      class="mr-1"
+                      icon="back"
+                    /> Manual Backup Container Data
+                  </h5>
                 </div>
                 <div class="mb-2">
                   <b-form-group>
@@ -1348,7 +1343,11 @@
                           v-if="tags.length > 0"
                           class="list-inline d-inline-block mb-2"
                         >
-                          <li v-for="tag in tags" :key="tag" class="list-inline-item">
+                          <li
+                            v-for="tag in tags"
+                            :key="tag"
+                            class="list-inline-item"
+                          >
                             <b-form-tag
                               :title="tag"
                               :disabled="disabled"
@@ -1366,7 +1365,10 @@
                           v-on="inputHandlers"
                         >
                           <template #first>
-                            <option disabled value="">
+                            <option
+                              disabled
+                              value=""
+                            >
                               Select the application component(s) you would like to backup
                             </option>
                           </template>
@@ -1375,8 +1377,17 @@
                     </b-form-tags>
                   </b-form-group>
                 </div>
-                <b-button v-if="components?.length > 1" class="mr-1" variant="outline-primary" @click="addAllTags">
-                  <b-icon scale="0.9" icon="check2-square" class="mr-1" />
+                <b-button
+                  v-if="components?.length > 1"
+                  class="mr-1"
+                  variant="outline-primary"
+                  @click="addAllTags"
+                >
+                  <b-icon
+                    scale="0.9"
+                    icon="check2-square"
+                    class="mr-1"
+                  />
                   Select all
                 </b-button>
                 <b-button
@@ -1385,7 +1396,11 @@
                   style="white-space: nowrap;"
                   @click="createBackup(appName, selectedBackupComponents)"
                 >
-                  <b-icon scale="0.9" icon="back" class="mr-1" />
+                  <b-icon
+                    scale="0.9"
+                    icon="back"
+                    class="mr-1"
+                  />
                   Create backup
                 </b-button>
 
@@ -1410,7 +1425,14 @@
                         <!-- <b-spinner small /> Backing up {{ tarProgress[0] }}... -->
                       </span>
                     </h5>
-                    <b-progress v-for="(item, index) in computedFileProgress" v-if="item.progress > 0" :key="index" class="mt-1" style="height: 16px;" :max="100">
+                    <b-progress
+                      v-for="(item, index) in computedFileProgress"
+                      v-if="item.progress > 0"
+                      :key="index"
+                      class="mt-1"
+                      style="height: 16px;"
+                      :max="100"
+                    >
                       <b-progress-bar
                         :value="item.progress"
                         :label="`${item.fileName} - ${item.progress.toFixed(2)}%`"
@@ -1423,48 +1445,90 @@
                 <div v-if="backupList?.length > 0 && backupProgress === false">
                   <div class="mb-1 text-right">
                     <!-- Select Dropdown -->
-                    <b-dropdown class="mr-1" text="Select" variant="outline-primary" style="max-height: 38px; min-width: 100px; white-space: nowrap;">
+                    <b-dropdown
+                      class="mr-1"
+                      text="Select"
+                      variant="outline-primary"
+                      style="max-height: 38px; min-width: 100px; white-space: nowrap;"
+                    >
                       <template #button-content>
-                        <b-icon scale="0.9" icon="check2-square" class="mr-1" />
+                        <b-icon
+                          scale="0.9"
+                          icon="check2-square"
+                          class="mr-1"
+                        />
                         Select
                       </template>
                       <b-dropdown-item
                         :disabled="backupToUpload?.length === backupList?.length"
                         @click="selectAllRows"
                       >
-                        <b-icon scale="0.9" icon="check2-circle" class="mr-1" />
+                        <b-icon
+                          scale="0.9"
+                          icon="check2-circle"
+                          class="mr-1"
+                        />
                         Select all
                       </b-dropdown-item>
                       <b-dropdown-item
                         :disabled="backupToUpload?.length === 0"
                         @click="clearSelected"
                       >
-                        <b-icon scale="0.7" icon="square" class="mr-1" />
+                        <b-icon
+                          scale="0.7"
+                          icon="square"
+                          class="mr-1"
+                        />
                         Select none
                       </b-dropdown-item>
                     </b-dropdown>
 
                     <!-- Download Dropdown -->
-                    <b-dropdown class="mr-1" text="Download" variant="outline-primary" style="max-height: 38px; min-width: 100px; white-space: nowrap;">
+                    <b-dropdown
+                      class="mr-1"
+                      text="Download"
+                      variant="outline-primary"
+                      style="max-height: 38px; min-width: 100px; white-space: nowrap;"
+                    >
                       <template #button-content>
-                        <b-icon scale="0.9" icon="download" class="mr-1" />
+                        <b-icon
+                          scale="0.9"
+                          icon="download"
+                          class="mr-1"
+                        />
                         Download
                       </template>
                       <b-dropdown-item
                         :disabled="backupToUpload?.length === 0"
                         @click="downloadAllBackupFiles(backupToUpload)"
                       >
-                        <b-icon scale="0.7" icon="download" class="mr-1" />
+                        <b-icon
+                          scale="0.7"
+                          icon="download"
+                          class="mr-1"
+                        />
                         Download selected
                       </b-dropdown-item>
                       <b-dropdown-item @click="downloadAllBackupFiles(backupList)">
-                        <b-icon scale="0.7" icon="download" class="mr-1" />
+                        <b-icon
+                          scale="0.7"
+                          icon="download"
+                          class="mr-1"
+                        />
                         Download all
                       </b-dropdown-item>
                     </b-dropdown>
 
-                    <b-button variant="outline-danger" style="max-height: 38px; min-width: 100px; white-space: nowrap;" @click="deleteLocalBackup(null, backupList)">
-                      <b-icon scale="0.9" icon="trash" class="mr-1" />
+                    <b-button
+                      variant="outline-danger"
+                      style="max-height: 38px; min-width: 100px; white-space: nowrap;"
+                      @click="deleteLocalBackup(null, backupList)"
+                    >
+                      <b-icon
+                        scale="0.9"
+                        icon="trash"
+                        class="mr-1"
+                      />
                       Remove all
                     </b-button>
                   </div>
@@ -1494,7 +1558,10 @@
                   >
                     <template #thead-top>
                       <b-tr>
-                        <b-td colspan="6" class="text-center">
+                        <b-td
+                          colspan="6"
+                          class="text-center"
+                        >
                           <b>
                             List of available backups on the local machine (backups are automatically deleted 24 hours after creation)
                           </b>
@@ -1510,7 +1577,10 @@
                     </template>
                     <template #cell(isActive)="{ rowSelected }">
                       <template v-if="rowSelected">
-                        <span style="color: green" aria-hidden="true">
+                        <span
+                          style="color: green"
+                          aria-hidden="true"
+                        >
                           <b-icon
                             icon="calendar2-check-fill"
                             scale="1"
@@ -1593,7 +1663,14 @@
                             Download Completed
                           </span>
                         </h5>
-                        <b-progress v-for="(item, index) in computedFileProgress" v-if="item.progress > 0" :key="index" class="mt-1" style="height: 16px;" :max="100">
+                        <b-progress
+                          v-for="(item, index) in computedFileProgress"
+                          v-if="item.progress > 0"
+                          :key="index"
+                          class="mt-1"
+                          style="height: 16px;"
+                          :max="100"
+                        >
                           <b-progress-bar
                             :value="item.progress"
                             :label="`${item.fileName} - ${item.progress.toFixed(2)}%`"
@@ -1603,7 +1680,10 @@
                       </div>
                     </div>
                   </b-card-text>
-                  <div v-if="backupToUpload.length > 0" class="mt-2">
+                  <div
+                    v-if="backupToUpload.length > 0"
+                    class="mt-2"
+                  >
                     <div
                       class="mb-2 mt-3"
                       style="
@@ -1645,9 +1725,7 @@
 
                             "
                           >
-                            <h5
-                              style="font-size: 16px; margin-bottom: 5px;"
-                            >
+                            <h5 style="font-size: 16px; margin-bottom: 5px;">
                               Sign in to enable FluxDrive functionality
                             </h5>
                           </div>
@@ -1667,7 +1745,10 @@
                                 margin-bottom: 10px;
                               "
                             >
-                              <a href="" @click="removeAllBackup">
+                              <a
+                                href=""
+                                @click="removeAllBackup"
+                              >
                                 <img
                                   style="margin-left: 5px; height: 90px; padding: 10px"
                                   src="https://home.runonflux.io/img/zelID.svg"
@@ -1808,7 +1889,10 @@
                   </div>
                 </div>
               </b-tab>
-              <b-tab title="Restore" style="margin: 0; padding-top: 0px;">
+              <b-tab
+                title="Restore"
+                style="margin: 0; padding-top: 0px;"
+              >
                 <div
                   class="mb-2"
                   style="
@@ -1819,11 +1903,20 @@
                     line-height: 0px;
                   "
                 >
-                  <h5><b-icon class="mr-1" scale="1.4" icon="cloud-download" /> Select restore method</h5>
+                  <h5>
+                    <b-icon
+                      class="mr-1"
+                      scale="1.4"
+                      icon="cloud-download"
+                    /> Select restore method
+                  </h5>
                 </div>
                 <b-form-group class="mb-2">
                   <b-row>
-                    <b-col class="d-flex align-items-center" style="height: 38px;">
+                    <b-col
+                      class="d-flex align-items-center"
+                      style="height: 38px;"
+                    >
                       <b-form-radio-group
                         id="btn-radios-2"
                         v-model="selectedRestoreOption"
@@ -1837,13 +1930,20 @@
                       />
                     </b-col>
 
-                    <b-col class="text-right" style="height: 38px;">
+                    <b-col
+                      class="text-right"
+                      style="height: 38px;"
+                    >
                       <b-button
                         v-if="selectedRestoreOption === 'FluxDrive'"
                         variant="outline-success"
                         style="max-height: 38px; min-width: 100px; white-space: nowrap;"
                       >
-                        <b-icon class="mr-1" scale="1.2" icon="arrow-repeat" />Refresh
+                        <b-icon
+                          class="mr-1"
+                          scale="1.2"
+                          icon="arrow-repeat"
+                        />Refresh
                       </b-button>
                     </b-col>
                   </b-row>
@@ -1887,7 +1987,10 @@
                             margin-bottom: 10px;
                           "
                         >
-                          <a href="" @click="removeAllBackup">
+                          <a
+                            href=""
+                            @click="removeAllBackup"
+                          >
                             <img
                               style="margin-left: 5px; height: 90px; padding: 10px"
                               src="https://home.runonflux.io/img/zelID.svg"
@@ -2030,7 +2133,11 @@
                             variant="dark"
                             class="text-center"
                           >
-                            <b-icon scale="1.2" icon="back" class="mr-2" /><b>Backups Inventory</b>
+                            <b-icon
+                              scale="1.2"
+                              icon="back"
+                              class="mr-2"
+                            /><b>Backups Inventory</b>
                           </b-td>
                         </b-tr>
                       </template>
@@ -2041,7 +2148,6 @@
                             variant="outline-danger"
                             class="d-flex justify-content-center align-items-center mr-1"
                             style="width: 15px; height: 25px"
-
                             @click="deleteRestoreBackup(row.item.component, checkpoints, row.item.timestamp)"
                           >
                             <b-icon
@@ -2162,7 +2268,11 @@
                             variant="dark"
                             style="text-align: center; vertical-align: middle;"
                           >
-                            <b-icon class="mr-2" icon="hdd" scale="1.4" /> {{ totalArchiveFileSize(newComponents).toFixed(2) }} MB
+                            <b-icon
+                              class="mr-2"
+                              icon="hdd"
+                              scale="1.4"
+                            /> {{ totalArchiveFileSize(newComponents).toFixed(2) }} MB
                           </b-td>
                         </b-tr>
                       </template>
@@ -2214,7 +2324,10 @@
                           variant="outline-primary"
                           @click="addRemoteFile"
                         >
-                          <b-icon icon="cloud-arrow-up" scale="1.5" />
+                          <b-icon
+                            icon="cloud-arrow-up"
+                            scale="1.5"
+                          />
                         </b-button>
                       </b-input-group-append>
                     </b-input-group>
@@ -2308,7 +2421,11 @@
                             variant="dark"
                             style="text-align: center; vertical-align: middle;"
                           >
-                            <b-icon class="mr-1" icon="hdd" scale="1.4" />{{ addAndConvertFileSizes(files) }}
+                            <b-icon
+                              class="mr-1"
+                              icon="hdd"
+                              scale="1.4"
+                            />{{ addAndConvertFileSizes(files) }}
                           </b-td>
                         </b-tr>
                       </template>
@@ -2340,8 +2457,15 @@
                         <div :class="file.uploading ? '' : 'hidden'">
                           {{ file.file_name }}
                         </div>
-                        <b-progress max="100" height="15px">
-                          <b-progress-bar :value="file.progress" :label="`${file.progress.toFixed(2)}%`" :class="file.uploading ? '' : 'hidden'" />
+                        <b-progress
+                          max="100"
+                          height="15px"
+                        >
+                          <b-progress-bar
+                            :value="file.progress"
+                            :label="`${file.progress.toFixed(2)}%`"
+                            :class="file.uploading ? '' : 'hidden'"
+                          />
                         </b-progress>
                         <!-- <b-progress
                           :value="file.progress"
@@ -2361,7 +2485,11 @@
                     variant="outline-primary"
                     @click="startUpload()"
                   >
-                    <b-icon icon="arrow-clockwise" scale="1.1" class="mr-1" />Restore
+                    <b-icon
+                      icon="arrow-clockwise"
+                      scale="1.1"
+                      class="mr-1"
+                    />Restore
                   </b-button>
                 </div>
                 <div v-if="selectedRestoreOption === 'Remote URL'">
@@ -2402,11 +2530,17 @@
                           variant="outline-primary"
                           @click="addRemoteUrlItem(appName, restoreRemoteUrlComponent)"
                         >
-                          <b-icon scale="0.8" icon="plus-lg" />
+                          <b-icon
+                            scale="0.8"
+                            icon="plus-lg"
+                          />
                         </b-button>
                       </b-input-group-append>
                     </b-input-group>
-                    <b-form-invalid-feedback class="mb-2" :state="urlValidationState">
+                    <b-form-invalid-feedback
+                      class="mb-2"
+                      :state="urlValidationState"
+                    >
                       {{ urlValidationMessage }}
                     </b-form-invalid-feedback>
                   </div>
@@ -2493,7 +2627,11 @@
                             variant="dark"
                             style="text-align: center; vertical-align: middle;"
                           >
-                            <b-icon class="mr-1" icon="hdd" scale="1.4" />{{ addAndConvertFileSizes(restoreRemoteUrlItems) }}
+                            <b-icon
+                              class="mr-1"
+                              icon="hdd"
+                              scale="1.4"
+                            />{{ addAndConvertFileSizes(restoreRemoteUrlItems) }}
                           </b-td>
                         </b-tr>
                       </template>
@@ -2515,7 +2653,7 @@
                       <h5 style="font-size: 16px; margin-bottom: 5px;">
                         <span v-if="downloadingFromUrl === true">
                           <b-spinner small /> {{ restoreFromRemoteURLStatus }}
-                        <!-- <b-spinner small /> Backing up {{ tarProgress[0] }}... -->
+                          <!-- <b-spinner small /> Backing up {{ tarProgress[0] }}... -->
                         </span>
                       </h5>
                     </div>
@@ -2527,7 +2665,11 @@
                     variant="outline-primary"
                     @click="restoreFromRemoteFile(appName)"
                   >
-                    <b-icon icon="arrow-clockwise" scale="1.1" class="mr-1" />Restore
+                    <b-icon
+                      icon="arrow-clockwise"
+                      scale="1.1"
+                      class="mr-1"
+                    />Restore
                   </b-button>
                 </div>
               </b-tab>
@@ -2535,9 +2677,7 @@
           </b-card>
         </div>
       </b-tab>
-      <b-tab
-        title="Interactive Terminal"
-      >
+      <b-tab title="Interactive Terminal">
         <div class="text-center ">
           <div>
             <b-card-group deck>
@@ -2553,10 +2693,19 @@
                     line-height: 0px;
                   "
                 >
-                  <h5><b-icon class="mr-1" scale="1.2" icon="terminal" /> Browser-based Interactive Terminal</h5>
+                  <h5>
+                    <b-icon
+                      class="mr-1"
+                      scale="1.2"
+                      icon="terminal"
+                    /> Browser-based Interactive Terminal
+                  </h5>
                 </div>
                 <div class="d-flex align-items-center">
-                  <div v-show="appSpecification?.compose" class="mr-4">
+                  <div
+                    v-show="appSpecification?.compose"
+                    class="mr-4"
+                  >
                     <b-form-select
                       v-model="selectedApp"
                       :options="null"
@@ -2619,7 +2768,10 @@
                     disabled
                   >
                     <div class="d-flex align-items-center justify-content-center">
-                      <b-spinner class="mr-1" small />
+                      <b-spinner
+                        class="mr-1"
+                        small
+                      />
                       Connecting...
                     </div>
                   </b-button>
@@ -2733,12 +2885,30 @@
                 line-height: 0px;
               "
             >
-              <h5><b-icon class="mr-1" scale="1.2" icon="server" /> Volume browser</h5>
-              <h6 v-if="selectedAppVolume || !appSpecification?.compose" class="progress-label">
-                <b-icon class="mr-1" :style="getIconColorStyle(storage.used, storage.total)" :icon="getIconName(storage.used, storage.total)" scale="1.4" /> {{ `${storage.used.toFixed(2)} / ${storage.total.toFixed(2)}` }} GB
+              <h5>
+                <b-icon
+                  class="mr-1"
+                  scale="1.2"
+                  icon="server"
+                /> Volume browser
+              </h5>
+              <h6
+                v-if="selectedAppVolume || !appSpecification?.compose"
+                class="progress-label"
+              >
+                <b-icon
+                  class="mr-1"
+                  :style="getIconColorStyle(storage.used, storage.total)"
+                  :icon="getIconName(storage.used, storage.total)"
+                  scale="1.4"
+                /> {{ `${storage.used.toFixed(2)} / ${storage.total.toFixed(2)}` }} GB
               </h6>
             </div>
-            <div class="mr-4 d-flex" :class="{ 'mb-2': appSpecification && appSpecification.compose }" style="max-width: 250px;">
+            <div
+              class="mr-4 d-flex"
+              :class="{ 'mb-2': appSpecification && appSpecification.compose }"
+              style="max-width: 250px;"
+            >
               <b-form-select
                 v-show="appSpecification?.compose"
                 v-model="selectedAppVolume"
@@ -2782,7 +2952,14 @@
                   Download Completed
                 </span>
               </h5>
-              <b-progress v-for="(item, index) in computedFileProgressVolume" v-if="item.progress > 0" :key="index" class="mt-1" style="height: 16px;" :max="100">
+              <b-progress
+                v-for="(item, index) in computedFileProgressVolume"
+                v-if="item.progress > 0"
+                :key="index"
+                class="mt-1"
+                style="height: 16px;"
+                :max="100"
+              >
                 <b-progress-bar
                   :value="item.progress"
                   :label="`${item.fileName} - ${item.progress.toFixed(2)}%`"
@@ -2791,7 +2968,11 @@
               </b-progress>
             </div>
             <div>
-              <b-button-toolbar v-if="selectedAppVolume || !appSpecification?.compose" justify class="mb-1 w-100">
+              <b-button-toolbar
+                v-if="selectedAppVolume || !appSpecification?.compose"
+                justify
+                class="mb-1 w-100"
+              >
                 <div class="d-flex flex-row w-100">
                   <b-input-group class="w-100 mr-2">
                     <b-input-group-prepend>
@@ -2806,7 +2987,10 @@
                     />
                   </b-input-group>
                   <b-button-group size="sm" />
-                  <b-button-group size="sm" class="ml-auto">
+                  <b-button-group
+                    size="sm"
+                    class="ml-auto"
+                  >
                     <b-button
                       variant="outline-primary"
                       @click="refreshFolder()"
@@ -2891,22 +3075,37 @@
                 <template #cell(name)="data">
                   <div v-if="data.item.symLink">
                     <b-link @click="changeFolder(data.item.name)">
-                      <b-icon class="mr-1" scale="1.4" icon="folder-symlink" /> {{ data.item.name }}
+                      <b-icon
+                        class="mr-1"
+                        scale="1.4"
+                        icon="folder-symlink"
+                      /> {{ data.item.name }}
                     </b-link>
                   </div>
                   <div v-if="data.item.isDirectory">
                     <b-link @click="changeFolder(data.item.name)">
-                      <b-icon class="mr-1" scale="1.4" icon="folder" /> {{ data.item.name }}
+                      <b-icon
+                        class="mr-1"
+                        scale="1.4"
+                        icon="folder"
+                      /> {{ data.item.name }}
                     </b-link>
                   </div>
                   <div v-else>
                     <div v-if="!data.item.symLink">
-                      <b-icon class="mr-1" scale="1.4" icon="file-earmark" /> {{ data.item.name }}
+                      <b-icon
+                        class="mr-1"
+                        scale="1.4"
+                        icon="file-earmark"
+                      /> {{ data.item.name }}
                     </div>
                   </div>
                 </template>
                 <template #cell(modifiedAt)="data">
-                  <div v-if="!data.item.isUpButton" class="no-wrap">
+                  <div
+                    v-if="!data.item.isUpButton"
+                    class="no-wrap"
+                  >
                     {{ new Date(data.item.modifiedAt).toLocaleString('en-GB', timeoptions) }}
                   </div>
                 </template>
@@ -2927,12 +3126,18 @@
                   </div>
                 </template>
                 <template #cell(size)="data">
-                  <div v-if="data.item.size > 0 && !data.item.isUpButton" class="no-wrap">
+                  <div
+                    v-if="data.item.size > 0 && !data.item.isUpButton"
+                    class="no-wrap"
+                  >
                     {{ addAndConvertFileSizes(data.item.size) }}
                   </div>
                 </template>
                 <template #cell(actions)="data">
-                  <b-button-group v-if="!data.item.isUpButton" size="sm">
+                  <b-button-group
+                    v-if="!data.item.isUpButton"
+                    size="sm"
+                  >
                     <b-button
                       :id="`download-${data.item.name}`"
                       v-b-tooltip.hover.bottom="data.item.isFile ? 'Download' : 'Download zip of folder'"
@@ -3315,15 +3520,21 @@
             line-height: 0px;
           "
         >
-          <h5><b-icon class="mr-1" icon="ui-checks-grid" /> Update Application Specifications / Extend subscription</h5>
+          <h5>
+            <b-icon
+              class="mr-1"
+              icon="ui-checks-grid"
+            /> Update Application Specifications / Extend subscription
+          </h5>
         </div>
-        <div
-          class="form-row form-group"
-        >
+        <div class="form-row form-group">
           <b-input-group class="mt-2">
             <b-input-group-prepend>
               <b-input-group-text>
-                <b-icon class="mr-1" icon="plus-square" />
+                <b-icon
+                  class="mr-1"
+                  icon="plus-square"
+                />
                 Update Specifications
                 <v-icon
                   v-b-tooltip.hover.top="'Select if you want to change your application specifications'"
@@ -4768,10 +4979,13 @@
           <b-input-group>
             <b-input-group-prepend>
               <b-input-group-text>
-                <b-icon class="mr-1" icon="clock-history" />
+                <b-icon
+                  class="mr-1"
+                  icon="clock-history"
+                />
                 Extend Subscription
                 <v-icon
-                  v-b-tooltip.hover.top="'Select if you want to extend your subscription period'"
+                  v-b-tooltip.hover.top="'Select if you want to extend or change your subscription period'"
                   name="info-circle"
                   class="ml-1"
                 />&nbsp; &nbsp;
@@ -4794,13 +5008,16 @@
           <label class="col-form-label">
             Period
             <v-icon
-              v-b-tooltip.hover.top="'Time you want to extend your subscription from today'"
+              v-b-tooltip.hover.top="'Time your application will be subscribed for from today'"
               name="info-circle"
               class="mr-2"
             />
             <kbd class="bg-primary mr-1"><b>{{ getExpireLabel || (appUpdateSpecification.expire ? `${appUpdateSpecification.expire} blocks` : '1 month') }}</b></kbd>
           </label>
-          <div class="w-100" style="flex: 1; padding: 10px;">
+          <div
+            class="w-100"
+            style="flex: 1; padding: 10px;"
+          >
             <input
               id="period"
               v-model="expirePosition"
@@ -4814,6 +5031,18 @@
             />
           </div>
         </div>
+        <div>
+          Currently your application is subscribed until <b>{{ new Date(appRunningTill.current).toLocaleString('en-GB', timeoptions.shortDate) }}</b>.
+          <span v-if="extendSubscription">
+            <br>
+            Your new adjusted subscription end on <b>{{ new Date(appRunningTill.new).toLocaleString('en-GB', timeoptions.shortDate) }}</b>.
+          </span>
+          <span v-if="appRunningTill.new < appRunningTill.current" style="color: red">
+            <br>
+            WARNING: Your selected subscription period will decrease the current subscription time!
+          </span>
+        </div>
+        <br>
         <div class="flex ">
           <b-form-checkbox
             id="tos"
@@ -4856,7 +5085,13 @@
                 rows="6"
                 readonly
               />
-              <b-icon v-b-tooltip.hover.top="'Copy to clipboard'" class="clipboard icon" scale="1.5" icon="clipboard" @click="copyMessageToSign" />
+              <b-icon
+                v-b-tooltip.hover.top="'Copy to clipboard'"
+                class="clipboard icon"
+                scale="1.5"
+                icon="clipboard"
+                @click="copyMessageToSign"
+              />
             </div>
           </b-form-group>
           <b-form-group
@@ -4880,7 +5115,11 @@
                   Note: Data has to be signed by the last application owner
                 </h4>
                 <b-card-text v-if="!freeUpdate">
-                  &nbsp;<b-icon class="mr-1" scale="1.4" icon="cash-coin" />Price: <b>{{ appPricePerSpecsUSD }} USD</b>
+                  &nbsp;<b-icon
+                    class="mr-1"
+                    scale="1.4"
+                    icon="cash-coin"
+                  />Price: <b>{{ appPricePerSpecsUSD }} USD</b>
                 </b-card-text>
                 <b-button
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -4987,8 +5226,15 @@
                     >
                   </a>
                 </div>
-                <div v-if="fiatCheckoutURL" className="loginRow">
-                  <a :href="fiatCheckoutURL" target="_blank" rel="noopener noreferrer">
+                <div
+                  v-if="fiatCheckoutURL"
+                  className="loginRow"
+                >
+                  <a
+                    :href="fiatCheckoutURL"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
                     Click here for checkout if not redirected
                   </a>
                 </div>
@@ -5005,13 +5251,13 @@
             >
               <b-card>
                 <b-card-text>
-                  To pay in  <kbd class="bg-primary"><b>FLUX{{ applicationPriceFluxDiscount }}</b></kbd>, please make a transaction of <b>{{ appPricePerSpecs }} FLUX</b> to address
+                  To pay in <kbd class="bg-primary"><b>FLUX{{ applicationPriceFluxDiscount }}</b></kbd>, please make a transaction of <b>{{ appPricePerSpecs }} FLUX</b> to address
                   <b>'{{ deploymentAddress }}'</b>
                   with the following message:
                   <b>'{{ updateHash }}'</b>
                 </b-card-text>
                 <br>
-                <kbd class="bg-danger">The transaction must be mined by <b>{{ new Date(validTill).toLocaleString('en-GB', timeoptions.shortDate) }}</b></kbd>
+                <kbd class="bg-danger">The transaction must be sent by <b>{{ new Date(validTill).toLocaleString('en-GB', timeoptions.shortDate) }}</b></kbd>
               </b-card>
             </b-col>
             <b-col
@@ -5829,6 +6075,27 @@ export default {
     };
   },
   computed: {
+    appRunningTill() {
+      const blockTime = 2 * 60 * 1000;
+      const expires = this.callBResponse.data.expire || 22000;
+      const blocksToExpire = this.callBResponse.data.height + expires - this.daemonBlockCount;
+      const currentExpire = Math.ceil(blocksToExpire / 1000) * 1000;
+      let newExpire = currentExpire;
+      if (this.extendSubscription) {
+        newExpire = this.expireOptions[this.expirePosition].value;
+      }
+
+      const now = Date.now();
+      const currentExpireTime = Math.floor((currentExpire * blockTime + now) / 1000000) * 1000000;
+      const newExpireTime = Math.floor((newExpire * blockTime + now) / 1000000) * 1000000;
+
+      const runningTill = {
+        current: currentExpireTime,
+        new: newExpireTime,
+      };
+
+      return runningTill;
+    },
     skin() {
       return useAppConfig().skin.value;
     },
@@ -6047,16 +6314,16 @@ export default {
       if (this.appUpdateSpecification.expire) {
         const timeFound = this.expireOptions.find((option) => option.value === this.appUpdateSpecification.expire);
         if (timeFound) {
-          const expTime = this.timestamp + timeFound.time;
+          const expTime = Math.floor((this.timestamp + timeFound.time) / 1000000) * 1000000;
           return expTime;
         }
         const blocks = this.appUpdateSpecification.expire;
         const blockTime = 2 * 60 * 1000;
         const validTime = blocks * blockTime;
-        const expTime = this.timestamp + validTime;
+        const expTime = Math.floor((this.timestamp + validTime) / 1000000) * 1000000;
         return expTime;
       }
-      const expTime = this.timestamp + 30 * 24 * 60 * 60 * 1000; // 1 month
+      const expTime = Math.floor((this.timestamp + 30 * 24 * 60 * 60 * 1000) / 1000000) * 1000000; // 1 month
       return expTime;
     },
     isApplicationInstalledLocally() {
@@ -6576,7 +6843,7 @@ export default {
         });
         bestMatchUnit = bestMatchUnit || 'B';
         return formatResult(bestMatchResult, bestMatchUnit);
-      // eslint-disable-next-line no-else-return
+        // eslint-disable-next-line no-else-return
       } else {
         const result = getSizeWithMultiplier(totalSizeInBytes, targetUnit);
         return formatResult(result, targetUnit);
@@ -7618,10 +7885,10 @@ export default {
           this.callResponse.status = response.data.status;
           this.callResponse.data = response.data.data[0];
           this.appSpecification = response.data.data[0];
-        // /* eslint-disable no-restricted-syntax */
-        // if (this.apps.length === 1) {
-        // this.apps = this.appSpecification.compose.map((component) => component.name); // Update apps array
-        // }
+          // /* eslint-disable no-restricted-syntax */
+          // if (this.apps.length === 1) {
+          // this.apps = this.appSpecification.compose.map((component) => component.name); // Update apps array
+          // }
         }
       }
     },
@@ -9602,8 +9869,8 @@ export default {
 }
 .clipboard.icon {
   position: absolute;
-    top: 0.4em;
-    right: 2.0em;
+  top: 0.4em;
+  right: 2em;
   margin-top: 4px;
   margin-left: 4px;
   width: 12px;
@@ -9628,8 +9895,9 @@ export default {
   box-shadow: 8px 0 0 0 #333333;
 }
 
-.icon:before, .icon:after {
-  content: '';
+.icon:before,
+.icon:after {
+  content: "";
   position: absolute;
   display: block;
 }
@@ -9804,5 +10072,4 @@ a:hover img {
 .card-body {
   padding: 1rem;
 }
-
 </style>

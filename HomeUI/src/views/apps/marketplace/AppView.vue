@@ -610,7 +610,7 @@
                   '{{ registrationHash }}'
                 </b-card-text>
                 <br>
-                The transaction must be mined by {{ new Date(validTill).toLocaleString('en-GB', timeoptions.shortDate) }}
+                The transaction must be sent by {{ new Date(validTill).toLocaleString('en-GB', timeoptions.shortDate) }}
               </b-card>
             </b-col>
             <b-col xs="6" lg="4">

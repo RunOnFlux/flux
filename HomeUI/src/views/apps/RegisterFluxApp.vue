@@ -1661,7 +1661,7 @@
               <b>'{{ registrationHash }}'</b>
             </b-card-text>
             <br>
-            <kbd class="bg-danger">The transaction must be mined by <b>{{ new Date(validTill).toLocaleString('en-GB', timeoptions.shortDate) }}</b></kbd>
+            <kbd class="bg-danger">The transaction must be sent by <b>{{ new Date(validTill).toLocaleString('en-GB', timeoptions.shortDate) }}</b></kbd>
           </b-card>
         </b-col>
         <b-col
