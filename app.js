@@ -125,7 +125,7 @@ async function initiate() {
   // temp debug
   setInterval(() => log.info('Stdin listeners:', process.stdin.listeners('data')), 10000)
 
-  console.log(String.raw`
+  log.info(String.raw`
 
 
     ___________.__               ________    _________
