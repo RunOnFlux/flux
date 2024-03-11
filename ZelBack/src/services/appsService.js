@@ -11782,7 +11782,7 @@ async function checkMyAppsAvailability() {
       failedPort = testingPort;
       failedNodesTestPortsCache.set(askingIP, askingIP);
     } else if (resMyAppAvailability && resMyAppAvailability.data.status === 'success') {
-      log.info(`${resMyAppAvailability.data.data.message} Detected from ${askingIP}:${askingIpPort} on ${testingPort}`);
+      log.info(`${resMyAppAvailability.data.data.message} Detected from ${askingIP}:${askingIpPort} TestPort: ${testingPort}`);
       failedPort = null;
     }
 

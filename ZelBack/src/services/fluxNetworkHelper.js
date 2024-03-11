@@ -334,13 +334,13 @@ async function checkAppAvailability(req, res) {
           // eslint-disable-next-line no-await-in-loop
           const isOpen = await isPortOpen(ip, port);
           if (!isOpen) {
-            throw new Error(`Flux Applications on ${ip}:${ipPort} are not available. Failed port: ${port}`);
+            throw new Error(`Flux Apps on node ${ip}:${ipPort} are not reachable. Failed port: ${port}`);
           }
         } else {
           log.error(`Flux App port ${port} is outside allowed range.`);
         }
       }
-      const successResponse = messageHelper.createSuccessMessage(`Flux Applications on ${ip}:${ipPort} are available.`);
+      const successResponse = messageHelper.createSuccessMessage(`Flux Apps on node ${ip}:${ipPort} are reachable.`);
       res.json(successResponse);
     } catch (error) {
       const errorResponse = messageHelper.createErrorMessage(
@@ -615,7 +615,7 @@ async function checkFluxbenchVersionAllowed() {
   try {
     const benchmarkInfoResponse = await benchmarkService.getInfo();
     if (benchmarkInfoResponse.status === 'success') {
-      log.info(benchmarkInfoResponse);
+      log.info('Benchmark Info:', benchmarkInfoResponse.data);
       const benchmarkVersion = benchmarkInfoResponse.data.version;
       setStoredFluxBenchAllowed(benchmarkVersion);
       const versionOK = minVersionSatisfy(benchmarkVersion, config.minimumFluxBenchAllowedVersion);

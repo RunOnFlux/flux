@@ -11,6 +11,8 @@ const targets = levels.map((level) => {
   return { level, target: 'pino/file', options: { destination } }
 })
 
+console.log(targets)
+
 fileLogs = pino(pino.transport({ targets }))
 
 // https://en.m.wikipedia.org/wiki/ANSI_escape_code#Colors
