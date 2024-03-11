@@ -21,6 +21,7 @@ process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
 const fs = require('fs/promises');
 const { parseArgs } = require('node:util');
 const path = require('node:path');
+const { spawn } = require('node:child_process');
 
 const config = require('config');
 const hash = require('object-hash');
@@ -107,6 +108,15 @@ async function configReload() {
   } catch (error) {
     log.error(`Error watching files: ${error}`);
   }
+}
+
+function restart() {
+  // figure out if this makes sense
+  spawn(process.argv[1], process.argv.slice(2), {
+    detached: true,
+    stdio: ['ignore', 'pipe', 'pipe']
+  }).unref()
+  process.exit();
 }
 
 async function initiate() {

@@ -5,7 +5,16 @@ const express = require('express');
 
 const log = require('../lib/log');
 
+const logger = () => {
+  return (req, res, next) => {
+    log.debug("Incomming request:", { url: req.url, method: req.method, ip: req.ip.replace('::ffff:', '') })
+    next();
+  }
+};
+
 const homeApp = express();
+homeApp.use(logger());
+
 let server;
 let currentPort;
 

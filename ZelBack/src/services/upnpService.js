@@ -207,7 +207,7 @@ async function setupUPNP(apiport = config.server.apiport) {
  * @returns {Promise<boolean>} True if port mappings can be created for both TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) protocols. Otherwise false.
  */
 async function mapUpnpPort(port, description) {
-  log.info(`MAPPING UPNP PORT: ${port} with type ${typeof port} and desc ${description}`)
+  log.info(`Mapping UPnP port: ${port} with description: ${description}.`)
   try {
     await client.createMapping({
       public: port,

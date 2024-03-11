@@ -168,8 +168,6 @@ async function runCommand(userCmd, options = {}) {
   const res = { error: null, stdout: null, stderr: null }
   const params = options.params || [];
 
-  log.info(`RUN COMMAND: ${userCmd} ${params.join(" ")}`)
-
   if (!userCmd) {
     res.error = new Error("Command must be present")
     return res
@@ -182,6 +180,8 @@ async function runCommand(userCmd, options = {}) {
   }
 
   const { runAsRoot, logError, ...execOptions } = options;
+
+  log.debug(`Spawning Child Process. Root: ${runAsRoot}. Cmd: ${userCmd} ${params.join(" ")}`)
 
   if (runAsRoot) {
     params.unshift(userCmd);
