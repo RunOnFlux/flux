@@ -3424,10 +3424,12 @@
 
           <b-col cols="12">
             <b-table
+              :key="tableKey"
               class="app-instances-table"
               striped
               hover
               responsive
+              :busy="isBusy"
               :per-page="instances.perPage"
               :current-page="instances.currentPage"
               :items="instances.data"
@@ -3440,6 +3442,12 @@
               show-empty
               :empty-text="`No instances of ${appName}`"
             >
+              <template #table-busy>
+                <div class="text-center text-danger my-2">
+                  <b-spinner class="align-middle mr-1" />
+                  <strong>Loading geolocation...</strong>
+                </div>
+              </template>
               <template #cell(show_details)="row">
                 <a @click="row.toggleDetails">
                   <v-icon
@@ -5678,6 +5686,8 @@ export default {
   },
   data() {
     return {
+      tableKey: 0,
+      isBusy: false,
       inputPathValue: '',
       fields: [
         { key: 'name', label: 'Name', sortable: true },
@@ -6517,9 +6527,6 @@ export default {
     this.getMultiplier();
     this.getEnterpriseNodes();
     this.getDaemonBlockCount();
-    await this.getApplicationLocations().catch(() => {
-      this.showToast('danger', 'Error loading application locations');
-    });
   },
   beforeDestroy() {
     window.removeEventListener('resize', this.onResize);
@@ -7756,6 +7763,9 @@ export default {
       switch (index) {
         case 1:
           this.getInstancesForDropDown();
+          this.getApplicationLocations().catch(() => {
+            this.showToast('danger', 'Error loading application locations');
+          });
           this.getInstalledApplicationSpecifics();
           this.getGlobalApplicationSpecifics();
           break;
@@ -7786,9 +7796,6 @@ export default {
           if (!this.appSpecification?.compose || this.appSpecification?.compose?.length === 1) {
             this.refreshFolder();
           }
-          break;
-        case 14:
-          this.getApplicationLocations();
           break;
         case 15:
           this.getZelidAuthority();
@@ -8633,6 +8640,7 @@ export default {
       }
     },
     async getApplicationLocations() {
+      this.isBusy = true;
       const response = await AppsService.getAppLocation(this.appName);
       console.log(response);
       if (response.data.status === 'error') {
@@ -8669,6 +8677,8 @@ export default {
           }
         }
         this.instances.totalRows = this.instances.data.length;
+        this.tableKey += 1;
+        this.isBusy = false;
       }
     },
     async getAppOwner() {
