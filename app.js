@@ -199,7 +199,7 @@ async function initiate() {
 
 `)
 
-  log.info(`Running as TTY: ${isTTY}}`);
+  log.info(`Running as TTY: ${isTTY}`);
 
   // const branch = development ? userconfig.initial.branch || 'development' : 'master';
   // await loadBranch(branch);
