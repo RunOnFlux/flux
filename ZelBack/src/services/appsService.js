@@ -8,11 +8,14 @@ const http = require('http');
 const os = require('os');
 const path = require('path');
 const nodecmd = require('node-cmd');
+const archiver = require('archiver');
 const df = require('node-df');
 const { LRUCache } = require('lru-cache');
 const systemcrontab = require('crontab');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
+const fs = require('fs').promises;
+const execShell = util.promisify(require('child_process').exec);
 const httpShutdown = require('http-shutdown');
 const fluxCommunication = require('./fluxCommunication');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
@@ -38,6 +41,7 @@ const signatureVerifier = require('./signatureVerifier');
 const backupRestoreService = require('./backupRestoreService');
 const IOUtils = require('./IOUtils');
 const log = require('../lib/log');
+const { PassThrough } = require('stream');
 const { invalidMessages } = require('./invalidMessages');
 
 const fluxDirPath = path.join(__dirname, '../../../');
@@ -66,6 +70,11 @@ const GlobalAppsSpawnLRUoptions = {
   ttl: 1000 * 60 * 60 * 2, // 2 hours
   maxAge: 1000 * 60 * 60 * 2, // 2 hours
 };
+const shortCache = {
+  max: 500,
+  ttl: 1000 * 60 * 5, // 5 minutes
+  maxAge: 1000 * 60 * 5, // 5 minutes
+};
 const longCache = {
   max: 500,
   ttl: 1000 * 60 * 60 * 3, // 3 hours
@@ -89,6 +98,7 @@ const stopedAppsCache = {
 };
 
 const trySpawningGlobalAppCache = new LRUCache(GlobalAppsSpawnLRUoptions);
+const myShortCache = new LRUCache(shortCache);
 const myLongCache = new LRUCache(longCache);
 const failedNodesTestPortsCache = new LRUCache(testPortsCache);
 const receiveOnlySyncthingAppsCache = new LRUCache(syncthingAppsCache);
@@ -335,6 +345,7 @@ async function executeAppGlobalCommand(appname, command, zelidauth, paramA, bypa
     const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
     const myUrl = myIP.split(':')[0];
     const myUrlPort = myIP.split(':')[1] || 16127;
+    let i = 1;
     // eslint-disable-next-line no-restricted-syntax
     for (const appInstance of locations) {
       // HERE let the node we are connected to handle it
@@ -356,6 +367,11 @@ async function executeAppGlobalCommand(appname, command, zelidauth, paramA, bypa
       axios.get(url, axiosConfig);// do not wait, we do not care of the response
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(500);
+      if (command === 'redeploy' && !paramA && i < 4) {
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(i * 60 * 1000);
+      }
+      i += 1;
     }
   } catch (error) {
     log.error(error);
@@ -1069,6 +1085,39 @@ async function getAppFolderSize(appName) {
 }
 
 /**
+ * Returns total app container storage in bytes
+ * @param {string} appName - name or id of the container
+ * @returns {Promise<number>}
+ */
+async function getContainerStorage(appName) {
+  try {
+    const containerInfo = await dockerService.dockerContainerInspect(appName, { size: true });
+    let containerTotalSize = serviceHelper.ensureNumber(containerInfo.SizeRootFs) || 0;
+    // traverse mounts/volumes to find size used on host
+    if (containerInfo?.Mounts?.length) {
+      await Promise.all(containerInfo.Mounts.map(async (mount) => {
+        let source = mount?.Source;
+        if (source) {
+          // remove /appdata to get true size of the app folder
+          source = source.replace('/appdata', '');
+          const exec = `sudo du -sb ${source}`;
+          const mountInfo = await cmdAsync(exec);
+          const mountSize = serviceHelper.ensureNumber(mountInfo?.data.split(source)[0]) || 0;
+          if (typeof mountSize === 'number' && !Number.isNaN(mountSize)) {
+            containerTotalSize += mountSize;
+          }
+        }
+      }));
+      return containerTotalSize;
+    }
+    return containerTotalSize;
+  } catch (error) {
+    log.error(error);
+    return 0;
+  }
+}
+
+/**
  * Starts app monitoring for a single app and saves monitoring data in-memory to the appsMonitored object.
  * @param {object} appName monitored component name
  */
@@ -1099,11 +1148,12 @@ function startAppMonitoring(appName) {
           return;
         }
         const statsNow = await dockerService.dockerContainerStats(appName);
-        const containerSize = await dockerService.dockerContainerInspect(appName, { size: true });
+        const containerTotalSize = await getContainerStorage(appName);
+
         // const appFolderName = dockerService.getAppDockerNameIdentifier(appName).substring(1);
         // const folderSize = await getAppFolderSize(appFolderName);
         statsNow.disk_stats = {
-          used: containerSize.SizeRootFs ?? 0,
+          used: containerTotalSize ?? 0,
         };
         appsMonitored[appName].oneMinuteStatsStore.unshift({ timestamp: Date.now(), data: statsNow }); // Most recent stats object is at position 0 in the array
         if (appsMonitored[appName].oneMinuteStatsStore.length > 60) {
@@ -1129,10 +1179,12 @@ function startAppMonitoring(appName) {
           return;
         }
         const statsNow = await dockerService.dockerContainerStats(appName);
-        const appFolderName = dockerService.getAppDockerNameIdentifier(appName).substring(1);
-        const folderSize = await getAppFolderSize(appFolderName);
+        const containerTotalSize = await getContainerStorage(appName);
+
+        // const appFolderName = dockerService.getAppDockerNameIdentifier(appName).substring(1);
+        // const folderSize = await getAppFolderSize(appFolderName);
         statsNow.disk_stats = {
-          used: folderSize,
+          used: containerTotalSize ?? 0,
         };
         appsMonitored[appName].fifteenMinStatsStore.unshift({ timestamp: Date.now(), data: statsNow }); // Most recent stats object is at position 0 in the array
         if (appsMonitored[appName].oneMinuteStatsStore.length > 96) {
@@ -9735,7 +9787,7 @@ async function reinstallOldApplications() {
 }
 
 /**
- * To get app price.
+ * DEPRECATED: To get app price. Should be used getAppFiatAndFluxPrice method instead
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {object} Message.
@@ -9802,6 +9854,210 @@ async function getAppPrice(req, res) {
         actualPriceToPay = priceSpecifications.minPrice;
       }
       const respondPrice = messageHelper.createDataMessage(actualPriceToPay);
+      return res.json(respondPrice);
+    } catch (error) {
+      log.warn(error);
+      const errorResponse = messageHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      return res.json(errorResponse);
+    }
+  });
+}
+
+/**
+ * To get app flux onchain price.
+ * @param {object} appSpecification Request.
+ * @returns {number} Flux Chain Price.
+ */
+async function getAppFluxOnChainPrice(appSpecification) {
+  try {
+    const appSpecFormatted = specificationFormatter(appSpecification);
+
+    // check if app exists or its a new registration price
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+    // may throw
+    const query = { name: appSpecFormatted.name };
+    const projection = {
+      projection: {
+        _id: 0,
+      },
+    };
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    if (!syncStatus.data.synced) {
+      throw new Error('Daemon not yet synced.');
+    }
+    const daemonHeight = syncStatus.data.height;
+    const appPrices = await getChainParamsPriceUpdates();
+    const intervals = appPrices.filter((i) => i.height < daemonHeight);
+    const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
+    const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+    const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
+    let actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices);
+    const expireIn = appSpecFormatted.expire || defaultExpire;
+    // app prices are ceiled to highest 0.01
+    const multiplier = expireIn / defaultExpire;
+    actualPriceToPay *= multiplier;
+    actualPriceToPay = Math.ceil(actualPriceToPay * 100) / 100;
+    if (appInfo) {
+      let previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices); // calculate previous based on CURRENT height, with current interval of prices!
+      let previousExpireIn = previousSpecsPrice.expire || defaultExpire; // bad typo bug line. Leave it like it is, this bug is a feature now.
+      if (daemonHeight > 1315000) {
+        previousExpireIn = appInfo.expire || defaultExpire;
+      }
+      const multiplierPrevious = previousExpireIn / defaultExpire;
+      previousSpecsPrice *= multiplierPrevious;
+      previousSpecsPrice = Math.ceil(previousSpecsPrice * 100) / 100;
+      // what is the height difference
+      const heightDifference = daemonHeight - appInfo.height;
+      const perc = (previousExpireIn - heightDifference) / previousExpireIn;
+      if (perc > 0) {
+        actualPriceToPay -= (perc * previousSpecsPrice);
+      }
+    }
+    actualPriceToPay = Number(Math.ceil(actualPriceToPay * 100) / 100);
+    if (actualPriceToPay < priceSpecifications.minPrice) {
+      actualPriceToPay = priceSpecifications.minPrice;
+    }
+    return Number(actualPriceToPay).toFixed(2);
+  } catch (error) {
+    log.warn(error);
+    throw error;
+  }
+}
+
+/**
+ * To get app price.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+async function getAppFiatAndFluxPrice(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const processedBody = serviceHelper.ensureObject(body);
+      let appSpecification = processedBody;
+
+      appSpecification = serviceHelper.ensureObject(appSpecification);
+      const appSpecFormatted = specificationFormatter(appSpecification);
+
+      // verifications skipped. This endpoint is only for price evaluation
+
+      // check if app exists or its a new registration price
+      const db = dbHelper.databaseConnection();
+      const database = db.db(config.database.appsglobal.database);
+      // may throw
+      const query = { name: appSpecFormatted.name };
+      const projection = {
+        projection: {
+          _id: 0,
+        },
+      };
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+      if (!syncStatus.data.synced) {
+        throw new Error('Daemon not yet synced.');
+      }
+      const daemonHeight = syncStatus.data.height;
+      const axiosConfig = {
+        timeout: 5000,
+      };
+      const appPrices = [];
+      if (myLongCache.has('appPrices')) {
+        appPrices.push(myLongCache.get('appPrices'));
+      } else {
+        const response = await axios.get('https://stats.runonflux.io/apps/getappspecsusdprice', axiosConfig);
+        if (response.data.status === 'success') {
+          myLongCache.set('appPrices', response.data.data);
+          appPrices.push(response.data.data);
+        } else {
+          throw new Error('Unable to get standard usd prices for app specs');
+        }
+      }
+      let actualPriceToPay = 0;
+      const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+      const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
+      actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices);
+      const expireIn = appSpecFormatted.expire || defaultExpire;
+      // app prices are ceiled to highest 0.01
+      const multiplier = expireIn / defaultExpire;
+      actualPriceToPay *= multiplier;
+      actualPriceToPay = Number(actualPriceToPay).toFixed(2);
+      if (appInfo) {
+        let previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices); // calculate previous based on CURRENT height, with current interval of prices!
+        let previousExpireIn = previousSpecsPrice.expire || defaultExpire; // bad typo bug line. Leave it like it is, this bug is a feature now.
+        if (daemonHeight > 1315000) {
+          previousExpireIn = appInfo.expire || defaultExpire;
+        }
+        const multiplierPrevious = previousExpireIn / defaultExpire;
+        previousSpecsPrice *= multiplierPrevious;
+        previousSpecsPrice = Number(previousSpecsPrice).toFixed(2);
+        // what is the height difference
+        const heightDifference = daemonHeight - appInfo.height;
+        const perc = (previousExpireIn - heightDifference) / previousExpireIn;
+        if (perc > 0) {
+          actualPriceToPay -= (perc * previousSpecsPrice);
+        }
+      }
+      const marketplaceResponse = await axios.get('https://stats.runonflux.io/marketplace/listapps');
+      let marketPlaceApps;
+      if (marketplaceResponse.data.status === 'success') {
+        marketPlaceApps = marketplaceResponse.data.data;
+      } else {
+        throw new Error('Unable to get marketplace information');
+      }
+
+      if (appSpecification.priceUSD) {
+        if (appSpecification.priceUSD < actualPriceToPay) {
+          const price = {
+            usd: 'Not possible to pay with USD',
+            flux: 'Not possible to pay with Flux',
+            fluxDiscount: 0,
+          };
+          const respondPrice = messageHelper.createDataMessage(price);
+          return res.json(respondPrice);
+        }
+        actualPriceToPay = Number(appSpecification.priceUSD).toFixed(2);
+      } else {
+        const marketPlaceApp = marketPlaceApps.find((app) => appSpecFormatted.name.toLowerCase().startsWith(app.name.toLowerCase()));
+        if (marketPlaceApp) {
+          if (marketPlaceApp.multiplier > 1) {
+            actualPriceToPay *= marketPlaceApp.multiplier;
+          }
+        }
+
+        actualPriceToPay = Number(actualPriceToPay * appPrices[0].multiplier).toFixed(2);
+        if (actualPriceToPay < appPrices[0].minUSDPrice) {
+          actualPriceToPay = Number(appPrices[0].minUSDPrice).toFixed(2);
+        }
+      }
+      let fiatRates;
+      if (myShortCache.has('fluxRates')) {
+        fiatRates = myShortCache.get('fluxRates');
+      } else {
+        fiatRates = await axios.get('https://viprates.runonflux.io/rates', axiosConfig).catch(() => { throw new Error('Unable to get Flux Rates'); });
+        myShortCache.set('fluxRates', fiatRates);
+      }
+      const rateObj = fiatRates.data[0].find((rate) => rate.code === 'USD');
+      const btcRateforFlux = fiatRates.data[1].FLUX;
+      if (btcRateforFlux === undefined) {
+        throw new Error('Unable to get Flux USD Price.');
+      }
+      const fiatRate = rateObj.rate * btcRateforFlux;
+      const fluxPrice = Number((actualPriceToPay / fiatRate) * appPrices[0].fluxmultiplier).toFixed(2);
+      const fluxChainPrice = await getAppFluxOnChainPrice(appSpecification);
+      const price = {
+        usd: actualPriceToPay,
+        flux: fluxChainPrice > fluxPrice ? 'Not possible to pay with Flux' : fluxPrice,
+        fluxDiscount: 100 - (appPrices[0].fluxmultiplier * 100),
+      };
+      const respondPrice = messageHelper.createDataMessage(price);
       return res.json(respondPrice);
     } catch (error) {
       log.warn(error);
@@ -11894,7 +12150,7 @@ async function appendBackupTask(req, res) {
       backupInProgress.splice(indexToRemove, 1);
       res.end();
       return true;
-    // eslint-disable-next-line no-else-return
+      // eslint-disable-next-line no-else-return
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res.json(errMessage);
@@ -12046,7 +12302,7 @@ async function appendRestoreTask(req, res) {
       restoreInProgress.splice(indexToRemove, 1);
       res.end();
       return true;
-    // eslint-disable-next-line no-else-return
+      // eslint-disable-next-line no-else-return
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res.json(errMessage);
@@ -12060,6 +12316,360 @@ async function appendRestoreTask(req, res) {
     await sendChunk(res, `${error?.message}\n`);
     res.end();
     return false;
+  }
+}
+
+/**
+ * To get a list of files with their details for all files.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function getAppsFolder(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname || '';
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    if (authorized) {
+      let { folder } = req.params;
+      folder = folder || req.query.folder || '';
+      let { component } = req.params;
+      component = component || req.query.component || '';
+      if (!appname || !component) {
+        throw new Error('appname and component parameters are mandatory');
+      }
+      let filepath;
+      const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
+      if (appVolumePath.length > 0) {
+        filepath = `${appVolumePath[0].mount}/appdata/${folder}`;
+      } else {
+        throw new Error('Application volume not found');
+      }
+      const options = {
+        withFileTypes: false,
+      };
+      const files = await fs.readdir(filepath, options);
+      const filesWithDetails = [];
+      // eslint-disable-next-line no-restricted-syntax
+      for (const file of files) {
+        // eslint-disable-next-line no-await-in-loop
+        const fileStats = await fs.lstat(`${filepath}/${file}`);
+        const isDirectory = fileStats.isDirectory();
+        const isFile = fileStats.isFile();
+        const isSymbolicLink = fileStats.isSymbolicLink();
+        let fileFolderSize = fileStats.size;
+        if (isDirectory) {
+          // eslint-disable-next-line no-await-in-loop
+          fileFolderSize = await IOUtils.getFolderSize(`${filepath}/${file}`);
+        }
+        const detailedFile = {
+          name: file,
+          size: fileFolderSize, // bytes
+          isDirectory,
+          isFile,
+          isSymbolicLink,
+          createdAt: fileStats.birthtime,
+          modifiedAt: fileStats.mtime,
+        };
+        filesWithDetails.push(detailedFile);
+      }
+      const resultsResponse = messageHelper.createDataMessage(filesWithDetails);
+      res.json(resultsResponse);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
+}
+
+/**
+ * To create a folder
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function createAppsFolder(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname || '';
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    if (authorized) {
+      let { folder } = req.params;
+      folder = folder || req.query.folder || '';
+      let { component } = req.params;
+      component = component || req.query.component || '';
+      if (!appname || !component) {
+        throw new Error('appname and component parameters are mandatory');
+      }
+      let filepath;
+      const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
+      if (appVolumePath.length > 0) {
+        filepath = `${appVolumePath[0].mount}/appdata/${folder}`;
+      } else {
+        throw new Error('Application volume not found');
+      }
+      const cmd = `sudo mkdir "${filepath}"`;
+      await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      const resultsResponse = messageHelper.createSuccessMessage('Folder Created');
+      res.json(resultsResponse);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
+}
+
+/**
+ * To rename a file or folder. Oldpath is relative path to default fluxshare directory; newname is just a new name of folder/file. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function renameAppsObject(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname || '';
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    if (authorized) {
+      let { oldpath } = req.params;
+      let { component } = req.params;
+      component = component || req.query.component || '';
+      if (!appname || !component) {
+        throw new Error('appname and component parameters are mandatory');
+      }
+      oldpath = oldpath || req.query.oldpath;
+      if (!oldpath) {
+        throw new Error('No file nor folder to rename specified');
+      }
+      let { newname } = req.params;
+      newname = newname || req.query.newname;
+      if (!newname) {
+        throw new Error('No new name specified');
+      }
+      if (newname.includes('/')) {
+        throw new Error('New name is invalid');
+      }
+      // stop sharing of ALL files that start with the path
+      const fileURI = encodeURIComponent(oldpath);
+      let oldfullpath;
+      let newfullpath;
+      const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
+      if (appVolumePath.length > 0) {
+        oldfullpath = `${appVolumePath[0].mount}/appdata/${oldpath}`;
+        newfullpath = `${appVolumePath[0].mount}/appdata/${newname}`;
+      } else {
+        throw new Error('Application volume not found');
+      }
+      const fileURIArray = fileURI.split('%2F');
+      fileURIArray.pop();
+      if (fileURIArray.length > 0) {
+        const renamingFolder = fileURIArray.join('/');
+        newfullpath = `${appVolumePath[0].mount}/appdata/${renamingFolder}/${newname}`;
+      }
+      const cmd = `sudo mv -T "${oldfullpath}" "${newfullpath}"`;
+      await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      const response = messageHelper.createSuccessMessage('Rename successful');
+      res.json(response);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
+/**
+ * To remove a specified shared file. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function removeAppsObject(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname || '';
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    if (authorized) {
+      let { object } = req.params;
+      object = object || req.query.object;
+      let { component } = req.params;
+      component = component || req.query.component || '';
+      if (!component) {
+        throw new Error('component parameter is mandatory');
+      }
+      if (!object) {
+        throw new Error('No object specified');
+      }
+      let filepath;
+      const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
+      if (appVolumePath.length > 0) {
+        filepath = `${appVolumePath[0].mount}/appdata/${object}`;
+      } else {
+        throw new Error('Application volume not found');
+      }
+      const cmd = `sudo rm -rf "${filepath}"`;
+      await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      const response = messageHelper.createSuccessMessage('File Removed');
+      res.json(response);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
+/**
+ * To download a zip folder for a specified directory. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @param {boolean} authorized False until verified as an admin.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
+async function downloadAppsFolder(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname || '';
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    if (authorized) {
+      let { folder } = req.params;
+      folder = folder || req.query.folder;
+      let { component } = req.params;
+      component = component || req.query.component;
+      if (!folder || !component) {
+        const errorResponse = messageHelper.createErrorMessage('folder and component parameters are mandatory');
+        res.json(errorResponse);
+        return;
+      }
+      let folderpath;
+      const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
+      if (appVolumePath.length > 0) {
+        folderpath = `${appVolumePath[0].mount}/appdata/${folder}`;
+      } else {
+        throw new Error('Application volume not found');
+      }
+      const zip = archiver('zip');
+      const sizeStream = new PassThrough();
+      let compressedSize = 0;
+      sizeStream.on('data', (chunk) => {
+        compressedSize += chunk.length;
+      });
+      sizeStream.on('end', () => {
+        const folderNameArray = folderpath.split('/');
+        const folderName = folderNameArray[folderNameArray.length - 1];
+        res.writeHead(200, {
+          'Content-Type': 'application/zip',
+          'Content-disposition': `attachment; filename=${folderName}.zip`,
+          'Content-Length': compressedSize,
+        });
+        // Now, pipe the compressed data to the response stream
+        const zipFinal = archiver('zip');
+        zipFinal.pipe(res);
+        zipFinal.directory(folderpath, false);
+        zipFinal.finalize();
+      });
+      zip.pipe(sizeStream);
+      zip.directory(folderpath, false);
+      zip.finalize();
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
+/**
+ * To download a specified file. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
+async function downloadAppsFile(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname || '';
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    if (authorized) {
+      let { file } = req.params;
+      file = file || req.query.file;
+      let { component } = req.params;
+      component = component || req.query.component;
+      if (!file || !component) {
+        const errorResponse = messageHelper.createErrorMessage('file and component parameters are mandatory');
+        res.json(errorResponse);
+        return;
+      }
+      let filepath;
+      const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
+      if (appVolumePath.length > 0) {
+        filepath = `${appVolumePath[0].mount}/appdata/${file}`;
+      } else {
+        throw new Error('Application volume not found');
+      }
+      const cmd = `sudo chmod 777 "${filepath}"`;
+      await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      // beautify name
+      const fileNameArray = filepath.split('/');
+      const fileName = fileNameArray[fileNameArray.length - 1];
+      res.download(filepath, fileName);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
   }
 }
 
@@ -12135,6 +12745,7 @@ module.exports = {
   installAppLocally,
   updateAppGlobalyApi,
   getAppPrice,
+  getAppFiatAndFluxPrice,
   reinstallOldApplications,
   checkAndRemoveApplicationInstance,
   checkAppTemporaryMessageExistence,
@@ -12163,6 +12774,12 @@ module.exports = {
   appendBackupTask,
   appendRestoreTask,
   sendChunk,
+  getAppsFolder,
+  createAppsFolder,
+  renameAppsObject,
+  removeAppsObject,
+  downloadAppsFolder,
+  downloadAppsFile,
   // exports for testing purposes
   setAppsMonitored,
   getAppsMonitored,

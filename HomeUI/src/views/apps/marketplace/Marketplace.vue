@@ -132,7 +132,20 @@
                   </h6>
                 </div>
               </div>
-              <div class="app-title-area">
+              <div
+                v-if="singleApp.priceUSD"
+                class="app-title-area"
+              >
+                <div class="title-wrapper">
+                  <h5 class="text-nowrap mr-1 app-description">
+                    Price: {{ singleApp.priceUSD }} USD / {{ adjustPeriod(singleApp) }}
+                  </h5>
+                </div>
+              </div>
+              <div
+                v-else
+                class="app-title-area"
+              >
                 <div class="title-wrapper">
                   <h5 class="text-nowrap mr-1 app-description">
                     Price: {{ singleApp.price }} Flux / {{ adjustPeriod(singleApp) }}
