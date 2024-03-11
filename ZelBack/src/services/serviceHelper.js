@@ -13,13 +13,18 @@ const dbHelper = require('./dbHelper');
 const log = require('../lib/log');
 
 /**
- * A simple cache for the firewall status. Purge UFW, and Adjust firewall
- * both need the status, so no need to run a child process each time
+ * Allows for exclusive locks when running child processes
+ */
+const locks = new Map();
+
+/**
+ * A simple 15s cache for the firewall status. Purge UFW, and Adjust firewall
+ * both need the status (and others), so no need to run a child process each time
  */
 const firewallStatus = { active: null, lastCheck: 0 }
 
 firewallStatus.get = function () {
-  const active = this.lastCheck + (10 * 1000) > Date.now() ? this.active : null;
+  const active = this.lastCheck + (15 * 1000) > Date.now() ? this.active : null;
   return active;
 }
 
@@ -156,7 +161,7 @@ function delay(ms) {
 /**
  *
  * @param {string} cmd The binary to run. Must be in PATH
- * @param {{params?: string[], runAsRoot?: Boolean, logError?: Boolean, cwd?: string, timeout?: number, signal?: AbortSignal, shell?: (Boolean|string)}} options
+ * @param {{params?: string[], runAsRoot?: Boolean, exclusive?: Boolean, logError?: Boolean, cwd?: string, timeout?: number, signal?: AbortSignal, shell?: (Boolean|string)}} options
    @returns {Promise<{error: (Error|null), stdout: (string|null), stderr: (string|null)}>}
  */
 async function runCommand(userCmd, options = {}) {
@@ -215,6 +220,13 @@ async function runCommand(userCmd, options = {}) {
   //   });
   // })
 
+  // delete the locks after no waiters?
+  if (options.exclusive) {
+    if (!locks.has(userCmd)) locks[userCmd] = new AsyncLock();
+    await locks[userCmd].enable();
+    log.info("EXCLUSIVE LOCK ENABLED FOR CMD", userCmd)
+  }
+
   const { stdout, stderr } = await execFile(cmd, params, execOptions).catch((err) => {
     const { stdout: errStdout, stderr: errStderr, ...error } = err;
     res.error = error;
@@ -222,6 +234,11 @@ async function runCommand(userCmd, options = {}) {
     // subprocessLock.disable()
     return [errStdout, errStderr];
   });
+
+  if (options.exclusive) {
+    locks[userCmd].disable();
+    log.info("EXCLUSIVE LOCK DISABLED FOR CMD", userCmd)
+  }
 
   // if (stderr) console.log("STDERR FOUND!!!!!", stderr)
 
@@ -232,26 +249,20 @@ async function runCommand(userCmd, options = {}) {
   return res;
 }
 
-const firewallLock = new AsyncLock()
+
 /**
  * To check if a firewall is active, will cache for 10 seconds.
  * @returns {Promise<boolean>} True if a firewall is active. Otherwise false.
  */
 async function isFirewallActive() {
   const cachedStatus = firewallStatus.get();
-  log.info("CACHED STATUS", cachedStatus)
   if (cachedStatus !== null) return cachedStatus;
-
-  log.info("LOCKING FIREWALL")
-  await firewallLock.enable();
 
   const { stdout, error } = await runCommand('ufw', {
     runAsRoot: true,
+    exclusive: true,
     params: ['status'],
   });
-
-  log.info("UNLOCKING FIREWALL")
-  firewallLock.disable()
 
   // not sure this makes sense
   if (error) return false;
