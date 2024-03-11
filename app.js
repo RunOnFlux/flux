@@ -12,7 +12,9 @@ globalThis.noop = () => { };
 globalThis.sleep = (ms) => new Promise((r) => { setTimeout(r, ms); });
 
 /**
- * A global container for user defined configuration. See app.js
+ * A global container for user defined configuration. Currently, this
+ * also houses a lot of other runtime data. It's more of a global state.
+ * See app.js
  */
 globalThis.userconfig = require('./config/userconfig');
 
@@ -42,6 +44,11 @@ const options = {
     short: 'a',
     default: false
   },
+  'dev': {
+    type: 'boolean',
+    short: 'd',
+    default: false
+  },
   'gui-only': {
     type: 'boolean',
     short: 'g',
@@ -52,6 +59,11 @@ const options = {
     short: 'f',
     default: false
   },
+  'help': {
+    type: 'boolean',
+    short: 'h',
+    default: false,
+  }
 };
 
 function requireUncached(module) {
@@ -82,7 +94,7 @@ async function loadBranch(branch) {
 }
 
 async function configReload() {
-  // fix this
+  // fix this (replace with @parcel/watcher)
   try {
     const watcher = fs.watch(path.join(__dirname, '/config'));
     // eslint-disable-next-line
@@ -111,19 +123,32 @@ async function configReload() {
 }
 
 function restart() {
-  // figure out if this makes sense
+  // figure out if this makes sense (the pipes)
   spawn(process.argv[1], process.argv.slice(2), {
     detached: true,
     stdio: ['ignore', 'pipe', 'pipe']
-  }).unref()
-  process.exit();
+  }).unref();
+  process.exit(0);
+}
+
+function help() {
+  console.log(String.raw`Usage: fluxos [opts]
+
+  -h, --help                          Show this help
+  -f, --force-stdout                  Force stdout output even if no TTY
+  -g, --gui-only                      Only run GUI component
+  -a, --api-only                      Only run API component
+  -d, --dev                           Same as -a, backwards compatibility
+  `)
+
+  process.exit(1);
 }
 
 async function initiate() {
   // process.on('SIGINT') stops working after a minute or so?!?
   // whereas this doesn't
   function sigintListener(data) {
-    // CTRL+C
+    // CTRL+C = \x03
     if (data.toString() === '\x03') {
       log.info('SIGINT detected, bailing');
       process.exit();
@@ -132,8 +157,34 @@ async function initiate() {
 
   process.stdin.on('data', sigintListener);
 
-  // temp debug
-  // setInterval(() => log.info('Stdin listeners:', process.stdin.listeners('data')), 10000)
+  const args = process.argv.slice(2);
+
+  let parsed;
+  try {
+    parsed = parseArgs({ args, options, strict: true });
+  } catch {
+    help();
+  }
+
+  const { values: userOptions } = parsed;
+
+  // backwards compatibility
+  if (userOptions.dev) userOptions['api-only'] = true;
+
+  // if piped, stdout is just a writable without isTTY property
+  const isTTY = Boolean(process.stdout.isTTY);
+
+  if (userOptions.help) help();
+
+  if (userOptions['gui-only'] && userOptions['api-only']) {
+    log.error('Both gui-only and api-only cannot be set.');
+    process.exit(2);
+  }
+
+  if (!config.server.allowedPorts.includes(apiPort)) {
+    log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
+    process.exit(2);
+  }
 
   log.info(String.raw`
 
@@ -148,23 +199,7 @@ async function initiate() {
 
 `)
 
-  log.info(`Running as TTY: ${Boolean(process.stdout.isTTY)}`);
-
-  const args = process.argv.slice(2);
-  const {
-    values: userOptions,
-    _, // positional
-  } = parseArgs({ args, options, strict: false });
-
-  if (userOptions['gui-only'] && userOptions['api-only']) {
-    log.error('Both gui-only and api-only cannot be set.');
-    process.exit();
-  }
-
-  if (!config.server.allowedPorts.includes(apiPort)) {
-    log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
-    process.exit();
-  }
+  log.info(`Running as TTY: ${isTTY}}`);
 
   // const branch = development ? userconfig.initial.branch || 'development' : 'master';
   // await loadBranch(branch);
