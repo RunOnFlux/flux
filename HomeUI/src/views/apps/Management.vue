@@ -5021,7 +5021,6 @@
             <input
               id="period"
               v-model="expirePosition"
-              v-range-color
               type="range"
               class="form-control-range"
               style="width: 100%; outline: none;"
