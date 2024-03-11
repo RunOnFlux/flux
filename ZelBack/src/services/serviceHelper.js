@@ -12,6 +12,22 @@ const execFile = util.promisify(require('node:child_process').execFile);
 const dbHelper = require('./dbHelper');
 const log = require('../lib/log');
 
+/**
+ * A simple cache for the firewall status. Purge UFW, and Adjust firewall
+ * both need the status, so no need to run a child process each time
+ */
+const firewallStatus = { active: null, lastCheck: 0 }
+
+firewallStatus.get = function () {
+  const active = this.lastCheck + 10 > Date.now() ? this.active : null;
+  return active;
+}
+
+firewallStatus.set = function (status) {
+  this.active = status;
+  this.lastCheck = Date.now();
+}
+
 // const path = require('node:path')
 // const { Worker } = require('node:worker_threads');
 
@@ -207,7 +223,7 @@ async function runCommand(userCmd, options = {}) {
     return [errStdout, errStderr];
   });
 
-  if (stderr) console.log("STDERR FOUND!!!!!", stderr)
+  // if (stderr) console.log("STDERR FOUND!!!!!", stderr)
 
   res.stdout = stdout;
   res.stderr = stderr;
@@ -217,23 +233,31 @@ async function runCommand(userCmd, options = {}) {
 }
 
 /**
- * To check if a firewall is active.
+ * To check if a firewall is active, will cache for 10 seconds.
  * @returns {Promise<boolean>} True if a firewall is active. Otherwise false.
  */
 async function isFirewallActive() {
+  const cachedStatus = firewallStatus.get();
+  if (cachedStatus !== null) return cachedStatus;
+
   const { stdout, error } = await runCommand('ufw', {
     runAsRoot: true,
     params: ['status'],
   });
 
+  // not sure this makes sense
   if (error) return false;
 
+  let active = false;
+
   // install jc. Then can get this command (and others, like iptables) as json
-  if (ensureString(stdout).includes('Status: active')) {
-    return true;
+  if (stdout.includes('Status: active')) {
+    active = true;
   }
 
-  return false;
+  firewallStatus.set(active);
+
+  return active;
 }
 
 /**
