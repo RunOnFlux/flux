@@ -8185,7 +8185,7 @@ export default {
         this.appPricePerSpecsUSD = +response.data.data.usd;
         if (!this.extendSubscription && this.appPricePerSpecsUSD <= 0.50) {
           this.freeUpdate = true;
-        } else if (Number.isNaN(+response.data.data.flux)) {
+        } else if (Number.isNaN(+response.data.data.fluxDiscount)) {
           this.applicationPriceFluxError = true;
           this.showToast('danger', 'Not possible to complete payment with Flux crypto currency');
         } else {

@@ -1505,7 +1505,7 @@ export default {
           throw new Error(response.data.data.message || response.data.data);
         }
         appPricePerDeploymentUSD.value = +response.data.data.usd;
-        if (Number.isNaN(+response.data.data.flux)) {
+        if (Number.isNaN(+response.data.data.fluxDiscount)) {
           applicationPriceFluxError.value = true;
           showToast('danger', 'Not possible to complete payment with Flux crypto currency');
         } else {
