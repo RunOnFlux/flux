@@ -5,7 +5,7 @@ const axios = require('axios');
 const config = require('config');
 const splitargs = require('splitargs');
 const qs = require('qs');
-// const util = require('node:util');
+const util = require('node:util');
 const execFile = util.promisify(require('node:child_process').execFile);
 // const { spawn } = require('node:child_process');
 
