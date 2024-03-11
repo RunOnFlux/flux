@@ -59,10 +59,10 @@ async function runServer(port, options = {}) {
     return;
   }
 
-  httpServer = app.listen(apiPort, () => {
-    log.info(`Flux HTTP server listening on port: ${apiPort}`);
-    currentPort = apiPort;
-    socket.initIO(server);
+  httpServer = app.listen(port, () => {
+    log.info(`Flux HTTP server listening on port: ${port}`);
+    currentPort = port;
+    socket.initIO(httpServer);
     serviceManager.startFluxFunctions();
   });
 
