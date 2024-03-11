@@ -7764,6 +7764,7 @@ export default {
         case 1:
           this.getInstancesForDropDown();
           this.getApplicationLocations().catch(() => {
+            this.isBusy = false;
             this.showToast('danger', 'Error loading application locations');
           });
           this.getInstalledApplicationSpecifics();
