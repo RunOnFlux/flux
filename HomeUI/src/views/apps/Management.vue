@@ -3062,6 +3062,8 @@
                 :busy="loadingFolder"
                 :sort-compare="sort"
                 sort-by="name"
+                show-empty
+                :empty-text="`Directory is empty.`"
               >
                 <template #table-busy>
                   <div class="text-center text-danger my-2">
