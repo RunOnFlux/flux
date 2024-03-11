@@ -1509,7 +1509,7 @@
             rows="6"
             readonly
           />
-          <b-icon v-b-tooltip.hover.top="'Copy to clipboard'" class="clipboard icon" scale="1.5" icon="clipboard" @click="copyMessageToSign" />
+          <b-icon v-b-tooltip="tooltipText" class="clipboard icon" scale="1.5" icon="clipboard" @click="copyMessageToSign" />
         </div>
       </b-form-group>
       <b-form-group
@@ -2000,6 +2000,7 @@ import ListEntry from '@/views/components/ListEntry.vue';
 import SignClient from '@walletconnect/sign-client';
 import { MetaMaskSDK } from '@metamask/sdk';
 import useAppConfig from '@core/app-config/useAppConfig';
+import { useClipboard } from '@vueuse/core';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
 
@@ -2061,6 +2062,7 @@ export default {
   },
   data() {
     return {
+      tooltipText: 'Copy to clipboard',
       importAppSpecs: false,
       importedSpecs: '',
       timeoptions,
@@ -3755,13 +3757,13 @@ export default {
         this.showToast('warning', 'Please log in first before registering an application');
       }
     },
-    async copyMessageToSign() {
-      try {
-        await navigator.clipboard.writeText(this.dataToSign);
-        this.showToast('success', 'Copied to clipboard');
-      } catch ($e) {
-        this.showToast('danger', 'Failed to Copy to clipboard');
-      }
+    copyMessageToSign() {
+      const { copy } = useClipboard({ source: this.dataToSign, legacy: true });
+      copy();
+      this.tooltipText = 'Copied!';
+      setTimeout(() => {
+        this.tooltipText = 'Copy to clipboard';
+      }, 2000);
     },
   },
 };

@@ -685,6 +685,7 @@ import tierColors from '@/libs/colors';
 import SignClient from '@walletconnect/sign-client';
 import { MetaMaskSDK } from '@metamask/sdk';
 import useAppConfig from '@core/app-config/useAppConfig';
+import { useClipboard } from '@vueuse/core';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
 
@@ -1888,13 +1889,10 @@ export default {
       },
     };
 
-    const copyMessageToSign = async () => {
-      try {
-        await navigator.clipboard.writeText(dataToSign.value);
-        showToast('success', 'Copied to clipboard');
-      } catch ($e) {
-        showToast('danger', 'Failed to Copy to clipboard');
-      }
+    const copyMessageToSign = () => {
+      const { copy } = useClipboard({ source: dataToSign.value, legacy: true });
+      copy();
+      showToast('success', 'Copied to clipboard');
     };
 
     const register = async () => {

@@ -5098,7 +5098,7 @@
                 readonly
               />
               <b-icon
-                v-b-tooltip.hover.top="'Copy to clipboard'"
+                v-b-tooltip="tooltipText"
                 class="clipboard icon"
                 scale="1.5"
                 icon="clipboard"
@@ -5582,6 +5582,7 @@ import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
 import ListEntry from '@/views/components/ListEntry.vue';
 import JsonViewer from 'vue-json-viewer';
 import FileUpload from '@/views/components/FileUpload.vue';
+import { useClipboard } from '@vueuse/core';
 
 import AppsService from '@/services/AppsService';
 import DaemonService from '@/services/DaemonService';
@@ -5598,7 +5599,6 @@ import io from 'socket.io-client';
 import useAppConfig from '@core/app-config/useAppConfig';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
-
 const paymentBridge = 'https://fiatpaymentsbridge.runonflux.io';
 
 const walletConnectOptions = {
@@ -5691,6 +5691,7 @@ export default {
   },
   data() {
     return {
+      tooltipText: 'Copy to clipboard',
       tableKey: 0,
       isBusy: false,
       inputPathValue: '',
@@ -6538,6 +6539,14 @@ export default {
     window.removeEventListener('resize', this.onResize);
   },
   methods: {
+    copyMessageToSign() {
+      const { copy } = useClipboard({ source: this.dataToSign, legacy: true });
+      copy();
+      this.tooltipText = 'Copied!';
+      setTimeout(() => {
+        this.tooltipText = 'Copy to clipboard';
+      }, 2000);
+    },
     getIconName(used, total) {
       const percentage = (used / total) * 100;
       let icon;
@@ -9869,14 +9878,6 @@ export default {
           }
         }
         this.applicationManagementAndStatus = niceString;
-      }
-    },
-    async copyMessageToSign() {
-      try {
-        await navigator.clipboard.writeText(this.dataToSign);
-        this.showToast('success', 'Copied to clipboard');
-      } catch ($e) {
-        this.showToast('danger', 'Failed to Copy to clipboard');
       }
     },
     selectedIpChanged() {
