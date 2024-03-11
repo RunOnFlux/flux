@@ -7,7 +7,7 @@ const log = require('../lib/log');
 
 const logger = () => {
   return (req, res, next) => {
-    log.debug({ url: req.url, method: req.method, ip: req.ip.replace('::ffff:', '') }, "Incomming request:")
+    log.debug({ url: req.url, method: req.method, ip: req.ip.replace('::ffff:', '') }, "Incomming GUI request:")
     next();
   }
 };

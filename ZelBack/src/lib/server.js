@@ -13,7 +13,7 @@ const { app } = expressWs;
 
 const logger = () => {
   return (req, res, next) => {
-    log.debug({ url: req.url, method: req.method, ip: req.ip.replace('::ffff:', '') }, "Incomming request:")
+    log.debug({ url: req.url, method: req.method, ip: req.ip.replace('::ffff:', '') }, "Incomming API request:")
     next();
   }
 };
