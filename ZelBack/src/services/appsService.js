@@ -10018,7 +10018,7 @@ async function getAppFiatAndFluxPrice(req, res) {
           const price = {
             usd: 'Not possible to pay with USD',
             flux: 'Not possible to pay with Flux',
-            fluxDiscount: 0,
+            fluxDiscount: 'Not possible to define discount',
           };
           const respondPrice = messageHelper.createDataMessage(price);
           return res.json(respondPrice);
@@ -10054,8 +10054,8 @@ async function getAppFiatAndFluxPrice(req, res) {
       const fluxChainPrice = await getAppFluxOnChainPrice(appSpecification);
       const price = {
         usd: actualPriceToPay,
-        flux: fluxChainPrice > fluxPrice ? 'Not possible to pay with Flux' : fluxPrice,
-        fluxDiscount: 100 - (appPrices[0].fluxmultiplier * 100),
+        flux: fluxChainPrice > fluxPrice ? fluxChainPrice : fluxPrice,
+        fluxDiscount: fluxChainPrice > fluxPrice ? 'Not possible to define discount' : 100 - (appPrices[0].fluxmultiplier * 100),
       };
       const respondPrice = messageHelper.createDataMessage(price);
       return res.json(respondPrice);

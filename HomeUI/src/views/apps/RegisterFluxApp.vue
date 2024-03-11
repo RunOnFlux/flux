@@ -2762,7 +2762,7 @@ export default {
           throw new Error(response.data.data.message || response.data.data);
         }
         this.applicationPriceUSD = +response.data.data.usd;
-        if (Number.isNaN(+response.data.data.flux)) {
+        if (Number.isNaN(+response.data.data.fluxDiscount)) {
           this.applicationPriceFluxError = true;
           this.showToast('danger', 'Not possible to complete payment with Flux crypto currency');
         } else {
