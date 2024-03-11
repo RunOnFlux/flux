@@ -6,12 +6,23 @@ const pino = require('pino');
 const homeDir = path.join(__dirname, '../../../');
 const levels = ["debug", "info", "warn", "error"];
 
+const hooks = {
+  logMethod(inputArgs, method, level) {
+    if (inputArgs.length >= 2) {
+      const arg1 = inputArgs.shift()
+      const arg2 = inputArgs.shift()
+      return method.apply(this, [arg2, arg1, ...inputArgs])
+    }
+    return method.apply(this, inputArgs)
+  }
+}
+
 const targets = levels.map((level) => {
   const destination = path.join(homeDir, `${level}.log`);
   return { target: 'pino/file', level, options: { destination, colorize: false } }
 })
 
-fileLogs = pino(pino.transport({ targets }))
+fileLogs = pino({ level: 'debug', hooks, transport: { targets } });
 
 // https://en.m.wikipedia.org/wiki/ANSI_escape_code#Colors
 const colors = {
