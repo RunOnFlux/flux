@@ -5209,7 +5209,7 @@
                 <div class="loginRow">
                   <a @click="initStripePay(updateHash, appUpdateSpecification.name, appPricePerSpecsUSD, appUpdateSpecification.description)">
                     <img
-                      class="stripeLogin"
+                      class="stripePay"
                       src="@/assets/images/Stripe.svg"
                       alt="Stripe"
                       height="100%"
