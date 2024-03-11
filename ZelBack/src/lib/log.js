@@ -49,13 +49,14 @@ const logger = (logType) => {
   return (...args) => {
     if (process.stdout.isTTY) {
       const time = dtFormat.format(new Date());
-      // if first arg is object, swap for formatting.
-      if (args.length > 1 && typeof args[0] === 'object') args.splice(1, 0, args.shift());
+      // if first arg is object, swap for formatting. I don't like this.
+      const ttyArgs = args.slice(0);
+      if (ttyArgs.length > 1 && typeof ttyArgs[0] === 'object') ttyArgs.splice(1, 0, ttyArgs.shift());
       const output = util.formatWithOptions(
         { colors: true },
         `[${time}]`,
         `${colors[logType]}${logType}${colors['reset']}:`,
-        ...args
+        ...ttyArgs
       );
       process.stdout.write(output.replace(/\n/g, '\r\n') + '\r\n');
     }
