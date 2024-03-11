@@ -53,7 +53,7 @@ const logger = (logType) => {
       if (args.length > 1 && typeof args[0] === 'object') args.splice(1, 0, args.shift());
       const output = util.formatWithOptions(
         { colors: true },
-        [time],
+        `[${time}]`,
         `${colors[logType]}${logType}${colors['reset']}:`,
         ...args
       );
