@@ -6,6 +6,10 @@ const pino = require('pino');
 const homeDir = path.join(__dirname, '../../../');
 const levels = ["debug", "info", "warn", "error"];
 
+// get the log level from the args and only create those
+// files. Will continue with debug log for meantime,
+// but this should get removed in production (it's debug)
+
 // const hooks = {
 //   logMethod(inputArgs, method, level) {
 //     if (inputArgs.length >= 2) {
@@ -33,15 +37,23 @@ const colors = {
   reset: "\x1b[0m"
 };
 
+const dtFormat = new Intl.DateTimeFormat('en-GB', {
+  hour: 'numeric',
+  minute: 'numeric',
+  second: 'numeric',
+  fractionalSecondDigits: 3,
+  hour12: false,
+});
+
 const logger = (logType) => {
   return (...args) => {
     if (process.stdout.isTTY) {
-      const time = new Date().toISOString();
+      const time = dtFormat.format(new Date());
       // if first arg is object, swap for formatting.
       if (args.length > 1 && typeof args[0] === 'object') args.splice(1, 0, args.shift());
       const output = util.formatWithOptions(
         { colors: true },
-        time,
+        [time],
         `${colors[logType]}${logType}${colors['reset']}:`,
         ...args
       );
