@@ -19,7 +19,7 @@ const log = require('../lib/log');
 const firewallStatus = { active: null, lastCheck: 0 }
 
 firewallStatus.get = function () {
-  const active = this.lastCheck + 10 > Date.now() ? this.active : null;
+  const active = this.lastCheck + (10 * 1000) > Date.now() ? this.active : null;
   return active;
 }
 
