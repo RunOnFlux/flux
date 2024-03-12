@@ -442,13 +442,15 @@
             title="Registration Message"
             class="text-center wizard-card"
           >
-            <b-form-textarea
-              id="registrationmessage"
-              v-model="dataToSign"
-              rows="6"
-              readonly
-            />
-            <b-icon v-b-tooltip.hover.top="'Copy to clipboard'" class="clipboard icon" scale="1.5" icon="clipboard" @click="copyMessageToSign" />
+            <div class="text-wrap">
+              <b-form-textarea
+                id="registrationmessage"
+                v-model="dataToSign"
+                rows="6"
+                readonly
+              />
+              <b-icon ref="copyButtonRef" v-b-tooltip="tooltipText" class="clipboard icon" scale="1.5" icon="clipboard" @click="copyMessageToSign" />
+            </div>
           </b-card>
         </tab-content>
         <tab-content
@@ -677,6 +679,7 @@ import {
   watch,
   computed,
   getCurrentInstance,
+  nextTick,
 } from 'vue';
 
 import ListEntry from '@/views/components/ListEntry.vue';
@@ -823,6 +826,8 @@ export default {
     const contact = ref(null);
     const appRegistrationSpecification = ref(null);
     const paymentBridge = 'https://fiatpaymentsbridge.runonflux.io';
+    const tooltipText = ref('Copy to clipboard');
+    const copyButtonRef = ref(null);
 
     const config = computed(() => vm.$store.state.flux.config);
     const validTill = computed(() => timestamp.value + 60 * 60 * 1000); // 1 hour
@@ -1889,10 +1894,18 @@ export default {
       },
     };
 
-    const copyMessageToSign = () => {
+    const copyMessageToSign = async () => {
       const { copy } = useClipboard({ source: dataToSign.value, legacy: true });
       copy();
-      showToast('success', 'Copied to clipboard');
+      tooltipText.value = 'Copied!';
+      setTimeout(async () => {
+        await nextTick();
+        const button = copyButtonRef.value;
+        if (button) {
+          button.blur();
+          tooltipText.value = 'Copy to clipboard';
+        }
+      }, 2000);
     };
 
     const register = async () => {
@@ -2003,12 +2016,54 @@ export default {
 
       skin,
       isDark,
+      tooltipText,
+      copyButtonRef,
     };
   },
 };
 </script>
 
 <style scoped>
+#registrationmessage {
+  padding-right: 25px !important;
+}
+.text-wrap {
+  position: relative;
+  padding: 0em;
+}
+.clipboard.icon {
+  position: absolute;
+    top: 0.4em;
+    right: 1.7em;
+  margin-top: 4px;
+  margin-left: 4px;
+  width: 12px;
+  height: 12px;
+  border: solid 1px #333333;
+  border-top: none;
+  border-radius: 1px;
+  cursor: pointer;
+}
+.clipboard.icon:before {
+  top: -1px;
+  left: 2px;
+  width: 5px;
+  height: 1px;
+  border: solid 1px #333333;
+  border-radius: 1px;
+}
+.clipboard.icon:after {
+  width: 3px;
+  height: 1px;
+  background-color: #333333;
+  box-shadow: 8px 0 0 0 #333333;
+}
+
+.icon:before, .icon:after {
+  content: '';
+  position: absolute;
+  display: block;
+}
 .inline {
   display: inline;
   padding-left: 5px;

@@ -5098,6 +5098,7 @@
                 readonly
               />
               <b-icon
+                ref="copyButtonRef"
                 v-b-tooltip="tooltipText"
                 class="clipboard icon"
                 scale="1.5"
@@ -6544,7 +6545,10 @@ export default {
       copy();
       this.tooltipText = 'Copied!';
       setTimeout(() => {
-        this.tooltipText = 'Copy to clipboard';
+        if (this.$refs.copyButtonRef) {
+          this.$refs.copyButtonRef.blur();
+          this.tooltipText = 'Copy to clipboard';
+        }
       }, 2000);
     },
     getIconName(used, total) {
