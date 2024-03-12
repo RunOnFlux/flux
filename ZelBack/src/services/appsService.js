@@ -10061,6 +10061,9 @@ async function getAppFiatAndFluxPrice(req, res) {
       log.info(`fluxPrice:${fluxPrice}`);
       const fluxChainPrice = Number(await getAppFluxOnChainPrice(appSpecification)).toFixed(2);
       log.info(`fluxChainPrice:${fluxChainPrice}`);
+      if (fluxChainPrice > fluxPrice) {
+        log.info('fluxChainPrice > fluxPrice');
+      }
       const price = {
         usd: actualPriceToPay,
         flux: fluxChainPrice > fluxPrice ? fluxChainPrice : fluxPrice,
