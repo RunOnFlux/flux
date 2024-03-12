@@ -992,7 +992,8 @@ async function dockerLogsFix() {
   const { stdout } = await serviceHelper.runCommand(scriptPath, { cwd });
 
   const lines = stdout.split('\n');
-  if (lines.length && lines.slice(-1)[0] === '') lines.pop();
+  // this always has length
+  if (lines.slice(-1)[0] === '') lines.pop();
 
   lines.forEach((line) => log.info(line));
 }
