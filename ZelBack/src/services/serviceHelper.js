@@ -21,16 +21,23 @@ const locks = new Map();
  * A simple 15s cache for the firewall status. Purge UFW, and Adjust firewall
  * both need the status (and others), so no need to run a child process each time
  */
-const firewallStatus = { active: null, lastCheck: 0 }
-
-firewallStatus.get = function () {
-  const active = this.lastCheck + (15 * 1000) > Date.now() ? this.active : null;
-  return active;
-}
-
-firewallStatus.set = function (status) {
-  this.active = status;
-  this.lastCheck = Date.now();
+const firewallStatus = {
+  _active: null,
+  lastCheck: 0,
+  /**
+   * @returns {string}
+   */
+  get ['active']() {
+    return this.lastCheck + (15 * 1000) > Date.now() ? this._active : null;
+  },
+  /**
+   *
+   * @param {Boolean} status
+   */
+  set(status) {
+    this._active = status;
+    this.lastCheck = Date.now();
+  }
 }
 
 // const path = require('node:path')
@@ -248,8 +255,8 @@ async function runCommand(userCmd, options = {}) {
  * @returns {Promise<boolean>} True if a firewall is active. Otherwise false.
  */
 async function isFirewallActive() {
-  const cachedStatus = firewallStatus.get();
-  if (cachedStatus !== null) return cachedStatus;
+  const status = firewallStatus.active;
+  if (status !== null) return status;
 
   const { stdout, error } = await runCommand('ufw', {
     runAsRoot: true,
