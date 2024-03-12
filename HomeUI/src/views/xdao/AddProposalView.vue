@@ -152,7 +152,7 @@
                   <br><br>
                   {{ registrationHash }}
                   <br><br>
-                  The transaction must be mined by {{ new Date(validTill).toLocaleString('en-GB', timeoptions) }}
+                  The transaction must be sent by {{ new Date(validTill).toLocaleString('en-GB', timeoptions) }}
                 </div>
               </b-col>
               <b-col

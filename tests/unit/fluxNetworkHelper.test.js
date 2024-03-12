@@ -2050,18 +2050,18 @@ describe('fluxNetworkHelper tests', () => {
       expect(result).to.eql(false);
       sinon.assert.calledOnceWithExactly(funcStub, 'sudo iptables --version');
       sinon.assert.calledWith(errorLogSpy, 'Unable to find iptables binary');
-
-    })
+    });
 
     it('should add the DOCKER-USER chain to iptables if it is missing', async () => {
       funcStub = sinon.fake(async (cmd) => {
         if (cmd.includes('sudo iptables --version')) {
-          return 'iptables v1.8.7 (nf_tables)'
+          return 'iptables v1.8.7 (nf_tables)';
         }
-        else if (cmd.includes('-L')) {
+        if (cmd.includes('-L')) {
           // chain doesn't exists
           throw new Error();
         }
+        return null;
       });
       utilStub.returns(funcStub);
 
@@ -2077,9 +2077,9 @@ describe('fluxNetworkHelper tests', () => {
     it('should skip addding the DOCKER-USER chain to iptables if it already exists', async () => {
       funcStub = sinon.fake(async (cmd) => {
         if (cmd.includes('sudo iptables --version')) {
-          return 'iptables v1.8.7 (nf_tables)'
+          return 'iptables v1.8.7 (nf_tables)';
         }
-        else if (cmd.includes('-L')) {
+        if (cmd.includes('-L')) {
           return `Chain DOCKER-USER (0 references)
           target     prot opt source               destination`;
         }
@@ -2099,11 +2099,10 @@ describe('fluxNetworkHelper tests', () => {
     it('should bail out if there is an error addding the DOCKER-USER chain to iptables', async () => {
       funcStub = sinon.fake(async (cmd) => {
         if (cmd.includes('sudo iptables --version')) {
-          return 'iptables v1.8.7 (nf_tables)'
-        } else {
-          // throw for both -L and -N (throwing on -L is normal)
-          throw new Error();
+          return 'iptables v1.8.7 (nf_tables)';
         }
+        // throw for both -L and -N (throwing on -L is normal)
+        throw new Error();
       });
       utilStub.returns(funcStub);
 
@@ -2119,12 +2118,12 @@ describe('fluxNetworkHelper tests', () => {
     it('should add the jump to DOCKER-USER chain from FORWARD chain to iptables if it is missing', async () => {
       funcStub = sinon.fake(async (cmd) => {
         if (cmd.includes('sudo iptables --version')) {
-          return 'iptables v1.8.7 (nf_tables)'
-        } else if (cmd.includes('sudo iptables -L DOCKER-USER')) {
+          return 'iptables v1.8.7 (nf_tables)';
+        } if (cmd.includes('sudo iptables -L DOCKER-USER')) {
           // chain doesn't exists
           return `Chain DOCKER-USER (0 references)
           target     prot opt source               destination`;
-        } else if (cmd.includes('sudo iptables -C FORWARD -j DOCKER-USER && echo true')) {
+        } if (cmd.includes('sudo iptables -C FORWARD -j DOCKER-USER && echo true')) {
           throw new Error('iptables: Bad rule (does a matching rule exist in that chain?).');
         } else {
           return 'DOCKER-USER  all opt -- in * out *  0.0.0.0/0  -> 0.0.0.0/0';
@@ -2145,8 +2144,8 @@ describe('fluxNetworkHelper tests', () => {
     it('should skip adding the jump to DOCKER-USER chain from FORWARD chain to iptables if it already exists', async () => {
       funcStub = sinon.fake(async (cmd) => {
         if (cmd.includes('sudo iptables --version')) {
-          return 'iptables v1.8.7 (nf_tables)'
-        } else if (cmd.includes('sudo iptables -L DOCKER-USER')) {
+          return 'iptables v1.8.7 (nf_tables)';
+        } if (cmd.includes('sudo iptables -L DOCKER-USER')) {
           return `Chain DOCKER-USER (0 references)
           target     prot opt source               destination`;
         }
@@ -2166,11 +2165,11 @@ describe('fluxNetworkHelper tests', () => {
     it('should bail out if there is an error addding the DOCKER-USER chain to iptables', async () => {
       funcStub = sinon.fake(async (cmd) => {
         if (cmd.includes('sudo iptables --version')) {
-          return 'iptables v1.8.7 (nf_tables)'
-        } else if (cmd.includes('sudo iptables -L DOCKER-USER')) {
+          return 'iptables v1.8.7 (nf_tables)';
+        } if (cmd.includes('sudo iptables -L DOCKER-USER')) {
           return `Chain DOCKER-USER (0 references)
           target     prot opt source               destination`;
-        } else if (cmd.includes('sudo iptables -C FORWARD -j DOCKER-USER')) {
+        } if (cmd.includes('sudo iptables -C FORWARD -j DOCKER-USER')) {
           throw new Error('iptables: Bad rule (does a matching rule exist in that chain?).');
         } else {
           throw new Error();
@@ -2192,8 +2191,8 @@ describe('fluxNetworkHelper tests', () => {
     it('should flush the DOCKER-USER chain', async () => {
       funcStub = sinon.fake(async (cmd) => {
         if (cmd.includes('sudo iptables --version')) {
-          return 'iptables v1.8.7 (nf_tables)'
-        } else if (cmd.includes('sudo iptables -L DOCKER-USER')) {
+          return 'iptables v1.8.7 (nf_tables)';
+        } if (cmd.includes('sudo iptables -L DOCKER-USER')) {
           return `Chain DOCKER-USER (0 references)
           target     prot opt source               destination`;
         }
@@ -2211,11 +2210,11 @@ describe('fluxNetworkHelper tests', () => {
     it('should bail out if there is an error flushing the DOCKER-USER chain', async () => {
       funcStub = sinon.fake(async (cmd) => {
         if (cmd.includes('sudo iptables --version')) {
-          return 'iptables v1.8.7 (nf_tables)'
-        } else if (cmd.includes('sudo iptables -L DOCKER-USER')) {
+          return 'iptables v1.8.7 (nf_tables)';
+        } if (cmd.includes('sudo iptables -L DOCKER-USER')) {
           return `Chain DOCKER-USER (0 references)
           target     prot opt source               destination`;
-        } else if (cmd.includes('sudo iptables -C FORWARD -j DOCKER-USER && echo true')) {
+        } if (cmd.includes('sudo iptables -C FORWARD -j DOCKER-USER && echo true')) {
           return 'DOCKER-USER  all opt -- in * out *  0.0.0.0/0  -> 0.0.0.0/0';
         }
         throw new Error();
@@ -2235,8 +2234,8 @@ describe('fluxNetworkHelper tests', () => {
 
       funcStub = sinon.fake(async (cmd) => {
         if (cmd.includes('sudo iptables --version')) {
-          return 'iptables v1.8.7 (nf_tables)'
-        } else if (cmd.includes('sudo iptables -L DOCKER-USER')) {
+          return 'iptables v1.8.7 (nf_tables)';
+        } if (cmd.includes('sudo iptables -L DOCKER-USER')) {
           return `Chain DOCKER-USER (0 references)
           target     prot opt source               destination`;
         }
@@ -2265,8 +2264,8 @@ describe('fluxNetworkHelper tests', () => {
 
       funcStub = sinon.fake(async (cmd) => {
         if (cmd.includes('sudo iptables --version')) {
-          return 'iptables v1.8.7 (nf_tables)'
-        } else if (cmd.includes('sudo iptables -L DOCKER-USER')) {
+          return 'iptables v1.8.7 (nf_tables)';
+        } if (cmd.includes('sudo iptables -L DOCKER-USER')) {
           return `Chain DOCKER-USER (0 references)
           target     prot opt source               destination`;
         }
@@ -2292,8 +2291,8 @@ describe('fluxNetworkHelper tests', () => {
     it('should bail out as soon as a rule errors out', async () => {
       funcStub = sinon.fake(async (cmd) => {
         if (cmd.includes('sudo iptables --version')) {
-          return 'iptables v1.8.7 (nf_tables)'
-        } else if (cmd.includes('sudo iptables -L DOCKER-USER')) {
+          return 'iptables v1.8.7 (nf_tables)';
+        } if (cmd.includes('sudo iptables -L DOCKER-USER')) {
           return `Chain DOCKER-USER (0 references)
           target     prot opt source               destination`;
         } if (cmd.includes('sudo iptables -C FORWARD -j DOCKER-USER')) {

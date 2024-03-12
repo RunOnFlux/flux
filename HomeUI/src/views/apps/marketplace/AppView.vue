@@ -442,21 +442,15 @@
             title="Registration Message"
             class="text-center wizard-card"
           >
-            <b-form-textarea
-              id="registrationmessage"
-              v-model="dataToSign"
-              rows="6"
-              readonly
-            />
-            <b-button
-              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-              variant="success"
-              aria-label="Copy Message to Sign to Clipboard"
-              class="my-1"
-              @click="copyMessageToSign"
-            >
-              Copy
-            </b-button>
+            <div class="text-wrap">
+              <b-form-textarea
+                id="registrationmessage"
+                v-model="dataToSign"
+                rows="6"
+                readonly
+              />
+              <b-icon ref="copyButtonRef" v-b-tooltip="tooltipText" class="clipboard icon" scale="1.5" icon="clipboard" @click="copyMessageToSign" />
+            </div>
           </b-card>
         </tab-content>
         <tab-content
@@ -519,7 +513,7 @@
             class="text-center wizard-card"
           >
             <b-card-text>
-              Price: {{ appPricePerDeployment }} FLUX
+              <b-icon class="mr-1" scale="1.4" icon="cash-coin" />Price: <b>{{ appPricePerDeploymentUSD }} USD + VAT</b>
             </b-card-text>
             <b-button
               v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -542,27 +536,81 @@
           </b-card>
         </tab-content>
         <tab-content title="Send Payment">
-          <b-row class="match-height">
-            <b-col lg="8">
+          <b-row
+            class="match-height"
+          >
+            <b-col
+              xs="6"
+              lg="8"
+            >
               <b-card
                 title="Send Payment"
                 class="text-center wizard-card"
               >
+                <div class="d-flex justify-content-center align-items-center mb-1">
+                  <b-icon class="mr-1" scale="1.4" icon="cash-coin" />Price: <b>{{ appPricePerDeploymentUSD }} USD + VAT</b>
+                </div>
                 <b-card-text>
-                  To finish the application update, please make a transaction of {{ appPricePerDeployment }} FLUX to address<br>
-                  '{{ deploymentAddress }}'<br>
-                  with the following message<br>
-                  '{{ registrationHash }}'
+                  <b>Everything is ready, your payment option links, both for fiat and flux, are valid for the next 30 minutes.</b>
                 </b-card-text>
                 <br>
-                The transaction must be mined by {{ new Date(validTill).toLocaleString('en-GB', timeoptions.shortDate) }}
-                <br><br>
-                The application will be subscribed until {{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}
+                The application will be subscribed until <b>{{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}</b>
+                <br>
+                To finish the application registration, pay your application with your prefered payment method or check below how to pay with Flux crypto currency.
               </b-card>
             </b-col>
-            <b-col lg="4">
+            <b-col
+              xs="6"
+              lg="4"
+            >
+              <b-card title="Pay with Stripe/PayPal">
+                <div class="loginRow">
+                  <a @click="initStripePay">
+                    <img
+                      class="stripePay"
+                      src="@/assets/images/Stripe.svg"
+                      alt="Stripe"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                  <a @click="initPaypalPay">
+                    <img
+                      class="paypalPay"
+                      src="@/assets/images/PayPal.png"
+                      alt="PayPal"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                </div>
+                <div v-if="fiatCheckoutURL" className="loginRow">
+                  <a :href="fiatCheckoutURL" target="_blank" rel="noopener noreferrer">
+                    Click here for checkout if not redirected
+                  </a>
+                </div>
+              </b-card>
+            </b-col>
+          </b-row>
+          <b-row
+            v-if="!applicationPriceFluxError"
+            class="match-height"
+          >
+            <b-col xs="6" lg="8">
               <b-card
-                title="Pay with Zelcore"
+                class="text-center wizard-card"
+              >
+                <b-card-text>
+                  To pay in <kbd class="bg-primary"><b>FLUX{{ applicationPriceFluxDiscount }}</b></kbd>, please make a transaction of <b>{{ appPricePerDeployment }} FLUX</b> to address<br>
+                  <b>'{{ deploymentAddress }}'</b><br>
+                  with the following message<br>
+                  <b>'{{ registrationHash }}'</b>
+                </b-card-text>
+              </b-card>
+            </b-col>
+            <b-col xs="6" lg="4">
+              <b-card
+                title="Pay with Zelcore/SSP"
                 class="text-center wizard-card"
               >
                 <div class="loginRow">
@@ -632,6 +680,7 @@ import {
   watch,
   computed,
   getCurrentInstance,
+  nextTick,
 } from 'vue';
 
 import ListEntry from '@/views/components/ListEntry.vue';
@@ -640,6 +689,7 @@ import tierColors from '@/libs/colors';
 import SignClient from '@walletconnect/sign-client';
 import { MetaMaskSDK } from '@metamask/sdk';
 import useAppConfig from '@core/app-config/useAppConfig';
+import { useClipboard } from '@vueuse/core';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
 
@@ -765,12 +815,20 @@ export default {
     const dataForAppRegistration = ref(null);
     const timestamp = ref(null);
     const appPricePerDeployment = ref(0);
+    const appPricePerDeploymentUSD = ref(0);
+    const fiatCheckoutURL = ref(null);
+    const applicationPriceFluxError = ref(false);
+    const applicationPriceFluxDiscount = ref('');
     const registrationHash = ref(null);
     const websocket = ref(null);
     const selectedEnterpriseNodes = ref([]);
     const enterprisePublicKeys = ref([]);
     const selectedGeolocation = ref(null);
     const contact = ref(null);
+    const appRegistrationSpecification = ref(null);
+    const paymentBridge = 'https://fiatpaymentsbridge.runonflux.io';
+    const tooltipText = ref('Copy to clipboard');
+    const copyButtonRef = ref(null);
 
     const config = computed(() => vm.$store.state.flux.config);
     const validTill = computed(() => timestamp.value + 60 * 60 * 1000); // 1 hour
@@ -782,7 +840,16 @@ export default {
       mybackend += protocol;
       mybackend += '//';
       const regex = /[A-Za-z]/g;
-      if (hostname.match(regex)) {
+      if (hostname.split('-')[4]) { // node specific domain
+        const splitted = hostname.split('-');
+        const names = splitted[4].split('.');
+        const adjP = +names[0] + 1;
+        names[0] = adjP.toString();
+        names[2] = 'api';
+        splitted[4] = '';
+        mybackend += splitted.join('-');
+        mybackend += names.join('.');
+      } else if (hostname.match(regex)) { // home.runonflux.io -> api.runonflux.io
         const names = hostname.split('.');
         names[0] = 'api';
         mybackend += names.join('.');
@@ -844,7 +911,16 @@ export default {
       mybackend += protocol;
       mybackend += '//';
       const regex = /[A-Za-z]/g;
-      if (hostname.match(regex)) {
+      if (hostname.split('-')[4]) { // node specific domain
+        const splitted = hostname.split('-');
+        const names = splitted[4].split('.');
+        const adjP = +names[0] + 1;
+        names[0] = adjP.toString();
+        names[2] = 'api';
+        splitted[4] = '';
+        mybackend += splitted.join('-');
+        mybackend += names.join('.');
+      } else if (hostname.match(regex)) { // home.runonflux.io -> api.runonflux.io
         const names = hostname.split('.');
         names[0] = 'api';
         mybackend += names.join('.');
@@ -938,7 +1014,7 @@ export default {
     const initSSPpay = async () => {
       try {
         if (!window.ssp) {
-          this.showToast('danger', 'SSP Wallet not installed');
+          showToast('danger', 'SSP Wallet not installed');
           return;
         }
         const data = {
@@ -951,10 +1027,93 @@ export default {
         if (responseData.status === 'ERROR') {
           throw new Error(responseData.data || responseData.result);
         } else {
-          this.showToast('success', `${responseData.data}: ${responseData.txid}`);
+          showToast('success', `${responseData.data}: ${responseData.txid}`);
         }
       } catch (error) {
         showToast('danger', error.message);
+      }
+    };
+
+    const openSite = (url) => {
+      const win = window.open(url, '_blank');
+      win.focus();
+    };
+
+    const initStripePay = async () => {
+      try {
+        const hash = registrationHash.value;
+        const { name } = appRegistrationSpecification.value;
+        const price = appPricePerDeploymentUSD.value;
+        const { description } = appRegistrationSpecification.value;
+        const zelidauth = localStorage.getItem('zelidauth');
+        const auth = qs.parse(zelidauth);
+        const data = {
+          zelid: auth.zelid,
+          signature: auth.signature,
+          loginPhrase: auth.loginPhrase,
+          details: {
+            name,
+            description,
+            hash,
+            price,
+            productName: name,
+            success_url: 'https://home.runonflux.io/successcheckout',
+            cancel_url: 'https://home.runonflux.io',
+            kpi: {
+              origin: 'FluxOS',
+              marketplace: true,
+              registration: true,
+            },
+          },
+        };
+        const checkoutURL = await axios.post(`${paymentBridge}/api/v1/stripe/checkout/create`, data);
+        if (checkoutURL.data.status === 'error') {
+          showToast('error', 'Failed to create stripe checkout');
+          return;
+        }
+        fiatCheckoutURL.value = checkoutURL.data.data;
+        openSite(checkoutURL.data.data);
+      } catch (error) {
+        showToast('error', 'Failed to create stripe checkout');
+      }
+    };
+
+    const initPaypalPay = async () => {
+      try {
+        const hash = registrationHash.value;
+        const { name } = appRegistrationSpecification.value;
+        const price = appPricePerDeploymentUSD.value;
+        const { description } = appRegistrationSpecification.value;
+        const zelidauth = localStorage.getItem('zelidauth');
+        const auth = qs.parse(zelidauth);
+        const data = {
+          zelid: auth.zelid,
+          signature: auth.signature,
+          loginPhrase: auth.loginPhrase,
+          details: {
+            name,
+            description,
+            hash,
+            price,
+            productName: name,
+            return_url: 'home.runonflux.io/successcheckout',
+            cancel_url: 'home.runonflux.io',
+            kpi: {
+              origin: 'FluxOS',
+              marketplace: true,
+              registration: true,
+            },
+          },
+        };
+        const checkoutURL = await axios.post(`${paymentBridge}/api/v1/paypal/checkout/create`, data);
+        if (checkoutURL.data.status === 'error') {
+          showToast('error', 'Failed to create PayPal checkout');
+          return;
+        }
+        fiatCheckoutURL.value = checkoutURL.data.data;
+        openSite(checkoutURL.data.data);
+      } catch (error) {
+        showToast('error', 'Failed to create PayPal checkout');
       }
     };
 
@@ -1020,7 +1179,17 @@ export default {
         // const agent = new https.Agent({
         //   rejectUnauthorized: false,
         // });
-        const response = await axios.get(`https://${node.replace(/\./g, '-')}-${port}.node.api.runonflux.io/flux/pgp`); // ip with port
+        const { hostname } = window.location;
+        const regex = /[A-Za-z]/g;
+        let ipAccess = true;
+        if (hostname.match(regex)) {
+          ipAccess = false;
+        }
+        let queryUrl = `https://${node.replace(/\./g, '-')}-${port}.node.api.runonflux.io/flux/pgp`;
+        if (ipAccess) {
+          queryUrl = `http://${node}:${port}/flux/pgp`;
+        }
+        const response = await axios.get(queryUrl); // ip with port
         if (response.data.status === 'error') {
           showToast('danger', response.data.data.message || response.data.data);
         } else {
@@ -1322,6 +1491,7 @@ export default {
           }
           appSpecification.compose.push(appComponent);
         }
+        appRegistrationSpecification.value = appSpecification;
 
         // call api for verification of app registration specifications that returns formatted specs
         const responseAppSpecs = await AppsService.appRegistrationVerificaiton(appSpecification);
@@ -1330,12 +1500,24 @@ export default {
           throw new Error(responseAppSpecs.data.data.message || responseAppSpecs.data.data);
         }
         const appSpecFormatted = responseAppSpecs.data.data;
-        const response = await AppsService.appPrice(appSpecFormatted);
+        appPricePerDeployment.value = 0;
+        appPricePerDeploymentUSD.value = 0;
+        applicationPriceFluxError.value = false;
+        applicationPriceFluxDiscount.value = '';
+        const auxSpecsFormatted = JSON.parse(JSON.stringify(appSpecFormatted));
+        auxSpecsFormatted.priceUSD = props.appData.priceUSD;
+
+        const response = await AppsService.appPriceUSDandFlux(auxSpecsFormatted);
         if (response.data.status === 'error') {
           throw new Error(response.data.data.message || response.data.data);
         }
-        if (response.data.data > props.appData.price) {
-          throw new Error('Marketplace App Price is too low');
+        appPricePerDeploymentUSD.value = +response.data.data.usd;
+        if (Number.isNaN(+response.data.data.fluxDiscount)) {
+          applicationPriceFluxError.value = true;
+          showToast('danger', 'Not possible to complete payment with Flux crypto currency');
+        } else {
+          appPricePerDeployment.value = +response.data.data.flux;
+          applicationPriceFluxDiscount.value = +response.data.data.fluxDiscount > 0 ? ` with ${+response.data.data.fluxDiscount}% discount` : '';
         }
         if (websocket.value !== null) {
           websocket.value.close();
@@ -1343,7 +1525,6 @@ export default {
         }
         timestamp.value = Date.now();
         dataForAppRegistration.value = appSpecFormatted;
-        appPricePerDeployment.value = props.appData.price;
         dataToSign.value = `${registrationtype.value}${version.value}${JSON.stringify(appSpecFormatted)}${Date.now()}`;
         registrationHash.value = null;
         signature.value = null;
@@ -1715,12 +1896,20 @@ export default {
     };
 
     const copyMessageToSign = async () => {
-      try {
-        await navigator.clipboard.writeText(dataToSign.value);
-        showToast('success', 'Copied to clipboard');
-      } catch ($e) {
-        showToast('danger', 'Failed to Copy to clipboard');
-      }
+      const { copy } = useClipboard({ source: dataToSign.value, legacy: true });
+      copy();
+      tooltipText.value = 'Copied!';
+      setTimeout(async () => {
+        await nextTick();
+        const button = copyButtonRef.value;
+        if (button) {
+          button.blur();
+          tooltipText.value = '';
+        }
+      }, 1000);
+      setTimeout(() => {
+        tooltipText.value = 'Copy to clipboard';
+      }, 1500);
     };
 
     const register = async () => {
@@ -1759,6 +1948,7 @@ export default {
         confirmLaunchDialogCloseShowing.value = true;
       }
     };
+
     return {
 
       // UI
@@ -1793,6 +1983,10 @@ export default {
       signClient,
       signature,
       appPricePerDeployment,
+      appPricePerDeploymentUSD,
+      applicationPriceFluxDiscount,
+      applicationPriceFluxError,
+      fiatCheckoutURL,
       registrationHash,
       deploymentAddress,
 
@@ -1805,6 +1999,9 @@ export default {
       initMetamask,
       initSSP,
       initSSPpay,
+      initPaypalPay,
+      initStripePay,
+      openSite,
       initWalletConnect,
       onSessionConnect,
       siwe,
@@ -1823,12 +2020,34 @@ export default {
 
       skin,
       isDark,
+      tooltipText,
+      copyButtonRef,
     };
   },
 };
 </script>
 
 <style scoped>
+#registrationmessage {
+  padding-right: 25px !important;
+}
+.text-wrap {
+  position: relative;
+  padding: 0em;
+}
+.clipboard.icon {
+  position: absolute;
+    top: 0.4em;
+    right: 1.7em;
+  margin-top: 4px;
+  margin-left: 4px;
+  width: 12px;
+  height: 12px;
+  border: solid 1px #333333;
+  border-top: none;
+  border-radius: 1px;
+  cursor: pointer;
+}
 .inline {
   display: inline;
   padding-left: 5px;
@@ -1873,6 +2092,25 @@ export default {
   margin-left: 5px;
 }
 .sspLogin img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
+
+.stripePay {
+  margin-left: 5px;
+  height: 90px;
+  padding: 10px;
+}
+.stripePay img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
+.paypalPay {
+  margin-left: 5px;
+  height: 90px;
+  padding: 10px;
+}
+.paypalPay img {
   -webkit-app-region: no-drag;
   transition: 0.1s;
 }

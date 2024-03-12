@@ -4,7 +4,7 @@ const path = require('path');
 
 describe('Repositories', () => {
   const repositoriesPath = path.join(__dirname, '../../helpers/repositories.json');
-  
+
   it('should load repositories from JSON file', () => {
     // Read the repositories.json file
     const repositoriesJson = fs.readFileSync(repositoriesPath, 'utf8');

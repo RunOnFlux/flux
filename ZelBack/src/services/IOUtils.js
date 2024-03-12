@@ -145,10 +145,9 @@ async function getRemoteFileSize(fileurl, multiplier, decimal, number = false) {
  * @param {string} multiplier - Unit multiplier for displaying sizes (B, KB, MB, GB).
  * @param {number} decimal - Number of decimal places for precision.
  * @param {string} fields - Optional comma-separated list of fields to include in the response. Possible fields: 'mount', 'size', 'used', 'available', 'capacity', 'filesystem'.
- * @param {string|false} pathfilter - Optional path to filter results. If provided, only entries matching the specified path will be included. Pass `false` to use the default component and appname-based filtering.
  * @returns {Array|boolean} - Array of objects containing volume information for the specified component, or false if no matching mount is found.
  */
-async function getVolumeInfo(appname, component, multiplier, decimal, fields, pathfilter = false) {
+async function getVolumeInfo(appname, component, multiplier, decimal, fields) {
   try {
     const options = {
       prefixMultiplier: multiplier,
@@ -158,8 +157,8 @@ async function getVolumeInfo(appname, component, multiplier, decimal, fields, pa
     const dfAsync = util.promisify(df);
     const dfData = await dfAsync(options);
     let regex;
-    if (pathfilter) {
-      regex = new RegExp(`${pathfilter}`);
+    if (component === 'null') {
+      regex = new RegExp(`flux${appname}$`);
     } else {
       regex = new RegExp(`flux${component}_${appname}$`);
     }
@@ -349,9 +348,9 @@ async function removeDirectory(rpath, directory = false) {
   try {
     let execFinal;
     if (directory === false) {
-      execFinal = `sudo rm -rf ${rpath}`;
+      execFinal = `sudo rm -rf "${rpath}"`;
     } else {
-      execFinal = `sudo rm -rf ${rpath}/*`;
+      execFinal = `sudo rm -rf "${rpath}/*"`;
     }
     await exec(execFinal, { maxBuffer: 1024 * 1024 * 10 });
     return true;
@@ -377,19 +376,34 @@ async function fileUpload(req, res) {
     if (!authorized) {
       throw new Error('Unauthorized. Access denied.');
     }
-    let { fullpath } = req.params;
-    fullpath = fullpath || req.query.fullpath;
-
+    let { component } = req.params;
+    component = component || req.query.component || '';
     let { filename } = req.params;
     filename = filename || req.query.filename || '';
-
-    if (!fullpath) {
-      throw new Error('fullpath parameter is mandatory');
+    let { folder } = req.params;
+    folder = folder || req.query.folder || '';
+    if (folder) {
+      folder += '/';
     }
-
+    let { type } = req.params;
+    type = type || req.query.type || '';
+    if (!type || !component) {
+      throw new Error('component and type parameters are mandatory');
+    }
+    let filepath;
+    const appVolumePath = await getVolumeInfo(appname, component, 'B', 'mount', 0);
+    if (appVolumePath.length > 0) {
+      if (type === 'backup') {
+        filepath = `${appVolumePath[0].mount}/backup/upload/`;
+      } else {
+        filepath = `${appVolumePath[0].mount}/appdata/${folder}`;
+      }
+    } else {
+      throw new Error('Application volume not found');
+    }
     const options = {
       multiples: true,
-      uploadDir: `${fullpath}/`,
+      uploadDir: `${filepath}`,
       maxFileSize: 5 * 1024 * 1024 * 1024, // 5gb
       hashAlgorithm: false,
       keepExtensions: true,
@@ -399,18 +413,9 @@ async function fileUpload(req, res) {
         return originalFilename;
       },
     };
-
-    // const spaceAvailableForFluxShare = await getSpaceAvailableForFluxShare();
-    // let spaceUsedByFluxShare = getFluxShareSize();
-    // spaceUsedByFluxShare = Number(spaceUsedByFluxShare.toFixed(6));
-    // const available = spaceAvailableForFluxShare - spaceUsedByFluxShare;
-    // if (available <= 0) {
-    //  throw new Error('FluxShare Storage is full');
-    // }
-
-    // eslint-disable-next-line no-bitwise
-    // await fs.promises.access(uploadDir, fs.constants.F_OK | fs.constants.W_OK); // check folder exists and write ability
-    await fs.mkdir(fullpath, { recursive: true });
+    await fs.mkdir(filepath, { recursive: true });
+    const permission = `sudo chmod 777 "${filepath}"`;
+    await exec(permission, { maxBuffer: 1024 * 1024 * 10 });
     const form = formidable(options);
 
     form
@@ -418,10 +423,10 @@ async function fileUpload(req, res) {
       .on('fileBegin', (name, file) => {
         if (!filename) {
           // eslint-disable-next-line no-param-reassign
-          file.filepath = `${fullpath}/${name}`;
+          file.filepath = `${filepath}${name}`;
         } else {
           // eslint-disable-next-line no-param-reassign
-          file.filepath = `${fullpath}/${filename}`;
+          file.filepath = `${filepath}${filename}`;
         }
       })
       .on('progress', (bytesReceived, bytesExpected) => {
