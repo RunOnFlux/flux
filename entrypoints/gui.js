@@ -3,7 +3,7 @@ const path = require('node:path');
 const compression = require('compression');
 const express = require('express');
 
-const log = require('.//lib/log');
+const log = require('../lib/log');
 
 const logger = () => {
   return (req, res, next) => {
@@ -34,7 +34,7 @@ function initiate(port, options = {}) {
     return;
   }
 
-  const homePath = path.join(__dirname, '../../../', 'HomeUI/dist');
+  const homePath = path.join(__dirname, '../HomeUI/dist');
 
   homeApp.use(compression());
   homeApp.use(express.static(homePath));

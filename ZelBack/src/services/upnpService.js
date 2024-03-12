@@ -4,7 +4,7 @@ const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
 
-const log = require('../../../../lib/log');
+const log = require('../../../lib/log');
 
 const client = new natUpnp.Client();
 

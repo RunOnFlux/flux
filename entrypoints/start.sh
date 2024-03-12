@@ -1,3 +1,3 @@
-#!/usr/bin/env node
+#!/usr/bin/bash
 
-require('../app');
+node app.js "$@"

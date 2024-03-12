@@ -6,7 +6,7 @@ const path = require('path');
 const os = require('os');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const { LRUCache } = require('lru-cache');
-const log = require('../../../../lib/log');
+const log = require('../../../lib/log');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');

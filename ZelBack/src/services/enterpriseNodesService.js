@@ -2,7 +2,7 @@ const config = require('config');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const messageHelper = require('./messageHelper');
 const dbHelper = require('./dbHelper');
-const log = require('../../../../lib/log');
+const log = require('../../../lib/log');
 
 const globalAppsInformation = config.database.appsglobal.collections.appsInformation;
 

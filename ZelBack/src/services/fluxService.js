@@ -5,7 +5,7 @@ const fs = require('fs');
 
 const fsPromises = fs.promises;
 
-const log = require('../../../../lib/log');
+const log = require('../../../lib/log');
 const packageJson = require('../../../package.json');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');

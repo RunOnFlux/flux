@@ -1,7 +1,7 @@
 const df = require('node-df');
 const fs = require('fs').promises;
 const util = require('util');
-const log = require('../../../../lib/log');
+const log = require('../../../lib/log');
 const axios = require('axios');
 const path = require('path');
 const { formidable } = require('formidable');

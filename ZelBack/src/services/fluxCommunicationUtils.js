@@ -1,6 +1,6 @@
 /* eslint-disable no-underscore-dangle */
 const { LRUCache } = require('lru-cache');
-const log = require('../../../../lib/log');
+const log = require('../../../lib/log');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
 const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');

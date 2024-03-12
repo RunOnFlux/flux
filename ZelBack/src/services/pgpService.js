@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs').promises;
 const openpgp = require('openpgp');
 const generalService = require('./generalService');
-const log = require('../../../../lib/log');
+const log = require('../../../lib/log');
 
 /**
  * To adjust PGP identity

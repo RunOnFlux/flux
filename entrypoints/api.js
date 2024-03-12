@@ -2,11 +2,12 @@ const https = require('node:https');
 const path = require('node:path');
 const fs = require('node:fs/promises');
 
-const app = require('./ZelBack/src/lib/server');
-const log = require('./ZelBack/src/lib/log');
-const socket = require('./ZelBack/src/lib/socket');
-const serviceManager = require('./ZelBack/src/services/serviceManager');
-const upnpService = require('./ZelBack/src/services/upnpService');
+const app = require('../ZelBack/src/lib/server');
+const log = require('../lib/log');
+const socket = require('../ZelBack/src/lib/socket');
+const serviceManager = require('../ZelBack/src/services/serviceManager');
+const serviceHelper = require('../ZelBack/src/services/serviceHelper');
+const upnpService = require('../ZelBack/src/services/upnpService');
 
 // Api servers
 let httpServer;
@@ -35,7 +36,7 @@ async function loadUpnp(port, validate) {
 
 async function runServer(port, options = {}) {
   if (options.https) {
-    const appRoot = path.join(__dirname, '../../../');
+    const appRoot = path.join(__dirname, '../');
     const keyPath = path.join(appRoot, 'certs/v1.key');
 
     await fs.stat(keyPath).catch(async () => {

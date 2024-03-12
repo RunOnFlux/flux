@@ -1,7 +1,7 @@
 /* eslint-disable no-underscore-dangle */
 const { LRUCache } = require('lru-cache');
 const WebSocket = require('ws');
-const log = require('../../../../lib/log');
+const log = require('../../../lib/log');
 const serviceHelper = require('./serviceHelper');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const verificationHelper = require('./verificationHelper');

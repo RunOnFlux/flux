@@ -7,7 +7,7 @@ const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
 const generalService = require('./generalService');
 const upnpService = require('./upnpService');
-const log = require('../../../../lib/log');
+const log = require('../../../lib/log');
 
 const isTestnet = userconfig.initial.testnet;
 

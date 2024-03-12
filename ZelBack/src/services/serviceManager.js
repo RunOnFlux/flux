@@ -1,5 +1,5 @@
 const config = require('config');
-const log = require('../../../../lib/log');
+const log = require('../../../lib/log');
 
 const dbHelper = require('./dbHelper');
 const explorerService = require('./explorerService');
