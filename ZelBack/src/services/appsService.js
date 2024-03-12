@@ -38,7 +38,7 @@ const signatureVerifier = require('./signatureVerifier');
 // eslint-disable-next-line no-unused-vars
 const backupRestoreService = require('./backupRestoreService');
 const IOUtils = require('./IOUtils');
-const log = require('../lib/log');
+const log = require('../../../lib/log');
 const { PassThrough } = require('stream');
 const { invalidMessages } = require('./invalidMessages');
 
