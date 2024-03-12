@@ -1102,7 +1102,7 @@ async function getContainerStorage(appName) {
           source = source.replace('/appdata', '');
           const exec = `sudo du -sb ${source}`;
           const mountInfo = await cmdAsync(exec);
-          const mountSize = serviceHelper.ensureNumber(mountInfo.data?.split(source)[0]) || 0;
+          const mountSize = serviceHelper.ensureNumber(mountInfo?.data?.split(source)[0]) || 0;
           if (typeof mountSize === 'number' && !Number.isNaN(mountSize)) {
             containerTotalSize += mountSize;
           }
