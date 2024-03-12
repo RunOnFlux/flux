@@ -5206,7 +5206,7 @@
             >
               <b-card>
                 <b-card-text>
-                  Everything is ready, your payment option links are valid for the next 30 minutes.
+                  <b>Everything is ready, your payment option links, both for fiat and flux, are valid for the next 30 minutes.</b>
                 </b-card-text>
                 <br>
                 The application will be subscribed until <b>{{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}</b>
@@ -5304,13 +5304,7 @@
           <b-row
             v-if="updateHash && freeUpdate"
             class="match-height"
-          >
-            <b-card>
-              <b-card-text>
-                Everything is ready, your application update should be effective automatically in less than 30 minutes.
-              </b-card-text>
-            </b-card>
-          </b-row>
+          />
         </div>
       </b-tab>
     </b-tabs>

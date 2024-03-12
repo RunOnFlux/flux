@@ -547,8 +547,11 @@
                 title="Send Payment"
                 class="text-center wizard-card"
               >
+                <div class="d-flex justify-content-center align-items-center mb-1">
+                  <b-icon class="mr-1" scale="1.4" icon="cash-coin" />Price: <b>{{ appPricePerDeploymentUSD }} USD + VAT</b>
+                </div>
                 <b-card-text>
-                  Everything is ready, your payment option links are valid for the next 30 minutes.
+                  <b>Everything is ready, your payment option links, both for fiat and flux, are valid for the next 30 minutes.</b>
                 </b-card-text>
                 <br>
                 The application will be subscribed until <b>{{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}</b>
@@ -603,8 +606,6 @@
                   with the following message<br>
                   <b>'{{ registrationHash }}'</b>
                 </b-card-text>
-                <br>
-                <kbd class="bg-danger">The transaction must be sent by <b>The transaction must be sent by {{ new Date(validTill).toLocaleString('en-GB', timeoptions.shortDate) }}</b></kbd>
               </b-card>
             </b-col>
             <b-col xs="6" lg="4">
