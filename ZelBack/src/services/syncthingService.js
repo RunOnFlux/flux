@@ -1,20 +1,17 @@
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const { spawn } = require('node:child_process');
+const path = require('node:path');
+
+const { XMLParser } = require('fast-xml-parser');
+const qs = require('qs');
 const config = require('config');
 const axios = require('axios');
-const { XMLParser } = require('fast-xml-parser');
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
-const qs = require('qs');
-const verificationHelper = require('./verificationHelper');
-// eslint-disable-next-line import/no-extraneous-dependencies
-
-const fsPromises = fs.promises;
-
-const messageHelper = require('./messageHelper');
-const serviceHelper = require('./serviceHelper');
-const { spawn } = require('node:child_process');
 
 const log = require('../../../lib/log');
+const verificationHelper = require('./verificationHelper');
+const messageHelper = require('./messageHelper');
+const serviceHelper = require('./serviceHelper');
 
 const syncthingURL = `http://${config.syncthing.ip}:${config.syncthing.port}`;
 
@@ -81,7 +78,7 @@ async function getConfigFile() {
   // const execPERM = `sudo chmod 644 ${homedir}/.config/syncthing/config.xml`;
   // await cmdAsync(execPERM);
 
-  const result = await fsPromises.readFile(configFile, 'utf8');
+  const result = await fs.readFile(configFile, 'utf8');
   return result;
 }
 
