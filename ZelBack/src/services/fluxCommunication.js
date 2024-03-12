@@ -818,8 +818,6 @@ async function addOutgoingPeer(req, res) {
   }
 }
 
-// temp test
-let firstRun = true
 /**
  * To discover and connect to other randomly selected FluxNodes Ensures that
  * FluxNode connections are not duplicated.
@@ -884,13 +882,9 @@ async function connectToPeers() {
     log.info(`Inbound/Outbound connection count: ${incomingConnections.length}/${outgoingConnections.length}`);
     log.info(`Inbound/Outbound peer count: ${incomingPeers.length}/${outgoingPeers.length}`);
 
-    if (firstRun) {
-      firstRun = false;
-      log.info(incomingConnections, "Inbound Cons")
-      log.info(outgoingConnections, "Outbound Cons")
-      log.info(incomingPeers, "Inbound Peers")
-      log.info(outgoingPeers, "Outbound Peers")
-    }
+    log.debug(incomingPeers, "Inbound Peers");
+    log.debug(outgoingPeers, "Outbound Peers");
+
 
     // always try to connect to deterministic nodes
     let deterministicPeerConnections = false;
