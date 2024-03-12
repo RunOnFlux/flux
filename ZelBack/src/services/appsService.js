@@ -10052,12 +10052,15 @@ async function getAppFiatAndFluxPrice(req, res) {
       if (btcRateforFlux === undefined) {
         throw new Error('Unable to get Flux USD Price.');
       }
-      log.info(`BTCRate:${rateObj.rate}`);
+      log.info(`BTCUSDRate:${rateObj.rate}`);
       log.info(`fluxBTCRate:${btcRateforFlux}`);
       log.info(`flux discount multiplier:${appPrices[0].fluxmultiplier}`);
       const fiatRate = rateObj.rate * btcRateforFlux;
+      log.info(`fiatRate:${fiatRate}`);
       const fluxPrice = Number((actualPriceToPay / fiatRate) * appPrices[0].fluxmultiplier).toFixed(2);
+      log.info(`fluxPrice:${fluxPrice}`);
       const fluxChainPrice = await getAppFluxOnChainPrice(appSpecification);
+      log.info(`fluxChainPrice:${fluxChainPrice}`);
       const price = {
         usd: actualPriceToPay,
         flux: fluxChainPrice > fluxPrice ? fluxChainPrice : fluxPrice,
