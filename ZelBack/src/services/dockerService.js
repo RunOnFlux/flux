@@ -991,7 +991,10 @@ async function dockerLogsFix() {
   const scriptPath = path.join(cwd, 'dockerLogsFix.sh');
   const { stdout } = await serviceHelper.runCommand(scriptPath, { cwd });
 
-  log.info(stdout);
+  const lines = stdout.split('\n');
+  if (lines.length && lines.slice(-1)[0] === '') lines.pop();
+
+  lines.forEach((line) => log.info(line));
 }
 
 module.exports = {

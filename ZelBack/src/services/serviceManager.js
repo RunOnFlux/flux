@@ -226,6 +226,7 @@ async function startFluxFunctions() {
       log.debug([...timeoutTimers.keys()], 'Tineouts running:');
 
       const uptime = process.uptime()
+      // use Intl.DateTimeFormat
       const formattedUptime = (Math.floor(uptime / 86400) + ":" + (new Date(uptime * 1000)).toISOString().slice(11, 19));
       log.info(`Uptime: ${formattedUptime}`)
     }, 60 * 1000);
