@@ -897,7 +897,7 @@ async function connectToPeers() {
         deterministicPeerConnections = true;
         // does this need abortSignal now?
         // eslint-disable-next-line no-await-in-loop
-        await initiateAndHandleConnection(endpoint);
+        await initiateAndHandleConnection(endpoint).catch(noop);
 
         // this is pretty rugged. Should wait on the connection being established.
         // eslint-disable-next-line no-await-in-loop
@@ -945,7 +945,7 @@ async function connectToPeers() {
           log.info(`Adding random Flux peer: ${connection}`);
           currentIpsConnTried.push(connection);
           // eslint-disable-next-line no-await-in-loop
-          await initiateAndHandleConnection(connection);
+          await initiateAndHandleConnection(connection).catch(noop);
         }
       }
       // eslint-disable-next-line no-await-in-loop
