@@ -45,6 +45,9 @@
     "url": "https://github.com/runonflux/flux/issues"
   },
   "homepage": "https://github.com/runonflux/flux#readme",
+  "bin": {
+    "fluxos": "entrypoints/start.sh"
+  },
   "scripts": {
     "vuelint": "vue-cli-service lint",
     "lint": "eslint --ext .js,.vue ./",

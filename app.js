@@ -28,10 +28,10 @@ const { spawn } = require('node:child_process');
 const config = require('config');
 const hash = require('object-hash');
 
-const api = require('./ZelBack/src/entrypoints/api');
-const gui = require('./ZelBack/src/entrypoints/gui');
+const api = require('./entrypoints/api');
+const gui = require('./entrypoints/gui');
 const fluxService = require('./ZelBack/src/services/fluxService');
-const log = require('./ZelBack/src/lib/log');
+const log = require('./lib/log');
 
 let apiPort = +userconfig.initial.apiport || +config.server.apiport;
 let development = userconfig.initial.development || false;

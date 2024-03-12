@@ -3,7 +3,7 @@ const path = require('node:path');
 const compression = require('compression');
 const express = require('express');
 
-const log = require('../lib/log');
+const log = require('.//lib/log');
 
 const logger = () => {
   return (req, res, next) => {
