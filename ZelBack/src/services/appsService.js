@@ -6,7 +6,6 @@ const http = require('http');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const os = require('os');
 const path = require('path');
-const nodecmd = require('node-cmd');
 const archiver = require('archiver');
 const df = require('node-df');
 const { LRUCache } = require('lru-cache');

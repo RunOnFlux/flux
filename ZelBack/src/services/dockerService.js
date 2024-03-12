@@ -7,9 +7,7 @@ const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSend
 const pgpService = require('./pgpService');
 const generalService = require('./generalService');
 const deviceHelper = require('./deviceHelper');
-const log = require('../lib/log');
-const util = require('util');
-const nodecmd = require('node-cmd');
+const log = require('../../../lib/log');
 
 const fluxDirPath = path.join(__dirname, '../../../');
 const appsFolder = `${fluxDirPath}ZelApps/`;
@@ -989,15 +987,11 @@ async function dockerGetUsage() {
  * Fix docker logs.
  */
 async function dockerLogsFix() {
-  try {
-    const nodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${nodedpath} && bash dockerLogsFix.sh`;
-    const cmdAsync = util.promisify(nodecmd.get);
-    const cmdres = await cmdAsync(exec);
-    log.info(cmdres);
-  } catch (error) {
-    log.error(error);
-  }
+  const cwd = path.join(__dirname, '../../../helpers');
+  const scriptPath = path.join(cwd, 'dockerLogsFix.sh');
+  const { stdout } = await serviceHelper.runCommand(scriptPath, { cwd });
+
+  log.info(stdout);
 }
 
 module.exports = {
