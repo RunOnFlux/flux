@@ -13075,6 +13075,7 @@ module.exports = {
   storeIPChangedMessage,
   syncthingApps,
   testAppMount,
+  trySpawningGlobalApplication,
   checkStorageSpaceForApps,
   appendBackupTask,
   appendRestoreTask,
