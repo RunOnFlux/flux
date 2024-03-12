@@ -1,7 +1,7 @@
 const messageHelper = require('../messageHelper');
 const daemonServiceUtils = require('./daemonServiceUtils');
 const daemonServiceBlockchainRpcs = require('./daemonServiceBlockchainRpcs');
-const log = require('../../lib/log');
+const log = require('../../../../lib/log');
 
 const isTestnet = userconfig.initial.testnet;
 

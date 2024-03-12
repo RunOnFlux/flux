@@ -1,7 +1,7 @@
 const zeltrezjs = require('zeltrezjs');
 const bitcoinMessage = require('bitcoinjs-message');
 const ethereumHelper = require('./ethereumHelper');
-const log = require('../lib/log');
+const log = require('../../../../lib/log');
 
 /**
  * Verifies signature of application owner on bitcoin or ethereum networks

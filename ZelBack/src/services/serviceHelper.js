@@ -10,7 +10,7 @@ const execFile = util.promisify(require('node:child_process').execFile);
 // const { spawn } = require('node:child_process');
 
 const dbHelper = require('./dbHelper');
-const log = require('../lib/log');
+const log = require('../../../../lib/log');
 
 /**
  * Allows for exclusive locks when running child processes

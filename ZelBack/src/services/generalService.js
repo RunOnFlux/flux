@@ -1,7 +1,7 @@
 const config = require('config');
 const crypto = require('crypto');
 
-const log = require('../lib/log');
+const log = require('../../../../lib/log');
 
 const serviceHelper = require('./serviceHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');

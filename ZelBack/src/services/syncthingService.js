@@ -14,7 +14,7 @@ const messageHelper = require('./messageHelper');
 const serviceHelper = require('./serviceHelper');
 const { spawn } = require('node:child_process');
 
-const log = require('../lib/log');
+const log = require('../../../../lib/log');
 
 const syncthingURL = `http://${config.syncthing.ip}:${config.syncthing.port}`;
 

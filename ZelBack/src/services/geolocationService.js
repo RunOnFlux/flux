@@ -1,4 +1,4 @@
-const log = require('../lib/log');
+const log = require('../../../../lib/log');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const serviceHelper = require('./serviceHelper');
 const { inspect } = require('util');

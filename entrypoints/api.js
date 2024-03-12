@@ -2,11 +2,11 @@ const https = require('node:https');
 const path = require('node:path');
 const fs = require('node:fs/promises');
 
-const app = require('../lib/server');
-const log = require('../lib/log');
-const socket = require('../lib/socket');
-const serviceManager = require('../services/serviceManager');
-const upnpService = require('../services/upnpService');
+const app = require('./ZelBack/src/lib/server');
+const log = require('./ZelBack/src/lib/log');
+const socket = require('./ZelBack/src/lib/socket');
+const serviceManager = require('./ZelBack/src/services/serviceManager');
+const upnpService = require('./ZelBack/src/services/upnpService');
 
 // Api servers
 let httpServer;

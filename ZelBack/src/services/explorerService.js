@@ -1,7 +1,7 @@
 const config = require('config');
 const { LRUCache } = require('lru-cache');
 
-const log = require('../lib/log');
+const log = require('../../../../lib/log');
 const serviceHelper = require('./serviceHelper');
 const dbHelper = require('./dbHelper');
 const verificationHelper = require('./verificationHelper');

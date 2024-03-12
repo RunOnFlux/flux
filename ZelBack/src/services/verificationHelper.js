@@ -2,7 +2,7 @@ const zeltrezjs = require('zeltrezjs');
 const bitcoinMessage = require('bitcoinjs-message');
 const { randomBytes } = require('crypto');
 
-const log = require('../lib/log');
+const log = require('../../../../lib/log');
 
 const verificationHelperUtils = require('./verificationHelperUtils');
 

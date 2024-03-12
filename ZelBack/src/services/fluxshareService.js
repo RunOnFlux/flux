@@ -12,7 +12,7 @@ const messageHelper = require('./messageHelper');
 const dbHelper = require('./dbHelper');
 const verificationHelper = require('./verificationHelper');
 const generalService = require('./generalService');
-const log = require('../lib/log');
+const log = require('../../../../lib/log');
 const IOUtils = require('./IOUtils');
 
 /**
