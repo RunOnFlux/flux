@@ -10057,16 +10057,16 @@ async function getAppFiatAndFluxPrice(req, res) {
       log.info(`flux discount multiplier:${appPrices[0].fluxmultiplier}`);
       const fiatRate = rateObj.rate * btcRateforFlux;
       log.info(`fiatRate:${fiatRate}`);
-      const fluxPrice = Number((actualPriceToPay / fiatRate) * appPrices[0].fluxmultiplier).toFixed(2);
+      const fluxPrice = Number((actualPriceToPay / fiatRate) * appPrices[0].fluxmultiplier);
       log.info(`fluxPrice:${fluxPrice}`);
-      const fluxChainPrice = Number(await getAppFluxOnChainPrice(appSpecification)).toFixed(2);
+      const fluxChainPrice = Number(await getAppFluxOnChainPrice(appSpecification));
       log.info(`fluxChainPrice:${fluxChainPrice}`);
       if (fluxChainPrice > fluxPrice) {
         log.info('fluxChainPrice > fluxPrice');
       }
       const price = {
         usd: actualPriceToPay,
-        flux: fluxChainPrice > fluxPrice ? fluxChainPrice : fluxPrice,
+        flux: fluxChainPrice > fluxPrice ? fluxChainPrice.toFixed(2) : fluxPrice.toFixed(2),
         fluxDiscount: fluxChainPrice > fluxPrice ? 'Not possible to define discount' : 100 - (appPrices[0].fluxmultiplier * 100),
       };
       const respondPrice = messageHelper.createDataMessage(price);
