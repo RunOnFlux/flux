@@ -5015,7 +5015,7 @@
           </b-input-group>
         </div>
         <div
-          v-if="extendSubscription"
+          v-if="extendSubscription && appUpdateSpecification.version >= 6"
           class="form-row form-group"
         >
           <label class="col-form-label">
