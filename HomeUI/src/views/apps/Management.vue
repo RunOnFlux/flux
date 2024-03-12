@@ -5132,7 +5132,7 @@
                     class="mr-1"
                     scale="1.4"
                     icon="cash-coin"
-                  />Price: <b>{{ appPricePerSpecsUSD }} USD</b>
+                  />Price: <b>{{ appPricePerSpecsUSD }} USD + VAT</b>
                 </b-card-text>
                 <b-button
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -5206,7 +5206,7 @@
             >
               <b-card>
                 <b-card-text>
-                  Everything is ready, your payment option links are valid for the next 30 minutes. {{ appPricePerSpecsUSD }} USD + local VAT
+                  Everything is ready, your payment option links are valid for the next 30 minutes.
                 </b-card-text>
                 <br>
                 The application will be subscribed until <b>{{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}</b>
@@ -8196,6 +8196,7 @@ export default {
           throw new Error(response.data.data.message || response.data.data);
         }
         this.appPricePerSpecsUSD = +response.data.data.usd;
+        console.log(response.data.data);
         if (!this.extendSubscription && this.appPricePerSpecsUSD <= 0.50) {
           this.freeUpdate = true;
         } else if (Number.isNaN(+response.data.data.fluxDiscount)) {

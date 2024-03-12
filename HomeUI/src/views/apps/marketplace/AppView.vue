@@ -513,7 +513,7 @@
             class="text-center wizard-card"
           >
             <b-card-text>
-              Price: {{ appPricePerDeploymentUSD }} USD
+              <b-icon class="mr-1" scale="1.4" icon="cash-coin" />Price: <b>{{ appPricePerDeploymentUSD }} USD + VAT</b>
             </b-card-text>
             <b-button
               v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -548,10 +548,10 @@
                 class="text-center wizard-card"
               >
                 <b-card-text>
-                  Everything is ready, your payment option links are valid for the next 30 minutes. {{ appPricePerDeploymentUSD }} USD + local VAT
+                  Everything is ready, your payment option links are valid for the next 30 minutes.
                 </b-card-text>
                 <br>
-                The application will be subscribed until {{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}
+                The application will be subscribed until <b>{{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}</b>
                 <br>
                 To finish the application registration, pay your application with your prefered payment method or check below how to pay with Flux crypto currency.
               </b-card>
@@ -598,13 +598,13 @@
                 class="text-center wizard-card"
               >
                 <b-card-text>
-                  To pay in Flux{{ applicationPriceFluxDiscount }}, please make a transaction of {{ appPricePerDeployment }} FLUX to address<br>
-                  '{{ deploymentAddress }}'<br>
+                  To pay in <kbd class="bg-primary"><b>FLUX{{ applicationPriceFluxDiscount }}</b></kbd>, please make a transaction of <b>{{ appPricePerDeployment }} FLUX</b> to address<br>
+                  <b>'{{ deploymentAddress }}'</b><br>
                   with the following message<br>
-                  '{{ registrationHash }}'
+                  <b>'{{ registrationHash }}'</b>
                 </b-card-text>
                 <br>
-                The transaction must be sent by {{ new Date(validTill).toLocaleString('en-GB', timeoptions.shortDate) }}
+                <kbd class="bg-danger">The transaction must be sent by <b>The transaction must be sent by {{ new Date(validTill).toLocaleString('en-GB', timeoptions.shortDate) }}</b></kbd>
               </b-card>
             </b-col>
             <b-col xs="6" lg="4">
@@ -1895,8 +1895,10 @@ export default {
     };
 
     const copyMessageToSign = async () => {
-      const { copy } = useClipboard({ source: dataToSign.value, legacy: true });
+      const { copy, copied, isSupported } = useClipboard({ source: dataToSign.value, legacy: true });
       copy();
+      console.log(copied);
+      console.log(isSupported);
       tooltipText.value = 'Copied!';
       setTimeout(async () => {
         await nextTick();

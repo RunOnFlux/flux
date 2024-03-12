@@ -1530,7 +1530,7 @@
         >
           <b-card title="Register App">
             <b-card-text>
-              &nbsp;<b-icon class="mr-1" scale="1.4" icon="cash-coin" />Price: <b>{{ applicationPriceUSD }} USD</b>
+              &nbsp;<b-icon class="mr-1" scale="1.4" icon="cash-coin" />Price: <b>{{ applicationPriceUSD }} USD + VAT</b>
             </b-card-text>
             <b-card-text>
               &nbsp;<b-icon class="mr-1" scale="1.4" icon="clock" />Subscription period: <b>{{ getExpireLabel || (appRegistrationSpecification.expire ? `${appRegistrationSpecification.expire} blocks` : '1 month') }}</b>
@@ -1604,7 +1604,7 @@
         >
           <b-card>
             <b-card-text>
-              Everything is ready, your payment option links are valid for the next 30 minutes. {{ appPricePerSpecsUSD }} USD + local VAT
+              Everything is ready, your payment option links are valid for the next 30 minutes.
             </b-card-text>
             <br>
             The application will be subscribed until <b>{{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}</b>
