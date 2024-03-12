@@ -7999,7 +7999,7 @@ export default {
             component.repoauth = this.ensureString(component.repoauth || '');
           });
           if (this.appUpdateSpecification.version >= 6) {
-            const expireOption = this.expireOptions.find((opt) => opt.value >= specs.expire || 22000);
+            const expireOption = this.expireOptions.find((opt) => opt.value >= (specs.expire || 22000));
             this.appUpdateSpecification.expire = this.ensureNumber(expireOption.value);
             this.expirePosition = this.getExpirePosition(this.appUpdateSpecification.expire);
           }
