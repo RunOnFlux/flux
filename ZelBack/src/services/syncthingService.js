@@ -2393,19 +2393,7 @@ async function runSyncthingSentinel() {
       );
 
       syncthingProcess.unref();
-
-      // const exec = 'sudo nohup syncthing -logfile $HOME/.config/syncthing/syncthing.log --logflags=3 --log-max-old-files=2 --log-max-size=26214400 --allow-newer-config --no-browser --home=$HOME/.config/syncthing &';
-
-      // await cmdAsync(exec).catch((err) => {
-      //   log.error(err);
-      //   log.info('Error starting syncthing.');
-      // });
-
     }
-
-    if (stc.aborted) return 0;
-
-    // }
 
     if (stc.aborted) return 0;
 
