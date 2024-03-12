@@ -6547,9 +6547,12 @@ export default {
       setTimeout(() => {
         if (this.$refs.copyButtonRef) {
           this.$refs.copyButtonRef.blur();
-          this.tooltipText = 'Copy to clipboard';
+          this.tooltipText = '';
         }
-      }, 2000);
+      }, 1000);
+      setTimeout(() => {
+        this.tooltipText = 'Copy to clipboard';
+      }, 1500);
     },
     getIconName(used, total) {
       const percentage = (used / total) * 100;
@@ -9913,27 +9916,6 @@ export default {
   border-top: none;
   border-radius: 1px;
   cursor: pointer;
-}
-.clipboard.icon:before {
-  top: -1px;
-  left: 2px;
-  width: 5px;
-  height: 1px;
-  border: solid 1px #333333;
-  border-radius: 1px;
-}
-.clipboard.icon:after {
-  width: 3px;
-  height: 1px;
-  background-color: #333333;
-  box-shadow: 8px 0 0 0 #333333;
-}
-
-.icon:before,
-.icon:after {
-  content: "";
-  position: absolute;
-  display: block;
 }
 .no-wrap {
   white-space: nowrap !important;

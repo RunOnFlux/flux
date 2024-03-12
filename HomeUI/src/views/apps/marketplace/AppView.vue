@@ -1903,9 +1903,12 @@ export default {
         const button = copyButtonRef.value;
         if (button) {
           button.blur();
-          tooltipText.value = 'Copy to clipboard';
+          tooltipText.value = '';
         }
-      }, 2000);
+      }, 1000);
+      setTimeout(() => {
+        tooltipText.value = 'Copy to clipboard';
+      }, 1500);
     };
 
     const register = async () => {
@@ -2043,26 +2046,6 @@ export default {
   border-top: none;
   border-radius: 1px;
   cursor: pointer;
-}
-.clipboard.icon:before {
-  top: -1px;
-  left: 2px;
-  width: 5px;
-  height: 1px;
-  border: solid 1px #333333;
-  border-radius: 1px;
-}
-.clipboard.icon:after {
-  width: 3px;
-  height: 1px;
-  background-color: #333333;
-  box-shadow: 8px 0 0 0 #333333;
-}
-
-.icon:before, .icon:after {
-  content: '';
-  position: absolute;
-  display: block;
 }
 .inline {
   display: inline;
