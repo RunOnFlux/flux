@@ -116,16 +116,27 @@ module.exports = {
         staticip: 3, // additional price per application for targetting nodes that have static ip address
       },
       // soft fork 1
-      // {
-      //   height: 1594832, // height from which price spec is valid. Counts from when app was registerd on blockchain! 1004000
-      //   cpu: 0.15, // per 0.1 cpu core,
-      //   ram: 0.05, // per 100mb,
-      //   hdd: 0.02, // per 1gb,
-      //   minPrice: 0.01, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
-      //   port: 1.5, // additional price per enterprise port
-      //   scope: 6, // additional price for application targetting specific nodes, private images
-      //   staticip: 3, // additional price per application for targetting nodes that have static ip address
-      // },
+      {
+        height: 1594832, // height from which price spec is valid. Counts from when app was registerd on blockchain! 1004000
+        cpu: 0.15, // per 0.1 cpu core,
+        ram: 0.05, // per 100mb,
+        hdd: 0.02, // per 1gb,
+        minPrice: 0.01, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
+        port: 1.5, // additional price per enterprise port
+        scope: 6, // additional price for application targetting specific nodes, private images
+        staticip: 3, // additional price per application for targetting nodes that have static ip address
+      },
+      // soft fork 2
+      {
+        height: 1597156, // height from which price spec is valid. Counts from when app was registerd on blockchain! 1004000
+        cpu: 0.03, // per 0.1 cpu core,
+        ram: 0.01, // per 100mb,
+        hdd: 0.004, // per 1gb,
+        minPrice: 0.01, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
+        port: 0.4, // additional price per enterprise port
+        scope: 0.8, // additional price for application targetting specific nodes, private images
+        staticip: 0.4, // additional price per application for targetting nodes that have static ip address
+      },
     ],
     appSpecsEnforcementHeights: {
       1: 0, // blockheight v1 is deprecated. Not possible to use api to update to its specs
