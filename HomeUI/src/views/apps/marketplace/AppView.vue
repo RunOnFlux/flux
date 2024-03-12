@@ -1895,10 +1895,8 @@ export default {
     };
 
     const copyMessageToSign = async () => {
-      const { copy, copied, isSupported } = useClipboard({ source: dataToSign.value, legacy: true });
+      const { copy } = useClipboard({ source: dataToSign.value, legacy: true });
       copy();
-      console.log(copied);
-      console.log(isSupported);
       tooltipText.value = 'Copied!';
       setTimeout(async () => {
         await nextTick();
