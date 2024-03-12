@@ -10059,7 +10059,7 @@ async function getAppFiatAndFluxPrice(req, res) {
       log.info(`fiatRate:${fiatRate}`);
       const fluxPrice = Number((actualPriceToPay / fiatRate) * appPrices[0].fluxmultiplier).toFixed(2);
       log.info(`fluxPrice:${fluxPrice}`);
-      const fluxChainPrice = await getAppFluxOnChainPrice(appSpecification);
+      const fluxChainPrice = Number(await getAppFluxOnChainPrice(appSpecification)).toFixed(2);
       log.info(`fluxChainPrice:${fluxChainPrice}`);
       const price = {
         usd: actualPriceToPay,
