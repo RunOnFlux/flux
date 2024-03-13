@@ -378,7 +378,7 @@
                           <div class="d-flex justify-content-end">
                             <b-button
                               size="sm"
-                              class="mr-0"
+                              class="mr-1"
                               pill
                               variant="outline-secondary"
                               @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
