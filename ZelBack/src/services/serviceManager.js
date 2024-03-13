@@ -103,17 +103,20 @@ async function runTimedCallback(interval, callable, method, timer, options = {})
   };
 
   // only runEvery gets option to delay
-  if (delay) {
-    timeoutTimers.set(name, setTimeout(run, delay));
-  } else {
-    run();
-  }
+  delay ? timeoutTimers.set(name, setTimeout(run, delay)) : run();
 
   if (options.logMsg) log.info(options.logMsg);
 
   return true;
 }
 
+/**
+ *
+ * @param {string | number} interval Human readable interval, i.e. 10s, 30m, 2h, 1d
+ * @param {function} callable The function you want to run
+ * @param {{logMsg?: string}} options
+ * @returns
+ */
 async function runAfter(interval, callable, options = {}) {
   const filterdOptions = options.logMsg ? { logMsg: options.logMsg } : {};
   return runTimedCallback(interval, callable, setTimeout, timeoutTimers, filterdOptions);
@@ -208,8 +211,8 @@ async function startFluxFunctions() {
     await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces);
     log.info('Docker to host firewall enabled');
 
-    // what is the point of this? if it fails it just keeps going
-    await appsService.testAppMount(); // test if our node can mount a volume
+    // test if our node can mount a volume
+    await appsService.testAppMount();
     log.info('Test volume mount completed');
 
     // update this - it's running every 2 hours, control that here
@@ -221,15 +224,16 @@ async function startFluxFunctions() {
     // this should be interruptable with global abortController
     appsService.forceAppsRemoval(unreachableApps);
 
+    // temp, or maybe move to function
     setInterval(() => {
       log.debug([...intervalTimers.keys()], 'Intervals running:');
-      log.debug([...timeoutTimers.keys()], 'Tineouts running:');
+      log.debug([...timeoutTimers.keys()], 'Timeouts running:');
 
       const uptime = process.uptime()
       // use Intl.DateTimeFormat
       const formattedUptime = (Math.floor(uptime / 86400) + ":" + (new Date(uptime * 1000)).toISOString().slice(11, 19));
       log.info(`Uptime: ${formattedUptime}`)
-    }, 60 * 1000);
+    }, 120 * 1000);
 
     // change networkHelper name to service
     fluxNetworkHelper.startNetworkSentinel();
@@ -242,7 +246,7 @@ async function startFluxFunctions() {
     log.info('App monitoring service started');
 
 
-    // eslint - disable - next - line no - restricted - syntax
+    // eslint-disable-next-line no-restricted-syntax
     for (const [action, options] of delayedActions.entries()) {
       const delay = typeof options === 'string' ? options : options.schedule;
       const { schedule: _, ...filteredOptions } = typeof options === 'string' ? {} : options;

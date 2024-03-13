@@ -49,7 +49,9 @@ async function sendToAllPeers(data, wsList) {
           throw new Error(`Connection to ${client.ip} is not open`);
         }
       } catch (e) {
-        log.error(e);
+        // removed this error log. Generally, this happens because the remote end closed with 4000 (too many peers)
+        // It's not an error.
+        // log.error(e);
         removals.push(client);
         try {
           const { ip } = client;

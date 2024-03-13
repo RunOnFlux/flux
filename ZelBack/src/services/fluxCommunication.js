@@ -883,7 +883,7 @@ async function connectToPeers() {
     log.info(`Inbound/Outbound peer count: ${incomingPeers.length}/${outgoingPeers.length}`);
 
     log.debug(incomingPeers, "Inbound Peers");
-    log.debug(outgoingPeers, "Outbound Peers");
+    log.debug(outgoingPeers.map((peer) => { peer.ip, peer.port }), "Outbound Peers");
 
 
     // always try to connect to deterministic nodes

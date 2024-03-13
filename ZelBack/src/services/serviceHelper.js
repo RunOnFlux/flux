@@ -294,7 +294,7 @@ async function isFirewallActive() {
  *   1h30m    = 1 hour 30 minutes
  *   1d8h30m5s  = 1 day 8 hours 30 minutes 5 seconds
  * ```
- * @returns number milliseconds
+ * @returns {number} milliseconds
  */
 function parseInterval(userInterval) {
   // if only numbers are provided, we assume they are ms
