@@ -54,6 +54,7 @@
                   :filter="tableconfig.my.filter"
                   :filter-included-fields="tableconfig.my.filterOn"
                   show-empty
+                  sort-icon-left
                   empty-text="No Global Apps are owned"
                 >
                   <template #cell(show_details)="row">
@@ -444,6 +445,7 @@
                   :items="tableconfig.my_expired.apps"
                   :fields="tableconfig.my_expired.fields"
                   show-empty
+                  sort-icon-left
                   empty-text="None of your owed Apps are expired"
                 >
                   <template #cell(show_details)="row">
@@ -827,7 +829,7 @@ export default {
           fields: [
             { key: 'show_details', label: '' },
             { key: 'name', label: 'Name', sortable: true },
-            { key: 'description', label: 'Description', sortable: true },
+            { key: 'description', label: 'Description' },
             { key: 'visit', label: 'Visit' },
           ],
           loading: true,
@@ -837,7 +839,7 @@ export default {
           fields: [
             { key: 'show_details', label: '' },
             { key: 'name', label: 'Name', sortable: true },
-            { key: 'description', label: 'Description', sortable: true },
+            { key: 'description', label: 'Description' },
             { key: 'visit', label: 'Visit' },
           ],
         },
@@ -846,8 +848,8 @@ export default {
           fields: [
             { key: 'show_details', label: '' },
             { key: 'name', label: 'Name', sortable: true },
-            { key: 'description', label: 'Description', sortable: true },
-            { key: 'actions', label: 'Actions' },
+            { key: 'description', label: 'Description' },
+            { key: 'actions', label: 'Actions', class: 'text-center' },
           ],
           sortBy: '',
           sortDesc: false,
@@ -861,8 +863,8 @@ export default {
           fields: [
             { key: 'show_details', label: '' },
             { key: 'name', label: 'Name', sortable: true },
-            { key: 'description', label: 'Description', sortable: true },
-            { key: 'action', label: 'Action' },
+            { key: 'description', label: 'Description' },
+            { key: 'action', label: 'Action', class: 'text-center' },
           ],
         },
       },

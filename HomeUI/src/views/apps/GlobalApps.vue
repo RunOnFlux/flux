@@ -52,6 +52,7 @@
                   :sort-direction="tableconfig.active.sortDirection"
                   :filter="tableconfig.active.filter"
                   :filter-included-fields="tableconfig.active.filterOn"
+                  sort-icon-left
                   show-empty
                   empty-text="No Flux Apps are active"
                 >
@@ -450,6 +451,7 @@
                   :items="tableconfig.active_marketplace.apps"
                   :fields="tableconfig.active_marketplace.fields"
                   show-empty
+                  sort-icon-left
                   empty-text="No Flux Marketplace Apps are active"
                 >
                   <template #cell(show_details)="row">
@@ -879,8 +881,8 @@ export default {
           fields: [
             { key: 'show_details', label: '' },
             { key: 'name', label: 'Name', sortable: true },
-            { key: 'description', label: 'Description', sortable: true },
-            { key: 'visit', label: 'Action' },
+            { key: 'description', label: 'Description' },
+            { key: 'visit', label: 'Action', class: 'text-center' },
           ],
           loading: true,
           sortBy: '',
@@ -894,8 +896,8 @@ export default {
           fields: [
             { key: 'show_details', label: '' },
             { key: 'name', label: 'Name', sortable: true },
-            { key: 'description', label: 'Description', sortable: true },
-            { key: 'visit', label: 'Action' },
+            { key: 'description', label: 'Description' },
+            { key: 'visit', label: 'Action', class: 'text-center' },
           ],
         },
       },
