@@ -2,6 +2,7 @@
   <div>
     <b-tabs
       v-if="!managedApplication"
+      pills
       @activate-tab="tabChanged()"
     >
       <b-tab
@@ -43,7 +44,7 @@
                 <b-table
                   class="myapps-table"
                   striped
-                  hover
+                  outlined
                   responsive
                   :items="myGlobalApps"
                   :fields="tableconfig.my.fields"
@@ -60,10 +61,12 @@
                       <v-icon
                         v-if="!row.detailsShowing"
                         name="chevron-down"
+                        class="ml-1"
                       />
                       <v-icon
                         v-if="row.detailsShowing"
                         name="chevron-up"
+                        class="ml-1"
                       />
                     </a>
                   </template>
@@ -328,31 +331,50 @@
                           </div>
                         </b-card>
                       </div>
-                      <h4>Locations</h4>
+                      <div style="padding: 5px;">
+                        <b-icon scale="1.2" icon="globe" class="mr-1" />
+                        <b>LOCATIONS</b>
+                      </div>
                       <b-table
                         class="locations-table"
-                        striped
-                        hover
+                        small
+                        borderless
+                        outlined
                         :items="appLocations"
                         :fields="appLocationFields"
+                        thead-class="d-none"
                       >
                         <template #cell(visit)="locationRow">
-                          <b-button
-                            size="sm"
-                            class="mr-1"
-                            variant="danger"
-                            @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
-                          >
-                            Visit App
-                          </b-button>
-                          <b-button
-                            size="sm"
-                            class="mr-0"
-                            variant="danger"
-                            @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
-                          >
-                            Visit FluxNode
-                          </b-button>
+                          <div class="d-flex justify-content-end">
+                            <b-button
+                              v-b-tooltip.hover.top="'Visit App'"
+                              size="sm"
+                              class="mr-1"
+                              pill
+                              variant="outline-secondary"
+                              @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
+                            >
+                              <b-icon
+                                scale="1"
+                                icon="door-open"
+                              />
+                              App
+                            </b-button>
+                            <b-button
+                              v-b-tooltip.hover.top="'Visit FluxNode'"
+                              size="sm"
+                              class="mr-0"
+                              pill
+                              variant="outline-secondary"
+                              @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
+                            >
+                              <b-icon
+                                scale="1"
+                                icon="house-door-fill"
+                              />
+                              FluxNode
+                            </b-button>
+                          </div>
                         </template>
                       </b-table>
                     </b-card>
@@ -360,30 +382,44 @@
                   <template #cell(name)="row">
                     {{ getDisplayName(row.item.name) }}
                   </template>
-                  <template #cell(visit)="row">
-                    <b-button
-                      size="sm"
-                      class="mr-0"
-                      variant="danger"
-                      @click="openGlobalApp(row.item.name)"
-                    >
-                      Visit
-                    </b-button>
-                  </template>
-                  <template #cell(manage)="row">
-                    <b-button
-                      :id="`manage-installed-app-${row.item.name}`"
-                      size="sm"
-                      class="mr-0"
-                      variant="danger"
-                    >
-                      Manage
-                    </b-button>
-                    <confirm-dialog
-                      :target="`manage-installed-app-${row.item.name}`"
-                      confirm-button="Manage App"
-                      @confirm="openAppManagement(row.item.name)"
-                    />
+                  <template #cell(actions)="row">
+                    <div class="d-flex no-wrap">
+                      <b-button
+                        v-b-tooltip.hover.top="'Visit App'"
+                        size="sm"
+                        pill
+                        class="mr-1"
+                        variant="primary"
+                        @click="openGlobalApp(row.item.name)"
+                      >
+                        <b-icon
+                          scale="1"
+                          icon="door-open"
+                        />
+                        Visit
+                      </b-button>
+                      <div class="d-flex no-wrap">
+                        <b-button
+                          :id="`manage-installed-app-${row.item.name}`"
+                          v-b-tooltip.hover.top="'Manage Installed App'"
+                          size="sm"
+                          pill
+                          class="mr-0"
+                          variant="secondary"
+                        >
+                          <b-icon
+                            scale="1"
+                            icon="gear"
+                          />
+                          Manage
+                        </b-button>
+                      </div>
+                      <confirm-dialog
+                        :target="`manage-installed-app-${row.item.name}`"
+                        confirm-button="Manage App"
+                        @confirm="openAppManagement(row.item.name)"
+                      />
+                    </div>
                   </template>
                 </b-table>
               </b-col>
@@ -403,7 +439,7 @@
                 <b-table
                   class="myapps-table"
                   striped
-                  hover
+                  outlined
                   responsive
                   :items="tableconfig.my_expired.apps"
                   :fields="tableconfig.my_expired.fields"
@@ -411,14 +447,16 @@
                   empty-text="None of your owed Apps are expired"
                 >
                   <template #cell(show_details)="row">
-                    <a @click="row.toggleDetails();">
+                    <a @click="row.toggleDetails(row, tableconfig.my_expired.apps);">
                       <v-icon
                         v-if="!row.detailsShowing"
                         name="chevron-down"
+                        class="ml-1"
                       />
                       <v-icon
                         v-if="row.detailsShowing"
                         name="chevron-up"
+                        class="ml-1"
                       />
                     </a>
                   </template>
@@ -471,10 +509,6 @@
                         v-if="row.item.instances"
                         title="Instances"
                         :data="row.item.instances.toString()"
-                      />
-                      <list-entry
-                        title="Expires in"
-                        :data="labelForExpire(row.item.expire, row.item.height)"
                       />
                       <list-entry
                         title="Enterprise Nodes"
@@ -688,13 +722,18 @@
                   <template #cell(name)="row">
                     {{ getDisplayName(row.item.name) }}
                   </template>
-                  <template #cell(redeploy)="row">
+                  <template #cell(action)="row">
                     <b-button
                       :id="`redeploy-installed-app-${row.item.name}`"
                       size="sm"
-                      class="mr-0"
-                      variant="danger"
+                      class="mr-0 no-wrap"
+                      variant="secondary"
+                      pill
                     >
+                      <b-icon
+                        scale="1"
+                        icon="building"
+                      />
                       Redeploy
                     </b-button>
                     <confirm-dialog
@@ -808,8 +847,7 @@ export default {
             { key: 'show_details', label: '' },
             { key: 'name', label: 'Name', sortable: true },
             { key: 'description', label: 'Description', sortable: true },
-            { key: 'visit', label: 'Visit' },
-            { key: 'manage', label: 'Manage' },
+            { key: 'actions', label: 'Actions' },
           ],
           sortBy: '',
           sortDesc: false,
@@ -824,7 +862,7 @@ export default {
             { key: 'show_details', label: '' },
             { key: 'name', label: 'Name', sortable: true },
             { key: 'description', label: 'Description', sortable: true },
-            { key: 'redeploy', label: 'Redeploy' },
+            { key: 'action', label: 'Action' },
           ],
         },
       },
@@ -1060,7 +1098,10 @@ export default {
       win.focus();
     },
     tabChanged() {
-      this.tableconfig.active.apps.forEach((item) => {
+      this.myGlobalApps.forEach((item) => {
+        this.$set(item, '_showDetails', false);
+      });
+      this.tableconfig.my_expired.apps.forEach((item) => {
         this.$set(item, '_showDetails', false);
       });
       this.appLocations = [];
