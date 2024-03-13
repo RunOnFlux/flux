@@ -2,6 +2,7 @@
   <div>
     <b-tabs
       v-if="!managedApplication"
+      pills
       @activate-tab="tabChanged()"
     >
       <b-tab
@@ -42,7 +43,7 @@
                 <b-table
                   class="apps-active-table"
                   striped
-                  hover
+                  outlined
                   responsive
                   :items="tableconfig.active.apps"
                   :fields="tableconfig.active.fields"
@@ -58,10 +59,12 @@
                     <a @click="showLocations(row, tableconfig.active.apps)">
                       <v-icon
                         v-if="!row.detailsShowing"
+                        class="ml-1"
                         name="chevron-down"
                       />
                       <v-icon
                         v-if="row.detailsShowing"
+                        class="ml-1"
                         name="chevron-up"
                       />
                     </a>
@@ -73,17 +76,27 @@
                         v-b-tooltip.hover.top="'Copy to Clipboard'"
                         size="sm"
                         class="mr-2"
-                        variant="danger"
+                        variant="outline-dark"
+                        pill
                         @click="copyToClipboard(JSON.stringify(row.item))"
                       >
+                        <b-icon
+                          scale="1"
+                          icon="clipboard"
+                        />
                         Copy Specifications
                       </b-button>
                       <b-button
                         :id="`deploy-active-app-${row.item.name}`"
                         size="sm"
                         class="mr-2"
-                        variant="danger"
+                        variant="outline-dark"
+                        pill
                       >
+                        <b-icon
+                          scale="1"
+                          icon="building"
+                        />
                         Deploy Myself
                       </b-button>
                       <confirm-dialog
@@ -348,44 +361,68 @@
                           </div>
                         </b-card>
                       </div>
-                      <h4>Locations</h4>
+                      <div style="padding: 5px;">
+                        <b-icon scale="1.2" icon="globe" class="mr-1" />
+                        <b>LOCATIONS</b>
+                      </div>
                       <b-table
                         class="locations-table"
-                        striped
-                        hover
+                        small
+                        borderless
+                        outlined
                         :items="appLocations"
                         :fields="appLocationFields"
+                        thead-class="d-none"
                       >
                         <template #cell(visit)="locationRow">
-                          <b-button
-                            size="sm"
-                            class="mr-1"
-                            variant="danger"
-                            @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
-                          >
-                            Visit App
-                          </b-button>
-                          <b-button
-                            size="sm"
-                            class="mr-0"
-                            variant="danger"
-                            @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
-                          >
-                            Visit FluxNode
-                          </b-button>
+                          <div class="d-flex justify-content-end">
+                            <b-button
+                              size="sm"
+                              class="mr-0"
+                              pill
+                              variant="outline-secondary"
+                              @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
+                            >
+                              <b-icon
+                                scale="1"
+                                icon="door-open"
+                              />
+                              App
+                            </b-button>
+                            <b-button
+                              size="sm"
+                              class="mr-0"
+                              pill
+                              variant="outline-secondary"
+                              @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
+                            >
+                              <b-icon
+                                scale="1"
+                                icon="house-door-fill"
+                              />
+                              FluxNode
+                            </b-button>
+                          </div>
                         </template>
                       </b-table>
                     </b-card>
                   </template>
                   <template #cell(visit)="row">
-                    <b-button
-                      size="sm"
-                      class="mr-0"
-                      variant="danger"
-                      @click="openGlobalApp(row.item.name)"
-                    >
-                      Visit
-                    </b-button>
+                    <div class="d-flex no-wrap">
+                      <b-button
+                        size="sm"
+                        class="mr-0"
+                        pill
+                        variant="primary"
+                        @click="openGlobalApp(row.item.name)"
+                      >
+                        <b-icon
+                          scale="1"
+                          icon="door-open"
+                        />
+                        Visit
+                      </b-button>
+                    </div>
                   </template>
                 </b-table>
               </b-col>
@@ -405,7 +442,7 @@
                 <b-table
                   class="apps-active-table"
                   striped
-                  hover
+                  outlined
                   responsive
                   :items="tableconfig.active_marketplace.apps"
                   :fields="tableconfig.active_marketplace.fields"
@@ -413,13 +450,15 @@
                   empty-text="No Flux Marketplace Apps are active"
                 >
                   <template #cell(show_details)="row">
-                    <a @click="showLocations(row, tableconfig.active.apps)">
+                    <a @click="showLocations(row, tableconfig.active_marketplace.apps)">
                       <v-icon
                         v-if="!row.detailsShowing"
+                        class="ml-1"
                         name="chevron-down"
                       />
                       <v-icon
                         v-if="row.detailsShowing"
+                        class="ml-1"
                         name="chevron-up"
                       />
                     </a>
@@ -681,44 +720,73 @@
                           </div>
                         </b-card>
                       </div>
-                      <h4>Locations</h4>
+                      <div style="padding: 5px;">
+                        <b-icon scale="1.2" icon="globe" class="mr-1" />
+                        <b>LOCATIONS</b>
+                      </div>
                       <b-table
-                        class="locations-table"
-                        striped
-                        hover
+                        small
+                        borderless
+                        outlined
                         :items="appLocations"
                         :fields="appLocationFields"
+                        thead-class="d-none"
                       >
+                        <!-- <template #head(ip)>
+                          <div style="padding: 5px;">
+                            <b-icon scale="1.2" icon="globe" class="mr-1" />
+                            <b>LOCATIONS</b>
+                          </div>
+                        </template> -->
                         <template #cell(visit)="locationRow">
-                          <b-button
-                            size="sm"
-                            class="mr-1"
-                            variant="danger"
-                            @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
-                          >
-                            Visit App
-                          </b-button>
-                          <b-button
-                            size="sm"
-                            class="mr-0"
-                            variant="danger"
-                            @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
-                          >
-                            Visit FluxNode
-                          </b-button>
+                          <div class="d-flex justify-content-end">
+                            <b-button
+                              size="sm"
+                              class="mr-1"
+                              pill
+                              variant="outline-secondary"
+                              @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
+                            >
+                              <b-icon
+                                scale="1"
+                                icon="door-open"
+                              />
+                              App
+                            </b-button>
+                            <b-button
+                              size="sm"
+                              class="mr-0"
+                              pill
+                              variant="outline-secondary"
+                              @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
+                            >
+                              <b-icon
+                                scale="1"
+                                icon="house-door-fill"
+                              />
+                              FluxNode
+                            </b-button>
+                          </div>
                         </template>
                       </b-table>
                     </b-card>
                   </template>
                   <template #cell(visit)="row">
-                    <b-button
-                      size="sm"
-                      class="mr-0"
-                      variant="danger"
-                      @click="openGlobalApp(row.item.name)"
-                    >
-                      Visit
-                    </b-button>
+                    <div class="d-flex no-wrap">
+                      <b-button
+                        size="sm"
+                        class="mr-0"
+                        pill
+                        variant="primary"
+                        @click="openGlobalApp(row.item.name)"
+                      >
+                        <b-icon
+                          scale="1"
+                          icon="door-open"
+                        />
+                        Visit
+                      </b-button>
+                    </div>
                   </template>
                 </b-table>
               </b-col>
@@ -791,7 +859,7 @@ export default {
       daemonBlockCount: -1,
       appLocations: [],
       appLocationFields: [
-        { key: 'ip', label: 'IP Address' },
+        { key: 'ip', label: 'Locations' },
         { key: 'visit', label: '' },
       ],
       myappLocations: [],
@@ -806,7 +874,7 @@ export default {
             { key: 'show_details', label: '' },
             { key: 'name', label: 'Name', sortable: true },
             { key: 'description', label: 'Description', sortable: true },
-            { key: 'visit', label: 'Visit' },
+            { key: 'visit', label: 'Action' },
           ],
           loading: true,
           sortBy: '',
@@ -821,7 +889,7 @@ export default {
             { key: 'show_details', label: '' },
             { key: 'name', label: 'Name', sortable: true },
             { key: 'description', label: 'Description', sortable: true },
-            { key: 'visit', label: 'Visit' },
+            { key: 'visit', label: 'Action' },
           ],
         },
       },
@@ -1058,6 +1126,9 @@ export default {
     },
     tabChanged() {
       this.tableconfig.active.apps.forEach((item) => {
+        this.$set(item, '_showDetails', false);
+      });
+      this.tableconfig.active_marketplace.apps.forEach((item) => {
         this.$set(item, '_showDetails', false);
       });
       this.appLocations = [];
