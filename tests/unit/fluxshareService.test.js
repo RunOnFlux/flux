@@ -4,7 +4,7 @@ const chaiAsPromised = require('chai-as-promised');
 const proxyquire = require('proxyquire');
 const fs = require('fs');
 const util = require('util');
-const log = require('../../ZelBack/src/lib/log');
+const log = require('../../lib/log');
 
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');

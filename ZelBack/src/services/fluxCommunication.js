@@ -554,21 +554,25 @@ async function closeAllConnections() {
  */
 let myPort = null;
 async function initiateAndHandleConnection(connection) {
-  return new Promise(async (resolve, reject) => {
-    let ip = connection;
-    let port = config.server.apiport;
+  // this function could use some work
+  let ip = connection;
+  let port = config.server.apiport;
+
+  if (connection.includes(':')) {
+    ip = connection.split(':')[0];
+    port = connection.split(':')[1];
+  }
+  if (!myPort) {
+    // this is caught in lower functions
+    const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+    if (!myIP) {
+      return null;
+    }
+    myPort = myIP.split(':')[1] || 16127;
+  }
+
+  return new Promise((resolve, reject) => {
     try {
-      if (connection.includes(':')) {
-        ip = connection.split(':')[0];
-        port = connection.split(':')[1];
-      }
-      if (!myPort) {
-        const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
-        if (!myIP) {
-          return;
-        }
-        myPort = myIP.split(':')[1] || 16127;
-      }
       const wsuri = `ws://${ip}:${port}/ws/flux/${myPort}`;
       const websocket = new WebSocket(wsuri);
       websocket.port = port;
@@ -610,7 +614,7 @@ async function initiateAndHandleConnection(connection) {
           outgoingPeers.splice(peerIndex, 1);
           log.info(`Connection ${ip}:${port} removed from outgoingPeers`);
         }
-        reject('Socket closed');
+        reject(new Error('Socket closed'));
       };
 
       websocket.onmessage = async (evt) => {
@@ -882,9 +886,8 @@ async function connectToPeers() {
     log.info(`Inbound/Outbound connection count: ${incomingConnections.length}/${outgoingConnections.length}`);
     log.info(`Inbound/Outbound peer count: ${incomingPeers.length}/${outgoingPeers.length}`);
 
-    log.debug(incomingPeers, "Inbound Peers");
-    log.debug(outgoingPeers.map((peer) => { peer.ip, peer.port }), "Outbound Peers");
-
+    log.debug(incomingPeers, 'Inbound Peers');
+    log.debug(outgoingPeers.map((peer) => ({ ip: peer.ip, port: peer.port })), 'Outbound Peers');
 
     // always try to connect to deterministic nodes
     let deterministicPeerConnections = false;
@@ -982,10 +985,9 @@ async function connectToPeers() {
   } catch (err) {
     if (err.name === 'AbortError') {
       return 0;
-    } else {
-      log.warn(err);
-      return 2 * 60 * 120;
     }
+    log.warn(err);
+    return 2 * 60 * 120;
   } finally {
     fcc.lock.disable();
   }

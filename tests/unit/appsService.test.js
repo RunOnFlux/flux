@@ -15,7 +15,7 @@ const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonSer
 const generalService = require('../../ZelBack/src/services/generalService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
-const log = require('../../ZelBack/src/lib/log');
+const log = require('../../lib/log');
 
 chai.use(chaiAsPromised);
 const { expect } = chai;

@@ -2,6 +2,8 @@ const https = require('node:https');
 const path = require('node:path');
 const fs = require('node:fs/promises');
 
+const eWS = require('express-ws');
+
 const app = require('../ZelBack/src/lib/server');
 const log = require('../lib/log');
 const socket = require('../ZelBack/src/lib/socket');
@@ -39,24 +41,29 @@ async function runServer(port, options = {}) {
     const appRoot = path.join(__dirname, '../');
     const keyPath = path.join(appRoot, 'certs/v1.key');
 
+    // this while https server bit should be moved into server module
     await fs.stat(keyPath).catch(async () => {
       const scriptDir = path.join(appRoot, 'helpers');
       const scriptPath = path.join(scriptDir, 'createSSLcert.sh');
       await serviceHelper.runCommand(scriptPath, { cwd: scriptDir });
-    })
+    });
 
     const key = await fs.readFile(path.join(appRoot, 'certs/v1.key'), 'utf8');
     const cert = await fs.readFile(path.join(appRoot, 'certs/v1.crt'), 'utf8');
     const credentials = { key, cert };
+
     tlsServer = https.createServer(credentials, app);
-    tlsServer.listen(port, () => {
+    eWS(app, tlsServer);
+
+    const tlsListener = tlsServer.listen(port, () => {
       log.info(`Flux HTTPS server listening on port: ${port}`);
     });
     tlsServer.on('error', async (err) => {
       log.error(err);
       await tlsServer.close();
       // retry
-    })
+    });
+    socket.initIO(tlsListener);
     return;
   }
 
@@ -71,7 +78,7 @@ async function runServer(port, options = {}) {
     log.error(err);
     await httpServer.close();
     // retry
-  })
+  });
 }
 
 async function reload(port, options = {}) {
@@ -81,7 +88,7 @@ async function reload(port, options = {}) {
   if (tlsServer) await tlsServer.close();
 
   await runServer(port);
-  await runServer(port + 1, { https: true })
+  await runServer(port + 1, { https: true });
 }
 
 /**
@@ -91,7 +98,7 @@ async function reload(port, options = {}) {
 async function initiate(apiPort, options = {}) {
   const testUpnp = options.testUpnp || false;
   const validateUpnp = options.validateUpnp || false;
-  const reload = options.reload || false;
+  const reloadServers = options.reload || false;
 
   if (httpServer && !options.reload) return;
 
@@ -99,11 +106,11 @@ async function initiate(apiPort, options = {}) {
 
   if (testUpnp) await loadUpnp(apiPort, validateUpnp);
 
-  if (reload) {
+  if (reloadServers) {
     reload(apiPort);
   } else {
     await runServer(apiPort);
-    await runServer(apiPort + 1, { https: true })
+    await runServer(apiPort + 1, { https: true });
   }
 }
 

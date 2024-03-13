@@ -1,4 +1,6 @@
 /* eslint max-classes-per-file: 0 */
+/* eslint no-underscore-dangle: ["error", { "allowAfterThis": true }] */
+
 const { randomBytes } = require('node:crypto');
 
 const axios = require('axios');
@@ -27,7 +29,7 @@ const firewallStatus = {
   /**
    * @returns {string}
    */
-  get ['active']() {
+  get active() {
     return this.lastCheck + (15 * 1000) > Date.now() ? this._active : null;
   },
   /**
@@ -37,8 +39,8 @@ const firewallStatus = {
   set(status) {
     this._active = status;
     this.lastCheck = Date.now();
-  }
-}
+  },
+};
 
 // const path = require('node:path')
 // const { Worker } = require('node:worker_threads');
@@ -69,8 +71,6 @@ const firewallStatus = {
 //   cmdWorker.on('message', workerHandler);
 //   workerPool.push(cmdWorker);
 // }
-
-
 
 class AsyncLock {
   ready = Promise.resolve();
@@ -129,7 +129,7 @@ class FluxController extends AbortController {
   }
 
   async abort() {
-    log.info("ABORT WAS CALLED")
+    log.info('ABORT WAS CALLED');
     super.abort();
     // eslint-disable-next-line no-restricted-syntax
     for (const [reject, timeout] of this.#timeouts.values()) {
@@ -172,22 +172,23 @@ function delay(ms) {
    @returns {Promise<{error: (Error|null), stdout: (string|null), stderr: (string|null)}>}
  */
 async function runCommand(userCmd, options = {}) {
-  const res = { error: null, stdout: null, stderr: null }
+  const res = { error: null, stdout: null, stderr: null };
   const params = options.params || [];
 
   if (!userCmd) {
-    res.error = new Error("Command must be present")
-    return res
+    res.error = new Error('Command must be present');
+    return res;
   }
 
   // number seems to get coerced to string in the execFile command, so have allowed
   if (!Array.isArray(params) || !params.every((p) => typeof p === 'string' || typeof p === 'number')) {
-    res.error = new Error("Invalid params for command, must be an Array of strings")
+    res.error = new Error('Invalid params for command, must be an Array of strings');
     return res;
   }
 
   const { runAsRoot, logError, ...execOptions } = options;
 
+  let cmd;
   if (runAsRoot) {
     params.unshift(userCmd);
     cmd = 'sudo';
@@ -195,7 +196,7 @@ async function runCommand(userCmd, options = {}) {
     cmd = userCmd;
   }
 
-  log.debug(`Run Cmd: ${cmd} ${params.join(" ")}`)
+  log.debug(`Run Cmd: ${cmd} ${params.join(' ')}`);
 
   // let stdoutBuf = '';
   // let stderrBuf = '';
@@ -226,7 +227,7 @@ async function runCommand(userCmd, options = {}) {
   if (options.exclusive) {
     if (!locks.has(userCmd)) locks[userCmd] = new AsyncLock();
     await locks[userCmd].enable();
-    log.info("Exclusive lock enabled for command:", userCmd);
+    log.info('Exclusive lock enabled for command:', userCmd);
   }
 
   const { stdout, stderr } = await execFile(cmd, params, execOptions).catch((err) => {
@@ -238,7 +239,7 @@ async function runCommand(userCmd, options = {}) {
 
   if (options.exclusive) {
     locks[userCmd].disable();
-    log.info("Exclusive lock disabled for command:", userCmd);
+    log.info('Exclusive lock disabled for command:', userCmd);
   }
 
   // if (stderr) console.log("STDERR FOUND!!!!!", stderr)
@@ -248,7 +249,6 @@ async function runCommand(userCmd, options = {}) {
 
   return res;
 }
-
 
 /**
  * To check if a firewall is active, will cache for 10 seconds.
@@ -580,7 +580,7 @@ function ipInSubnet(ip, subnet) {
 async function installAptPackage(packageName) {
   const { error: notInstalled } = await runCommand('dpkg', {
     params: ['-l', packageName],
-    logError: false
+    logError: false,
   });
 
   if (notInstalled) {

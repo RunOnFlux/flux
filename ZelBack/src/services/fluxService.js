@@ -70,7 +70,7 @@ async function getCurrentCommitId(req, res) {
     const errMsg = messageHelper.createErrorMessage(
       `Error getting current commit id of Flux: ${error.message}`,
       error.name,
-      error.code
+      error.code,
     );
     return res ? res.json(errMsg) : errMsg;
   }
@@ -107,7 +107,7 @@ async function getCurrentBranch(req, res) {
     const errMsg = messageHelper.createErrorMessage(
       `Error getting current branch of Flux: ${error.message}`,
       error.name,
-      error.code
+      error.code,
     );
     return res ? res.json(errMsg) : errMsg;
   }
@@ -127,7 +127,7 @@ async function checkoutBranch(branch, options = {}) {
     params: ['rev-parse', '--verify', branch],
   });
 
-  if (verifyError) return false
+  if (verifyError) return false;
 
   // const verifyBranch = `git rev-parse --verify ${branch}`;
   // const pull = options.pull ? ' && git pull' : '';
@@ -140,7 +140,7 @@ async function checkoutBranch(branch, options = {}) {
   if (checkoutError) return false;
 
   if (options.pull) {
-    const { error: pullError } = await serviceHelper.runCommand('git', { params: ['pull'] })
+    const { error: pullError } = await serviceHelper.runCommand('git', { params: ['pull'] });
     if (pullError) return false;
   }
 
@@ -952,7 +952,7 @@ async function tailDaemonDebug(req, res) {
   });
 
   if (error) {
-    const errMessage = messageHelper.createErrorMessage(`Error obtaining Daemon debug file: ${err.message}`, err.name, err.code);
+    const errMessage = messageHelper.createErrorMessage(`Error obtaining Daemon debug file: ${error.message}`, error.name, error.code);
     res.json(errMessage);
     return;
   }
@@ -998,7 +998,7 @@ async function tailBenchmarkDebug(req, res) {
   });
 
   if (error) {
-    const errMessage = messageHelper.createErrorMessage(`Error obtaining Daemon debug file: ${err.message}`, err.name, err.code);
+    const errMessage = messageHelper.createErrorMessage(`Error obtaining Daemon debug file: ${error.message}`, error.name, error.code);
     res.json(errMessage);
     return;
   }
@@ -1134,14 +1134,13 @@ async function tailFluxLog(req, res, logfile) {
   });
 
   if (error) {
-    const errMessage = messageHelper.createErrorMessage(`Error obtaining Daemon debug file: ${err.message}`, err.name, err.code);
+    const errMessage = messageHelper.createErrorMessage(`Error obtaining Daemon debug file: ${error.message}`, error.name, error.code);
     res.json(errMessage);
     return;
   }
 
   const message = messageHelper.createSuccessMessage(stdout);
   res.json(message);
-
 
   // const exec = `tail -n 100 ${filepath}`;
   // nodecmd.get(exec, (err, data) => {
@@ -1797,7 +1796,7 @@ async function restartFluxOS(req, res) {
   if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     res.json(errMessage);
-    return
+    return;
   }
 
   // const exec = 'pm2 restart flux';

@@ -2261,8 +2261,8 @@ async function configureDirectories() {
   const owner = `${user}:${user}`;
 
   await serviceHelper.runCommand('mkdir', {
-    params: ['-p', configDir]
-  })
+    params: ['-p', configDir],
+  });
 
   await serviceHelper.runCommand('chown', {
     runAsRoot: true,
@@ -2308,15 +2308,15 @@ async function stopSyncthing() {
   await serviceHelper.runCommand('killall', {
     runAsRoot: true,
     params: ['syncthing'],
-    logError: false
-  })
+    logError: false,
+  });
 
   // pkill will error if process not found
   await serviceHelper.runCommand('pkill', {
     runAsRoot: true,
     params: ['syncthing'],
-    logError: false
-  })
+    logError: false,
+  });
 
   // await cmdAsync(execKill).catch((error) => log.error(error));
   // await cmdAsync(execKillB).catch((error) => log.error(error));
@@ -2336,7 +2336,7 @@ async function stopSyncthing() {
     await serviceHelper.runCommand('kill', {
       runAsRoot: true,
       params: ['-9', 'syncthing'],
-    })
+    });
   }
 }
 
@@ -2359,9 +2359,8 @@ async function runSyncthingSentinel() {
       await stopSyncthing();
 
       const homedir = os.homedir();
-      const syncthingHome = path.join(homedir, '.config/syncthing')
+      const syncthingHome = path.join(homedir, '.config/syncthing');
       const logFile = path.join(syncthingHome, 'syncthing.log');
-
 
       log.info('Spawning Syncthing instance...');
 
@@ -2386,7 +2385,7 @@ async function runSyncthingSentinel() {
           detached: true,
           stdio: 'ignore',
           // uid: 0,
-        }
+        },
       );
 
       syncthingProcess.unref();

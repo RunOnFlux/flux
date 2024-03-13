@@ -23,18 +23,19 @@ process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
 const fs = require('fs/promises');
 const { parseArgs } = require('node:util');
 const path = require('node:path');
-const { spawn } = require('node:child_process');
+// const { spawn } = require('node:child_process');
 
 const config = require('config');
 const hash = require('object-hash');
 
 const api = require('./entrypoints/api');
 const gui = require('./entrypoints/gui');
-const fluxService = require('./ZelBack/src/services/fluxService');
+// const fluxService = require('./ZelBack/src/services/fluxService');
 const log = require('./lib/log');
 
-let apiPort = +userconfig.initial.apiport || +config.server.apiport;
-let development = userconfig.initial.development || false;
+const apiPort = +userconfig.initial.apiport || +config.server.apiport;
+// Todo: implement this
+// const development = userconfig.initial.development || false;
 let initialHash = '';
 let configReloadTimer;
 
@@ -42,56 +43,56 @@ const options = {
   'api-only': {
     type: 'boolean',
     short: 'a',
-    default: false
+    default: false,
   },
-  'dev': {
+  dev: {
     type: 'boolean',
     short: 'd',
-    default: false
+    default: false,
   },
   'gui-only': {
     type: 'boolean',
     short: 'g',
-    default: false
+    default: false,
   },
   'force-stdout': {
     type: 'boolean',
     short: 'f',
-    default: false
+    default: false,
   },
-  'help': {
+  help: {
     type: 'boolean',
     short: 'h',
     default: false,
-  }
+  },
 };
 
-function requireUncached(module) {
-  delete require.cache[require.resolve(module)];
-  // eslint-disable-next-line global-require, import/no-dynamic-require
-  return require(module);
-}
+// function requireUncached(module) {
+//   delete require.cache[require.resolve(module)];
+//   // eslint-disable-next-line global-require, import/no-dynamic-require
+//   return require(module);
+// }
 
-function loadFluxModules(options = {}) {
-  // store the module names in a map or something. Figure out what modules have chagned
-  // then reload those ones. Hash each module.
-  requireUncached('./ZelBack/src/lib/server');
-  requireUncached('./ZelBack/src/lib/log');
-  requireUncached('./ZelBack/src/lib/socket');
-  requireUncached('./ZelBack/src/services/serviceManager');
-  requireUncached('./ZelBack/src/services/fluxService');
-  requireUncached('./ZelBack/src/services/upnpService');
-}
+// function loadFluxModules(options = {}) {
+//   // store the module names in a map or something. Figure out what modules have chagned
+//   // then reload those ones. Hash each module.
+//   requireUncached('./ZelBack/src/lib/server');
+//   requireUncached('./ZelBack/src/lib/log');
+//   requireUncached('./ZelBack/src/lib/socket');
+//   requireUncached('./ZelBack/src/services/serviceManager');
+//   requireUncached('./ZelBack/src/services/fluxService');
+//   requireUncached('./ZelBack/src/services/upnpService');
+// }
 
-async function loadBranch(branch) {
-  const res = await fluxService.getCurrentBranch();
-  if (res.status === 'success' && res.data.message !== branch) {
-    log.info(`Branch: ${branch} differs from current branch: ${res.data.message}, switching`);
-    const success = await fluxService.checkoutBranch(branch, { pull: true });
-    // if (success) loadFluxModules({ invalidateCache: true });
-    // don't need this anymore... it will get caught by the fs watche (that we make)r?!?
-  }
-}
+// async function loadBranch(branch) {
+//   const res = await fluxService.getCurrentBranch();
+//   if (res.status === 'success' && res.data.message !== branch) {
+//     log.info(`Branch: ${branch} differs from current branch: ${res.data.message}, switching`);
+//     const success = await fluxService.checkoutBranch(branch, { pull: true });
+//     // if (success) loadFluxModules({ invalidateCache: true });
+//     // don't need this anymore... it will get caught by the fs watche (that we make)r?!?
+//   }
+// }
 
 async function configReload() {
   // fix this (replace with @parcel/watcher)
@@ -122,14 +123,14 @@ async function configReload() {
   }
 }
 
-function restart() {
-  // figure out if this makes sense (the pipes)
-  spawn(process.argv[1], process.argv.slice(2), {
-    detached: true,
-    stdio: ['ignore', 'pipe', 'pipe']
-  }).unref();
-  process.exit(0);
-}
+// function restart() {
+//   // figure out if this makes sense (the pipes)
+//   spawn(process.argv[1], process.argv.slice(2), {
+//     detached: true,
+//     stdio: ['ignore', 'pipe', 'pipe'],
+//   }).unref();
+//   process.exit(0);
+// }
 
 function help() {
   console.log(String.raw`Usage: fluxos [opts]
@@ -139,7 +140,7 @@ function help() {
   -g, --gui-only                      Only run GUI component
   -a, --api-only                      Only run API component
   -d, --dev                           Same as -a, backwards compatibility
-  `)
+  `);
 
   process.exit(1);
 }
@@ -197,7 +198,7 @@ async function initiate() {
          \/                     \/       \/        \/
 
 
-`)
+`);
 
   log.info(`Running as TTY: ${isTTY}`);
 
@@ -215,8 +216,8 @@ async function initiate() {
 
   const testUpnp = Boolean(userconfig.initial.apiport);
   const validateUpnp = Boolean(
-    (testUpnp && userconfig.initial.apiport !== config.server.apiport) ||
-    userconfig.initial.routerIP
+    (testUpnp && userconfig.initial.apiport !== config.server.apiport)
+    || userconfig.initial.routerIP,
   );
 
   if (!userOptions['gui-only']) api.initiate(apiPort, { testUpnp, validateUpnp, reload });

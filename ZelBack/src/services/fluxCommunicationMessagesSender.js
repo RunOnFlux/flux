@@ -1,4 +1,3 @@
-/* eslint-disable no-underscore-dangle */
 const { LRUCache } = require('lru-cache');
 const WebSocket = require('ws');
 const log = require('../../../lib/log');
@@ -150,7 +149,7 @@ async function getFluxMessageSignature(message, privatekey) {
  * To serialise and sign a Flux broadcast.
  * @param {object} dataToBroadcast Data to broadcast. Contains version, timestamp, pubKey, signature and data.
  * @param {string} privatekey Private key.
- * @returns {string} Data string (serialised data object).
+ * @returns {Promise<string>} Data string (serialised data object).
  */
 async function serialiseAndSignFluxBroadcast(dataToBroadcast, privatekey) {
   const version = 1;
@@ -196,7 +195,7 @@ async function sendMessageToWS(message, ws) {
  * To respond with app message.
  * @param {object} message Message.
  * @param {object} ws Web socket.
- * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ * @returns {Promise<void>} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function respondWithAppMessage(message, ws) {
   try {

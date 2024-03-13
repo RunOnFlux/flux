@@ -5,11 +5,9 @@ const express = require('express');
 
 const log = require('../lib/log');
 
-const logger = () => {
-  return (req, res, next) => {
-    log.debug({ url: req.url, method: req.method, ip: req.ip.replace('::ffff:', '') }, "Incomming GUI request:")
-    next();
-  }
+const logger = () => (req, res, next) => {
+  log.debug({ url: req.url, method: req.method, ip: req.ip.replace('::ffff:', '') }, 'Incomming GUI request:');
+  next();
 };
 
 const homeApp = express();
@@ -22,8 +20,15 @@ function runServer(port) {
   server = homeApp.listen(port, () => {
     currentPort = port;
     log.info(`Flux HomeUI running on port: ${port}!`);
-  })
-  server.on('error', function (err) { log.error(err) });
+  });
+  server.on('error', (err) => { log.error(err); });
+}
+
+async function reload(port, options = {}) {
+  if (!options.force && currentPort === port) return;
+
+  if (server) await server.close();
+  runServer(port);
 }
 
 function initiate(port, options = {}) {
@@ -51,17 +56,10 @@ function initiate(port, options = {}) {
   runServer(port);
 }
 
-async function reload(port, options = {}) {
-  if (!options.force && currentPort === port) return;
-
-  if (server) await server.close();
-  runServer(port);
-}
-
 module.exports = {
   initiate,
-  reload
-}
+  reload,
+};
 
 // testing
 if (!module.parent) {

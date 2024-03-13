@@ -24,8 +24,8 @@ async function hasQuotaOptionForDevice(device) {
   const { stdout } = await serviceHelper.runCommand('mount');
 
   // assuming device is at the start of the line
-  const lookahead = '(?=.*quota)'
-  const re = new RegExp(lookahead + escapeRegExp(device))
+  const lookahead = '(?=.*quota)';
+  const re = new RegExp(lookahead + escapeRegExp(device));
 
   return Boolean(stdout.match(re));
 

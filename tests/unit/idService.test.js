@@ -6,7 +6,7 @@ const os = require('os');
 const bitcoinMessage = require('bitcoinjs-message');
 const proxyquire = require('proxyquire');
 const { PassThrough } = require('stream');
-const log = require('../../ZelBack/src/lib/log');
+const log = require('../../lib/log');
 
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');

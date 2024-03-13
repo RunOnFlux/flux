@@ -11,7 +11,7 @@ const daemonServiceAddressRpcs = require('../../ZelBack/src/services/daemonServi
 const daemonServiceControlRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceControlRpcs');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
-const log = require('../../ZelBack/src/lib/log');
+const log = require('../../lib/log');
 
 describe('explorerService tests', () => {
   describe('getSenderTransactionFromDaemon tests', () => {

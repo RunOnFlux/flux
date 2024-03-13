@@ -212,7 +212,7 @@ async function isPortOpen(ip, port) {
     params: ['-w', timeout, '-z', ip, port],
   });
 
-  return !Boolean(error);
+  return !error;
 
   // try {
   //   const exec = `nc -w 5 -z -v ${ip} ${port} </dev/null; echo $?`;
@@ -1086,9 +1086,9 @@ function getDOSState(req, res) {
   return res ? res.json(response) : response;
 }
 
-async function allowUfwPorts(ports, options = {}) {
-  const allowIn = options.in || false
-  const allowOut = options.out || false
+async function allowUfwPorts(targetPorts, options = {}) {
+  const allowIn = options.in || false;
+  const allowOut = options.out || false;
 
   if (!allowIn && !allowOut) return;
 
@@ -1128,19 +1128,19 @@ async function allowUfwPorts(ports, options = {}) {
     }
   }
 
-  const parsedPorts = ports.reduce((acc, p) => {
-    const [port, protocol] = p.toString().split("/");
+  const parsedPorts = targetPorts.reduce((acc, p) => {
+    const [port, protocol] = p.toString().split('/');
     if (protocol) {
       acc[protocol].push(port);
     } else {
-      acc["tcp"].push(port);
-      acc["udp"].push(port);
+      acc.tcp.push(port);
+      acc.udp.push(port);
     }
-    return acc
-  }, { 'tcp': [], 'udp': [] })
+    return acc;
+  }, { tcp: [], udp: [] });
 
-  await allowPorts(parsedPorts['tcp'], 'tcp');
-  await allowPorts(parsedPorts['udp'], 'udp');
+  await allowPorts(parsedPorts.tcp, 'tcp');
+  await allowPorts(parsedPorts.udp, 'udp');
 }
 
 /**
@@ -1283,7 +1283,7 @@ async function deleteDenyPortRule(portWithOptionalProto) {
     return cmdStat;
   }
 
-  if (proto && proto !== 'tcp' || proto !== 'udp') {
+  if (proto && (proto !== 'tcp' || proto !== 'udp')) {
     cmdStat.message = 'Protocol must be tcp or udp';
   }
 
@@ -1408,7 +1408,7 @@ async function adjustFirewall() {
   const filteredPorts = new Set(allPorts);
 
   // only allow tcp NOT udp... as we aren't using it.
-  const portsAsString = `${[...filteredPorts].join(",")}/tcp`;
+  const portsAsString = `${[...filteredPorts].join(',')}/tcp`;
 
   function logCmdStatus(stdout, direction) {
     if (serviceHelper.ensureString(stdout).includes('updated')
@@ -1454,7 +1454,7 @@ async function purgeUFW() {
   const { stdout: ufwStatus, error } = await serviceHelper.runCommand('ufw', {
     runAsRoot: true,
     params: ['status'],
-    logError: false
+    logError: false,
   });
 
   if (error) return;
@@ -1618,24 +1618,23 @@ async function removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces) {
 
   const { error: noDockerUserChain } = await serviceHelper.runCommand(
     'iptables',
-    { runAsRoot: true, logError: false, params: ['-L', 'DOCKER-USER'] }
+    { runAsRoot: true, logError: false, params: ['-L', 'DOCKER-USER'] },
   );
 
   if (noDockerUserChain) {
     const { error: createChainError } = await serviceHelper.runCommand(
       'iptables',
-      { runAsRoot: true, logError: false, params: ['-N', 'DOCKER-USER'] }
+      { runAsRoot: true, logError: false, params: ['-N', 'DOCKER-USER'] },
     );
 
     if (createChainError) {
       log.error('IPTABLES: Error adding DOCKER-USER chain');
       return false;
-    } else {
-      log.info('IPTABLES: DOCKER-USER chain created');
     }
+    log.info('IPTABLES: DOCKER-USER chain created');
   } else {
     // could get rid of this log, just need to update tests
-    log.info('IPTABLES: DOCKER-USER chain already created')
+    log.info('IPTABLES: DOCKER-USER chain already created');
   }
 
   // const checkJumpToDockerChain = await cmdAsync(checkJumpChain).catch(async () => {
@@ -1660,25 +1659,23 @@ async function removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces) {
   // Ubuntu 22.04 @ iptables 1.8.7 Error: "iptables: Bad rule (does a matching rule exist in that chain?)."
   const { error: checkJumpChainError } = await serviceHelper.runCommand(
     'iptables',
-    { runAsRoot: true, logError: false, params: ['-C', 'FORWARD', '-j', 'DOCKER-USER'] }
+    { runAsRoot: true, logError: false, params: ['-C', 'FORWARD', '-j', 'DOCKER-USER'] },
   );
 
   if (checkJumpChainError) {
     const { error: createJumpChainError } = await serviceHelper.runCommand(
       'iptables',
-      { runAsRoot: true, logError: false, params: ['-I', 'FORWARD', '-j', 'DOCKER-USER'] }
+      { runAsRoot: true, logError: false, params: ['-I', 'FORWARD', '-j', 'DOCKER-USER'] },
     );
 
     if (createJumpChainError) {
       log.error('IPTABLES: Error inserting FORWARD jump to DOCKER-USER chain');
       return false;
-    } else {
-      log.info('IPTABLES: New rule in FORWARD inserted to jump to DOCKER-USER chain');
     }
+    log.info('IPTABLES: New rule in FORWARD inserted to jump to DOCKER-USER chain');
   } else {
     log.info('IPTABLES: Jump to DOCKER-USER chain already enabled');
   }
-
 
   const rfc1918Networks = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'];
   const fluxSrc = '172.23.0.0/16';
@@ -1696,7 +1693,7 @@ async function removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces) {
   const baseDropToPrivateParams = ['-A', 'DOCKER-USER', '-s', fluxSrc, '-d', '#DST', '-j', 'DROP'];
   const baseAllowToFluxNetworksParams = ['-I', 'DOCKER-USER', '-i', '#INT', '-o', '#INT', '-j', 'ACCEPT'];
 
-  const addReturnParams = ['-A', 'DOCKER-USER', '-j', "RETURN"];
+  const addReturnParams = ['-A', 'DOCKER-USER', '-j', 'RETURN'];
   const flushParams = ['-F', 'DOCKER-USER'];
 
   const { error: flushError } = await serviceHelper.runCommand('iptables', {
@@ -1706,7 +1703,7 @@ async function removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces) {
   });
 
   if (flushError) {
-    log.error(`IPTABLES: Error flushing DOCKER-USER table. ${err}`);
+    log.error(`IPTABLES: Error flushing DOCKER-USER table. ${flushError}`);
     return false;
   }
 
@@ -1726,15 +1723,15 @@ async function removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces) {
   // eslint-disable-next-line no-restricted-syntax
   for (const int of fluxNetworkInterfaces) {
     // if this errors, we need to bail, as if the deny succeedes, we may cut off access
-    const fluxNetworkAccessParams = baseAllowToFluxNetworksParams.map((item) => item === '#INT' ? int : item);
+    const fluxNetworkAccessParams = baseAllowToFluxNetworksParams.map((item) => (item === '#INT' ? int : item));
     // eslint-disable-next-line no-await-in-loop
     const { error: fluxNetworkAccessError } = await serviceHelper.runCommand(
       'iptables',
-      { runAsRoot: true, logError: false, params: fluxNetworkAccessParams }
+      { runAsRoot: true, logError: false, params: fluxNetworkAccessParams },
     );
 
     if (fluxNetworkAccessError) {
-      log.error(`IPTABLES: Error allowing traffic on Flux interface ${int}. ${err}`);
+      log.error(`IPTABLES: Error allowing traffic on Flux interface ${int}. ${fluxNetworkAccessError}`);
       return false;
     }
 
@@ -1755,45 +1752,44 @@ async function removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces) {
   for (const network of rfc1918Networks) {
     // if any of these error, we need to bail, as if the deny succeedes, we may cut off access
 
-    const hostAccessParams = baseAllowEstablishedParams.map((item) => item === '#DST' ? network : item)
+    const hostAccessParams = baseAllowEstablishedParams.map((item) => (item === '#DST' ? network : item));
     // eslint-disable-next-line no-await-in-loop
-    const { error: hostAccessToDockerNetworError } =
-      await serviceHelper.runCommand('iptables', {
-        runAsRoot: true,
-        logError: false,
-        params: hostAccessParams,
-      });
+    const { error: hostAccessToDockerNetworError } = await serviceHelper.runCommand('iptables', {
+      runAsRoot: true,
+      logError: false,
+      params: hostAccessParams,
+    });
 
     if (hostAccessToDockerNetworError) {
-      log.error(`IPTABLES: Error allowing access to Flux containers from ${network}. ${err}`);
+      log.error(`IPTABLES: Error allowing access to Flux containers from ${network}. ${hostAccessToDockerNetworError}`);
       return false;
     }
 
     log.info(`IPTABLES: Access to Flux containers from ${network} accepted`);
 
-    const containerToDnsParams = baseAllowDnsParams.map((item) => item === '#DST' ? network : item)
+    const containerToDnsParams = baseAllowDnsParams.map((item) => (item === '#DST' ? network : item));
     // eslint-disable-next-line no-await-in-loop
     const { error: containersToDnsError } = await serviceHelper.runCommand(
       'iptables',
-      { runAsRoot: true, logError: false, params: containerToDnsParams }
+      { runAsRoot: true, logError: false, params: containerToDnsParams },
     );
 
     if (containersToDnsError) {
-      log.error(`IPTABLES: Error allowing DNS access to ${network} from Flux containers. ${err}`);
+      log.error(`IPTABLES: Error allowing DNS access to ${network} from Flux containers. ${containersToDnsError}`);
       return false;
     }
 
     log.info(`IPTABLES: DNS access to ${network} from Flux containers accepted`);
 
-    const dropContainersToHostParams = baseDropToPrivateParams.map((item) => item === '#DST' ? network : item);
+    const dropContainersToHostParams = baseDropToPrivateParams.map((item) => (item === '#DST' ? network : item));
     // eslint-disable-next-line no-await-in-loop
     const { error: dropContainersToHostError } = await serviceHelper.runCommand(
       'iptables',
-      { runAsRoot: true, logError: false, params: dropContainersToHostParams }
+      { runAsRoot: true, logError: false, params: dropContainersToHostParams },
     );
 
     if (dropContainersToHostError) {
-      log.error(`IPTABLES: Error denying access to ${network} from Flux containers. ${err}`);
+      log.error(`IPTABLES: Error denying access to ${network} from Flux containers. ${dropContainersToHostError}`);
       return false;
     }
 
@@ -1839,7 +1835,7 @@ async function removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces) {
   });
 
   if (returnError) {
-    log.error(`IPTABLES: Error adding explicit return to Forward chain. ${err}`);
+    log.error(`IPTABLES: Error adding explicit return to Forward chain. ${returnError}`);
     return false;
   }
 

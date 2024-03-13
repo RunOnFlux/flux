@@ -4,7 +4,7 @@ const sinon = require('sinon');
 const WebSocket = require('ws');
 const { expect } = require('chai');
 const { LRUCache } = require('lru-cache');
-const log = require('../../ZelBack/src/lib/log');
+const log = require('../../lib/log');
 const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
 const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
@@ -909,10 +909,10 @@ describe('fluxCommunication tests', () => {
       wsserver = new WebSocket.Server({ host: '127.0.0.2', port: 16127 });
       daemonServiceMiscRpcsStub.returns({
         data:
-      {
-        synced: false,
-        height: 0,
-      },
+        {
+          synced: false,
+          height: 0,
+        },
       });
       await fluxCommunication.initiateAndHandleConnection(ip);
 
@@ -940,10 +940,10 @@ describe('fluxCommunication tests', () => {
       wsserver = new WebSocket.Server({ host: '127.0.0.2', port: 16127 });
       daemonServiceMiscRpcsStub.returns({
         data:
-      {
-        synced: false,
-        height: 0,
-      },
+        {
+          synced: false,
+          height: 0,
+        },
       });
 
       await fluxCommunication.initiateAndHandleConnection(ip);
@@ -981,10 +981,10 @@ describe('fluxCommunication tests', () => {
       wsserver = new WebSocket.Server({ host: '127.0.0.2', port: 16127 });
       daemonServiceMiscRpcsStub.returns({
         data:
-      {
-        synced: false,
-        height: 0,
-      },
+        {
+          synced: false,
+          height: 0,
+        },
       });
       lruRateLimitStub.returns(false);
       const checkObjectSpy = sinon.spy(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast');
@@ -1021,10 +1021,10 @@ describe('fluxCommunication tests', () => {
       wsserver = new WebSocket.Server({ host: '127.0.0.2', port: 16127 });
       daemonServiceMiscRpcsStub.returns({
         data:
-      {
-        synced: false,
-        height: 0,
-      },
+        {
+          synced: false,
+          height: 0,
+        },
       });
       lruRateLimitStub.returns(true);
       const hasCacheStub = sinon.stub(LRUCache.prototype, 'has');
@@ -1076,10 +1076,10 @@ describe('fluxCommunication tests', () => {
         const respondWithAppMessageStub = sinon.stub(fluxCommunicationMessagesSender, 'respondWithAppMessage').returns(true);
         daemonServiceMiscRpcsStub.returns({
           data:
-        {
-          synced: false,
-          height: 0,
-        },
+          {
+            synced: false,
+            height: 0,
+          },
         });
         await fluxCommunication.initiateAndHandleConnection(ip);
 
@@ -1124,10 +1124,10 @@ describe('fluxCommunication tests', () => {
         const storeAppTemporaryMessageStub = sinon.stub(appsService, 'storeAppTemporaryMessage').returns(false);
         daemonServiceMiscRpcsStub.returns({
           data:
-        {
-          synced: false,
-          height: 0,
-        },
+          {
+            synced: false,
+            height: 0,
+          },
         });
         await fluxCommunication.initiateAndHandleConnection(ip);
 
@@ -1172,10 +1172,10 @@ describe('fluxCommunication tests', () => {
         const storeAppRunningMessageStub = sinon.stub(appsService, 'storeAppRunningMessage').returns(false);
         daemonServiceMiscRpcsStub.returns({
           data:
-        {
-          synced: false,
-          height: 0,
-        },
+          {
+            synced: false,
+            height: 0,
+          },
         });
         await fluxCommunication.initiateAndHandleConnection(ip);
 

@@ -9,8 +9,8 @@ const log = require('./log');
 const expressWs = eWS(express());
 const { app } = expressWs;
 
-const logger = (req, res, next) => {
-  log.info(`\n\n${req.method}\n${req.url}\n${req.ip}\n`)
+const logger = () => (req, res, next) => {
+  log.debug({ url: req.url, method: req.method, ip: req.ip.replace('::ffff:', '') }, 'Incomming API request:');
   next();
 };
 

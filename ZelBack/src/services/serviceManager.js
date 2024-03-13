@@ -18,11 +18,11 @@ const backupRestoreService = require('./backupRestoreService');
 const serviceHelper = require('./serviceHelper');
 const crypto = require('crypto');
 
-const INSPECT_OPTIONS = { showHidden: false, depth: null, colors: true }
-const { inspect } = require('node:util');
+// const INSPECT_OPTIONS = { showHidden: false, depth: null, colors: true };
+// const { inspect } = require('node:util');
 
 const apiPort = userconfig.initial.apiport || config.server.apiport;
-const development = userconfig.initial.development || false;
+// const development = userconfig.initial.development || false;
 
 const intervalTimers = new Map();
 const timeoutTimers = new Map();
@@ -103,7 +103,11 @@ async function runTimedCallback(interval, callable, method, timer, options = {})
   };
 
   // only runEvery gets option to delay
-  delay ? timeoutTimers.set(name, setTimeout(run, delay)) : run();
+  if (delay) {
+    timeoutTimers.set(name, setTimeout(run, delay));
+  } else {
+    run();
+  }
 
   if (options.logMsg) log.info(options.logMsg);
 
@@ -229,10 +233,10 @@ async function startFluxFunctions() {
       log.debug([...intervalTimers.keys()], 'Intervals running:');
       log.debug([...timeoutTimers.keys()], 'Timeouts running:');
 
-      const uptime = process.uptime()
+      const uptime = process.uptime();
       // use Intl.DateTimeFormat
-      const formattedUptime = (Math.floor(uptime / 86400) + ":" + (new Date(uptime * 1000)).toISOString().slice(11, 19));
-      log.info(`Uptime: ${formattedUptime}`)
+      const formattedUptime = (`${Math.floor(uptime / 86400)}:${(new Date(uptime * 1000)).toISOString().slice(11, 19)}`);
+      log.info(`Uptime: ${formattedUptime}`);
     }, 120 * 1000);
 
     // change networkHelper name to service
@@ -244,7 +248,6 @@ async function startFluxFunctions() {
 
     appsService.startMonitoringOfApps();
     log.info('App monitoring service started');
-
 
     // eslint-disable-next-line no-restricted-syntax
     for (const [action, options] of delayedActions.entries()) {
@@ -264,8 +267,6 @@ async function startFluxFunctions() {
       const running = await runEvery(schedule, action, filteredOptions);
       if (!running) log.warn(`Action: ${action} with delay: ${schedule} not running`);
     }
-
-
   } catch (e) {
     // ToDo: remove. Should only restart the services that errored
     log.error(e);

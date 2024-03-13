@@ -1105,7 +1105,7 @@ async function getContainerStorage(appName) {
           // remove /appdata to get true size of the app folder
           source = source.replace('/appdata', '');
           // const exec = `sudo du -sb ${source}`;
-          const { stdout: mountInfo } = await serviceHelper.runCommand('du', { runAsRoot: true, params: ['-sb', source] })
+          const { stdout: mountInfo } = await serviceHelper.runCommand('du', { runAsRoot: true, params: ['-sb', source] });
           // const mountInfo = await cmdAsync(exec);
           const mountSize = serviceHelper.ensureNumber(mountInfo?.split(source)[0]) || 0;
           if (typeof mountSize === 'number' && !Number.isNaN(mountSize)) {
@@ -1733,7 +1733,7 @@ async function appsResources(req, res) {
     );
     return res ? res.json(errorResponse) : errorResponse;
   } finally {
-    log.info("Finished checking apps resources");
+    log.info('Finished checking apps resources');
   }
 }
 
@@ -1902,7 +1902,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
 
     // await cmdAsync(execDD);
 
-    const { error: allocateError } = await serviceHelper.runCommand('fallocate', { runAsRoot: true, params: ['-l', `${appSpecifications.hdd}G`, volumePath] })
+    const { error: allocateError } = await serviceHelper.runCommand('fallocate', { runAsRoot: true, params: ['-l', `${appSpecifications.hdd}G`, volumePath] });
 
     // ToDo: stop throwing these
     if (allocateError) throw allocateError;
@@ -1922,7 +1922,6 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     if (res) {
       res.write(serviceHelper.ensureString(makeFilesystem));
     }
-
 
     // let execFS = `sudo mke2fs -t ext4 ${useThisVolume.mount}/${appId}FLUXFSVOL`;
     // if (useThisVolume.mount === '/') {
@@ -1953,7 +1952,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       res.write(serviceHelper.ensureString(makeDirectory));
     }
 
-    const { error: mkdirError } = await serviceHelper.runCommand('mkdir', { runAsRoot: true, params: ['-p', `${appRoot}/appdata`] })
+    const { error: mkdirError } = await serviceHelper.runCommand('mkdir', { runAsRoot: true, params: ['-p', `${appRoot}/appdata`] });
 
     // const execDIR = `sudo mkdir -p ${appsFolder + appId}/appdata`;
     // await cmdAsync(execDIR);
@@ -2056,6 +2055,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
           res.write(serviceHelper.ensureString(stFolderCreation2));
         }
         if (i === 0) {
+          // eslint-disable-next-line no-await-in-loop
           const { error: stIgnoreError } = await serviceHelper.runCommand(
             'echo',
             {
@@ -2066,7 +2066,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
                 '>|',
                 `${appRoot + containerFolder}/.stignore`,
               ],
-            }
+            },
           );
 
           if (stIgnoreError) throw stIgnoreError;
@@ -2106,7 +2106,8 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       }
     });
     if (!exists) {
-      const job = crontab.create(execMount, '@reboot', appId);
+      const mountAppVolCmd = `sudo mount -o loop ${volumePath} ${appRoot}`;
+      const job = crontab.create(mountAppVolCmd, '@reboot', appId);
       // check valid
       if (job == null) {
         throw new Error('Failed to create a cron job');
@@ -10563,7 +10564,7 @@ async function stopAllNonFluxRunningApps() {
  * @returns {Promise<void>}
  */
 async function forceAppsRemoval(appNames) {
-  if (appNames.length) log.info("Forcing removal of apps:", appNames)
+  if (appNames.length) log.info('Forcing removal of apps:', appNames);
 
   // eslint-disable-next-line no-restricted-syntax
   for (const appName of appNames) {
@@ -11095,7 +11096,7 @@ async function syncthingApps() {
               // if stfolder doesn't exist creates it
               // const execDIRst = `[ ! -d \\"${folder}/.stfolder\\" ] && sudo mkdir -p ${folder}/.stfolder`;
               // await cmdAsync(execDIRst)
-              ;
+
               // eslint-disable-next-line no-await-in-loop
               const locations = await appLocation(installedApp.name);
               locations.sort((a, b) => {
@@ -12979,8 +12980,6 @@ async function downloadAppsFile(req, res) {
 
 module.exports = {
   appChanges,
-  appendBackupTask,
-  appendRestoreTask,
   appExec,
   appInspect,
   appKill,
@@ -13007,11 +13006,9 @@ module.exports = {
   checkDockerAccessibility,
   checkHWParameters,
   checkMyAppsAvailability,
-  checkStorageSpaceForApps,
   continuousFluxAppHashesCheck,
   createFluxNetworkAPI,
   deploymentInformation,
-  expireGlobalApplications,
   fluxUsage,
   forceAppsRemoval,
   forceAppRemovals,
@@ -13022,7 +13019,6 @@ module.exports = {
   getApplicationOwnerAPI,
   getApplicationSpecificationAPI,
   getApplicationSpecifications,
-  getAppPrice,
   getAppsDOSState,
   getAppsLocation,
   getAppsLocations,
@@ -13033,7 +13029,6 @@ module.exports = {
   getRunningAppIpList,
   getRunningAppList,
   getStrictApplicationSpecifications,
-  installAppLocally,
   installedApps,
   listAllApps,
   listAppsImages,
@@ -13062,7 +13057,6 @@ module.exports = {
   requestAppMessageAPI,
   rescanGlobalAppsInformation,
   rescanGlobalAppsInformationAPI,
-  sendChunk,
   softRedeploy,
   softRegisterAppLocally,
   softRemoveAppLocally,
@@ -13087,6 +13081,8 @@ module.exports = {
   removeAppsObject,
   downloadAppsFolder,
   downloadAppsFile,
+  verifyAppRegistrationParameters,
+  verifyAppUpdateParameters,
   // exports for testing purposes
   appUninstallHard,
   appUninstallSoft,
