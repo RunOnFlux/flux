@@ -377,6 +377,7 @@
                         <template #cell(visit)="locationRow">
                           <div class="d-flex justify-content-end">
                             <b-button
+                              v-b-tooltip.hover.top="'Visit App'"
                               size="sm"
                               class="mr-1"
                               pill
@@ -390,6 +391,7 @@
                               App
                             </b-button>
                             <b-button
+                              v-b-tooltip.hover.top="'Visit FluxNode'"
                               size="sm"
                               class="mr-0"
                               pill
@@ -410,6 +412,7 @@
                   <template #cell(visit)="row">
                     <div class="d-flex no-wrap">
                       <b-button
+                        v-b-tooltip.hover.top="'Visit App'"
                         size="sm"
                         class="mr-0"
                         pill
@@ -741,6 +744,7 @@
                         <template #cell(visit)="locationRow">
                           <div class="d-flex justify-content-end">
                             <b-button
+                              v-b-tooltip.hover.top="'Visit App'"
                               size="sm"
                               class="mr-1"
                               pill
@@ -754,6 +758,7 @@
                               App
                             </b-button>
                             <b-button
+                              v-b-tooltip.hover.top="'Visit FluxNode'"
                               size="sm"
                               class="mr-0"
                               pill
@@ -774,6 +779,7 @@
                   <template #cell(visit)="row">
                     <div class="d-flex no-wrap">
                       <b-button
+                        v-b-tooltip.hover.top="'Visit App'"
                         size="sm"
                         class="mr-0"
                         pill
