@@ -38,10 +38,13 @@ async function connectMongoDb(url) {
 
 /**
  * Initiates default db connection.
- * @returns true
+ * @returns {Promise<true>}
  */
 async function initiateDB() {
+  // Only call this once. Mongo handles connection pooling.
+  if (openDBConnection) return true;
   openDBConnection = await connectMongoDb();
+  // why?
   return true;
 }
 

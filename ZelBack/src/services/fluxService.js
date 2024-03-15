@@ -1778,7 +1778,6 @@ async function installFluxWatchTower() {
 
   if (error) return;
 
-  // could maybe print this anyway is error?
   const lines = stdout.split('\n');
   // this always has length
   if (lines.slice(-1)[0] === '') lines.pop();

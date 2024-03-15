@@ -4,8 +4,8 @@ const sinon = require('sinon');
 const proxyquire = require('proxyquire');
 const path = require('path');
 const os = require('os');
-const nodecmd = require('node-cmd');
 const systemcrontab = require('crontab');
+const childProcess = require('node:child_process');
 const chaiAsPromised = require('chai-as-promised');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const dockerService = require('../../ZelBack/src/services/dockerService');
@@ -19,7 +19,6 @@ const log = require('../../lib/log');
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
-const cmdAsyncFake = sinon.fake(async () => true);
 const crontabLoadFake = sinon.fake(async () => ({
   jobs: sinon.fake(() => [
     {
@@ -36,11 +35,12 @@ const crontabLoadFake = sinon.fake(async () => ({
   remove: sinon.fake(() => true),
   save: sinon.fake(() => true),
 }));
+const execFileFake = sinon.fake(async () => ({ stdout: '', error: null }));
 const dockerPullStreamFake = sinon.fake(async () => true);
 const dockerContainerStatsStreamFake = sinon.fake(async () => true);
 const utilFake = {
   promisify: sinon.fake((arg) => {
-    if (arg === nodecmd.get) return cmdAsyncFake;
+    // if (arg === childProcess.exec) return execFileFake;
     if (arg === systemcrontab.load) return crontabLoadFake;
     if (arg === dockerService.dockerPullStream) return dockerPullStreamFake;
     if (arg === dockerService.dockerContainerStatsStream) return dockerContainerStatsStreamFake;
@@ -58,9 +58,20 @@ const adminConfig = {
     hdd: 50,
   },
 };
+
 const appsService = proxyquire('../../ZelBack/src/services/appsService', { util: utilFake, '../../../config/userconfig': adminConfig });
 
+
+
 describe('appsService tests', () => {
+  before(async () => {
+    await dbHelper.initiateDB();
+  });
+
+  after(async () => {
+    await dbHelper.closeDbConnection();
+  })
+
   describe('installedApps tests', () => {
     let dbStub;
     let logSpy;
@@ -74,8 +85,6 @@ describe('appsService tests', () => {
 
     beforeEach(async () => {
       dbStub = sinon.stub(dbHelper, 'findInDatabase');
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       logSpy = sinon.spy(log, 'error');
     });
 
@@ -218,8 +227,6 @@ describe('appsService tests', () => {
 
     beforeEach(async () => {
       dockerServiceStub = sinon.stub(dockerService, 'dockerListContainers');
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       logSpy = sinon.spy(log, 'error');
     });
 
@@ -354,8 +361,6 @@ describe('appsService tests', () => {
 
     beforeEach(async () => {
       dockerServiceStub = sinon.stub(dockerService, 'dockerListContainers');
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       logSpy = sinon.spy(log, 'error');
     });
 
@@ -490,8 +495,6 @@ describe('appsService tests', () => {
 
     beforeEach(async () => {
       dockerServiceStub = sinon.stub(dockerService, 'dockerListImages');
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       logSpy = sinon.spy(log, 'error');
     });
 
@@ -696,8 +699,6 @@ describe('appsService tests', () => {
 
     it('should return error, no underscore in the name, app not found in db', async () => {
       sinon.stub(dbHelper, 'findOneInDatabase').returns(false);
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
 
       const req = {
         params: {
@@ -726,8 +727,6 @@ describe('appsService tests', () => {
 
     it('should start app, no underscore in the name, app ver < 3', async () => {
       sinon.stub(dbHelper, 'findOneInDatabase').returns({ version: 2, test: 'test' });
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
 
       const req = {
         params: {
@@ -752,8 +751,6 @@ describe('appsService tests', () => {
 
     it('should start app, no underscore in the name, app ver = 3', async () => {
       sinon.stub(dbHelper, 'findOneInDatabase').returns({ version: 3, test: 'test' });
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
 
       const req = {
         params: {
@@ -783,8 +780,6 @@ describe('appsService tests', () => {
         name: 'my_app',
         compose: [{ name: 'my_test_app_name' }],
       });
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
 
       const req = {
         params: {
@@ -946,8 +941,6 @@ describe('appsService tests', () => {
 
     it('should return error, no underscore in the name, app not found in db', async () => {
       sinon.stub(dbHelper, 'findOneInDatabase').returns(false);
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
 
       const req = {
         params: {
@@ -976,8 +969,6 @@ describe('appsService tests', () => {
 
     it('should stop app, no underscore in the name, app ver < 3', async () => {
       sinon.stub(dbHelper, 'findOneInDatabase').returns({ version: 2, test: 'test' });
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
 
       const req = {
         params: {
@@ -1002,8 +993,6 @@ describe('appsService tests', () => {
 
     it('should stop app, no underscore in the name, app ver = 3', async () => {
       sinon.stub(dbHelper, 'findOneInDatabase').returns({ version: 3, test: 'test' });
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
 
       const req = {
         params: {
@@ -1033,8 +1022,6 @@ describe('appsService tests', () => {
         name: 'my_app',
         compose: [{ name: 'my_test_app_name' }],
       });
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
 
       const req = {
         params: {
@@ -1196,8 +1183,6 @@ describe('appsService tests', () => {
 
     it('should return error, no underscore in the name, app not found in db', async () => {
       sinon.stub(dbHelper, 'findOneInDatabase').returns(false);
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       const req = {
         params: {
           appname: 'myappname',
@@ -1225,8 +1210,6 @@ describe('appsService tests', () => {
 
     it('should restart app, no underscore in the name, app ver < 3', async () => {
       sinon.stub(dbHelper, 'findOneInDatabase').returns({ version: 2, test: 'test' });
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
 
       const req = {
         params: {
@@ -1251,8 +1234,6 @@ describe('appsService tests', () => {
 
     it('should restart app, no underscore in the name, app ver = 3', async () => {
       sinon.stub(dbHelper, 'findOneInDatabase').returns({ version: 3, test: 'test' });
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       const req = {
         params: {
           appname: 'myappname',
@@ -1281,8 +1262,6 @@ describe('appsService tests', () => {
         name: 'my_app',
         compose: [{ name: 'my_test_app_name' }],
       });
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       const req = {
         params: {
           appname: 'myappname',
@@ -1443,8 +1422,6 @@ describe('appsService tests', () => {
 
     it('should return error, no underscore in the name, app not found in db', async () => {
       sinon.stub(dbHelper, 'findOneInDatabase').returns(false);
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       const req = {
         params: {
           appname: 'myappname',
@@ -1472,8 +1449,6 @@ describe('appsService tests', () => {
 
     it('should kill app, no underscore in the name, app ver < 3', async () => {
       sinon.stub(dbHelper, 'findOneInDatabase').returns({ version: 2, test: 'test' });
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
 
       const req = {
         params: {
@@ -1498,8 +1473,6 @@ describe('appsService tests', () => {
 
     it('should kill app, no underscore in the name, app ver = 3', async () => {
       sinon.stub(dbHelper, 'findOneInDatabase').returns({ version: 3, test: 'test' });
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       const req = {
         params: {
           appname: 'myappname',
@@ -1528,8 +1501,6 @@ describe('appsService tests', () => {
         name: 'my_app',
         compose: [{ name: 'my_test_app_name' }],
       });
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       const req = {
         params: {
           appname: 'myappname',
@@ -1690,8 +1661,6 @@ describe('appsService tests', () => {
 
     it('should return error, no underscore in the name, app not found in db', async () => {
       sinon.stub(dbHelper, 'findOneInDatabase').returns(false);
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       const req = {
         params: {
           appname: 'myappname',
@@ -1719,8 +1688,6 @@ describe('appsService tests', () => {
 
     it('should pause app, no underscore in the name, app ver < 3', async () => {
       sinon.stub(dbHelper, 'findOneInDatabase').returns({ version: 2, test: 'test' });
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       const req = {
         params: {
           appname: 'myappname',
@@ -1744,8 +1711,6 @@ describe('appsService tests', () => {
 
     it('should pause app, no underscore in the name, app ver = 3', async () => {
       sinon.stub(dbHelper, 'findOneInDatabase').returns({ version: 3, test: 'test' });
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       const req = {
         params: {
           appname: 'myappname',
@@ -1774,8 +1739,6 @@ describe('appsService tests', () => {
         name: 'my_app',
         compose: [{ name: 'my_test_app_name' }],
       });
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       const req = {
         params: {
           appname: 'myappname',
@@ -1936,8 +1899,6 @@ describe('appsService tests', () => {
 
     it('should return error, no underscore in the name, app not found in db', async () => {
       sinon.stub(dbHelper, 'findOneInDatabase').returns(false);
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       const req = {
         params: {
           appname: 'myappname',
@@ -1965,8 +1926,6 @@ describe('appsService tests', () => {
 
     it('should unpause app, no underscore in the name, app ver < 3', async () => {
       sinon.stub(dbHelper, 'findOneInDatabase').returns({ version: 2, test: 'test' });
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       const req = {
         params: {
           appname: 'myappname',
@@ -1990,8 +1949,6 @@ describe('appsService tests', () => {
 
     it('should unpause app, no underscore in the name, app ver = 3', async () => {
       sinon.stub(dbHelper, 'findOneInDatabase').returns({ version: 3, test: 'test' });
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       const req = {
         params: {
           appname: 'myappname',
@@ -2020,8 +1977,6 @@ describe('appsService tests', () => {
         name: 'my_app',
         compose: [{ name: 'my_test_app_name' }],
       });
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       const req = {
         params: {
           appname: 'myappname',
@@ -2182,8 +2137,6 @@ describe('appsService tests', () => {
 
     it('should top app, no underscore in the name', async () => {
       sinon.stub(dbHelper, 'findOneInDatabase').returns({ version: 2, test: 'test' });
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       const req = {
         params: {
           appname: 'myappname',
@@ -2856,14 +2809,19 @@ describe('appsService tests', () => {
     });
 
     it('should return 0 if error occurs', async () => {
+      const fakeCmdRes = { error: true }
+      const runFake = sinon.stub(serviceHelper, 'runCommand').resolves(fakeCmdRes);
+
       const appName = 'testapp';
       const dirpath = path.join(__dirname, '../../');
       const directoryPath = `${dirpath}ZelApps/${appName}`;
-      const exec = `sudo du -s --block-size=1 ${directoryPath}`;
+      const fakeOptions = { runAsRoot: true, params: ['-s', '--block-size=1', directoryPath] };
+      // const exec = `sudo du -s --block-size=1 ${directoryPath}`;
 
-      await appsService.getAppFolderSize(appName);
+      const folderSize = await appsService.getAppFolderSize(appName);
 
-      sinon.assert.calledWithExactly(cmdAsyncFake, exec);
+      sinon.assert.calledWithExactly(runFake, 'du', fakeOptions);
+      expect(folderSize).to.equal(0);
     });
   });
 
@@ -2899,8 +2857,6 @@ describe('appsService tests', () => {
     let logSpy;
 
     beforeEach(async () => {
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       logSpy = sinon.spy(log, 'error');
       appsService.clearAppsMonitored();
       dbStub = sinon.stub(dbHelper, 'findInDatabase');
@@ -2977,8 +2933,6 @@ describe('appsService tests', () => {
     let logSpy;
 
     beforeEach(async () => {
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       logSpy = sinon.spy(log, 'error');
       appsService.clearAppsMonitored();
       dbStub = sinon.stub(dbHelper, 'findInDatabase');
@@ -3255,8 +3209,6 @@ describe('appsService tests', () => {
     };
 
     beforeEach(async () => {
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       logSpy = sinon.spy(log, 'error');
       appsService.clearAppsMonitored();
       dbStub = sinon.stub(dbHelper, 'findInDatabase');
@@ -3411,8 +3363,6 @@ describe('appsService tests', () => {
     };
 
     beforeEach(async () => {
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       logSpy = sinon.spy(log, 'error');
       appsService.clearAppsMonitored();
       dbStub = sinon.stub(dbHelper, 'findInDatabase');
@@ -3873,8 +3823,6 @@ describe('appsService tests', () => {
     };
 
     beforeEach(async () => {
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       appsService.clearAppsMonitored();
       dbStub = sinon.stub(dbHelper, 'findInDatabase');
       nodeTierStub = sinon.stub(generalService, 'nodeTier');
@@ -4226,8 +4174,6 @@ describe('appsService tests', () => {
     };
 
     beforeEach(async () => {
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       appsService.clearAppsMonitored();
       dbStub = sinon.stub(dbHelper, 'findOneInDatabase');
     });
@@ -4319,6 +4265,7 @@ describe('appsService tests', () => {
       res.write = sinon.fake(() => true);
       return res;
     };
+
 
     beforeEach(async () => {
       appsService.clearAppsMonitored();
@@ -4428,8 +4375,6 @@ describe('appsService tests', () => {
     };
 
     beforeEach(async () => {
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       appsService.clearAppsMonitored();
       dbStub = sinon.stub(dbHelper, 'findOneInDatabase');
       dockerServiceStub = sinon.stub(dockerService, 'getAppIdentifier');
@@ -4522,8 +4467,6 @@ describe('appsService tests', () => {
     };
 
     beforeEach(async () => {
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       appsService.clearAppsMonitored();
       dbStub = sinon.stub(dbHelper, 'findOneInDatabase');
       verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege');
@@ -4850,8 +4793,6 @@ describe('appsService tests', () => {
 
     beforeEach(async () => {
       getNodeTierStub = sinon.stub(generalService, 'nodeTier');
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       appsService.clearAppsMonitored();
       dbStub = sinon.stub(dbHelper, 'findInDatabase');
     });
@@ -5023,8 +4964,6 @@ describe('appsService tests', () => {
       appsService.installationInProgressReset();
       logSpy = sinon.spy(log, 'error');
       nodeTierStub = sinon.stub(generalService, 'nodeTier');
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       dbStub = sinon.stub(dbHelper, 'findInDatabase');
     });
 
