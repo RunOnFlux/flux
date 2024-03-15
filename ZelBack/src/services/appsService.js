@@ -1130,6 +1130,9 @@ function startAppMonitoring(appName) {
   if (!appName) {
     throw new Error('No App specified');
   } else {
+    // in case app already exists, we need to stop any existing intervals. WIthout this, would have made the intervals
+    // unreachable before.
+    stopAppMonitoring(appName);
     appsMonitored[appName] = {}; // oneMinuteInterval, fifteenMinInterval, oneMinuteStatsStore, fifteenMinStatsStore
     if (!appsMonitored[appName].fifteenMinStatsStore) {
       appsMonitored[appName].fifteenMinStatsStore = [];
@@ -1137,12 +1140,10 @@ function startAppMonitoring(appName) {
     if (!appsMonitored[appName].oneMinuteStatsStore) {
       appsMonitored[appName].oneMinuteStatsStore = [];
     }
-    clearInterval(appsMonitored[appName].oneMinuteInterval);
     appsMonitored[appName].oneMinuteInterval = setInterval(async () => {
       try {
         if (!appsMonitored[appName]) {
           log.error(`Monitoring of ${appName} already stopped`);
-          clearInterval(appsMonitored[appName].oneMinuteInterval);
           return;
         }
         const dockerContainer = await dockerService.getDockerContainerOnly(appName);
@@ -1168,12 +1169,10 @@ function startAppMonitoring(appName) {
         log.error(error);
       }
     }, 1 * 60 * 1000);
-    clearInterval(appsMonitored[appName].fifteenMinInterval);
     appsMonitored[appName].fifteenMinInterval = setInterval(async () => {
       try {
         if (!appsMonitored[appName]) {
           log.error(`Monitoring of ${appName} already stopped`);
-          clearInterval(appsMonitored[appName].fifteenMinInterval);
           return;
         }
         const dockerContainer = await dockerService.getDockerContainerOnly(appName);
@@ -1441,7 +1440,7 @@ function getAppsMonitored() {
 function clearAppsMonitored() {
   // eslint-disable-next-line no-restricted-syntax
   for (const prop of Object.getOwnPropertyNames(appsMonitored)) {
-    delete appsMonitored[prop];
+    stopAppMonitoring(prop, true);
   }
 }
 

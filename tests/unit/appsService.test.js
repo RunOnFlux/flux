@@ -61,9 +61,6 @@ const adminConfig = {
 
 const appsService = proxyquire('../../ZelBack/src/services/appsService', { util: utilFake, '../../../config/userconfig': adminConfig });
 
-// testing
-
-
 describe('appsService tests', () => {
   before(async () => {
     await dbHelper.initiateDB();
