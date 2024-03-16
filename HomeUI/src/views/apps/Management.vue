@@ -9246,7 +9246,7 @@ export default {
         });
 
         // fetch locations from stats
-        const response = await axios.get('https://stats.runonflux.io/fluxinfo?projection=geolocation');
+        const response = await axios.get('https://stats.runonflux.io/fluxinfo?projection=geo');
         if (response.data.status === 'success') {
           const geoData = response.data.data;
           if (geoData.length > 5000) { // all went well
