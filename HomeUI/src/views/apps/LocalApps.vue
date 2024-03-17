@@ -2320,7 +2320,6 @@ export default {
             { key: 'show_details', label: '' },
             { key: 'name', label: 'Name', sortable: true },
             { key: 'description', label: 'Description' },
-            { key: 'actions', label: '', thStyle: { width: '15%' } },
             // eslint-disable-next-line object-curly-newline
             { key: 'visit', label: '', class: 'text-center', thStyle: { width: '3%' } },
           ],
