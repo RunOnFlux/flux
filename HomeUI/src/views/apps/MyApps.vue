@@ -17,28 +17,49 @@
           <b-card>
             <b-row>
               <b-col
-                md="12"
+                md="4"
+                sm="4"
                 class="my-1"
               >
-                <b-input-group class="mb-1" size="sm">
-                  <b-input-group-prepend is-text>
-                    <b-icon icon="funnel-fill" />
-                  </b-input-group-prepend>
-                  <b-form-input
-                    id="filterInput"
-                    v-model="tableconfig.my.filter"
-                    type="search"
-                    placeholder="Type to Search"
+                <b-form-group class="mb-0">
+                  <label class="d-inline-block text-left mr-50">Per page</label>
+                  <b-form-select
+                    id="perPageSelect"
+                    v-model="tableconfig.my.perPage"
+                    size="sm"
+                    :options="tableconfig.my.pageOptions"
+                    class="w-50"
                   />
-                  <b-input-group-append>
-                    <b-button
-                      :disabled="!tableconfig.my.filter"
-                      @click="tableconfig.my.filter = ''"
-                    >
-                      Clear
-                    </b-button>
-                  </b-input-group-append>
-                </b-input-group>
+                </b-form-group>
+              </b-col>
+              <b-col
+                md="8"
+                class="my-1"
+              >
+                <b-form-group
+                  label="Filter"
+                  label-cols-sm="1"
+                  label-align-sm="right"
+                  label-for="filterInput"
+                  class="mb-0 mt-0"
+                >
+                  <b-input-group size="sm">
+                    <b-form-input
+                      id="filterInput"
+                      v-model="tableconfig.my.filter"
+                      type="search"
+                      placeholder="Type to Search"
+                    />
+                    <b-input-group-append>
+                      <b-button
+                        :disabled="!tableconfig.my.filter"
+                        @click="tableconfig.my.filter = ''"
+                      >
+                        Clear
+                      </b-button>
+                    </b-input-group-append>
+                  </b-input-group>
+                </b-form-group>
               </b-col>
               <b-col cols="12">
                 <b-table
@@ -53,6 +74,8 @@
                   :sort-direction="tableconfig.my.sortDirection"
                   :filter="tableconfig.my.filter"
                   :filter-included-fields="tableconfig.my.filterOn"
+                  :per-page="tableconfig.my.perPage"
+                  :current-page="tableconfig.my.currentPage"
                   show-empty
                   sort-icon-left
                   :empty-text="isLoggedIn ? `No Global Apps are owned.` : `Login to see your Global Apps.`"
@@ -71,8 +94,8 @@
                           &nbsp;<b-icon scale="1.4" icon="hdd" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(2, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
                           <b-icon scale="1.2" icon="geo-alt" />&nbsp;<kbd class="alert-warning" style="border-radius: 15px;">&nbsp;<b>{{ row.item.instances }}</b>&nbsp;</kbd>
                         </div>
-                        &nbsp;&nbsp;<b-icon scale="1.2" icon="hourglass-split" />
-                        <span :class="{ 'red-text': isLessThanTwoDays(labelForExpire(row.item.expire, row.item.height)) }">
+                        <span :class="{ 'red-text': isLessThanTwoDays(labelForExpire(row.item.expire, row.item.height)) }" class="no-wrap">
+                          &nbsp;&nbsp;<b-icon scale="1.2" icon="hourglass-split" />
                           {{ labelForExpire(row.item.expire, row.item.height) }}
                         </span>
                       </small>
@@ -527,6 +550,16 @@
                 </b-table>
               </b-col>
             </b-row>
+            <b-col cols="12">
+              <b-pagination
+                v-model="tableconfig.my.currentPage"
+                :total-rows="myGlobalApps?.length"
+                :per-page="tableconfig.my.perPage"
+                align="center"
+                size="sm"
+                class="my-0"
+              />
+            </b-col>
             <div v-if="isLoggedIn">
               <b-icon class="ml-1" scale="1.4" icon="layers" />&nbsp;
               <b>&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;{{ myGlobalApps?.length || 0 }}&nbsp;</kbd></b>
@@ -847,6 +880,7 @@
                   <template #cell(action)="row">
                     <b-button
                       :id="`redeploy-installed-app-${row.item.name}`"
+                      v-b-tooltip.hover.top="'Redeploy App'"
                       size="sm"
                       class="mr-0 no-wrap"
                       variant="outline-dark"
@@ -972,10 +1006,14 @@ export default {
               key: 'name', label: 'Name', sortable: true, thStyle: { width: '5%' },
             },
             // eslint-disable-next-line object-curly-newline
-            { key: 'description', label: 'Description', class: 'text-center' },
+            { key: 'description', label: 'Description', thStyle: { width: '75%' } },
             // eslint-disable-next-line object-curly-newline
-            { key: 'actions', label: '', class: 'text-center', thStyle: { width: '5%' } },
+            { key: 'actions', label: '', class: 'text-center', thStyle: { width: '8%' } },
           ],
+          perPage: 25,
+          pageOptions: [5, 10, 25, 50, 100],
+          currentPage: 1,
+          totalRows: 1,
           sortBy: '',
           sortDesc: false,
           sortDirection: 'asc',
@@ -987,15 +1025,26 @@ export default {
           apps: [],
           fields: [
             { key: 'show_details', label: '' },
-            { key: 'name', label: 'Name', sortable: true },
-            { key: 'description', label: 'Description' },
-            { key: 'action', label: '', class: 'text-center' },
+            // eslint-disable-next-line object-curly-newline
+            { key: 'name', label: 'Name', sortable: true, thStyle: { width: '18%' } },
+            { key: 'description', label: 'Description', thStyle: { width: '75%' } },
+            // eslint-disable-next-line object-curly-newline
+            { key: 'action', label: '', class: 'text-center', thStyle: { width: '5%' } },
           ],
+          perPage: 25,
+          pageOptions: [5, 10, 25, 50, 100],
+          currentPage: 1,
+          totalRows: 1,
+          sortBy: '',
+          sortDesc: false,
+          sortDirection: 'asc',
+          filter: '',
+          filterOn: [],
         },
       },
       allApps: [],
       appLocationOptions: {
-        perPage: 5,
+        perPage: 25,
         pageOptions: [5, 10, 25, 50, 100],
         currentPage: 1,
         totalRows: 1,

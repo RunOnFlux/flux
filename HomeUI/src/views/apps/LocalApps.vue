@@ -28,13 +28,13 @@
                         <br>
                         <small style="font-size: 11px;">
                           <div class="d-flex align-items-center" style="margin-top: 3px">
-                          &nbsp;&nbsp;<b-icon scale="1.4" icon="speedometer2" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(1, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
+                            &nbsp;&nbsp;<b-icon scale="1.4" icon="speedometer2" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(1, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
                             &nbsp;<b-icon scale="1.4" icon="cpu" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(0, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
                             &nbsp;<b-icon scale="1.4" icon="hdd" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(2, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
                             <b-icon scale="1.2" icon="geo-alt" />&nbsp;<kbd class="alert-warning" style="border-radius: 15px;">&nbsp;<b>{{ row.item.instances }}</b>&nbsp;</kbd>
                           </div>
-                          &nbsp;&nbsp;<b-icon scale="1.2" icon="hourglass-split" />
-                          <span :class="{ 'red-text': isLessThanTwoDays(labelForExpire(row.item.expire, row.item.height)) }">
+                          <span :class="{ 'red-text': isLessThanTwoDays(labelForExpire(row.item.expire, row.item.height)) }" class="no-wrap">
+                            &nbsp;&nbsp;<b-icon scale="1.2" icon="hourglass-split" />
                             {{ labelForExpire(row.item.expire, row.item.height) }}
                           </span>
                         </small>
@@ -593,9 +593,14 @@
             blur="5px"
           >
             <b-card>
-              <div class="mb-1">
-                <b class="mb-1">Prebuilt applications to install</b>
-              </div>
+              <h3 class="mb-1">
+                <kbd class="alert-info d-flex no-wrap" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
+                  &nbsp;<b-icon
+                    scale="1"
+                    icon="building"
+                    class="mr-1"
+                  /> Prebuilt Applications&nbsp;</kbd>
+              </h3>
               <b-row>
                 <b-col cols="12">
                   <b-table
@@ -952,18 +957,73 @@
               </b-row>
             </b-card>
             <b-card>
-              <div class="mb-1">
-                <b>Global Applications to install</b>
+              <div class="mb-0">
+                <h3>
+                  <kbd class="alert-info d-flex no-wrap" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
+                    &nbsp;<b-icon
+                      scale="1"
+                      icon="globe"
+                      class="mr-1"
+                    /> Global Applications&nbsp;</kbd>
+                </h3>
               </div>
               <b-row>
-                <b-col cols="12">
+                <b-col
+                  md="4"
+                  sm="4"
+                  class="my-1"
+                >
+                  <b-form-group class="mb-0">
+                    <label class="d-inline-block text-left mr-50">Per page</label>
+                    <b-form-select
+                      id="perPageSelect"
+                      v-model="tableconfig.globalAvailable.perPage"
+                      size="sm"
+                      :options="appLocationOptions.pageOptions"
+                      class="w-50"
+                    />
+                  </b-form-group>
+                </b-col>
+                <b-col
+                  md="8"
+                  class="my-1"
+                >
+                  <b-form-group
+                    label="Filter"
+                    label-cols-sm="1"
+                    label-align-sm="right"
+                    label-for="filterInput"
+                    class="mb-0 mt-0"
+                  >
+                    <b-input-group size="sm">
+                      <b-form-input
+                        id="filterInput"
+                        v-model="tableconfig.globalAvailable.filter"
+                        type="search"
+                        placeholder="Type to Search"
+                      />
+                      <b-input-group-append>
+                        <b-button
+                          :disabled="!tableconfig.globalAvailable.filter"
+                          @click="tableconfig.globalAvailable.filter = ''"
+                        >
+                          Clear
+                        </b-button>
+                      </b-input-group-append>
+                    </b-input-group>
+                  </b-form-group>
+                </b-col>
+                <b-col cols="12 mt-0">
                   <b-table
                     class="apps-globalAvailable-table"
                     striped
                     outlined
                     responsive
+                    :per-page="tableconfig.globalAvailable.perPage"
+                    :current-page="tableconfig.globalAvailable.currentPage"
                     :items="tableconfig.globalAvailable.apps"
                     :fields="isLoggedIn() ? tableconfig.globalAvailable.loggedInFields : tableconfig.globalAvailable.fields"
+                    :filter="tableconfig.globalAvailable.filter"
                     show-empty
                     sort-icon-left
                     empty-text="No Flux Apps Globally Available"
@@ -979,8 +1039,8 @@
                             &nbsp;<b-icon scale="1.4" icon="hdd" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(2, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
                             <b-icon scale="1.2" icon="geo-alt" />&nbsp;<kbd class="alert-warning" style="border-radius: 15px;">&nbsp;<b>{{ row.item.instances }}</b>&nbsp;</kbd>
                           </div>
-                          &nbsp;&nbsp;<b-icon scale="1.2" icon="hourglass-split" />
-                          <span :class="{ 'red-text': isLessThanTwoDays(labelForExpire(row.item.expire, row.item.height)) }">
+                          <span :class="{ 'red-text': isLessThanTwoDays(labelForExpire(row.item.expire, row.item.height)) }" class="no-wrap">
+                            &nbsp;&nbsp;<b-icon scale="1.2" icon="hourglass-split" />
                             {{ labelForExpire(row.item.expire, row.item.height) }}
                           </span>
                         </small>
@@ -1398,12 +1458,6 @@
                         </b-row>
                       </b-card>
                     </template>
-                    <template #cell(Name)="row">
-                      {{ getAppName(row.item.name) }}
-                    </template>
-                    <template #cell(Description)="row">
-                      {{ row.item.description }}
-                    </template>
                     <template #cell(install)="row">
                       <b-button
                         :id="`install-app-${row.item.name}`"
@@ -1426,6 +1480,16 @@
                       />
                     </template>
                   </b-table>
+                </b-col>
+                <b-col cols="12">
+                  <b-pagination
+                    v-model="tableconfig.globalAvailable.currentPage"
+                    :total-rows="tableconfig.globalAvailable.apps.length"
+                    :per-page="tableconfig.globalAvailable.perPage"
+                    align="center"
+                    size="sm"
+                    class="my-0"
+                  />
                 </b-col>
               </b-row>
             </b-card>
@@ -1516,8 +1580,8 @@
                             &nbsp;<b-icon scale="1.4" icon="hdd" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(2, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
                             <b-icon scale="1.2" icon="geo-alt" />&nbsp;<kbd class="alert-warning" style="border-radius: 15px;">&nbsp;<b>{{ row.item.instances }}</b>&nbsp;</kbd>
                           </div>
-                          &nbsp;&nbsp;<b-icon scale="1.2" icon="hourglass-split" />
-                          <span :class="{ 'red-text': isLessThanTwoDays(labelForExpire(row.item.expire, row.item.height)) }">
+                          <span :class="{ 'red-text': isLessThanTwoDays(labelForExpire(row.item.expire, row.item.height)) }" class="no-wrap">
+                            &nbsp;&nbsp;<b-icon scale="1.2" icon="hourglass-split" />
                             {{ labelForExpire(row.item.expire, row.item.height) }}
                           </span>
                         </small>
@@ -2241,23 +2305,22 @@ export default {
           loggedInFields: [
             { key: 'show_details', label: '' },
             // eslint-disable-next-line object-curly-newline
-            { key: 'name', label: 'Name', sortable: true, thStyle: { width: '18%' } },
+            { key: 'name', label: 'Name', sortable: true },
             {
               key: 'state', label: 'State', class: 'text-center', thStyle: { width: '2%' },
             },
             {
-              key: 'description', label: 'Description', class: 'text-center', thStyle: { width: '60%' },
+              key: 'description', label: 'Description', class: 'text-center',
             },
-            { key: 'actions', label: '', thStyle: { width: '6%' } },
+            { key: 'actions', label: '', thStyle: { width: '12%' } },
             // eslint-disable-next-line object-curly-newline
-            { key: 'visit', label: ' ', thStyle: { width: '3%' } },
+            { key: 'visit', label: '', class: 'text-center', thStyle: { width: '2%' } },
           ],
           fields: [
             { key: 'show_details', label: '' },
-            // eslint-disable-next-line object-curly-newline
-            { key: 'name', label: 'Name', sortable: true, thStyle: { width: '18%' } },
-            { key: 'state', label: 'State', class: 'text-center' },
-            { key: 'description', label: 'Description', class: 'text-center' },
+            { key: 'name', label: 'Name', sortable: true },
+            { key: 'description', label: 'Description' },
+            { key: 'actions', label: '', thStyle: { width: '15%' } },
             // eslint-disable-next-line object-curly-newline
             { key: 'visit', label: '', class: 'text-center', thStyle: { width: '3%' } },
           ],
@@ -2269,14 +2332,14 @@ export default {
           loggedInFields: [
             { key: 'show_details', label: '' },
             // eslint-disable-next-line object-curly-newline
-            { key: 'name', label: 'Name', sortable: true, class: 'text-left', thStyle: { width: '15%' } },
-            { key: 'description', label: 'Description' },
-            { key: 'install', label: '' },
+            { key: 'name', label: 'Name', sortable: true, thStyle: { width: '18%' } },
+            { key: 'description', label: 'Description', thStyle: { width: '75%' } },
+            { key: 'install', label: '', thStyle: { width: '5%' } },
           ],
           fields: [
             { key: 'show_details', label: '' },
             { key: 'name', label: 'Name', sortable: true },
-            { key: 'description', label: 'Description' },
+            { key: 'description', label: 'Description', thStyle: { width: '80%' } },
           ],
           loading: true,
         },
@@ -2286,16 +2349,22 @@ export default {
           loggedInFields: [
             { key: 'show_details', label: '' },
             // eslint-disable-next-line object-curly-newline
-            { key: 'name', label: 'Name', sortable: true, class: 'text-left', thStyle: { width: '15%' } },
-            { key: 'description', label: 'Description' },
-            { key: 'install', label: '' },
+            { key: 'name', label: 'Name', sortable: true, thStyle: { width: '18%' } },
+            { key: 'description', label: 'Description', thStyle: { width: '75%' } },
+            { key: 'install', label: '', thStyle: { width: '5%' } },
           ],
           fields: [
             { key: 'show_details', label: '' },
             { key: 'name', label: 'Name', sortable: true },
-            { key: 'description', label: 'Description' },
+            { key: 'description', label: 'Description', thStyle: { width: '80%' } },
           ],
           loading: true,
+          perPage: 50,
+          pageOptions: [5, 10, 25, 50, 100],
+          filter: '',
+          filterOn: [],
+          currentPage: 1,
+          totalRows: 1,
         },
         local: {
           apps: [],
@@ -2394,29 +2463,28 @@ export default {
       return totalMinutes < 2880;
     },
     getServiceUsageValue(index, name, compose) {
-      // eslint-disable-next-line space-before-blocks
       if (typeof compose?.compose === 'undefined') {
         this.usage = [+compose.cpu, +compose.ram, +compose.hdd];
         return this.usage[index];
       }
-      // Assuming getServiceUsage returns an array
       const serviceUsage = this.getServiceUsage(name, compose.compose);
-      // Return the value at the specified index
       return serviceUsage[index];
     },
     getServiceUsage(serviceName, spec) {
-      let totalRAM = 0;
-      let totalCPU = 0;
-      let totalHDD = 0;
-      spec.forEach((composeObj) => {
-        totalRAM += composeObj.ram;
-        totalCPU += composeObj.cpu;
-        totalHDD += composeObj.hdd;
-      });
-      console.log(`Info: ${totalRAM}, ${totalCPU}, ${totalHDD}`);
-      // Return an array containing the sum of RAM, CPU, and HDD usage
+      // Calculate total RAM, CPU, and HDD usage using reduce method
+      const [totalRAM, totalCPU, totalHDD] = spec.reduce((acc, composeObj) => {
+        // Ensure composeObj properties are numbers
+        const ram = +composeObj.ram || 0;
+        const cpu = +composeObj.cpu || 0;
+        const hdd = +composeObj.hdd || 0;
+        // Add to accumulator
+        acc[0] += ram;
+        acc[1] += cpu;
+        acc[2] += hdd;
+        return acc;
+      }, [0, 0, 0]); // Initialize accumulator with zeros for RAM, CPU, and HDD
+      // Return total RAM, CPU, and HDD usage
       return [totalRAM, totalCPU, totalHDD];
-      // eslint-disable-next-line no-else-return
     },
     getBadgeClass(appName) {
       const state = this.getStateByName(appName);
@@ -2426,8 +2494,6 @@ export default {
       };
     },
     getStateByName(appName) {
-    // Filter the array to find the object with the matching name
-      console.log(appName);
       const filteredApps = this.stateAppsNames.filter((obj) => obj.name === appName);
       if (filteredApps?.length > 0) {
         return filteredApps[0].state;
@@ -2437,11 +2503,11 @@ export default {
       }
     },
     isAppInList(appName, appList) {
-      console.log(appList.length);
+      // console.log(appList.length);
       if (appList?.length === 0) {
         return false;
       }
-      console.log(appList.some((app) => app.name === appName));
+      // console.log(appList.some((app) => app.name === appName));
       return appList.some((app) => app.name === appName);
     },
     // getStateByName(name, data) {
@@ -2492,11 +2558,14 @@ export default {
     },
     async appsGetListGlobalApps() {
       this.tableconfig.globalAvailable.loading = true;
+      console.log('CALL1');
       const response = await AppsService.globalAppSpecifications();
       console.log(response);
+      console.log('CALL2');
       // remove marketplace apps from the list and extract
       // marketplace apps to parse the title
       const apps = response.data.data.sort((a, b) => (a.name.toLowerCase() > b.name.toLowerCase() ? 1 : -1));
+      console.log('CALL3');
       this.tableconfig.globalAvailable.apps = apps;
       this.tableconfig.globalAvailable.loading = false;
       this.tableconfig.globalAvailable.status = response.data.status;
@@ -2516,7 +2585,7 @@ export default {
     async appsGetInstalledApps() {
       this.tableconfig.installed.loading = true;
       const response = await AppsService.installedApps();
-      console.log(response);
+      // console.log(response);
       this.tableconfig.installed.status = response.data.status;
       this.tableconfig.installed.apps = response.data.data;
       this.tableconfig.installed.loading = false;
@@ -2531,7 +2600,7 @@ export default {
       const self = this;
       setTimeout(async () => {
         const response = await AppsService.listRunningApps();
-        console.log(response.data);
+        // console.log(response.data);
         // this is coming from docker;
         const apps = response.data.data;
         const runningAppsNames = [];
@@ -2560,7 +2629,7 @@ export default {
             }
           }
         });
-        console.log(self.stateAppsNames);
+        // console.log(self.stateAppsNames);
         const runningAppsok = [...new Set(runningAppsNames)];
         // eslint-disable-next-line no-restricted-syntax
         for (const app of runningAppsok) {
@@ -2571,7 +2640,7 @@ export default {
             runningAppsSpecifics.push(res.data.data);
           }
         }
-        console.log(response);
+        // console.log(response);
         self.tableconfig.running.status = response.data.status;
         self.tableconfig.running.apps = runningAppsSpecifics;
         self.tableconfig.running.loading = false;
@@ -2581,14 +2650,14 @@ export default {
     async appsGetAvailableApps() {
       this.tableconfig.available.loading = true;
       const response = await AppsService.availableApps();
-      console.log(response);
+      // console.log(response);
       this.tableconfig.available.status = response.data.status;
       this.tableconfig.available.apps = response.data.data;
       this.tableconfig.available.loading = false;
     },
     openApp(name, _ip, _port) {
       if (_port && _ip) {
-        console.log(name, _ip, _port);
+        // console.log(name, _ip, _port);
         const url = `http://${_ip}:${_port}`;
         this.openSite(url);
       } else {
@@ -2596,7 +2665,7 @@ export default {
         const backendURL = store.get('backendURL') || `http://${this.userconfig.externalip}:${this.config.apiPort}`;
         const ip = backendURL.split(':')[1].split('//')[1];
         const port = appInfo.port || appInfo.ports ? appInfo?.ports[0] : appInfo?.compose[0].ports[0];
-        console.log(name, ip, port);
+        // console.log(name, ip, port);
         if (port === '') {
           this.showToast('danger', 'Unable to open App :(, App does not have a port.');
           return;
@@ -2637,7 +2706,7 @@ export default {
         this.showToast('danger', response.data.data.message || response.data.data);
       }
       this.appsGetListRunningApps(5000);
-      console.log(response);
+      // console.log(response);
     },
     async startApp(app) {
       this.output = '';
@@ -2650,7 +2719,7 @@ export default {
         this.showToast('danger', response.data.data.message || response.data.data);
       }
       this.appsGetListRunningApps(5000);
-      console.log(response);
+      // console.log(response);
     },
     async restartApp(app) {
       this.output = '';
@@ -2663,7 +2732,7 @@ export default {
         this.showToast('danger', response.data.data.message || response.data.data);
       }
       this.appsGetListRunningApps(5000);
-      console.log(response);
+      // console.log(response);
     },
     async pauseApp(app) {
       this.output = '';
@@ -2675,7 +2744,7 @@ export default {
       } else {
         this.showToast('danger', response.data.data.message || response.data.data);
       }
-      console.log(response);
+      // console.log(response);
     },
     async unpauseApp(app) {
       this.output = '';
@@ -2687,7 +2756,7 @@ export default {
       } else {
         this.showToast('danger', response.data.data.message || response.data.data);
       }
-      console.log(response);
+      // console.log(response);
     },
     redeployAppSoft(app) {
       this.redeployApp(app, false);
@@ -3021,13 +3090,14 @@ export default {
   text-transform: none !important;
 }
 .apps-globalAvailable-table thead th,
-.apps-globalAvailable-tabletbody td {
+.apps-globalAvailable-tablet body td {
   text-transform: none !important;
 }
 .apps-local-table thead th,
 .apps-local-table tbody td {
   text-transform: none !important;
 }
+
 .apps-running-table td:nth-child(1) {
   padding: 0 0 0 5px;
 }
@@ -3042,17 +3112,18 @@ export default {
   padding: 0 0 0 5px;
 }
 
-.apps-globalAvailable-table td:nth-child(1) {
-  padding: 0 0 0 5px;
-}
-.apps-globalAvailable-table th:nth-child(1) {
-  padding: 0 0 0 5px;
-}
-
 .apps-installed-table td:nth-child(1) {
   padding: 0 0 0 5px;
 }
 .apps-installed-table th:nth-child(1) {
+  padding: 0 0 0 5px;
+}
+
+.apps-globalAvailable-table td:nth-child(1) {
+  padding: 0 0 0 5px;
+}
+
+.apps-globalAvailable-table th:nth-child(1) {
   padding: 0 0 0 5px;
 }
 
@@ -3072,11 +3143,11 @@ export default {
 
 .icon-style-trash:hover {
   color: red; /* Color on hover */
-  transition: color 0.3s;
+  transition: color 0.2s;
 }
 .icon-style-start:hover {
   color: green; /* Color on hover */
-  transition: color 0.3s;
+  transition: color 0.2s;
 }
 .icon-style-stop:hover {
   color: red; /* Color on hover */
@@ -3084,11 +3155,11 @@ export default {
 }
 .icon-style-restart:hover {
   color: cornflowerblue; /* Color on hover */
-  transition: color 0.3s;
+  transition: color 0.2s;
 }
 .icon-style-gear:hover {
   color: cornflowerblue; /* Color on hover */
-  transition: color 0.3s;
+  transition: color 0.2s;
 }
 .disable-hover:hover {
   /* Define a style to disable hover effects */
@@ -3105,12 +3176,12 @@ export default {
     text-decoration: underline;
 }
 .red-text {
-   background-color: rgba(255, 0, 0, 0.25);
+  background-color: rgba(255, 0, 0, 0.25);
   border-radius: 15px;
   display: inline-block;
   margin: 0 0.1em;
   padding: 0.1em 0.6em;
-   font-weight: 800;
-   color: #FF0000;
+  font-weight: 800;
+  color: #FF0000;
 }
 </style>

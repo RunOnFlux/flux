@@ -16,28 +16,49 @@
           <b-card>
             <b-row>
               <b-col
-                md="12"
+                md="4"
+                sm="4"
                 class="my-1"
               >
-                <b-input-group class="mb-1" size="sm">
-                  <b-input-group-prepend is-text>
-                    <b-icon icon="funnel-fill" />
-                  </b-input-group-prepend>
-                  <b-form-input
-                    id="filterInput"
-                    v-model="tableconfig.active.filter"
-                    type="search"
-                    placeholder="Type to Search"
+                <b-form-group class="mb-0">
+                  <label class="d-inline-block text-left mr-50">Per page</label>
+                  <b-form-select
+                    id="perPageSelect"
+                    v-model="tableconfig.active.perPage"
+                    size="sm"
+                    :options="tableconfig.active.pageOptions"
+                    class="w-50"
                   />
-                  <b-input-group-append>
-                    <b-button
-                      :disabled="!tableconfig.active.filter"
-                      @click="tableconfig.active.filter = ''"
-                    >
-                      Clear
-                    </b-button>
-                  </b-input-group-append>
-                </b-input-group>
+                </b-form-group>
+              </b-col>
+              <b-col
+                md="8"
+                class="my-1"
+              >
+                <b-form-group
+                  label="Filter"
+                  label-cols-sm="1"
+                  label-align-sm="right"
+                  label-for="filterInput"
+                  class="mb-0 mt-0"
+                >
+                  <b-input-group size="sm">
+                    <b-form-input
+                      id="filterInput"
+                      v-model="tableconfig.active.filter"
+                      type="search"
+                      placeholder="Type to Search"
+                    />
+                    <b-input-group-append>
+                      <b-button
+                        :disabled="!tableconfig.active.filter"
+                        @click="tableconfig.active.filter = ''"
+                      >
+                        Clear
+                      </b-button>
+                    </b-input-group-append>
+                  </b-input-group>
+                </b-form-group>
               </b-col>
               <b-col cols="12">
                 <b-table
@@ -45,6 +66,8 @@
                   striped
                   outlined
                   responsive
+                  :per-page="tableconfig.active.perPage"
+                  :current-page="tableconfig.active.currentPage"
                   :items="tableconfig.active.apps"
                   :fields="tableconfig.active.fields"
                   :sort-by.sync="tableconfig.active.sortBy"
@@ -69,8 +92,8 @@
                           &nbsp;<b-icon scale="1.4" icon="hdd" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(2, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
                           <b-icon scale="1.2" icon="geo-alt" />&nbsp;<kbd class="alert-warning" style="border-radius: 15px;">&nbsp;<b>{{ row.item.instances }}</b>&nbsp;</kbd>
                         </div>
-                        &nbsp;&nbsp;<b-icon scale="1.2" icon="hourglass-split" />
-                        <span :class="{ 'red-text': isLessThanTwoDays(labelForExpire(row.item.expire, row.item.height)) }">
+                        <span :class="{ 'red-text': isLessThanTwoDays(labelForExpire(row.item.expire, row.item.height)) }" class="no-wrap">
+                          &nbsp;&nbsp;<b-icon scale="1.2" icon="hourglass-split" />
                           {{ labelForExpire(row.item.expire, row.item.height) }}
                         </span>
                       </small>
@@ -529,6 +552,16 @@
                 </b-table>
               </b-col>
             </b-row>
+            <b-col cols="12">
+              <b-pagination
+                v-model="tableconfig.active.currentPage"
+                :total-rows="tableconfig.active?.apps?.length || 1"
+                :per-page="tableconfig.active.perPage"
+                align="center"
+                size="sm"
+                class="my-0"
+              />
+            </b-col>
           </b-card>
         </b-overlay>
       </b-tab>
@@ -540,6 +573,51 @@
         >
           <b-card>
             <b-row>
+              <b-col
+                md="4"
+                sm="4"
+                class="my-1"
+              >
+                <b-form-group class="mb-0">
+                  <label class="d-inline-block text-left mr-50">Per page</label>
+                  <b-form-select
+                    id="perPageSelect"
+                    v-model="tableconfig.active_marketplace.perPage"
+                    size="sm"
+                    :options="tableconfig.active_marketplace.pageOptions"
+                    class="w-50"
+                  />
+                </b-form-group>
+              </b-col>
+              <b-col
+                md="8"
+                class="my-1"
+              >
+                <b-form-group
+                  label="Filter"
+                  label-cols-sm="1"
+                  label-align-sm="right"
+                  label-for="filterInput"
+                  class="mb-0 mt-0"
+                >
+                  <b-input-group size="sm">
+                    <b-form-input
+                      id="filterInput"
+                      v-model="tableconfig.active_marketplace.filter"
+                      type="search"
+                      placeholder="Type to Search"
+                    />
+                    <b-input-group-append>
+                      <b-button
+                        :disabled="!tableconfig.active_marketplace.filter"
+                        @click="tableconfig.active_marketplace.filter = ''"
+                      >
+                        Clear
+                      </b-button>
+                    </b-input-group-append>
+                  </b-input-group>
+                </b-form-group>
+              </b-col>
               <b-col cols="12">
                 <b-table
                   class="apps-active-table"
@@ -548,6 +626,9 @@
                   responsive
                   :items="tableconfig.active_marketplace.apps"
                   :fields="tableconfig.active_marketplace.fields"
+                  :per-page="tableconfig.active_marketplace.perPage"
+                  :current-page="tableconfig.active_marketplace.currentPage"
+                  :filter="tableconfig.active_marketplace.filter"
                   show-empty
                   sort-icon-left
                   empty-text="No Flux Marketplace Apps are active"
@@ -581,8 +662,8 @@
                           &nbsp;<b-icon scale="1.4" icon="hdd" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(2, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
                           <b-icon scale="1.2" icon="geo-alt" />&nbsp;<kbd class="alert-warning" style="border-radius: 15px;">&nbsp;<b>{{ row.item.instances }}</b>&nbsp;</kbd>
                         </div>
-                        &nbsp;&nbsp;<b-icon scale="1.2" icon="hourglass-split" />
-                        <span :class="{ 'red-text': isLessThanTwoDays(labelForExpire(row.item.expire, row.item.height)) }">
+                        <span :class="{ 'red-text': isLessThanTwoDays(labelForExpire(row.item.expire, row.item.height)) }" class="no-wrap">
+                          &nbsp;&nbsp;<b-icon scale="1.2" icon="hourglass-split" />
                           {{ labelForExpire(row.item.expire, row.item.height) }}
                         </span>
                       </small>
@@ -999,6 +1080,16 @@
                 </b-table>
               </b-col>
             </b-row>
+            <b-col cols="12">
+              <b-pagination
+                v-model="tableconfig.active_marketplace.currentPage"
+                :total-rows="tableconfig.active_marketplace?.apps?.length || 1"
+                :per-page="tableconfig.active_marketplace.perPage"
+                align="center"
+                size="sm"
+                class="my-0"
+              />
+            </b-col>
           </b-card>
         </b-overlay>
       </b-tab>
@@ -1080,9 +1171,11 @@ export default {
           apps: [],
           fields: [
             { key: 'show_details', label: '' },
-            { key: 'name', label: 'Name', sortable: true },
-            { key: 'description', label: 'Description' },
-            { key: 'visit', label: '', class: 'text-center' },
+            // eslint-disable-next-line object-curly-newline
+            { key: 'name', label: 'Name', sortable: true, thStyle: { width: '18%' } },
+            { key: 'description', label: 'Description', thStyle: { width: '75%' } },
+            // eslint-disable-next-line object-curly-newline
+            { key: 'visit', label: '', class: 'text-center', thStyle: { width: '4%' } },
           ],
           loading: true,
           sortBy: '',
@@ -1090,15 +1183,31 @@ export default {
           sortDirection: 'asc',
           filter: '',
           filterOn: [],
+          perPage: 25,
+          pageOptions: [5, 10, 25, 50, 100],
+          currentPage: 1,
+          totalRows: 1,
         },
         active_marketplace: {
           apps: [],
           fields: [
             { key: 'show_details', label: '' },
-            { key: 'name', label: 'Name', sortable: true },
-            { key: 'description', label: 'Description' },
-            { key: 'visit', label: '', class: 'text-center' },
+            // eslint-disable-next-line object-curly-newline
+            { key: 'name', label: 'Name', sortable: true, thStyle: { width: '18%' } },
+            { key: 'description', label: 'Description', thStyle: { width: '75%' } },
+            // eslint-disable-next-line object-curly-newline
+            { key: 'visit', label: '', class: 'text-center', thStyle: { width: '4%' } },
           ],
+          loading: true,
+          sortBy: '',
+          sortDesc: false,
+          sortDirection: 'asc',
+          filter: '',
+          filterOn: [],
+          perPage: 25,
+          pageOptions: [5, 10, 25, 50, 100],
+          currentPage: 1,
+          totalRows: 1,
         },
       },
       allApps: [],
@@ -1527,6 +1636,14 @@ export default {
 </script>
 
 <style>
+.apps-active-table thead th,
+.apps-active-table tbody td {
+  text-transform: none !important;
+}
+.myapps-table thead th,
+.myapps-table tbody td {
+  text-transform: none !important;
+}
 .apps-active-table td:nth-child(1) {
   padding: 0 0 0 5px;
 }
