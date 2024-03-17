@@ -10705,9 +10705,11 @@ async function syncthingApps() {
               } else {
                 // eslint-disable-next-line no-await-in-loop
                 deviceID = await getDeviceID(name);
+                if (deviceID) {
+                  syncthingDevicesIDCache.set(name, deviceID);
+                }
               }
               if (deviceID) {
-                syncthingDevicesIDCache.set(name, deviceID);
                 if (deviceID !== myDeviceID.data) { // skip my id, already present
                   const folderDeviceExists = devices.find((device) => device.deviceID === deviceID);
                   if (!folderDeviceExists) { // double check if not multiple the same ids
@@ -10897,9 +10899,11 @@ async function syncthingApps() {
                 } else {
                   // eslint-disable-next-line no-await-in-loop
                   deviceID = await getDeviceID(name);
+                  if (deviceID) {
+                    syncthingDevicesIDCache.set(name, deviceID);
+                  }
                 }
                 if (deviceID) {
-                  syncthingDevicesIDCache.set(name, deviceID);
                   if (deviceID !== myDeviceID.data) { // skip my id, already present
                     const folderDeviceExists = devices.find((device) => device.deviceID === deviceID);
                     if (!folderDeviceExists) { // double check if not multiple the same ids
