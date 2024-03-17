@@ -97,12 +97,19 @@ const stopedAppsCache = {
   maxAge: 1000 * 60 * 60 * 1.5, // 1.5 hours
 };
 
+const syncthingDevicesCache = {
+  max: 5000,
+  ttl: 1000 * 60 * 60 * 24, // 24 hours
+  maxAge: 1000 * 60 * 60 * 24, // 24 hours
+};
+
 const trySpawningGlobalAppCache = new LRUCache(GlobalAppsSpawnLRUoptions);
 const myShortCache = new LRUCache(shortCache);
 const myLongCache = new LRUCache(longCache);
 const failedNodesTestPortsCache = new LRUCache(testPortsCache);
 const receiveOnlySyncthingAppsCache = new LRUCache(syncthingAppsCache);
 const appsStopedCache = new LRUCache(stopedAppsCache);
+const syncthingDevicesIDCache = new LRUCache(syncthingDevicesCache);
 
 let removalInProgress = false;
 let installationInProgress = false;
@@ -10692,9 +10699,15 @@ async function syncthingApps() {
               const port = appInstance.ip.split(':')[1] || 16127;
               const addresses = [`tcp://${ip}:${+port + 2}`, `quic://${ip}:${+port + 2}`];
               const name = `${ip}:${port}`;
-              // eslint-disable-next-line no-await-in-loop
-              const deviceID = await getDeviceID(name);
+              let deviceID;
+              if (syncthingDevicesIDCache.has(name)) {
+                deviceID = syncthingDevicesIDCache.get(name);
+              } else {
+                // eslint-disable-next-line no-await-in-loop
+                deviceID = await getDeviceID(name);
+              }
               if (deviceID) {
+                syncthingDevicesIDCache.set(name, deviceID);
                 if (deviceID !== myDeviceID.data) { // skip my id, already present
                   const folderDeviceExists = devices.find((device) => device.deviceID === deviceID);
                   if (!folderDeviceExists) { // double check if not multiple the same ids
@@ -10878,9 +10891,15 @@ async function syncthingApps() {
                 const port = appInstance.ip.split(':')[1] || 16127;
                 const addresses = [`tcp://${ip}:${+port + 2}`, `quic://${ip}:${+port + 2}`];
                 const name = `${ip}:${port}`;
-                // eslint-disable-next-line no-await-in-loop
-                const deviceID = await getDeviceID(name);
+                let deviceID;
+                if (syncthingDevicesIDCache.has(name)) {
+                  deviceID = syncthingDevicesIDCache.get(name);
+                } else {
+                  // eslint-disable-next-line no-await-in-loop
+                  deviceID = await getDeviceID(name);
+                }
                 if (deviceID) {
+                  syncthingDevicesIDCache.set(name, deviceID);
                   if (deviceID !== myDeviceID.data) { // skip my id, already present
                     const folderDeviceExists = devices.find((device) => device.deviceID === deviceID);
                     if (!folderDeviceExists) { // double check if not multiple the same ids
