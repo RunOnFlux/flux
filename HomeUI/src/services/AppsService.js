@@ -2,13 +2,28 @@ import Api from '@/services/Api';
 
 export default {
   listRunningApps() {
-    return Api().get('/apps/listrunningapps');
+    const axiosConfig = {
+      headers: {
+        'x-apicache-bypass': true,
+      },
+    };
+    return Api().get('/apps/listrunningapps', axiosConfig);
   },
   listAllApps() {
-    return Api().get('/apps/listallapps');
+    const axiosConfig = {
+      headers: {
+        'x-apicache-bypass': true,
+      },
+    };
+    return Api().get('/apps/listallapps', axiosConfig);
   },
   installedApps() {
-    return Api().get('/apps/installedapps');
+    const axiosConfig = {
+      headers: {
+        'x-apicache-bypass': true,
+      },
+    };
+    return Api().get('/apps/installedapps', axiosConfig);
   },
   availableApps() {
     return Api().get('/apps/availableapps');
@@ -20,6 +35,7 @@ export default {
     const axiosConfig = {
       headers: {
         zelidauth: zelidauthHeader,
+        'x-apicache-bypass': true,
       },
     };
     return Api().get(`/apps/appstop/${app}`, axiosConfig);

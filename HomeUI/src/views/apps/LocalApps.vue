@@ -1,337 +1,7 @@
 <template>
   <div>
     <div :class="managedApplication ? 'd-none' : ''">
-      <b-tabs @activate-tab="output = ''; downloading = false">
-        <b-tab
-          active
-          title="Running"
-        >
-          <b-overlay
-            :show="tableconfig.running.loading"
-            variant="transparent"
-            blur="5px"
-          >
-            <b-card>
-              <b-row>
-                <b-col cols="12">
-                  <b-table
-                    class="apps-running-table"
-                    striped
-                    hover
-                    responsive
-                    :items="tableconfig.running.apps"
-                    :fields="isLoggedIn() ? tableconfig.running.loggedInFields : tableconfig.running.fields"
-                    show-empty
-                    empty-text="No Flux Apps running"
-                  >
-                    <template #cell(show_details)="row">
-                      <a @click="showLocations(row, tableconfig.installed.apps)">
-                        <v-icon
-                          v-if="!row.detailsShowing"
-                          name="chevron-down"
-                        />
-                        <v-icon
-                          v-if="row.detailsShowing"
-                          name="chevron-up"
-                        />
-                      </a>
-                    </template>
-                    <template #row-details="row">
-                      <b-card class="mx-2">
-                        <list-entry
-                          title="Description"
-                          :data="row.item.description"
-                        />
-                        <list-entry
-                          title="Owner"
-                          :data="row.item.owner"
-                        />
-                        <list-entry
-                          title="Hash"
-                          :data="row.item.hash"
-                        />
-                        <div v-if="row.item.version >= 5">
-                          <div v-if="row.item.geolocation.length">
-                            <div
-                              v-for="location in row.item.geolocation"
-                              :key="location"
-                            >
-                              <list-entry
-                                title="Geolocation"
-                                :data="getGeolocation(location)"
-                              />
-                            </div>
-                          </div>
-                          <div v-else>
-                            <list-entry
-                              title="Continent"
-                              data="All"
-                            />
-                            <list-entry
-                              title="Country"
-                              data="All"
-                            />
-                            <list-entry
-                              title="Region"
-                              data="All"
-                            />
-                          </div>
-                        </div>
-                        <list-entry
-                          v-if="row.item.instances"
-                          title="Instances"
-                          :data="row.item.instances.toString()"
-                        />
-                        <list-entry
-                          title="Expires in"
-                          :data="labelForExpire(row.item.expire, row.item.height)"
-                        />
-                        <list-entry
-                          title="Enterprise Nodes"
-                          :data="row.item.nodes ? row.item.nodes.toString() : 'Not scoped'"
-                        />
-                        <list-entry
-                          title="Static IP"
-                          :data="row.item.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
-                        />
-                        <h4>Composition</h4>
-                        <div v-if="row.item.version <= 3">
-                          <b-card>
-                            <list-entry
-                              title="Repository"
-                              :data="row.item.repotag"
-                            />
-                            <list-entry
-                              title="Custom Domains"
-                              :data="row.item.domains.toString() || 'none'"
-                            />
-                            <list-entry
-                              title="Automatic Domains"
-                              :data="constructAutomaticDomains(row.item.ports, undefined, row.item.name).toString()"
-                            />
-                            <list-entry
-                              title="Ports"
-                              :data="row.item.ports.toString()"
-                            />
-                            <list-entry
-                              title="Container Ports"
-                              :data="row.item.containerPorts.toString()"
-                            />
-                            <list-entry
-                              title="Container Data"
-                              :data="row.item.containerData"
-                            />
-                            <list-entry
-                              title="Environment Parameters"
-                              :data="row.item.enviromentParameters.length > 0 ? row.item.enviromentParameters.toString() : 'none'"
-                            />
-                            <list-entry
-                              title="Commands"
-                              :data="row.item.commands.length > 0 ? row.item.commands.toString() : 'none'"
-                            />
-                            <div v-if="row.item.tiered">
-                              <list-entry
-                                title="CPU Cumulus"
-                                :data="`${row.item.cpubasic} vCore`"
-                              />
-                              <list-entry
-                                title="CPU Nimbus"
-                                :data="`${row.item.cpusuper} vCore`"
-                              />
-                              <list-entry
-                                title="CPU Stratus"
-                                :data="`${row.item.cpubamf} vCore`"
-                              />
-                              <list-entry
-                                title="RAM Cumulus"
-                                :data="`${row.item.rambasic} MB`"
-                              />
-                              <list-entry
-                                title="RAM Nimbus"
-                                :data="`${row.item.ramsuper} MB`"
-                              />
-                              <list-entry
-                                title="RAM Stratus"
-                                :data="`${row.item.rambamf} MB`"
-                              />
-                              <list-entry
-                                title="SSD Cumulus"
-                                :data="`${row.item.hddbasic} GB`"
-                              />
-                              <list-entry
-                                title="SSD Nimbus"
-                                :data="`${row.item.hddsuper} GB`"
-                              />
-                              <list-entry
-                                title="SSD Stratus"
-                                :data="`${row.item.hddbamf} GB`"
-                              />
-                            </div>
-                            <div v-else>
-                              <list-entry
-                                title="CPU"
-                                :data="`${row.item.cpu} vCore`"
-                              />
-                              <list-entry
-                                title="RAM"
-                                :data="`${row.item.ram} MB`"
-                              />
-                              <list-entry
-                                title="SSD"
-                                :data="`${row.item.hdd} GB`"
-                              />
-                            </div>
-                          </b-card>
-                        </div>
-                        <div v-else>
-                          <b-card
-                            v-for="(component, index) in row.item.compose"
-                            :key="index"
-                          >
-                            <b-card-title>
-                              Component {{ component.name }}
-                            </b-card-title>
-                            <list-entry
-                              title="Name"
-                              :data="component.name"
-                            />
-                            <list-entry
-                              title="Description"
-                              :data="component.description"
-                            />
-                            <list-entry
-                              title="Repository"
-                              :data="component.repotag"
-                            />
-                            <list-entry
-                              title="Repository Authentication"
-                              :data="component.repoauth ? 'Content Encrypted' : 'Public'"
-                            />
-                            <list-entry
-                              title="Custom Domains"
-                              :data="component.domains.toString() || 'none'"
-                            />
-                            <list-entry
-                              title="Automatic Domains"
-                              :data="constructAutomaticDomains(component.ports, component.name, row.item.name, index).toString()"
-                            />
-                            <list-entry
-                              title="Ports"
-                              :data="component.ports.toString()"
-                            />
-                            <list-entry
-                              title="Container Ports"
-                              :data="component.containerPorts.toString()"
-                            />
-                            <list-entry
-                              title="Container Data"
-                              :data="component.containerData"
-                            />
-                            <list-entry
-                              title="Environment Parameters"
-                              :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
-                            />
-                            <list-entry
-                              title="Commands"
-                              :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
-                            />
-                            <list-entry
-                              title="Secret Environment Parameters"
-                              :data="component.secrets ? 'Content Encrypted' : 'none'"
-                            />
-                            <div v-if="component.tiered">
-                              <list-entry
-                                title="CPU Cumulus"
-                                :data="`${component.cpubasic} vCore`"
-                              />
-                              <list-entry
-                                title="CPU Nimbus"
-                                :data="`${component.cpusuper} vCore`"
-                              />
-                              <list-entry
-                                title="CPU Stratus"
-                                :data="`${component.cpubamf} vCore`"
-                              />
-                              <list-entry
-                                title="RAM Cumulus"
-                                :data="`${component.rambasic} MB`"
-                              />
-                              <list-entry
-                                title="RAM Nimbus"
-                                :data="`${component.ramsuper} MB`"
-                              />
-                              <list-entry
-                                title="RAM Stratus"
-                                :data="`${component.rambamf} MB`"
-                              />
-                              <list-entry
-                                title="SSD Cumulus"
-                                :data="`${component.hddbasic} GB`"
-                              />
-                              <list-entry
-                                title="SSD Nimbus"
-                                :data="`${component.hddsuper} GB`"
-                              />
-                              <list-entry
-                                title="SSD Stratus"
-                                :data="`${component.hddbamf} GB`"
-                              />
-                            </div>
-                            <div v-else>
-                              <list-entry
-                                title="CPU"
-                                :data="`${component.cpu} vCore`"
-                              />
-                              <list-entry
-                                title="RAM"
-                                :data="`${component.ram} MB`"
-                              />
-                              <list-entry
-                                title="SSD"
-                                :data="`${component.hdd} GB`"
-                              />
-                            </div>
-                          </b-card>
-                        </div>
-                      </b-card>
-                    </template>
-                    <template #cell(Name)="row">
-                      {{ row.item.name }}
-                    </template>
-                    <template #cell(Description)="row">
-                      {{ row.item.description }}
-                    </template>
-                    <template #cell(visit)="row">
-                      <b-button
-                        size="sm"
-                        class="mr-0"
-                        variant="danger"
-                        @click="openApp(row.item.name)"
-                      >
-                        Visit
-                      </b-button>
-                    </template>
-                    <template #cell(actions)="row">
-                      <b-button
-                        :id="`stop-running-app-${row.item.name}`"
-                        size="sm"
-                        class="mr-0"
-                        variant="danger"
-                      >
-                        Stop
-                      </b-button>
-                      <confirm-dialog
-                        :target="`stop-running-app-${row.item.name}`"
-                        confirm-button="Stop App"
-                        @confirm="stopApp(row.item.name)"
-                      />
-                    </template>
-                  </b-table>
-                </b-col>
-              </b-row>
-            </b-card>
-          </b-overlay>
-        </b-tab>
+      <b-tabs pills @activate-tab="output = ''; downloading = false">
         <b-tab title="Installed">
           <b-overlay
             :show="tableconfig.installed.loading"
@@ -344,32 +14,69 @@
                   <b-table
                     class="apps-installed-table"
                     striped
-                    hover
+                    outlined
                     responsive
                     :items="tableconfig.installed.apps"
                     :fields="isLoggedIn() ? tableconfig.installed.loggedInFields : tableconfig.installed.fields"
                     show-empty
                     empty-text="No Flux Apps installed"
+                    sort-icon-left
                   >
+                    <template #cell(name)="row">
+                      <div class="text-left">
+                        <kbd class="alert-info no-wrap" style="border-radius: 15px; font-weight: 700 !important;"> <b-icon scale="1.2" icon="app-indicator" />&nbsp;&nbsp;{{ row.item.name }}&nbsp; </kbd>
+                        <br>
+                        <small style="font-size: 11px;">
+                          <div class="d-flex align-items-center" style="margin-top: 3px">
+                          &nbsp;&nbsp;<b-icon scale="1.4" icon="speedometer2" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(1, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
+                            &nbsp;<b-icon scale="1.4" icon="cpu" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(0, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
+                            &nbsp;<b-icon scale="1.4" icon="hdd" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(2, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
+                            <b-icon scale="1.2" icon="geo-alt" />&nbsp;<kbd class="alert-warning" style="border-radius: 15px;">&nbsp;<b>{{ row.item.instances }}</b>&nbsp;</kbd>
+                          </div>
+                          &nbsp;&nbsp;<b-icon scale="1.2" icon="hourglass-split" />
+                          <span :class="{ 'red-text': isLessThanTwoDays(labelForExpire(row.item.expire, row.item.height)) }">
+                            {{ labelForExpire(row.item.expire, row.item.height) }}
+                          </span>
+                        </small>
+                      </div>
+                    </template>
+                    <template #cell(visit)="row">
+                      <b-button
+                        v-b-tooltip.hover.top="'Visit App'"
+                        size="sm"
+                        class="mr-0 no-wrap hover-underline"
+                        variant="link"
+                        @click="openApp(row.item.name)"
+                      >
+                        <b-icon
+                          scale="1"
+                          icon="front"
+                        />
+                        Visit
+                      </b-button>
+                    </template>
+                    <template #cell(description)="row">
+                      <kbd class="text-secondary textarea" style="float: left; text-align:left;">{{ row.item.description }}</kbd>
+                    </template>
+                    <template #cell(state)="row">
+                      <kbd :class="getBadgeClass(row.item.name)" style="border-radius: 15px">&nbsp;<b>{{ getStateByName(row.item.name) }}</b>&nbsp;</kbd>
+                    </template>
                     <template #cell(show_details)="row">
                       <a @click="showLocations(row, tableconfig.installed.apps)">
                         <v-icon
                           v-if="!row.detailsShowing"
                           name="chevron-down"
+                          class="ml-1"
                         />
                         <v-icon
                           v-if="row.detailsShowing"
                           name="chevron-up"
+                          class="ml-1"
                         />
                       </a>
                     </template>
                     <template #row-details="row">
                       <b-card class="mx-2">
-                        <list-entry
-                          v-if="row.item.description"
-                          title="Description"
-                          :data="row.item.description"
-                        />
                         <list-entry
                           v-if="row.item.owner"
                           title="Owner"
@@ -627,7 +334,13 @@
                             </div>
                           </b-card>
                         </div>
-                        <h4>Locations</h4>
+                        <h3>
+                          <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
+                            <b-icon
+                              scale="1"
+                              icon="house-door"
+                            /> &nbsp;LOCATIONS&nbsp;</kbd>
+                        </h3>
                         <b-row>
                           <b-col
                             md="4"
@@ -678,14 +391,63 @@
                           <b-col cols="12">
                             <b-table
                               class="locations-table"
-                              striped
-                              hover
+                              borderless
                               :per-page="appLocationOptions.perPage"
                               :current-page="appLocationOptions.currentPage"
                               :items="appLocations"
                               :fields="appLocationFields"
+                              thead-class="d-none"
+                              :filter="appLocationOptions.filter"
+                              :filter-included-fields="tableconfig.local.filterOn"
+                              show-empty
+                              sort-icon-left
+                              empty-text="No instances found.."
                             >
+                              <template #cell(ip)="locationRow">
+                                <div class="no-wrap">
+                                  <kbd class="alert-info" style="border-radius: 15px;">
+                                    <b-icon
+                                      scale="1.1"
+                                      icon="hdd-network-fill"
+                                    /></kbd>
+                                  &nbsp;<kbd class="alert-success no-wrap" style="border-radius: 15px;">
+                                    <b>&nbsp;&nbsp;{{ locationRow.item.ip }}&nbsp;&nbsp;</b>
+                                  </kbd>
+                                </div>
+                              </template>
                               <template #cell(visit)="locationRow">
+                                <div class="d-flex justify-content-end">
+                                  <b-button
+                                    v-b-tooltip.hover.top="'Visit App'"
+                                    size="sm"
+                                    class="mr-1"
+                                    pill
+                                    variant="dark"
+                                    @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
+                                  >
+                                    <b-icon
+                                      scale="1"
+                                      icon="door-open"
+                                    />
+                                    App
+                                  </b-button>
+                                  <b-button
+                                    v-b-tooltip.hover.top="'Visit FluxNode'"
+                                    size="sm"
+                                    class="mr-0"
+                                    pill
+                                    variant="outline-dark"
+                                    @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
+                                  >
+                                    <b-icon
+                                      scale="1"
+                                      icon="house-door-fill"
+                                    />
+                                    FluxNode
+                                  </b-button>&nbsp;&nbsp;
+                                </div>
+                              </template>
+                              <!-- <template #cell(visit)="locationRow">
                                 <b-button
                                   size="sm"
                                   class="mr-0"
@@ -694,7 +456,7 @@
                                 >
                                   Visit
                                 </b-button>
-                              </template>
+                              </template> -->
                             </b-table>
                           </b-col>
                           <b-col cols="12">
@@ -704,9 +466,8 @@
                               :per-page="appLocationOptions.perPage"
                               align="center"
                               size="sm"
-                              class="my-0"
+                              class="my-0 mt-1"
                             />
-                            <span class="table-total">Total: {{ appLocationOptions.totalRows }}</span>
                           </b-col>
                         </b-row>
                       </b-card>
@@ -718,67 +479,110 @@
                       {{ row.item.description }}
                     </template>
                     <template #cell(actions)="row">
-                      <b-button
-                        :id="`start-installed-app-${row.item.name}`"
-                        size="sm"
-                        class="w-100 mr-1"
-                        style="margin-bottom: 2px;"
-                        variant="danger"
-                      >
-                        Start
-                      </b-button>
-                      <confirm-dialog
-                        :target="`start-installed-app-${row.item.name}`"
-                        confirm-button="Start App"
-                        @confirm="startApp(row.item.name)"
-                      />
-                      <b-button
-                        :id="`restart-installed-app-${row.item.name}`"
-                        size="sm"
-                        class="w-100 mr-1"
-                        variant="danger"
-                      >
-                        Restart
-                      </b-button>
-                      <confirm-dialog
-                        :target="`restart-installed-app-${row.item.name}`"
-                        confirm-button="Restart App"
-                        @confirm="restartApp(row.item.name)"
-                      />
-                    </template>
-                    <template #cell(remove)="row">
-                      <b-button
-                        :id="`remove-installed-app-${row.item.name}`"
-                        size="sm"
-                        class="mr-0"
-                        variant="danger"
-                      >
-                        Remove
-                      </b-button>
-                      <confirm-dialog
-                        :target="`remove-installed-app-${row.item.name}`"
-                        confirm-button="Remove App"
-                        @confirm="removeApp(row.item.name)"
-                      />
-                    </template>
-                    <template #cell(manage)="row">
-                      <b-button
-                        :id="`manage-installed-app-${row.item.name}`"
-                        size="sm"
-                        class="mr-0"
-                        variant="danger"
-                      >
-                        Manage
-                      </b-button>
-                      <confirm-dialog
-                        :target="`manage-installed-app-${row.item.name}`"
-                        confirm-button="Manage App"
-                        @confirm="openAppManagement(row.item.name)"
-                      />
+                      <b-button-toolbar>
+                        <b-button-group size="sm">
+                          <b-button
+                            :id="`start-installed-app-${row.item.name}`"
+                            v-b-tooltip.hover.top="'Start App'"
+                            :disabled="isAppInList(row.item.name, tableconfig.running.apps)"
+                            size="sm"
+                            class="no-wrap"
+                            variant="outline-dark"
+                          >
+                            <b-icon
+                              scale="1.2"
+                              icon="play-fill"
+                              class="icon-style-start"
+                              :class="{ 'disable-hover': isAppInList(row.item.name, tableconfig.running.apps) }"
+                            />
+                          </b-button>
+                          <confirm-dialog
+                            :target="`start-installed-app-${row.item.name}`"
+                            confirm-button="Start App"
+                            @confirm="startApp(row.item.name)"
+                          />
+                          <b-button
+                            :id="`stop-installed-app-${row.item.name}`"
+                            v-b-tooltip.hover.top="'Stop App'"
+                            size="sm"
+                            class="mr-0"
+                            variant="outline-dark"
+                            :disabled="!isAppInList(row.item.name, tableconfig.running.apps)"
+                          >
+                            <b-icon
+                              scale="1.2"
+                              icon="stop-circle"
+                              class="icon-style-stop"
+                              :class="{ 'disable-hover': !isAppInList(row.item.name, tableconfig.running.apps) }"
+                            />
+                          </b-button>
+                          <confirm-dialog
+                            :target="`stop-installed-app-${row.item.name}`"
+                            confirm-button="Stop App"
+                            @confirm="stopApp(row.item.name)"
+                          />
+                          <b-button
+                            :id="`restart-installed-app-${row.item.name}`"
+                            v-b-tooltip.hover.top="'Restart App'"
+                            size="sm"
+                            class="no-wrap"
+                            variant="outline-dark"
+                          >
+                            <b-icon
+                              scale="1"
+                              icon="bootstrap-reboot"
+                              class="icon-style-restart"
+                            />
+                          </b-button>
+                          <confirm-dialog
+                            :target="`restart-installed-app-${row.item.name}`"
+                            confirm-button="Restart App"
+                            @confirm="restartApp(row.item.name)"
+                          />
+                          <b-button
+                            :id="`remove-installed-app-${row.item.name}`"
+                            v-b-tooltip.hover.top="'Remove App'"
+                            size="sm"
+                            class="no-wrap"
+                            variant="outline-dark"
+                          >
+                            <b-icon
+                              scale="1"
+                              icon="trash"
+                              class="icon-style-trash"
+                            />
+                          </b-button>
+                          <confirm-dialog
+                            :target="`remove-installed-app-${row.item.name}`"
+                            confirm-button="Remove App"
+                            @confirm="removeApp(row.item.name)"
+                          />
+                          <b-button
+                            :id="`manage-installed-app-${row.item.name}`"
+                            v-b-tooltip.hover.top="'Manage App'"
+                            size="sm"
+                            class="no-wrap"
+                            variant="outline-dark"
+                          >
+                            <b-icon
+                              scale="1"
+                              icon="gear"
+                              class="icon-style-gear"
+                            />
+                          </b-button>
+                          <confirm-dialog
+                            :target="`manage-installed-app-${row.item.name}`"
+                            confirm-button="Manage App"
+                            @confirm="openAppManagement(row.item.name)"
+                          />
+                        </b-button-group>
+                      </b-button-toolbar>
                     </template>
                   </b-table>
                 </b-col>
               </b-row>
+              <b-icon class="ml-1" scale="1.4" icon="layers" />&nbsp;
+              <b>&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;{{ tableconfig.installed?.apps?.length || 0 }}&nbsp;</kbd></b>
             </b-card>
           </b-overlay>
         </b-tab>
@@ -789,28 +593,67 @@
             blur="5px"
           >
             <b-card>
-              Prebuilt applications to install
+              <div class="mb-1">
+                <b class="mb-1">Prebuilt applications to install</b>
+              </div>
               <b-row>
                 <b-col cols="12">
                   <b-table
                     class="apps-available-table"
                     striped
-                    hover
+                    outlined
                     responsive
                     :items="tableconfig.available.apps"
                     :fields="isLoggedIn() ? tableconfig.available.loggedInFields : tableconfig.available.fields"
                     show-empty
+                    sort-icon-left
                     empty-text="No Flux Apps available"
                   >
+                    <template #cell(name)="row">
+                      <div class="text-left">
+                        <kbd class="alert-info no-wrap" style="border-radius: 15px; font-weight: 700 !important;"> <b-icon scale="1.2" icon="app-indicator" />&nbsp;&nbsp;{{ row.item.name }}&nbsp; </kbd>
+                        <br>
+                        <small style="font-size: 11px;">
+                          <div class="d-flex align-items-center" style="margin-top: 3px">
+                            &nbsp;&nbsp;<b-icon scale="1.4" icon="speedometer2" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(1, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
+                            &nbsp;<b-icon scale="1.4" icon="cpu" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(0, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
+                            &nbsp;<b-icon scale="1.4" icon="hdd" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(2, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
+                          </div>
+                        </small>
+                      </div>
+                    </template>
+                    <template #cell(visit)="row">
+                      <b-button
+                        v-b-tooltip.hover.top="'Visit App'"
+                        size="sm"
+                        class="mr-0 no-wrap hover-underline"
+                        variant="link"
+                        @click="openApp(row.item.name)"
+                      >
+                        <b-icon
+                          scale="1"
+                          icon="front"
+                        />
+                        Visit
+                      </b-button>
+                    </template>
+                    <template #cell(description)="row">
+                      <kbd class="text-secondary textarea" style="float: left; text-align:left;">{{ row.item.description }}</kbd>
+                    </template>
+                    <template #cell(state)="row">
+                      <kbd :class="getBadgeClass(row.item.name)" style="border-radius: 15px">&nbsp;<b>{{ getStateByName(row.item.name) }}</b>&nbsp;</kbd>
+                    </template>
                     <template #cell(show_details)="row">
                       <a @click="showLocations(row, tableconfig.available.apps)">
                         <v-icon
                           v-if="!row.detailsShowing"
                           name="chevron-down"
+                          class="ml-1"
                         />
                         <v-icon
                           v-if="row.detailsShowing"
                           name="chevron-up"
+                          class="ml-1"
                         />
                       </a>
                     </template>
@@ -1075,88 +918,6 @@
                             </div>
                           </b-card>
                         </div>
-                        <h4>Locations</h4>
-                        <b-row>
-                          <b-col
-                            md="4"
-                            sm="4"
-                            class="my-1"
-                          >
-                            <b-form-group class="mb-0">
-                              <label class="d-inline-block text-left mr-50">Per page</label>
-                              <b-form-select
-                                id="perPageSelect"
-                                v-model="appLocationOptions.perPage"
-                                size="sm"
-                                :options="appLocationOptions.pageOptions"
-                                class="w-50"
-                              />
-                            </b-form-group>
-                          </b-col>
-                          <b-col
-                            md="8"
-                            class="my-1"
-                          >
-                            <b-form-group
-                              label="Filter"
-                              label-cols-sm="1"
-                              label-align-sm="right"
-                              label-for="filterInput"
-                              class="mb-0"
-                            >
-                              <b-input-group size="sm">
-                                <b-form-input
-                                  id="filterInput"
-                                  v-model="appLocationOptions.filter"
-                                  type="search"
-                                  placeholder="Type to Search"
-                                />
-                                <b-input-group-append>
-                                  <b-button
-                                    :disabled="!appLocationOptions.filter"
-                                    @click="appLocationOptions.filter = ''"
-                                  >
-                                    Clear
-                                  </b-button>
-                                </b-input-group-append>
-                              </b-input-group>
-                            </b-form-group>
-                          </b-col>
-
-                          <b-col cols="12">
-                            <b-table
-                              class="locations-table"
-                              striped
-                              hover
-                              :per-page="appLocationOptions.perPage"
-                              :current-page="appLocationOptions.currentPage"
-                              :items="appLocations"
-                              :fields="appLocationFields"
-                            >
-                              <template #cell(visit)="locationRow">
-                                <b-button
-                                  size="sm"
-                                  class="mr-0"
-                                  variant="danger"
-                                  @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
-                                >
-                                  Visit
-                                </b-button>
-                              </template>
-                            </b-table>
-                          </b-col>
-                          <b-col cols="12">
-                            <b-pagination
-                              v-model="appLocationOptions.currentPage"
-                              :total-rows="appLocationOptions.totalRows"
-                              :per-page="appLocationOptions.perPage"
-                              align="center"
-                              size="sm"
-                              class="my-0"
-                            />
-                            <span class="table-total">Total: {{ appLocationOptions.totalRows }}</span>
-                          </b-col>
-                        </b-row>
                       </b-card>
                     </template>
                     <template #cell(Name)="row">
@@ -1168,10 +929,16 @@
                     <template #cell(install)="row">
                       <b-button
                         :id="`install-app-${row.item.name}`"
+                        v-b-tooltip.hover.top="'Install App'"
                         size="sm"
-                        class="mr-0"
-                        variant="danger"
+                        class="mr-0 no-wrap"
+                        variant="primary"
+                        pill
                       >
+                        <b-icon
+                          scale="0.9"
+                          icon="layer-forward"
+                        />
                         Install
                       </b-button>
                       <confirm-dialog
@@ -1185,37 +952,59 @@
               </b-row>
             </b-card>
             <b-card>
-              Global Applications to install
+              <div class="mb-1">
+                <b>Global Applications to install</b>
+              </div>
               <b-row>
                 <b-col cols="12">
                   <b-table
                     class="apps-globalAvailable-table"
                     striped
-                    hover
+                    outlined
                     responsive
                     :items="tableconfig.globalAvailable.apps"
                     :fields="isLoggedIn() ? tableconfig.globalAvailable.loggedInFields : tableconfig.globalAvailable.fields"
                     show-empty
+                    sort-icon-left
                     empty-text="No Flux Apps Globally Available"
                   >
+                    <template #cell(name)="row">
+                      <div class="text-left">
+                        <kbd class="alert-info no-wrap" style="border-radius: 15px; font-weight: 700 !important;"> <b-icon scale="1.2" icon="app-indicator" />&nbsp;&nbsp;{{ row.item.name }}&nbsp; </kbd>
+                        <br>
+                        <small style="font-size: 11px;">
+                          <div class="d-flex align-items-center" style="margin-top: 3px">
+                          &nbsp;&nbsp;<b-icon scale="1.4" icon="speedometer2" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(1, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
+                            &nbsp;<b-icon scale="1.4" icon="cpu" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(0, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
+                            &nbsp;<b-icon scale="1.4" icon="hdd" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(2, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
+                            <b-icon scale="1.2" icon="geo-alt" />&nbsp;<kbd class="alert-warning" style="border-radius: 15px;">&nbsp;<b>{{ row.item.instances }}</b>&nbsp;</kbd>
+                          </div>
+                          &nbsp;&nbsp;<b-icon scale="1.2" icon="hourglass-split" />
+                          <span :class="{ 'red-text': isLessThanTwoDays(labelForExpire(row.item.expire, row.item.height)) }">
+                            {{ labelForExpire(row.item.expire, row.item.height) }}
+                          </span>
+                        </small>
+                      </div>
+                    </template>
+                    <template #cell(description)="row">
+                      <kbd class="text-secondary textarea" style="float: left; text-align:left;">{{ row.item.description }}</kbd>
+                    </template>
                     <template #cell(show_details)="row">
                       <a @click="showLocations(row, tableconfig.globalAvailable.apps)">
                         <v-icon
                           v-if="!row.detailsShowing"
                           name="chevron-down"
+                          class="ml-1"
                         />
                         <v-icon
                           v-if="row.detailsShowing"
                           name="chevron-up"
+                          class="ml-1"
                         />
                       </a>
                     </template>
                     <template #row-details="row">
-                      <b-card class="mx-2">
-                        <list-entry
-                          title="Description"
-                          :data="row.item.description"
-                        />
+                      <b-card>
                         <list-entry
                           title="Owner"
                           :data="row.item.owner"
@@ -1471,7 +1260,13 @@
                             </div>
                           </b-card>
                         </div>
-                        <h4>Locations</h4>
+                        <h3>
+                          <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
+                            <b-icon
+                              scale="1"
+                              icon="house-door"
+                            /> &nbsp;LOCATIONS&nbsp;</kbd>
+                        </h3>
                         <b-row>
                           <b-col
                             md="4"
@@ -1522,14 +1317,63 @@
                           <b-col cols="12">
                             <b-table
                               class="locations-table"
-                              striped
-                              hover
+                              borderless
                               :per-page="appLocationOptions.perPage"
                               :current-page="appLocationOptions.currentPage"
                               :items="appLocations"
                               :fields="appLocationFields"
+                              thead-class="d-none"
+                              :filter="appLocationOptions.filter"
+                              :filter-included-fields="tableconfig.local.filterOn"
+                              show-empty
+                              sort-icon-left
+                              empty-text="No instances found.."
                             >
+                              <template #cell(ip)="locationRow">
+                                <div class="no-wrap">
+                                  <kbd class="alert-info" style="border-radius: 15px;">
+                                    <b-icon
+                                      scale="1.1"
+                                      icon="hdd-network-fill"
+                                    /></kbd>
+                                  &nbsp;<kbd class="alert-success no-wrap" style="border-radius: 15px;">
+                                    <b>&nbsp;&nbsp;{{ locationRow.item.ip }}&nbsp;&nbsp;</b>
+                                  </kbd>
+                                </div>
+                              </template>
                               <template #cell(visit)="locationRow">
+                                <div class="d-flex justify-content-end">
+                                  <b-button
+                                    v-b-tooltip.hover.top="'Visit App'"
+                                    size="sm"
+                                    class="mr-1"
+                                    pill
+                                    variant="dark"
+                                    @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
+                                  >
+                                    <b-icon
+                                      scale="1"
+                                      icon="door-open"
+                                    />
+                                    App
+                                  </b-button>
+                                  <b-button
+                                    v-b-tooltip.hover.top="'Visit FluxNode'"
+                                    size="sm"
+                                    class="mr-0"
+                                    pill
+                                    variant="outline-dark"
+                                    @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
+                                  >
+                                    <b-icon
+                                      scale="1"
+                                      icon="house-door-fill"
+                                    />
+                                    FluxNode
+                                  </b-button>&nbsp;&nbsp;
+                                </div>
+                              </template>
+                              <!-- <template #cell(visit)="locationRow">
                                 <b-button
                                   size="sm"
                                   class="mr-0"
@@ -1538,7 +1382,7 @@
                                 >
                                   Visit
                                 </b-button>
-                              </template>
+                              </template> -->
                             </b-table>
                           </b-col>
                           <b-col cols="12">
@@ -1548,9 +1392,8 @@
                               :per-page="appLocationOptions.perPage"
                               align="center"
                               size="sm"
-                              class="my-0"
+                              class="my-0 mt-1"
                             />
-                            <span class="table-total">Total: {{ appLocationOptions.totalRows }}</span>
                           </b-col>
                         </b-row>
                       </b-card>
@@ -1564,10 +1407,16 @@
                     <template #cell(install)="row">
                       <b-button
                         :id="`install-app-${row.item.name}`"
+                        v-b-tooltip.hover.top="'Install App'"
                         size="sm"
-                        class="mr-0"
-                        variant="danger"
+                        class="mr-0 no-wrap"
+                        pill
+                        variant="primary"
                       >
+                        <b-icon
+                          scale="0.9"
+                          icon="layer-forward"
+                        />
                         Install
                       </b-button>
                       <confirm-dialog
@@ -1640,7 +1489,7 @@
                   <b-table
                     class="apps-local-table"
                     striped
-                    hover
+                    outlined
                     responsive
                     :per-page="tableconfig.local.perPage"
                     :current-page="tableconfig.local.currentPage"
@@ -1652,18 +1501,61 @@
                     :filter="tableconfig.local.filter"
                     :filter-included-fields="tableconfig.local.filterOn"
                     show-empty
-                    empty-text="No Local Apps owned"
+                    sort-icon-left
+                    :empty-text="isLoggedIn() ? 'No Local Apps owned.' : 'Login to see your Local Apps owned.'"
                     @filtered="onFilteredLocal"
                   >
+                    <template #cell(name)="row">
+                      <div class="text-left">
+                        <kbd class="alert-info no-wrap" style="border-radius: 15px; font-weight: 700 !important;"> <b-icon scale="1.2" icon="app-indicator" />&nbsp;&nbsp;{{ row.item.name }}&nbsp; </kbd>
+                        <br>
+                        <small style="font-size: 11px;">
+                          <div class="d-flex align-items-center" style="margin-top: 3px">
+                          &nbsp;&nbsp;<b-icon scale="1.4" icon="speedometer2" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(1, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
+                            &nbsp;<b-icon scale="1.4" icon="cpu" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(0, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
+                            &nbsp;<b-icon scale="1.4" icon="hdd" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(2, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
+                            <b-icon scale="1.2" icon="geo-alt" />&nbsp;<kbd class="alert-warning" style="border-radius: 15px;">&nbsp;<b>{{ row.item.instances }}</b>&nbsp;</kbd>
+                          </div>
+                          &nbsp;&nbsp;<b-icon scale="1.2" icon="hourglass-split" />
+                          <span :class="{ 'red-text': isLessThanTwoDays(labelForExpire(row.item.expire, row.item.height)) }">
+                            {{ labelForExpire(row.item.expire, row.item.height) }}
+                          </span>
+                        </small>
+                      </div>
+                    </template>
+                    <template #cell(visit)="row">
+                      <b-button
+                        v-b-tooltip.hover.top="'Visit App'"
+                        size="sm"
+                        class="mr-0 no-wrap hover-underline"
+                        variant="link"
+                        @click="openApp(row.item.name)"
+                      >
+                        <b-icon
+                          scale="1"
+                          icon="front"
+                        />
+                        Visit
+                      </b-button>
+                    </template>
+                    <template #cell(description)="row">
+                      <kbd class="text-secondary textarea" style="float: left; text-align:left;">{{ row.item.description }}</kbd>
+                    </template>
+                    <template #cell(state)="row">
+                      <kbd :class="getBadgeClass(row.item.name)" style="border-radius: 15px">&nbsp;<b>{{ getStateByName(row.item.name) }}</b>&nbsp;</kbd>
+                    </template>
+
                     <template #cell(show_details)="row">
                       <a @click="showLocations(row, tableconfig.local.apps)">
                         <v-icon
                           v-if="!row.detailsShowing"
                           name="chevron-down"
+                          class="ml-1"
                         />
                         <v-icon
                           v-if="row.detailsShowing"
                           name="chevron-up"
+                          class="ml-1"
                         />
                       </a>
                     </template>
@@ -1931,7 +1823,13 @@
                             </div>
                           </b-card>
                         </div>
-                        <h4>Locations</h4>
+                        <h3>
+                          <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
+                            <b-icon
+                              scale="1"
+                              icon="house-door"
+                            /> &nbsp;LOCATIONS&nbsp;</kbd>
+                        </h3>
                         <b-row>
                           <b-col
                             md="4"
@@ -1982,14 +1880,63 @@
                           <b-col cols="12">
                             <b-table
                               class="locations-table"
-                              striped
-                              hover
+                              borderless
                               :per-page="appLocationOptions.perPage"
                               :current-page="appLocationOptions.currentPage"
                               :items="appLocations"
                               :fields="appLocationFields"
+                              thead-class="d-none"
+                              :filter="appLocationOptions.filter"
+                              :filter-included-fields="tableconfig.local.filterOn"
+                              show-empty
+                              sort-icon-left
+                              empty-text="No instances found.."
                             >
+                              <template #cell(ip)="locationRow">
+                                <div class="no-wrap">
+                                  <kbd class="alert-info" style="border-radius: 15px;">
+                                    <b-icon
+                                      scale="1.1"
+                                      icon="hdd-network-fill"
+                                    /></kbd>
+                                  &nbsp;<kbd class="alert-success no-wrap" style="border-radius: 15px;">
+                                    <b>&nbsp;&nbsp;{{ locationRow.item.ip }}&nbsp;&nbsp;</b>
+                                  </kbd>
+                                </div>
+                              </template>
                               <template #cell(visit)="locationRow">
+                                <div class="d-flex justify-content-end">
+                                  <b-button
+                                    v-b-tooltip.hover.top="'Visit App'"
+                                    size="sm"
+                                    class="mr-1"
+                                    pill
+                                    variant="dark"
+                                    @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
+                                  >
+                                    <b-icon
+                                      scale="1"
+                                      icon="door-open"
+                                    />
+                                    App
+                                  </b-button>
+                                  <b-button
+                                    v-b-tooltip.hover.top="'Visit FluxNode'"
+                                    size="sm"
+                                    class="mr-0"
+                                    pill
+                                    variant="outline-dark"
+                                    @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
+                                  >
+                                    <b-icon
+                                      scale="1"
+                                      icon="house-door-fill"
+                                    />
+                                    FluxNode
+                                  </b-button>&nbsp;&nbsp;
+                                </div>
+                              </template>
+                              <!-- <template #cell(visit)="locationRow">
                                 <b-button
                                   size="sm"
                                   class="mr-0"
@@ -1998,7 +1945,7 @@
                                 >
                                   Visit
                                 </b-button>
-                              </template>
+                              </template> -->
                             </b-table>
                           </b-col>
                           <b-col cols="12">
@@ -2008,9 +1955,8 @@
                               :per-page="appLocationOptions.perPage"
                               align="center"
                               size="sm"
-                              class="my-0"
+                              class="my-0 mt-1"
                             />
-                            <span class="table-total">Total: {{ appLocationOptions.totalRows }}</span>
                           </b-col>
                         </b-row>
                       </b-card>
@@ -2022,63 +1968,104 @@
                       {{ row.item.description }}
                     </template>
                     <template #cell(actions)="row">
-                      <b-button
-                        :id="`start-local-app-${row.item.name}`"
-                        size="sm"
-                        class="w-100 mr-1"
-                        style="margin-bottom: 2px;"
-                        variant="danger"
-                      >
-                        Start
-                      </b-button>
-                      <confirm-dialog
-                        :target="`start-local-app-${row.item.name}`"
-                        confirm-button="Start App"
-                        @confirm="startApp(row.item.name)"
-                      />
-                      <b-button
-                        :id="`restart-local-app-${row.item.name}`"
-                        size="sm"
-                        class="w-100 mr-1"
-                        variant="danger"
-                      >
-                        Restart
-                      </b-button>
-                      <confirm-dialog
-                        :target="`restart-local-app-${row.item.name}`"
-                        confirm-button="Restart App"
-                        @confirm="restartApp(row.item.name)"
-                      />
-                    </template>
-                    <template #cell(remove)="row">
-                      <b-button
-                        :id="`remove-local-app-${row.item.name}`"
-                        size="sm"
-                        class="mr-0"
-                        variant="danger"
-                      >
-                        Remove
-                      </b-button>
-                      <confirm-dialog
-                        :target="`remove-local-app-${row.item.name}`"
-                        confirm-button="Remove App"
-                        @confirm="removeApp(row.item.name)"
-                      />
-                    </template>
-                    <template #cell(manage)="row">
-                      <b-button
-                        :id="`manage-local-app-${row.item.name}`"
-                        size="sm"
-                        class="mr-0"
-                        variant="danger"
-                      >
-                        Manage
-                      </b-button>
-                      <confirm-dialog
-                        :target="`manage-local-app-${row.item.name}`"
-                        confirm-button="Manage App"
-                        @confirm="openAppManagement(row.item.name)"
-                      />
+                      <b-button-toolbar>
+                        <b-button-group size="sm">
+                          <b-button
+                            :id="`start-local-app-${row.item.name}`"
+                            v-b-tooltip.hover.top="'Start App'"
+                            :disabled="isAppInList(row.item.name, tableconfig.running.apps)"
+                            size="sm"
+                            class="no-wrap"
+                            variant="outline-dark"
+                          >
+                            <b-icon
+                              scale="1.2"
+                              icon="play-fill"
+                              class="icon-style-start"
+                              :class="{ 'disable-hover': isAppInList(row.item.name, tableconfig.running.apps) }"
+                            />
+                          </b-button>
+                          <confirm-dialog
+                            :target="`start-local-app-${row.item.name}`"
+                            confirm-button="Start App"
+                            @confirm="startApp(row.item.name)"
+                          />
+                          <b-button
+                            :id="`stop-local-app-${row.item.name}`"
+                            v-b-tooltip.hover.top="'Stop App'"
+                            size="sm"
+                            class="mr-0"
+                            variant="outline-dark"
+                            :disabled="!isAppInList(row.item.name, tableconfig.running.apps)"
+                          >
+                            <b-icon
+                              scale="1.2"
+                              icon="stop-circle"
+                              class="icon-style-stop"
+                              :class="{ 'disable-hover': !isAppInList(row.item.name, tableconfig.running.apps) }"
+                            />
+                          </b-button>
+                          <confirm-dialog
+                            :target="`stop-local-app-${row.item.name}`"
+                            confirm-button="Stop App"
+                            @confirm="stopApp(row.item.name)"
+                          />
+                          <b-button
+                            :id="`restart-local-app-${row.item.name}`"
+                            v-b-tooltip.hover.top="'Restart App'"
+                            size="sm"
+                            class="no-wrap"
+                            variant="outline-dark"
+                          >
+                            <b-icon
+                              scale="1"
+                              icon="bootstrap-reboot"
+                              class="icon-style-restart"
+                            />
+                          </b-button>
+                          <confirm-dialog
+                            :target="`restart-local-app-${row.item.name}`"
+                            confirm-button="Restart App"
+                            @confirm="restartApp(row.item.name)"
+                          />
+                          <b-button
+                            :id="`remove-local-app-${row.item.name}`"
+                            v-b-tooltip.hover.top="'Remove App'"
+                            size="sm"
+                            class="no-wrap"
+                            variant="outline-dark"
+                          >
+                            <b-icon
+                              scale="1"
+                              icon="trash"
+                              class="icon-style-trash"
+                            />
+                          </b-button>
+                          <confirm-dialog
+                            :target="`remove-local-app-${row.item.name}`"
+                            confirm-button="Remove App"
+                            @confirm="removeApp(row.item.name)"
+                          />
+                          <b-button
+                            :id="`manage-local-app-${row.item.name}`"
+                            v-b-tooltip.hover.top="'Manage App'"
+                            size="sm"
+                            class="no-wrap"
+                            variant="outline-dark"
+                          >
+                            <b-icon
+                              scale="1"
+                              icon="gear"
+                              class="icon-style-gear"
+                            />
+                          </b-button>
+                          <confirm-dialog
+                            :target="`manage-local-app-${row.item.name}`"
+                            confirm-button="Manage App"
+                            @confirm="openAppManagement(row.item.name)"
+                          />
+                        </b-button-group>
+                      </b-button-toolbar>
                     </template>
                   </b-table>
                 </b-col>
@@ -2091,7 +2078,10 @@
                     size="sm"
                     class="my-0"
                   />
-                  <span class="table-total">Total: {{ tableconfig.local.totalRows }}</span>
+                  <div v-if="isLoggedIn()">
+                    <b-icon class="ml-1" scale="1.4" icon="layers" />&nbsp;
+                    <b>&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;{{ tableconfig.local.totalRows }}&nbsp;</kbd></b>
+                  </div>
                 </b-col>
               </b-row>
             </b-card>
@@ -2158,6 +2148,8 @@ import {
   BRow,
   BButton,
   BFormGroup,
+  BButtonToolbar,
+  BButtonGroup,
   BFormInput,
   BFormSelect,
   BInputGroup,
@@ -2193,6 +2185,8 @@ export default {
     BCardTitle,
     BRow,
     BButton,
+    BButtonToolbar,
+    BButtonGroup,
     BFormGroup,
     BFormInput,
     BFormSelect,
@@ -2213,6 +2207,8 @@ export default {
   },
   data() {
     return {
+      stateAppsNames: [],
+      tableKey: 0,
       timeoptions,
       output: [],
       downloading: false,
@@ -2227,15 +2223,15 @@ export default {
           loggedInFields: [
             { key: 'show_details', label: '' },
             { key: 'name', label: 'Name', sortable: true },
-            { key: 'description', label: 'Description', sortable: true },
-            { key: 'visit', label: 'Visit' },
-            { key: 'actions', label: 'Actions' },
+            { key: 'description', label: 'Description' },
+            { key: 'visit', label: 'Visit', thStyle: { width: '3%' } },
+            { key: 'actions', label: 'Actions', thStyle: { width: '15%' } },
           ],
           fields: [
             { key: 'show_details', label: '' },
             { key: 'name', label: 'Name', sortable: true },
-            { key: 'description', label: 'Description', sortable: true },
-            { key: 'visit', label: 'Visit' },
+            { key: 'description', label: 'Description' },
+            { key: 'visit', label: 'Visit', thStyle: { width: '3%' } },
           ],
           loading: true,
         },
@@ -2244,16 +2240,26 @@ export default {
           status: '',
           loggedInFields: [
             { key: 'show_details', label: '' },
-            { key: 'name', label: 'Name', sortable: true },
-            { key: 'description', label: 'Description', sortable: true },
-            { key: 'actions', label: 'Actions' },
-            { key: 'remove', label: 'Remove' },
-            { key: 'manage', label: 'Manage' },
+            // eslint-disable-next-line object-curly-newline
+            { key: 'name', label: 'Name', sortable: true, thStyle: { width: '18%' } },
+            {
+              key: 'state', label: 'State', class: 'text-center', thStyle: { width: '2%' },
+            },
+            {
+              key: 'description', label: 'Description', class: 'text-center', thStyle: { width: '60%' },
+            },
+            { key: 'actions', label: '', thStyle: { width: '6%' } },
+            // eslint-disable-next-line object-curly-newline
+            { key: 'visit', label: ' ', thStyle: { width: '3%' } },
           ],
           fields: [
             { key: 'show_details', label: '' },
-            { key: 'name', label: 'Name', sortable: true },
-            { key: 'description', label: 'Description', sortable: true },
+            // eslint-disable-next-line object-curly-newline
+            { key: 'name', label: 'Name', sortable: true, thStyle: { width: '18%' } },
+            { key: 'state', label: 'State', class: 'text-center' },
+            { key: 'description', label: 'Description', class: 'text-center' },
+            // eslint-disable-next-line object-curly-newline
+            { key: 'visit', label: '', class: 'text-center', thStyle: { width: '3%' } },
           ],
           loading: true,
         },
@@ -2262,14 +2268,15 @@ export default {
           status: '',
           loggedInFields: [
             { key: 'show_details', label: '' },
-            { key: 'name', label: 'Name', sortable: true },
-            { key: 'description', label: 'Description', sortable: true },
-            { key: 'install', label: 'Install' },
+            // eslint-disable-next-line object-curly-newline
+            { key: 'name', label: 'Name', sortable: true, class: 'text-left', thStyle: { width: '15%' } },
+            { key: 'description', label: 'Description' },
+            { key: 'install', label: '' },
           ],
           fields: [
             { key: 'show_details', label: '' },
             { key: 'name', label: 'Name', sortable: true },
-            { key: 'description', label: 'Description', sortable: true },
+            { key: 'description', label: 'Description' },
           ],
           loading: true,
         },
@@ -2278,14 +2285,15 @@ export default {
           status: '',
           loggedInFields: [
             { key: 'show_details', label: '' },
-            { key: 'name', label: 'Name', sortable: true },
-            { key: 'description', label: 'Description', sortable: true },
-            { key: 'install', label: 'Install' },
+            // eslint-disable-next-line object-curly-newline
+            { key: 'name', label: 'Name', sortable: true, class: 'text-left', thStyle: { width: '15%' } },
+            { key: 'description', label: 'Description' },
+            { key: 'install', label: '' },
           ],
           fields: [
             { key: 'show_details', label: '' },
             { key: 'name', label: 'Name', sortable: true },
-            { key: 'description', label: 'Description', sortable: true },
+            { key: 'description', label: 'Description' },
           ],
           loading: true,
         },
@@ -2295,13 +2303,13 @@ export default {
           fields: [
             { key: 'show_details', label: '' },
             { key: 'name', label: 'Name', sortable: true },
-            { key: 'description', label: 'Description', sortable: true },
-            { key: 'actions', label: 'Actions' },
-            { key: 'remove', label: 'Remove' },
-            { key: 'manage', label: 'Manage' },
+            { key: 'description', label: 'Description' },
+            { key: 'actions', label: '', thStyle: { width: '15%' } },
+            // eslint-disable-next-line object-curly-newline
+            { key: 'visit', label: '', class: 'text-center', thStyle: { width: '3%' } },
           ],
-          perPage: 10,
-          pageOptions: [10, 25, 50, 100],
+          perPage: 5,
+          pageOptions: [5, 10, 25, 50, 100],
           sortBy: '',
           sortDesc: false,
           sortDirection: 'asc',
@@ -2319,8 +2327,8 @@ export default {
         { key: 'visit', label: '' },
       ],
       appLocationOptions: {
-        perPage: 10,
-        pageOptions: [10, 25, 50, 100],
+        perPage: 5,
+        pageOptions: [5, 10, 25, 50, 100],
         currentPage: 1,
         totalRows: 1,
       },
@@ -2367,6 +2375,84 @@ export default {
     this.getDaemonBlockCount();
   },
   methods: {
+    isLessThanTwoDays(timeString) {
+      const parts = timeString?.split(',').map((str) => str.trim());
+      let days = 0;
+      let hours = 0;
+      let minutes = 0;
+      // eslint-disable-next-line no-restricted-syntax
+      for (const part of parts) {
+        if (part.includes('days')) {
+          days = parseInt(part, 10);
+        } else if (part.includes('hours')) {
+          hours = parseInt(part, 10);
+        } else if (part.includes('minutes')) {
+          minutes = parseInt(part, 10);
+        }
+      }
+      const totalMinutes = ((days * 24 * 60) + (hours * 60) + minutes);
+      return totalMinutes < 2880;
+    },
+    getServiceUsageValue(index, name, compose) {
+      // eslint-disable-next-line space-before-blocks
+      if (typeof compose?.compose === 'undefined') {
+        this.usage = [+compose.cpu, +compose.ram, +compose.hdd];
+        return this.usage[index];
+      }
+      // Assuming getServiceUsage returns an array
+      const serviceUsage = this.getServiceUsage(name, compose.compose);
+      // Return the value at the specified index
+      return serviceUsage[index];
+    },
+    getServiceUsage(serviceName, spec) {
+      let totalRAM = 0;
+      let totalCPU = 0;
+      let totalHDD = 0;
+      spec.forEach((composeObj) => {
+        totalRAM += composeObj.ram;
+        totalCPU += composeObj.cpu;
+        totalHDD += composeObj.hdd;
+      });
+      console.log(`Info: ${totalRAM}, ${totalCPU}, ${totalHDD}`);
+      // Return an array containing the sum of RAM, CPU, and HDD usage
+      return [totalRAM, totalCPU, totalHDD];
+      // eslint-disable-next-line no-else-return
+    },
+    getBadgeClass(appName) {
+      const state = this.getStateByName(appName);
+      return {
+        'alert-success': state === 'running',
+        'alert-danger': state === 'stopped',
+      };
+    },
+    getStateByName(appName) {
+    // Filter the array to find the object with the matching name
+      console.log(appName);
+      const filteredApps = this.stateAppsNames.filter((obj) => obj.name === appName);
+      if (filteredApps?.length > 0) {
+        return filteredApps[0].state;
+      // eslint-disable-next-line no-else-return
+      } else {
+        return 'stopped';
+      }
+    },
+    isAppInList(appName, appList) {
+      console.log(appList.length);
+      if (appList?.length === 0) {
+        return false;
+      }
+      console.log(appList.some((app) => app.name === appName));
+      return appList.some((app) => app.name === appName);
+    },
+    // getStateByName(name, data) {
+    //   const foundObject = data.find((obj) => obj.Names.some((n) => n.includes(`_${name}`)));
+    //   if (foundObject) {
+    //     return true;
+    //   // eslint-disable-next-line no-else-return
+    //   } else {
+    //     return false;
+    //   }
+    // },
     minutesToString(minutes) {
       let value = minutes * 60;
       const units = {
@@ -2445,19 +2531,36 @@ export default {
       const self = this;
       setTimeout(async () => {
         const response = await AppsService.listRunningApps();
+        console.log(response.data);
         // this is coming from docker;
         const apps = response.data.data;
         const runningAppsNames = [];
         const runningAppsSpecifics = [];
+        self.stateAppsNames = [];
         apps.forEach((app) => {
           // get application specification IF it is composed app
           const appName = app.Names[0].startsWith('/flux') ? app.Names[0].slice(5) : app.Names[0].slice(4);
           if (appName.includes('_')) {
             runningAppsNames.push(appName.split('_')[1]);
+            if (!appName.includes('watchtower')) {
+              const jsonObject = {
+                name: appName.split('_')[1],
+                state: app.State,
+              };
+              self.stateAppsNames.push(jsonObject);
+            }
           } else {
             runningAppsNames.push(appName);
+            if (!appName.includes('watchtower')) {
+              const jsonObject = {
+                name: appName,
+                state: app.State,
+              };
+              self.stateAppsNames.push(jsonObject);
+            }
           }
         });
+        console.log(self.stateAppsNames);
         const runningAppsok = [...new Set(runningAppsNames)];
         // eslint-disable-next-line no-restricted-syntax
         for (const app of runningAppsok) {
@@ -2472,6 +2575,7 @@ export default {
         self.tableconfig.running.status = response.data.status;
         self.tableconfig.running.apps = runningAppsSpecifics;
         self.tableconfig.running.loading = false;
+        self.tableconfig.running.status = response.data.data;
       }, timeout);
     },
     async appsGetAvailableApps() {
@@ -2532,7 +2636,7 @@ export default {
       } else {
         this.showToast('danger', response.data.data.message || response.data.data);
       }
-      this.appsGetListRunningApps(8000);
+      this.appsGetListRunningApps(5000);
       console.log(response);
     },
     async startApp(app) {
@@ -2545,7 +2649,7 @@ export default {
       } else {
         this.showToast('danger', response.data.data.message || response.data.data);
       }
-      this.appsGetListRunningApps(15000);
+      this.appsGetListRunningApps(5000);
       console.log(response);
     },
     async restartApp(app) {
@@ -2558,7 +2662,7 @@ export default {
       } else {
         this.showToast('danger', response.data.data.message || response.data.data);
       }
-      this.appsGetListRunningApps(15000);
+      this.appsGetListRunningApps(5000);
       console.log(response);
     },
     async pauseApp(app) {
@@ -2904,16 +3008,109 @@ export default {
 </script>
 
 <style>
+.apps-installed-table thead th,
+.apps-installed-table tbody td {
+  text-transform: none !important;
+}
+.apps-available-table thead th,
+.apps-available-table tbody td {
+  text-transform: none !important;
+}
+.apps-available-table thead th,
+.apps-available-table tbody td {
+  text-transform: none !important;
+}
+.apps-globalAvailable-table thead th,
+.apps-globalAvailable-tabletbody td {
+  text-transform: none !important;
+}
+.apps-local-table thead th,
+.apps-local-table tbody td {
+  text-transform: none !important;
+}
+.apps-running-table td:nth-child(1) {
+  padding: 0 0 0 5px;
+}
+.apps-running-table th:nth-child(1) {
+  padding: 0 0 0 5px;
+}
+
+.apps-local-table td:nth-child(1) {
+  padding: 0 0 0 5px;
+}
+.apps-local-table th:nth-child(1) {
+  padding: 0 0 0 5px;
+}
+
+.apps-globalAvailable-table td:nth-child(1) {
+  padding: 0 0 0 5px;
+}
+.apps-globalAvailable-table th:nth-child(1) {
+  padding: 0 0 0 5px;
+}
+
+.apps-installed-table td:nth-child(1) {
+  padding: 0 0 0 5px;
+}
+.apps-installed-table th:nth-child(1) {
+  padding: 0 0 0 5px;
+}
+
 .apps-available-table td:nth-child(1) {
   padding: 0 0 0 5px;
 }
 .apps-available-table th:nth-child(1) {
   padding: 0 0 0 5px;
 }
+
 .locations-table td:nth-child(1) {
   width: 105px;
 }
 .locations-table th:nth-child(1) {
   width: 105px;
+}
+
+.icon-style-trash:hover {
+  color: red; /* Color on hover */
+  transition: color 0.3s;
+}
+.icon-style-start:hover {
+  color: green; /* Color on hover */
+  transition: color 0.3s;
+}
+.icon-style-stop:hover {
+  color: red; /* Color on hover */
+  transition: color 0.3s;
+}
+.icon-style-restart:hover {
+  color: cornflowerblue; /* Color on hover */
+  transition: color 0.3s;
+}
+.icon-style-gear:hover {
+  color: cornflowerblue; /* Color on hover */
+  transition: color 0.3s;
+}
+.disable-hover:hover {
+  /* Define a style to disable hover effects */
+  /* For example, setting the same styles as normal state to effectively disable hover effects */
+  color: inherit;
+  background-color: inherit;
+  border-color: inherit;
+  /* Add any other styles to visually indicate that hover is disabled */
+}
+.textarea {
+ display: block; height: inherit; white-space: normal; border-radius: 10px;
+  }
+.hover-underline:hover {
+    text-decoration: underline;
+}
+.red-text {
+   background-color: rgba(255, 0, 0, 0.25);
+  border-radius: 15px;
+  display: inline-block;
+  margin: 0 0.1em;
+  padding: 0.1em 0.6em;
+   font-weight: 800;
+   color: #FF0000;
 }
 </style>
