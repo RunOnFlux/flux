@@ -1,7 +1,7 @@
 <template>
   <div>
     <div :class="managedApplication ? 'd-none' : ''">
-      <b-tabs pills @activate-tab="output = ''; downloading = false">
+      <b-tabs pills @activate-tab="tabChanged()">
         <b-tab title="Installed">
           <b-overlay
             :show="tableconfig.installed.loading"
@@ -35,7 +35,7 @@
                           </div>
                           <span :class="{ 'red-text': isLessThanTwoDays(labelForExpire(row.item.expire, row.item.height)) }" class="no-wrap">
                             &nbsp;&nbsp;<b-icon scale="1.2" icon="hourglass-split" />
-                            {{ labelForExpire(row.item.expire, row.item.height) }}
+                            {{ labelForExpire(row.item.expire, row.item.height) }}&nbsp;&nbsp;
                           </span>
                         </small>
                       </div>
@@ -372,14 +372,14 @@
                               <b-input-group size="sm">
                                 <b-form-input
                                   id="filterInput"
-                                  v-model="appLocationOptions.filter"
+                                  v-model="appLocationOptions.filterOne"
                                   type="search"
                                   placeholder="Type to Search"
                                 />
                                 <b-input-group-append>
                                   <b-button
-                                    :disabled="!appLocationOptions.filter"
-                                    @click="appLocationOptions.filter = ''"
+                                    :disabled="!appLocationOptions.filterOne"
+                                    @click="appLocationOptions.filterOne = ''"
                                   >
                                     Clear
                                   </b-button>
@@ -397,8 +397,7 @@
                               :items="appLocations"
                               :fields="appLocationFields"
                               thead-class="d-none"
-                              :filter="appLocationOptions.filter"
-                              :filter-included-fields="tableconfig.local.filterOn"
+                              :filter="appLocationOptions.filterOne"
                               show-empty
                               sort-icon-left
                               empty-text="No instances found.."
@@ -1041,7 +1040,7 @@
                           </div>
                           <span :class="{ 'red-text': isLessThanTwoDays(labelForExpire(row.item.expire, row.item.height)) }" class="no-wrap">
                             &nbsp;&nbsp;<b-icon scale="1.2" icon="hourglass-split" />
-                            {{ labelForExpire(row.item.expire, row.item.height) }}
+                            {{ labelForExpire(row.item.expire, row.item.height) }}&nbsp;&nbsp;
                           </span>
                         </small>
                       </div>
@@ -1358,14 +1357,14 @@
                               <b-input-group size="sm">
                                 <b-form-input
                                   id="filterInput"
-                                  v-model="appLocationOptions.filter"
+                                  v-model="appLocationOptions.filterTwo"
                                   type="search"
                                   placeholder="Type to Search"
                                 />
                                 <b-input-group-append>
                                   <b-button
-                                    :disabled="!appLocationOptions.filter"
-                                    @click="appLocationOptions.filter = ''"
+                                    :disabled="!appLocationOptions.filterTwo"
+                                    @click="appLocationOptions.filterTwo = ''"
                                   >
                                     Clear
                                   </b-button>
@@ -1383,8 +1382,7 @@
                               :items="appLocations"
                               :fields="appLocationFields"
                               thead-class="d-none"
-                              :filter="appLocationOptions.filter"
-                              :filter-included-fields="tableconfig.local.filterOn"
+                              :filter="appLocationOptions.filterTwo"
                               show-empty
                               sort-icon-left
                               empty-text="No instances found.."
@@ -1563,7 +1561,6 @@
                     :sort-desc.sync="tableconfig.local.sortDesc"
                     :sort-direction="tableconfig.local.sortDirection"
                     :filter="tableconfig.local.filter"
-                    :filter-included-fields="tableconfig.local.filterOn"
                     show-empty
                     sort-icon-left
                     :empty-text="isLoggedIn() ? 'No Local Apps owned.' : 'Login to see your Local Apps owned.'"
@@ -1582,7 +1579,7 @@
                           </div>
                           <span :class="{ 'red-text': isLessThanTwoDays(labelForExpire(row.item.expire, row.item.height)) }" class="no-wrap">
                             &nbsp;&nbsp;<b-icon scale="1.2" icon="hourglass-split" />
-                            {{ labelForExpire(row.item.expire, row.item.height) }}
+                            {{ labelForExpire(row.item.expire, row.item.height) }}&nbsp;&nbsp;
                           </span>
                         </small>
                       </div>
@@ -1925,14 +1922,14 @@
                               <b-input-group size="sm">
                                 <b-form-input
                                   id="filterInput"
-                                  v-model="appLocationOptions.filter"
+                                  v-model="appLocationOptions.filterTree"
                                   type="search"
                                   placeholder="Type to Search"
                                 />
                                 <b-input-group-append>
                                   <b-button
-                                    :disabled="!appLocationOptions.filter"
-                                    @click="appLocationOptions.filter = ''"
+                                    :disabled="!appLocationOptions.filterTree"
+                                    @click="appLocationOptions.filterTree = ''"
                                   >
                                     Clear
                                   </b-button>
@@ -1950,7 +1947,7 @@
                               :items="appLocations"
                               :fields="appLocationFields"
                               thead-class="d-none"
-                              :filter="appLocationOptions.filter"
+                              :filter="appLocationOptions.filterTree"
                               :filter-included-fields="tableconfig.local.filterOn"
                               show-empty
                               sort-icon-left
@@ -2399,6 +2396,9 @@ export default {
         pageOptions: [5, 10, 25, 50, 100],
         currentPage: 1,
         totalRows: 1,
+        filterOne: '',
+        filterTwo: '',
+        filterTree: '',
       },
       callResponse: { // general
         status: '',
@@ -2443,6 +2443,18 @@ export default {
     this.getDaemonBlockCount();
   },
   methods: {
+    tabChanged() {
+      this.tableconfig.installed.apps.forEach((item) => {
+        this.$set(item, '_showDetails', false);
+      });
+      this.tableconfig.available.apps.forEach((item) => {
+        this.$set(item, '_showDetails', false);
+      });
+      this.tableconfig.globalAvailable.apps.forEach((item) => {
+        this.$set(item, '_showDetails', false);
+      });
+      this.appLocations = [];
+    },
     isLessThanTwoDays(timeString) {
       const parts = timeString?.split(',').map((str) => str.trim());
       let days = 0;

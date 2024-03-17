@@ -3441,7 +3441,6 @@
               :sort-desc.sync="instances.sortDesc"
               :sort-direction="instances.sortDirection"
               :filter="instances.filter"
-              :filter-included-fields="instances.filterOn"
               show-empty
               :empty-text="`No instances of ${appName}`"
             >

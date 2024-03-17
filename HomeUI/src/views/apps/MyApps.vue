@@ -73,7 +73,6 @@
                   :sort-desc.sync="tableconfig.my.sortDesc"
                   :sort-direction="tableconfig.my.sortDirection"
                   :filter="tableconfig.my.filter"
-                  :filter-included-fields="tableconfig.my.filterOn"
                   :per-page="tableconfig.my.perPage"
                   :current-page="tableconfig.my.currentPage"
                   show-empty
@@ -96,7 +95,7 @@
                         </div>
                         <span :class="{ 'red-text': isLessThanTwoDays(labelForExpire(row.item.expire, row.item.height)) }" class="no-wrap">
                           &nbsp;&nbsp;<b-icon scale="1.2" icon="hourglass-split" />
-                          {{ labelForExpire(row.item.expire, row.item.height) }}
+                          {{ labelForExpire(row.item.expire, row.item.height) }}&nbsp;&nbsp;
                         </span>
                       </small>
                     </div>
@@ -435,6 +434,7 @@
                             :current-page="appLocationOptions.currentPage"
                             :items="appLocations"
                             :fields="appLocationFields"
+                            :filter="appLocationOptions.filter"
                             thead-class="d-none"
                             show-empty
                             sort-icon-left

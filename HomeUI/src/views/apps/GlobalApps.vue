@@ -94,7 +94,7 @@
                         </div>
                         <span :class="{ 'red-text': isLessThanTwoDays(labelForExpire(row.item.expire, row.item.height)) }" class="no-wrap">
                           &nbsp;&nbsp;<b-icon scale="1.2" icon="hourglass-split" />
-                          {{ labelForExpire(row.item.expire, row.item.height) }}
+                          {{ labelForExpire(row.item.expire, row.item.height) }}&nbsp;&nbsp;
                         </span>
                       </small>
                     </div>
@@ -664,7 +664,7 @@
                         </div>
                         <span :class="{ 'red-text': isLessThanTwoDays(labelForExpire(row.item.expire, row.item.height)) }" class="no-wrap">
                           &nbsp;&nbsp;<b-icon scale="1.2" icon="hourglass-split" />
-                          {{ labelForExpire(row.item.expire, row.item.height) }}
+                          {{ labelForExpire(row.item.expire, row.item.height) }}&nbsp;&nbsp;
                         </span>
                       </small>
                     </div>
