@@ -77,7 +77,7 @@
                   :current-page="tableconfig.my.currentPage"
                   show-empty
                   sort-icon-left
-                  :empty-text="isLoggedIn ? `No Global Apps are owned.` : `Login to see your Global Apps.`"
+                  :empty-text="`No Global Apps are owned.`"
                 >
                   <template #cell(description)="row">
                     <kbd class="text-secondary textarea text" style="float: left; text-align:left;">{{ row.item.description }}</kbd>
