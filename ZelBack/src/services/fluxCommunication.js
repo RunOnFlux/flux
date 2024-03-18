@@ -574,7 +574,7 @@ async function initiateAndHandleConnection(connection) {
   return new Promise((resolve, reject) => {
     try {
       const wsuri = `ws://${ip}:${port}/ws/flux/${myPort}`;
-      const websocket = new WebSocket(wsuri);
+      const websocket = new WebSocket(wsuri, { handshakeTimeout: 3000 });
       websocket.port = port;
       websocket.ip = ip;
       websocket.onopen = () => {
@@ -835,7 +835,7 @@ async function connectToPeers() {
   try {
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     if (!syncStatus.data.synced) {
-      log.error('Daemon not synced. Peer discovery on hold. Will try again in 1m.');
+      log.warn('Daemon not synced. Peer discovery on hold. Will try again in 1m.');
       return 60 * 1000;
     }
 
@@ -843,7 +843,7 @@ async function connectToPeers() {
 
     const localEndpoint = await fluxNetworkHelper.getMyFluxIPandPort();
     if (!localEndpoint) {
-      log.error('Flux IP not detected. Peer discovery on hold. Will try again in 1m.');
+      log.warn('Flux IP not detected. Peer discovery on hold. Will try again in 1m.');
       return 60 * 1000;
     }
 
@@ -852,7 +852,7 @@ async function connectToPeers() {
     const fluxNode = activatedNodes.find((node) => node.ip === localEndpoint);
 
     if (!fluxNode) {
-      log.error('Node not confirmed. Peer discovery on hold. Will try again in 1m.');
+      log.warn('Node not confirmed. Peer discovery on hold. Will try again in 1m.');
       return 60 * 1000;
     }
 
@@ -893,6 +893,8 @@ async function connectToPeers() {
     let deterministicPeerConnections = false;
 
     while (!fcc.aborted && outgoingConnections.length < minDeterministicOutPeers) {
+      if (!sortedNodeList.length) return;
+
       const { ip: endpoint } = sortedNodeList.shift();
       const [ip, port] = endpoint.includes(':') ? endpoint.split(':') : [endpoint, 16127];
 
@@ -914,6 +916,8 @@ async function connectToPeers() {
 
     // established deterministic 8 incoming connections
     while (!fcc.aborted && incomingConnections.length < minDeterministicOutPeers) {
+      if (!sortedNodeList.length) return;
+
       const { ip: endpoint } = sortedNodeList.shift();
       const [ip, port] = endpoint.includes(':') ? endpoint.split(':') : [endpoint, 16127];
 
@@ -1035,4 +1039,6 @@ module.exports = {
   removePeer,
   startPeerConnectionSentinel,
   stopPeerConnectionSentinel,
+  // Test exports
+  connectToPeers,
 };

@@ -132,7 +132,7 @@ async function dockerListContainers(all, limit, size, filter) {
 /**
  * Returns a list of images on the server.
  *
- * @returns {array} images list
+ * @returns {Promise<array>} images list
  */
 async function dockerListImages() {
   const containers = await docker.listImages();

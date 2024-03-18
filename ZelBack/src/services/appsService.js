@@ -13,7 +13,7 @@ const systemcrontab = require('crontab');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
 const fs = require('fs').promises;
-const execShell = util.promisify(require('child_process').exec);
+// const execShell = util.promisify(require('child_process').exec);
 const httpShutdown = require('http-shutdown');
 const fluxCommunication = require('./fluxCommunication');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
@@ -12714,8 +12714,9 @@ async function createAppsFolder(req, res) {
       } else {
         throw new Error('Application volume not found');
       }
-      const cmd = `sudo mkdir "${filepath}"`;
-      await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      // const cmd = `sudo mkdir "${filepath}"`;
+      // await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      await serviceHelper.runCommand('mkdir', { runAsRoot: true, params: [filepath] });
       const resultsResponse = messageHelper.createSuccessMessage('Folder Created');
       res.json(resultsResponse);
     } else {
@@ -12775,8 +12776,9 @@ async function renameAppsObject(req, res) {
         const renamingFolder = fileURIArray.join('/');
         newfullpath = `${appVolumePath[0].mount}/appdata/${renamingFolder}/${newname}`;
       }
-      const cmd = `sudo mv -T "${oldfullpath}" "${newfullpath}"`;
-      await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      // const cmd = `sudo mv -T "${oldfullpath}" "${newfullpath}"`;
+      // await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      await serviceHelper.runCommand('mv', { runAsRoot: true, params: ['-T', oldfullpath, newfullpath] });
       const response = messageHelper.createSuccessMessage('Rename successful');
       res.json(response);
     } else {
@@ -12827,8 +12829,9 @@ async function removeAppsObject(req, res) {
       } else {
         throw new Error('Application volume not found');
       }
-      const cmd = `sudo rm -rf "${filepath}"`;
-      await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      // const cmd = `sudo rm -rf "${filepath}"`;
+      // await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      await serviceHelper.runCommand('rm', { runAsRoot: true, params: ['-rf', filepath] });
       const response = messageHelper.createSuccessMessage('File Removed');
       res.json(response);
     } else {
@@ -12947,12 +12950,13 @@ async function downloadAppsFile(req, res) {
       let filepath;
       const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
       if (appVolumePath.length > 0) {
-        filepath = `${appVolumePath[0].mount}/appdata/${file}`;
+        filepath = path.join(appVolumePath[0].mount, 'appdata', file);
       } else {
         throw new Error('Application volume not found');
       }
-      const cmd = `sudo chmod 777 "${filepath}"`;
-      await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      // const cmd = `sudo chmod 777 "${filepath}"`;
+      // await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      await serviceHelper.runCommand('chmod', { runAsRoot: true, params: ['777', filepath] });
       // beautify name
       const fileNameArray = filepath.split('/');
       const fileName = fileNameArray[fileNameArray.length - 1];

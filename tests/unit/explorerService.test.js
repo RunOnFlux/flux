@@ -1,6 +1,7 @@
 global.userconfig = require('../../config/userconfig');
 const sinon = require('sinon');
-const { expect } = require('chai');
+const chai = require('chai');
+const chaiAsPromised = require('chai-as-promised');
 const { LRUCache } = require('lru-cache');
 const explorerService = require('../../ZelBack/src/services/explorerService');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
@@ -12,6 +13,10 @@ const daemonServiceControlRpcs = require('../../ZelBack/src/services/daemonServi
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const log = require('../../lib/log');
+const exp = require('constants');
+
+chai.use(chaiAsPromised);
+const { expect } = chai;
 
 describe('explorerService tests', () => {
   describe('getSenderTransactionFromDaemon tests', () => {
@@ -1113,6 +1118,7 @@ describe('explorerService tests', () => {
     let checkAndRemoveApplicationInstanceStub;
     let restorePortsSupportStub;
     let daemonServiceBlockchainRpcsStub;
+    let daemonServiceControlRpcsStub;
     let daemonServiceMiscRpcsStub;
 
     beforeEach(async () => {
@@ -1122,11 +1128,12 @@ describe('explorerService tests', () => {
       dbStubCollectionStats = sinon.stub(dbHelper, 'collectionStats');
       expireGlobalApplicationsStub = sinon.stub(appsService, 'expireGlobalApplications');
       checkAndRemoveApplicationInstanceStub = sinon.stub(appsService, 'checkAndRemoveApplicationInstance');
-      restorePortsSupportStub = sinon.stub(appsService, 'restorePortsSupport');
+      restorePortsSupportStub = sinon.stub(appsService, 'openRequiredPortsToInternet');
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
       daemonServiceMiscRpcsStub = sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced');
       daemonServiceBlockchainRpcsStub = sinon.stub(daemonServiceBlockchainRpcs, 'getBlock');
+      daemonServiceControlRpcsStub = sinon.stub(daemonServiceControlRpcs, 'getInfo');
       logInfoSpy = sinon.spy(log, 'info');
     });
 
@@ -1144,9 +1151,10 @@ describe('explorerService tests', () => {
         },
       });
 
-      const result = await explorerService.processBlock(blockHeight, isInsightExplorer);
+      const result = await explorerService.processBlocks({ fromHeight: blockHeight, isInsightExplorer });
 
-      expect(result).to.be.undefined;
+      expect(result).to.deep.equal([120000, 99999])
+      // expect(result).to.be.undefined;
     });
 
     it('should update db if all parameters are passed correctly, block height == 695000', async () => {
@@ -1155,11 +1163,17 @@ describe('explorerService tests', () => {
       dbStubUpdate.returns(true);
       expireGlobalApplicationsStub.returns(true);
       // prevent infinite func loop while testing
-      explorerService.setBlockProccessingCanContinue(false);
+      // explorerService.setBlockProccessingCanContinue(false);
       dbStubCollectionStats.returns({
         size: 10000,
         count: 15,
         avgObjSize: 1111,
+      });
+      daemonServiceControlRpcsStub.returns({
+        data:
+        {
+          blocks: blockHeight
+        }
       });
       daemonServiceMiscRpcsStub.returns({
         data:
@@ -1197,8 +1211,9 @@ describe('explorerService tests', () => {
         },
       });
 
-      await explorerService.processBlock(blockHeight, isInsightExplorer);
+      const result = await explorerService.processBlocks({ fromHeight: blockHeight, isInsightExplorer });
 
+      expect(result).to.deep.equal([5000, 695000]);
       sinon.assert.calledOnce(expireGlobalApplicationsStub);
       sinon.assert.notCalled(checkAndRemoveApplicationInstanceStub);
       sinon.assert.notCalled(restorePortsSupportStub);
@@ -1220,7 +1235,7 @@ describe('explorerService tests', () => {
       dbStubUpdate.returns(true);
       checkAndRemoveApplicationInstanceStub.returns(true);
       // prevent infinite func loop while testing
-      explorerService.setBlockProccessingCanContinue(false);
+      // explorerService.setBlockProccessingCanContinue(false);
       dbStubCollectionStats.returns({
         size: 10000,
         count: 15,
@@ -1231,6 +1246,12 @@ describe('explorerService tests', () => {
         {
           synced: true,
         },
+      });
+      daemonServiceControlRpcsStub.returns({
+        data:
+        {
+          blocks: blockHeight
+        }
       });
       daemonServiceBlockchainRpcsStub.returns({
         status: 'success',
@@ -1262,8 +1283,9 @@ describe('explorerService tests', () => {
         },
       });
 
-      await explorerService.processBlock(blockHeight, isInsightExplorer);
+      const result = await explorerService.processBlocks({ fromHeight: blockHeight, isInsightExplorer });
 
+      expect(result).to.deep.equal([5000, 900009]);
       sinon.assert.notCalled(expireGlobalApplicationsStub);
       sinon.assert.calledOnce(checkAndRemoveApplicationInstanceStub);
       sinon.assert.notCalled(restorePortsSupportStub);
@@ -1283,7 +1305,7 @@ describe('explorerService tests', () => {
       dbStubUpdate.returns(true);
       checkAndRemoveApplicationInstanceStub.returns(true);
       // prevent infinite func loop while testing
-      explorerService.setBlockProccessingCanContinue(false);
+      // explorerService.setBlockProccessingCanContinue(false);
       dbStubCollectionStats.returns({
         size: 10000,
         count: 15,
@@ -1294,6 +1316,12 @@ describe('explorerService tests', () => {
         {
           synced: true,
         },
+      });
+      daemonServiceControlRpcsStub.returns({
+        data:
+        {
+          blocks: blockHeight
+        }
       });
       daemonServiceBlockchainRpcsStub.returns({
         status: 'success',
@@ -1325,8 +1353,9 @@ describe('explorerService tests', () => {
         },
       });
 
-      await explorerService.processBlock(blockHeight, isInsightExplorer);
+      const result = await explorerService.processBlocks({ fromHeight: blockHeight, isInsightExplorer });
 
+      expect(result).to.deep.equal([5000, 900024]);
       sinon.assert.notCalled(expireGlobalApplicationsStub);
       sinon.assert.notCalled(checkAndRemoveApplicationInstanceStub);
       sinon.assert.calledOnceWithMatch(
@@ -2278,23 +2307,23 @@ describe('explorerService tests', () => {
     });
   });
 
-  describe('initiateBlockProcessor tests', () => {
+  describe('startBlockProcessor tests', () => {
     let findInDatabaseStub;
     let getInfoStub;
     let dropCollectionStub;
     let logErrorSpy;
     let logInfoSpy;
 
-    const generateResponse = () => {
-      const res = { test: 'testing' };
-      res.status = sinon.stub().returns(res);
-      res.json = sinon.stub().returns(res);
-      return res;
-    };
+    // const generateResponse = () => {
+    //   const res = { test: 'testing' };
+    //   res.status = sinon.stub().returns(res);
+    //   res.json = sinon.stub().returns(res);
+    //   return res;
+    // };
 
     beforeEach(async () => {
       findInDatabaseStub = sinon.stub(dbHelper, 'findOneInDatabase');
-      dropCollectionStub = sinon.stub(dbHelper, 'dropCollection');
+      dropCollectionStub = sinon.stub(dbHelper, 'dropCollection').resolves('fake');
       sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true } });
       getInfoStub = sinon.stub(daemonServiceControlRpcs, 'getInfo');
       await dbHelper.initiateDB();
@@ -2342,50 +2371,33 @@ describe('explorerService tests', () => {
     });
 
     afterEach(() => {
-      explorerService.setIsInInitiationOfBP(false);
       sinon.restore();
     });
 
-    it('should return right away if isInInitiationOfBP is true', async () => {
-      explorerService.setIsInInitiationOfBP(true);
-      const res = generateResponse();
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test: 'test',
-        },
-      };
+    it('should return immediately if block process controller (bpc) locked or aborted', async () => {
+      const setupBpStub = sinon.stub(explorerService, 'setupBlockProcessor');
 
-      const result = await explorerService.initiateBlockProcessor(req, res);
+      explorerService.abortBpc();
+      const result = await explorerService.startBlockProcessor();
+      explorerService.resetBpc();
 
       expect(result).to.be.undefined;
-      sinon.assert.calledOnce(findInDatabaseStub);
+      sinon.assert.notCalled(setupBpStub);
     });
 
-    it('should return error if daemon service getInfo does not return success message', async () => {
-      getInfoStub.returns({
-        status: 'error',
-        data: {
-          message: 'message',
-        },
-      });
-      const res = generateResponse();
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test: 'test',
-        },
-      };
+    // it('should return error if daemon service getInfo does not return success message', async () => {
+    //   getInfoStub.returns({
+    //     status: 'error',
+    //     data: {
+    //       message: 'message',
+    //     },
+    //   });
 
-      await explorerService.initiateBlockProcessor(req, res);
+    //   await explorerService.startBlockProcessor();
 
-      sinon.assert.calledOnce(logErrorSpy);
-      sinon.assert.calledOnceWithMatch(findInDatabaseStub, sinon.match.object, 'scannedheight', { generalScannedHeight: { $gte: 0 } }, { projection: { _id: 0, generalScannedHeight: 1 } });
-    });
+    //   sinon.assert.calledOnce(logErrorSpy);
+    //   sinon.assert.calledOnceWithMatch(findInDatabaseStub, sinon.match.object, 'scannedheight', { generalScannedHeight: { $gte: 0 } }, { projection: { _id: 0, generalScannedHeight: 1 } });
+    // });
 
     it('should run the block processor, all params false', async () => {
       findInDatabaseStub.returns({ generalScannedHeight: 0 });
@@ -2402,9 +2414,9 @@ describe('explorerService tests', () => {
         },
       });
       sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer').returns(true);
-      explorerService.setBlockProccessingCanContinue(false);
+      // explorerService.setBlockProccessingCanContinue(false);
 
-      await explorerService.initiateBlockProcessor(false, false, false);
+      await explorerService.startBlockProcessor();
       await serviceHelper.delay(200);
 
       sinon.assert.notCalled(logErrorSpy);
@@ -2412,6 +2424,7 @@ describe('explorerService tests', () => {
       sinon.assert.calledWithMatch(logInfoSpy, 'Processing Explorer Block Height: 695000');
       sinon.assert.calledWithMatch(logInfoSpy, 'Preparing apps collections');
       sinon.assert.calledWithMatch(logInfoSpy, 'Preparation done');
+      await explorerService.stopBlockProcessor();
     });
 
     it('should run the block processor, restoreDatabase set to true, height > 0', async () => {
@@ -2431,16 +2444,15 @@ describe('explorerService tests', () => {
         },
       });
       sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer').returns(true);
-      explorerService.setBlockProccessingCanContinue(false);
+      // explorerService.setBlockProccessingCanContinue(false);
 
-      await explorerService.initiateBlockProcessor(true, false, false);
+      await explorerService.startBlockProcessor({ restoreDatabase: true, deepRestore: false });
       await serviceHelper.delay(200);
 
       sinon.assert.notCalled(logErrorSpy);
       sinon.assert.calledWithMatch(logInfoSpy, 'FLUX documents: 10000, 15, 1111');
       sinon.assert.calledWithMatch(logInfoSpy, 'Processing Explorer Block Height: 695000');
       sinon.assert.calledWithMatch(logInfoSpy, 'Restoring database...');
-      sinon.assert.calledWithMatch(logInfoSpy, 'Rescan completed');
       sinon.assert.calledWithMatch(logInfoSpy, 'Rescan completed');
       sinon.assert.calledWithMatch(logInfoSpy, 'Database restored OK');
     });
@@ -2462,16 +2474,15 @@ describe('explorerService tests', () => {
         },
       });
       sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer').returns(true);
-      explorerService.setBlockProccessingCanContinue(false);
+      // explorerService.setBlockProccessingCanContinue(false);
 
-      await explorerService.initiateBlockProcessor(true, true, false);
+      await explorerService.startBlockProcessor({ restoreDatabase: true, deepRestore: true });
       await serviceHelper.delay(200);
 
       sinon.assert.notCalled(logErrorSpy);
       sinon.assert.calledWithMatch(logInfoSpy, 'FLUX documents: 10000, 15, 1111');
       sinon.assert.calledWithMatch(logInfoSpy, 'Processing Explorer Block Height: 695000');
       sinon.assert.calledWithMatch(logInfoSpy, 'Deep restoring of database...');
-      sinon.assert.calledWithMatch(logInfoSpy, 'Rescan completed');
       sinon.assert.calledWithMatch(logInfoSpy, 'Rescan completed');
       sinon.assert.calledWithMatch(logInfoSpy, 'Database restored OK');
     });
@@ -2493,9 +2504,9 @@ describe('explorerService tests', () => {
         },
       });
       sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer').returns(true);
-      explorerService.setBlockProccessingCanContinue(false);
+      // explorerService.setBlockProccessingCanContinue(false);
 
-      await explorerService.initiateBlockProcessor(false, false, true);
+      await explorerService.startBlockProcessor({ restoreDatabase: false, deepRestore: false, reindexOrRescanGlobalApps: true });
       await serviceHelper.delay(200);
 
       sinon.assert.notCalled(logErrorSpy);

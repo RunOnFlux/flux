@@ -229,7 +229,7 @@ async function isPortOpen(ip, port) {
  * To perform a basic check of current FluxOS version.
  * @param {string} ip IP address.
  * @param {string} port Port. Defaults to config.server.apiport.
- * @returns {boolean} False unless FluxOS version meets or exceeds the minimum allowed version.
+ * @returns {Promise<boolean>} False unless FluxOS version meets or exceeds the minimum allowed version.
  */
 async function isFluxAvailable(ip, port = config.server.apiport) {
   try {

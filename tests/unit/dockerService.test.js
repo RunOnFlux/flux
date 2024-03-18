@@ -1,3 +1,4 @@
+global.userconfig = require('../../config/userconfig');
 const chai = require('chai');
 const chaiAsPromised = require('chai-as-promised');
 const Dockerode = require('dockerode');
@@ -167,6 +168,7 @@ describe('dockerService tests', () => {
 
       const result = await dockerService.dockerListContainers();
       result.forEach((container) => {
+        console.log("WEINER", container)
         if (container.Image === 'runonflux/website') fluxContainer = container;
       });
 
@@ -191,13 +193,13 @@ describe('dockerService tests', () => {
     });
   });
 
-  describe('dockerListImages tests', () => {
+  describe('dockerListImages tests', async () => {
     it('should return a list of containers', async () => {
       let fluxImage;
 
       const result = await dockerService.dockerListImages();
       result.forEach((image) => {
-        if (image.RepoTags[0].includes('runonflux/website')) fluxImage = image;
+        if (image.RepoTags.length && image.RepoTags[0].includes('runonflux/website')) fluxImage = image;
       });
 
       expect(fluxImage).to.exist;

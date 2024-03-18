@@ -313,8 +313,8 @@ describe('serviceHelper tests', () => {
   });
 
   describe('commandStringToArray tests', () => {
-    beforeEach(() => {});
-    afterEach(() => {});
+    beforeEach(() => { });
+    afterEach(() => { });
 
     it('should split double quoted string', () => {
       const i = " I  said 'I am sorry.', and he said \"it doesn't matter.\" ";
@@ -366,6 +366,48 @@ describe('serviceHelper tests', () => {
       expect(o[4]).to.equal('he');
       expect(o[5]).to.equal('said');
       expect(o[6]).to.equal("it doesn't matter.");
+    });
+  });
+  describe('isFirewallActive tests', () => {
+    let utilStub;
+    let funcStub;
+    let runCmdStub;
+    beforeEach(() => {
+      utilStub = sinon.stub(util, 'promisify');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    // fix all these
+    it('should return true if firewall is active', async () => {
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand').resolves({ stdout: 'Status: active', error: null })
+
+      const isFirewallActive = await fluxNetworkHelper.isFirewallActive();
+
+      expect(isFirewallActive).to.be.true;
+      sinon.assert.calledOnceWithExactly(runCmdStub, 'ufw', { runAsRoot: true, params: ['status'] });
+    });
+
+    it('should return false if firewall is not active', async () => {
+      funcStub = sinon.fake(() => 'Status: not active');
+      utilStub.returns(funcStub);
+
+      const isFirewallActive = await fluxNetworkHelper.isFirewallActive();
+
+      expect(isFirewallActive).to.be.false;
+      sinon.assert.calledOnceWithExactly(funcStub, 'LANG="en_US.UTF-8" && sudo ufw status | grep Status');
+    });
+
+    it('should return false command execution throws error', async () => {
+      funcStub = sinon.fake.throws();
+      utilStub.returns(funcStub);
+
+      const isFirewallActive = await fluxNetworkHelper.isFirewallActive();
+
+      expect(isFirewallActive).to.be.false;
+      sinon.assert.calledOnceWithExactly(funcStub, 'LANG="en_US.UTF-8" && sudo ufw status | grep Status');
     });
   });
 });

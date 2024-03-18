@@ -1773,7 +1773,6 @@ async function installFluxWatchTower() {
   const cwd = path.join(__dirname, '../../../helpers');
   const scriptPath = path.join(cwd, 'fluxwatchtower.sh');
 
-  // stop using bash script for this
   const { stdout, error } = await serviceHelper.runCommand(scriptPath, { cwd });
 
   if (error) return;

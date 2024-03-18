@@ -36,6 +36,20 @@ let bpc = new serviceHelper.FluxController();
 let blockProcessorTimeout = null;
 
 /**
+ * Only for tests to abort bpc
+ */
+function abortBpc() {
+  bpc.abort();
+}
+
+/**
+ * Only for tests to reset bpc
+ */
+function resetBpc() {
+  bpc = new serviceHelper.FluxController()
+}
+
+/**
  * To return the sender's transaction info from the daemon service.
  * @param {string} txid Transaction ID.
  * @returns {object} Transaction obtained from transaction cache.
@@ -808,7 +822,7 @@ async function setupBlockProcessor(options = {}) {
 
   const restoreDatabase = options.restoreDatabase !== false;
   const deepRestore = options.deepRestore !== false;
-  const reindexOrRescanGlobalApps = options.deepRestore === true;
+  const reindexOrRescanGlobalApps = options.reindexOrRescanGlobalApps === true;
 
   const con = dbHelper.databaseConnection();
   const database = con.db(config.database.daemon.database);
@@ -1008,8 +1022,6 @@ async function processBlock(blockHeight, database, isInsightExplorer) {
 async function processBlocks(options) {
   if (bpc.aborted) return [0, 0];
 
-  await bpc.lock.enable();
-
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.daemon.database);
   const isInsightExplorer = options.isInsightExplorer || false;
@@ -1021,6 +1033,8 @@ async function processBlocks(options) {
     // this is the processed height
     return [2 * 60 * 1000, blockHeight - 1];
   }
+
+  await bpc.lock.enable();
 
   let confirmations = 0;
   confirmations = await processBlock(blockHeight, database, isInsightExplorer);
@@ -1058,10 +1072,15 @@ async function processBlocks(options) {
 // }
 // return [0, blockHeight];
 
+/**
+ * Start the block processor
+ * @param {{restoreDatabase?: Boolean, deepRestore?: Boolean, reindexOrRescanGlobalApps?: Boolean}} options
+ * @returns {Promise<void>}
+ */
 async function startBlockProcessor(options = {}) {
-  const { delayMs, scannedBlockHeight, isInsightExplorer } = await setupBlockProcessor(options);
+  if (bpc.aborted || bpc.locked) return;
 
-  if (bpc.aborted) return;
+  const { delayMs, scannedBlockHeight, isInsightExplorer } = await setupBlockProcessor(options);
 
   if (delayMs) {
     blockProcessorTimeout = setTimeout(() => startBlockProcessor(options), delayMs);
@@ -1763,6 +1782,8 @@ module.exports = {
   getAddressFusionCoinbase,
 
   // exports for testing puproses
+  abortBpc,
+  resetBpc,
   getSenderTransactionFromDaemon,
   getSenderForFluxTxInsight,
   getSenderForFluxTx,

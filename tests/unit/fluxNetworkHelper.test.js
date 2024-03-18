@@ -36,6 +36,7 @@ const { expect } = chai;
 describe('fluxNetworkHelper tests', () => {
   describe('checkFluxAvailability tests', () => {
     let stub;
+    let runCmdStub;
     const axiosConfig = {
       timeout: 5000,
     };
@@ -70,17 +71,19 @@ describe('fluxNetworkHelper tests', () => {
 
     it('Should return success message if proper parameters are passed in params', async () => {
       const mockResponse = generateResponse();
+      const port = 16127;
       const req = {
         params: {
           test1: 'test1',
           ip: '127.0.0.1',
-          port: '16127',
+          port: port,
         },
         query: {
           test2: 'test2',
         },
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(fluxAvailabilitySuccessResponse);
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null })
       sinon.stub(util, 'promisify').returns(() => Promise.resolve());
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
       const expectedAddressHome = 'http://127.0.0.1:16126';
@@ -97,6 +100,7 @@ describe('fluxNetworkHelper tests', () => {
 
       sinon.assert.calledWithExactly(stub, expectedAddress, axiosConfig);
       sinon.assert.calledWithExactly(stub, expectedAddressHome, axiosConfig);
+      sinon.assert.calledWithExactly(runCmdStub, 'nc', { params: ['-w', '5', '-z', '127.0.0.1', port + 2] });
       sinon.assert.calledOnceWithExactly(mockResponse.json, expectedMessage);
       expect(checkFluxAvailabilityResult).to.eql(expectedMessage);
     });
@@ -115,6 +119,7 @@ describe('fluxNetworkHelper tests', () => {
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(fluxAvailabilitySuccessResponse);
       sinon.stub(util, 'promisify').returns(() => Promise.resolve());
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null })
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
       const expectedAddressHome = 'http://127.0.0.1:16126';
       const expectedMessage = {
@@ -315,6 +320,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       });
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null })
       sinon.stub(util, 'promisify').returns(() => Promise.resolve());
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
       const expectedAddressHome = 'http://127.0.0.1:16126';
@@ -339,6 +345,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       });
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null })
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
       const expectedAddressHome = 'http://127.0.0.1:16126';
 
@@ -357,6 +364,8 @@ describe('fluxNetworkHelper tests', () => {
         },
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null })
+
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
 
       const isFluxAvailableResult = await fluxNetworkHelper.isFluxAvailable(ip, port);
@@ -1787,48 +1796,6 @@ describe('fluxNetworkHelper tests', () => {
 
       expect(result).to.eql(expectedResult);
       sinon.assert.calledOnceWithExactly(verifyPrivilegeStub, 'adminandfluxteam', req);
-    });
-  });
-
-  describe('isFirewallActive tests', () => {
-    let utilStub;
-    let funcStub;
-    beforeEach(() => {
-      utilStub = sinon.stub(util, 'promisify');
-    });
-
-    afterEach(() => {
-      sinon.restore();
-    });
-
-    it('should return true if firewall is active', async () => {
-      funcStub = sinon.fake(() => 'Status: active');
-      utilStub.returns(funcStub);
-
-      const isFirewallActive = await fluxNetworkHelper.isFirewallActive();
-
-      expect(isFirewallActive).to.be.true;
-      sinon.assert.calledOnceWithExactly(funcStub, 'LANG="en_US.UTF-8" && sudo ufw status | grep Status');
-    });
-
-    it('should return false if firewall is not active', async () => {
-      funcStub = sinon.fake(() => 'Status: not active');
-      utilStub.returns(funcStub);
-
-      const isFirewallActive = await fluxNetworkHelper.isFirewallActive();
-
-      expect(isFirewallActive).to.be.false;
-      sinon.assert.calledOnceWithExactly(funcStub, 'LANG="en_US.UTF-8" && sudo ufw status | grep Status');
-    });
-
-    it('should return false command execution throws error', async () => {
-      funcStub = sinon.fake.throws();
-      utilStub.returns(funcStub);
-
-      const isFirewallActive = await fluxNetworkHelper.isFirewallActive();
-
-      expect(isFirewallActive).to.be.false;
-      sinon.assert.calledOnceWithExactly(funcStub, 'LANG="en_US.UTF-8" && sudo ufw status | grep Status');
     });
   });
 
