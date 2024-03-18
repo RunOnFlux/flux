@@ -1563,7 +1563,7 @@
                     :filter="tableconfig.local.filter"
                     show-empty
                     sort-icon-left
-                    :empty-text="isLoggedIn() ? 'No Local Apps owned.' : 'Login to see your Local Apps owned.'"
+                    :empty-text="'No Local Apps owned.'"
                     @filtered="onFilteredLocal"
                   >
                     <template #cell(name)="row">
