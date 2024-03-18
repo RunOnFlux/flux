@@ -1802,8 +1802,12 @@ describe('fluxNetworkHelper tests', () => {
   describe('adjustFirewall tests', () => {
     let utilStub;
     let funcStub;
+    let runCmdStub;
     let logSpy;
-    const ports = [16127, 16126, 16128, 16129, 80, 443, 16125, 11, 13];
+
+    userconfig.initial.apiport = 12;
+    const ports = [11, 12, 13, 14, 80, 443, 16125, 16127, 16137, 16147, 16157, 16167, 16177, 16187, 16197].join(',') + '/tcp';
+
     beforeEach(() => {
       utilStub = sinon.stub(util, 'promisify');
       logSpy = sinon.spy(log, 'info');
@@ -1814,22 +1818,19 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('should adjust firewall ports for the whole list of ports - all are active', async () => {
-      funcStub = sinon.fake(async (command) => (command.includes('grep Status') ? 'Status: active' : 'updated'));
-      utilStub.returns(funcStub);
+      const fwActiveStub = sinon.stub(serviceHelper, 'isFirewallActive').resolves(true);
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand').resolves({ stdout: 'updated' })
 
       await fluxNetworkHelper.adjustFirewall();
 
-      sinon.assert.calledWith(funcStub, 'LANG="en_US.UTF-8" && sudo ufw status | grep Status');
-      // eslint-disable-next-line no-restricted-syntax
-      for (const port of ports) {
-        sinon.assert.calledWith(funcStub, `LANG="en_US.UTF-8" && sudo ufw allow ${port}`);
-        sinon.assert.calledWith(logSpy, `Firewall adjusted for port ${port}`);
-      }
-      // eslint-disable-next-line no-restricted-syntax
-      for (const port of ports) {
-        sinon.assert.calledWith(funcStub, `LANG="en_US.UTF-8" && sudo ufw allow out ${port}`);
-        sinon.assert.calledWith(logSpy, `Firewall adjusted for port ${port}`);
-      }
+      sinon.assert.calledOnce(fwActiveStub);
+
+      sinon.assert.calledWith(runCmdStub, 'ufw', { runAsRoot: true, params: ['allow', ports] });
+      sinon.assert.calledWith(logSpy, `Firewall adjusted inbound for ports: ${ports}`);
+
+      sinon.assert.calledWith(runCmdStub, 'ufw', { runAsRoot: true, params: ['allow', 'out', ports] });
+      sinon.assert.calledWith(logSpy, `Firewall adjusted outbound for ports: ${ports}`);
+
     });
 
     it('should log info if ports were not able to be adjusted', async () => {

@@ -1389,7 +1389,7 @@ async function adjustFirewall() {
   const firewallActive = await serviceHelper.isFirewallActive();
 
   if (!firewallActive) {
-    log.info('Firewall is not active. Adjusting not applied');
+    log.info('Firewall is not active. Adjustment not applied');
     return;
   }
 
