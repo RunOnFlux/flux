@@ -10022,13 +10022,7 @@ async function getAppFiatAndFluxPrice(req, res) {
 
       if (appSpecification.priceUSD) {
         if (appSpecification.priceUSD < actualPriceToPay) {
-          const price = {
-            usd: 'Not possible to pay with USD',
-            flux: 'Not possible to pay with Flux',
-            fluxDiscount: 'Not possible to define discount',
-          };
-          const respondPrice = messageHelper.createDataMessage(price);
-          return res.json(respondPrice);
+          throw new Error('USD price is not valid');
         }
         actualPriceToPay = Number(appSpecification.priceUSD).toFixed(2);
       } else {
@@ -10060,12 +10054,12 @@ async function getAppFiatAndFluxPrice(req, res) {
         throw new Error('Unable to get Flux USD Price.');
       }
       const fiatRate = rateObj.rate * btcRateforFlux;
-      const fluxPrice = Number((actualPriceToPay / fiatRate) * appPrices[0].fluxmultiplier);
+      const fluxPrice = Number(((actualPriceToPay / fiatRate) * appPrices[0].fluxmultiplier));
       const fluxChainPrice = Number(await getAppFluxOnChainPrice(appSpecification));
       const price = {
-        usd: actualPriceToPay,
-        flux: fluxChainPrice > fluxPrice ? fluxChainPrice.toFixed(2) : fluxPrice.toFixed(2),
-        fluxDiscount: fluxChainPrice > fluxPrice ? 'Not possible to define discount' : 100 - (appPrices[0].fluxmultiplier * 100),
+        usd: Number(actualPriceToPay),
+        flux: fluxChainPrice > fluxPrice ? Number(fluxChainPrice.toFixed(2)) : Number(fluxPrice.toFixed(2)),
+        fluxDiscount: fluxChainPrice > fluxPrice ? 'Not possible to define discount' : Number(100 - (appPrices[0].fluxmultiplier * 100)),
       };
       const respondPrice = messageHelper.createDataMessage(price);
       return res.json(respondPrice);
