@@ -120,7 +120,7 @@
               </div>
               <div class="app-title-area">
                 <div class="title-wrapper">
-                  <h6 class="text-nowrap text-muted mr-1 app-description">
+                  <h6 class="text-nowrap text-muted mr-1 mb-1 app-description" style="width: 900px">
                     {{ singleApp.description }}
                   </h6>
                 </div>
@@ -140,7 +140,7 @@
               >
                 <div class="title-wrapper">
                   <h5 class="text-nowrap mr-1 app-description">
-                    &nbsp;<b-icon class="mr-1" scale="1.3" icon="cash" />Price: {{ singleApp.priceUSD }} USD / {{ adjustPeriod(singleApp) }}
+                    &nbsp;<b-icon class="mr-1" scale="1.3" icon="cash" />{{ singleApp.priceUSD }} USD, &nbsp;<b-icon class="mr-1" scale="1.1" icon="clock" />{{ adjustPeriod(singleApp) }}
                   </h5>
                 </div>
               </div>

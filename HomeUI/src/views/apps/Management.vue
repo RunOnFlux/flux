@@ -5123,17 +5123,30 @@
               lg="8"
             >
               <b-card>
-                <h4>
-                  Note: Data has to be signed by the last application owner
-                </h4>
-                <b-card-text v-if="!freeUpdate">
-                  <br><br>
-                  <div class="text-center">
+                <br>
+                <div class="text-center">
+                  <h4>
                     <b-icon
                       class="mr-1"
                       scale="1.4"
-                      icon="cash-coin"
-                    />Price: <b>{{ appPricePerSpecsUSD }} USD + VAT</b>
+                      icon="chat-right"
+                    />
+                    Data has to be signed by the last application owner
+                  </h4>
+                </div>
+                <!-- <h4 class="text-center">
+                  <kbd class="alert-info no-wrap" style="border-radius: 15px; font-weight: 700 !important;"> <b-icon scale="1.2" icon="chat-right" />&nbsp;&nbsp;Data has to be signed by the last application owner&nbsp; </kbd>
+                </h4> -->
+                <b-card-text v-if="!freeUpdate">
+                  <br>
+                  <div class="text-center">
+                    <h4>
+                      <b-icon
+                        class="mr-1"
+                        scale="1.4"
+                        icon="cash-coin"
+                      /><b>{{ appPricePerSpecsUSD }} USD + VAT</b>
+                    </h4>
                   </div>
                 </b-card-text>
                 <br>
@@ -5144,7 +5157,7 @@
                   class="my-1 w-100"
                   @click="update"
                 >
-                  Update Flux App
+                  Update App
                 </b-button>
               </b-card>
             </b-col>
