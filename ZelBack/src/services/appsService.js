@@ -5532,8 +5532,12 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
     if (appSpecifications.expire > config.fluxapps.maxBlocksAllowance) {
       throw new Error(`Maximum expiration of application is ${config.fluxapps.maxBlocksAllowance} blocks ~ 1 year`);
     }
-    if (appSpecifications.expire % config.fluxapps.blocksAllowanceInterval !== 0) {
-      throw new Error(`Expiration of application has to be a multiple of ${config.fluxapps.blocksAllowanceInterval} blocks ~ 1 day`);
+    if (height < config.fluxapps.removeBlocksAllowanceIntervalBlock) {
+      if (appSpecifications.expire % config.fluxapps.blocksAllowanceInterval !== 0) {
+        throw new Error(`Expiration of application has to be a multiple of ${config.fluxapps.blocksAllowanceInterval} blocks ~ 1 day`);
+      }
+    } else if (Number(appSpecifications.expire) % 1 !== 0) {
+      throw new Error('Expiration of application cannot be decimal number');
     }
   }
 
@@ -7226,8 +7230,14 @@ function specificationFormatter(appSpecification) {
     if (expire > config.fluxapps.maxBlocksAllowance) {
       throw new Error(`Maximum expiration of application is ${config.fluxapps.maxBlocksAllowance} blocks ~ 1 year`);
     }
-    if (expire % config.fluxapps.blocksAllowanceInterval !== 0) {
-      throw new Error(`Expiration of application has to be a multiple of ${config.fluxapps.blocksAllowanceInterval} blocks ~ 1 day`);
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    const daemonHeight = syncStatus.data.height;
+    if (daemonHeight < config.fluxapps.removeBlocksAllowanceIntervalBlock) {
+      if (expire % config.fluxapps.blocksAllowanceInterval !== 0) {
+        throw new Error(`Expiration of application has to be a multiple of ${config.fluxapps.blocksAllowanceInterval} blocks ~ 1 day`);
+      }
+    } else if (Number(expire) % 1 !== 0) {
+      throw new Error('Expiration of application cannot be decimal number');
     }
     appSpecFormatted.expire = expire;
   }
