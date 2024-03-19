@@ -404,8 +404,8 @@
                         <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
                           <b-icon
                             scale="1"
-                            icon="house-door"
-                          /> &nbsp;LOCATIONS&nbsp;</kbd>
+                            icon="globe"
+                          /> &nbsp;Locations&nbsp;</kbd>
                       </h3>
                       <b-row>
                         <b-col
