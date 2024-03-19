@@ -400,14 +400,14 @@
                               <b-input-group size="sm">
                                 <b-form-input
                                   id="filterInput"
-                                  v-model="appLocationOptions.filterTree"
+                                  v-model="appLocationOptions.filterOne"
                                   type="search"
                                   placeholder="Type to Search"
                                 />
                                 <b-input-group-append>
                                   <b-button
-                                    :disabled="!appLocationOptions.filterTree"
-                                    @click="appLocationOptions.filterTree = ''"
+                                    :disabled="!appLocationOptions.filterOne"
+                                    @click="appLocationOptions.filterOne = ''"
                                   >
                                     Clear
                                   </b-button>
@@ -425,8 +425,7 @@
                               :items="appLocations"
                               :fields="appLocationFields"
                               thead-class="d-none"
-                              :filter="appLocationOptions.filterTree"
-                              :filter-included-fields="tableconfig.local.filterOn"
+                              :filter="appLocationOptions.filterOne"
                               show-empty
                               sort-icon-left
                               empty-text="No instances found.."
@@ -1005,14 +1004,14 @@
                               <b-input-group size="sm">
                                 <b-form-input
                                   id="filterInput"
-                                  v-model="appLocationOptions.filterTree"
+                                  v-model="appLocationOptions.filterTwo"
                                   type="search"
                                   placeholder="Type to Search"
                                 />
                                 <b-input-group-append>
                                   <b-button
-                                    :disabled="!appLocationOptions.filterTree"
-                                    @click="appLocationOptions.filterTree = ''"
+                                    :disabled="!appLocationOptions.filterTwo"
+                                    @click="appLocationOptions.filterTwo = ''"
                                   >
                                     Clear
                                   </b-button>
@@ -1030,8 +1029,7 @@
                               :items="appLocations"
                               :fields="appLocationFields"
                               thead-class="d-none"
-                              :filter="appLocationOptions.filterTree"
-                              :filter-included-fields="tableconfig.local.filterOn"
+                              :filter="appLocationOptions.filterTwo"
                               show-empty
                               sort-icon-left
                               empty-text="No instances found.."
@@ -1584,7 +1582,6 @@
                               :fields="appLocationFields"
                               thead-class="d-none"
                               :filter="appLocationOptions.filterTree"
-                              :filter-included-fields="tableconfig.local.filterOn"
                               show-empty
                               sort-icon-left
                               empty-text="No instances found.."
@@ -2163,7 +2160,6 @@
                               :fields="appLocationFields"
                               thead-class="d-none"
                               :filter="appLocationOptions.filterTree"
-                              :filter-included-fields="tableconfig.local.filterOn"
                               show-empty
                               sort-icon-left
                               empty-text="No instances found.."
