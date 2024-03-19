@@ -588,7 +588,7 @@
                 class="my-0"
               />
             </b-col>
-            <div v-if="isLoggedIn">
+            <div v-if="isLoggedIn && myGlobalApps?.length > 0">
               <b-icon class="ml-1" scale="1.4" icon="layers" />&nbsp;
               <b>&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;{{ myGlobalApps?.length || 0 }}&nbsp;</kbd></b>
             </div>
