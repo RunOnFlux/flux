@@ -4,7 +4,7 @@ const cors = require('cors');
 const morgan = require('morgan');
 const compression = require('compression');
 
-const log = require('./log');
+const log = require('../../../lib/log');
 
 const expressWs = eWS(express());
 const { app } = expressWs;
