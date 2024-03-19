@@ -2654,6 +2654,17 @@ export default {
     this.getDaemonBlockCount();
   },
   methods: {
+    openNodeFluxOS(_ip, _port) {
+      console.log(_ip, _port);
+      if ((_port && _ip)) {
+        const ip = _ip;
+        const port = _port;
+        const url = `http://${ip}:${port}`;
+        this.openSite(url);
+      } else {
+        this.showToast('danger', 'Unable to open FluxOS :(');
+      }
+    },
     tabChanged() {
       this.tableconfig.installed.apps.forEach((item) => {
         this.$set(item, '_showDetails', false);
