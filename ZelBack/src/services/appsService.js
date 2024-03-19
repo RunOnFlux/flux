@@ -5532,6 +5532,9 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
     if (appSpecifications.expire > config.fluxapps.maxBlocksAllowance) {
       throw new Error(`Maximum expiration of application is ${config.fluxapps.maxBlocksAllowance} blocks ~ 1 year`);
     }
+    if (appSpecifications.expire % config.fluxapps.blocksAllowanceInterval !== 0) {
+      throw new Error(`Expiration of application has to be a multiple of ${config.fluxapps.blocksAllowanceInterval} blocks ~ 1 day`);
+    }
   }
 
   if (appSpecifications.version >= 7) {
@@ -7222,6 +7225,9 @@ function specificationFormatter(appSpecification) {
     }
     if (expire > config.fluxapps.maxBlocksAllowance) {
       throw new Error(`Maximum expiration of application is ${config.fluxapps.maxBlocksAllowance} blocks ~ 1 year`);
+    }
+    if (expire % config.fluxapps.blocksAllowanceInterval !== 0) {
+      throw new Error(`Expiration of application has to be a multiple of ${config.fluxapps.blocksAllowanceInterval} blocks ~ 1 day`);
     }
     appSpecFormatted.expire = expire;
   }
@@ -10265,6 +10271,7 @@ async function deploymentInformation(req, res) {
       blocksLasting: config.fluxapps.blocksLasting,
       minBlocksAllowance: config.fluxapps.minBlocksAllowance,
       maxBlocksAllowance: config.fluxapps.maxBlocksAllowance,
+      blocksAllowanceInterval: config.fluxapps.blocksAllowanceInterval,
     };
     const respondPrice = messageHelper.createDataMessage(information);
     res.json(respondPrice);
