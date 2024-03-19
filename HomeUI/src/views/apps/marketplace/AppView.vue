@@ -345,7 +345,7 @@
           v-ripple.400="'rgba(255, 255, 255, 0.15)'"
           variant="success"
           aria-label="Launch Marketplace App"
-          class="mb-2"
+          class="mb-2 w-100"
           @click="checkFluxSpecificationsAndFormatMessage"
         >
           Start Launching Marketplace App
@@ -457,7 +457,7 @@
           title="Sign App Message"
           :before-change="() => signature !== null"
         >
-          <b-card title="Sign Message with same method you have used for login">
+          <b-card class="text-center" title="Sign Message with same method you have used for login">
             <div class="loginRow">
               <a @click="initiateSignWS">
                 <img
@@ -513,7 +513,7 @@
             class="text-center wizard-card"
           >
             <b-card-text>
-              <b-icon class="mr-1" scale="1.4" icon="cash-coin" />Price: <b>{{ appPricePerDeploymentUSD }} USD + VAT</b>
+              <b-icon class="mr-1" scale="1.4" icon="cash-coin" />Price:&nbsp;&nbsp;<b>{{ appPricePerDeploymentUSD }} USD + VAT</b>
             </b-card-text>
             <b-button
               v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -548,7 +548,7 @@
                 class="text-center wizard-card"
               >
                 <div class="d-flex justify-content-center align-items-center mb-1">
-                  <b-icon class="mr-1" scale="1.4" icon="cash-coin" />Price: <b>{{ appPricePerDeploymentUSD }} USD + VAT</b>
+                  <b-icon class="mr-1" scale="1.4" icon="cash-coin" />Price:&nbsp;&nbsp;<b>{{ appPricePerDeploymentUSD }} USD + VAT</b>
                 </div>
                 <b-card-text>
                   <b>Everything is ready, your payment option links, both for fiat and flux, are valid for the next 30 minutes.</b>
@@ -563,7 +563,10 @@
               xs="6"
               lg="4"
             >
-              <b-card title="Pay with Stripe/PayPal">
+              <b-card
+                title="Pay with Stripe/PayPal"
+                class="text-center wizard-card"
+              >
                 <div class="loginRow">
                   <a @click="initStripePay">
                     <img

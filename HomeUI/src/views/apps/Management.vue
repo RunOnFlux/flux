@@ -3441,7 +3441,6 @@
               :sort-desc.sync="instances.sortDesc"
               :sort-direction="instances.sortDirection"
               :filter="instances.filter"
-              :filter-included-fields="instances.filterOn"
               show-empty
               :empty-text="`No instances of ${appName}`"
             >
@@ -5074,9 +5073,9 @@
         <div>
           <b-button
             v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-            variant="success"
+            variant="outline-success"
             aria-label="Compute Update Message"
-            class="mb-2"
+            class="mb-2 w-100"
             :disabled="tosAgreed === false"
             @click="checkFluxUpdateSpecificationsAndFormatMessage"
           >
@@ -5128,17 +5127,21 @@
                   Note: Data has to be signed by the last application owner
                 </h4>
                 <b-card-text v-if="!freeUpdate">
-                  &nbsp;<b-icon
-                    class="mr-1"
-                    scale="1.4"
-                    icon="cash-coin"
-                  />Price: <b>{{ appPricePerSpecsUSD }} USD + VAT</b>
+                  <br><br>
+                  <div class="text-center">
+                    <b-icon
+                      class="mr-1"
+                      scale="1.4"
+                      icon="cash-coin"
+                    />Price: <b>{{ appPricePerSpecsUSD }} USD + VAT</b>
+                  </div>
                 </b-card-text>
+                <br>
                 <b-button
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                  variant="success"
+                  variant="outline-success"
                   aria-label="Update Flux App"
-                  class="my-1"
+                  class="my-1 w-100"
                   @click="update"
                 >
                   Update Flux App
@@ -5149,7 +5152,7 @@
               xs="6"
               lg="4"
             >
-              <b-card title="Sign with">
+              <b-card class="text-center" title="Sign with">
                 <div class="loginRow">
                   <a
                     :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue}`"
@@ -5218,7 +5221,7 @@
               xs="6"
               lg="4"
             >
-              <b-card title="Pay with Stripe/PayPal">
+              <b-card class="text-center" title="Pay with Stripe/PayPal">
                 <div class="loginRow">
                   <a @click="initStripePay(updateHash, appUpdateSpecification.name, appPricePerSpecsUSD, appUpdateSpecification.description)">
                     <img
@@ -5269,15 +5272,13 @@
                   with the following message:
                   <b>'{{ updateHash }}'</b>
                 </b-card-text>
-                <br>
-                <kbd class="bg-danger">The transaction must be sent by <b>{{ new Date(validTill).toLocaleString('en-GB', timeoptions.shortDate) }}</b></kbd>
               </b-card>
             </b-col>
             <b-col
               xs="6"
               lg="4"
             >
-              <b-card title="Pay with Zelcore/SSP">
+              <b-card class="text-center" title="Pay with Zelcore/SSP">
                 <div class="loginRow">
                   <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${appPricePerSpecs}&message=${updateHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
                     <img
@@ -9246,7 +9247,7 @@ export default {
         });
 
         // fetch locations from stats
-        const response = await axios.get('https://stats.runonflux.io/fluxinfo?projection=geolocation');
+        const response = await axios.get('https://stats.runonflux.io/fluxinfo?projection=geo');
         if (response.data.status === 'success') {
           const geoData = response.data.data;
           if (geoData.length > 5000) { // all went well
