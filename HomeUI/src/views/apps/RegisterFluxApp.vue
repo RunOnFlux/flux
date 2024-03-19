@@ -1550,7 +1550,7 @@
           xs="6"
           lg="4"
         >
-          <b-card title="Sign with">
+          <b-card class="text-center" title="Sign with">
             <div class="loginRow">
               <a @click="initiateSignWS">
                 <img
@@ -1616,7 +1616,7 @@
           xs="6"
           lg="4"
         >
-          <b-card title="Pay with Stripe/PayPal">
+          <b-card class="text-center" title="Pay with Stripe/PayPal">
             <div class="loginRow">
               <a @click="initStripePay(registrationHash, appRegistrationSpecification.name, applicationPriceUSD, appRegistrationSpecification.description)">
                 <img
@@ -1666,7 +1666,7 @@
           xs="6"
           lg="4"
         >
-          <b-card title="Pay with Zelcore/SSP">
+          <b-card class="text-center" title="Pay with Zelcore/SSP">
             <div class="loginRow">
               <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${applicationPrice}&message=${registrationHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
                 <img
