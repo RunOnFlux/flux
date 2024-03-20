@@ -167,7 +167,7 @@ import SignClient from '@walletconnect/sign-client';
 import { WalletConnectModal } from '@walletconnect/modal';
 import { MetaMaskSDK } from '@metamask/sdk';
 
-import firebase from '../libs/firebase';
+import firebase from 'firebase/compat/app';
 import * as firebaseui from 'firebaseui';
 import 'firebaseui/dist/firebaseui.css';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';

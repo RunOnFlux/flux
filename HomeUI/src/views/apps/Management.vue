@@ -5588,7 +5588,7 @@ import ListEntry from '@/views/components/ListEntry.vue';
 import JsonViewer from 'vue-json-viewer';
 import FileUpload from '@/views/components/FileUpload.vue';
 import { useClipboard } from '@vueuse/core';
-import firebase from '../../libs/firebase';
+import { getUser } from '../../libs/firebase';
 
 import AppsService from '@/services/AppsService';
 import DaemonService from '@/services/DaemonService';
@@ -5915,7 +5915,6 @@ export default {
       signature: '',
       updateHash: '',
       websocket: null,
-      user: {},
       selectedAppOwner: '',
       appSpecification: {},
       callResponse: { // general
@@ -6511,8 +6510,7 @@ export default {
       }
     },
   },
-  async mounted() {
-    this.user = firebase.auth().currentUser;
+  mounted() {
     const { hostname } = window.location;
     const regex = /[A-Za-z]/g;
     if (hostname.match(regex)) {
@@ -7845,7 +7843,13 @@ export default {
     },
     async initSignFluxSSO() {
       const message = this.dataToSign;
-      const token = this.user.auth.currentUser.accessToken;
+      const firebaseUser = getUser();
+      if (!firebaseUser) {
+        this.showToast('warning', 'user not found, please try again');
+        return;
+      }
+      const token = firebaseUser.auth.currentUser.accessToken;
+
       const headers = {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,

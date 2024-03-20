@@ -2010,8 +2010,7 @@ import SignClient from '@walletconnect/sign-client';
 import { MetaMaskSDK } from '@metamask/sdk';
 import useAppConfig from '@core/app-config/useAppConfig';
 import { useClipboard } from '@vueuse/core';
-
-import firebase from '../../libs/firebase';
+import { getUser } from '../../libs/firebase';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
 
@@ -2079,7 +2078,6 @@ export default {
       timeoptions,
       version: 1,
       websocket: null,
-      user: {},
       dataToSign: '',
       timestamp: '',
       signature: '',
@@ -2537,7 +2535,6 @@ export default {
     this.appRegistrationSpecification = this.appRegistrationSpecificationV7Template;
   },
   mounted() {
-    this.user = firebase.auth().currentUser;
     const { hostname } = window.location;
     const regex = /[A-Za-z]/g;
     if (hostname.match(regex)) {
@@ -2847,7 +2844,12 @@ export default {
 
     async initSignFluxSSO() {
       const message = this.dataToSign;
-      const token = this.user.auth.currentUser.accessToken;
+      const firebaseUser = getUser();
+      if (!firebaseUser) {
+        this.showToast('warning', 'user not found, please try again');
+        return;
+      }
+      const token = firebaseUser.auth.currentUser.accessToken;
       const headers = {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
