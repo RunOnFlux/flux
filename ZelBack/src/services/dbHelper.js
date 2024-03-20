@@ -41,7 +41,7 @@ async function connectMongoDb(url) {
  * @returns true
  */
 async function initiateDB() {
-  openDBConnection = await connectMongoDb();
+  if (!openDBConnection) openDBConnection = await connectMongoDb();
   return true;
 }
 
