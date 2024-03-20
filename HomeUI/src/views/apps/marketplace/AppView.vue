@@ -343,7 +343,7 @@
         <b-button
           v-if="userZelid"
           v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-          variant="success"
+          variant="outline-success"
           aria-label="Launch Marketplace App"
           class="mb-2 w-100"
           @click="checkFluxSpecificationsAndFormatMessage"
@@ -423,12 +423,11 @@
       centered
       no-close-on-backdrop
       no-close-on-esc
-      button-size="sm"
-      ok-only
-      ok-title="Cancel"
+      hide-footer
       @ok="confirmLaunchDialogCancel"
     >
       <form-wizard
+        ref="formWizard"
         :color="tierColors.cumulus"
         :title="null"
         :subtitle="null"
@@ -437,6 +436,17 @@
         class="wizard-vertical mb-3"
         @on-complete="confirmLaunchDialogFinish()"
       >
+        <template slot="footer" scope="props">
+          <div>
+            <b-button v-if="props.activeTabIndex > 0" class="wizard-footer-left" type="button" variant="outline-dark" @click="$refs.formWizard.prevTab()">
+              Previous
+            </b-button>
+            <!-- Original Next button -->
+            <b-button class="wizard-footer-right" type="button" variant="outline-dark" @click="$refs.formWizard.nextTab()">
+              {{ props.isLastStep ? 'Done' : 'Next' }}
+            </b-button>
+          </div>
+        </template>
         <tab-content title="Check Registration">
           <b-card
             title="Registration Message"
@@ -457,8 +467,11 @@
           title="Sign App Message"
           :before-change="() => signature !== null"
         >
-          <b-card class="text-center" title="Sign Message with same method you have used for login">
-            <div class="loginRow">
+          <div class="mx-auto" style="width: 600px;">
+            <h4 class="text-center">
+              Sign Message with same method you have used for login
+            </h4>
+            <div class="loginRow mx-auto" style="width: 400px;">
               <a @click="initiateSignWS">
                 <img
                   class="zelidLogin"
@@ -478,7 +491,7 @@
                 >
               </a>
             </div>
-            <div class="loginRow">
+            <div class="loginRow mx-auto" style="width: 400px;">
               <a @click="initWalletConnect">
                 <img
                   class="walletconnectLogin"
@@ -498,11 +511,12 @@
                 >
               </a>
             </div>
-            <b-form-input
-              id="signature"
-              v-model="signature"
-            />
-          </b-card>
+          </div>
+          <b-form-input
+            id="signature"
+            v-model="signature"
+            class="mb-2"
+          />
         </tab-content>
         <tab-content
           title="Register App"
@@ -1953,7 +1967,7 @@ export default {
     };
 
     return {
-
+      activeIndex: 0,
       // UI
       perfectScrollbarSettings,
       resolveTagVariant,
