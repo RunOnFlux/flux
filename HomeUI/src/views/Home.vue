@@ -167,7 +167,7 @@ import SignClient from '@walletconnect/sign-client';
 import { WalletConnectModal } from '@walletconnect/modal';
 import { MetaMaskSDK } from '@metamask/sdk';
 
-import firebase from 'firebase/compat/app';
+import firebase from '../libs/firebase';
 import * as firebaseui from 'firebaseui';
 import 'firebaseui/dist/firebaseui.css';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
@@ -178,8 +178,6 @@ import DaemonService from '@/services/DaemonService';
 import axios from 'axios';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
-
-firebase.initializeApp(firebaseConfig);
 
 const walletConnectOptions = {
   projectId,

@@ -26,6 +26,7 @@ import { useWindowSize, useCssVar } from '@vueuse/core';
 import store from '@/store';
 
 import IDService from '@/services/IDService';
+import firebase from './libs/firebase';
 
 const qs = require('qs');
 
@@ -107,6 +108,9 @@ export default {
   created() {
     this.adjustHostnameAndPort();
     this.getZelIdLoginPhrase();
+  },
+  mounted() {
+    console.log(firebase.auth().currentUser);
   },
   methods: {
     adjustHostnameAndPort() {

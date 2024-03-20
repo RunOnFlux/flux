@@ -67,7 +67,7 @@ import DarkToggler from '@core/layouts/components/app-navbar/components/DarkTogg
 import MenuCollapseToggler from '@core/layouts/components/app-navbar/components/MenuCollapseToggler.vue';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import Ripple from 'vue-ripple-directive';
-import firebase from 'firebase/compat/app';
+import firebase from '../../libs/firebase';
 import IDService from '@/services/IDService';
 
 const qs = require('qs');

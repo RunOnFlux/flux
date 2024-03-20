@@ -701,7 +701,7 @@ import SignClient from '@walletconnect/sign-client';
 import { MetaMaskSDK } from '@metamask/sdk';
 import useAppConfig from '@core/app-config/useAppConfig';
 import { useClipboard } from '@vueuse/core';
-import firebase from 'firebase/compat/app';
+import firebase from '../../../libs/firebase';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
 
