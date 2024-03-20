@@ -21,6 +21,8 @@ In order to test fluxOS on your local machine, using the supplied dockerfile, th
 
 ## How to run the tests
 
+_Note: all test commands are run from the repo root directory, the first run will take longer as the images need to be pulled / built_
+
 To run all unit tests:
 
 ```bash
