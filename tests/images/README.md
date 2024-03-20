@@ -30,7 +30,7 @@ npm run test:zelback:unit:compose
 ```
 
 The above will do the following:
-* purge any existing fluxos testing containers (using tags)
+* purge any existing fluxos testing containers (using labels)
 * pull down mongo, socat and flux website containers
 * build the testing container from the local dockerfile
 * start up containers

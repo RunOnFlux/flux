@@ -10,6 +10,8 @@ services:
         target: /var/run/docker.sock
     networks:
       - fluxos_test
+    labels:
+      com.runonflux.container_type: "fluxos_test"
   mongo:
     container_name: mongo
     image: "mongodb/mongodb-community-server:latest"
