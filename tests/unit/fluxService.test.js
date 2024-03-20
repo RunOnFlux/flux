@@ -1,4 +1,3 @@
-global.userconfig = require('../../config/userconfig');
 const chai = require('chai');
 const sinon = require('sinon');
 const chaiAsPromised = require('chai-as-promised');
@@ -6,6 +5,7 @@ const path = require('path');
 const nodecmd = require('node-cmd');
 const proxyquire = require('proxyquire');
 const fs = require('fs');
+const os = require('os');
 const util = require('util');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
@@ -1345,7 +1345,7 @@ describe('fluxService tests', () => {
         code: 403,
         name: 'testing error',
       });
-      const nodedpath = path.join(__dirname, '../../../../../.flux/debug.log'); // need more ../
+      const nodedpath = path.join(os.homedir(), '.flux', 'debug.log');
       const expectedResponse = {
         data: {
           code: 403,

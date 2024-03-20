@@ -197,7 +197,7 @@ describe('dockerService tests', () => {
 
       const result = await dockerService.dockerListImages();
       result.forEach((image) => {
-        if (image.RepoTags[0].includes('runonflux/website')) fluxImage = image;
+        if (image.RepoTags.length && image.RepoTags[0].includes('runonflux/website')) fluxImage = image;
       });
 
       expect(fluxImage).to.exist;
