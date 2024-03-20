@@ -16,8 +16,9 @@ fi
 if ! [ -n "$(ls -A . 2>/dev/null)" ]
 then
   git clone https://github.com/RunOnFlux/flux.git .
-  npm install
 fi
+
+npm install
 
 # create directories etc
 sudo syncthing --home=/home/$USER/.config/syncthing 2>&1 > /dev/null &
