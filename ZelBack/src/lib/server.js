@@ -1,7 +1,7 @@
 const express = require('express');
 const eWS = require('express-ws');
 const cors = require('cors');
-const morgan = require('morgan');
+// const morgan = require('morgan');
 const compression = require('compression');
 
 const log = require('../../../lib/log');
@@ -15,7 +15,7 @@ const logger = () => (req, _, next) => {
 };
 
 app.use(compression());
-app.use(morgan('combined'));
+// app.use(morgan('combined'));
 app.use(logger);
 app.use(express.json());
 // app.use(express.urlencoded({ extended: true }));

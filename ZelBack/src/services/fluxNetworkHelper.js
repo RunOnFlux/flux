@@ -844,7 +844,6 @@ async function checkMyFluxAvailability(retryNumber = 0) {
  * @returns {Promise<void>} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function adjustExternalIP(ip) {
-  // why do this???!? the ip address should not be in the userconfig of all places. What is it used for? (figure out)
   try {
     const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
     // https://github.com/sindresorhus/ip-regex/blob/master/index.js#L8
@@ -1011,7 +1010,7 @@ function detectCollision(activatedNodes, nodeStatus, localEndpoint) {
  * @returns {Promise<number>} ms until the next run (60s by default)
  */
 async function runNetworkSentinel() {
-  if (fnc.aborted) return 0;
+  if (fnc.aborted || fnc.locked) return 0;
 
   fnc.lock.enable();
 
@@ -1956,6 +1955,7 @@ module.exports = {
   stopNetworkSentinel,
   // Exports for testing purposes
   allowNodeToBindPrivilegedPorts,
+  runNetworkSentinel,
   checkAppAvailability,
   fluxSystemUptime,
   fluxUptime,

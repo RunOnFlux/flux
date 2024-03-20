@@ -305,6 +305,7 @@ describe('fluxNetworkHelper tests', () => {
 
     afterEach(() => {
       serviceHelper.axiosGet.restore();
+      serviceHelper.runCommand.restore();
     });
 
     it('Should return true if node is running flux, port taken from config', async () => {
@@ -320,7 +321,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       });
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
-      runCmdStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null })
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
       sinon.stub(util, 'promisify').returns(() => Promise.resolve());
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
       const expectedAddressHome = 'http://127.0.0.1:16126';
@@ -345,7 +346,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       });
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
-      runCmdStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null })
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
       const expectedAddressHome = 'http://127.0.0.1:16126';
 
@@ -364,8 +365,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
-      runCmdStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null })
-
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
 
       const isFluxAvailableResult = await fluxNetworkHelper.isFluxAvailable(ip, port);
@@ -381,6 +381,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
 
       const isFluxAvailableResult = await fluxNetworkHelper.isFluxAvailable(ip, port);
@@ -391,6 +392,7 @@ describe('fluxNetworkHelper tests', () => {
 
     it('Should return false if axios request throws error', async () => {
       stub = sinon.stub(serviceHelper, 'axiosGet').throws();
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
 
       const isFluxAvailableResult = await fluxNetworkHelper.isFluxAvailable(ip, port);
@@ -638,7 +640,7 @@ describe('fluxNetworkHelper tests', () => {
       const websocket = generateWebsocket(ip, port, WebSocket.OPEN);
       addPeerToListOfPeers(ip, port);
 
-      const closeConnectionResult = await fluxNetworkHelper.closeConnection(ip, port);
+      const closeConnectionResult = await fluxNetworkHelper.closeOutboundConnection(ip, port);
 
       sinon.assert.calledOnceWithExactly(websocket.close, 4009, 'purpusfully closed');
       expect(closeConnectionResult).to.eql(successMessage);
@@ -659,7 +661,7 @@ describe('fluxNetworkHelper tests', () => {
       };
       const websocket = generateWebsocket(ip, port, WebSocket.OPEN);
 
-      const closeConnectionResult = await fluxNetworkHelper.closeConnection(ip, port);
+      const closeConnectionResult = await fluxNetworkHelper.closeOutboundConnection(ip, port);
 
       sinon.assert.calledOnceWithExactly(websocket.close, 4009, 'purpusfully closed');
       expect(closeConnectionResult).to.eql(successMessage);
@@ -682,7 +684,7 @@ describe('fluxNetworkHelper tests', () => {
       const websocket = generateWebsocket(ip2, port, WebSocket.OPEN);
       addPeerToListOfPeers(ip2, port);
 
-      const closeConnectionResult = await fluxNetworkHelper.closeConnection(ip, port);
+      const closeConnectionResult = await fluxNetworkHelper.closeOutboundConnection(ip, port);
 
       sinon.assert.notCalled(websocket.close);
       expect(closeConnectionResult).to.eql(errorMessage);
@@ -704,7 +706,7 @@ describe('fluxNetworkHelper tests', () => {
       const websocket = generateWebsocket(ip2, port, WebSocket.OPEN);
       addPeerToListOfPeers(ip2, port);
 
-      const closeConnectionResult = await fluxNetworkHelper.closeConnection();
+      const closeConnectionResult = await fluxNetworkHelper.closeOutboundConnection();
 
       sinon.assert.notCalled(websocket.close);
       expect(closeConnectionResult).to.eql(errorMessage);
@@ -1405,7 +1407,7 @@ describe('fluxNetworkHelper tests', () => {
       sinon.restore();
     });
 
-    it('should not change dosMessage ', async () => {
+    it('should not change dosMessage', async () => {
       const ip = '127.0.0.1:5050';
       const getBenchmarkResponseData = {
         status: 'success',
@@ -1423,7 +1425,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       );
 
-      await fluxNetworkHelper.checkDeterministicNodesCollisions();
+      await fluxNetworkHelper.runNetworkSentinel();
 
       expect(fluxNetworkHelper.getDosMessage()).to.be.null;
       expect(fluxNetworkHelper.getDosStateValue()).to.equal(0);
@@ -1468,7 +1470,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       );
 
-      await fluxNetworkHelper.checkDeterministicNodesCollisions();
+      await fluxNetworkHelper.runNetworkSentinel();
 
       expect(fluxNetworkHelper.getDosMessage()).to.equal('Flux earlier collision detection on ip:127.0.0.1:5050');
       expect(fluxNetworkHelper.getDosStateValue()).to.equal(100);
@@ -1492,7 +1494,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       );
 
-      await fluxNetworkHelper.checkDeterministicNodesCollisions();
+      await fluxNetworkHelper.runNetworkSentinel();
 
       expect(fluxNetworkHelper.getDosMessage()).to.equal('Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.');
       expect(fluxNetworkHelper.getDosStateValue()).to.equal(100);
@@ -1805,8 +1807,12 @@ describe('fluxNetworkHelper tests', () => {
     let runCmdStub;
     let logSpy;
 
-    userconfig.initial.apiport = 12;
+
     const ports = [11, 12, 13, 14, 80, 443, 16125, 16127, 16137, 16147, 16157, 16167, 16177, 16187, 16197].join(',') + '/tcp';
+
+    before(() => {
+      userconfig.initial.apiport = 12;
+    });
 
     beforeEach(() => {
       utilStub = sinon.stub(util, 'promisify');
@@ -1816,6 +1822,10 @@ describe('fluxNetworkHelper tests', () => {
     afterEach(() => {
       sinon.restore();
     });
+
+    after(() => {
+      userconfig.initial.apiport = 16127;
+    })
 
     it('should adjust firewall ports for the whole list of ports - all are active', async () => {
       const fwActiveStub = sinon.stub(serviceHelper, 'isFirewallActive').resolves(true);
