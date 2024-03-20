@@ -1601,15 +1601,15 @@ export default {
           dataLabels: {
             name: {
               offsetY: -15,
-              color: $themeColors.light,
+              color: $themeColors.secondary,
               fontSize: '1.5rem',
             },
             value: {
               formatter: (val) => ((parseFloat(val) * 15) / 100).toFixed(1),
               offsetY: 10,
-              color: $themeColors.light,
+              color: $themeColors.success,
               fontSize: '2.86rem',
-              fontWeight: '600',
+              fontWeight: '300',
             },
           },
         },
@@ -1639,7 +1639,7 @@ export default {
 
     const cpuRadialBarSmall = {
       chart: smallchart,
-      colors: [$themeColors.primary],
+      colors: [$themeColors.success],
       labels: ['Cores'],
       plotOptions: {
         radialBar: {
@@ -1650,21 +1650,21 @@ export default {
             size: '70%',
           },
           track: {
-            background: $themeColors.dark,
+            background: $themeColors.success,
             strokeWidth: '50%',
           },
           dataLabels: {
             name: {
               offsetY: -15,
-              color: $themeColors.light,
+              color: $themeColors.secondary,
               fontSize: '1.2rem',
             },
             value: {
               formatter: (val) => ((parseFloat(val) * 15) / 100).toFixed(1),
               offsetY: 10,
-              color: $themeColors.light,
+              color: $themeColors.success,
               fontSize: '2rem',
-              fontWeight: '400',
+              fontWeight: '300',
             },
           },
         },
@@ -1711,15 +1711,15 @@ export default {
           dataLabels: {
             name: {
               offsetY: -15,
-              color: $themeColors.light,
+              color: $themeColors.secondary,
               fontSize: '1.5rem',
             },
             value: {
               formatter: (val) => ((parseFloat(val) * 59000) / 100).toFixed(0),
               offsetY: 10,
-              color: $themeColors.light,
+              color: $themeColors.success,
               fontSize: '2.86rem',
-              fontWeight: '600',
+              fontWeight: '300',
             },
           },
         },
@@ -1766,15 +1766,15 @@ export default {
           dataLabels: {
             name: {
               offsetY: -15,
-              color: $themeColors.light,
+              color: $themeColors.secondary,
               fontSize: '1.2rem',
             },
             value: {
               formatter: (val) => ((parseFloat(val) * 59000) / 100).toFixed(0),
               offsetY: 10,
-              color: $themeColors.light,
+              color: $themeColors.success,
               fontSize: '2rem',
-              fontWeight: '400',
+              fontWeight: '300',
             },
           },
         },
@@ -1821,15 +1821,15 @@ export default {
           dataLabels: {
             name: {
               offsetY: -15,
-              color: $themeColors.light,
+              color: $themeColors.secondary,
               fontSize: '1.5rem',
             },
             value: {
               formatter: (val) => ((parseFloat(val) * 820) / 100).toFixed(0),
               offsetY: 10,
-              color: $themeColors.light,
+              color: $themeColors.success,
               fontSize: '2.86rem',
-              fontWeight: '600',
+              fontWeight: '300',
             },
           },
         },
@@ -1876,15 +1876,15 @@ export default {
           dataLabels: {
             name: {
               offsetY: -15,
-              color: $themeColors.light,
+              color: $themeColors.secondary,
               fontSize: '1.2rem',
             },
             value: {
               formatter: (val) => ((parseFloat(val) * 820) / 100).toFixed(0),
               offsetY: 10,
-              color: $themeColors.light,
+              color: $themeColors.success,
               fontSize: '2rem',
-              fontWeight: '400',
+              fontWeight: '300',
             },
           },
         },
