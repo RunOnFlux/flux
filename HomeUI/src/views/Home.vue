@@ -25,11 +25,19 @@
     </b-card>
 
     <b-card v-if="privilege === 'none'">
-      <b-card-title>Log In</b-card-title>
+      <b-card-title>Automated Login</b-card-title>
       <dl class="row">
-        <dd class="col-sm-4">
+        <dd class="col-sm-6">
           <b-card-text class="text-center">
-            Please log in using
+            3rd Party Provider Login
+          </b-card-text>
+          <div class="ssoLogin">
+            <div id="firebaseui-auth-container" />
+          </div>
+        </dd>
+        <dd class="col-sm-6">
+          <b-card-text class="text-center">
+            Decentralized Login
           </b-card-text>
           <div class="loginRow">
             <a
@@ -75,9 +83,15 @@
             </a>
           </div>
         </dd>
-        <dd class="col-sm-8">
+      </dl>
+    </b-card>
+
+    <b-card v-if="privilege === 'none'">
+      <b-card-title>Manual Login</b-card-title>
+      <dl class="row">
+        <dd class="col-sm-12">
           <b-card-text class="text-center">
-            or sign the following message with any ZelID / SSP Wallet ID / Bitcoin / Ethereum address
+            Sign the following message with any ZelID / SSP Wallet ID / Bitcoin / Ethereum address
           </b-card-text>
           <br><br>
           <b-form
@@ -153,13 +167,19 @@ import SignClient from '@walletconnect/sign-client';
 import { WalletConnectModal } from '@walletconnect/modal';
 import { MetaMaskSDK } from '@metamask/sdk';
 
+import firebase from 'firebase/compat/app';
+import * as firebaseui from 'firebaseui';
+import 'firebaseui/dist/firebaseui.css';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import ListEntry from '@/views/components/ListEntry.vue';
 import useAppConfig from '@core/app-config/useAppConfig';
 import IDService from '@/services/IDService';
 import DaemonService from '@/services/DaemonService';
+import axios from 'axios';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
+
+firebase.initializeApp(firebaseConfig);
 
 const walletConnectOptions = {
   projectId,
@@ -238,6 +258,78 @@ export default {
     this.daemonWelcomeGetFluxNodeStatus();
     this.getZelIdLoginPhrase();
     this.initMMSDK();
+    const handleSignedInUser = async (user) => {
+      try {
+        const token = user.auth.currentUser.accessToken;
+        const message = this.loginPhrase;
+        const headers = {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        };
+        const fluxLogin = await axios.post('https://pouwdev.runonflux.io/api/signInOrUp', { message }, { headers });
+        console.log(fluxLogin.data);
+        const authLogin = {
+          zelid: fluxLogin.data.public_address,
+          signature: fluxLogin.data.signature,
+          loginPhrase: this.loginPhrase,
+        };
+        IDService.verifyLogin(authLogin)
+          .then((response) => {
+            console.log(response);
+            if (response.data.status === 'success') {
+              // user is  now signed. Store their values
+              const zelidauth = {
+                zelid: fluxLogin.data.public_address,
+                signature: fluxLogin.data.signature,
+                loginPhrase: this.loginPhrase,
+              };
+              this.$store.commit('flux/setPrivilege', response.data.data.privilage);
+              this.$store.commit('flux/setZelid', zelidauth.zelid);
+              localStorage.setItem('zelidauth', qs.stringify(zelidauth));
+              this.showToast('success', response.data.data.message);
+            } else {
+              this.showToast(this.getVariant(response.data.status), response.data.data.message || response.data.data);
+            }
+          })
+          .catch((e) => {
+            console.log(e);
+            this.showToast('danger', e.toString());
+          });
+      } catch (error) {
+        console.log(error);
+      }
+    };
+    const uiConfig = {
+      callbacks: {
+      // Called when the user has been successfully signed in.
+        signInSuccessWithAuthResult(authResult) {
+          if (authResult.user) {
+            handleSignedInUser(authResult.user);
+          }
+          return false;
+        },
+      },
+      popupMode: true,
+      signInFlow: 'popup',
+      signInOptions: [
+        {
+          provider: firebase.auth.EmailAuthProvider.PROVIDER_ID,
+          requireDisplayName: true,
+        },
+        firebase.auth.GoogleAuthProvider.PROVIDER_ID,
+        firebase.auth.GithubAuthProvider.PROVIDER_ID,
+      ],
+    };
+    // Initialize the FirebaseUI Widget using Firebase.
+    if (this.privilege === 'none') {
+      if (firebaseui.auth.AuthUI.getInstance()) {
+        const ui = firebaseui.auth.AuthUI.getInstance();
+        ui.start('#firebaseui-auth-container', uiConfig);
+      } else {
+        const ui = new firebaseui.auth.AuthUI(firebase.auth());
+        ui.start('#firebaseui-auth-container', uiConfig);
+      }
+    }
   },
   methods: {
     async daemonWelcomeGetFluxNodeStatus() {
@@ -596,6 +688,14 @@ export default {
   justify-content: space-around;
   align-items: center;
   margin-bottom: 10px;
+}
+.ssoLogin {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-around;
+  align-items: center;
+  margin-bottom: 10px;
+  margin-top: 30px;
 }
 .zelidLogin {
   margin-left: 5px;

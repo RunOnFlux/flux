@@ -498,6 +498,17 @@
                 >
               </a>
             </div>
+            <div class="loginRow">
+              <a @click="initSignFluxSSO">
+                <img
+                  class="fluxSSO"
+                  src="@/assets/images/logo/logo.png"
+                  alt="FluxSSO"
+                  height="100%"
+                  width="100%"
+                >
+              </a>
+            </div>
             <b-form-input
               id="signature"
               v-model="signature"
@@ -690,6 +701,7 @@ import SignClient from '@walletconnect/sign-client';
 import { MetaMaskSDK } from '@metamask/sdk';
 import useAppConfig from '@core/app-config/useAppConfig';
 import { useClipboard } from '@vueuse/core';
+import firebase from 'firebase/compat/app';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
 
@@ -792,6 +804,7 @@ export default {
         },
       });
     };
+    const user = firebase.auth().currentUser;
     const tier = ref('');
     tier.value = props.tier;
     const userZelid = ref('');
@@ -888,7 +901,16 @@ export default {
     const onOpen = (evt) => {
       console.log(evt);
     };
-
+    const initSignFluxSSO = async () => {
+      const message = dataToSign.value;
+      const token = user.auth.currentUser.accessToken;
+      const headers = {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      };
+      const signSSO = await axios.post('https://pouwdev.runonflux.io/api/signMessage', { message }, { headers });
+      signature.value = signSSO.data.signature;
+    };
     const initiateSignWS = async () => {
       if (dataToSign.value.length > 1800) {
         const message = dataToSign.value;
@@ -2002,6 +2024,7 @@ export default {
       initPaypalPay,
       initStripePay,
       openSite,
+      initSignFluxSSO,
       initWalletConnect,
       onSessionConnect,
       siwe,
@@ -2086,6 +2109,17 @@ export default {
   -webkit-app-region: no-drag;
   transition: 0.1s;
 }
+
+.fluxSSO {
+  height: 90px;
+  padding: 10px;
+  margin-left: 5px;
+}
+.fluxSSO img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
+
 .sspLogin {
   height: 90px;
   padding: 10px;

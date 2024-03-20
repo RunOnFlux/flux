@@ -67,7 +67,7 @@ import DarkToggler from '@core/layouts/components/app-navbar/components/DarkTogg
 import MenuCollapseToggler from '@core/layouts/components/app-navbar/components/MenuCollapseToggler.vue';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import Ripple from 'vue-ripple-directive';
-
+import firebase from 'firebase/compat/app';
 import IDService from '@/services/IDService';
 
 const qs = require('qs');
@@ -161,13 +161,14 @@ export default {
         },
       });
     },
-    logout() {
+    async logout() {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
       localStorage.removeItem('zelidauth');
       this.$store.commit('flux/setPrivilege', 'none');
       this.$store.commit('flux/setZelid', '');
       console.log(auth);
+      await firebase.auth().signOut();
       IDService.logoutCurrentSession(zelidauth)
         .then((response) => {
           console.log(response);
@@ -177,7 +178,11 @@ export default {
           } else {
             this.showToast('success', response.data.data.message);
             // Redirect to home page
-            this.$router.push({ name: 'home' });
+            if (this.$route.path === '/') {
+              window.location.reload();
+            } else {
+              this.$router.push({ name: 'home' });
+            }
           }
         })
         .catch((e) => {

@@ -5192,6 +5192,17 @@
                     >
                   </a>
                 </div>
+                <div class="loginRow">
+                  <a @click="initSignFluxSSO">
+                    <img
+                      class="fluxSSO"
+                      src="@/assets/images/logo/logo.png"
+                      alt="FluxSSO"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                </div>
               </b-card>
             </b-col>
           </b-row>
@@ -5577,6 +5588,7 @@ import ListEntry from '@/views/components/ListEntry.vue';
 import JsonViewer from 'vue-json-viewer';
 import FileUpload from '@/views/components/FileUpload.vue';
 import { useClipboard } from '@vueuse/core';
+import firebase from 'firebase/compat/app';
 
 import AppsService from '@/services/AppsService';
 import DaemonService from '@/services/DaemonService';
@@ -5903,6 +5915,7 @@ export default {
       signature: '',
       updateHash: '',
       websocket: null,
+      user: {},
       selectedAppOwner: '',
       appSpecification: {},
       callResponse: { // general
@@ -6499,6 +6512,7 @@ export default {
     },
   },
   async mounted() {
+    this.user = firebase.auth().currentUser;
     const { hostname } = window.location;
     const regex = /[A-Za-z]/g;
     if (hostname.match(regex)) {
@@ -7828,6 +7842,16 @@ export default {
     },
     goBackToApps() {
       this.$emit('back');
+    },
+    async initSignFluxSSO() {
+      const message = this.dataToSign;
+      const token = this.user.auth.currentUser.accessToken;
+      const headers = {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      };
+      const signSSO = await axios.post('https://pouwdev.runonflux.io/api/signMessage', { message }, { headers });
+      this.signature = signSSO.data.signature;
     },
     async initiateSignWSUpdate() {
       if (this.dataToSign.length > 1800) {
@@ -9983,7 +10007,15 @@ export default {
   -webkit-app-region: no-drag;
   transition: 0.1s;
 }
-
+.fluxSSO {
+  height: 90px;
+  padding: 10px;
+  margin-left: 5px;
+}
+.fluxSSO img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
 .sspLogin {
   height: 90px;
   padding: 10px;
