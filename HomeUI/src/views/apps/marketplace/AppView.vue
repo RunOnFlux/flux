@@ -1967,7 +1967,6 @@ export default {
     };
 
     return {
-      activeIndex: 0,
       // UI
       perfectScrollbarSettings,
       resolveTagVariant,
