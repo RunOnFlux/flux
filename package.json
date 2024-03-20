@@ -97,6 +97,7 @@
     "lru-cache": "~10.1.0",
     "mongodb": "~4.17.2",
     "nano-ethereum-signer": "~0.1.2",
+    "node-cmd": "^3.0.0",
     "node-df": "~0.1.4",
     "nodemon": "~2.0.22",
     "object-hash": "~3.0.0",
