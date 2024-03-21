@@ -369,3 +369,6 @@ ASALocalRun/
 
 # Testing package.json hash
 tests/images/.package_hash
+
+# Local development folder
+dev/
