@@ -1,6 +1,7 @@
 #!/bin/bash
 
 USER=fluxtesting
+HASH_LOCATION=tests/images/.package_hash
 
 # this saves having to use add_group on docker run or compose (group-add)
 # sudo chown $USER:$USER /var/run/docker.sock
@@ -18,7 +19,19 @@ then
   git clone https://github.com/RunOnFlux/flux.git .
 fi
 
-npm install
+test -e $HASH_LOCATION || echo 0 > $HASH_LOCATION
+
+# echo 0 should be redundant here
+EXISTING_HASH=$(cat $HASH_LOCATION 2>/dev/null || echo 0)
+
+# save as array, as referencing CURRENT_HASH will give first item
+CURRENT_HASH=($(sha256sum package.json))
+
+if [[ $EXISTING_HASH != $CURRENT_HASH ]]
+then
+  # only echo hash on success
+  npm install && echo "$CURRENT_HASH" > $HASH_LOCATION
+fi
 
 # create directories etc
 sudo syncthing --home=/home/$USER/.config/syncthing 2>&1 > /dev/null &

@@ -53,7 +53,7 @@
     "test:unit": "vue-cli-service test:unit",
     "test:zelback": "mocha tests/ZelBack",
     "test:zelback:unit": "docker run --rm -d --name fluxwebsite runonflux/website; env NODE_CONFIG_DIR=$PWD/tests/unit/globalconfig nyc --reporter=lcov mocha tests/unit/*.test.js --exit; docker stop fluxwebsite",
-    "test:zelback:unit:compose": "npm run test:container:prune && docker compose -f tests/images/compose.yaml --profile auto up --abort-on-container-exit --build --attach tester; docker compose --profile auto -f tests/images/compose.yaml down",
+    "test:zelback:unit:compose": "npm run test:container:prune && docker compose -f tests/images/compose.yaml --profile auto run --build tester; docker compose --profile auto -f tests/images/compose.yaml down",
     "test:zelback:unit:oneoff": "npm run test:container:build && npm run test:container:background && npm run test:container:run --",
     "test:ethereumHelper": "env NODE_CONFIG_DIR=$PWD/tests/unit/globalconfig mocha tests/unit/ethereumHelper.test.js --exit",
     "test:container:prune": "docker container prune --filter 'label=com.runonflux.container_type=fluxos_test' -f",
