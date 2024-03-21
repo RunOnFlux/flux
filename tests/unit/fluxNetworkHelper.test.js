@@ -1636,7 +1636,6 @@ describe('fluxNetworkHelper tests', () => {
 
   describe('denyPort tests', () => {
     const port = '32111';
-    let runCmdStub;
 
     beforeEach(async () => {
       await fluxNetworkHelper.allowPort(port);
