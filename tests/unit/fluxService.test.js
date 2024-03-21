@@ -181,7 +181,7 @@ describe('fluxService tests', () => {
       const expectedResponse = {
         data: {
           code: undefined,
-          message: 'Flux successfully updated using soft method',
+          message: 'Flux successfully soft updated',
           name: undefined,
         },
         status: 'success',
@@ -209,7 +209,7 @@ describe('fluxService tests', () => {
       const expectedResponse = {
         data: {
           code: 403,
-          message: 'Error softly updating Flux: This is an error',
+          message: 'Error soft updating Flux: This is an error',
           name: 'testing error',
         },
         status: 'error',
@@ -263,7 +263,7 @@ describe('fluxService tests', () => {
       const expectedResponse = {
         data: {
           code: undefined,
-          message: 'Flux successfully updated softly with installation',
+          message: 'Flux successfully soft updated with installation',
           name: undefined,
         },
         status: 'success',
@@ -291,7 +291,7 @@ describe('fluxService tests', () => {
       const expectedResponse = {
         data: {
           code: 403,
-          message: 'Error softly updating Flux with installation: This is an error',
+          message: 'Error soft updating Flux with installation: This is an error',
           name: 'testing error',
         },
         status: 'error',
@@ -345,7 +345,7 @@ describe('fluxService tests', () => {
       const expectedResponse = {
         data: {
           code: undefined,
-          message: 'Flux successfully updating',
+          message: 'Flux successfully hard updated',
           name: undefined,
         },
         status: 'success',
@@ -373,7 +373,7 @@ describe('fluxService tests', () => {
       const expectedResponse = {
         data: {
           code: 403,
-          message: 'Error hardupdating Flux: This is an error',
+          message: 'Error hard updating Flux: This is an error',
           name: 'testing error',
         },
         status: 'error',
@@ -427,7 +427,7 @@ describe('fluxService tests', () => {
       const expectedResponse = {
         data: {
           code: undefined,
-          message: 'Flux successfully rebuilt',
+          message: 'Flux UI successfully rebuilt',
           name: undefined,
         },
         status: 'success',
@@ -455,7 +455,7 @@ describe('fluxService tests', () => {
       const expectedResponse = {
         data: {
           code: 403,
-          message: 'Error rebuilding Flux: This is an error',
+          message: 'Error rebuilding Flux UI: This is an error',
           name: 'testing error',
         },
         status: 'error',
@@ -1354,7 +1354,7 @@ describe('fluxService tests', () => {
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
-        data: { code: undefined, name: undefined, message: { message: 'success message' } },
+        data: { code: undefined, name: undefined, message: 'success message' },
       });
     });
 
@@ -1624,7 +1624,7 @@ describe('fluxService tests', () => {
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
-        data: { code: undefined, name: undefined, message: { message: 'success message' } },
+        data: { code: undefined, name: undefined, message: 'success message' },
       });
     });
 
@@ -1641,7 +1641,7 @@ describe('fluxService tests', () => {
       const expectedResponse = {
         data: {
           code: 403,
-          message: 'Error obtaining Flux test file: This is an error',
+          message: 'Error obtaining Flux log file: This is an error',
           name: 'testing error',
         },
         status: 'error',
@@ -1670,7 +1670,7 @@ describe('fluxService tests', () => {
       sinon.restore();
     });
 
-    it('should return error when unauthorized ', async () => {
+    it('should return error when unauthorized', async () => {
       const res = generateResponse();
       verifyPrivilegeStub.returns(false);
       const expectedResponse = {
@@ -1698,7 +1698,7 @@ describe('fluxService tests', () => {
         data: {
           code: undefined,
           name: undefined,
-          message: { message: 'success message' },
+          message: 'success message',
         },
       });
     });
@@ -1746,7 +1746,7 @@ describe('fluxService tests', () => {
         data: {
           code: undefined,
           name: undefined,
-          message: { message: 'success message' },
+          message: 'success message',
         },
       });
     });
@@ -1794,7 +1794,7 @@ describe('fluxService tests', () => {
         data: {
           code: undefined,
           name: undefined,
-          message: { message: 'success message' },
+          message: 'success message',
         },
       });
     });
@@ -1842,7 +1842,7 @@ describe('fluxService tests', () => {
         data: {
           code: undefined,
           name: undefined,
-          message: { message: 'success message' },
+          message: 'success message',
         },
       });
     });
@@ -3044,25 +3044,24 @@ describe('fluxService tests', () => {
   });
 
   describe('installFluxWatchTower tests', () => {
-    let utilStub;
-    let funcStub;
+    let runCmdStub;
 
     beforeEach(() => {
-      utilStub = sinon.stub(util, 'promisify');
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand');
     });
 
     afterEach(() => {
       sinon.restore();
     });
 
-    it('should return true if firewall is active', async () => {
-      funcStub = sinon.fake(() => 'Status: active');
-      utilStub.returns(funcStub);
+    it('should install flux watchtower', async () => {
       const nodedpath = path.join(__dirname, '../../../flux/helpers');
+
+      runCmdStub.resolves({ error: null, stdout: 'Installed' });
 
       await fluxService.installFluxWatchTower();
 
-      sinon.assert.calledOnceWithExactly(funcStub, `cd ${nodedpath} && bash fluxwatchtower.sh`);
+      sinon.assert.calledWithExactly(runCmdStub, `${nodedpath}/fluxwatchtower.sh`, { cwd: nodedpath });
     });
   });
 });

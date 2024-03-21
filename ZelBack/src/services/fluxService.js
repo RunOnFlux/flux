@@ -527,7 +527,7 @@ async function startBenchmark(req, res) {
   const { error } = await serviceHelper.runCommand(bin, { params: ['-daemon'] });
 
   if (error) {
-    const errMessage = messageHelper.createErrorMessage(`Error starting Benchmark ${error.message}`, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(`Error starting Benchmark: ${error.message}`, error.name, error.code);
     return res ? res.json(errMessage) : errMessage;
   }
 
@@ -607,7 +607,7 @@ async function startDaemon(req, res) {
   const { error } = await serviceHelper.runCommand(bin);
 
   if (error) {
-    const errMessage = messageHelper.createErrorMessage(`Error starting Daemon ${error.message}`, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(`Error starting Daemon: ${error.message}`, error.name, error.code);
     return res ? res.json(errMessage) : errMessage;
   }
 
@@ -998,7 +998,7 @@ async function tailBenchmarkDebug(req, res) {
   });
 
   if (error) {
-    const errMessage = messageHelper.createErrorMessage(`Error obtaining Daemon debug file: ${error.message}`, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(`Error obtaining Benchmark debug file: ${error.message}`, error.name, error.code);
     res.json(errMessage);
     return;
   }
@@ -1134,7 +1134,7 @@ async function tailFluxLog(req, res, logfile) {
   });
 
   if (error) {
-    const errMessage = messageHelper.createErrorMessage(`Error obtaining Daemon debug file: ${error.message}`, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(`Error obtaining Flux log file: ${error.message}`, error.name, error.code);
     res.json(errMessage);
     return;
   }
@@ -1160,10 +1160,11 @@ async function tailFluxLog(req, res, logfile) {
  * @param {object} res Response.
  */
 async function tailFluxErrorLog(req, res) {
+
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized === true) {
-      tailFluxLog(req, res, 'error');
+      await tailFluxLog(req, res, 'error');
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -1182,7 +1183,7 @@ async function tailFluxWarnLog(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized === true) {
-      tailFluxLog(req, res, 'warn');
+      await tailFluxLog(req, res, 'warn');
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -1201,7 +1202,7 @@ async function tailFluxInfoLog(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized === true) {
-      tailFluxLog(req, res, 'info');
+      await tailFluxLog(req, res, 'info');
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -1220,7 +1221,7 @@ async function tailFluxDebugLog(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized === true) {
-      tailFluxLog(req, res, 'debug');
+      await tailFluxLog(req, res, 'debug');
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
