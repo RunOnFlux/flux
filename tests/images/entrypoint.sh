@@ -9,6 +9,8 @@ then
   exit
 fi
 
+npm config set update-notifier false
+
 # The working dir will have files if flux repo has been mounted, if not
 # assume that it needs to be cloned
 if ! [ -n "$(ls -A . 2>/dev/null)" ]
@@ -32,8 +34,6 @@ fi
 
 # create directories etc
 sudo syncthing --home=/home/$USER/.config/syncthing 2>&1 > /dev/null &
-
-npm config set update-notifier false
 
 npm run ciconfig
 
