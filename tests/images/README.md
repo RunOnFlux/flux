@@ -78,5 +78,5 @@ npm run test:zelback:unit:oneoff -- -g 'should remove a network' tests/unit/dock
 To shut down all containers:
 
 ```bash
-npm run test:zelback:container:down
+npm run test:container:down
 ```
