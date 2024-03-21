@@ -3,9 +3,6 @@
 USER=fluxtesting
 HASH_LOCATION=tests/images/.package_hash
 
-# this saves having to use add_group on docker run or compose (group-add)
-# sudo chown $USER:$USER /var/run/docker.sock
-
 if ! docker ps 2>&1 >/dev/null
 then
   echo "Docker not available... exiting"
