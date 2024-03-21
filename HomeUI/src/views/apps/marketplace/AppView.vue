@@ -904,7 +904,7 @@ export default {
       const message = dataToSign.value;
       const firebaseUser = getUser();
       if (!firebaseUser) {
-        this.showToast('warning', 'user not found, please try again');
+        showToast('warning', 'user not found, please try again');
         return;
       }
       const token = firebaseUser.auth.currentUser.accessToken;
