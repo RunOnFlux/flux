@@ -407,13 +407,13 @@
       cancel-title="No"
       @ok="confirmLaunchDialogCloseShowing = false; launchModalShowing = false;"
     >
-      <h3 class="text-center">
+      <h5 class="text-center">
         Please ensure that you have paid for your app, or saved the payment details for later.
-      </h3>
+      </h5>
       <br>
-      <h4 class="text-center">
+      <h5 class="text-center">
         Close the Launch App dialog?
-      </h4>
+      </h5>
     </b-modal>
 
     <b-modal
@@ -519,11 +519,11 @@
           />
         </tab-content>
         <tab-content
-          title="Register App"
+          title="Register Application"
           :before-change="() => registrationHash !== null"
         >
           <b-card
-            title="Register App"
+            title="Register Application"
             class="text-center wizard-card"
           >
             <b-card-text>
@@ -531,13 +531,14 @@
             </b-card-text>
             <b-button
               v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-              variant="success"
-              aria-label="Register Flux App"
+              variant="outline-success"
+              aria-label="Register"
               class="my-1"
+              style="width: 250px"
               :disabled="registrationHash && registrationHash.length > 0"
               @click="register"
             >
-              Register Flux App
+              Register
             </b-button>
             <b-card-text
               v-if="registrationHash"
@@ -545,7 +546,7 @@
               :title="registrationHash"
               class="mt-1"
             >
-              Registration Hash received
+              Registration Hash Received
             </b-card-text>
           </b-card>
         </tab-content>
@@ -618,7 +619,7 @@
                 class="text-center wizard-card"
               >
                 <b-card-text>
-                  To pay in <kbd class="bg-primary"><b>FLUX{{ applicationPriceFluxDiscount }}</b></kbd>, please make a transaction of <b>{{ appPricePerDeployment }} FLUX</b> to address<br>
+                  To pay in FLUX, please make a transaction of <b>{{ appPricePerDeployment }} FLUX</b> to address<br>
                   <b>'{{ deploymentAddress }}'</b><br>
                   with the following message<br>
                   <b>'{{ registrationHash }}'</b>
@@ -626,10 +627,13 @@
               </b-card>
             </b-col>
             <b-col xs="6" lg="4">
-              <b-card
-                title="Pay with Zelcore/SSP"
-                class="text-center wizard-card"
-              >
+              <b-card>
+                <h4 v-if="applicationPriceFluxDiscount > 0">
+                  <kbd class="d-flex justify-content-center bg-primary mb-1">Discount - {{ applicationPriceFluxDiscount }}%</kbd>
+                </h4>
+                <h4 class="text-center mb-2">
+                  Pay with Zelcore/SSP
+                </h4>
                 <div class="loginRow">
                   <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${appPricePerDeployment}&message=${registrationHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
                     <img
@@ -1534,7 +1538,7 @@ export default {
           showToast('danger', 'Not possible to complete payment with Flux crypto currency');
         } else {
           appPricePerDeployment.value = +response.data.data.flux;
-          applicationPriceFluxDiscount.value = +response.data.data.fluxDiscount > 0 ? ` with ${+response.data.data.fluxDiscount}% discount` : '';
+          applicationPriceFluxDiscount.value = +response.data.data.fluxDiscount;
         }
         if (websocket.value !== null) {
           websocket.value.close();

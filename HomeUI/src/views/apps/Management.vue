@@ -5139,7 +5139,7 @@
                 </h4> -->
                 <b-card-text v-if="!freeUpdate">
                   <br>
-                  <div class="text-center">
+                  <div class="text-center my-3">
                     <h4>
                       <b-icon
                         class="mr-1"
@@ -5154,10 +5154,10 @@
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
                   variant="outline-success"
                   aria-label="Update Flux App"
-                  class="my-1 w-100"
+                  class="w-100"
                   @click="update"
                 >
-                  Update App
+                  Update Application
                 </b-button>
               </b-card>
             </b-col>
@@ -5280,7 +5280,7 @@
             >
               <b-card>
                 <b-card-text>
-                  To pay in <kbd class="bg-primary"><b>FLUX{{ applicationPriceFluxDiscount }}</b></kbd>, please make a transaction of <b>{{ appPricePerSpecs }} FLUX</b> to address
+                  To pay in FLUX, please make a transaction of <b>{{ appPricePerSpecs }} FLUX</b> to address
                   <b>'{{ deploymentAddress }}'</b>
                   with the following message:
                   <b>'{{ updateHash }}'</b>
@@ -5291,7 +5291,13 @@
               xs="6"
               lg="4"
             >
-              <b-card class="text-center" title="Pay with Zelcore/SSP">
+              <b-card>
+                <h4 v-if="applicationPriceFluxDiscount > 0">
+                  <kbd class="d-flex justify-content-center bg-primary mb-2">Discount - {{ applicationPriceFluxDiscount }}%</kbd>
+                </h4>
+                <h4 class="text-center mb-2">
+                  Pay with Zelcore/SSP
+                </h4>
                 <div class="loginRow">
                   <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${appPricePerSpecs}&message=${updateHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
                     <img
@@ -8215,7 +8221,7 @@ export default {
           this.showToast('danger', 'Not possible to complete payment with Flux crypto currency');
         } else {
           this.appPricePerSpecs = +response.data.data.flux;
-          this.applicationPriceFluxDiscount = +response.data.data.fluxDiscount > 0 ? ` with ${+response.data.data.fluxDiscount}% discount` : '';
+          this.applicationPriceFluxDiscount = +response.data.data.fluxDiscount;
         }
 
         const marketPlaceApp = this.marketPlaceApps.find((app) => this.appUpdateSpecification.name.toLowerCase().startsWith(app.name.toLowerCase()));
