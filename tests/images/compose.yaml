@@ -20,10 +20,10 @@ services:
       - fluxos_test
     labels:
       com.runonflux.container_type: "fluxos_test"
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.runCommand('ping').ok", "--quiet"]
-      interval: 3s
-      timeout: 5s
+    # healthcheck:
+    #   test: ["CMD", "mongosh", "--eval", "db.runCommand('ping').ok", "--quiet"]
+    #   interval: 3s
+    #   timeout: 5s
   fluxwebsite:
     container_name: fluxwebsite
     image: "runonflux/website"
@@ -37,13 +37,13 @@ services:
     image: runonflux/testerimage:latest
     container_name: tester
     init: true
-    depends_on:
-      mongo:
-        condition: service_healthy
-      socat:
-        condition: service_started
-      fluxwebsite:
-        condition: service_started
+    depends_on: [mongo, socat, fluxwebsite]
+      # mongo:
+      #   condition: service_healthy
+      # socat:
+      #   condition: service_started
+      # fluxwebsite:
+      #   condition: service_started
     environment:
       DOCKER_HOST: socat:2375
     # not quite sure about this yet, but think it's necessary for iptables (probably should be mocked)
