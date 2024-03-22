@@ -7,17 +7,14 @@ const axios = require('axios');
 const config = require('config');
 const splitargs = require('splitargs');
 const qs = require('qs');
+
 const util = require('node:util');
+
 const execFile = util.promisify(require('node:child_process').execFile);
 // const { spawn } = require('node:child_process');
 
 const dbHelper = require('./dbHelper');
 const log = require('../../../lib/log');
-
-/**
- * Allows for exclusive locks when running child processes
- */
-const locks = new Map();
 
 /**
  * A simple 15s cache for the firewall status. Purge UFW, and Adjust firewall
@@ -40,37 +37,23 @@ const firewallStatus = {
     this._active = status;
     this.lastCheck = Date.now();
   },
+  /**
+   * @return {void}
+   */
+  reset() {
+    this._active = null;
+    this.lastCheck = 0;
+  }
 };
 
-// const path = require('node:path')
-// const { Worker } = require('node:worker_threads');
+function resetFirewallStatus() {
+  firewallStatus.reset();
+}
 
-// const actions = new Map();
-// const WORKER_COUNT = 4;
-// const workerPool = [];
-
-// function workerHandler(message) {
-//   const { id, response } = message;
-//   const [worker, resolve, reject] = actions.get(id);
-//   actions.delete(id);
-//   if (response.error && response.logError) log.error(response.error);
-//   workerPool.push(worker);
-//   resolve(response);
-// }
-
-// async function getWorker() {
-//   return new Promise(async (resolve) => {
-//     while (!workerPool.length) await sleep(50)
-//     const worker = workerPool.shift();
-//     resolve(worker);
-//   })
-// }
-
-// while (workerPool.length < WORKER_COUNT) {
-//   const cmdWorker = new Worker(path.join(__dirname, 'runCommandWorker.js'), { stdin: false, stderr: false, stdout: false });
-//   cmdWorker.on('message', workerHandler);
-//   workerPool.push(cmdWorker);
-// }
+/**
+ * Allows for exclusive locks when running child processes
+ */
+const locks = new Map();
 
 class AsyncLock {
   ready = Promise.resolve();
@@ -142,30 +125,6 @@ class FluxController extends AbortController {
 }
 
 /**
- * To delay by a number of milliseconds.
- * @param {number} ms Number of milliseconds.
- * @returns {Promise} Promise object.
- */
-function delay(ms) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
-// async function runCommand(cmd, options = {}) {
-//   const params = options.params || [];
-//   log.info("Run command:", cmd, params.join(" "));
-//   return new Promise(async (resolve, reject) => {
-//     const worker = await getWorker()
-//     const id = worker.threadId;
-//     actions.set(id, [worker, resolve, reject])
-//     worker.postMessage({ id, cmd, options })
-//   })
-// }
-
-// subprocessLock = new AsyncLock()
-
-/**
  *
  * @param {string} cmd The binary to run. Must be in PATH
  * @param {{params?: string[], runAsRoot?: Boolean, exclusive?: Boolean, logError?: Boolean, cwd?: string, timeout?: number, signal?: AbortSignal, shell?: (Boolean|string)}} options
@@ -173,7 +132,10 @@ function delay(ms) {
  */
 async function runCommand(userCmd, options = {}) {
   const res = { error: null, stdout: null, stderr: null };
+  const { runAsRoot, logError, exclusive, ...execOptions } = options;
+
   const params = options.params || [];
+  delete execOptions.params;
 
   if (!userCmd) {
     res.error = new Error('Command must be present');
@@ -185,8 +147,6 @@ async function runCommand(userCmd, options = {}) {
     res.error = new Error('Invalid params for command, must be an Array of strings');
     return res;
   }
-
-  const { runAsRoot, logError, ...execOptions } = options;
 
   let cmd;
   if (runAsRoot) {
@@ -224,7 +184,7 @@ async function runCommand(userCmd, options = {}) {
   // })
 
   // delete the locks after no waiters?
-  if (options.exclusive) {
+  if (exclusive) {
     if (!locks.has(userCmd)) locks[userCmd] = new AsyncLock();
     await locks[userCmd].enable();
     log.info('Exclusive lock enabled for command:', userCmd);
@@ -237,7 +197,7 @@ async function runCommand(userCmd, options = {}) {
     return [errStdout, errStderr];
   });
 
-  if (options.exclusive) {
+  if (exclusive) {
     locks[userCmd].disable();
     log.info('Exclusive lock disabled for command:', userCmd);
   }
@@ -249,6 +209,60 @@ async function runCommand(userCmd, options = {}) {
 
   return res;
 }
+
+// const path = require('node:path')
+// const { Worker } = require('node:worker_threads');
+
+// const actions = new Map();
+// const WORKER_COUNT = 4;
+// const workerPool = [];
+
+// function workerHandler(message) {
+//   const { id, response } = message;
+//   const [worker, resolve, reject] = actions.get(id);
+//   actions.delete(id);
+//   if (response.error && response.logError) log.error(response.error);
+//   workerPool.push(worker);
+//   resolve(response);
+// }
+
+// async function getWorker() {
+//   return new Promise(async (resolve) => {
+//     while (!workerPool.length) await sleep(50)
+//     const worker = workerPool.shift();
+//     resolve(worker);
+//   })
+// }
+
+// while (workerPool.length < WORKER_COUNT) {
+//   const cmdWorker = new Worker(path.join(__dirname, 'runCommandWorker.js'), { stdin: false, stderr: false, stdout: false });
+//   cmdWorker.on('message', workerHandler);
+//   workerPool.push(cmdWorker);
+// }
+
+/**
+ * To delay by a number of milliseconds.
+ * @param {number} ms Number of milliseconds.
+ * @returns {Promise} Promise object.
+ */
+function delay(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+// async function runCommand(cmd, options = {}) {
+//   const params = options.params || [];
+//   log.info("Run command:", cmd, params.join(" "));
+//   return new Promise(async (resolve, reject) => {
+//     const worker = await getWorker()
+//     const id = worker.threadId;
+//     actions.set(id, [worker, resolve, reject])
+//     worker.postMessage({ id, cmd, options })
+//   })
+// }
+
+// subprocessLock = new AsyncLock()
 
 /**
  * To check if a firewall is active, will cache for 10 seconds.
@@ -429,11 +443,13 @@ async function getApplicationOwner(appName) {
       owner: 1,
     },
   };
+
   const globalAppsInformation = config.database.appsglobal.collections.appsInformation;
   const appSpecs = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
   if (appSpecs) {
     return appSpecs.owner;
   }
+
   // eslint-disable-next-line global-require
   const appsService = require('./appsService');
   const allApps = await appsService.availableApps();
@@ -605,7 +621,6 @@ module.exports = {
   ensureNumber,
   ensureObject,
   ensureString,
-  FluxController,
   getApplicationOwner,
   installAptPackage,
   ipInSubnet,
@@ -613,6 +628,9 @@ module.exports = {
   isFirewallActive,
   parseInterval,
   randomMsBetween,
+  FluxController,
   runCommand,
   validIpv4Address,
+  // testing export
+  resetFirewallStatus
 };

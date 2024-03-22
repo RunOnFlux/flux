@@ -1,3 +1,4 @@
+global.userconfig = require('../../config/userconfig');
 const chai = require('chai');
 const sinon = require('sinon');
 const chaiAsPromised = require('chai-as-promised');
@@ -1306,6 +1307,7 @@ describe('idService tests', () => {
       sinon.stub(fs, 'readdirSync').returns(['file1', 'file2']);
       sinon.stub(fs, 'statSync').returns({
         size: 1000000,
+        isDirectory: sinon.stub().returns(false)
       });
     });
 

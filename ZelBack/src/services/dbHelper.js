@@ -41,10 +41,7 @@ async function connectMongoDb(url) {
  * @returns {Promise<true>}
  */
 async function initiateDB() {
-  // Only call this once. Mongo handles connection pooling.
-  if (openDBConnection) return true;
-  openDBConnection = await connectMongoDb();
-  // why?
+  if (!openDBConnection) openDBConnection = await connectMongoDb();
   return true;
 }
 

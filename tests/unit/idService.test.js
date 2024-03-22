@@ -45,6 +45,13 @@ const generateResponse = () => {
 };
 
 describe('idService tests', () => {
+  before(async () => {
+    await dbHelper.initiateDB();
+  });
+  after(async () => {
+    await dbHelper.closeDbConnection();
+  });
+
   describe('confirmNodeTierHardware tests', () => {
     let osTotalmemStub;
     let osCpusStub;
@@ -451,8 +458,6 @@ describe('idService tests', () => {
 
     it('should return write new phrase into the db', async () => {
       const insertintoDBStub = sinon.stub(dbHelper, 'insertOneToDatabase').returns(true);
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       const res = generateResponse();
       tierStub.resolves('basic');
       collateralStub.resolves(1000);
@@ -481,8 +486,6 @@ describe('idService tests', () => {
 
     it('should return error if db insert throws error', async () => {
       sinon.stub(dbHelper, 'insertOneToDatabase').throws('DB insert error', 'some message');
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       const res = generateResponse();
       const expectedResponse = {
         status: 'error',
@@ -500,8 +503,6 @@ describe('idService tests', () => {
 
     it('should return write new emergency phrase into the db', async () => {
       const insertintoDBStub = sinon.stub(dbHelper, 'insertOneToDatabase').returns(true);
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       const res = generateResponse();
 
       await idService.emergencyPhrase(undefined, res);
@@ -743,8 +744,6 @@ describe('idService tests', () => {
     it('should return error if database returns nothing', async () => {
       sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
       const timestamp = Date.now();
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       const req = {
         zelid: '1Z1234341Z1234341Z1234341Z1234341',
         signature: '1234356asdf',
@@ -774,8 +773,6 @@ describe('idService tests', () => {
       sinon.stub(dbHelper, 'findOneInDatabase').resolves({
         loginPhrase: `${timestamp + 10000}11111111111111111111111111111`,
       });
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       const req = {
         zelid: '1Z1234341Z1234341Z1234341Z1234341',
         signature: '1234356asdf',
@@ -806,8 +803,6 @@ describe('idService tests', () => {
       sinon.stub(dbHelper, 'findOneInDatabase').resolves({
         loginPhrase: `${timestamp - 10000}11111111111111111111111111111`,
       });
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       const req = {
         zelid: '1Z1234341Z1234341Z1234341Z1234341',
         signature: '1234356asdf',
@@ -839,8 +834,6 @@ describe('idService tests', () => {
         loginPhrase: `${timestamp - 10000}11111111111111111111111111111`,
       });
       sinon.stub(dbHelper, 'insertOneToDatabase').resolves(true);
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       const req = {
         zelid: '1Z1234341Z1234341Z1234341Z1234341',
         signature: '1234356asdf',
@@ -1056,8 +1049,6 @@ describe('idService tests', () => {
         loginPhrase: `${timestamp - 10000}11111111111111111111111111111`,
       });
       sinon.stub(dbHelper, 'insertOneToDatabase').resolves(true);
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       const req = {
         zelid: '1Z1234341Z1234341Z1234341Z1234341',
         signature: '1234356asdf',
@@ -1112,8 +1103,6 @@ describe('idService tests', () => {
     it('should return the found item from DB', async () => {
       verifyPrivilegeStub.returns(true);
       const dbStub = sinon.stub(dbHelper, 'findInDatabase').resolves('item found');
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       const res = generateResponse();
 
       await idService.loggedUsers(undefined, res);
@@ -1153,8 +1142,6 @@ describe('idService tests', () => {
     it('should return the found item from DB', async () => {
       verifyPrivilegeStub.returns(true);
       const dbStub = sinon.stub(dbHelper, 'findInDatabase').resolves('item found');
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       const res = generateResponse();
       const req = {
         headers: {
@@ -1199,8 +1186,6 @@ describe('idService tests', () => {
     it('should return the found item from DB', async () => {
       verifyPrivilegeStub.returns(true);
       const dbStub = sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').resolves('item removed');
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       const res = generateResponse();
       const req = {
         headers: {
@@ -1252,8 +1237,6 @@ describe('idService tests', () => {
     it('should return the found item from DB', async () => {
       verifyPrivilegeStub.returns(true);
       const dbStub = sinon.stub(dbHelper, 'removeDocumentsFromCollection').resolves('doc removed');
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
       const res = generateResponse();
       const req = {
         headers: {
@@ -1286,8 +1269,6 @@ describe('idService tests', () => {
 
     beforeEach(async () => {
       dbStub = sinon.stub(dbHelper, 'findOneInDatabase');
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
     });
 
     afterEach(() => {
@@ -1384,8 +1365,6 @@ describe('idService tests', () => {
 
     beforeEach(async () => {
       dbStub = sinon.stub(dbHelper, 'findOneInDatabase');
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
     });
 
     afterEach(() => {

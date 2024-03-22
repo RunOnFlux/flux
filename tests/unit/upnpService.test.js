@@ -1,5 +1,6 @@
 /* eslint-disable class-methods-use-this */
 /* eslint-disable no-restricted-syntax */
+global.userconfig = require('../../config/userconfig')
 const chai = require('chai');
 const natUpnp = require('@runonflux/nat-upnp');
 const sinon = require('sinon');

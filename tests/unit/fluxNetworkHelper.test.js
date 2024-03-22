@@ -1776,7 +1776,7 @@ describe('fluxNetworkHelper tests', () => {
 
     it('should return an error message if allowPort status is false', async () => {
       const errorMessage = 'This is error message';
-      sinon.stub(serviceHelper, 'runCommand').resolves({ error: new Error(errorMessage) })
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: errorMessage })
       verifyPrivilegeStub.returns(true);
       const res = generateResponse();
       const req = {

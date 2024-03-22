@@ -995,7 +995,7 @@ function detectCollision(activatedNodes, nodeStatus, localEndpoint) {
     const olderNodes = duplicateEndpoints.filter((node) => node.confirmed_height <= confirmedHeight);
     // keep running only older collaterals
     if (olderNodes.length) {
-      const msg = 'Older node found on same endpoint. Disabling this node.';
+      const msg = `Older node found on same endpoint: ${localEndpoint}. Disabling this node.`;
       log.error(msg);
       dosState = 100;
       setDosMessage(msg);
@@ -1158,15 +1158,25 @@ async function allowPort(port) {
     return cmdStat;
   }
 
-  const { stdout: allowIn } = await serviceHelper.runCommand('ufw', {
+  const { stdout: allowIn, error: allowInError } = await serviceHelper.runCommand('ufw', {
     runAsRoot: true,
     params: ['allow', port],
   });
 
-  const { stdout: allowOut } = await serviceHelper.runCommand('ufw', {
+  if (allowInError) {
+    cmdStat.message = allowInError;
+    return cmdStat;
+  }
+
+  const { stdout: allowOut, stderr: allowOutError } = await serviceHelper.runCommand('ufw', {
     runAsRoot: true,
     params: ['allow', 'out', port],
   });
+
+  if (allowOutError) {
+    cmdStat.message = allowOutError;
+    return cmdStat;
+  }
 
   cmdStat.message = allowIn + allowOut;
   if (serviceHelper.ensureString(cmdStat.message).includes('updated') || serviceHelper.ensureString(cmdStat.message).includes('added')) {
@@ -1388,7 +1398,7 @@ async function adjustFirewall() {
   const firewallActive = await serviceHelper.isFirewallActive();
 
   if (!firewallActive) {
-    log.info('Firewall is not active. Adjustment not applied');
+    log.info('Firewall is not active. Adjustment not applied.');
     return;
   }
 
@@ -1584,7 +1594,7 @@ async function removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces) {
   // if (!iptablesInstalled) return false;
 
   // this doesn't need to be run as root, but just checking it's in root's PATH
-  const { iptablesExistsError } = await serviceHelper.runCommand('iptables', {
+  const { error: iptablesExistsError } = await serviceHelper.runCommand('iptables', {
     runAsRoot: true,
     logError: false,
     params: ['--version'],

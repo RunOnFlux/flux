@@ -60,7 +60,7 @@ async function fluxDaemonBlockchainInfo() {
     if (daemonBlockChainInfo.data.headers >= currentDaemonHeader) {
       currentDaemonHeader = daemonBlockChainInfo.data.headers;
     }
-    log.info(`Daemon Sync status: ${currentDaemonHeight} / ${currentDaemonHeader}`);
+    log.info(`Daemon Sync status: ${currentDaemonHeight}/${currentDaemonHeader}`);
   } catch (error) {
     log.warn(error);
   }
