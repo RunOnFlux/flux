@@ -6,7 +6,7 @@ const request = require('supertest');
 const config = require('config');
 const chai = require('chai');
 const app = require('../../ZelBack/src/lib/server');
-const log = require('../../ZelBack/src/lib/log');
+const log = require('../../lib/log');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const syncthingService = require('../../ZelBack/src/services/syncthingService');
 

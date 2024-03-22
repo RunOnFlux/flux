@@ -1,16 +1,15 @@
-/* global userconfig */
 const config = require('config');
 const path = require('path');
 const fs = require('fs').promises;
 const openpgp = require('openpgp');
 const generalService = require('./generalService');
-const log = require('../lib/log');
+const log = require('../../../lib/log');
 
 /**
  * To adjust PGP identity
  * @param {string} privateKey Armored version of private key
  * @param {string} publicKey Armored version of public key
- * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ * @returns {Prmoise<void>} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function adjustPGPidentity(privateKey, publicKey) {
   try {
@@ -43,6 +42,7 @@ async function adjustPGPidentity(privateKey, publicKey) {
 
 /**
  * To check if correct pgp identity exists
+ * @returns {Promise<Boolean>}
  */
 async function identityExists() {
   try {
@@ -70,6 +70,7 @@ async function identityExists() {
 
 /**
  * To generate and store new identity
+ * @returns {Promise<void>}
  */
 async function generateIdentity() {
   try {
@@ -101,7 +102,7 @@ async function generateIdentity() {
  * To encrypt a message with an array of encryption public keys
  * @param {string} message Message to encrypt
  * @param {array} encryptionKeys Armored version of array of public key
- * @returns {string} Return armored version of encrypted message
+ * @returns {Promise<string>} Return armored version of encrypted message
  */
 async function encryptMessage(message, encryptionKeys) {
   try {
@@ -124,7 +125,7 @@ async function encryptMessage(message, encryptionKeys) {
  * To decrypt a message with an armored private key
  * @param {string} encryptedMessage Message to encrypt
  * @param {string} decryptionKey Armored version of private key
- * @returns {string} Return plain text message
+ * @returns {Promise<string>} Return plain text message
  */
 async function decryptMessage(encryptedMessage, decryptionKey = userconfig.initial.pgpPrivateKey) {
   try {

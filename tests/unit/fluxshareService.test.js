@@ -1,10 +1,11 @@
+global.userconfig = require('../../config/userconfig');
 const chai = require('chai');
 const sinon = require('sinon');
 const chaiAsPromised = require('chai-as-promised');
 const proxyquire = require('proxyquire');
 const fs = require('fs');
 const util = require('util');
-const log = require('../../ZelBack/src/lib/log');
+const log = require('../../lib/log');
 
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
@@ -1306,6 +1307,7 @@ describe('idService tests', () => {
       sinon.stub(fs, 'readdirSync').returns(['file1', 'file2']);
       sinon.stub(fs, 'statSync').returns({
         size: 1000000,
+        isDirectory: sinon.stub().returns(false)
       });
     });
 

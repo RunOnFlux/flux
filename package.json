@@ -45,6 +45,9 @@
     "url": "https://github.com/runonflux/flux/issues"
   },
   "homepage": "https://github.com/runonflux/flux#readme",
+  "bin": {
+    "fluxos": "entrypoints/start.sh"
+  },
   "scripts": {
     "vuelint": "vue-cli-service lint",
     "lint": "eslint --ext .js,.vue ./",
@@ -52,7 +55,7 @@
     "test:e2e": "vue-cli-service test:e2e",
     "test:unit": "vue-cli-service test:unit",
     "test:zelback": "mocha tests/ZelBack",
-    "test:zelback:unit": "docker run -d --name fluxwebsite runonflux/website; env NODE_CONFIG_DIR=$PWD/tests/unit/globalconfig nyc --reporter=lcov mocha tests/unit/*.test.js --exit; docker stop fluxwebsite; docker rm fluxwebsite",
+    "test:zelback:unit": "docker run --rm -d --name fluxwebsite runonflux/website; env NODE_CONFIG_DIR=$PWD/tests/unit/globalconfig nyc --reporter=lcov mocha tests/unit/*.test.js --exit; docker stop fluxwebsite",
     "test:ethereumHelper": "env NODE_CONFIG_DIR=$PWD/tests/unit/globalconfig mocha tests/unit/ethereumHelper.test.js --exit",
     "prebuild": "bash checkNodeV.sh",
     "homedev": "patch-package && vue-cli-service serve --port 16126",
@@ -93,14 +96,15 @@
     "inquirer": "~8.2.6",
     "lru-cache": "~10.1.0",
     "mongodb": "~4.17.2",
-    "morgan": "~1.10.0",
     "nano-ethereum-signer": "~0.1.2",
-    "node-cmd": "~3.0.0",
+    "node-cmd": "^3.0.0",
     "node-df": "~0.1.4",
     "nodemon": "~2.0.22",
     "object-hash": "~3.0.0",
     "openpgp": "~5.11.0",
     "path": "~0.12.7",
+    "pino": "^8.19.0",
+    "pino-pretty": "^10.3.1",
     "qs": "~6.11.2",
     "socket.io": "~4.7.2",
     "splitargs": "~0.0.7",

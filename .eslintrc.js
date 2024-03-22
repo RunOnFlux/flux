@@ -6,6 +6,7 @@ module.exports = {
     commonjs: true,
     node: true,
     mocha: true,
+    es2020: true,
   },
   extends: [
     'plugin:vue/recommended',
@@ -14,6 +15,11 @@ module.exports = {
   plugins: [
     'vue',
   ],
+  globals: {
+    userconfig: true,
+    noop: false,
+    sleep: false,
+  },
   rules: {
     'max-len': [
       'error',

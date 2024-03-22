@@ -1,7 +1,6 @@
-/* eslint-disable no-underscore-dangle */
 const { LRUCache } = require('lru-cache');
 const WebSocket = require('ws');
-const log = require('../lib/log');
+const log = require('../../../lib/log');
 const serviceHelper = require('./serviceHelper');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const verificationHelper = require('./verificationHelper');
@@ -49,13 +48,15 @@ async function sendToAllPeers(data, wsList) {
           throw new Error(`Connection to ${client.ip} is not open`);
         }
       } catch (e) {
-        log.error(e);
+        // removed this error log. Generally, this happens because the remote end closed with 4000 (too many peers)
+        // It's not an error.
+        // log.error(e);
         removals.push(client);
         try {
           const { ip } = client;
           const { port } = client;
           // eslint-disable-next-line no-use-before-define
-          fluxNetworkHelper.closeConnection(ip, port);
+          fluxNetworkHelper.closeOutboundConnection(ip, port);
         } catch (err) {
           log.error(err);
         }
@@ -148,7 +149,7 @@ async function getFluxMessageSignature(message, privatekey) {
  * To serialise and sign a Flux broadcast.
  * @param {object} dataToBroadcast Data to broadcast. Contains version, timestamp, pubKey, signature and data.
  * @param {string} privatekey Private key.
- * @returns {string} Data string (serialised data object).
+ * @returns {Promise<string>} Data string (serialised data object).
  */
 async function serialiseAndSignFluxBroadcast(dataToBroadcast, privatekey) {
   const version = 1;
@@ -194,7 +195,7 @@ async function sendMessageToWS(message, ws) {
  * To respond with app message.
  * @param {object} message Message.
  * @param {object} ws Web socket.
- * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ * @returns {Promise<void>} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function respondWithAppMessage(message, ws) {
   try {

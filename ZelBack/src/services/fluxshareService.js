@@ -12,7 +12,7 @@ const messageHelper = require('./messageHelper');
 const dbHelper = require('./dbHelper');
 const verificationHelper = require('./verificationHelper');
 const generalService = require('./generalService');
-const log = require('../lib/log');
+const log = require('../../../lib/log');
 const IOUtils = require('./IOUtils');
 
 /**
@@ -855,7 +855,7 @@ async function fluxShareUpload(req, res) {
         }
       })
       .on('aborted', () => {
-        console.error('Request aborted by the user');
+        log.error('Request aborted by the user');
       })
       .on('error', (error) => {
         log.error(error);

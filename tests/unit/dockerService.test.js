@@ -1,3 +1,4 @@
+global.userconfig = require('../../config/userconfig');
 const chai = require('chai');
 const chaiAsPromised = require('chai-as-promised');
 const Dockerode = require('dockerode');
@@ -197,7 +198,7 @@ describe('dockerService tests', () => {
 
       const result = await dockerService.dockerListImages();
       result.forEach((image) => {
-        if (image.RepoTags[0].includes('runonflux/website')) fluxImage = image;
+        if (image.RepoTags.length && image.RepoTags[0].includes('runonflux/website')) fluxImage = image;
       });
 
       expect(fluxImage).to.exist;

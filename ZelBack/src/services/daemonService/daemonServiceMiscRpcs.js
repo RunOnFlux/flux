@@ -1,8 +1,7 @@
-/* global userconfig */
 const messageHelper = require('../messageHelper');
 const daemonServiceUtils = require('./daemonServiceUtils');
 const daemonServiceBlockchainRpcs = require('./daemonServiceBlockchainRpcs');
-const log = require('../../lib/log');
+const log = require('../../../../lib/log');
 
 const isTestnet = userconfig.initial.testnet;
 
@@ -54,26 +53,18 @@ async function fluxDaemonBlockchainInfo() {
   try {
     const daemonBlockChainInfo = await daemonServiceBlockchainRpcs.getBlockchainInfo();
     if (daemonBlockChainInfo.status !== 'success') {
-      return log.error(daemonBlockChainInfo.data.message || daemonBlockChainInfo.data);
+      log.error(daemonBlockChainInfo.data.message || daemonBlockChainInfo.data);
+      return null;
     }
     currentDaemonHeight = daemonBlockChainInfo.data.blocks;
     if (daemonBlockChainInfo.data.headers >= currentDaemonHeader) {
       currentDaemonHeader = daemonBlockChainInfo.data.headers;
     }
-    return log.info(`Daemon Sync status: ${currentDaemonHeight}/${currentDaemonHeader}`);
+    log.info(`Daemon Sync status: ${currentDaemonHeight}/${currentDaemonHeader}`);
   } catch (error) {
-    return log.warn(error);
+    log.warn(error);
   }
-}
-
-/**
- * To call the flux daemon blockchain info function at set intervals.
- */
-function daemonBlockchainInfoService() {
-  fluxDaemonBlockchainInfo();
-  setInterval(() => {
-    fluxDaemonBlockchainInfo();
-  }, 60 * 1000);
+  return null;
 }
 
 function getIsDaemonInsightExplorer() {
@@ -104,10 +95,9 @@ module.exports = {
   isInsightExplorer,
   // == NON Daemon ==
   isDaemonSynced,
-  daemonBlockchainInfoService,
+  fluxDaemonBlockchainInfo,
 
   // exports for testing purposes
-  fluxDaemonBlockchainInfo,
   getIsDaemonInsightExplorer,
   setIsDaemonInsightExplorer,
   setCurrentDaemonHeight,

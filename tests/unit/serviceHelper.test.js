@@ -1,12 +1,13 @@
 /* eslint-disable no-restricted-syntax */
+global.userconfig = require('../../config/userconfig')
 const chai = require('chai');
+const sinon = require('sinon');
 const config = require('config');
 const { ObjectId } = require('mongodb');
 const proxyquire = require('proxyquire');
 
 const { expect } = chai;
 
-let serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 
 const adminConfig = {
@@ -16,9 +17,19 @@ const adminConfig = {
     testnet: true,
   },
 };
-serviceHelper = proxyquire(
+
+let runCmdStub = sinon.stub();
+// runCmdStub.onCall(0).resolves({ stdout: 'Status: active', error: null })
+// runCmdStub.onCall(1).resolves({ stdout: 'Status: inactive', error: null })
+// runCmdStub.onCall(2).throws(new Error('Test Error'));
+
+const commandRunner = require('../../ZelBack/src/services/commandRunner')
+
+const utilFake = { promisify: () => runCmdStub };
+
+const serviceHelper = proxyquire(
   '../../ZelBack/src/services/serviceHelper',
-  { '../../../config/userconfig': adminConfig },
+  { '../../../config/userconfig': adminConfig, 'node:util': utilFake },
 );
 
 describe('serviceHelper tests', () => {
@@ -313,8 +324,8 @@ describe('serviceHelper tests', () => {
   });
 
   describe('commandStringToArray tests', () => {
-    beforeEach(() => {});
-    afterEach(() => {});
+    beforeEach(() => { });
+    afterEach(() => { });
 
     it('should split double quoted string', () => {
       const i = " I  said 'I am sorry.', and he said \"it doesn't matter.\" ";
@@ -366,6 +377,43 @@ describe('serviceHelper tests', () => {
       expect(o[4]).to.equal('he');
       expect(o[5]).to.equal('said');
       expect(o[6]).to.equal("it doesn't matter.");
+    });
+  });
+
+  describe('isFirewallActive tests', () => {
+
+    beforeEach(() => {
+      serviceHelper.resetFirewallStatus();
+    })
+    afterEach(() => {
+      runCmdStub.reset();
+    });
+
+    it('should return true if firewall is active', async () => {
+      runCmdStub.resolves({ stdout: 'Status: active', error: null })
+
+      const isFirewallActive = await serviceHelper.isFirewallActive();
+
+      expect(isFirewallActive).to.be.true;
+      sinon.assert.calledOnceWithExactly(runCmdStub, 'sudo', ['ufw', 'status'], {});
+    });
+
+    it('should return false if firewall is not active', async () => {
+      runCmdStub.resolves({ stdout: 'Status: inactive', error: null })
+
+      const isFirewallActive = await serviceHelper.isFirewallActive();
+
+      expect(isFirewallActive).to.be.false;
+      sinon.assert.calledOnceWithExactly(runCmdStub, 'sudo', ['ufw', 'status'], {});
+    });
+
+    it('should return false if command execution returns error', async () => {
+      runCmdStub.rejects({ stdout: null, stderr: null, error: true });
+
+      const isFirewallActive = await serviceHelper.isFirewallActive();
+
+      expect(isFirewallActive).to.be.false;
+      sinon.assert.calledOnceWithExactly(runCmdStub, 'sudo', ['ufw', 'status'], {});
     });
   });
 });

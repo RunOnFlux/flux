@@ -450,7 +450,7 @@ module.exports = (app, expressWs) => {
     syncthingService.getMeta(req, res);
   });
   app.get('/syncthing/deviceid', cache('30 seconds'), (req, res) => {
-    syncthingService.getDeviceID(req, res);
+    syncthingService.getDeviceIdApi(req, res);
   });
   app.get('/syncthing/health', cache('30 seconds'), (req, res) => {
     syncthingService.getHealth(req, res);
@@ -950,6 +950,9 @@ module.exports = (app, expressWs) => {
   app.get('/flux/entermaster', (req, res) => {
     fluxService.enterMaster(req, res);
   });
+  app.get('/flux/getcurrentbranch', (req, res) => {
+    fluxService.getCurrentBranch(req, res);
+  });
   app.get('/flux/enterdevelopment', (req, res) => {
     fluxService.enterDevelopment(req, res);
   });
@@ -1074,13 +1077,13 @@ module.exports = (app, expressWs) => {
   });
 
   app.get('/explorer/reindex/:reindexapps?', (req, res) => {
-    explorerService.reindexExplorer(req, res);
+    explorerService.reindexExplorerApi(req, res);
   });
   app.get('/explorer/restart', (req, res) => {
-    explorerService.restartBlockProcessing(req, res);
+    explorerService.restartBlockProcessorApi(req, res);
   });
   app.get('/explorer/stop', (req, res) => {
-    explorerService.stopBlockProcessing(req, res);
+    explorerService.stopBlockProcessorApi(req, res);
   });
   app.get('/explorer/rescan/:blockheight?/:rescanapps?', (req, res) => {
     explorerService.rescanExplorer(req, res);

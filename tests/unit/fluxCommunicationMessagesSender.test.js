@@ -49,7 +49,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     };
 
     beforeEach(() => {
-      closeConnectionStub = sinon.stub(fluxNetworkHelper, 'closeConnection');
+      closeConnectionStub = sinon.stub(fluxNetworkHelper, 'closeOutboundConnection');
       outgoingConnections.length = 0;
       outgoingPeers.length = 0;
     });
@@ -427,7 +427,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     it('should send an empty message to the given websocket if keys are accessible through config', async () => {
       fluxNetworkHelperPublicKeyStub.returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
       fluxNetworkHelperPrivateKeyStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
-      const data = { };
+      const data = {};
       const websocket = generateWebsocket();
 
       await fluxCommunicationMessagesSender.sendMessageToWS(data, websocket);
@@ -1272,7 +1272,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
     beforeEach(() => {
       outgoingConnections.length = 0;
-      sinon.stub(fluxNetworkHelper, 'closeConnection').returns(true);
+      sinon.stub(fluxNetworkHelper, 'closeOutboundConnection').returns(true);
       fluxNetworkHelperPublicKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey');
       fluxNetworkHelperPrivateKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey');
     });
@@ -1464,7 +1464,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
     beforeEach(() => {
       incomingConnections.length = 0;
-      sinon.stub(fluxNetworkHelper, 'closeConnection').returns(true);
+      sinon.stub(fluxNetworkHelper, 'closeOutboundConnection').returns(true);
       fluxNetworkHelperPublicKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey');
       fluxNetworkHelperPrivateKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey');
     });
@@ -1669,7 +1669,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
     beforeEach(() => {
       incomingConnections.length = 0;
-      sinon.stub(fluxNetworkHelper, 'closeConnection').returns(true);
+      sinon.stub(fluxNetworkHelper, 'closeOutboundConnection').returns(true);
       fluxNetworkHelperPublicKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey');
       fluxNetworkHelperPrivateKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey');
     });

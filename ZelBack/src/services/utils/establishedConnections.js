@@ -1,3 +1,5 @@
+// change these to maps
+
 const incomingConnections = []; // websocket list
 const incomingPeers = []; // array of objects containing ip, port
 const outgoingConnections = []; // websocket list

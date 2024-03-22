@@ -38,10 +38,10 @@ async function connectMongoDb(url) {
 
 /**
  * Initiates default db connection.
- * @returns true
+ * @returns {Promise<true>}
  */
 async function initiateDB() {
-  openDBConnection = await connectMongoDb();
+  if (!openDBConnection) openDBConnection = await connectMongoDb();
   return true;
 }
 
@@ -229,7 +229,7 @@ async function removeDocumentsFromCollection(database, collection, query) {
  * @param {string} database
  * @param {string} collection
  *
- * @returns object
+ * @returns {Boolean}
  */
 async function dropCollection(database, collection) {
   const result = await database.collection(collection).drop();

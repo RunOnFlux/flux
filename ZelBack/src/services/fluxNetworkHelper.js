@@ -1,15 +1,12 @@
-/* global userconfig */
 /* eslint-disable no-underscore-dangle */
 const config = require('config');
 const zeltrezjs = require('zeltrezjs');
-const nodecmd = require('node-cmd');
 const fs = require('fs').promises;
 const path = require('path');
 const os = require('os');
 // eslint-disable-next-line import/no-extraneous-dependencies
-const util = require('util');
 const { LRUCache } = require('lru-cache');
-const log = require('../lib/log');
+const log = require('../../../lib/log');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
@@ -37,6 +34,10 @@ const LRUoptions = {
 };
 
 const myCache = new LRUCache(LRUoptions);
+
+// Flux Network Controller
+let fnc = new serviceHelper.FluxController();
+let sentinelTimeout = null;
 
 // my external Flux IP from benchmark
 let myFluxIP = null;
@@ -201,25 +202,34 @@ function isPortUPNPBanned(port) {
  * To perform a basic check if port on an ip is opened
  * @param {string} ip IP address.
  * @param {number} port Port.
- * @returns {boolean} Returns true if opened, otherwise false
+ * @returns {Promise<boolean>} Returns true if opened, otherwise false
  */
 async function isPortOpen(ip, port) {
-  try {
-    const exec = `nc -w 5 -z -v ${ip} ${port} </dev/null; echo $?`;
-    const cmdAsync = util.promisify(nodecmd.get);
-    const result = await cmdAsync(exec);
-    return !+result;
-  } catch (error) {
-    log.error(error);
-    return false;
-  }
+  // -w = wait
+  // -z = only check that SYN,ACK is received, don't send data
+  const timeout = '5'; // seconds
+  const { error } = await serviceHelper.runCommand('nc', {
+    params: ['-w', timeout, '-z', ip, port],
+  });
+
+  return !error;
+
+  // try {
+  //   const exec = `nc -w 5 -z -v ${ip} ${port} </dev/null; echo $?`;
+  //   const cmdAsync = util.promisify(nodecmd.get);
+  //   const result = await cmdAsync(exec);
+  //   return !+result;
+  // } catch (error) {
+  //   log.error(error);
+  //   return false;
+  // }
 }
 
 /**
  * To perform a basic check of current FluxOS version.
  * @param {string} ip IP address.
  * @param {string} port Port. Defaults to config.server.apiport.
- * @returns {boolean} False unless FluxOS version meets or exceeds the minimum allowed version.
+ * @returns {Promise<boolean>} False unless FluxOS version meets or exceeds the minimum allowed version.
  */
 async function isFluxAvailable(ip, port = config.server.apiport) {
   try {
@@ -324,13 +334,13 @@ async function checkAppAvailability(req, res) {
           // eslint-disable-next-line no-await-in-loop
           const isOpen = await isPortOpen(ip, port);
           if (!isOpen) {
-            throw new Error(`Flux Applications on ${ip}:${ipPort} are not available. Failed port: ${port}`);
+            throw new Error(`Flux Apps on node ${ip}:${ipPort} are not reachable. Failed port: ${port}`);
           }
         } else {
           log.error(`Flux App port ${port} is outside allowed range.`);
         }
       }
-      const successResponse = messageHelper.createSuccessMessage(`Flux Applications on ${ip}:${ipPort} are available.`);
+      const successResponse = messageHelper.createSuccessMessage(`Flux Apps on node ${ip}:${ipPort} are reachable.`);
       res.json(successResponse);
     } catch (error) {
       const errorResponse = messageHelper.createErrorMessage(
@@ -395,7 +405,7 @@ function getDosStateValue() {
 
 /**
  * To get Flux IP adress and port.
- * @returns {string} IP address and port.
+ * @returns {Promise<string>} IP address and port.
  */
 async function getMyFluxIPandPort() {
   const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
@@ -413,7 +423,7 @@ async function getMyFluxIPandPort() {
 /**
  * To get FluxNode private key.
  * @param {string} privatekey Private Key.
- * @returns {string} Private key, if already input as parameter or otherwise from the daemon config.
+ * @returns {Promise<string>} Private key, if already input as parameter or otherwise from the daemon config.
  */
 async function getFluxNodePrivateKey(privatekey) {
   const privKey = privatekey || daemonServiceUtils.getConfigValue('zelnodeprivkey');
@@ -423,7 +433,7 @@ async function getFluxNodePrivateKey(privatekey) {
 /**
  * To get FluxNode public key.
  * @param {string} privatekey Private key.
- * @returns {string} Public key.
+ * @returns {Promise<string>} Public key.
  */
 async function getFluxNodePublicKey(privatekey) {
   try {
@@ -439,7 +449,7 @@ async function getFluxNodePublicKey(privatekey) {
 
 /**
  * To get a random connection.
- * @returns {string} IP:Port or just IP if default.
+ * @returns {Promise<string>} IP:Port or just IP if default.
  */
 async function getRandomConnection() {
   const nodeList = await fluxCommunicationUtils.deterministicFluxList();
@@ -461,9 +471,9 @@ async function getRandomConnection() {
  * To close an outgoing connection.
  * @param {string} ip IP address.
  * @param {string} port node API port.
- * @returns {object} Message.
+ * @returns {Promise<object>} Message.
  */
-async function closeConnection(ip, port) {
+async function closeOutboundConnection(ip, port) {
   if (!ip) return messageHelper.createWarningMessage('To close a connection please provide a proper IP number.');
   const peerIndex = outgoingPeers.findIndex((peer) => peer.ip === ip && peer.port === port);
   if (peerIndex > -1) {
@@ -486,7 +496,7 @@ async function closeConnection(ip, port) {
  * @param {string} port node API port.
  * @param {object} expressWS Express web socket.
  * @param {object} clientToClose Web socket for client to close.
- * @returns {object} Message.
+ * @returns {Promise<object>} Message.
  */
 async function closeIncomingConnection(ip, port, expressWS, clientToClose) {
   if (!ip) return messageHelper.createWarningMessage('To close a connection please provide a proper IP number.');
@@ -595,7 +605,7 @@ function getStoredFluxBenchAllowed() {
 
 /**
  * To check if Flux benchmark version is allowed.
- * @returns {boolean} True if version is verified as allowed. Otherwise false.
+ * @returns {Promise<boolean>} True if version is verified as allowed. Otherwise false.
  */
 async function checkFluxbenchVersionAllowed() {
   if (storedFluxBenchAllowed) {
@@ -605,7 +615,7 @@ async function checkFluxbenchVersionAllowed() {
   try {
     const benchmarkInfoResponse = await benchmarkService.getInfo();
     if (benchmarkInfoResponse.status === 'success') {
-      log.info(benchmarkInfoResponse);
+      log.info('Benchmark Info:', benchmarkInfoResponse.data);
       const benchmarkVersion = benchmarkInfoResponse.data.version;
       setStoredFluxBenchAllowed(benchmarkVersion);
       const versionOK = minVersionSatisfy(benchmarkVersion, config.minimumFluxBenchAllowedVersion);
@@ -692,7 +702,7 @@ function isCommunicationEstablished(req, res) {
 /**
  * To check user's FluxNode availability.
  * @param {number} retryNumber Number of retries.
- * @returns {boolean} True if all checks passed.
+ * @returns {Promise<boolean>} True if all checks passed.
  */
 async function checkMyFluxAvailability(retryNumber = 0) {
   let userBlockedPorts = userconfig.initial.blockedPorts || [];
@@ -739,8 +749,9 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   };
   const apiPort = userconfig.initial.apiport || config.server.apiport;
   const resMyAvailability = await serviceHelper.axiosGet(`http://${askingIP}:${askingIpPort}/flux/checkfluxavailability?ip=${myIP}&port=${apiPort}`, axiosConfigAux).catch((error) => {
+    // ToDo: fix this. It should check if connection refused or unreachable (ECONNREFUSED, EHOSTUNREACH). I.e... it's not us.
     log.error(`${askingIP} is not reachable`);
-    log.error(error);
+    log.error(error.message);
     availabilityError = true;
   });
   if (!resMyAvailability || availabilityError) {
@@ -830,7 +841,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
 /**
  * To adjust an external IP.
  * @param {string} ip IP address.
- * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ * @returns {Promise<void>} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function adjustExternalIP(ip) {
   try {
@@ -920,96 +931,143 @@ async function adjustExternalIP(ip) {
 }
 
 /**
- * To check deterministic node collisions (i.e. if multiple FluxNode instances detected).
- * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ * Dependent on network size (> 12) reaches out to other nodes and checks that this
+ * node is reachable over the internet. If < 12, i.e. testnet, waits until node has been
+ * up for 6 hours before reaching out to other nodes, unless there is an error, then it runs
+ * immediately (this probably needs a little work)
+ * @param {number} networkSize
+ *
+ * @returns  {Promise<void}
  */
-async function checkDeterministicNodesCollisions() {
+async function ensureNodeIsReachable(networkSize, localEndpoint) {
+  // pulled out of checkDeterministicNodesCollisions, was running every 60 seconds
+
+  // minOut = 8, minIn = 4
+  if (networkSize > config.fluxapps.minIncoming + config.fluxapps.minOutgoing) {
+    const availabilityOk = await checkMyFluxAvailability();
+    if (availabilityOk) {
+      await adjustExternalIP(localEndpoint.split(':')[0]);
+    }
+  } else { // (testnet) wait 6 hours
+    const measuredUptime = fluxUptime();
+    if (measuredUptime.status === 'success' && measuredUptime.data > (config.fluxapps.minUpTime * 12)) {
+      const availabilityOk = await checkMyFluxAvailability();
+      if (availabilityOk) {
+        await adjustExternalIP(localEndpoint.split(':')[0]);
+      }
+      // do this better, it should be it's own DOS score
+    } else if (measuredUptime.status === 'error') {
+      log.error('Flux uptime unavailable');
+      const availabilityOk = await checkMyFluxAvailability();
+      if (availabilityOk) {
+        await adjustExternalIP(localEndpoint.split(':')[0]);
+      }
+    }
+  }
+}
+
+/**
+ * To check deterministic node collisions (i.e. same endPoint(ip:port)
+ * @param {object[]} activatedNodes the deterministic node list
+ * @param {object} nodeStatus the current status of the Fluxnode from fluxd
+ * @returns {void}
+ */
+function detectCollision(activatedNodes, nodeStatus, localEndpoint) {
+  // another precatuion might be comparing node list on multiple nodes. evaluate in the future
+
+  const duplicateEndpoints = activatedNodes.filter((node) => node.ip === localEndpoint);
+  const { collateral, confirmed_height: confirmedHeight } = nodeStatus;
+  const activated = duplicateEndpoints.find((node) => node.collateral === collateral);
+
+  const endpointCount = duplicateEndpoints.length;
+
+  // This node is not activated and another node is using the same endpoint with a different confirmation tx
+  if (!activated && endpointCount) {
+    const msg = 'Flux collision detected. Another Fluxnode is confirmed on the Flux network with '
+      + 'the same ip:port using a different confirmation tx. Disabling this node.';
+    log.error(msg);
+    dosState = 100;
+    setDosMessage(msg);
+  } else if (activated && endpointCount > 1) {
+    log.warn(`Multiple Fluxnode instances detected on endPoint: ${localEndpoint}`);
+    // todo we may want to introduce new readded heights and readded confirmations
+    // I removed this, if and when it gets added, we can add it back in
+    const olderNodes = duplicateEndpoints.filter((node) => node.confirmed_height <= confirmedHeight);
+    // keep running only older collaterals
+    if (olderNodes.length) {
+      const msg = `Older node found on same endpoint: ${localEndpoint}. Disabling this node.`;
+      log.error(msg);
+      dosState = 100;
+      setDosMessage(msg);
+    }
+  }
+}
+
+/**
+ * Makes sure only this endpoint (ip:port) is activated on the network, if there
+ * is more than one, the youngest Fluxnode is shut down. Also checks that this node
+ * is reachable from other nodes.
+ * @returns {Promise<number>} ms until the next run (60s by default)
+ */
+async function runNetworkSentinel() {
+  if (fnc.aborted || fnc.locked) return 0;
+
+  fnc.lock.enable();
+
   try {
-    // get my external ip address
-    // get node list with filter on this ip address
-    // if it returns more than 1 object, shut down.
-    // another precatuion might be comparing node list on multiple nodes. evaulate in the future
-    const myIP = await getMyFluxIPandPort();
-    if (myIP) {
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      if (!syncStatus.data.synced) {
-        setTimeout(() => {
-          checkDeterministicNodesCollisions();
-        }, 120 * 1000);
-        return;
-      }
-      const nodeList = await fluxCommunicationUtils.deterministicFluxList();
-      const result = nodeList.filter((node) => node.ip === myIP);
-      const nodeStatus = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
-      if (nodeStatus.status === 'success') { // different scenario is caught elsewhere
-        const myCollateral = nodeStatus.data.collateral;
-        const myNode = result.find((node) => node.collateral === myCollateral);
-        if (result.length > 1) {
-          log.warn('Multiple Flux Node instances detected');
-          if (myNode) {
-            const myBlockHeight = myNode.readded_confirmed_height || myNode.confirmed_height; // todo we may want to introduce new readded heights and readded confirmations
-            const filterEarlierSame = result.filter((node) => (node.readded_confirmed_height || node.confirmed_height) <= myBlockHeight);
-            // keep running only older collaterals
-            if (filterEarlierSame.length >= 1) {
-              log.error(`Flux earlier collision detection on ip:${myIP}`);
-              dosState = 100;
-              setDosMessage(`Flux earlier collision detection on ip:${myIP}`);
-              setTimeout(() => {
-                checkDeterministicNodesCollisions();
-              }, 60 * 1000);
-              return;
-            }
-          }
-          // prevent new activation
-        } else if (result.length === 1) {
-          if (!myNode) {
-            log.error('Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.');
-            dosState = 100;
-            setDosMessage('Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.');
-            setTimeout(() => {
-              checkDeterministicNodesCollisions();
-            }, 60 * 1000);
-            return;
-          }
-        }
-      }
-      // early stages of the network or testnet
-      if (nodeList.length > config.fluxapps.minIncoming + config.fluxapps.minOutgoing) {
-        const availabilityOk = await checkMyFluxAvailability();
-        if (availabilityOk) {
-          await adjustExternalIP(myIP.split(':')[0]);
-        }
-      } else { // sufficient amount of nodes has to appear on the network within 6 hours
-        const measuredUptime = fluxUptime();
-        if (measuredUptime.status === 'success' && measuredUptime.data > (config.fluxapps.minUpTime * 12)) {
-          const availabilityOk = await checkMyFluxAvailability();
-          if (availabilityOk) {
-            await adjustExternalIP(myIP.split(':')[0]);
-          }
-        } else if (measuredUptime.status === 'error') {
-          log.error('Flux uptime unavailable');
-          const availabilityOk = await checkMyFluxAvailability();
-          if (availabilityOk) {
-            await adjustExternalIP(myIP.split(':')[0]);
-          }
-        }
-      }
-    } else {
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    if (!syncStatus.data.synced) {
+      return 2 * 60 * 1000;
+    }
+
+    const localEndpoint = await getMyFluxIPandPort();
+    if (!localEndpoint) {
       dosState += 1;
       if (dosState > 10) {
         setDosMessage(dosMessage || 'Flux IP detection failed');
         log.error(dosMessage);
+        return 60 * 1000;
       }
     }
-    setTimeout(() => {
-      checkDeterministicNodesCollisions();
-    }, 60 * 1000);
+
+    const activatedNodes = await fluxCommunicationUtils.deterministicFluxList();
+    const statusRes = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
+
+    // different scenario is caught elsewhere ??? - where?
+    if (!statusRes.status === 'success') {
+      return 60 * 1000;
+    }
+
+    detectCollision(activatedNodes, statusRes.data, localEndpoint);
+    await ensureNodeIsReachable(activatedNodes.length, localEndpoint);
+
+    return 60 * 1000;
   } catch (error) {
-    log.error(error);
-    setTimeout(() => {
-      checkDeterministicNodesCollisions();
-    }, 120 * 1000);
+    if (error.name !== 'AbortError') {
+      log.error(error);
+      return 2 * 60 * 1000;
+    }
+  } finally {
+    fnc.lock.disable();
   }
+  return 0;
+}
+
+async function loopRunNetworkSentinel() {
+  const ms = await runNetworkSentinel();
+  if (!ms) return;
+  sentinelTimeout = setTimeout(loopRunNetworkSentinel, ms);
+}
+
+function startNetworkSentinel() {
+  loopRunNetworkSentinel();
+}
+
+async function stopNetworkSentinel() {
+  if (sentinelTimeout) clearTimeout(sentinelTimeout);
+  sentinelTimeout = null;
+  await fnc.abort();
+  fnc = new serviceHelper.FluxController();
 }
 
 /**
@@ -1027,42 +1085,70 @@ function getDOSState(req, res) {
   return res ? res.json(response) : response;
 }
 
-/**
- * To allow a port.
- * @param {string} port Port.
- * @returns {object} Command status.
- */
-async function allowPort(port) {
-  const cmdAsync = util.promisify(nodecmd.get);
-  const cmdStat = {
-    status: false,
-    message: null,
-  };
-  if (Number.isNaN(+port)) {
-    cmdStat.message = 'Port needs to be a number';
-    return cmdStat;
+async function allowUfwPorts(targetPorts, options = {}) {
+  const allowIn = options.in || false;
+  const allowOut = options.out || false;
+
+  if (!allowIn && !allowOut) return;
+
+  function logCmdStatus(stdout, direction, ports, proto) {
+    if (serviceHelper.ensureString(stdout).includes('updated')
+      || serviceHelper.ensureString(stdout).includes('existing')
+      || serviceHelper.ensureString(stdout).includes('added')) {
+      log.info(`Firewall adjusted ${direction} for ports: ${ports}/${proto}`);
+    } else {
+      log.warn(`Failed to adjust firewall ${direction} for ports: ${ports}/${proto}`);
+    }
   }
-  const exec = `LANG="en_US.UTF-8" && sudo ufw allow ${port} && sudo ufw allow out ${port}`;
-  const cmdres = await cmdAsync(exec);
-  cmdStat.message = cmdres;
-  if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
-    cmdStat.status = true;
-  } else if (serviceHelper.ensureString(cmdres).includes('existing')) {
-    cmdStat.status = true;
-    cmdStat.message = 'existing';
-  } else {
-    cmdStat.status = false;
+
+  async function allowPorts(ports, proto) {
+    if (!ports.length) return;
+
+    if (allowIn) {
+      // const inCmd = `sudo ufw allow ${ports}/${proto}`
+      // const allowedIn = await cmdAsync(inCmd).catch(noop);
+      const { stdout: allowedIn } = await serviceHelper.runCommand('ufw', {
+        runAsRoot: true,
+        logError: false,
+        params: ['allow', `${ports}/${proto}`],
+      });
+      logCmdStatus(allowedIn, 'inbound', ports, proto);
+    }
+
+    if (allowOut) {
+      // const outCmd = `sudo ufw allow out ${ports}/${proto}`;
+      // const allowedOut = await cmdAsync(outCmd).catch(noop);
+      const { stdout: allowedOut } = await serviceHelper.runCommand('ufw', {
+        runAsRoot: true,
+        logError: false,
+        params: ['allow', 'out', `${ports}/${proto}`],
+      });
+      logCmdStatus(allowedOut, 'outbound', ports, proto);
+    }
   }
-  return cmdStat;
+
+  const parsedPorts = targetPorts.reduce((acc, p) => {
+    const [port, protocol] = p.toString().split('/');
+    if (protocol) {
+      acc[protocol].push(port);
+    } else {
+      acc.tcp.push(port);
+      acc.udp.push(port);
+    }
+    return acc;
+  }, { tcp: [], udp: [] });
+
+  await allowPorts(parsedPorts.tcp, 'tcp');
+  await allowPorts(parsedPorts.udp, 'udp');
 }
 
 /**
- * To allow out a port.
+ * To allow a port.
  * @param {string} port Port.
- * @returns {object} Command status.
+ * @returns {Promise<object>} Command status.
  */
-async function allowOutPort(port) {
-  const cmdAsync = util.promisify(nodecmd.get);
+async function allowPort(port) {
+  // ToDo: Fix this
   const cmdStat = {
     status: false,
     message: null,
@@ -1071,12 +1157,31 @@ async function allowOutPort(port) {
     cmdStat.message = 'Port needs to be a number';
     return cmdStat;
   }
-  const exec = `LANG="en_US.UTF-8" && sudo ufw allow out ${port}`;
-  const cmdres = await cmdAsync(exec);
-  cmdStat.message = cmdres;
-  if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
+
+  const { stdout: allowIn, error: allowInError } = await serviceHelper.runCommand('ufw', {
+    runAsRoot: true,
+    params: ['allow', port],
+  });
+
+  if (allowInError) {
+    cmdStat.message = allowInError;
+    return cmdStat;
+  }
+
+  const { stdout: allowOut, stderr: allowOutError } = await serviceHelper.runCommand('ufw', {
+    runAsRoot: true,
+    params: ['allow', 'out', port],
+  });
+
+  if (allowOutError) {
+    cmdStat.message = allowOutError;
+    return cmdStat;
+  }
+
+  cmdStat.message = allowIn + allowOut;
+  if (serviceHelper.ensureString(cmdStat.message).includes('updated') || serviceHelper.ensureString(cmdStat.message).includes('added')) {
     cmdStat.status = true;
-  } else if (serviceHelper.ensureString(cmdres).includes('existing')) {
+  } else if (serviceHelper.ensureString(cmdStat.message).includes('existing')) {
     cmdStat.status = true;
     cmdStat.message = 'existing';
   } else {
@@ -1088,10 +1193,9 @@ async function allowOutPort(port) {
 /**
  * To deny a port.
  * @param {string} port Port.
- * @returns {object} Command status.
+ * @returns {Promise<object>} Command status.
  */
 async function denyPort(port) {
-  const cmdAsync = util.promisify(nodecmd.get);
   const cmdStat = {
     status: false,
     message: null,
@@ -1105,12 +1209,23 @@ async function denyPort(port) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
-  const exec = `LANG="en_US.UTF-8" && sudo ufw deny ${port} && sudo ufw deny out ${port}`;
-  const cmdres = await cmdAsync(exec);
-  cmdStat.message = cmdres;
-  if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
+
+  const { stdout: denyIn } = await serviceHelper.runCommand('ufw', {
+    runAsRoot: true,
+    params: ['deny', port],
+  });
+
+  const { stdout: denyOut } = await serviceHelper.runCommand('ufw', {
+    runAsRoot: true,
+    params: ['deny', 'out', port],
+  });
+
+  // const exec = `sudo ufw deny ${port} && sudo ufw deny out ${port}`;
+  // const cmdres = await cmdAsync(exec);
+  cmdStat.message = denyIn + denyOut;
+  if (serviceHelper.ensureString(cmdStat.message).includes('updated') || serviceHelper.ensureString(cmdStat.message).includes('added')) {
     cmdStat.status = true;
-  } else if (serviceHelper.ensureString(cmdres).includes('existing')) {
+  } else if (serviceHelper.ensureString(cmdStat.message).includes('existing')) {
     cmdStat.status = true;
     cmdStat.message = 'existing';
   } else {
@@ -1122,10 +1237,9 @@ async function denyPort(port) {
 /**
  * To delete a ufw allow rule on port.
  * @param {string} port Port.
- * @returns {object} Command status.
+ * @returns {Promise<object>} Command status.
  */
 async function deleteAllowPortRule(port) {
-  const cmdAsync = util.promisify(nodecmd.get);
   const cmdStat = {
     status: false,
     message: null,
@@ -1139,10 +1253,21 @@ async function deleteAllowPortRule(port) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
-  const exec = `LANG="en_US.UTF-8" && sudo ufw delete allow ${port} && sudo ufw delete allow out ${port}`;
-  const cmdres = await cmdAsync(exec);
-  cmdStat.message = cmdres;
-  if (serviceHelper.ensureString(cmdres).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
+
+  const { stdout: deleteAllowIn } = await serviceHelper.runCommand('ufw', {
+    runAsRoot: true,
+    params: ['delete', 'allow', port],
+  });
+
+  const { stdout: deleteAllowOut } = await serviceHelper.runCommand('ufw', {
+    runAsRoot: true,
+    params: ['delete', 'allow', 'out', port],
+  });
+
+  // const exec = `sudo ufw delete allow ${port} && sudo ufw delete allow out ${port}`;
+  // const cmdres = await cmdAsync(exec);
+  cmdStat.message = deleteAllowIn + deleteAllowOut;
+  if (serviceHelper.ensureString(cmdStat.message).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
     cmdStat.status = true;
   } else {
     cmdStat.status = false;
@@ -1153,10 +1278,11 @@ async function deleteAllowPortRule(port) {
 /**
  * To delete a ufw deny rule on port.
  * @param {string} port Port.
- * @returns {object} Command status.
+ * @returns {Promise<object>} Command status.
  */
-async function deleteDenyPortRule(port) {
-  const cmdAsync = util.promisify(nodecmd.get);
+async function deleteDenyPortRule(portWithOptionalProto) {
+  const [port, proto] = portWithOptionalProto.split('/');
+
   const cmdStat = {
     status: false,
     message: null,
@@ -1165,15 +1291,31 @@ async function deleteDenyPortRule(port) {
     cmdStat.message = 'Port needs to be a number';
     return cmdStat;
   }
+
+  if (proto && (proto !== 'tcp' || proto !== 'udp')) {
+    cmdStat.message = 'Protocol must be tcp or udp';
+  }
+
   const portBanned = isPortBanned(+port);
   if (+port < (config.fluxapps.portMinNew) || +port > config.fluxapps.portMaxNew || portBanned) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
-  const exec = `LANG="en_US.UTF-8" && sudo ufw delete deny ${port} && sudo ufw delete deny out ${port}`;
-  const cmdres = await cmdAsync(exec);
-  cmdStat.message = cmdres;
-  if (serviceHelper.ensureString(cmdres).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
+
+  const { stdout: deleteDenyIn } = await serviceHelper.runCommand('ufw', {
+    runAsRoot: true,
+    params: ['delete', 'deny', portWithOptionalProto],
+  });
+
+  const { stdout: deleteDenyOut } = await serviceHelper.runCommand('ufw', {
+    runAsRoot: true,
+    params: ['delete', 'deny', 'out', portWithOptionalProto],
+  });
+
+  // const exec = `sudo ufw delete deny ${port} && sudo ufw delete deny out ${port}`;
+  // const cmdres = await cmdAsync(exec);
+  cmdStat.message = deleteDenyIn + deleteDenyOut;
+  if (serviceHelper.ensureString(cmdStat.message).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
     cmdStat.status = true;
   } else {
     cmdStat.status = false;
@@ -1184,10 +1326,9 @@ async function deleteDenyPortRule(port) {
 /**
  * To delete a ufw allow rule on port.
  * @param {string} port Port.
- * @returns {object} Command status.
+ * @returns {Promise<object>} Command status.
  */
 async function deleteAllowOutPortRule(port) {
-  const cmdAsync = util.promisify(nodecmd.get);
   const cmdStat = {
     status: false,
     message: null,
@@ -1201,10 +1342,17 @@ async function deleteAllowOutPortRule(port) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
-  const exec = `LANG="en_US.UTF-8" && sudo ufw delete allow out ${port}`;
-  const cmdres = await cmdAsync(exec);
-  cmdStat.message = cmdres;
-  if (serviceHelper.ensureString(cmdres).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
+
+  const { stdout } = await serviceHelper.runCommand('ufw', {
+    runAsRoot: true,
+    params: ['delete', 'allow', 'out', port],
+  });
+
+  // const exec = `sudo ufw delete allow out ${port}`;
+  // const cmdres = await cmdAsync(exec);
+
+  cmdStat.message = stdout;
+  if (serviceHelper.ensureString(cmdStat.message).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
     cmdStat.status = true;
   } else {
     cmdStat.status = false;
@@ -1216,7 +1364,7 @@ async function deleteAllowOutPortRule(port) {
  * To allow a port via API. Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {object} Message.
+ * @returns {Promise<object>} Message.
  */
 async function allowPortApi(req, res) {
   let { port } = req.params;
@@ -1243,105 +1391,156 @@ async function allowPortApi(req, res) {
 }
 
 /**
- * To check if a firewall is active.
- * @returns {boolean} True if a firewall is active. Otherwise false.
- */
-async function isFirewallActive() {
-  try {
-    const cmdAsync = util.promisify(nodecmd.get);
-    const execA = 'LANG="en_US.UTF-8" && sudo ufw status | grep Status';
-    const cmdresA = await cmdAsync(execA);
-    if (serviceHelper.ensureString(cmdresA).includes('Status: active')) {
-      return true;
-    }
-    return false;
-  } catch (error) {
-    // command ufw not found is the most likely reason
-    log.error(error);
-    return false;
-  }
-}
-
-/**
  * To adjust a firewall to allow ports for Flux.
+ * @returns {Prmoise<void>}
  */
 async function adjustFirewall() {
-  try {
-    const cmdAsync = util.promisify(nodecmd.get);
-    const apiPort = userconfig.initial.apiport || config.server.apiport;
-    const homePort = +apiPort - 1;
-    const apiSSLPort = +apiPort + 1;
-    const syncthingPort = +apiPort + 2;
-    let ports = [apiPort, homePort, apiSSLPort, syncthingPort, 80, 443, 16125];
-    const fluxCommunicationPorts = config.server.allowedPorts;
-    ports = ports.concat(fluxCommunicationPorts);
-    const firewallActive = await isFirewallActive();
-    if (firewallActive) {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const port of ports) {
-        const execB = `LANG="en_US.UTF-8" && sudo ufw allow ${port}`;
-        const execC = `LANG="en_US.UTF-8" && sudo ufw allow out ${port}`;
+  const firewallActive = await serviceHelper.isFirewallActive();
 
-        // eslint-disable-next-line no-await-in-loop
-        const cmdresB = await cmdAsync(execB);
-        if (serviceHelper.ensureString(cmdresB).includes('updated') || serviceHelper.ensureString(cmdresB).includes('existing') || serviceHelper.ensureString(cmdresB).includes('added')) {
-          log.info(`Firewall adjusted for port ${port}`);
-        } else {
-          log.info(`Failed to adjust Firewall for port ${port}`);
-        }
-
-        // eslint-disable-next-line no-await-in-loop
-        const cmdresC = await cmdAsync(execC);
-        if (serviceHelper.ensureString(cmdresC).includes('updated') || serviceHelper.ensureString(cmdresC).includes('existing') || serviceHelper.ensureString(cmdresC).includes('added')) {
-          log.info(`Firewall out adjusted for port ${port}`);
-        } else {
-          log.info(`Failed to adjust Firewall out for port ${port}`);
-        }
-      }
-    } else {
-      log.info('Firewall is not active. Adjusting not applied');
-    }
-  } catch (error) {
-    log.error(error);
+  if (!firewallActive) {
+    log.info('Firewall is not active. Adjustment not applied.');
+    return;
   }
+
+  const apiPort = userconfig.initial.apiport || config.server.apiport;
+  const homePort = +apiPort - 1;
+  const apiSSLPort = +apiPort + 1;
+  const syncthingPort = +apiPort + 2;
+
+  const localPorts = [homePort, apiPort, apiSSLPort, syncthingPort, 80, 443, 16125];
+  const fluxCommunicationPorts = config.server.allowedPorts;
+  // if you use a TypedArray, you don't need to pass a comparator to sort
+  const allPorts = new Uint16Array(localPorts.concat(fluxCommunicationPorts));
+  // just for logs output
+  allPorts.sort();
+  // there was double ups here
+  const filteredPorts = new Set(allPorts);
+
+  // only allow tcp NOT udp... as we aren't using it.
+  const portsAsString = `${[...filteredPorts].join(',')}/tcp`;
+
+  function logCmdStatus(stdout, direction) {
+    if (serviceHelper.ensureString(stdout).includes('updated')
+      || serviceHelper.ensureString(stdout).includes('existing')
+      || serviceHelper.ensureString(stdout).includes('added')) {
+      log.info(`Firewall adjusted ${direction} for ports: ${portsAsString}`);
+    } else {
+      log.warn(`Failed to adjust firewall ${direction} for ports: ${portsAsString}`);
+    }
+  }
+
+  const { stdout: allowedIn } = await serviceHelper.runCommand('ufw', {
+    runAsRoot: true,
+    params: ['allow', portsAsString],
+  });
+
+  const { stdout: allowedOut } = await serviceHelper.runCommand('ufw', {
+    runAsRoot: true,
+    params: ['allow', 'out', portsAsString],
+  });
+
+  // const allowInCmd = `sudo ufw allow ${portsAsString}`;
+  // const allowOutCmd = `sudo ufw allow out ${portsAsString}`;
+
+  // const allowedIn = await cmdAsync(allowInCmd);
+  logCmdStatus(allowedIn, 'inbound');
+
+  // const allowedOut = await cmdAsync(allowOutCmd);
+  logCmdStatus(allowedOut, 'outbound');
 }
 
 /**
  * To clean a firewall deny policies, and delete them from it.
+ * @returns {Prmoise<void>}
  */
 async function purgeUFW() {
-  try {
-    const cmdAsync = util.promisify(nodecmd.get);
-    const firewallActive = await isFirewallActive();
-    if (firewallActive) {
-      const execB = 'LANG="en_US.UTF-8" && sudo ufw status | grep \'DENY\' | grep -E \'(3[0-9]{4})\''; // 30000 - 39999
-      const cmdresB = await cmdAsync(execB).catch(() => { }) || ''; // fail silently,
-      if (serviceHelper.ensureString(cmdresB).includes('DENY')) {
-        const deniedPorts = cmdresB.split('\n'); // split by new line
-        const portsToDelete = [];
-        deniedPorts.forEach((port) => {
-          const adjPort = port.substring(0, port.indexOf(' '));
-          if (adjPort) { // last line is empty
-            if (!portsToDelete.includes(adjPort)) {
-              portsToDelete.push(adjPort);
-            }
-          }
-        });
-        // eslint-disable-next-line no-restricted-syntax
-        for (const port of portsToDelete) {
-          // eslint-disable-next-line no-await-in-loop
-          await deleteDenyPortRule(port);
-        }
-        log.info('UFW app deny rules purged');
-      } else {
-        log.info('No UFW deny rules found');
-      }
-    } else {
-      log.info('Firewall is not active. Purging UFW not necessary');
-    }
-  } catch (error) {
-    log.error(error);
+  // this needs more work. Lots of situations it doesn't work in. Just use
+  // jc and parse the output properly into json. Probably stop using ufw as well - just use iptables.
+  const firewallActive = await serviceHelper.isFirewallActive();
+
+  if (!firewallActive) return;
+
+  const { stdout: ufwStatus, error } = await serviceHelper.runCommand('ufw', {
+    runAsRoot: true,
+    params: ['status'],
+    logError: false,
+  });
+
+  if (error) return;
+
+  // matches any group of ports, single port or ports list, followed by an optional
+  // tcp or udp, followed by any amount of whitespace, followed by a DENY or
+  // DENY OUT, followed by any amount of whitespace and the literal Anywhere.
+  // could add in the destination, but at this point, may as well install jc and
+  // parse it as json. (I would have already installed jc but it's only available
+  // on 22.04 via apt, or via pip on 20.04, could just download the tarball though)
+  // has a named capture group of the port/proto. (if proto exists)
+  // and a named group for the direction
+  // won't match on v6 (can add it though)
+
+  // will match the following formats:
+  /**
+    16198                      DENY        Anywhere
+    16199                      DENY        Anywhere
+    23333/tcp                  DENY OUT    Anywhere
+    44321/udp                  DENY        Anywhere
+    21555                      DENY OUT    Anywhere
+    2655,3678,6543/tcp         DENY OUT    Anywhere
+    2888:4311/udp              DENY        Anywhere
+   */
+
+  // it will not match rules like the following:
+  /**
+   169.254.44.254 80/tcp      DENY        Anywhere
+   172.16.32.1                DENY OUT    Anywhere on docker0
+  */
+
+  const deniedPortsRegex = /(?<portgroup>^(?!\d{1,3}\.)(?:(?=\d{1,5}:)(?:\d{1,5}:)|(?:\d{1,5},)*)(?:\d{1,5})(?:\/tcp|\/udp)?)\s+(?<direction>DENY|DENY OUT)\s+Anywhere$/g;
+  // matchAll returns an iterator, spread so we can get length
+  const matches = [...ufwStatus.matchAll(deniedPortsRegex)];
+
+  if (!matches.length) {
+    log.info('No UFW deny rules found');
   }
+
+  // eslint-disable-next-line no-restricted-syntax
+  for (const match of matches) {
+    const portGroup = match.groups.portgroup;
+    // for the meantime, just handle ports, not ranges (with optional /udp or /tcp)
+    // need to modify the delete rule below so you can specify direction as it will try
+    // delete both. If we took away the number check in the delete rule thing below, it would
+    // work for ranges too, If there is bad input, just let it fail silently.
+    // or just match the regex above again.
+    if (portGroup.match(/\d+(?:\/[tcp|udp])?/)) {
+      // eslint-disable-next-line no-await-in-loop
+      await deleteDenyPortRule(portGroup);
+    }
+  }
+
+  log.info('UFW app deny rules purged');
+
+  // const execB = 'sudo ufw status | grep \'DENY\' | grep -E \'(3[0-9]{4})\''; // 30000 - 39999
+  // const cmdresB = await cmdAsync(execB).catch(() => { }) || ''; // fail silently,
+  // if (serviceHelper.ensureString(cmdresB).includes('DENY')) {
+  //   const deniedPorts = cmdresB.split('\n'); // split by new line
+  //   const portsToDelete = [];
+  //   deniedPorts.forEach((port) => {
+  //     const adjPort = port.substring(0, port.indexOf(' '));
+  //     if (adjPort) { // last line is empty
+  //       if (!portsToDelete.includes(adjPort)) {
+  //         portsToDelete.push(adjPort);
+  //       }
+  //     }
+  //   });
+  //   // eslint-disable-next-line no-restricted-syntax
+  //   for (const port of portsToDelete) {
+  //     // eslint-disable-next-line no-await-in-loop
+  //     await deleteDenyPortRule(port);
+  //   }
+  //   log.info('UFW app deny rules purged');
+  // } else {
+  //   log.info('No UFW deny rules found');
+  // }
 }
 
 /**
@@ -1384,73 +1583,148 @@ async function purgeUFW() {
  * @returns  {Promise<Boolean>}
  */
 async function removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces) {
-  const cmdAsync = util.promisify(nodecmd.get);
+  // const cmdAsync = util.promisify(nodecmd.get);
 
-  const checkIptables = 'sudo iptables --version';
-  const iptablesInstalled = await cmdAsync(checkIptables).catch(() => {
+  // const checkIptables = 'sudo iptables --version';
+  // const iptablesInstalled = await cmdAsync(checkIptables).catch(() => {
+  //   log.error('Unable to find iptables binary');
+  //   return false;
+  // });
+
+  // if (!iptablesInstalled) return false;
+
+  // this doesn't need to be run as root, but just checking it's in root's PATH
+  const { error: iptablesExistsError } = await serviceHelper.runCommand('iptables', {
+    runAsRoot: true,
+    logError: false,
+    params: ['--version'],
+  });
+
+  if (iptablesExistsError) {
     log.error('Unable to find iptables binary');
     return false;
-  });
-
-  if (!iptablesInstalled) return false;
+  }
 
   // check if rules have been created, as iptables is NOT idempotent.
-  const checkDockerUserChain = 'sudo iptables -L DOCKER-USER';
+  // const checkDockerUserChain = 'sudo iptables -L DOCKER-USER';
   // iptables 1.8.4 doesn't return anything - so have updated command a little
-  const checkJumpChain = 'sudo iptables -C FORWARD -j DOCKER-USER && echo true';
+  // const checkJumpChain = 'sudo iptables -C FORWARD -j DOCKER-USER && echo true';
 
-  const dockerUserChainExists = await cmdAsync(checkDockerUserChain).catch(async () => {
-    try {
-      await cmdAsync('sudo iptables -N DOCKER-USER');
-      log.info('IPTABLES: DOCKER-USER chain created');
-    } catch (err) {
+  // const dockerUserChainExists = await cmdAsync(checkDockerUserChain).catch(async () => {
+  //   try {
+  //     await cmdAsync('sudo iptables -N DOCKER-USER');
+  //     log.info('IPTABLES: DOCKER-USER chain created');
+  //   } catch (err) {
+  //     log.error('IPTABLES: Error adding DOCKER-USER chain');
+  //     // if we can't add chain, we can't proceed
+  //     return new Error();
+  //   }
+  //   return null;
+  // });
+
+  // if (dockerUserChainExists instanceof Error) return false;
+  // if (dockerUserChainExists) log.info('IPTABLES: DOCKER-USER chain already created');
+
+  const { error: noDockerUserChain } = await serviceHelper.runCommand(
+    'iptables',
+    { runAsRoot: true, logError: false, params: ['-L', 'DOCKER-USER'] },
+  );
+
+  if (noDockerUserChain) {
+    const { error: createChainError } = await serviceHelper.runCommand(
+      'iptables',
+      { runAsRoot: true, logError: false, params: ['-N', 'DOCKER-USER'] },
+    );
+
+    if (createChainError) {
       log.error('IPTABLES: Error adding DOCKER-USER chain');
-      // if we can't add chain, we can't proceed
-      return new Error();
+      return false;
     }
-    return null;
-  });
+    log.info('IPTABLES: DOCKER-USER chain created');
+  } else {
+    // could get rid of this log, just need to update tests
+    log.info('IPTABLES: DOCKER-USER chain already created');
+  }
 
-  if (dockerUserChainExists instanceof Error) return false;
-  if (dockerUserChainExists) log.info('IPTABLES: DOCKER-USER chain already created');
+  // const checkJumpToDockerChain = await cmdAsync(checkJumpChain).catch(async () => {
 
-  const checkJumpToDockerChain = await cmdAsync(checkJumpChain).catch(async () => {
-    // Ubuntu 20.04 @ iptables 1.8.4 Error: "iptables: No chain/target/match by that name."
-    // Ubuntu 22.04 @ iptables 1.8.7 Error: "iptables: Bad rule (does a matching rule exist in that chain?)."
-    const jumpToFluxChain = 'sudo iptables -I FORWARD -j DOCKER-USER';
-    try {
-      await cmdAsync(jumpToFluxChain);
-      log.info('IPTABLES: New rule in FORWARD inserted to jump to DOCKER-USER chain');
-    } catch (err) {
+  //   const jumpToFluxChain = 'sudo iptables -I FORWARD -j DOCKER-USER';
+  //   try {
+  //     await cmdAsync(jumpToFluxChain);
+  //     log.info('IPTABLES: New rule in FORWARD inserted to jump to DOCKER-USER chain');
+  //   } catch (err) {
+  //     log.error('IPTABLES: Error inserting FORWARD jump to DOCKER-USER chain');
+  //     // if we can't jump, we need to bail out
+  //     return new Error();
+  //   }
+
+  //   return null;
+  // });
+
+  // if (checkJumpToDockerChain instanceof Error) return false;
+  // if (checkJumpToDockerChain) log.info('IPTABLES: Jump to DOCKER-USER chain already enabled');
+
+  // Ubuntu 20.04 @ iptables 1.8.4 Error: "iptables: No chain/target/match by that name."
+  // Ubuntu 22.04 @ iptables 1.8.7 Error: "iptables: Bad rule (does a matching rule exist in that chain?)."
+  const { error: checkJumpChainError } = await serviceHelper.runCommand(
+    'iptables',
+    { runAsRoot: true, logError: false, params: ['-C', 'FORWARD', '-j', 'DOCKER-USER'] },
+  );
+
+  if (checkJumpChainError) {
+    const { error: createJumpChainError } = await serviceHelper.runCommand(
+      'iptables',
+      { runAsRoot: true, logError: false, params: ['-I', 'FORWARD', '-j', 'DOCKER-USER'] },
+    );
+
+    if (createJumpChainError) {
       log.error('IPTABLES: Error inserting FORWARD jump to DOCKER-USER chain');
-      // if we can't jump, we need to bail out
-      return new Error();
+      return false;
     }
-
-    return null;
-  });
-
-  if (checkJumpToDockerChain instanceof Error) return false;
-  if (checkJumpToDockerChain) log.info('IPTABLES: Jump to DOCKER-USER chain already enabled');
+    log.info('IPTABLES: New rule in FORWARD inserted to jump to DOCKER-USER chain');
+  } else {
+    log.info('IPTABLES: Jump to DOCKER-USER chain already enabled');
+  }
 
   const rfc1918Networks = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'];
   const fluxSrc = '172.23.0.0/16';
 
-  const baseDropCmd = `sudo iptables -A DOCKER-USER -s ${fluxSrc} -d #DST -j DROP`;
-  const baseAllowToFluxNetworksCmd = 'sudo iptables -I DOCKER-USER -i #INT -o #INT -j ACCEPT';
-  const baseAllowEstablishedCmd = `sudo iptables -I DOCKER-USER -s ${fluxSrc} -d #DST -m state --state RELATED,ESTABLISHED -j ACCEPT`;
-  const baseAllowDnsCmd = `sudo iptables -I DOCKER-USER -s ${fluxSrc} -d #DST -p udp --dport 53 -j ACCEPT`;
+  // const baseDropCmd = `sudo iptables -A DOCKER-USER -s ${fluxSrc} -d #DST -j DROP`;
+  // const baseAllowToFluxNetworksCmd = 'sudo iptables -I DOCKER-USER -i #INT -o #INT -j ACCEPT';
+  // const baseAllowEstablishedCmd = `sudo iptables -I DOCKER-USER -s ${fluxSrc} -d #DST -m state --state RELATED,ESTABLISHED -j ACCEPT`;
+  // const baseAllowDnsCmd = `sudo iptables -I DOCKER-USER -s ${fluxSrc} -d #DST -p udp --dport 53 -j ACCEPT`;
 
-  const addReturnCmd = 'sudo iptables -A DOCKER-USER -j RETURN';
-  const flushDockerUserCmd = 'sudo iptables -F DOCKER-USER';
+  // const addReturnCmd = 'sudo iptables -A DOCKER-USER -j RETURN';
+  // const flushDockerUserCmd = 'sudo iptables -F DOCKER-USER';
 
-  try {
-    await cmdAsync(flushDockerUserCmd);
-    log.info('IPTABLES: DOCKER-USER table flushed');
-  } catch (err) {
-    log.error(`IPTABLES: Error flushing DOCKER-USER table. ${err}`);
+  const baseAllowEstablishedParams = ['-I', 'DOCKER-USER', '-s', fluxSrc, '-d', '#DST', '-m', 'state', '--state', 'RELATED,ESTABLISHED', '-j', 'ACCEPT'];
+  const baseAllowDnsParams = ['-I', 'DOCKER-USER', '-s', fluxSrc, '-d', '#DST', '-p', 'udp', '--dport', '53', '-j', 'ACCEPT'];
+  const baseDropToPrivateParams = ['-A', 'DOCKER-USER', '-s', fluxSrc, '-d', '#DST', '-j', 'DROP'];
+  const baseAllowToFluxNetworksParams = ['-I', 'DOCKER-USER', '-i', '#INT', '-o', '#INT', '-j', 'ACCEPT'];
+
+  const addReturnParams = ['-A', 'DOCKER-USER', '-j', 'RETURN'];
+  const flushParams = ['-F', 'DOCKER-USER'];
+
+  const { error: flushError } = await serviceHelper.runCommand('iptables', {
+    runAsRoot: true,
+    logError: false,
+    params: flushParams,
+  });
+
+  if (flushError) {
+    log.error(`IPTABLES: Error flushing DOCKER-USER table. ${flushError}`);
     return false;
   }
+
+  log.info('IPTABLES: DOCKER-USER table flushed');
+
+  // try {
+  //   await cmdAsync(flushDockerUserCmd);
+  //   log.info('IPTABLES: DOCKER-USER table flushed');
+  // } catch (err) {
+  //   log.error(`IPTABLES: Error flushing DOCKER-USER table. ${err}`);
+  //   return false;
+  // }
 
   // add for legacy apps
   fluxNetworkInterfaces.push('docker0');
@@ -1458,61 +1732,134 @@ async function removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces) {
   // eslint-disable-next-line no-restricted-syntax
   for (const int of fluxNetworkInterfaces) {
     // if this errors, we need to bail, as if the deny succeedes, we may cut off access
-    const giveFluxNetworkAccess = baseAllowToFluxNetworksCmd.replace(/#INT/g, int);
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      await cmdAsync(giveFluxNetworkAccess);
-      log.info(`IPTABLES: Traffic on Flux interface ${int} accepted`);
-    } catch (err) {
-      log.error(`IPTABLES: Error allowing traffic on Flux interface ${int}. ${err}`);
+    const fluxNetworkAccessParams = baseAllowToFluxNetworksParams.map((item) => (item === '#INT' ? int : item));
+    // eslint-disable-next-line no-await-in-loop
+    const { error: fluxNetworkAccessError } = await serviceHelper.runCommand(
+      'iptables',
+      { runAsRoot: true, logError: false, params: fluxNetworkAccessParams },
+    );
+
+    if (fluxNetworkAccessError) {
+      log.error(`IPTABLES: Error allowing traffic on Flux interface ${int}. ${fluxNetworkAccessError}`);
       return false;
     }
+
+    log.info(`IPTABLES: Traffic on Flux interface ${int} accepted`);
+
+    // const giveFluxNetworkAccess = baseAllowToFluxNetworksCmd.replace(/#INT/g, int);
+    // try {
+    //   // eslint-disable-next-line no-await-in-loop
+    //   await cmdAsync(giveFluxNetworkAccess);
+    //   log.info(`IPTABLES: Traffic on Flux interface ${int} accepted`);
+    // } catch (err) {
+    //   log.error(`IPTABLES: Error allowing traffic on Flux interface ${int}. ${err}`);
+    //   return false;
+    // }
   }
 
   // eslint-disable-next-line no-restricted-syntax
   for (const network of rfc1918Networks) {
     // if any of these error, we need to bail, as if the deny succeedes, we may cut off access
 
-    const giveHostAccessToDockerNetwork = baseAllowEstablishedCmd.replace('#DST', network);
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      await cmdAsync(giveHostAccessToDockerNetwork);
-      log.info(`IPTABLES: Access to Flux containers from ${network} accepted`);
-    } catch (err) {
-      log.error(`IPTABLES: Error allowing access to Flux containers from ${network}. ${err}`);
+    const hostAccessParams = baseAllowEstablishedParams.map((item) => (item === '#DST' ? network : item));
+    // eslint-disable-next-line no-await-in-loop
+    const { error: hostAccessToDockerNetworError } = await serviceHelper.runCommand('iptables', {
+      runAsRoot: true,
+      logError: false,
+      params: hostAccessParams,
+    });
+
+    if (hostAccessToDockerNetworError) {
+      log.error(`IPTABLES: Error allowing access to Flux containers from ${network}. ${hostAccessToDockerNetworError}`);
       return false;
     }
 
-    const giveContainerAccessToDNS = baseAllowDnsCmd.replace('#DST', network);
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      await cmdAsync(giveContainerAccessToDNS);
-      log.info(`IPTABLES: DNS access to ${network} from Flux containers accepted`);
-    } catch (err) {
-      log.error(`IPTABLES: Error allowing DNS access to ${network} from Flux containers. ${err}`);
+    log.info(`IPTABLES: Access to Flux containers from ${network} accepted`);
+
+    const containerToDnsParams = baseAllowDnsParams.map((item) => (item === '#DST' ? network : item));
+    // eslint-disable-next-line no-await-in-loop
+    const { error: containersToDnsError } = await serviceHelper.runCommand(
+      'iptables',
+      { runAsRoot: true, logError: false, params: containerToDnsParams },
+    );
+
+    if (containersToDnsError) {
+      log.error(`IPTABLES: Error allowing DNS access to ${network} from Flux containers. ${containersToDnsError}`);
       return false;
     }
+
+    log.info(`IPTABLES: DNS access to ${network} from Flux containers accepted`);
+
+    const dropContainersToHostParams = baseDropToPrivateParams.map((item) => (item === '#DST' ? network : item));
+    // eslint-disable-next-line no-await-in-loop
+    const { error: dropContainersToHostError } = await serviceHelper.runCommand(
+      'iptables',
+      { runAsRoot: true, logError: false, params: dropContainersToHostParams },
+    );
+
+    if (dropContainersToHostError) {
+      log.error(`IPTABLES: Error denying access to ${network} from Flux containers. ${dropContainersToHostError}`);
+      return false;
+    }
+
+    log.info(`IPTABLES: Access to ${network} from Flux containers removed`);
+
+    // baseAllowToFluxNetworksParams.map((item) => item === '#INT' ? network : item)
+    // const giveHostAccessToDockerNetwork = baseAllowEstablishedCmd.replace('#DST', network);
+    // try {
+    //   // eslint-disable-next-line no-await-in-loop
+    //   await cmdAsync(giveHostAccessToDockerNetwork);
+    //   log.info(`IPTABLES: Access to Flux containers from ${network} accepted`);
+    // } catch (err) {
+    //   log.error(`IPTABLES: Error allowing access to Flux containers from ${network}. ${err}`);
+    //   return false;
+    // }
+
+    // const giveContainerAccessToDNS = baseAllowDnsCmd.replace('#DST', network);
+    // try {
+    //   // eslint-disable-next-line no-await-in-loop
+    //   await cmdAsync(giveContainerAccessToDNS);
+    //   log.info(`IPTABLES: DNS access to ${network} from Flux containers accepted`);
+    // } catch (err) {
+    //   log.error(`IPTABLES: Error allowing DNS access to ${network} from Flux containers. ${err}`);
+    //   return false;
+    // }
 
     // This always gets appended, so the drop is at the end
-    const dropAccessToHostNetwork = baseDropCmd.replace('#DST', network);
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      await cmdAsync(dropAccessToHostNetwork);
-      log.info(`IPTABLES: Access to ${network} from Flux containers removed`);
-    } catch (err) {
-      log.error(`IPTABLES: Error denying access to ${network} from Flux containers. ${err}`);
-      return false;
-    }
+    // const dropAccessToHostNetwork = baseDropCmd.replace('#DST', network);
+    // try {
+    //   // eslint-disable-next-line no-await-in-loop
+    //   await cmdAsync(dropAccessToHostNetwork);
+    //   log.info(`IPTABLES: Access to ${network} from Flux containers removed`);
+    // } catch (err) {
+    //   log.error(`IPTABLES: Error denying access to ${network} from Flux containers. ${err}`);
+    //   return false;
+    // }
   }
 
-  try {
-    await cmdAsync(addReturnCmd);
-    log.info('IPTABLES: DOCKER-USER explicit return to FORWARD chain added');
-  } catch (err) {
-    log.error(`IPTABLES: Error adding explicit return to Forward chain. ${err}`);
+  const { error: returnError } = await serviceHelper.runCommand('iptables', {
+    runAsRoot: true,
+    logError: false,
+    params: addReturnParams,
+  });
+
+  if (returnError) {
+    log.error(`IPTABLES: Error adding explicit return to Forward chain. ${returnError}`);
     return false;
   }
+
+  log.info('IPTABLES: DOCKER-USER explicit return to FORWARD chain added');
+
   return true;
+
+  // try {
+  //   await cmdAsync(addReturnCmd);
+  //   log.info('IPTABLES: DOCKER-USER explicit return to FORWARD chain added');
+  // } catch (err) {
+  //   log.error(`IPTABLES: Error adding explicit return to Forward chain. ${err}`);
+  //   return false;
+  // }
+  // return true;
 }
 
 const lruRateOptions = {
@@ -1573,77 +1920,68 @@ function lruRateLimit(ip, limitPerSecond = 20) {
 
 /**
  * Allow Node to bind to privileged without sudo
+ * @returns {Prmoise<void>}
  */
 async function allowNodeToBindPrivilegedPorts() {
-  try {
-    const cmdAsync = util.promisify(nodecmd.get);
-    const exec = "sudo setcap 'cap_net_bind_service=+ep' `which node`";
-    await cmdAsync(exec);
-  } catch (error) {
-    log.error(error);
-  }
-}
+  await serviceHelper.runCommand('setcap', {
+    runAsRoot: true,
+    params: ['cap_net_bind_service=+ep', process.execPath],
+  });
 
-/**
- * Install Netcat from apt
- * Despite nc tool is by default present on both Debian and Ubuntu we install netcat for precaution
- */
-async function installNetcat() {
-  try {
-    const cmdAsync = util.promisify(nodecmd.get);
-    const exec = 'sudo apt install netcat-openbsd -y';
-    await cmdAsync(exec);
-  } catch (error) {
-    log.error(error);
-  }
+  // try {
+  //   const exec = "sudo setcap 'cap_net_bind_service=+ep' `which node`";
+  //   await cmdAsync(exec);
+  // } catch (error) {
+  //   log.error(error);
+  // }
 }
 
 module.exports = {
-  minVersionSatisfy,
-  isFluxAvailable,
-  checkFluxAvailability,
-  getMyFluxIPandPort,
-  getRandomConnection,
-  getFluxNodePrivateKey,
-  getFluxNodePublicKey,
-  checkDeterministicNodesCollisions,
-  getIncomingConnections,
-  getIncomingConnectionsInfo,
-  getDOSState,
-  denyPort,
-  deleteAllowPortRule,
-  deleteAllowOutPortRule,
-  allowPortApi,
+  adjustExternalIP,
   adjustFirewall,
-  purgeUFW,
-  checkRateLimit,
-  closeConnection,
-  closeIncomingConnection,
+  allowPort,
+  allowPortApi,
+  allowUfwPorts,
+  checkFluxAvailability,
   checkFluxbenchVersionAllowed,
   checkMyFluxAvailability,
-  adjustExternalIP,
-  allowPort,
-  allowOutPort,
-  isFirewallActive,
+  checkRateLimit,
+  closeIncomingConnection,
+  closeOutboundConnection,
+  deleteAllowOutPortRule,
+  deleteAllowPortRule,
+  denyPort,
+  getDOSState,
+  getFluxNodePrivateKey,
+  getFluxNodePublicKey,
+  getIncomingConnections,
+  getIncomingConnectionsInfo,
+  getMyFluxIPandPort,
+  getRandomConnection,
+  isFluxAvailable,
+  minVersionSatisfy,
+  purgeUFW,
+  startNetworkSentinel,
+  stopNetworkSentinel,
   // Exports for testing purposes
-  setStoredFluxBenchAllowed,
-  getStoredFluxBenchAllowed,
-  setMyFluxIp,
-  getDosMessage,
-  setDosMessage,
-  setDosStateValue,
-  getDosStateValue,
-  fluxUptime,
-  fluxSystemUptime,
-  isCommunicationEstablished,
-  lruRateLimit,
-  isPortOpen,
+  allowNodeToBindPrivilegedPorts,
+  runNetworkSentinel,
   checkAppAvailability,
-  isPortEnterprise,
+  fluxSystemUptime,
+  fluxUptime,
+  getDosMessage,
+  getDosStateValue,
+  getStoredFluxBenchAllowed,
+  isCommunicationEstablished,
   isPortBanned,
+  isPortEnterprise,
+  isPortOpen,
   isPortUPNPBanned,
   isPortUserBlocked,
-  allowNodeToBindPrivilegedPorts,
-  installNetcat,
+  lruRateLimit,
   removeDockerContainerAccessToNonRoutable,
+  setDosMessage,
+  setDosStateValue,
+  setMyFluxIp,
+  setStoredFluxBenchAllowed,
 };

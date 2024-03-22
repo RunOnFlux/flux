@@ -1,8 +1,7 @@
-/* global userconfig */
 const config = require('config');
 const qs = require('qs');
 const os = require('os');
-const log = require('../lib/log');
+const log = require('../../../lib/log');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
 const dbHelper = require('./dbHelper');
@@ -21,7 +20,7 @@ let syncthingWorking = false;
 
 /**
  * To check if the hardware specification requirements of the node tier are being met by the node (RAM and CPU threads).
- * @returns {boolean} True or an error is thrown.
+ * @returns {Promise<boolean>} True or an error is thrown.
  */
 async function confirmNodeTierHardware() {
   try {
@@ -664,7 +663,7 @@ async function wsRespondLoginPhrase(ws, req) {
   let connclosed = false;
   // eslint-disable-next-line no-param-reassign
   ws.onclose = (evt) => {
-    console.log(evt.code);
+    log.info(evt.code);
     connclosed = true;
   };
   // eslint-disable-next-line no-param-reassign
@@ -754,12 +753,12 @@ async function wsRespondLoginPhrase(ws, req) {
  */
 async function wsRespondSignature(ws, req) {
   const { message } = req.params;
-  console.log(message);
+  log.info(message);
 
   let connclosed = false;
   // eslint-disable-next-line no-param-reassign
   ws.onclose = (evt) => {
-    console.log(evt.code);
+    log.info(evt.code);
     connclosed = true;
   };
   // eslint-disable-next-line no-param-reassign

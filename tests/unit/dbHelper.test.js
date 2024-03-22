@@ -708,7 +708,7 @@ describe('dbHelper tests', () => {
       const collectionStatsResponse = await dbHelper.collectionStats(database, collection);
 
       expect(collectionStatsResponse.count).to.eql(4);
-      expect(collectionStatsResponse.ns).to.eql('globalzelappstest.zelappsinformation');
+      expect(collectionStatsResponse.ns).to.eql(`${config.database.appsglobal.database}.zelappsinformation`);
       expect(collectionStatsResponse.avgObjSize).to.eql(105);
     });
 
@@ -716,7 +716,7 @@ describe('dbHelper tests', () => {
       const collectionStatsResponse = await dbHelper.collectionStats(database, 'test1234');
 
       expect(collectionStatsResponse.count).to.eql(0);
-      expect(collectionStatsResponse.ns).to.eql('globalzelappstest.test1234');
+      expect(collectionStatsResponse.ns).to.eql(`${config.database.appsglobal.database}.test1234`);
       expect(collectionStatsResponse.avgObjSize).to.be.undefined;
     });
   });

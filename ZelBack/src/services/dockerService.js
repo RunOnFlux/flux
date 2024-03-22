@@ -7,9 +7,7 @@ const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSend
 const pgpService = require('./pgpService');
 const generalService = require('./generalService');
 const deviceHelper = require('./deviceHelper');
-const log = require('../lib/log');
-const util = require('util');
-const nodecmd = require('node-cmd');
+const log = require('../../../lib/log');
 
 const fluxDirPath = path.join(__dirname, '../../../');
 const appsFolder = `${fluxDirPath}ZelApps/`;
@@ -118,7 +116,7 @@ async function dockerNetworkInspect(netw) {
  * @param {bool} [size] - Return the size of container as fields SizeRw and SizeRootFs.
  * @param {string} [filter] Filters to process on the container list, encoded as JSON
 
- * @returns {array} containers list
+ * @returns {Promise<array>} containers list
  */
 async function dockerListContainers(all, limit, size, filter) {
   const options = {
@@ -134,7 +132,7 @@ async function dockerListContainers(all, limit, size, filter) {
 /**
  * Returns a list of images on the server.
  *
- * @returns {array} images list
+ * @returns {Promise<array>} images list
  */
 async function dockerListImages() {
   const containers = await docker.listImages();
@@ -671,7 +669,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
  * Starts app's docker.
  *
  * @param {string} idOrName
- * @returns {string} message
+ * @returns {Promise<string>} message
  */
 async function appDockerStart(idOrName) {
   // container ID or name
@@ -685,7 +683,7 @@ async function appDockerStart(idOrName) {
  * Stops app's docker.
  *
  * @param {string} idOrName
- * @returns {string} message
+ * @returns {Promise<string>} message
  */
 async function appDockerStop(idOrName) {
   // container ID or name
@@ -699,7 +697,7 @@ async function appDockerStop(idOrName) {
  * Restarts app's docker.
  *
  * @param {string} idOrName
- * @returns {string} message
+ * @returns {Promise<string>} message
  */
 async function appDockerRestart(idOrName) {
   // container ID or name
@@ -713,7 +711,7 @@ async function appDockerRestart(idOrName) {
  * Kills app's docker.
  *
  * @param {string} idOrName
- * @returns {string} message
+ * @returns {Promise<string>} message
  */
 async function appDockerKill(idOrName) {
   // container ID or name
@@ -727,7 +725,7 @@ async function appDockerKill(idOrName) {
  * Removes app's docker.
  *
  * @param {string} idOrName
- * @returns {string} message
+ * @returns {Promise<string>} message
  */
 async function appDockerRemove(idOrName) {
   // container ID or name
@@ -741,7 +739,7 @@ async function appDockerRemove(idOrName) {
  * Removes app's docker image.
  *
  * @param {string} idOrName
- * @returns {string} message
+ * @returns {Promise<string>} message
  */
 async function appDockerImageRemove(idOrName) {
   // container ID or name
@@ -754,7 +752,7 @@ async function appDockerImageRemove(idOrName) {
  * Pauses app's docker.
  *
  * @param {string} idOrName
- * @returns {string} message
+ * @returns {Promise<string>} message
  */
 async function appDockerPause(idOrName) {
   // container ID or name
@@ -768,7 +766,7 @@ async function appDockerPause(idOrName) {
  * Unpauses app's docker.
  *
  * @param {string} idOrName
- * @returns {string} message
+ * @returns {Promise<string>} message
  */
 async function appDockerUnpause(idOrName) {
   // container ID or name
@@ -782,7 +780,7 @@ async function appDockerUnpause(idOrName) {
  * Returns app's docker's active processes.
  *
  * @param {string} idOrName
- * @returns {string} message
+ * @returns {Promise<string>} message
  */
 async function appDockerTop(idOrName) {
   // container ID or name
@@ -795,7 +793,7 @@ async function appDockerTop(idOrName) {
 /**
  * Creates flux docker network if doesn't exist
  * OBSOLETE
- * @returns {object} response
+ * @returns {Promise<object>} response
  */
 async function createFluxDockerNetwork() {
   // check if fluxDockerNetwork exists
@@ -866,7 +864,7 @@ async function getFluxDockerNetworkSubnets() {
 /**
  * Creates flux application docker network if doesn't exist
  *
- * @returns {object} response
+ * @returns {Promise<object>} response
  */
 async function createFluxAppDockerNetwork(appname, number) {
   // check if fluxDockerNetwork of an appexists
@@ -897,7 +895,7 @@ async function createFluxAppDockerNetwork(appname, number) {
 /**
  * Removes flux application docker network if exists
  *
- * @returns {object} response
+ * @returns {Promise<object>} response
  */
 async function removeFluxAppDockerNetwork(appname) {
   // check if fluxDockerNetwork of an app exists
@@ -989,55 +987,55 @@ async function dockerGetUsage() {
  * Fix docker logs.
  */
 async function dockerLogsFix() {
-  try {
-    const nodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${nodedpath} && bash dockerLogsFix.sh`;
-    const cmdAsync = util.promisify(nodecmd.get);
-    const cmdres = await cmdAsync(exec);
-    log.info(cmdres);
-  } catch (error) {
-    log.error(error);
-  }
+  const cwd = path.join(__dirname, '../../../helpers');
+  const scriptPath = path.join(cwd, 'dockerLogsFix.sh');
+  const { stdout } = await serviceHelper.runCommand(scriptPath, { cwd });
+
+  const lines = stdout.split('\n');
+  // this always has length
+  if (lines.slice(-1)[0] === '') lines.pop();
+
+  lines.forEach((line) => log.info(line));
 }
 
 module.exports = {
-  getDockerContainer,
-  getAppIdentifier,
-  getAppDockerNameIdentifier,
-  dockerCreateNetwork,
-  dockerRemoveNetwork,
-  dockerNetworkInspect,
-  dockerListContainers,
-  dockerListImages,
-  dockerContainerInspect,
-  dockerContainerStats,
-  dockerContainerStatsStream,
-  dockerContainerChanges,
-  dockerPullStream,
-  dockerContainerExec,
-  dockerContainerLogsStream,
-  dockerContainerLogs,
   appDockerCreate,
+  appDockerImageRemove,
+  appDockerKill,
+  appDockerPause,
+  appDockerRemove,
+  appDockerRestart,
   appDockerStart,
   appDockerStop,
-  appDockerRestart,
-  appDockerKill,
-  appDockerRemove,
-  appDockerImageRemove,
-  appDockerPause,
-  appDockerUnpause,
   appDockerTop,
+  appDockerUnpause,
+  createFluxAppDockerNetwork,
   createFluxDockerNetwork,
-  getDockerContainerOnly,
+  dockerContainerChanges,
+  dockerContainerExec,
+  dockerContainerInspect,
+  dockerContainerLogs,
+  dockerContainerLogsStream,
+  dockerContainerStats,
+  dockerContainerStatsStream,
+  dockerCreateNetwork,
+  dockerListContainers,
+  dockerListImages,
+  dockerNetworkInspect,
+  dockerPullStream,
+  dockerRemoveNetwork,
+  getAppDockerNameIdentifier,
+  getAppIdentifier,
+  getDockerContainer,
   getDockerContainerByIdOrName,
+  getDockerContainerOnly,
   getFluxDockerNetworkPhysicalInterfaceNames,
   getFluxDockerNetworkSubnets,
-  createFluxAppDockerNetwork,
-  removeFluxAppDockerNetwork,
   pruneNetworks,
   pruneVolumes,
   pruneImages,
   pruneContainers,
+  removeFluxAppDockerNetwork,
   dockerInfo,
   dockerVersion,
   dockerGetEvents,
