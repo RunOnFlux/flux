@@ -426,5 +426,6 @@
    "spriale",
    "onlyoffice",
    "arturbieniek/ab_exampleapp",
-   "adguard/adguardhome"
+   "adguard/adguardhome",
+   "ghcr.io/bakito/adguardhome-sync"
 ]
