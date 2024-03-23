@@ -7842,20 +7842,27 @@ export default {
       this.$emit('back');
     },
     async initSignFluxSSO() {
-      const message = this.dataToSign;
-      const firebaseUser = getUser();
-      if (!firebaseUser) {
-        this.showToast('warning', 'user not found, please try again');
-        return;
+      try {
+        const message = this.dataToSign;
+        const firebaseUser = getUser();
+        if (!firebaseUser) {
+          this.showToast('warning', 'user not found, please try again');
+          return;
+        }
+        const token = firebaseUser.auth.currentUser.accessToken;
+        const headers = {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        };
+        const signSSO = await axios.post('https://pouwdev.runonflux.io/api/signMessage', { message }, { headers });
+        if (signSSO.data?.status !== 'success' && signSSO.data?.signature) {
+          this.showToast('warning', 'failed to sign message, please try again');
+          return;
+        }
+        this.signature = signSSO.data.signature;
+      } catch (error) {
+        this.showToast('warning', 'failed to sign message, please try again');
       }
-      const token = firebaseUser.auth.currentUser.accessToken;
-
-      const headers = {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      };
-      const signSSO = await axios.post('https://pouwdev.runonflux.io/api/signMessage', { message }, { headers });
-      this.signature = signSSO.data.signature;
     },
     async initiateSignWSUpdate() {
       if (this.dataToSign.length > 1800) {
