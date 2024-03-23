@@ -256,6 +256,7 @@ export default {
     this.daemonWelcomeGetFluxNodeStatus();
     this.getZelIdLoginPhrase();
     this.initMMSDK();
+    let ui;
     const handleSignedInUser = async (user) => {
       try {
         const token = user.auth.currentUser.accessToken;
@@ -265,7 +266,11 @@ export default {
           Authorization: `Bearer ${token}`,
         };
         const fluxLogin = await axios.post('https://pouwdev.runonflux.io/api/signInOrUp', { message }, { headers });
-        console.log(fluxLogin.data);
+        if (fluxLogin.data?.status !== 'success') {
+          ui.reset();
+          ui.start('#firebaseui-auth-container');
+          throw new Error('Login Failed, please try again.');
+        }
         const authLogin = {
           zelid: fluxLogin.data.public_address,
           signature: fluxLogin.data.signature,
@@ -287,6 +292,8 @@ export default {
               this.showToast('success', response.data.data.message);
             } else {
               this.showToast(this.getVariant(response.data.status), response.data.data.message || response.data.data);
+              ui.reset();
+              ui.start('#firebaseui-auth-container');
             }
           })
           .catch((e) => {
@@ -294,7 +301,7 @@ export default {
             this.showToast('danger', e.toString());
           });
       } catch (error) {
-        console.log(error);
+        this.showToast('warning', 'Login Failed, please try again.');
       }
     };
     const uiConfig = {
@@ -321,10 +328,10 @@ export default {
     // Initialize the FirebaseUI Widget using Firebase.
     if (this.privilege === 'none') {
       if (firebaseui.auth.AuthUI.getInstance()) {
-        const ui = firebaseui.auth.AuthUI.getInstance();
+        ui = firebaseui.auth.AuthUI.getInstance();
         ui.start('#firebaseui-auth-container', uiConfig);
       } else {
-        const ui = new firebaseui.auth.AuthUI(firebase.auth());
+        ui = new firebaseui.auth.AuthUI(firebase.auth());
         ui.start('#firebaseui-auth-container', uiConfig);
       }
     }
