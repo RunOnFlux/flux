@@ -6,9 +6,14 @@ const config = require('config');
 const splitargs = require('splitargs');
 const qs = require('qs');
 
-const { AsyncLock } = require('./utils/asyncLock');
+const asyncLock = require('./utils/asyncLock');
 const dbHelper = require('./dbHelper');
 const log = require('../lib/log');
+
+/**
+ * Allows for exclusive locks when running child processes
+ */
+const locks = new Map();
 
 /**
  * To delay by a number of milliseconds.
@@ -277,21 +282,28 @@ async function runCommand(userCmd, options = {}) {
 
   // delete the locks after no waiters?
   if (exclusive) {
-    if (!locks.has(userCmd)) locks[userCmd] = new AsyncLock();
-    await locks[userCmd].enable();
-    log.info('Exclusive lock enabled for command:', userCmd);
+    if (!locks.has(userCmd)) {
+      locks.set(userCmd, new asyncLock.AsyncLock());
+    }
+    await locks.get(userCmd).enable();
+
+    log.info(`Exclusive lock enabled for command: ${userCmd}`);
   }
 
   const { stdout, stderr } = await execFile(cmd, params, execOptions).catch((err) => {
-    const { stdout: errStdout, stderr: errStderr, ...error } = err;
-    res.error = error;
-    if (logError !== false) log.error(error);
-    return [errStdout, errStderr];
+    // do this so we can standardize the return value for errors vs non errors
+    const { stdout: errStdout, stderr: errStderr } = err;
+    delete err.stdout;
+    delete err.stderr;
+
+    res.error = err;
+    if (logError !== false) log.error(err);
+    return { stdout: errStdout, stderr: errStderr };
   });
 
   if (exclusive) {
-    locks[userCmd].disable();
-    log.info('Exclusive lock disabled for command:', userCmd);
+    locks.get(userCmd).disable();
+    log.info(`Exclusive lock disabled for command: ${userCmd}`);
   }
 
   res.stdout = stdout;
