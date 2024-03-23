@@ -30,6 +30,7 @@
           lg="8"
           md="12"
         >
+          <br>
           <b-card title="Details">
             <b-form-textarea
               id="textarea-rows"
@@ -37,11 +38,12 @@
               readonly
               :value="appData.description"
               class="description-text"
+              style="margin-left: 20px; width: 96%"
             />
-            <br>
             <div
               v-if="appData.contacts"
-              class="form-row form-group"
+              class="form-row form-group mt-2"
+              style="margin-left: 20px; width: 96%"
             >
               <label class="col-3 col-form-label">
                 Contact
@@ -58,9 +60,10 @@
                 />
               </div>
             </div>
-            <br>
             <div v-if="appData.geolocationOptions">
               <b-form-group
+                class="ml-2 mr-1"
+                style="margin-left: 20px; width: 96%"
                 label-cols="3"
                 label-cols-lg="20"
                 :label="`Deployment Location`"
@@ -82,29 +85,23 @@
                 </b-form-select>
               </b-form-group>
             </div>
-
-            <b-card
-              class="mt-1"
-              no-body
-            >
+            <b-card>
               <b-tabs @activate-tab="componentSelected">
                 <b-tab
                   v-for="(component, index) in appData.compose"
                   :key="index"
                   :title="component.name"
                 >
-                  <list-entry
-                    title="Description"
-                    :data="component.description"
-                  />
-                  <list-entry
-                    title="Repository"
-                    :data="component.repotag"
-                  />
+                  <div class="my-2 ml-2">
+                    <div class="list-entry">
+                      <p><b style="display: inline-block; width: 120px;">Description:</b>&nbsp;{{ component.description }}</p>
+                      <p><b style="display: inline-block; width: 120px;">Repository:</b>&nbsp;{{ component.repotag }}</p>
+                    </div>
+                  </div>
                   <b-card
-                    v-if="component.userEnvironmentParameters"
+                    v-if="component.userEnvironmentParameters?.length > 0"
                     title="Parameters"
-                    border-variant="primary"
+                    border-variant="dark"
                   >
                     <b-tabs v-if="component.userEnvironmentParameters">
                       <b-tab
@@ -113,7 +110,7 @@
                         :title="parameter.name"
                       >
                         <div class="form-row form-group">
-                          <label class="col-2 col-form-label">
+                          <label class="col-2 col-form-label ml-2">
                             Value
                             <v-icon
                               v-b-tooltip.hover.top="parameter.description"
@@ -176,6 +173,33 @@
                 </b-tab>
               </b-tabs>
             </b-card>
+            <div
+              v-if="!appData.enabled"
+              class="text-center"
+            >
+              <h4>
+                This Application is temporarily disabled
+              </h4>
+            </div>
+            <div
+              v-else
+              class="text-center mt-auto"
+            >
+              <b-button
+                v-if="userZelid"
+                v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                variant="outline-success"
+                aria-label="Launch Marketplace App"
+                class="mt-2 text-center"
+                style="position: absolute; bottom: 20px; left: 0; right: 0; width: 91%; margin-left: auto; margin-right: auto;"
+                @click="checkFluxSpecificationsAndFormatMessage"
+              >
+                Start Launching Marketplace Application
+              </b-button>
+              <h4 v-else>
+                Please login using your ZelID to deploy Marketplace Apps
+              </h4>
+            </div>
           </b-card>
         </b-col>
         <b-col
@@ -184,6 +208,7 @@
           lg="4"
           class="d-lg-flex d-none"
         >
+          <br>
           <b-card no-body>
             <b-card-header class="app-requirements-header">
               <h4 class="mb-0">
@@ -328,32 +353,6 @@
           </b-col>
         </b-row>
       </b-row>
-      <div
-        v-if="!appData.enabled"
-        class="text-center"
-      >
-        <h4>
-          This app is temporarily disabled
-        </h4>
-      </div>
-      <div
-        v-else
-        class="text-center"
-      >
-        <b-button
-          v-if="userZelid"
-          v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-          variant="outline-success"
-          aria-label="Launch Marketplace App"
-          class="mb-2 w-100"
-          @click="checkFluxSpecificationsAndFormatMessage"
-        >
-          Start Launching Marketplace App
-        </b-button>
-        <h4 v-else>
-          Please login using your ZelID to deploy Marketplace Apps
-        </h4>
-      </div>
     </vue-perfect-scrollbar>
 
     <b-modal
