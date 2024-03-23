@@ -426,6 +426,9 @@
    "spriale",
    "onlyoffice",
    "arturbieniek/ab_exampleapp",
-   "adguard/adguardhome",
-   "ghcr.io/bakito/adguardhome-sync"
+   "adguard",
+   "ghcr.io/bakito/adguardhome-sync",
+   "xxnetworkfoundation",
+   "carback1",
+   "alpine"
 ]
