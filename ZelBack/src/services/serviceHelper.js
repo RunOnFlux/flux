@@ -3,6 +3,7 @@ const config = require('config');
 const splitargs = require('splitargs');
 const qs = require('qs');
 
+const { AsyncLock } = require('./utils/asyncLock');
 const dbHelper = require('./dbHelper');
 const log = require('../lib/log');
 
@@ -236,6 +237,66 @@ function ipInSubnet(ip, subnet) {
   return (ipAsInt & maskAsInt) === (networkAsInt & maskAsInt);
 }
 
+/**
+ * Runs a command as a child process, without a shell by default.
+ * Using a shell is possible with the `shell` option.
+ * @param {string} cmd The binary to run. Must be in PATH
+ * @param {{params?: string[], runAsRoot?: Boolean, exclusive?: Boolean, logError?: Boolean, cwd?: string, timeout?: number, signal?: AbortSignal, shell?: (Boolean|string)}} options
+   @returns {Promise<{error: (Error|null), stdout: (string|null), stderr: (string|null)}>}
+ */
+async function runCommand(userCmd, options = {}) {
+  const res = { error: null, stdout: null, stderr: null };
+  const { runAsRoot, logError, exclusive, ...execOptions } = options;
+
+  const params = options.params || [];
+  delete execOptions.params;
+
+  if (!userCmd) {
+    res.error = new Error('Command must be present');
+    return res;
+  }
+
+  // number seems to get coerced to string in the execFile command, so have allowed
+  if (!Array.isArray(params) || !params.every((p) => typeof p === 'string' || typeof p === 'number')) {
+    res.error = new Error('Invalid params for command, must be an Array of strings');
+    return res;
+  }
+
+  let cmd;
+  if (runAsRoot) {
+    params.unshift(userCmd);
+    cmd = 'sudo';
+  } else {
+    cmd = userCmd;
+  }
+
+  log.debug(`Run Cmd: ${cmd} ${params.join(' ')}`);
+
+  // delete the locks after no waiters?
+  if (exclusive) {
+    if (!locks.has(userCmd)) locks[userCmd] = new AsyncLock();
+    await locks[userCmd].enable();
+    log.info('Exclusive lock enabled for command:', userCmd);
+  }
+
+  const { stdout, stderr } = await execFile(cmd, params, execOptions).catch((err) => {
+    const { stdout: errStdout, stderr: errStderr, ...error } = err;
+    res.error = error;
+    if (logError !== false) log.error(error);
+    return [errStdout, errStderr];
+  });
+
+  if (exclusive) {
+    locks[userCmd].disable();
+    log.info('Exclusive lock disabled for command:', userCmd);
+  }
+
+  res.stdout = stdout;
+  res.stderr = stderr;
+
+  return res;
+}
+
 module.exports = {
   ensureBoolean,
   ensureNumber,
@@ -250,4 +311,5 @@ module.exports = {
   commandStringToArray,
   validIpv4Address,
   ipInSubnet,
+  runCommand,
 };
