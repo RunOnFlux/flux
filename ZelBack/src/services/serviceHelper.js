@@ -1,3 +1,6 @@
+const util = require('node:util');
+const execFile = util.promisify(require('node:child_process').execFile);
+
 const axios = require('axios');
 const config = require('config');
 const splitargs = require('splitargs');
