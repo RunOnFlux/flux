@@ -1638,6 +1638,12 @@
                 >
               </a>
             </div>
+            <div v-if="checkoutLoading" className="loginRow">
+              <b-spinner variant="primary" />
+              <div class="text-center">
+                Checkout Loading ...
+              </div>
+            </div>
             <div v-if="fiatCheckoutURL" className="loginRow">
               <a :href="fiatCheckoutURL" target="_blank" rel="noopener noreferrer">
                 Click here for checkout if not redirected
@@ -2399,6 +2405,7 @@ export default {
       chooseEnterpriseDialog: false,
       signClient: null,
       fiatCheckoutURL: '',
+      checkoutLoading: false,
       ipAccess: false,
     };
   },
@@ -3589,6 +3596,8 @@ export default {
     },
     async initStripePay(hash, name, price, description) {
       try {
+        this.fiatCheckoutURL = '';
+        this.checkoutLoading = true;
         const zelidauth = localStorage.getItem('zelidauth');
         const auth = qs.parse(zelidauth);
         const data = {
@@ -3613,16 +3622,21 @@ export default {
         const checkoutURL = await axios.post(`${paymentBridge}/api/v1/stripe/checkout/create`, data);
         if (checkoutURL.data.status === 'error') {
           this.showToast('error', 'Failed to create stripe checkout');
+          this.checkoutLoading = false;
           return;
         }
         this.fiatCheckoutURL = checkoutURL.data.data;
+        this.checkoutLoading = false;
         this.openSite(checkoutURL.data.data);
       } catch (error) {
         this.showToast('error', 'Failed to create stripe checkout');
+        this.checkoutLoading = false;
       }
     },
     async initPaypalPay(hash, name, price, description) {
       try {
+        this.fiatCheckoutURL = '';
+        this.checkoutLoading = true;
         const zelidauth = localStorage.getItem('zelidauth');
         const auth = qs.parse(zelidauth);
         const data = {
@@ -3647,12 +3661,15 @@ export default {
         const checkoutURL = await axios.post(`${paymentBridge}/api/v1/paypal/checkout/create`, data);
         if (checkoutURL.data.status === 'error') {
           this.showToast('error', 'Failed to create PayPal checkout');
+          this.checkoutLoading = false;
           return;
         }
         this.fiatCheckoutURL = checkoutURL.data.data;
+        this.checkoutLoading = false;
         this.openSite(checkoutURL.data.data);
       } catch (error) {
         this.showToast('error', 'Failed to create PayPal checkout');
+        this.checkoutLoading = false;
       }
     },
     importSpecs(appSpecs) {
