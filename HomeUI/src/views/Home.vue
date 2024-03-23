@@ -32,6 +32,18 @@
             3rd Party Provider Login
           </b-card-text>
           <div class="ssoLogin">
+            <div id="ssoLoading">
+              <b-spinner variant="primary" />
+              <div>
+                Loading Sign In Options
+              </div>
+            </div>
+            <div id="ssoLoggedIn" style="display: none">
+              <b-spinner variant="primary" />
+              <div>
+                Finishing Login Process
+              </div>
+            </div>
             <div id="firebaseui-auth-container" />
           </div>
         </dd>
@@ -259,6 +271,7 @@ export default {
     let ui;
     const handleSignedInUser = async (user) => {
       try {
+        document.getElementById('ssoLoggedIn').style.display = 'block';
         const token = user.auth.currentUser.accessToken;
         const message = this.loginPhrase;
         const headers = {
@@ -312,6 +325,9 @@ export default {
             handleSignedInUser(authResult.user);
           }
           return false;
+        },
+        uiShown() {
+          document.getElementById('ssoLoading').style.display = 'none';
         },
       },
       popupMode: true,
@@ -697,10 +713,11 @@ export default {
 .ssoLogin {
   display: flex;
   flex-direction: row;
-  justify-content: space-around;
+  justify-content: center;
   align-items: center;
   margin-bottom: 10px;
   margin-top: 30px;
+  text-align: center;
 }
 .zelidLogin {
   margin-left: 5px;
