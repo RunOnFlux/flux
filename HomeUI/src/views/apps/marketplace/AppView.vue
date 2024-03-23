@@ -187,7 +187,6 @@
             >
               <b-button
                 v-if="userZelid"
-                v-ripple.400="'rgba(255, 255, 255, 0.15)'"
                 variant="outline-success"
                 aria-label="Launch Marketplace App"
                 class="mt-2 text-center"
