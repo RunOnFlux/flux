@@ -547,9 +547,6 @@ describe('serviceHelper tests', () => {
         stderr: null,
       };
 
-      const error = new Error('Test Error');
-      error.stdout = '';
-      error.stderr = '';
       runCmdStub.resolves(expected);
 
       const response = await serviceHelper.runCommand('testCmd', { cwd: '/home/testuser' });
