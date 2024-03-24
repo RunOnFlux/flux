@@ -8,13 +8,13 @@ describe('asyncLock tests', () => {
 
   afterEach(() => {
     sinon.restore();
-  })
+  });
 
   it('should instantiate and not be locked', () => {
     const asyncLock = new AsyncLock();
 
     expect(asyncLock.locked).to.be.false;
-  })
+  });
 
   it('should set locked when enabled', async () => {
     const asyncLock = new AsyncLock();
@@ -22,11 +22,11 @@ describe('asyncLock tests', () => {
     await asyncLock.enable();
 
     expect(asyncLock.locked).to.be.true;
-  })
+  });
 
   it('should resolve immediately when ready awaited and not locked', async () => {
     const asyncLock = new AsyncLock();
-    await asyncLock.ready
+    await asyncLock.ready;
   });
 
   it('should resolve eventually when ready awaited and locked', async () => {
@@ -38,7 +38,7 @@ describe('asyncLock tests', () => {
     const tester = async () => {
       await asyncLock.ready;
       testVar = true;
-    }
+    };
 
     await asyncLock.enable();
     setTimeout(asyncLock.disable, 5000);
@@ -59,7 +59,7 @@ describe('asyncLock tests', () => {
     const tester = async () => {
       await asyncLock.enable();
       testVar = true;
-    }
+    };
 
     await asyncLock.enable();
     setTimeout(asyncLock.disable, 5000);
@@ -78,5 +78,5 @@ describe('asyncLock tests', () => {
 
     expect(asyncLock.locked).to.be.false;
     await asyncLock.ready;
-  })
+  });
 });

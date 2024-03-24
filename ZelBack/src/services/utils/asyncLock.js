@@ -25,4 +25,4 @@ class AsyncLock {
   }
 }
 
-module.exports = { AsyncLock }
+module.exports = { AsyncLock };

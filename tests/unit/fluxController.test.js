@@ -12,14 +12,14 @@ describe('fluxController tests', () => {
 
   afterEach(() => {
     sinon.restore();
-  })
+  });
 
   it('should instantiate and not be aborted or locked', () => {
     const fc = new FluxController();
 
     expect(fc.locked).to.be.false;
     expect(fc.aborted).to.be.false;
-  })
+  });
 
   it('should interrupt any sleeps that are being awaited if abort called', async () => {
     const clock = sinon.useFakeTimers();
@@ -30,7 +30,7 @@ describe('fluxController tests', () => {
     const tester = async () => {
       await fc.sleep(5000);
       testVar = true;
-    }
+    };
 
     const promise = tester();
 
@@ -40,7 +40,7 @@ describe('fluxController tests', () => {
     expect(testVar).to.be.false;
     await expect(promise).to.be.rejectedWith(Error);
     expect(testVar).to.be.false;
-  })
+  });
 
   it('should wait for any actions to be completed when aborted', async () => {
     const clock = sinon.useFakeTimers();
@@ -51,15 +51,15 @@ describe('fluxController tests', () => {
 
     const dummy = async () => {
       await fc.lock.enable();
-      await new Promise((r) => setTimeout(r, 5000));
+      await new Promise((r) => { setTimeout(r, 5000); });
       dummyVar = true;
       fc.lock.disable();
-    }
+    };
 
     const waiter = async () => {
       await fc.abort();
       waiterVar = true;
-    }
+    };
 
     const testPromise = dummy();
     expect(dummyVar).to.be.false;
@@ -84,7 +84,6 @@ describe('fluxController tests', () => {
     expect(fc.locked).to.be.false;
     expect(waiterVar).to.be.true;
 
-
     // these should both resolve immediately
     await abortPromise;
     await testPromise;
@@ -92,20 +91,18 @@ describe('fluxController tests', () => {
     expect(dummyVar).to.be.true;
     expect(fc.locked).to.be.false;
     expect(waiterVar).to.be.true;
-  })
+  });
 
   it('should reset the abort controller on abort', async () => {
     const fc = new FluxController();
-    const aborted = null;
 
     const tester = async () => {
       try {
         await fc.sleep(5000);
-      }
-      catch {
+      } catch {
         expect(fc.aborted).to.be.true;
       }
-    }
+    };
 
     const promise = tester();
 
@@ -113,5 +110,5 @@ describe('fluxController tests', () => {
     await fc.abort();
     await promise;
     expect(fc.aborted).to.be.false;
-  })
+  });
 });

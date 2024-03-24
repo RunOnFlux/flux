@@ -254,7 +254,9 @@ function ipInSubnet(ip, subnet) {
  */
 async function runCommand(userCmd, options = {}) {
   const res = { error: null, stdout: null, stderr: null };
-  const { runAsRoot, logError, exclusive, ...execOptions } = options;
+  const {
+    runAsRoot, logError, exclusive, ...execOptions
+  } = options;
 
   const params = options.params || [];
   delete execOptions.params;
@@ -293,7 +295,10 @@ async function runCommand(userCmd, options = {}) {
   const { stdout, stderr } = await execFile(cmd, params, execOptions).catch((err) => {
     // do this so we can standardize the return value for errors vs non errors
     const { stdout: errStdout, stderr: errStderr } = err;
+
+    // eslint-disable-next-line no-param-reassign
     delete err.stdout;
+    // eslint-disable-next-line no-param-reassign
     delete err.stderr;
 
     res.error = err;

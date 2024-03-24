@@ -18,7 +18,7 @@ const adminConfig = {
   },
 };
 
-let runCmdStub = sinon.stub();
+const runCmdStub = sinon.stub();
 const utilFake = { promisify: () => runCmdStub };
 
 const serviceHelper = proxyquire(
@@ -382,7 +382,7 @@ describe('serviceHelper tests', () => {
       debugSpy = sinon.spy(log, 'debug');
       infoSpy = sinon.spy(log, 'info');
       errorSpy = sinon.spy(log, 'error');
-    })
+    });
 
     afterEach(() => {
       sinon.restore();
@@ -406,7 +406,7 @@ describe('serviceHelper tests', () => {
     it('should return error if params are not an Array', async () => {
       const expected = {
         error: new Error(
-          'Invalid params for command, must be an Array of strings'
+          'Invalid params for command, must be an Array of strings',
         ),
         stdout: null,
         stderr: null,
@@ -420,7 +420,7 @@ describe('serviceHelper tests', () => {
     it('should return error if param elements are not of correct type', async () => {
       const expected = {
         error: new Error(
-          'Invalid params for command, must be an Array of strings'
+          'Invalid params for command, must be an Array of strings',
         ),
         stdout: null,
         stderr: null,
@@ -434,11 +434,11 @@ describe('serviceHelper tests', () => {
     it('should run command as sudo if runAsRoot options passed', async () => {
       const expected = {
         error: null,
-        stdout: "test output",
+        stdout: 'test output',
         stderr: null,
       };
 
-      runCmdStub.resolves({ stdout: 'test output', stderr: null, error: null })
+      runCmdStub.resolves({ stdout: 'test output', stderr: null, error: null });
 
       const response = await serviceHelper.runCommand('testCmd', { runAsRoot: true });
 
@@ -450,14 +450,14 @@ describe('serviceHelper tests', () => {
     it('should set async lock if command is run exclusively', async () => {
       const expected = {
         error: null,
-        stdout: "test output",
+        stdout: 'test output',
         stderr: null,
       };
 
       const clock = sinon.useFakeTimers();
 
       // a dummy command that takes 5 seconds
-      const timeout = () => new Promise(r => setTimeout(() => r(expected), 5000));
+      const timeout = () => new Promise((r) => { setTimeout(() => r(expected), 5000); });
 
       runCmdStub.callsFake(timeout);
 
@@ -491,11 +491,11 @@ describe('serviceHelper tests', () => {
     it('should return stdout and stderr', async () => {
       const expected = {
         error: null,
-        stdout: "test output",
-        stderr: "test stderr message",
+        stdout: 'test output',
+        stderr: 'test stderr message',
       };
 
-      runCmdStub.resolves({ stdout: 'test output', stderr: "test stderr message", error: null });
+      runCmdStub.resolves({ stdout: 'test output', stderr: 'test stderr message', error: null });
 
       const response = await serviceHelper.runCommand('testCmd');
 
@@ -506,12 +506,12 @@ describe('serviceHelper tests', () => {
 
     it('should return error and log it if command causes an error', async () => {
       const expected = {
-        error: new Error("Test Error"),
+        error: new Error('Test Error'),
         stdout: '',
         stderr: '',
       };
 
-      const error = new Error("Test Error")
+      const error = new Error('Test Error');
       error.stdout = '';
       error.stderr = '';
       runCmdStub.rejects(error);
@@ -520,16 +520,16 @@ describe('serviceHelper tests', () => {
 
       expect(response).to.be.deep.equal(expected);
       sinon.assert.calledOnceWithExactly(runCmdStub, 'testCmd', [], {});
-      sinon.assert.calledOnceWithExactly(errorSpy, error)
+      sinon.assert.calledOnceWithExactly(errorSpy, error);
     });
     it('should return error and not log it if command causes an error and logError is false', async () => {
       const expected = {
-        error: new Error("Test Error"),
+        error: new Error('Test Error'),
         stdout: '',
         stderr: '',
       };
 
-      const error = new Error("Test Error")
+      const error = new Error('Test Error');
       error.stdout = '';
       error.stderr = '';
       runCmdStub.rejects(error);
@@ -547,7 +547,7 @@ describe('serviceHelper tests', () => {
         stderr: null,
       };
 
-      const error = new Error("Test Error")
+      const error = new Error('Test Error');
       error.stdout = '';
       error.stderr = '';
       runCmdStub.resolves(expected);

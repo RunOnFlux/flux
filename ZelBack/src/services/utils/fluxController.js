@@ -2,8 +2,10 @@ const { AsyncLock } = require('./asyncLock');
 
 class FluxController {
   #timeoutId = 0;
+
   #timeouts = new Map();
-  #abortController = new AbortController()
+
+  #abortController = new AbortController();
 
   lock = new AsyncLock();
 
@@ -22,7 +24,8 @@ class FluxController {
    * @returns {Promise<void>}
    */
   sleep(ms) {
-    const id = ++this.#timeoutId;
+    this.#timeoutId += 1;
+    const id = this.#timeoutId;
     return new Promise((resolve, reject) => {
       this.#timeouts.set(id, [reject, setTimeout(() => {
         this.#timeouts.delete(id);
