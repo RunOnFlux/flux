@@ -8,7 +8,6 @@ const proxyquire = require('proxyquire');
 const { expect } = chai;
 
 const log = require('../../ZelBack/src/lib/log');
-const asyncLock = require('../../ZelBack/src/services/utils/asyncLock');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 
 const adminConfig = {
