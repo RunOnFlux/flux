@@ -28,7 +28,7 @@
       <b-card-title>Automated Login</b-card-title>
       <dl class="row">
         <dd class="col-sm-6">
-          <b-card-text class="text-center">
+          <b-card-text class="text-center loginText">
             3rd Party Provider Login
           </b-card-text>
           <div class="ssoLogin">
@@ -48,13 +48,14 @@
           </div>
         </dd>
         <dd class="col-sm-6">
-          <b-card-text class="text-center">
+          <b-card-text class="text-center loginText">
             Decentralized Login
           </b-card-text>
           <div class="loginRow">
             <a
               :href="`zel:?action=sign&message=${loginPhrase}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue}`"
               @click="initiateLoginWS"
+              title="Login with Zelcore"
             >
               <img
                 class="zelidLogin"
@@ -64,7 +65,7 @@
                 width="100%"
               >
             </a>
-            <a @click="initSSP">
+            <a @click="initSSP" title='Login with SSP'>
               <img
                 class="sspLogin"
                 :src="skin === 'dark' ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
@@ -75,7 +76,7 @@
             </a>
           </div>
           <div class="loginRow">
-            <a @click="initWalletConnect">
+            <a @click="initWalletConnect" title='Login with Wallet Connect'>
               <img
                 class="walletconnectLogin"
                 src="@/assets/images/walletconnect.svg"
@@ -84,7 +85,7 @@
                 width="100%"
               >
             </a>
-            <a @click="initMetamask">
+            <a @click="initMetamask" title='Login with Metamask'>
               <img
                 class="metamaskLogin"
                 src="@/assets/images/metamask.svg"
@@ -707,6 +708,11 @@ export default {
 </script>
 
 <style>
+.loginText {
+  color: #2B61D1;
+  font-size: 16px;
+  font-weight: 500;
+}
 .loginRow {
   display: flex;
   flex-direction: row;
@@ -773,7 +779,6 @@ a:hover img {
 /* Custom styles for FirebaseUI widget */
 .firebaseui-container {
   margin: 0 auto;
-  padding: 20px;
   border-radius: 5px;
 }
 
