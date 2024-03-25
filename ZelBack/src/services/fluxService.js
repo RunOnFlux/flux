@@ -930,12 +930,12 @@ async function getFluxInfo(req, res) {
     }
     info.flux.nodeJsVersion = nodeJsVersionsRes.data.node;
     const syncthingVersion = await syncthingService.systemVersion();
-    log.info(`syncthingVersion:${JSON.stringify(syncthingVersion)}`);
     if (syncthingVersion.status === 'error') {
       throw syncthingVersion.data;
     }
-    info.flux.syncthingVersion = syncthingVersion.data;
-    info.flux.dockerVersion = await dockerService.dockerVersion();
+    info.flux.syncthingVersion = syncthingVersion.data.version;
+    const dockerVersion = await dockerService.dockerVersion();
+    info.flux.dockerVersion = dockerVersion.Version;
     const ipRes = await getFluxIP();
     if (ipRes.status === 'error') {
       throw ipRes.data;
