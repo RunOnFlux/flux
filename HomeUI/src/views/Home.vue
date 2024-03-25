@@ -336,6 +336,7 @@ export default {
       signInOptions: [
         {
           provider: firebase.auth.EmailAuthProvider.PROVIDER_ID,
+          buttonColor: '#2B61D1',
           requireDisplayName: true,
         },
         firebase.auth.GoogleAuthProvider.PROVIDER_ID,
