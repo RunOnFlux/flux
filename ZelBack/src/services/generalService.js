@@ -51,7 +51,7 @@ async function obtainNodeCollateralInformation() {
 
 /**
  * To return the tier of a node in old naming scheme
- * @returns {string} Name of the node tier in old naming scheme
+ * @returns {Promise<string>} Name of the node tier in old naming scheme
  */
 async function nodeTier() {
   if (storedTier) {
@@ -112,7 +112,7 @@ async function getNewNodeTier() {
 
 /**
  * To return the quantity of collateral stored and determine what type of node it can be used for.
- * @returns {number} The quantity of collateral.
+ * @returns {Promise<number>} The quantity of collateral.
  */
 async function nodeCollateral() {
   if (storedCollateral) {
@@ -158,7 +158,7 @@ async function nodeCollateral() {
 
 /**
  * Checks if a node's status is confirmed.
- * @returns {boolean} True if node is confirmed. False if there is an error.
+ * @returns {Promise<boolean>} True if node is confirmed. False if there is an error.
  */
 async function isNodeStatusConfirmed() {
   try {
@@ -178,7 +178,7 @@ async function isNodeStatusConfirmed() {
 
 /**
  * Checks if a node's FluxOS database is synced with the node's daemon database.
- * @returns {boolean} True if FluxOS databse height is within 1 of the daemon database height. False if not within 1 of the height or if there is an error.
+ * @returns {Promise<boolean>} True if FluxOS databse height is within 1 of the daemon database height. False if not within 1 of the height or if there is an error.
  */
 async function checkSynced() {
   try {
@@ -296,7 +296,7 @@ function parseDockerTag(targetDockerTag) {
  * github is ghcr.io/namespace/repository:tag
  * google is gcr.io/namespace/repository:tag
  * @param {string} repotag GitHub repository tag.
- * @returns {boolean} True or an error is thrown.
+ * @returns {Promise<boolean>} True or an error is thrown.
  */
 async function checkWhitelistedRepository(targetDockerTag) {
   if (typeof targetDockerTag !== 'string') {

@@ -17,6 +17,7 @@ const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
 const daemonServiceBenchmarkRpcs = require('./daemonService/daemonServiceBenchmarkRpcs');
 const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRpcs');
+const daemonServiceBlockchainRpcs = require('./daemonService/daemonServiceBlockchainRpcs');
 const benchmarkService = require('./benchmarkService');
 const appsService = require('./appsService');
 const generalService = require('./generalService');
@@ -24,6 +25,13 @@ const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const geolocationService = require('./geolocationService');
+
+const zlib = require('node:zlib');
+const tar = require('tar-fs');
+const stream = require('node:stream/promises');
+const { stat } = require('node:fs/promises');
+
+let lock = false;
 
 /**
  * To show the directory on the node machine where FluxOS files are stored.
@@ -460,6 +468,214 @@ function getFluxZelID(req, res) {
   const zelID = userconfig.initial.zelid;
   const message = messageHelper.createDataMessage(zelID);
   return res ? res.json(message) : message;
+}
+
+/**
+ * Check if an IPv4 address is valid.
+ * @param {string} ip Target IP
+ * @returns {Boolean}
+ */
+function validIpv4Address(ip) {
+  const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
+
+  if (!ipv4Regex.test(ip)) return false;
+
+  const parts = ip.split('.');
+
+  const isValid = parts.every((part) => {
+    if (parseInt(part, 10) > 255) return false;
+    return true;
+  });
+
+  return isValid;
+}
+
+/**
+ * Check if an Ipv4 address is in the RFC1918 range. I.e. NOT routable on
+ * the internet.
+ * @param {string} ip Target IP
+ * @returns {Boolean}
+ */
+function isPrivateAddress(ip) {
+  if (!(validIpv4Address(ip))) return false;
+
+  const quads = ip.split('.').map((quad) => +quad);
+
+  if (quads.length !== 4) return false;
+
+  if ((quads[0] === 10)) return true;
+  if ((quads[0] === 192) && (quads[1] === 168)) return true;
+  if ((quads[0] === 172) && (quads[1] >= 16) && (quads[1] <= 31)) return true;
+
+  return false;
+}
+
+/**
+ * Streams the blockchain via http at breakneck speeds.
+ *
+ * Designed for UPnP nodes.
+ *
+ * Leverages the fact that a lot of nodes run on the same hypervisor, where
+ * they share a brige or v-switch. In this case - the transfer is as fast as your
+ * SSD. Real life testing showed speeds of 3.2Gbps on an Evo 980+ SSD. Able to
+ * download the entire chain UNCOMPRESED in 90 seconds.
+ *
+ * Even in a traditional LAN, most consumer grade hardware is 1Gbps - this should be
+ * easily achievable in your average home network.
+ *
+ * During normal operation, the flux daemon (fluxd) must NOT be running, this is so
+ * the database is in a consistent state when it is read. However, during testing,
+ * and WITHOUT compression, as long as the chain transfer is reasonably fast, there is
+ * minimal risk of a db compaction happening, and corrupting the new data.
+ *
+ * This method can transfer data compressed (using gzip) or uncompressed. It is recommended
+ * to only stream the data uncompressed. If using compression on the fly, this uses a lot of
+ * CPU and will slow the transfers down by 10-20 times, while only saving ~30% on file size.
+ * If the daemon is still running during this time, IT WILL CORRUPT THE NEW DATA. (tested)
+ * Due to this, if compression is used, the daemon MUST not be running.
+ *
+ * There is an unsafe mode, where a user can transfer the chain while the daemon is still
+ * running, USE AT YOUR OWN RISK. Of note, the data being copied will not be corrupted,
+ * only the new chain.
+ *
+ * Only allows one stream at a time - will return 503 if stream in progress.
+ *
+ *  Able to be used by curl. Result is a tarfile.
+ *
+ * If passing in options, the `Content-Type` header must be set to `application/json`
+ *
+ * **Example:**
+ * ```bash
+ *   curl -X POST http://<Node IP>:16187/flux/streamchain -o flux_explorer_bootstrap.tar.gz
+ * ```
+ *
+ * **Post Data:**
+ *
+ * `unsafe:` <boolean> Will overide the flux daemon running check and run anyway. Only
+ *   overideable if compress is not used.
+ *
+ * `compress:` <boolean> If the file stream should use gzip compression. Very slow.
+ *
+ * @param {Request} req HTTP request
+ * @param {Response} res HTTP response
+ */
+async function streamChain(req, res) {
+  if (lock) {
+    res.statusMessage = 'Streaming of chain already in progress, server busy.';
+    res.status(503).end();
+    return;
+  }
+
+  lock = true;
+
+  /**
+   * Use the remote address here, don't need to worry about x-forwarded-for headers as
+   * we only allow the local network. Also, using the remote address is fine as FluxOS
+   * won't confirm if the upstream is natting behind a private address. I.e public
+   * connections coming in via a private address. (Flux websockets need the remote address
+   * or they think there is only one inbound connnection)
+   */
+  let ip = req.socket.remoteAddress;
+  if (!ip) {
+    res.statusMessage = 'Socket closed.';
+    res.status(400).end();
+    lock = false;
+    return;
+  }
+
+  // convert from IPv4-mapped IPv6 address format to straight IPv4 (from socket)
+  ip = ip.replace(/^.*:/, ''); // this is greedy, so will remove ::ffff:
+
+  if (!isPrivateAddress(ip)) {
+    res.statusMessage = 'Request must be from an address on the same private network as the host';
+    res.status(403).end();
+    lock = false;
+    return;
+  }
+
+  log.info(`Stream chain request received from: ${ip}`);
+
+  const base = path.join(__dirname, '../../../../.flux');
+
+  const folders = [
+    'blocks',
+    'chainstate',
+    'determ_zelnodes',
+  ];
+
+  const folderPromises = folders.map(async (f) => {
+    try {
+      const stats = await stat(path.join(base, f));
+      return stats.isDirectory();
+    } catch {
+      return false;
+    }
+  });
+
+  const foldersExist = await Promise.all(folderPromises);
+  const chainExists = foldersExist.every((x) => x);
+
+  if (!chainExists) {
+    res.statusMessage = 'Unable to find chain at $HOME/.flux';
+    res.status(500).end();
+    lock = false;
+    return;
+  }
+
+  let fluxdRunning = null;
+  let compress = false;
+  let safe = true;
+
+  const processedBody = serviceHelper.ensureObject(req.body);
+
+  if (processedBody) {
+    // use unsafe for the client end to illistrate that they should think twice before using
+    // it, and use safe here for readability
+    safe = processedBody.unsafe !== true;
+    compress = processedBody.compress || false;
+  }
+
+  if (!safe && compress) {
+    res.statusMessage = 'Unable to compress blockchain in unsafe mode, it will corrupt new db.';
+    res.status(422).end();
+    lock = false;
+    return;
+  }
+
+  if (safe) {
+    const blockInfoRes = await daemonServiceBlockchainRpcs.getBlockchainInfo();
+    fluxdRunning = !(blockInfoRes.status === 'error' && blockInfoRes.data.code === 'ECONNREFUSED');
+  }
+
+  if (safe && fluxdRunning) {
+    res.statusMessage = 'Flux daemon still running, unable to clone blockchain.';
+    res.status(503).end();
+    lock = false;
+    return;
+  }
+
+  const workflow = [];
+
+  workflow.push(tar.pack(base, {
+    entries: folders,
+  }));
+
+  if (compress) {
+    log.info('Compression requested... adding gzip. This can be 10-20x slower than sending uncompressed');
+    workflow.push(zlib.createGzip());
+  }
+
+  workflow.push(res);
+
+  const work = stream.pipeline.apply(null, workflow);
+
+  try {
+    await work;
+  } catch (err) {
+    log.warn(`Stream error: ${err.code}`);
+  }
+
+  lock = false;
 }
 
 /**
@@ -1201,50 +1417,44 @@ async function adjustBlockedPorts(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized === true) {
-      let body = '';
-      req.on('data', (data) => {
-        body += data;
-      });
-      req.on('end', async () => {
-        try {
-          if (!body) {
-            throw new Error('Missing Blocked Ports Information.');
-          }
-          const processedBody = serviceHelper.ensureObject(body);
-          const { blockedPorts } = processedBody;
-          log.info(`blockedPorts: ${JSON.stringify(blockedPorts)}`);
-          if (!Array.isArray(blockedPorts)) {
-            throw new Error('Blocked Ports is not a valid array');
-          }
-          const dataToWrite = `module.exports = {
-            initial: {
-              ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-              zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
-              kadena: '${userconfig.initial.kadena || ''}',
-              testnet: ${userconfig.initial.testnet || false},
-              development: ${userconfig.initial.development || false},
-              apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
-              routerIP: '${userconfig.initial.routerIP || ''}',
-              pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
-              pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-              blockedPorts: ${JSON.stringify(blockedPorts || [])},
-              blockedRepositories: ${JSON.stringify(userconfig.initial.blockedRepositories || []).replace(/"/g, "'")},
-            }
-          }`;
-          const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
-          await fsPromises.writeFile(fluxDirPath, dataToWrite);
-          const successMessage = messageHelper.createSuccessMessage('User Blocked Ports adjusted');
-          res.json(successMessage);
-        } catch (error) {
-          log.error(error);
-          const errorResponse = messageHelper.createErrorMessage(
-            error.message || error,
-            error.name,
-            error.code,
-          );
-          res.json(errorResponse);
+      try {
+        if (!req.body) {
+          throw new Error('Missing Blocked Ports Information.');
         }
-      });
+        const processedBody = serviceHelper.ensureObject(req.body);
+        const { blockedPorts } = processedBody;
+        log.info(`blockedPorts: ${JSON.stringify(blockedPorts)}`);
+        if (!Array.isArray(blockedPorts)) {
+          throw new Error('Blocked Ports is not a valid array');
+        }
+        const dataToWrite = `module.exports = {
+          initial: {
+            ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
+            zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
+            kadena: '${userconfig.initial.kadena || ''}',
+            testnet: ${userconfig.initial.testnet || false},
+            development: ${userconfig.initial.development || false},
+            apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
+            routerIP: '${userconfig.initial.routerIP || ''}',
+            pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
+            pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
+            blockedPorts: ${JSON.stringify(blockedPorts || [])},
+            blockedRepositories: ${JSON.stringify(userconfig.initial.blockedRepositories || []).replace(/"/g, "'")},
+          }
+        }`;
+        const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
+        await fsPromises.writeFile(fluxDirPath, dataToWrite);
+        const successMessage = messageHelper.createSuccessMessage('User Blocked Ports adjusted');
+        res.json(successMessage);
+      } catch (error) {
+        log.error(error);
+        const errorResponse = messageHelper.createErrorMessage(
+          error.message || error,
+          error.name,
+          error.code,
+        );
+        res.json(errorResponse);
+      }
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -1319,57 +1529,51 @@ async function adjustBlockedRepositories(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized === true) {
-      let body = '';
-      req.on('data', (data) => {
-        body += data;
-      });
-      req.on('end', async () => {
-        try {
-          if (!body) {
-            throw new Error('Missing Blocked Repositories Information.');
-          }
-          log.info(`body: ${JSON.stringify(body)}`);
-          const processedBody = serviceHelper.ensureObject(body);
-          const { blockedRepositories } = processedBody;
-          log.info(`blockedRepositories: ${JSON.stringify(blockedRepositories)}`);
-          if (!Array.isArray(blockedRepositories)) {
-            throw new Error('Blocked Repositories is not a valid array');
-          }
-          blockedRepositories.forEach((parameter) => {
-            if (typeof parameter !== 'string') {
-              throw new Error('Blocked Repositories are invalid');
-            }
-          });
-
-          const dataToWrite = `module.exports = {
-            initial: {
-              ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-              zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
-              kadena: '${userconfig.initial.kadena || ''}',
-              testnet: ${userconfig.initial.testnet || false},
-              development: ${userconfig.initial.development || false},
-              apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
-              routerIP: '${userconfig.initial.routerIP || ''}',
-              pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
-              pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-              blockedPorts: ${JSON.stringify(userconfig.initial.blockedPorts || [])},
-              blockedRepositories: ${JSON.stringify(blockedRepositories || []).replace(/"/g, "'")},
-            }
-          }`;
-          const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
-          await fsPromises.writeFile(fluxDirPath, dataToWrite);
-          const successMessage = messageHelper.createSuccessMessage('User Blocked Repositories adjusted');
-          res.json(successMessage);
-        } catch (error) {
-          log.error(error);
-          const errorResponse = messageHelper.createErrorMessage(
-            error.message || error,
-            error.name,
-            error.code,
-          );
-          res.json(errorResponse);
+      try {
+        if (!req.body) {
+          throw new Error('Missing Blocked Repositories Information.');
         }
-      });
+        log.info(`body: ${JSON.stringify(req.body)}`);
+        const processedBody = serviceHelper.ensureObject(req.body);
+        const { blockedRepositories } = processedBody;
+        log.info(`blockedRepositories: ${JSON.stringify(blockedRepositories)}`);
+        if (!Array.isArray(blockedRepositories)) {
+          throw new Error('Blocked Repositories is not a valid array');
+        }
+        blockedRepositories.forEach((parameter) => {
+          if (typeof parameter !== 'string') {
+            throw new Error('Blocked Repositories are invalid');
+          }
+        });
+
+        const dataToWrite = `module.exports = {
+          initial: {
+            ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
+            zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
+            kadena: '${userconfig.initial.kadena || ''}',
+            testnet: ${userconfig.initial.testnet || false},
+            development: ${userconfig.initial.development || false},
+            apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
+            routerIP: '${userconfig.initial.routerIP || ''}',
+            pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
+            pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
+            blockedPorts: ${JSON.stringify(userconfig.initial.blockedPorts || [])},
+            blockedRepositories: ${JSON.stringify(blockedRepositories || []).replace(/"/g, "'")},
+          }
+        }`;
+        const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
+        await fsPromises.writeFile(fluxDirPath, dataToWrite);
+        const successMessage = messageHelper.createSuccessMessage('User Blocked Repositories adjusted');
+        res.json(successMessage);
+      } catch (error) {
+        log.error(error);
+        const errorResponse = messageHelper.createErrorMessage(
+          error.message || error,
+          error.name,
+          error.code,
+        );
+        res.json(errorResponse);
+      }
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -1462,6 +1666,7 @@ async function restartFluxOS(req, res) {
 
 module.exports = {
   startDaemon,
+  streamChain,
   updateFlux,
   softUpdateFlux,
   softUpdateFluxInstall,
