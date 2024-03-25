@@ -305,6 +305,7 @@ export default {
               this.showToast('success', response.data.data.message);
             } else {
               this.showToast(this.getVariant(response.data.status), response.data.data.message || response.data.data);
+              document.getElementById('ssoLoggedIn').style.display = 'none';
               ui.reset();
               ui.start('#firebaseui-auth-container');
             }
