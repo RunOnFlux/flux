@@ -54,8 +54,8 @@
           <div class="loginRow">
             <a
               :href="`zel:?action=sign&message=${loginPhrase}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue}`"
-              @click="initiateLoginWS"
               title="Login with Zelcore"
+              @click="initiateLoginWS"
             >
               <img
                 class="zelidLogin"
@@ -65,7 +65,7 @@
                 width="100%"
               >
             </a>
-            <a @click="initSSP" title='Login with SSP'>
+            <a title="Login with SSP" @click="initSSP">
               <img
                 class="sspLogin"
                 :src="skin === 'dark' ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
@@ -76,7 +76,7 @@
             </a>
           </div>
           <div class="loginRow">
-            <a @click="initWalletConnect" title='Login with Wallet Connect'>
+            <a title="Login with Wallet Connect" @click="initWalletConnect">
               <img
                 class="walletconnectLogin"
                 src="@/assets/images/walletconnect.svg"
@@ -85,7 +85,7 @@
                 width="100%"
               >
             </a>
-            <a @click="initMetamask" title='Login with Metamask'>
+            <a title="Login with Metamask" @click="initMetamask">
               <img
                 class="metamaskLogin"
                 src="@/assets/images/metamask.svg"
