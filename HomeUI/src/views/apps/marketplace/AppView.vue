@@ -596,6 +596,12 @@
                     >
                   </a>
                 </div>
+                <div v-if="checkoutLoading" className="loginRow">
+                  <b-spinner variant="primary" />
+                  <div class="text-center">
+                    Checkout Loading ...
+                  </div>
+                </div>
                 <div v-if="fiatCheckoutURL" className="loginRow">
                   <a :href="fiatCheckoutURL" target="_blank" rel="noopener noreferrer">
                     Click here for checkout if not redirected
@@ -832,6 +838,7 @@ export default {
     const appPricePerDeployment = ref(0);
     const appPricePerDeploymentUSD = ref(0);
     const fiatCheckoutURL = ref(null);
+    const checkoutLoading = ref(false);
     const applicationPriceFluxError = ref(false);
     const applicationPriceFluxDiscount = ref('');
     const registrationHash = ref(null);
@@ -1056,6 +1063,8 @@ export default {
 
     const initStripePay = async () => {
       try {
+        fiatCheckoutURL.value = null;
+        checkoutLoading.value = true;
         const hash = registrationHash.value;
         const { name } = appRegistrationSpecification.value;
         const price = appPricePerDeploymentUSD.value;
@@ -1084,17 +1093,22 @@ export default {
         const checkoutURL = await axios.post(`${paymentBridge}/api/v1/stripe/checkout/create`, data);
         if (checkoutURL.data.status === 'error') {
           showToast('error', 'Failed to create stripe checkout');
+          checkoutLoading.value = false;
           return;
         }
         fiatCheckoutURL.value = checkoutURL.data.data;
+        checkoutLoading.value = false;
         openSite(checkoutURL.data.data);
       } catch (error) {
         showToast('error', 'Failed to create stripe checkout');
+        checkoutLoading.value = false;
       }
     };
 
     const initPaypalPay = async () => {
       try {
+        fiatCheckoutURL.value = null;
+        checkoutLoading.value = true;
         const hash = registrationHash.value;
         const { name } = appRegistrationSpecification.value;
         const price = appPricePerDeploymentUSD.value;
@@ -1123,12 +1137,15 @@ export default {
         const checkoutURL = await axios.post(`${paymentBridge}/api/v1/paypal/checkout/create`, data);
         if (checkoutURL.data.status === 'error') {
           showToast('error', 'Failed to create PayPal checkout');
+          checkoutLoading.value = false;
           return;
         }
         fiatCheckoutURL.value = checkoutURL.data.data;
+        checkoutLoading.value = false;
         openSite(checkoutURL.data.data);
       } catch (error) {
         showToast('error', 'Failed to create PayPal checkout');
+        checkoutLoading.value = false;
       }
     };
 
@@ -2001,6 +2018,7 @@ export default {
       applicationPriceFluxDiscount,
       applicationPriceFluxError,
       fiatCheckoutURL,
+      checkoutLoading,
       registrationHash,
       deploymentAddress,
 
