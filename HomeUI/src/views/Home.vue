@@ -341,6 +341,8 @@ export default {
         firebase.auth.GoogleAuthProvider.PROVIDER_ID,
         firebase.auth.GithubAuthProvider.PROVIDER_ID,
       ],
+      tosUrl: 'https://cdn.runonflux.io/Flux_Terms_of_Service.pdf',
+      privacyPolicyUrl: 'https://runonflux.io/privacyPolicy',
     };
     // Initialize the FirebaseUI Widget using Firebase.
     if (this.privilege === 'none') {
@@ -777,7 +779,6 @@ a:hover img {
 .firebaseui-input {
   min-width: 0px;
   padding: 10px;
-  margin-bottom: 10px;
   border: 1px solid #ccc;
   border-radius: 3px;
 }
@@ -789,6 +790,28 @@ a:hover img {
   margin: 5px;
   border-radius: 3px;
   cursor: pointer;
+}
+
+.firebaseui-form-actions {
+  display: block;
+}
+
+.firebaseui-form-links {
+  display: block;
+  text-align: center;
+}
+
+.firebaseui-form-action {
+  display: block;
+}
+
+.firebaseui-title {
+  color: black !important;
+}
+
+.firebaseui-tos-list {
+  display: none;
+  visibility: hidden;
 }
 
 </style>
