@@ -930,6 +930,7 @@ async function getFluxInfo(req, res) {
     }
     info.flux.nodeJsVersion = nodeJsVersionsRes.data.node;
     const syncthingVersion = syncthingService.systemVersion();
+    log.info(`syncthingVersion:${JSON.stringify(syncthingVersion)}`);
     if (syncthingVersion.status === 'error') {
       throw syncthingVersion.data;
     }
