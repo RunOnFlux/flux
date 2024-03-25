@@ -32,26 +32,41 @@
         title="Specifications"
       >
         <div>
-          <b-card title="Local application management">
-            <b-col class="my-1">
-              <b-form-group class="mb-0">
-                <label class="d-inline-block text-left mr-50">Select IP to run local application management:</label>
-                <b-form-select
-                  v-model="selectedIp"
-                  style="width: 200px"
-                  :options="null"
-                  @change="selectedIpChanged"
+          <b-card>
+            <h3><b-icon icon="hdd-network-fill" /> &nbsp;Backend Selection</h3>
+            <b-input-group class="my-1" style="width: 350px">
+              <b-input-group-prepend>
+                <b-input-group-text>
+                  <b-icon icon="laptop" />
+                </b-input-group-text>
+              </b-input-group-prepend>
+              <b-form-select
+                v-model="selectedIp"
+                :options="null"
+                @change="selectedIpChanged"
+              >
+                <b-form-select-option
+                  v-for="instance in instances.data"
+                  :key="instance.ip"
+                  :value="instance.ip"
                 >
-                  <b-form-select-option
-                    v-for="instance in instances.data"
-                    :key="instance.ip"
-                    :value="instance.ip"
-                  >
-                    {{ instance.ip }}
-                  </b-form-select-option>
-                </b-form-select>
-              </b-form-group>
-            </b-col>
+                  {{ instance.ip }}
+                </b-form-select-option>
+              </b-form-select>
+
+              <b-button
+                ref="BackendRefresh"
+                v-b-tooltip.hover.top="'Refresh'"
+                v-ripple.400="'rgba(255, 255, 255, 0.12)'"
+                variant="outline-success"
+                size="sm"
+                class="ml-1 bb"
+                style="outline: none !important; box-shadow: none !important"
+                @click="refreshInfo"
+              >
+                <b-icon scale="1.2" icon="arrow-clockwise" />
+              </b-button>
+            </b-input-group>
           </b-card>
         </div>
         <div>
@@ -73,7 +88,7 @@
             >
               <b-card class="">
                 <list-entry
-                  title="Description"
+                  title="Name"
                   :data="callResponse.data.name"
                 />
                 <list-entry
@@ -358,7 +373,7 @@
             >
               <b-card class="">
                 <list-entry
-                  title="Description"
+                  title="Name"
                   :data="callBResponse.data.name"
                 />
                 <list-entry
@@ -3509,7 +3524,6 @@
               size="sm"
               class="my-0"
             />
-            <span class="table-total">Total: {{ instances.totalRows }}</span>
           </b-col>
         </b-row>
       </b-tab>
@@ -5706,6 +5720,7 @@ export default {
   },
   data() {
     return {
+      appInfoObject: [],
       tooltipText: 'Copy to clipboard',
       tableKey: 0,
       isBusy: false,
@@ -6554,6 +6569,15 @@ export default {
     window.removeEventListener('resize', this.onResize);
   },
   methods: {
+    async refreshInfo() {
+      this.$refs.BackendRefresh.blur();
+      await this.getInstancesForDropDown();
+      this.selectedIpChanged();
+      this.getApplicationLocations().catch(() => {
+        this.isBusy = false;
+        this.showToast('danger', 'Error loading application locations');
+      });
+    },
     copyMessageToSign() {
       const { copy } = useClipboard({ source: this.dataToSign, legacy: true });
       copy();
@@ -7794,15 +7818,15 @@ export default {
       if (!this.selectedIp) {
         await this.getInstancesForDropDown();
         await this.getInstalledApplicationSpecifics();
+        this.getApplicationLocations().catch(() => {
+          this.isBusy = false;
+          this.showToast('danger', 'Error loading application locations');
+        });
       }
       this.getApplicationManagementAndStatus();
       switch (index) {
         case 1:
-          this.getInstancesForDropDown();
-          this.getApplicationLocations().catch(() => {
-            this.isBusy = false;
-            this.showToast('danger', 'Error loading application locations');
-          });
+          // this.getInstancesForDropDown();
           this.getInstalledApplicationSpecifics();
           this.getGlobalApplicationSpecifics();
           break;
@@ -8613,6 +8637,7 @@ export default {
     },
     async getInstancesForDropDown() {
       const response = await AppsService.getAppLocation(this.appName);
+      this.selectedIp = null;
       console.log(response);
       if (response.data.status === 'error') {
         this.showToast('danger', response.data.data.message || response.data.data);
@@ -8675,7 +8700,6 @@ export default {
           }
         }
         this.instances.totalRows = this.instances.data.length;
-        console.log(this.selectedIp);
       }
     },
     async getApplicationLocations() {
@@ -9876,6 +9900,7 @@ export default {
           state: foundAppInfo.State || 'Unknown state',
           status: foundAppInfo.Status || 'Unknown status',
         };
+        this.appInfoObject.push(appInfo);
         appInfo.state = appInfo.state.charAt(0).toUpperCase() + appInfo.state.slice(1);
         appInfo.status = appInfo.status.charAt(0).toUpperCase() + appInfo.status.slice(1);
         let niceString = `${appInfo.name} - ${appInfo.state} - ${appInfo.status}`;
@@ -9890,6 +9915,7 @@ export default {
                 state: foundAppInfoComponent.State || 'Unknown state',
                 status: foundAppInfoComponent.Status || 'Unknown status',
               };
+              this.appInfoObject.push(appInfoComponent);
               appInfoComponent.state = appInfoComponent.state.charAt(0).toUpperCase() + appInfoComponent.state.slice(1);
               appInfoComponent.status = appInfoComponent.status.charAt(0).toUpperCase() + appInfoComponent.status.slice(1);
               const niceStringComponent = ` ${appInfoComponent.name} - ${appInfoComponent.state} - ${appInfoComponent.status},`;

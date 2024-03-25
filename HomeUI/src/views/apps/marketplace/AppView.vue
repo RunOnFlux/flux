@@ -38,19 +38,17 @@
               readonly
               :value="appData.description"
               class="description-text"
-              style="margin-left: 20px; width: 96%"
             />
             <div
               v-if="appData.contacts"
               class="form-row form-group mt-2"
-              style="margin-left: 20px; width: 96%"
+              style="padding: 0;"
             >
               <label class="col-3 col-form-label">
                 Contact
                 <v-icon
                   v-b-tooltip.hover.top="'Add your email contact to get notifications ex. app about to expire, app spawns. Your contact will be uploaded to Flux Storage to not be public visible'"
                   name="info-circle"
-                  class="mr-1"
                 />
               </label>
               <div class="col">
@@ -62,8 +60,6 @@
             </div>
             <div v-if="appData.geolocationOptions">
               <b-form-group
-                class="ml-2 mr-1"
-                style="margin-left: 20px; width: 96%"
                 label-cols="3"
                 label-cols-lg="20"
                 :label="`Deployment Location`"
@@ -85,7 +81,7 @@
                 </b-form-select>
               </b-form-group>
             </div>
-            <b-card>
+            <b-card style="padding: 0;">
               <b-tabs @activate-tab="componentSelected">
                 <b-tab
                   v-for="(component, index) in appData.compose"
@@ -190,7 +186,7 @@
                 variant="outline-success"
                 aria-label="Launch Marketplace App"
                 class="mt-2 text-center"
-                style="position: absolute; bottom: 20px; left: 0; right: 0; width: 91%; margin-left: auto; margin-right: auto;"
+                style="position: absolute; bottom: 20px; left: 0; right: 0; margin-left: 3.0rem; margin-right: 3.0rem;"
                 @click="checkFluxSpecificationsAndFormatMessage"
               >
                 Start Launching Marketplace Application
