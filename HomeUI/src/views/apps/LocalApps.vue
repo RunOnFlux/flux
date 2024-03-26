@@ -574,7 +574,7 @@
                             confirm-button="Remove App"
                             @confirm="removeApp(row.item.name)"
                           />
-                          <b-button
+                          <!-- <b-button
                             :id="`manage-installed-app-${row.item.name}`"
                             v-b-tooltip.hover.top="'Manage App'"
                             size="sm"
@@ -591,7 +591,7 @@
                             :target="`manage-installed-app-${row.item.name}`"
                             confirm-button="Manage App"
                             @confirm="openAppManagement(row.item.name)"
-                          />
+                          /> -->
                         </b-button-group>
                       </b-button-toolbar>
                     </template>
