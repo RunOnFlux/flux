@@ -7854,7 +7854,7 @@ export default {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         };
-        const signSSO = await axios.post('https://pouwdev.runonflux.io/api/signMessage', { message }, { headers });
+        const signSSO = await axios.post('https://service.fluxcore.ai/api/signMessage', { message }, { headers });
         if (signSSO.data?.status !== 'success' && signSSO.data?.signature) {
           this.showToast('warning', 'failed to sign message, please try again');
           return;

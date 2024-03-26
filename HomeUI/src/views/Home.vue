@@ -279,7 +279,7 @@ export default {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         };
-        const fluxLogin = await axios.post('https://pouwdev.runonflux.io/api/signInOrUp', { message }, { headers });
+        const fluxLogin = await axios.post('https://service.fluxcore.ai/api/signInOrUp', { message }, { headers });
         if (fluxLogin.data?.status !== 'success') {
           ui.reset();
           ui.start('#firebaseui-auth-container');
