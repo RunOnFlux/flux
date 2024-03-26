@@ -18,6 +18,7 @@ const daemonServiceControlRpcs = require('../../ZelBack/src/services/daemonServi
 const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBenchmarkRpcs');
 const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+const syncthingService = require('../../ZelBack/src/services/syncthingService');
 const packageJson = require('../../package.json');
 
 const fsPromises = fs.promises;
@@ -1856,6 +1857,7 @@ describe('fluxService tests', () => {
     let explorerServiceStub;
     let fluxCommunicationStub;
     let fluxNetworkHelperStub;
+    let syncthingServiceStub;
 
     beforeEach(() => {
       daemonServiceControlRpcsStub = sinon.stub(daemonServiceControlRpcs, 'getInfo');
@@ -1870,6 +1872,7 @@ describe('fluxService tests', () => {
       explorerServiceStub = sinon.stub(explorerService, 'getScannedHeight');
       fluxCommunicationStub = sinon.stub(fluxCommunication, 'connectedPeersInfo');
       fluxNetworkHelperStub = sinon.stub(fluxNetworkHelper, 'getIncomingConnectionsInfo');
+      syncthingServiceStub = sinon.stub(syncthingService, 'systemVersion');
     });
 
     afterEach(() => {
@@ -1889,6 +1892,8 @@ describe('fluxService tests', () => {
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
       fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
+      syncthingServiceStub.returns({ status: 'success', data: 'syncthingVersion data' });
+
 
       const result = await fluxService.getFluxInfo();
 
@@ -1918,6 +1923,8 @@ describe('fluxService tests', () => {
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
       fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
+      syncthingServiceStub.returns({ status: 'success', data: 'syncthingVersion data' });
+
       const res = generateResponse();
 
       await fluxService.getFluxInfo(undefined, res);
@@ -1957,6 +1964,8 @@ describe('fluxService tests', () => {
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
       fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
+      syncthingServiceStub.returns({ status: 'success', data: 'syncthingVersion data' });
+
       const res = generateResponse();
 
       await fluxService.getFluxInfo(undefined, res);
@@ -1980,6 +1989,8 @@ describe('fluxService tests', () => {
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
       fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
+      syncthingServiceStub.returns({ status: 'success', data: 'syncthingVersion data' });
+
       const res = generateResponse();
 
       await fluxService.getFluxInfo(undefined, res);
@@ -2003,6 +2014,8 @@ describe('fluxService tests', () => {
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
       fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
+      syncthingServiceStub.returns({ status: 'success', data: 'syncthingVersion data' });
+
       const res = generateResponse();
 
       await fluxService.getFluxInfo(undefined, res);
@@ -2026,6 +2039,8 @@ describe('fluxService tests', () => {
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
       fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
+      syncthingServiceStub.returns({ status: 'success', data: 'syncthingVersion data' });
+
       const res = generateResponse();
 
       await fluxService.getFluxInfo(undefined, res);
@@ -2049,6 +2064,8 @@ describe('fluxService tests', () => {
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
       fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
+      syncthingServiceStub.returns({ status: 'success', data: 'syncthingVersion data' });
+
       const res = generateResponse();
 
       await fluxService.getFluxInfo(undefined, res);
@@ -2072,6 +2089,8 @@ describe('fluxService tests', () => {
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
       fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
+      syncthingServiceStub.returns({ status: 'success', data: 'syncthingVersion data' });
+
       const res = generateResponse();
 
       await fluxService.getFluxInfo(undefined, res);
@@ -2095,6 +2114,8 @@ describe('fluxService tests', () => {
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
       fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
+      syncthingServiceStub.returns({ status: 'success', data: 'syncthingVersion data' });
+
       const res = generateResponse();
 
       await fluxService.getFluxInfo(undefined, res);
@@ -2118,6 +2139,8 @@ describe('fluxService tests', () => {
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
       fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
+      syncthingServiceStub.returns({ status: 'success', data: 'syncthingVersion data' });
+
       const res = generateResponse();
 
       await fluxService.getFluxInfo(undefined, res);
@@ -2141,6 +2164,8 @@ describe('fluxService tests', () => {
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
       fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
+      syncthingServiceStub.returns({ status: 'success', data: 'syncthingVersion data' });
+
       const res = generateResponse();
 
       await fluxService.getFluxInfo(undefined, res);
@@ -2164,6 +2189,8 @@ describe('fluxService tests', () => {
       explorerServiceStub.returns({ status: 'error', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
       fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
+      syncthingServiceStub.returns({ status: 'success', data: 'syncthingVersion data' });
+
       const res = generateResponse();
 
       await fluxService.getFluxInfo(undefined, res);
@@ -2187,6 +2214,8 @@ describe('fluxService tests', () => {
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'error', data: 'connectedPeersInfo data' });
       fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
+      syncthingServiceStub.returns({ status: 'success', data: 'syncthingVersion data' });
+
       const res = generateResponse();
 
       await fluxService.getFluxInfo(undefined, res);
@@ -2210,6 +2239,8 @@ describe('fluxService tests', () => {
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
       fluxNetworkHelperStub.returns({ status: 'error', data: 'getIncomingConnectionsInfo data' });
+      syncthingServiceStub.returns({ status: 'success', data: 'syncthingVersion data' });
+
       const res = generateResponse();
 
       await fluxService.getFluxInfo(undefined, res);
