@@ -1,6 +1,6 @@
 {
   "name": "flux",
-  "version": "5.1.0",
+  "version": "5.2.0",
   "description": "Flux, Your Gateway to a Decentralized World",
   "repository": {
     "type": "git",
@@ -35,6 +35,10 @@
     {
       "name": "Kamil Piekarski",
       "email": "kamil@runonflux.io"
+    },
+    {
+      "name": "David White",
+      "email": "david@runonflux.io"
     },
     {
       "name": "Jacek Adamczyk"
