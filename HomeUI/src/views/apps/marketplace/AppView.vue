@@ -506,15 +506,16 @@
               </a>
             </div>
             <div class="loginRow">
-              <a @click="initSignFluxSSO">
-                <img
-                  class="fluxSSO"
-                  src="@/assets/images/logo/logo.png"
-                  alt="FluxSSO"
-                  height="100%"
-                  width="100%"
-                >
-              </a>
+              <b-button
+                v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                variant="primary"
+                aria-label="Sign with Single Sign On"
+                class="my-1"
+                style="width: 250px"
+                @click="initSignFluxSSO"
+              >
+                Sign with Single Sign On (SSO)
+              </b-button>
             </div>
           </div>
           <b-form-input
@@ -927,7 +928,7 @@ export default {
         const message = dataToSign.value;
         const firebaseUser = getUser();
         if (!firebaseUser) {
-          showToast('warning', 'user not found, please try again');
+          showToast('warning', 'Not logged in as SSO. Login with SSO or use different signing method.');
           return;
         }
         const token = firebaseUser.auth.currentUser.accessToken;
@@ -937,12 +938,12 @@ export default {
         };
         const signSSO = await axios.post('https://service.fluxcore.ai/api/signMessage', { message }, { headers });
         if (signSSO.data?.status !== 'success' && signSSO.data?.signature) {
-          showToast('warning', 'failed to sign message, please try again');
+          showToast('warning', 'Failed to sign message, please try again.');
           return;
         }
         signature.value = signSSO.data.signature;
       } catch (error) {
-        showToast('warning', 'failed to sign message, please try again');
+        showToast('warning', 'Failed to sign message, please try again.');
       }
     };
     const initiateSignWS = async () => {

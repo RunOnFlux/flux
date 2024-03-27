@@ -1509,7 +1509,14 @@
             rows="6"
             readonly
           />
-          <b-icon ref="copyButtonRef" v-b-tooltip="tooltipText" class="clipboard icon" scale="1.5" icon="clipboard" @click="copyMessageToSign" />
+          <b-icon
+            ref="copyButtonRef"
+            v-b-tooltip="tooltipText"
+            class="clipboard icon"
+            scale="1.5"
+            icon="clipboard"
+            @click="copyMessageToSign"
+          />
         </div>
       </b-form-group>
       <b-form-group
@@ -1528,12 +1535,27 @@
           xs="6"
           lg="8"
         >
-          <b-card class="text-center" title="Register Application">
+          <b-card
+            class="text-center"
+            title="Register Application"
+          >
             <b-card-text>
-              <h5>&nbsp;<b-icon class="mr-1 mt-2" scale="1.4" icon="cash-coin" />Price: <b>{{ applicationPriceUSD }} USD + VAT</b></h5>
+              <h5>
+                &nbsp;<b-icon
+                  class="mr-1 mt-2"
+                  scale="1.4"
+                  icon="cash-coin"
+                />Price: <b>{{ applicationPriceUSD }} USD + VAT</b>
+              </h5>
             </b-card-text>
             <b-card-text>
-              <h5>&nbsp;<b-icon class="mr-1" scale="1.4" icon="clock" />Subscription period: <b>{{ getExpireLabel || (appRegistrationSpecification.expire ? `${appRegistrationSpecification.expire} blocks` : '1 month') }}</b></h5>
+              <h5>
+                &nbsp;<b-icon
+                  class="mr-1"
+                  scale="1.4"
+                  icon="clock"
+                />Subscription period: <b>{{ getExpireLabel || (appRegistrationSpecification.expire ? `${appRegistrationSpecification.expire} blocks` : '1 month') }}</b>
+              </h5>
             </b-card-text>
             <b-button
               v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -1551,7 +1573,10 @@
           xs="6"
           lg="4"
         >
-          <b-card class="text-center" title="Sign with">
+          <b-card
+            class="text-center"
+            title="Sign with"
+          >
             <div class="loginRow">
               <a @click="initiateSignWS">
                 <img
@@ -1593,15 +1618,16 @@
               </a>
             </div>
             <div class="loginRow">
-              <a @click="initSignFluxSSO">
-                <img
-                  class="fluxSSO"
-                  src="@/assets/images/logo/logo.png"
-                  alt="FluxSSO"
-                  height="100%"
-                  width="100%"
-                >
-              </a>
+              <b-button
+                v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                variant="primary"
+                aria-label="Sign with Single Sign On"
+                class="my-1"
+                style="width: 250px"
+                @click="initSignFluxSSO"
+              >
+                Sign with Single Sign On (SSO)
+              </b-button>
             </div>
           </b-card>
         </b-col>
@@ -1628,7 +1654,10 @@
           xs="6"
           lg="4"
         >
-          <b-card class="text-center" title="Pay with Stripe/PayPal">
+          <b-card
+            class="text-center"
+            title="Pay with Stripe/PayPal"
+          >
             <div class="loginRow">
               <a @click="initStripePay(registrationHash, appRegistrationSpecification.name, applicationPriceUSD, appRegistrationSpecification.description)">
                 <img
@@ -1649,14 +1678,24 @@
                 >
               </a>
             </div>
-            <div v-if="checkoutLoading" className="loginRow">
+            <div
+              v-if="checkoutLoading"
+              className="loginRow"
+            >
               <b-spinner variant="primary" />
               <div class="text-center">
                 Checkout Loading ...
               </div>
             </div>
-            <div v-if="fiatCheckoutURL" className="loginRow">
-              <a :href="fiatCheckoutURL" target="_blank" rel="noopener noreferrer">
+            <div
+              v-if="fiatCheckoutURL"
+              className="loginRow"
+            >
+              <a
+                :href="fiatCheckoutURL"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
                 Click here for checkout if not redirected
               </a>
             </div>
@@ -2861,7 +2900,7 @@ export default {
         const message = this.dataToSign;
         const firebaseUser = getUser();
         if (!firebaseUser) {
-          this.showToast('warning', 'user not found, please try again');
+          this.showToast('warning', 'Not logged in as SSO. Login with SSO or use different signing method.');
           return;
         }
         const token = firebaseUser.auth.currentUser.accessToken;
@@ -2871,12 +2910,12 @@ export default {
         };
         const signSSO = await axios.post('https://service.fluxcore.ai/api/signMessage', { message }, { headers });
         if (signSSO.data?.status !== 'success' && signSSO.data?.signature) {
-          this.showToast('warning', 'failed to sign message, please try again');
+          this.showToast('warning', 'Failed to sign message, please try again.');
           return;
         }
         this.signature = signSSO.data.signature;
       } catch (error) {
-        this.showToast('warning', 'failed to sign message, please try again');
+        this.showToast('warning', 'Failed to sign message, please try again.');
       }
     },
 
@@ -3843,8 +3882,8 @@ export default {
 }
 .clipboard.icon {
   position: absolute;
-    top: 0.4em;
-    right: 1.7em;
+  top: 0.4em;
+  right: 1.7em;
   margin-top: 4px;
   margin-left: 4px;
   width: 12px;
@@ -3941,5 +3980,4 @@ a:hover img {
   float: right;
   margin-top: -50px;
 }
-
 </style>

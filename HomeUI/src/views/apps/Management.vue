@@ -5224,15 +5224,16 @@
                   </a>
                 </div>
                 <div class="loginRow">
-                  <a @click="initSignFluxSSO">
-                    <img
-                      class="fluxSSO"
-                      src="@/assets/images/logo/logo.png"
-                      alt="FluxSSO"
-                      height="100%"
-                      width="100%"
-                    >
-                  </a>
+                  <b-button
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="primary"
+                    aria-label="Sign with Single Sign On"
+                    class="my-1"
+                    style="width: 250px"
+                    @click="initSignFluxSSO"
+                  >
+                    Sign with Single Sign On (SSO)
+                  </b-button>
                 </div>
               </b-card>
             </b-col>
@@ -7891,7 +7892,7 @@ export default {
         const message = this.dataToSign;
         const firebaseUser = getUser();
         if (!firebaseUser) {
-          this.showToast('warning', 'user not found, please try again');
+          this.showToast('warning', 'Not logged in as SSO. Login with SSO or use different signing method.');
           return;
         }
         const token = firebaseUser.auth.currentUser.accessToken;
@@ -7901,12 +7902,12 @@ export default {
         };
         const signSSO = await axios.post('https://service.fluxcore.ai/api/signMessage', { message }, { headers });
         if (signSSO.data?.status !== 'success' && signSSO.data?.signature) {
-          this.showToast('warning', 'failed to sign message, please try again');
+          this.showToast('warning', 'Failed to sign message, please try again.');
           return;
         }
         this.signature = signSSO.data.signature;
       } catch (error) {
-        this.showToast('warning', 'failed to sign message, please try again');
+        this.showToast('warning', 'Failed to sign message, please try again.');
       }
     },
     async initiateSignWSUpdate() {

@@ -168,7 +168,6 @@ export default {
       this.$store.commit('flux/setPrivilege', 'none');
       this.$store.commit('flux/setZelid', '');
       console.log(auth);
-      await firebase.auth().signOut();
       IDService.logoutCurrentSession(zelidauth)
         .then((response) => {
           console.log(response);
@@ -189,6 +188,11 @@ export default {
           console.log(e);
           this.showToast('danger', e.toString());
         });
+      try {
+        await firebase.auth().signOut();
+      } catch (error) {
+        console.log(error);
+      }
     },
   },
 };
