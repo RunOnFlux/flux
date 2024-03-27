@@ -5223,6 +5223,18 @@
                     >
                   </a>
                 </div>
+                <div class="loginRow">
+                  <b-button
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="primary"
+                    aria-label="Sign with Single Sign On"
+                    class="my-1"
+                    style="width: 250px"
+                    @click="initSignFluxSSO"
+                  >
+                    Sign with Single Sign On (SSO)
+                  </b-button>
+                </div>
               </b-card>
             </b-col>
           </b-row>
@@ -5611,6 +5623,7 @@ import ListEntry from '@/views/components/ListEntry.vue';
 import JsonViewer from 'vue-json-viewer';
 import FileUpload from '@/views/components/FileUpload.vue';
 import { useClipboard } from '@vueuse/core';
+import { getUser } from '../../libs/firebase';
 
 import AppsService from '@/services/AppsService';
 import DaemonService from '@/services/DaemonService';
@@ -6534,7 +6547,7 @@ export default {
       }
     },
   },
-  async mounted() {
+  mounted() {
     const { hostname } = window.location;
     const regex = /[A-Za-z]/g;
     if (hostname.match(regex)) {
@@ -7873,6 +7886,29 @@ export default {
     },
     goBackToApps() {
       this.$emit('back');
+    },
+    async initSignFluxSSO() {
+      try {
+        const message = this.dataToSign;
+        const firebaseUser = getUser();
+        if (!firebaseUser) {
+          this.showToast('warning', 'Not logged in as SSO. Login with SSO or use different signing method.');
+          return;
+        }
+        const token = firebaseUser.auth.currentUser.accessToken;
+        const headers = {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        };
+        const signSSO = await axios.post('https://service.fluxcore.ai/api/signMessage', { message }, { headers });
+        if (signSSO.data?.status !== 'success' && signSSO.data?.signature) {
+          this.showToast('warning', 'Failed to sign message, please try again.');
+          return;
+        }
+        this.signature = signSSO.data.signature;
+      } catch (error) {
+        this.showToast('warning', 'Failed to sign message, please try again.');
+      }
     },
     async initiateSignWSUpdate() {
       if (this.dataToSign.length > 1800) {
@@ -10040,7 +10076,15 @@ export default {
   -webkit-app-region: no-drag;
   transition: 0.1s;
 }
-
+.fluxSSO {
+  height: 90px;
+  padding: 10px;
+  margin-left: 5px;
+}
+.fluxSSO img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
 .sspLogin {
   height: 90px;
   padding: 10px;

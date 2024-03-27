@@ -505,6 +505,18 @@
                 >
               </a>
             </div>
+            <div class="loginRow">
+              <b-button
+                v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                variant="primary"
+                aria-label="Sign with Single Sign On"
+                class="my-1"
+                style="width: 250px"
+                @click="initSignFluxSSO"
+              >
+                Sign with Single Sign On (SSO)
+              </b-button>
+            </div>
           </div>
           <b-form-input
             id="signature"
@@ -711,6 +723,7 @@ import SignClient from '@walletconnect/sign-client';
 import { MetaMaskSDK } from '@metamask/sdk';
 import useAppConfig from '@core/app-config/useAppConfig';
 import { useClipboard } from '@vueuse/core';
+import { getUser } from '../../../libs/firebase';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
 
@@ -910,7 +923,29 @@ export default {
     const onOpen = (evt) => {
       console.log(evt);
     };
-
+    const initSignFluxSSO = async () => {
+      try {
+        const message = dataToSign.value;
+        const firebaseUser = getUser();
+        if (!firebaseUser) {
+          showToast('warning', 'Not logged in as SSO. Login with SSO or use different signing method.');
+          return;
+        }
+        const token = firebaseUser.auth.currentUser.accessToken;
+        const headers = {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        };
+        const signSSO = await axios.post('https://service.fluxcore.ai/api/signMessage', { message }, { headers });
+        if (signSSO.data?.status !== 'success' && signSSO.data?.signature) {
+          showToast('warning', 'Failed to sign message, please try again.');
+          return;
+        }
+        signature.value = signSSO.data.signature;
+      } catch (error) {
+        showToast('warning', 'Failed to sign message, please try again.');
+      }
+    };
     const initiateSignWS = async () => {
       if (dataToSign.value.length > 1800) {
         const message = dataToSign.value;
@@ -2034,6 +2069,7 @@ export default {
       initPaypalPay,
       initStripePay,
       openSite,
+      initSignFluxSSO,
       initWalletConnect,
       onSessionConnect,
       siwe,
@@ -2118,6 +2154,17 @@ export default {
   -webkit-app-region: no-drag;
   transition: 0.1s;
 }
+
+.fluxSSO {
+  height: 90px;
+  padding: 10px;
+  margin-left: 5px;
+}
+.fluxSSO img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
+
 .sspLogin {
   height: 90px;
   padding: 10px;

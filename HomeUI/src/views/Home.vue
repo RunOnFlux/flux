@@ -25,15 +25,36 @@
     </b-card>
 
     <b-card v-if="privilege === 'none'">
-      <b-card-title>Log In</b-card-title>
+      <b-card-title>Automated Login</b-card-title>
       <dl class="row">
-        <dd class="col-sm-4">
-          <b-card-text class="text-center">
-            Please log in using
+        <dd class="col-sm-6">
+          <b-card-text class="text-center loginText">
+            3rd Party Provider Login
+          </b-card-text>
+          <div class="ssoLogin">
+            <div id="ssoLoading">
+              <b-spinner variant="primary" />
+              <div>
+                Loading Sign In Options
+              </div>
+            </div>
+            <div id="ssoLoggedIn" style="display: none">
+              <b-spinner variant="primary" />
+              <div>
+                Finishing Login Process
+              </div>
+            </div>
+            <div id="firebaseui-auth-container" />
+          </div>
+        </dd>
+        <dd class="col-sm-6">
+          <b-card-text class="text-center loginText">
+            Decentralized Login
           </b-card-text>
           <div class="loginRow">
             <a
               :href="`zel:?action=sign&message=${loginPhrase}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue}`"
+              title="Login with Zelcore"
               @click="initiateLoginWS"
             >
               <img
@@ -44,7 +65,7 @@
                 width="100%"
               >
             </a>
-            <a @click="initSSP">
+            <a title="Login with SSP" @click="initSSP">
               <img
                 class="sspLogin"
                 :src="skin === 'dark' ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
@@ -55,7 +76,7 @@
             </a>
           </div>
           <div class="loginRow">
-            <a @click="initWalletConnect">
+            <a title="Login with Wallet Connect" @click="initWalletConnect">
               <img
                 class="walletconnectLogin"
                 src="@/assets/images/walletconnect.svg"
@@ -64,7 +85,7 @@
                 width="100%"
               >
             </a>
-            <a @click="initMetamask">
+            <a title="Login with Metamask" @click="initMetamask">
               <img
                 class="metamaskLogin"
                 src="@/assets/images/metamask.svg"
@@ -75,9 +96,15 @@
             </a>
           </div>
         </dd>
-        <dd class="col-sm-8">
+      </dl>
+    </b-card>
+
+    <b-card v-if="privilege === 'none'">
+      <b-card-title>Manual Login</b-card-title>
+      <dl class="row">
+        <dd class="col-sm-12">
           <b-card-text class="text-center">
-            or sign the following message with any ZelID / SSP Wallet ID / Bitcoin / Ethereum address
+            Sign the following message with any ZelID / SSP Wallet ID / Bitcoin / Ethereum address
           </b-card-text>
           <br><br>
           <b-form
@@ -153,11 +180,15 @@ import SignClient from '@walletconnect/sign-client';
 import { WalletConnectModal } from '@walletconnect/modal';
 import { MetaMaskSDK } from '@metamask/sdk';
 
+import firebase from 'firebase/compat/app';
+import * as firebaseui from 'firebaseui';
+import 'firebaseui/dist/firebaseui.css';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import ListEntry from '@/views/components/ListEntry.vue';
 import useAppConfig from '@core/app-config/useAppConfig';
 import IDService from '@/services/IDService';
 import DaemonService from '@/services/DaemonService';
+import axios from 'axios';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
 
@@ -238,6 +269,93 @@ export default {
     this.daemonWelcomeGetFluxNodeStatus();
     this.getZelIdLoginPhrase();
     this.initMMSDK();
+    let ui;
+    const handleSignedInUser = async (user) => {
+      try {
+        document.getElementById('ssoLoggedIn').style.display = 'block';
+        const token = user.auth.currentUser.accessToken;
+        const message = this.loginPhrase;
+        const headers = {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        };
+        const fluxLogin = await axios.post('https://service.fluxcore.ai/api/signInOrUp', { message }, { headers });
+        if (fluxLogin.data?.status !== 'success') {
+          ui.reset();
+          ui.start('#firebaseui-auth-container');
+          throw new Error('Login Failed, please try again.');
+        }
+        const authLogin = {
+          zelid: fluxLogin.data.public_address,
+          signature: fluxLogin.data.signature,
+          loginPhrase: this.loginPhrase,
+        };
+        IDService.verifyLogin(authLogin)
+          .then((response) => {
+            console.log(response);
+            if (response.data.status === 'success') {
+              // user is  now signed. Store their values
+              const zelidauth = {
+                zelid: fluxLogin.data.public_address,
+                signature: fluxLogin.data.signature,
+                loginPhrase: this.loginPhrase,
+              };
+              this.$store.commit('flux/setPrivilege', response.data.data.privilage);
+              this.$store.commit('flux/setZelid', zelidauth.zelid);
+              localStorage.setItem('zelidauth', qs.stringify(zelidauth));
+              this.showToast('success', response.data.data.message);
+            } else {
+              this.showToast(this.getVariant(response.data.status), response.data.data.message || response.data.data);
+              document.getElementById('ssoLoggedIn').style.display = 'none';
+              ui.reset();
+              ui.start('#firebaseui-auth-container');
+            }
+          })
+          .catch((e) => {
+            console.log(e);
+            this.showToast('danger', e.toString());
+          });
+      } catch (error) {
+        this.showToast('warning', 'Login Failed, please try again.');
+      }
+    };
+    const uiConfig = {
+      callbacks: {
+      // Called when the user has been successfully signed in.
+        signInSuccessWithAuthResult(authResult) {
+          if (authResult.user) {
+            handleSignedInUser(authResult.user);
+          }
+          return false;
+        },
+        uiShown() {
+          document.getElementById('ssoLoading').style.display = 'none';
+        },
+      },
+      popupMode: true,
+      signInFlow: 'popup',
+      signInOptions: [
+        {
+          provider: firebase.auth.EmailAuthProvider.PROVIDER_ID,
+          buttonColor: '#2B61D1',
+          requireDisplayName: true,
+        },
+        firebase.auth.GoogleAuthProvider.PROVIDER_ID,
+        firebase.auth.GithubAuthProvider.PROVIDER_ID,
+      ],
+      tosUrl: 'https://cdn.runonflux.io/Flux_Terms_of_Service.pdf',
+      privacyPolicyUrl: 'https://runonflux.io/privacyPolicy',
+    };
+    // Initialize the FirebaseUI Widget using Firebase.
+    if (this.privilege === 'none') {
+      if (firebaseui.auth.AuthUI.getInstance()) {
+        ui = firebaseui.auth.AuthUI.getInstance();
+        ui.start('#firebaseui-auth-container', uiConfig);
+      } else {
+        ui = new firebaseui.auth.AuthUI(firebase.auth());
+        ui.start('#firebaseui-auth-container', uiConfig);
+      }
+    }
   },
   methods: {
     async daemonWelcomeGetFluxNodeStatus() {
@@ -590,12 +708,26 @@ export default {
 </script>
 
 <style>
+.loginText {
+  color: #2B61D1;
+  font-size: 16px;
+  font-weight: 500;
+}
 .loginRow {
   display: flex;
   flex-direction: row;
   justify-content: space-around;
   align-items: center;
   margin-bottom: 10px;
+}
+.ssoLogin {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 10px;
+  margin-top: 30px;
+  text-align: center;
 }
 .zelidLogin {
   margin-left: 5px;
@@ -643,4 +775,49 @@ a:hover img {
   filter: opacity(70%);
   transform: scale(1.1);
 }
+
+/* Custom styles for FirebaseUI widget */
+.firebaseui-container {
+  margin: 0 auto;
+  border-radius: 5px;
+}
+
+.firebaseui-input {
+  min-width: 0px;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+}
+
+.firebaseui-button {
+  display: block;
+  width: 100%;
+  padding: 10px;
+  margin: 5px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.firebaseui-form-actions {
+  display: block;
+}
+
+.firebaseui-form-links {
+  display: block;
+  text-align: center;
+}
+
+.firebaseui-form-action {
+  display: block;
+}
+
+.firebaseui-title {
+  color: black !important;
+}
+
+.firebaseui-tos-list {
+  display: none;
+  visibility: hidden;
+}
+
 </style>

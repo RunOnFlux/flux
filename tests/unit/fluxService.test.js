@@ -1894,7 +1894,6 @@ describe('fluxService tests', () => {
       fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
       syncthingServiceStub.returns({ status: 'success', data: 'syncthingVersion data' });
 
-
       const result = await fluxService.getFluxInfo();
 
       expect(result).to.be.an('object');
