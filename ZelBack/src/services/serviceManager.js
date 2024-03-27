@@ -87,7 +87,7 @@ async function startFluxFunctions() {
     log.info('Flux checks operational');
     fluxCommunication.fluxDiscovery();
     log.info('Flux Discovery started');
-    syncthingService.startSyncthing();
+    syncthingService.startSyncthingSentinel();
     log.info('Syncthing service started');
     await pgpService.generateIdentity();
     log.info('PGP service initiated');
