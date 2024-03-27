@@ -599,13 +599,15 @@ describe('syncthingService tests', () => {
       });
 
       const promise = syncthingService.runSyncthingSentinel();
-      await clock.tickAsync(1000);
+      await clock.tickAsync(6000);
       await promise;
 
       sinon.assert.calledWithExactly(runCmdStub, 'killall', { runAsRoot: true, logError: false, params: ['syncthing'] });
     });
 
     it('should install syncthing if there is a problem with the service', async () => {
+      const clock = sinon.useFakeTimers();
+
       // simulate syncthing error
       fakeMeta.rejects(Error('Fake Meta Error'));
 
@@ -619,7 +621,9 @@ describe('syncthingService tests', () => {
         return { error: null };
       });
 
-      await syncthingService.runSyncthingSentinel();
+      const promise = syncthingService.runSyncthingSentinel();
+      await clock.tickAsync(5000);
+      await promise;
 
       sinon.assert.calledWithExactly(infoSpy, 'Installing Syncthing...');
       sinon.assert.calledWithExactly(runCmdStub, '/home/testuser/helpers/installSyncthing.sh');
@@ -627,6 +631,8 @@ describe('syncthingService tests', () => {
     });
 
     it('should configure syncthing permissions if there is a problem with the service', async () => {
+      const clock = sinon.useFakeTimers();
+
       // simulate syncthing error
       fakeMeta.rejects(Error('Fake Meta Error'));
 
@@ -640,13 +646,17 @@ describe('syncthingService tests', () => {
         return { error: null };
       });
 
-      await syncthingService.runSyncthingSentinel();
+      const promise = syncthingService.runSyncthingSentinel();
+      await clock.tickAsync(5000);
+      await promise;
 
       // already tested this, this is just to make sure that configureDirectories is called
       sinon.assert.calledWithExactly(runCmdStub, 'mkdir', { params: ['-p', '/home/testuser/.config/syncthing'] });
     });
 
     it('should spawn a new syncthing process if there is a problem with the service', async () => {
+      const clock = sinon.useFakeTimers();
+
       const expectedParams = [
         'syncthing',
         '--logfile',
@@ -675,7 +685,9 @@ describe('syncthingService tests', () => {
         return { error: null };
       });
 
-      await syncthingService.runSyncthingSentinel();
+      const promise = syncthingService.runSyncthingSentinel();
+      await clock.tickAsync(5000);
+      await promise;
 
       sinon.assert.calledWithExactly(spawnStub, 'sudo', expectedParams, expectedOptions);
       sinon.assert.calledOnce(unrefStub);
