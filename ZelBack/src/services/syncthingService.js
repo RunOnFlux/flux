@@ -18,6 +18,7 @@ const verificationHelper = require('./verificationHelper');
 // these are just for testing to stub right now
 const util = require('node:util');
 const nodecmd = require('node-cmd');
+
 const cmdAsync = util.promisify(nodecmd.get);
 
 const syncthingURL = `http://${config.syncthing.ip}:${config.syncthing.port}`;
@@ -107,9 +108,9 @@ async function getConfigFile() {
 
   if (chmodError) return null;
 
-  let result = null
+  let result = null;
   // this should never reject as chown would error first but just in case
-  result = await fs.readFile(configFile, 'utf8').catch(error => {
+  result = await fs.readFile(configFile, 'utf8').catch((error) => {
     log.error(error);
     return null;
   });
@@ -151,7 +152,7 @@ async function performRequest(method = 'get', urlpath = '', data, timeout = 5000
       headers: {
         'X-API-Key': syncthingApiKey,
       },
-      signal: stc.signal
+      signal: stc.signal,
     });
     const response = await instance[method](urlpath, data);
 

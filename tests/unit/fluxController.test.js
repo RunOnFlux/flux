@@ -117,12 +117,12 @@ describe('fluxController tests', () => {
 
     const fc = new FluxController();
 
-    let interations = 0
+    let interations = 0;
 
     const runner = () => {
       interations += 1;
-      return 100
-    }
+      return 100;
+    };
 
     const started = fc.startLoop(runner);
 
@@ -144,9 +144,7 @@ describe('fluxController tests', () => {
 
     const fc = new FluxController();
 
-    const runner = () => {
-      return 100
-    }
+    const runner = () => 100;
 
     fc.startLoop(runner);
 

@@ -1,4 +1,3 @@
-/* global userconfig */
 const config = require('config');
 const log = require('../lib/log');
 

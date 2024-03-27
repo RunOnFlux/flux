@@ -1,4 +1,3 @@
-/* global userconfig */
 global.userconfig = require('./config/userconfig');
 
 process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;

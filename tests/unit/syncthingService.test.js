@@ -1,5 +1,5 @@
 // NodeJS Stubbed
-const fs = require('node:fs/promises')
+const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const childProcess = require('node:child_process');
@@ -11,19 +11,18 @@ const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 
 // Testing imports
 const chai = require('chai');
+
 const { expect } = chai;
 const proxyquire = require('proxyquire');
 const sinon = require('sinon');
 const syncthingFixtures = require('./data/syncthingFixtures');
 
 // Fakes
-let runExecStub = sinon.stub();
+const runExecStub = sinon.stub();
 const utilFake = { promisify: () => runExecStub };
 
 // Module under test
-const syncthingService = proxyquire(
-  '../../ZelBack/src/services/syncthingService', { 'node:util': utilFake }
-);
+const syncthingService = proxyquire('../../ZelBack/src/services/syncthingService', { 'node:util': utilFake });
 
 describe('syncthingService tests', () => {
   describe('getConfigFileDepreciated tests', () => {
@@ -33,56 +32,55 @@ describe('syncthingService tests', () => {
       // sinon.restore won't reset this if passed into proxyquire
       runExecStub.reset();
       sinon.restore();
-    })
+    });
 
     it('should set the .config dir permissions to the current user', async () => {
       runExecStub.resolves(null);
       sinon.stub(fs, 'readFile').resolves();
 
-      const user = os.userInfo().username;
-      const expected = 'sudo chown $USER:$USER $HOME/.config'
+      const expected = 'sudo chown $USER:$USER $HOME/.config';
 
       await syncthingService.getConfigFileDepreciated();
       sinon.assert.calledWithExactly(runExecStub, expected);
-    })
+    });
 
     it('should set the syncthing dir permissions to the current user', async () => {
       runExecStub.resolves(null);
       sinon.stub(fs, 'readFile').resolves();
 
-      const expected = 'sudo chown $USER:$USER $HOME/.config/syncthing'
+      const expected = 'sudo chown $USER:$USER $HOME/.config/syncthing';
 
       await syncthingService.getConfigFileDepreciated();
       sinon.assert.calledWithExactly(runExecStub, expected);
-    })
+    });
 
     it('should set the syncthing config file permissions to 644', async () => {
       runExecStub.resolves(null);
       sinon.stub(fs, 'readFile').resolves();
-      sinon.stub(os, 'homedir').returns('/home/testuser')
+      sinon.stub(os, 'homedir').returns('/home/testuser');
 
-      const expected = `sudo chmod 644 /home/testuser/.config/syncthing/config.xml`;
+      const expected = 'sudo chmod 644 /home/testuser/.config/syncthing/config.xml';
 
       await syncthingService.getConfigFileDepreciated();
       sinon.assert.calledWithExactly(runExecStub, expected);
-    })
+    });
 
     it('should return the syncthing config file with utf-8 format', async () => {
-      const expected = 'Test config file'
+      const expected = 'Test config file';
       runExecStub.resolves(null);
       sinon.stub(fs, 'readFile').resolves().resolves(expected);
 
       const res = await syncthingService.getConfigFileDepreciated();
       expect(res).to.be.equal(expected);
-    })
+    });
 
     it('should return null if there is an error getting config file', async () => {
       runExecStub.resolves(null);
-      sinon.stub(fs, 'readFile').resolves().rejects("Test ENOENT");
+      sinon.stub(fs, 'readFile').resolves().rejects('Test ENOENT');
 
       const res = await syncthingService.getConfigFileDepreciated();
       expect(res).to.be.equal(null);
-    })
+    });
   });
 
   describe('getConfigFile tests', () => {
@@ -93,73 +91,72 @@ describe('syncthingService tests', () => {
 
     afterEach(() => {
       sinon.restore();
-    })
+    });
 
     it('should set the .config dir permissions to the current user', async () => {
       runCmdStub.resolves({ stdout: '', error: null });
       sinon.stub(fs, 'readFile').resolves();
       sinon.stub(os, 'homedir').returns('/home/usertest');
-      sinon.stub(os, 'userInfo').returns({ username: 'testuser' })
+      sinon.stub(os, 'userInfo').returns({ username: 'testuser' });
 
       const expectedParams = ['testuser:testuser', '/home/usertest/.config'];
 
       await syncthingService.getConfigFile();
 
       sinon.assert.calledWithExactly(runCmdStub, 'chown', { runAsRoot: true, params: expectedParams });
-    })
+    });
 
     it('should set the syncthing dir permissions to the current user', async () => {
       runCmdStub.resolves({ stdout: '', error: null });
       sinon.stub(fs, 'readFile').resolves();
       sinon.stub(os, 'homedir').returns('/home/usertest');
-      sinon.stub(os, 'userInfo').returns({ username: 'testuser' })
+      sinon.stub(os, 'userInfo').returns({ username: 'testuser' });
 
       const expectedParams = ['testuser:testuser', '/home/usertest/.config/syncthing'];
 
       await syncthingService.getConfigFile();
       sinon.assert.calledWithExactly(runCmdStub, 'chown', { runAsRoot: true, params: expectedParams });
-    })
+    });
 
     it('should set the syncthing config file permissions to 644', async () => {
       runCmdStub.resolves({ stdout: '', error: null });
       sinon.stub(fs, 'readFile').resolves();
       sinon.stub(os, 'homedir').returns('/home/usertest');
-      sinon.stub(os, 'userInfo').returns({ username: 'testuser' })
+      sinon.stub(os, 'userInfo').returns({ username: 'testuser' });
 
       const expectedParams = ['644', '/home/usertest/.config/syncthing/config.xml'];
 
       await syncthingService.getConfigFile();
       sinon.assert.calledWithExactly(runCmdStub, 'chmod', { runAsRoot: true, params: expectedParams });
-    })
+    });
 
     it('should return the syncthing config file with utf-8 format', async () => {
-      const expected = 'Test config file'
+      const expected = 'Test config file';
       runCmdStub.resolves({ stdout: '', error: null });
 
       sinon.stub(fs, 'readFile').resolves(expected);
       sinon.stub(os, 'homedir').returns('/home/usertest');
-      sinon.stub(os, 'userInfo').returns({ username: 'testuser' })
+      sinon.stub(os, 'userInfo').returns({ username: 'testuser' });
 
       const res = await syncthingService.getConfigFile();
       expect(res).to.be.equal(expected);
-    })
+    });
 
     it('should return null if there is an error getting config file', async () => {
       runCmdStub.resolves({ stdout: '', error: null });
-      sinon.stub(fs, 'readFile').rejects("Test ENOENT");
+      sinon.stub(fs, 'readFile').rejects('Test ENOENT');
       sinon.stub(os, 'homedir').returns('/home/usertest');
-      sinon.stub(os, 'userInfo').returns({ username: 'testuser' })
+      sinon.stub(os, 'userInfo').returns({ username: 'testuser' });
 
       const res = await syncthingService.getConfigFile();
       expect(res).to.be.equal(null);
-    })
+    });
   });
   describe('getDeviceIdDepreciated tests', () => {
-    let runCmdStub;
     let fakePerformRequest;
     let fakeMeta;
     let fakeGet;
-    let errorSpy
+    let errorSpy;
 
     const deviceId = 'AEYDK6D-2U3U5AI-MEDDSIE-5WC7F0K-FDLAOJQ-24AFG44-Z2B749L-BOUX3QM';
 
@@ -167,32 +164,33 @@ describe('syncthingService tests', () => {
       errorSpy = sinon.spy(log, 'error');
 
       // this is for all the chown/chmod stuff
-      runCmdStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
 
       // for getSynchingApiKey
       sinon.stub(fs, 'readFile').resolves().resolves(syncthingFixtures.configFile);
 
       fakeMeta = sinon.stub().returns({
-        status: 'success', data: `var metadata = {"authenticated":true,"deviceID":"${deviceId}","deviceIDShort":"AEYDK6D"};\n`
+        status: 'success', data: `var metadata = {"authenticated":true,"deviceID":"${deviceId}","deviceIDShort":"AEYDK6D"};\n`,
       });
 
-      fakeGet = sinon.fake(async (path, _) => {
-        if (path === '/meta.js') {
+      fakeGet = sinon.fake(async (reqPath) => {
+        if (reqPath === '/meta.js') {
           return fakeMeta();
-        } else if (path === '/rest/noauth/health') {
-          return { status: 'success', data: { status: 'OK' } }
+        } if (reqPath === '/rest/noauth/health') {
+          return { status: 'success', data: { status: 'OK' } };
         }
-        else if (path === '/rest/system/ping') {
-          return { status: 'success', data: { ping: 'pong' } }
+        if (reqPath === '/rest/system/ping') {
+          return { status: 'success', data: { ping: 'pong' } };
         }
-      })
+        return {};
+      });
       fakePerformRequest = { get: fakeGet };
       sinon.stub(axios, 'create').returns(fakePerformRequest);
-    })
+    });
 
     afterEach(() => {
       sinon.restore();
-    })
+    });
 
     it('should wait 2 seconds if getDeviceId already running', async () => {
       const clock = sinon.useFakeTimers();
@@ -201,13 +199,13 @@ describe('syncthingService tests', () => {
 
       await clock.tickAsync(1000);
       await promise1;
-      expect(fakeGet.callCount).to.be.equal(3)
+      expect(fakeGet.callCount).to.be.equal(3);
       await clock.tickAsync(999);
-      expect(fakeGet.callCount).to.be.equal(3)
+      expect(fakeGet.callCount).to.be.equal(3);
       await clock.tickAsync(1001);
       await promise2;
-      expect(fakeGet.callCount).to.be.equal(6)
-    })
+      expect(fakeGet.callCount).to.be.equal(6);
+    });
 
     it('should get syncthing deviceId', async () => {
       const clock = sinon.useFakeTimers();
@@ -216,26 +214,26 @@ describe('syncthingService tests', () => {
       const res = await promise;
 
       expect(res).to.be.deep.equal({ status: 'success', data: deviceId });
-    })
+    });
 
     it('should return error and log if command were not successful', async () => {
       const clock = sinon.useFakeTimers();
 
-      const error = new Error('Axios not working today')
+      const error = new Error('Axios not working today');
       fakeMeta.throws(error);
 
       const promise = syncthingService.getDeviceIdDepreciated();
       await clock.tickAsync(1000);
       await promise;
       sinon.assert.calledWithExactly(errorSpy, error);
-    })
-  })
+    });
+  });
 
   describe('getDeviceId tests', () => {
     let fakePerformRequest;
     let fakeMeta;
     let fakeGet;
-    let errorSpy
+    let errorSpy;
 
     const deviceId = 'AEYDK6D-2U3U5AI-MEDDSIE-5WC7F0K-FDLAOJQ-24AFG44-Z2B749L-BOUX3QM';
 
@@ -249,35 +247,36 @@ describe('syncthingService tests', () => {
       sinon.stub(fs, 'readFile').resolves().resolves(syncthingFixtures.configFile);
 
       fakeMeta = sinon.stub().resolves({
-        status: 'success', data: `var metadata = {"authenticated":true,"deviceID":"${deviceId}","deviceIDShort":"AEYDK6D"};\n`
+        status: 'success', data: `var metadata = {"authenticated":true,"deviceID":"${deviceId}","deviceIDShort":"AEYDK6D"};\n`,
       });
 
-      fakeGet = sinon.fake(async (path, _) => {
-        if (path === '/meta.js') {
+      fakeGet = sinon.fake(async (reqPath) => {
+        if (reqPath === '/meta.js') {
           return fakeMeta();
-        } else if (path === '/rest/noauth/health') {
-          return { status: 'success', data: { status: 'OK' } }
+        } if (reqPath === '/rest/noauth/health') {
+          return { status: 'success', data: { status: 'OK' } };
         }
-        else if (path === '/rest/system/ping') {
-          return { status: 'success', data: { ping: 'pong' } }
+        if (reqPath === '/rest/system/ping') {
+          return { status: 'success', data: { ping: 'pong' } };
         }
-      })
+        return {};
+      });
       fakePerformRequest = { get: fakeGet };
       sinon.stub(axios, 'create').returns(fakePerformRequest);
-    })
+    });
 
     afterEach(() => {
       sinon.restore();
-    })
+    });
 
     it('should only run getDeviceId one at a time', async () => {
       const clock = sinon.useFakeTimers();
       const blah = {
-        status: 'success', data: `var metadata = {"authenticated":true,"deviceID":"${deviceId}","deviceIDShort":"AEYDK6D"};\n`
-      }
+        status: 'success', data: `var metadata = {"authenticated":true,"deviceID":"${deviceId}","deviceIDShort":"AEYDK6D"};\n`,
+      };
 
       // a dummy command that takes 2 seconds
-      const timeout = async () => new Promise(r => setTimeout(() => r(blah), 2000));
+      const timeout = async () => new Promise((r) => { setTimeout(() => r(blah), 2000); });
 
       fakeMeta.callsFake(timeout);
       const promise1 = syncthingService.getDeviceId();
@@ -289,14 +288,14 @@ describe('syncthingService tests', () => {
       await clock.tickAsync(1);
       expect(fakeMeta.callCount).to.be.equal(2);
       await clock.nextAsync();
-      await Promise.all([promise1, promise2])
-    })
+      await Promise.all([promise1, promise2]);
+    });
 
     it('should return syncthing deviceId', async () => {
       const res = await syncthingService.getDeviceId();
 
       expect(res).to.be.equal(deviceId);
-    })
+    });
 
     it('should return null and log if commands were not successful', async () => {
       const error = new Error('Axios not working today');
@@ -305,11 +304,13 @@ describe('syncthingService tests', () => {
       const res = await syncthingService.getDeviceId();
       expect(res).to.be.equal(null);
       sinon.assert.calledWithExactly(errorSpy, error);
-    })
-  })
+    });
+  });
 
   describe('installSyncthingIdempotently tests', () => {
     let runCmdStub;
+    let infoSpy;
+    let errorSpy;
 
     beforeEach(() => {
       runCmdStub = sinon.stub(serviceHelper, 'runCommand');
@@ -322,12 +323,12 @@ describe('syncthingService tests', () => {
     });
 
     it('should return without installing if syncthing already installed', async () => {
-      const version = 'syncthing v1.27.3 "Gold Grasshopper" (go1.21.6 linux-amd64) debian@github.syncthing.net 2024-01-15 03:45:19 UTC [noupgrade]'
+      const version = 'syncthing v1.27.3 "Gold Grasshopper" (go1.21.6 linux-amd64) debian@github.syncthing.net 2024-01-15 03:45:19 UTC [noupgrade]';
       runCmdStub.resolves({ stdout: version });
 
       await syncthingService.installSyncthingIdempotently();
 
-      sinon.assert.calledWithExactly(runCmdStub, 'syncthing', { logError: false, params: ['--version'] })
+      sinon.assert.calledWithExactly(runCmdStub, 'syncthing', { logError: false, params: ['--version'] });
       sinon.assert.calledWithExactly(infoSpy, 'Checking if Syncthing is installed...');
       sinon.assert.calledWithExactly(infoSpy, 'Syncthing already installed...');
       sinon.assert.notCalled(errorSpy);
@@ -336,8 +337,6 @@ describe('syncthingService tests', () => {
     it('should run install syncthing script if syncthing not installed and log outcome', async () => {
       const scriptPath = '/home/testuser/helpers/installSyncthing.sh';
       sinon.stub(path, 'join').returns(scriptPath);
-
-      const version = 'syncthing v1.27.3 "Gold Grasshopper" (go1.21.6 linux-amd64) debian@github.syncthing.net 2024-01-15 03:45:19 UTC [noupgrade]'
 
       // this wouldn't usually happen but easier to stub the same for both calls
       runCmdStub.resolves({ stdout: '', error: null });
@@ -423,15 +422,15 @@ describe('syncthingService tests', () => {
       // and checking if it's still running
       const clock = sinon.useFakeTimers();
 
-      let pgrepCalls = 0
-      runCmdStub.callsFake(async (cmd, _) => {
+      let pgrepCalls = 0;
+      runCmdStub.callsFake(async (cmd) => {
         if (cmd === 'pgrep' && !pgrepCalls) {
           pgrepCalls += 1;
           return { stdout: 'syncthing is running' };
         }
         if (cmd === 'pgrep') return { stdout: '' };
         return {};
-      })
+      });
 
       const promise = syncthingService.stopSyncthing();
       await clock.tickAsync(1000);
@@ -449,10 +448,10 @@ describe('syncthingService tests', () => {
       // and checking if it's still running
       const clock = sinon.useFakeTimers();
 
-      runCmdStub.callsFake(async (cmd, _) => {
+      runCmdStub.callsFake(async (cmd) => {
         if (cmd === 'pgrep') return { stdout: 'syncthing is running' };
         return {};
-      })
+      });
 
       const promise = syncthingService.stopSyncthing();
       await clock.tickAsync(1000);
@@ -468,11 +467,14 @@ describe('syncthingService tests', () => {
   describe('runSyncthingSentinel tests', () => {
     const deviceId = 'AEYDK6D-2U3U5AI-MEDDSIE-5WC7F0K-FDLAOJQ-24AFG44-Z2B749L-BOUX3QM';
 
+    let fakeMeta;
+    let fakeGet;
     let runCmdStub;
     let fakeConfigOptions;
     let fakeConfigDefaults;
     let fakeConfigFolders;
     let fakeGuiConfig;
+    let fakePerformRequest;
     let fakeRestartRequired;
     let spawnStub;
     let infoSpy;
@@ -488,41 +490,40 @@ describe('syncthingService tests', () => {
       sinon.stub(fs, 'readFile').resolves().resolves(syncthingFixtures.configFile);
 
       fakeMeta = sinon.stub().resolves({
-        status: 'success', data: `var metadata = {"authenticated":true,"deviceID":"${deviceId}","deviceIDShort":"AEYDK6D"};\n`
+        status: 'success', data: `var metadata = {"authenticated":true,"deviceID":"${deviceId}","deviceIDShort":"AEYDK6D"};\n`,
       });
 
       // we use these so we can skip doing work in the adjustSyncthing function
-      fakeConfigOptions = sinon.stub().rejects(Error("Test fakeConfigOptions Error"));
-      fakeConfigDefaults = sinon.stub().rejects(Error("Test fakeConfigDefaults Error"));
-      fakeConfigFolders = sinon.stub().rejects(Error("Test fakeConfigFolders Error"));
-      fakeGuiConfig = sinon.stub().rejects(Error("Test fakeGuiConfig Error"));
-      fakeRestartRequired = sinon.stub().rejects(Error("Test fakeRestartRequired Error"));
+      fakeConfigOptions = sinon.stub().rejects(Error('Test fakeConfigOptions Error'));
+      fakeConfigDefaults = sinon.stub().rejects(Error('Test fakeConfigDefaults Error'));
+      fakeConfigFolders = sinon.stub().rejects(Error('Test fakeConfigFolders Error'));
+      fakeGuiConfig = sinon.stub().rejects(Error('Test fakeGuiConfig Error'));
+      fakeRestartRequired = sinon.stub().rejects(Error('Test fakeRestartRequired Error'));
 
-      fakeGet = sinon.fake(async (path, _) => {
-        if (path === '/meta.js') {
+      fakeGet = sinon.fake(async (reqPath) => {
+        if (reqPath === '/meta.js') {
           return fakeMeta();
-        } else if (path === '/rest/noauth/health') {
-          return { status: 'success', data: { status: 'OK' } }
-        } else if (path === '/rest/system/ping') {
-          return { status: 'success', data: { ping: 'pong' } }
-        } else if (path === '/rest/config/options') {
+        } if (reqPath === '/rest/noauth/health') {
+          return { status: 'success', data: { status: 'OK' } };
+        } if (reqPath === '/rest/system/ping') {
+          return { status: 'success', data: { ping: 'pong' } };
+        } if (reqPath === '/rest/config/options') {
           // use this as a counter
           return fakeConfigOptions();
-        } else if (path === '/rest/config/defaults/folder') {
+        } if (reqPath === '/rest/config/defaults/folder') {
           // use this as a counter
           return fakeConfigDefaults();
-        } else if (path === '/rest/config/folders') {
+        } if (reqPath === '/rest/config/folders') {
           // use this as a counter
           return fakeConfigFolders();
-        } else if (path === '/rest/config/gui') {
+        } if (reqPath === '/rest/config/gui') {
           // use this as a counter
           return fakeGuiConfig();
-        } else if (path === '/rest/config/restart-required') {
+        } if (reqPath === '/rest/config/restart-required') {
           // use this as a counter
           return fakeRestartRequired();
-        } else {
-          return { data: 'Intentional failure' }
         }
+        return { data: 'Intentional failure' };
       });
       fakePerformRequest = { get: fakeGet };
       sinon.stub(axios, 'create').returns(fakePerformRequest);
@@ -546,11 +547,10 @@ describe('syncthingService tests', () => {
 
       const stc = syncthingService.syncthingController();
 
-
       stc.startLoop(syncthingService.runSyncthingSentinel);
 
       // allow first iteration to run (counter starts at 0, is at 1 after it's run)
-      await clock.tickAsync(10)
+      await clock.tickAsync(10);
 
       // we are using fakeConfigOptions as a proxy for adjustSynthing function.
       sinon.assert.callCount(fakeConfigOptions, 1);
@@ -564,7 +564,7 @@ describe('syncthingService tests', () => {
       expect(stc.loopCount).to.equal(5);
 
       // go to 8th iteration
-      await clock.tickAsync(4 * DEFAULT_WAIT)
+      await clock.tickAsync(4 * DEFAULT_WAIT);
       sinon.assert.callCount(fakeConfigOptions, 2);
 
       // runSyncthingSentinel resets the loopCount to 0
@@ -577,40 +577,38 @@ describe('syncthingService tests', () => {
       const clock = sinon.useFakeTimers();
 
       // simulate syncthing error
-      fakeMeta.rejects(Error("Fake Meta Error"));
+      fakeMeta.rejects(Error('Fake Meta Error'));
 
       // fake syncthing running then not running
-      let pgrepCalls = 0
-      runCmdStub.callsFake(async (cmd, _) => {
+      let pgrepCalls = 0;
+      runCmdStub.callsFake(async (cmd) => {
         if (cmd === 'pgrep' && !pgrepCalls) {
           pgrepCalls += 1;
           return { stdout: 'syncthing is running' };
         }
         if (cmd === 'pgrep') return { stdout: '' };
         return { error: null };
-      })
+      });
 
       const promise = syncthingService.runSyncthingSentinel();
       await clock.tickAsync(1000);
       await promise;
 
-      sinon.assert.calledWithExactly(runCmdStub, 'killall', { runAsRoot: true, logError: false, params: ['syncthing'] })
-    })
-
+      sinon.assert.calledWithExactly(runCmdStub, 'killall', { runAsRoot: true, logError: false, params: ['syncthing'] });
+    });
 
     it('should install syncthing if there is a problem with the service', async () => {
       // simulate syncthing error
-      fakeMeta.rejects(Error("Fake Meta Error"));
+      fakeMeta.rejects(Error('Fake Meta Error'));
 
       // fake syncthing not running
-      runCmdStub.callsFake(async (cmd, _) => {
+      runCmdStub.callsFake(async (cmd) => {
         if (cmd === 'pgrep') {
           return { stdout: '' };
-        } else if (cmd === 'syncthing') {
+        } if (cmd === 'syncthing') {
           return { stdout: '' };
-        } else {
-          return { error: null };
         }
+        return { error: null };
       });
 
       await syncthingService.runSyncthingSentinel();
@@ -622,17 +620,16 @@ describe('syncthingService tests', () => {
 
     it('should configure syncthing permissions if there is a problem with the service', async () => {
       // simulate syncthing error
-      fakeMeta.rejects(Error("Fake Meta Error"));
+      fakeMeta.rejects(Error('Fake Meta Error'));
 
       // fake syncthing not running
-      runCmdStub.callsFake(async (cmd, _) => {
+      runCmdStub.callsFake(async (cmd) => {
         if (cmd === 'pgrep') {
           return { stdout: '' };
-        } else if (cmd === 'syncthing') {
+        } if (cmd === 'syncthing') {
           return { stdout: 'syncthing installed' };
-        } else {
-          return { error: null };
         }
+        return { error: null };
       });
 
       await syncthingService.runSyncthingSentinel();
@@ -653,22 +650,21 @@ describe('syncthingService tests', () => {
         '--no-browser',
         '--home',
         '/home/testuser/.config/syncthing',
-      ]
+      ];
 
-      const expectedOptions = { detached: true, stdio: 'ignore' }
+      const expectedOptions = { detached: true, stdio: 'ignore' };
 
       // simulate syncthing error
-      fakeMeta.rejects(Error("Fake Meta Error"));
+      fakeMeta.rejects(Error('Fake Meta Error'));
 
       // fake syncthing not running
-      runCmdStub.callsFake(async (cmd, _) => {
+      runCmdStub.callsFake(async (cmd) => {
         if (cmd === 'pgrep') {
           return { stdout: '' };
-        } else if (cmd === 'syncthing') {
+        } if (cmd === 'syncthing') {
           return { stdout: 'syncthing installed' };
-        } else {
-          return { error: null };
         }
+        return { error: null };
       });
 
       await syncthingService.runSyncthingSentinel();
