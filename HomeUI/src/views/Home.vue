@@ -29,7 +29,7 @@
       <dl class="row">
         <dd class="col-sm-6">
           <b-card-text class="text-center loginText">
-            3rd Party Provider Login
+            Flux Single Sign On (SSO) Login
           </b-card-text>
           <div class="ssoLogin">
             <div id="ssoLoading">
