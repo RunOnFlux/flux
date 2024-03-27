@@ -208,10 +208,6 @@ async function performRequest(method = 'get', urlpath = '', data, timeout = 5000
   }
 
   try {
-    if (urlpath === '/rest/config/options') {
-      console.log("HAVE COME FROM ADJUST")
-    }
-
     const response = await instance[method](urlpath, data);
 
     const successResponse = messageHelper.createDataMessage(response.data);
@@ -2520,7 +2516,8 @@ async function runSyncthingSentinel() {
         },
       ).unref();
 
-      return 60 * 1000;
+      // let syncthing get setup
+      await stc.sleep(5 * 1000);
     }
 
     // every 8 minutes call adjustSyncthing to check service folders
@@ -2532,6 +2529,8 @@ async function runSyncthingSentinel() {
 
     return 60 * 1000;
   } catch (error) {
+    if (error.name === 'AbortError') return 0;
+
     log.error(error);
     return 2 * 60 * 1000;
   } finally {
