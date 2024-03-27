@@ -335,7 +335,7 @@ describe('syncthingService tests', () => {
 
       sinon.assert.calledWithExactly(runCmdStub, 'syncthing', { logError: false, params: ['--version'] });
       sinon.assert.calledWithExactly(infoSpy, 'Checking if Syncthing is installed...');
-      sinon.assert.calledWithExactly(infoSpy, 'Syncthing already installed...');
+      sinon.assert.calledWithExactly(infoSpy, 'Syncthing already installed. Version: v1.27.3 ');
       sinon.assert.notCalled(errorSpy);
     });
 
@@ -657,20 +657,22 @@ describe('syncthingService tests', () => {
     it('should spawn a new syncthing process if there is a problem with the service', async () => {
       const clock = sinon.useFakeTimers();
 
-      const expectedParams = [
-        'syncthing',
-        '--logfile',
-        '/home/testuser/.config/syncthing/syncthing.log',
-        '--logflags=3',
-        '--log-max-old-files=2',
-        '--log-max-size=26214400',
-        '--allow-newer-config',
-        '--no-browser',
-        '--home',
-        '/home/testuser/.config/syncthing',
-      ];
+      const expected = 'sudo nohup syncthing --logfile /home/testuser/.config/syncthing/syncthing.log --logflags=3 --log-max-old-files=2 --log-max-size=26214400 --allow-newer-config --no-browser --home /home/testuser/.config/syncthing >/dev/null 2>&1 </dev/null &';
+      // const expectedParams = [
+      //   'syncthing',
+      //   '--logfile',
+      //   '/home/testuser/.config/syncthing/syncthing.log',
+      //   '--logflags=3',
+      //   '--log-max-old-files=2',
+      //   '--log-max-size=26214400',
+      //   '--allow-newer-config',
+      //   '--no-browser',
+      //   '--home',
+      //   '/home/testuser/.config/syncthing',
+      // ];
 
-      const expectedOptions = { detached: true, stdio: 'ignore' };
+      // const expectedOptions = { detached: true, stdio: 'ignore' };
+      const expectedOptions = { shell: true };
 
       // simulate syncthing error
       fakeMeta.rejects(Error('Fake Meta Error'));
@@ -689,8 +691,8 @@ describe('syncthingService tests', () => {
       await clock.tickAsync(5000);
       await promise;
 
-      sinon.assert.calledWithExactly(spawnStub, 'sudo', expectedParams, expectedOptions);
-      sinon.assert.calledOnce(unrefStub);
+      sinon.assert.calledWithExactly(spawnStub, expected, expectedOptions);
+      // sinon.assert.calledOnce(unrefStub);
     });
   });
 });
