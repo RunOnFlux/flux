@@ -5,26 +5,32 @@ class FluxController {
    * Used for functions to stop work
    */
   #abortController = new AbortController();
+
   /**
    * How many loops has been completed
    */
   #loopCount = 0;
+
   /**
    * Main flux function loop timer
    */
   #loopTimeout = null;
+
   /**
    * Incremental Id used for each sleep request
    */
   #timeoutId = 0;
+
   /**
    * Keeps track of any sleeps that are running
    */
   #timeouts = new Map();
+
   /**
    * If the main runner loop is active
    */
   #running = false;
+
   /**
    * async lock for functions to be able to tell the controller
    * that work is still being done
