@@ -2287,7 +2287,7 @@ async function installSyncthingIdempotently() {
   });
 
   if (installed) {
-    log.info('Syncthing already installed...');
+    log.info(`Syncthing already installed. Version: ${stdout.split(' ')[1]} `);
     return;
   }
 
@@ -2495,7 +2495,7 @@ async function runSyncthingSentinel() {
       // without having to call sudo. IMO, Flux should be run as it's own user, not just
       // whatever the operator installed as.
       // this can throw
-      childProcess.spawn(
+      const syncthing = childProcess.spawn(
         'sudo',
         [
           'syncthing',
@@ -2514,7 +2514,9 @@ async function runSyncthingSentinel() {
           stdio: 'ignore',
           // uid: 0,
         },
-      ).unref();
+      )
+
+      syncthing.unref();
 
       // let syncthing get setup
       await stc.sleep(5 * 1000);
