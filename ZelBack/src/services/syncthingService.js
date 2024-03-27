@@ -23,7 +23,6 @@ const cmdAsync = util.promisify(nodecmd.get);
 
 const syncthingURL = `http://${config.syncthing.ip}:${config.syncthing.port}`;
 
-let syncthingApiKey = '';
 let syncthingStatusOk = false;
 let getDeviceIDRunning = false;
 
@@ -41,6 +40,56 @@ const goodSyncthingChars = /^[a-zA-Z0-9-_]+$/;
  */
 const asyncLock = new AsyncLock();
 const stc = new FluxController();
+
+/**
+ * A simple 15 minute cache for the axios instance.
+ */
+const axiosCache = {
+  syncthingApiKey: null,
+  axiosInstance: null,
+  lastUpdate: 0,
+
+  async instance() {
+    return this.axiosInstance && this.lastUpdate + (15 * 60 * 1000) > Date.now() ? this.axiosInstance : this.createInstance();
+  },
+  /**
+   *
+   * @returns {Promise<void>}
+   */
+  async createInstance() {
+    this.syncthingApiKey = await getSyncthingApiKey();
+
+    if (!this.syncthingApiKey) return null;
+
+    this.axiosInstance = axios.create({
+      baseURL: syncthingURL,
+      timeout: 5000,
+      headers: {
+        'X-API-Key': this.syncthingApiKey,
+      },
+      signal: stc.signal,
+    });
+
+    this.lastUpdate = Date.now();
+    return this.axiosInstance;
+  },
+
+  /**
+   * @return {void}
+   */
+  reset() {
+    this.axiosInstance = null;
+    this.syncthingApiKey = null;
+    this.lastUpdate = 0;
+  }
+};
+
+/**
+ * @returns {object} The axios Cache
+ */
+function getAxiosCache() {
+  return axiosCache;
+}
 
 /**
  *
@@ -89,6 +138,7 @@ async function getConfigFile() {
   // As syncthing is running as root, we need to change owenership to running user
   const { error: chownConfigDirError } = await serviceHelper.runCommand('chown', {
     runAsRoot: true,
+    logError: false,
     params: [owner, configDir],
   });
 
@@ -96,6 +146,7 @@ async function getConfigFile() {
 
   const { error: chownSyncthingError } = await serviceHelper.runCommand('chown', {
     runAsRoot: true,
+    logError: false,
     params: [owner, syncthingDir],
   });
 
@@ -103,6 +154,7 @@ async function getConfigFile() {
 
   const { error: chmodError } = await serviceHelper.runCommand('chmod', {
     runAsRoot: true,
+    logError: false,
     params: ['644', configFile],
   });
 
@@ -120,15 +172,21 @@ async function getConfigFile() {
 
 /**
  * To get syncthing Api key
- * @returns {Promise<string>} Api key.
+ * @returns {Promise<string|null>} Api key
  */
-async function getSyncthingApiKey() { // can throw
+async function getSyncthingApiKey() {
   const fileRead = await getConfigFile();
-  if (!fileRead) {
-    throw new Error('No Syncthing configuration found');
+  if (!fileRead) return null;
+
+  let jsonConfig = null;
+  try {
+    jsonConfig = parser.parse(fileRead);
+  } catch (error) {
+    log.error(error);
+    return null;
   }
-  const jsonConfig = parser.parse(fileRead);
-  const apiKey = jsonConfig.configuration.gui.apikey;
+
+  const apiKey = jsonConfig.configuration?.gui?.apikey || null;
   return apiKey;
 }
 
@@ -141,25 +199,25 @@ async function getSyncthingApiKey() { // can throw
  */
 // eslint-disable-next-line default-param-last
 async function performRequest(method = 'get', urlpath = '', data, timeout = 5000) {
+  // now we cache the axios instance for 15 minutes. Means we don't have to create a new instance
+  // on every call. It also means that if the syncthing api key changes, it will refetch it
+  // after 15 minutes
+  const instance = await axiosCache.instance();
+  if (!instance) {
+    return messageHelper.createErrorMessage("Unable to read syncthing apikey");
+  }
+
   try {
-    if (!syncthingApiKey) {
-      const apiKey = await getSyncthingApiKey();
-      syncthingApiKey = apiKey;
+    if (urlpath === '/rest/config/options') {
+      console.log("HAVE COME FROM ADJUST")
     }
-    const instance = axios.create({
-      baseURL: syncthingURL,
-      timeout,
-      headers: {
-        'X-API-Key': syncthingApiKey,
-      },
-      signal: stc.signal,
-    });
+
     const response = await instance[method](urlpath, data);
 
     const successResponse = messageHelper.createDataMessage(response.data);
     return successResponse;
   } catch (error) {
-    log.error(error);
+    log.error(error.message);
     const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
     return errorResponse;
   }
@@ -2184,13 +2242,13 @@ async function getDeviceId() {
     logError: false,
   });
 
-  const msg = 'Syncthing is not running properly';
+  const msg = 'Syncthing is either not running or misconfigured';
   // ToDo: tidy these up
   log.error(msg);
-  log.error(stdout);
-  log.error(meta);
-  log.error(healthy);
-  log.error(pingResponse);
+  // log.error(stdout);
+  // log.error(meta);
+  // log.error(healthy);
+  // log.error(pingResponse);
   return null;
 }
 
@@ -2342,7 +2400,7 @@ async function configureDirectories() {
   const owner = `${user}:${user}`;
 
   await serviceHelper.runCommand('mkdir', {
-    params: ['-p', configDir],
+    params: ['-p', syncthingDir],
   });
 
   await serviceHelper.runCommand('chown', {
@@ -2417,8 +2475,13 @@ async function stopSyncthingSentinel() {
 async function runSyncthingSentinel() {
   await stc.lock.enable();
 
+  let installed = axiosCache.axiosInstance;
+  if (!installed) {
+    installed = await axiosCache.createInstance();
+  }
+
   try {
-    if (!await getDeviceId()) {
+    if (!installed || !await getDeviceId()) {
       log.error('Syncthing may not be running correctly... checking.');
       await stopSyncthing();
       await installSyncthingIdempotently();
@@ -2456,6 +2519,8 @@ async function runSyncthingSentinel() {
           // uid: 0,
         },
       ).unref();
+
+      return 60 * 1000;
     }
 
     // every 8 minutes call adjustSyncthing to check service folders
@@ -2587,6 +2652,7 @@ module.exports = {
   // status
   isRunning,
   // testing exports
+  getAxiosCache,
   configureDirectories,
   installSyncthingIdempotently,
   setSyncthingRunningState,

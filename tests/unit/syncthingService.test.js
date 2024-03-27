@@ -103,7 +103,7 @@ describe('syncthingService tests', () => {
 
       await syncthingService.getConfigFile();
 
-      sinon.assert.calledWithExactly(runCmdStub, 'chown', { runAsRoot: true, params: expectedParams });
+      sinon.assert.calledWithExactly(runCmdStub, 'chown', { runAsRoot: true, logError: false, params: expectedParams });
     });
 
     it('should set the syncthing dir permissions to the current user', async () => {
@@ -115,7 +115,7 @@ describe('syncthingService tests', () => {
       const expectedParams = ['testuser:testuser', '/home/usertest/.config/syncthing'];
 
       await syncthingService.getConfigFile();
-      sinon.assert.calledWithExactly(runCmdStub, 'chown', { runAsRoot: true, params: expectedParams });
+      sinon.assert.calledWithExactly(runCmdStub, 'chown', { runAsRoot: true, logError: false, params: expectedParams });
     });
 
     it('should set the syncthing config file permissions to 644', async () => {
@@ -127,7 +127,7 @@ describe('syncthingService tests', () => {
       const expectedParams = ['644', '/home/usertest/.config/syncthing/config.xml'];
 
       await syncthingService.getConfigFile();
-      sinon.assert.calledWithExactly(runCmdStub, 'chmod', { runAsRoot: true, params: expectedParams });
+      sinon.assert.calledWithExactly(runCmdStub, 'chmod', { runAsRoot: true, logError: false, params: expectedParams });
     });
 
     it('should return the syncthing config file with utf-8 format', async () => {
@@ -188,7 +188,9 @@ describe('syncthingService tests', () => {
       sinon.stub(axios, 'create').returns(fakePerformRequest);
     });
 
-    afterEach(() => {
+    afterEach(async () => {
+      syncthingService.getAxiosCache().reset();
+      await syncthingService.syncthingController().abort();
       sinon.restore();
     });
 
@@ -225,7 +227,7 @@ describe('syncthingService tests', () => {
       const promise = syncthingService.getDeviceIdDepreciated();
       await clock.tickAsync(1000);
       await promise;
-      sinon.assert.calledWithExactly(errorSpy, error);
+      sinon.assert.calledWithExactly(errorSpy, error.message);
     });
   });
 
@@ -265,12 +267,15 @@ describe('syncthingService tests', () => {
       sinon.stub(axios, 'create').returns(fakePerformRequest);
     });
 
-    afterEach(() => {
+    afterEach(async () => {
+      syncthingService.getAxiosCache().reset();
+      await syncthingService.syncthingController().abort();
       sinon.restore();
     });
 
     it('should only run getDeviceId one at a time', async () => {
       const clock = sinon.useFakeTimers();
+
       const blah = {
         status: 'success', data: `var metadata = {"authenticated":true,"deviceID":"${deviceId}","deviceIDShort":"AEYDK6D"};\n`,
       };
@@ -303,7 +308,7 @@ describe('syncthingService tests', () => {
 
       const res = await syncthingService.getDeviceId();
       expect(res).to.be.equal(null);
-      sinon.assert.calledWithExactly(errorSpy, error);
+      sinon.assert.calledWithExactly(errorSpy, error.message);
     });
   });
 
@@ -364,10 +369,10 @@ describe('syncthingService tests', () => {
       sinon.restore();
     });
 
-    it('should call mkdir -p for the main .config dir', async () => {
+    it('should call mkdir -p for the syncthing dir', async () => {
       await syncthingService.configureDirectories();
 
-      sinon.assert.calledWithExactly(runCmdStub, 'mkdir', { params: ['-p', '/home/testuser/.config'] });
+      sinon.assert.calledWithExactly(runCmdStub, 'mkdir', { params: ['-p', '/home/testuser/.config/syncthing'] });
     });
 
     it('should chown the main .config dir to the running user', async () => {
@@ -394,7 +399,9 @@ describe('syncthingService tests', () => {
       errorSpy = sinon.spy(log, 'error');
     });
 
-    afterEach(() => {
+    afterEach(async () => {
+      await syncthingService.syncthingController().abort();
+      syncthingService.getAxiosCache().reset();
       sinon.restore();
     });
 
@@ -531,6 +538,7 @@ describe('syncthingService tests', () => {
 
     afterEach(async () => {
       await syncthingService.syncthingController().abort();
+      syncthingService.getAxiosCache().reset();
       sinon.restore();
     });
 
@@ -635,7 +643,7 @@ describe('syncthingService tests', () => {
       await syncthingService.runSyncthingSentinel();
 
       // already tested this, this is just to make sure that configureDirectories is called
-      sinon.assert.calledWithExactly(runCmdStub, 'mkdir', { params: ['-p', '/home/testuser/.config'] });
+      sinon.assert.calledWithExactly(runCmdStub, 'mkdir', { params: ['-p', '/home/testuser/.config/syncthing'] });
     });
 
     it('should spawn a new syncthing process if there is a problem with the service', async () => {
