@@ -2495,30 +2495,40 @@ async function runSyncthingSentinel() {
       // without having to call sudo. IMO, Flux should be run as it's own user, not just
       // whatever the operator installed as.
       // this can throw
-      const syncthing = childProcess.spawn(
-        'sudo',
-        [
-          'syncthing',
-          '--logfile',
-          logFile,
-          '--logflags=3',
-          '--log-max-old-files=2',
-          '--log-max-size=26214400',
-          '--allow-newer-config',
-          '--no-browser',
-          '--home',
-          syncthingHome,
-        ],
-        {
-          detached: true,
-          stdio: 'ignore',
-          // uid: 0,
-        },
-      )
 
-      syncthing.unref();
+      // having issues with nodemon and pm2. Using pm2 --no-treekill stops syncthing getting
+      // killed, but then get issues with nodemon not dying.
 
-      // let syncthing get setup
+      // adding old spawn with shell in the interim.
+
+      childProcess.spawn(
+        `sudo nohup syncthing --logfile ${logFile} --logflags=3 --log-max-old-files=2 --log-max-size=26214400 --allow-newer-config --no-browser --home ${syncthingHome} >/dev/null 2>&1 </dev/null &`,
+        { shell: true }
+      );
+
+      // childProcess.spawn(
+      //   'sudo',
+      //   [
+      //     'nohup',
+      //     'syncthing',
+      //     '--logfile',
+      //     logFile,
+      //     '--logflags=3',
+      //     '--log-max-old-files=2',
+      //     '--log-max-size=26214400',
+      //     '--allow-newer-config',
+      //     '--no-browser',
+      //     '--home',
+      //     syncthingHome,
+      //   ],
+      //   {
+      //     detached: true,
+      //     stdio: 'ignore',
+      //     // uid: 0,
+      //   },
+      // ).unref();
+
+      // let syncthing set itself up
       await stc.sleep(5 * 1000);
     }
 
