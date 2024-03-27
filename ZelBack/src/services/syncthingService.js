@@ -2287,7 +2287,7 @@ async function installSyncthingIdempotently() {
   });
 
   if (installed) {
-    log.info(`Syncthing already installed. Version: ${stdout.split(' ')[1]} `);
+    log.info(`Syncthing already installed. Version: ${installed.split(' ')[1]} `);
     return;
   }
 
