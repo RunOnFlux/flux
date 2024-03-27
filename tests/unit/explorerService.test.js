@@ -1,4 +1,3 @@
-global.userconfig = require('../../config/userconfig');
 const sinon = require('sinon');
 const { expect } = require('chai');
 const { LRUCache } = require('lru-cache');

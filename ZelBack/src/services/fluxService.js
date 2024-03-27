@@ -24,6 +24,8 @@ const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const geolocationService = require('./geolocationService');
+const syncthingService = require('./syncthingService');
+const dockerService = require('./dockerService');
 
 /**
  * To show the directory on the node machine where FluxOS files are stored.
@@ -927,6 +929,13 @@ async function getFluxInfo(req, res) {
       throw nodeJsVersionsRes.data;
     }
     info.flux.nodeJsVersion = nodeJsVersionsRes.data.node;
+    const syncthingVersion = await syncthingService.systemVersion();
+    if (syncthingVersion.status === 'error') {
+      throw syncthingVersion.data;
+    }
+    info.flux.syncthingVersion = syncthingVersion.data.version;
+    const dockerVersion = await dockerService.dockerVersion();
+    info.flux.dockerVersion = dockerVersion.Version;
     const ipRes = await getFluxIP();
     if (ipRes.status === 'error') {
       throw ipRes.data;

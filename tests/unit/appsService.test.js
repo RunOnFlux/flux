@@ -1,4 +1,3 @@
-global.userconfig = require('../../config/userconfig');
 const chai = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire');
@@ -4651,7 +4650,7 @@ describe('appsService tests', () => {
 
       await appsService.removeAppLocallyApi(req, res);
 
-      await serviceHelper.delay(200);
+      await serviceHelper.delay(500);
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Stopping Flux App testapp...' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp stopped' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Removing Flux App testapp container...' }));

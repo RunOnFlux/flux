@@ -1,0 +1,38 @@
+FROM ubuntu:22.04
+
+RUN apt-get update && apt-get install -y sudo ufw curl docker.io ca-certificates
+
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+apt-get update && apt-get install -y nodejs
+
+RUN curl -o /usr/share/keyrings/syncthing-archive-keyring.gpg https://syncthing.net/release-key.gpg && \
+echo 'deb [signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg] https://apt.syncthing.net/ syncthing stable' > \
+/etc/apt/sources.list.d/syncthing.list && apt update && apt install syncthing -y
+
+RUN adduser --disabled-password \
+--gecos '' fluxtesting
+
+RUN usermod -aG sudo,docker fluxtesting
+
+COPY entrypoint.sh /home/fluxtesting/
+
+RUN echo '%sudo ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+
+# for fluxService, it checks if these files are present
+# RUN touch /usr/local/bin/flux{d,benchd}
+RUN touch /usr/local/bin/fluxd && touch /usr/local/bin/fluxbenchd
+
+USER fluxtesting
+
+# test dir must be called flux
+WORKDIR /home/fluxtesting/flux
+
+ENTRYPOINT ["/home/fluxtesting/entrypoint.sh"]
+
+# this can be overridden on command line for specific tests
+CMD ["tests/unit/*.test.js"]
+
+# docker network create flux_test
+# docker run --net flux_test --rm -it --name fluxwebsite runonflux/website
+# docker run --net flux_test --rm -it --name mongo mongodb/mongodb-community-server:latest
+# docker run --net flux_test --rm -it -v /var/run/docker.sock:/var/run/docker.sock -v $(pwd):/home/fluxtesting/flux megachips/fluxdev:latest

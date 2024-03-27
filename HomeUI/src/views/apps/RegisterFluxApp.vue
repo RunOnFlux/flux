@@ -1528,21 +1528,22 @@
           xs="6"
           lg="8"
         >
-          <b-card title="Register App">
+          <b-card class="text-center" title="Register Application">
             <b-card-text>
-              &nbsp;<b-icon class="mr-1" scale="1.4" icon="cash-coin" />Price: <b>{{ applicationPriceUSD }} USD + VAT</b>
+              <h5>&nbsp;<b-icon class="mr-1 mt-2" scale="1.4" icon="cash-coin" />Price: <b>{{ applicationPriceUSD }} USD + VAT</b></h5>
             </b-card-text>
             <b-card-text>
-              &nbsp;<b-icon class="mr-1" scale="1.4" icon="clock" />Subscription period: <b>{{ getExpireLabel || (appRegistrationSpecification.expire ? `${appRegistrationSpecification.expire} blocks` : '1 month') }}</b>
+              <h5>&nbsp;<b-icon class="mr-1" scale="1.4" icon="clock" />Subscription period: <b>{{ getExpireLabel || (appRegistrationSpecification.expire ? `${appRegistrationSpecification.expire} blocks` : '1 month') }}</b></h5>
             </b-card-text>
             <b-button
               v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-              variant="success"
+              variant="outline-success"
               aria-label="Register Flux App"
-              class="my-1"
+              class="mt-3"
+              style="width: 300px"
               @click="register"
             >
-              Register Flux App
+              Register
             </b-button>
           </b-card>
         </b-col>
@@ -1550,7 +1551,7 @@
           xs="6"
           lg="4"
         >
-          <b-card title="Sign with">
+          <b-card class="text-center" title="Sign with">
             <div class="loginRow">
               <a @click="initiateSignWS">
                 <img
@@ -1627,7 +1628,7 @@
           xs="6"
           lg="4"
         >
-          <b-card title="Pay with Stripe/PayPal">
+          <b-card class="text-center" title="Pay with Stripe/PayPal">
             <div class="loginRow">
               <a @click="initStripePay(registrationHash, appRegistrationSpecification.name, applicationPriceUSD, appRegistrationSpecification.description)">
                 <img
@@ -1648,6 +1649,12 @@
                 >
               </a>
             </div>
+            <div v-if="checkoutLoading" className="loginRow">
+              <b-spinner variant="primary" />
+              <div class="text-center">
+                Checkout Loading ...
+              </div>
+            </div>
             <div v-if="fiatCheckoutURL" className="loginRow">
               <a :href="fiatCheckoutURL" target="_blank" rel="noopener noreferrer">
                 Click here for checkout if not redirected
@@ -1666,7 +1673,7 @@
         >
           <b-card>
             <b-card-text>
-              To pay in <kbd class="bg-primary"><b>FLUX{{ applicationPriceFluxDiscount }}</b></kbd>, please make a transaction of <b>{{ applicationPrice }} FLUX</b> to address
+              To pay in FLUX, please make a transaction of <b>{{ applicationPrice }} FLUX</b> to address
               <b>'{{ deploymentAddress }}'</b>
               with the following message:
               <b>'{{ registrationHash }}'</b>
@@ -1677,7 +1684,13 @@
           xs="6"
           lg="4"
         >
-          <b-card title="Pay with Zelcore/SSP">
+          <b-card>
+            <h4 v-if="applicationPriceFluxDiscount > 0">
+              <kbd class="d-flex justify-content-center bg-primary mb-2">Discount - {{ applicationPriceFluxDiscount }}%</kbd>
+            </h4>
+            <h4 class="text-center mb-2">
+              Pay with Zelcore/SSP
+            </h4>
             <div class="loginRow">
               <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${applicationPrice}&message=${registrationHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
                 <img
@@ -2404,6 +2417,7 @@ export default {
       chooseEnterpriseDialog: false,
       signClient: null,
       fiatCheckoutURL: '',
+      checkoutLoading: false,
       ipAccess: false,
     };
   },
@@ -2777,7 +2791,7 @@ export default {
           this.showToast('danger', 'Not possible to complete payment with Flux crypto currency');
         } else {
           this.applicationPrice = +response.data.data.flux;
-          this.applicationPriceFluxDiscount = +response.data.data.fluxDiscount > 0 ? ` with ${+response.data.data.fluxDiscount}% discount` : '';
+          this.applicationPriceFluxDiscount = +response.data.data.fluxDiscount;
         }
         this.timestamp = Date.now();
         this.dataForAppRegistration = appSpecFormatted;
@@ -3618,6 +3632,8 @@ export default {
     },
     async initStripePay(hash, name, price, description) {
       try {
+        this.fiatCheckoutURL = '';
+        this.checkoutLoading = true;
         const zelidauth = localStorage.getItem('zelidauth');
         const auth = qs.parse(zelidauth);
         const data = {
@@ -3642,16 +3658,21 @@ export default {
         const checkoutURL = await axios.post(`${paymentBridge}/api/v1/stripe/checkout/create`, data);
         if (checkoutURL.data.status === 'error') {
           this.showToast('error', 'Failed to create stripe checkout');
+          this.checkoutLoading = false;
           return;
         }
         this.fiatCheckoutURL = checkoutURL.data.data;
+        this.checkoutLoading = false;
         this.openSite(checkoutURL.data.data);
       } catch (error) {
         this.showToast('error', 'Failed to create stripe checkout');
+        this.checkoutLoading = false;
       }
     },
     async initPaypalPay(hash, name, price, description) {
       try {
+        this.fiatCheckoutURL = '';
+        this.checkoutLoading = true;
         const zelidauth = localStorage.getItem('zelidauth');
         const auth = qs.parse(zelidauth);
         const data = {
@@ -3676,12 +3697,15 @@ export default {
         const checkoutURL = await axios.post(`${paymentBridge}/api/v1/paypal/checkout/create`, data);
         if (checkoutURL.data.status === 'error') {
           this.showToast('error', 'Failed to create PayPal checkout');
+          this.checkoutLoading = false;
           return;
         }
         this.fiatCheckoutURL = checkoutURL.data.data;
+        this.checkoutLoading = false;
         this.openSite(checkoutURL.data.data);
       } catch (error) {
         this.showToast('error', 'Failed to create PayPal checkout');
+        this.checkoutLoading = false;
       }
     },
     importSpecs(appSpecs) {

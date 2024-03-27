@@ -116,63 +116,76 @@
                   </template>
                   <template #row-details="row">
                     <b-card class="mx-2">
-                      <list-entry
-                        title="Owner"
-                        :data="row.item.owner"
-                      />
-                      <list-entry
-                        title="Hash"
-                        :data="row.item.hash"
-                      />
-                      <div v-if="row.item.version >= 5">
+                      <h3 class="no-wrap">
+                        <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
+                          <b-icon
+                            scale="1"
+                            icon="info-square"
+                            class="ml-1"
+                          /> &nbsp;Application Information&nbsp;</kbd>
+                      </h3>
+                      <div class="ml-1">
                         <list-entry
-                          title="Contacts"
-                          :data="JSON.stringify(row.item.contacts)"
+                          v-if="row.item.owner"
+                          title="Owner"
+                          :data="row.item.owner"
                         />
-                        <div v-if="row.item.geolocation.length">
-                          <div
-                            v-for="location in row.item.geolocation"
-                            :key="location"
-                          >
+                        <list-entry
+                          v-if="row.item.hash"
+                          title="Hash"
+                          :data="row.item.hash"
+                        />
+                        <div v-if="row.item.version >= 5">
+                          <list-entry
+                            v-if="row.item.contacts.length > 0"
+                            title="Contacts"
+                            :data="JSON.stringify(row.item.contacts)"
+                          />
+                          <div v-if="row.item.geolocation.length">
+                            <div
+                              v-for="location in row.item.geolocation"
+                              :key="location"
+                            >
+                              <list-entry
+                                title="Geolocation"
+                                :data="getGeolocation(location)"
+                              />
+                            </div>
+                          </div>
+                          <div v-else>
                             <list-entry
-                              title="Geolocation"
-                              :data="getGeolocation(location)"
+                              title="Continent"
+                              data="All"
+                            />
+                            <list-entry
+                              title="Country"
+                              data="All"
+                            />
+                            <list-entry
+                              title="Region"
+                              data="All"
                             />
                           </div>
                         </div>
-                        <div v-else>
-                          <list-entry
-                            title="Continent"
-                            data="All"
-                          />
-                          <list-entry
-                            title="Country"
-                            data="All"
-                          />
-                          <list-entry
-                            title="Region"
-                            data="All"
-                          />
-                        </div>
+                        <list-entry
+                          v-if="row.item.instances"
+                          title="Instances"
+                          :data="row.item.instances.toString()"
+                        />
+                        <list-entry
+                          title="Expires in"
+                          :data="labelForExpire(row.item.expire, row.item.height)"
+                        />
+                        <list-entry
+                          v-if="row.item?.nodes?.length > 0"
+                          title="Enterprise Nodes"
+                          :data="row.item.nodes ? row.item.nodes.toString() : 'Not scoped'"
+                        />
+                        <list-entry
+                          title="Static IP"
+                          :data="row.item.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
+                        />
                       </div>
-                      <list-entry
-                        v-if="row.item.instances"
-                        title="Instances"
-                        :data="row.item.instances.toString()"
-                      />
-                      <list-entry
-                        title="Expires in"
-                        :data="labelForExpire(row.item.expire, row.item.height)"
-                      />
-                      <list-entry
-                        title="Enterprise Nodes"
-                        :data="row.item.nodes ? row.item.nodes.toString() : 'Not scoped'"
-                      />
-                      <list-entry
-                        title="Static IP"
-                        :data="row.item.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
-                      />
-                      <h4>Composition</h4>
                       <div v-if="row.item.version <= 3">
                         <b-card>
                           <list-entry
@@ -200,7 +213,7 @@
                             :data="row.item.containerData"
                           />
                           <list-entry
-                            title="Environment Parameters"
+                            title="Enviroment Parameters"
                             :data="row.item.enviromentParameters.length > 0 ? row.item.enviromentParameters.toString() : 'none'"
                           />
                           <list-entry
@@ -262,122 +275,137 @@
                         </b-card>
                       </div>
                       <div v-else>
+                        <h3 class="no-wrap">
+                          <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
+                            <b-icon
+                              scale="1"
+                              icon="box"
+                              class="ml-1"
+                            /> &nbsp;Composition&nbsp;</kbd>
+                        </h3>
                         <b-card
                           v-for="(component, index) in row.item.compose"
                           :key="index"
+                          class="mb-0"
                         >
-                          <b-card-title>
-                            Component {{ component.name }}
-                          </b-card-title>
-                          <list-entry
-                            title="Name"
-                            :data="component.name"
-                          />
-                          <list-entry
-                            title="Description"
-                            :data="component.description"
-                          />
-                          <list-entry
-                            title="Repository"
-                            :data="component.repotag"
-                          />
-                          <list-entry
-                            title="Repository Authentication"
-                            :data="component.repoauth ? 'Content Encrypted' : 'Public'"
-                          />
-                          <list-entry
-                            title="Custom Domains"
-                            :data="component.domains.toString() || 'none'"
-                          />
-                          <list-entry
-                            title="Automatic Domains"
-                            :data="constructAutomaticDomains(component.ports, component.name, row.item.name, index).toString()"
-                          />
-                          <list-entry
-                            title="Ports"
-                            :data="component.ports.toString()"
-                          />
-                          <list-entry
-                            title="Container Ports"
-                            :data="component.containerPorts.toString()"
-                          />
-                          <list-entry
-                            title="Container Data"
-                            :data="component.containerData"
-                          />
-                          <list-entry
-                            title="Environment Parameters"
-                            :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
-                          />
-                          <list-entry
-                            title="Commands"
-                            :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
-                          />
-                          <list-entry
-                            title="Secret Environment Parameters"
-                            :data="component.secrets ? 'Content Encrypted' : 'none'"
-                          />
-                          <div v-if="component.tiered">
+                          <h3 class="no-wrap">
+                            <kbd class="alert-success d-flex" style="border-radius: 15px; font-family: monospace; max-width: 500px;">
+                              <b-icon
+                                scale="1"
+                                icon="menu-app-fill"
+                                class="ml-1"
+                              /> &nbsp;{{ component.name }}&nbsp;</kbd>
+                          </h3>
+                          <div class="ml-1">
                             <list-entry
-                              title="CPU Cumulus"
-                              :data="`${component.cpubasic} vCore`"
+                              title="Name"
+                              :data="component.name"
                             />
                             <list-entry
-                              title="CPU Nimbus"
-                              :data="`${component.cpusuper} vCore`"
+                              title="Description"
+                              :data="component.description"
                             />
                             <list-entry
-                              title="CPU Stratus"
-                              :data="`${component.cpubamf} vCore`"
+                              title="Repository"
+                              :data="component.repotag"
                             />
                             <list-entry
-                              title="RAM Cumulus"
-                              :data="`${component.rambasic} MB`"
+                              title="Repository Authentication"
+                              :data="component.repoauth ? 'Content Encrypted' : 'Public'"
                             />
                             <list-entry
-                              title="RAM Nimbus"
-                              :data="`${component.ramsuper} MB`"
+                              title="Custom Domains"
+                              :data="component.domains.toString() || 'none'"
                             />
                             <list-entry
-                              title="RAM Stratus"
-                              :data="`${component.rambamf} MB`"
+                              title="Automatic Domains"
+                              :data="constructAutomaticDomains(component.ports, component.name, row.item.name, index).toString()"
                             />
                             <list-entry
-                              title="SSD Cumulus"
-                              :data="`${component.hddbasic} GB`"
+                              title="Ports"
+                              :data="component.ports.toString()"
                             />
                             <list-entry
-                              title="SSD Nimbus"
-                              :data="`${component.hddsuper} GB`"
+                              title="Container Ports"
+                              :data="component.containerPorts.toString()"
                             />
                             <list-entry
-                              title="SSD Stratus"
-                              :data="`${component.hddbamf} GB`"
-                            />
-                          </div>
-                          <div v-else>
-                            <list-entry
-                              title="CPU"
-                              :data="`${component.cpu} vCore`"
+                              title="Container Data"
+                              :data="component.containerData"
                             />
                             <list-entry
-                              title="RAM"
-                              :data="`${component.ram} MB`"
+                              title="Environment Parameters"
+                              :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
                             />
                             <list-entry
-                              title="SSD"
-                              :data="`${component.hdd} GB`"
+                              title="Commands"
+                              :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
                             />
+                            <list-entry
+                              title="Secret Environment Parameters"
+                              :data="component.secrets ? 'Content Encrypted' : 'none'"
+                            />
+                            <div v-if="component.tiered">
+                              <list-entry
+                                title="CPU Cumulus"
+                                :data="`${component.cpubasic} vCore`"
+                              />
+                              <list-entry
+                                title="CPU Nimbus"
+                                :data="`${component.cpusuper} vCore`"
+                              />
+                              <list-entry
+                                title="CPU Stratus"
+                                :data="`${component.cpubamf} vCore`"
+                              />
+                              <list-entry
+                                title="RAM Cumulus"
+                                :data="`${component.rambasic} MB`"
+                              />
+                              <list-entry
+                                title="RAM Nimbus"
+                                :data="`${component.ramsuper} MB`"
+                              />
+                              <list-entry
+                                title="RAM Stratus"
+                                :data="`${component.rambamf} MB`"
+                              />
+                              <list-entry
+                                title="SSD Cumulus"
+                                :data="`${component.hddbasic} GB`"
+                              />
+                              <list-entry
+                                title="SSD Nimbus"
+                                :data="`${component.hddsuper} GB`"
+                              />
+                              <list-entry
+                                title="SSD Stratus"
+                                :data="`${component.hddbamf} GB`"
+                              />
+                            </div>
+                            <div v-else>
+                              <list-entry
+                                title="CPU"
+                                :data="`${component.cpu} vCore`"
+                              />
+                              <list-entry
+                                title="RAM"
+                                :data="`${component.ram} MB`"
+                              />
+                              <list-entry
+                                title="SSD"
+                                :data="`${component.hdd} GB`"
+                              />
+                            </div>
                           </div>
                         </b-card>
                       </div>
-                      <!-- Or any parent container with width set -->
                       <h3>
                         <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
                           <b-icon
                             scale="1"
-                            icon="house-door"
-                          /> &nbsp;LOCATIONS&nbsp;</kbd>
+                            icon="globe"
+                          /> &nbsp;Locations&nbsp;</kbd>
                       </h3>
                       <b-row>
                         <b-col
@@ -560,7 +588,7 @@
                 class="my-0"
               />
             </b-col>
-            <div v-if="isLoggedIn">
+            <div v-if="isLoggedIn && myGlobalApps?.length > 0">
               <b-icon class="ml-1" scale="1.4" icon="layers" />&nbsp;
               <b>&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;{{ myGlobalApps?.length || 0 }}&nbsp;</kbd></b>
             </div>
@@ -620,63 +648,72 @@
                   </template>
                   <template #row-details="row">
                     <b-card class="mx-2">
-                      <list-entry
-                        title="Description"
-                        :data="row.item.description"
-                      />
-                      <list-entry
-                        title="Owner"
-                        :data="row.item.owner"
-                      />
-                      <list-entry
-                        title="Hash"
-                        :data="row.item.hash"
-                      />
-                      <div v-if="row.item.version >= 5">
+                      <h3 class="no-wrap">
+                        <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
+                          <b-icon
+                            scale="1"
+                            icon="info-square"
+                            class="ml-1"
+                          /> &nbsp;Application Information&nbsp;</kbd>
+                      </h3>
+                      <div class="ml-1">
                         <list-entry
-                          title="Contacts"
-                          :data="JSON.stringify(row.item.contacts)"
+                          v-if="row.item.owner"
+                          title="Owner"
+                          :data="row.item.owner"
                         />
-                        <div v-if="row.item.geolocation.length">
-                          <div
-                            v-for="location in row.item.geolocation"
-                            :key="location"
-                          >
+                        <list-entry
+                          v-if="row.item.hash"
+                          title="Hash"
+                          :data="row.item.hash"
+                        />
+                        <div v-if="row.item.version >= 5">
+                          <list-entry
+                            v-if="row.item.contacts.length > 0"
+                            title="Contacts"
+                            :data="JSON.stringify(row.item.contacts)"
+                          />
+                          <div v-if="row.item.geolocation.length">
+                            <div
+                              v-for="location in row.item.geolocation"
+                              :key="location"
+                            >
+                              <list-entry
+                                title="Geolocation"
+                                :data="getGeolocation(location)"
+                              />
+                            </div>
+                          </div>
+                          <div v-else>
                             <list-entry
-                              title="Geolocation"
-                              :data="getGeolocation(location)"
+                              title="Continent"
+                              data="All"
+                            />
+                            <list-entry
+                              title="Country"
+                              data="All"
+                            />
+                            <list-entry
+                              title="Region"
+                              data="All"
                             />
                           </div>
                         </div>
-                        <div v-else>
-                          <list-entry
-                            title="Continent"
-                            data="All"
-                          />
-                          <list-entry
-                            title="Country"
-                            data="All"
-                          />
-                          <list-entry
-                            title="Region"
-                            data="All"
-                          />
-                        </div>
+                        <list-entry
+                          v-if="row.item.instances"
+                          title="Instances"
+                          :data="row.item.instances.toString()"
+                        />
+                        <list-entry
+                          v-if="row.item?.nodes?.length > 0"
+                          title="Enterprise Nodes"
+                          :data="row.item.nodes ? row.item.nodes.toString() : 'Not scoped'"
+                        />
+                        <list-entry
+                          title="Static IP"
+                          :data="row.item.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
+                        />
                       </div>
-                      <list-entry
-                        v-if="row.item.instances"
-                        title="Instances"
-                        :data="row.item.instances.toString()"
-                      />
-                      <list-entry
-                        title="Enterprise Nodes"
-                        :data="row.item.nodes ? row.item.nodes.toString() : 'Not scoped'"
-                      />
-                      <list-entry
-                        title="Static IP"
-                        :data="row.item.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
-                      />
-                      <h4>Composition</h4>
                       <div v-if="row.item.version <= 3">
                         <b-card>
                           <list-entry
@@ -704,7 +741,7 @@
                             :data="row.item.containerData"
                           />
                           <list-entry
-                            title="Environment Parameters"
+                            title="Enviroment Parameters"
                             :data="row.item.enviromentParameters.length > 0 ? row.item.enviromentParameters.toString() : 'none'"
                           />
                           <list-entry
@@ -766,112 +803,128 @@
                         </b-card>
                       </div>
                       <div v-else>
+                        <h3 class="no-wrap">
+                          <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
+                            <b-icon
+                              scale="1"
+                              icon="box"
+                              class="ml-1"
+                            /> &nbsp;Composition&nbsp;</kbd>
+                        </h3>
                         <b-card
                           v-for="(component, index) in row.item.compose"
                           :key="index"
+                          class="mb-0"
                         >
-                          <b-card-title>
-                            Component {{ component.name }}
-                          </b-card-title>
-                          <list-entry
-                            title="Name"
-                            :data="component.name"
-                          />
-                          <list-entry
-                            title="Description"
-                            :data="component.description"
-                          />
-                          <list-entry
-                            title="Repository"
-                            :data="component.repotag"
-                          />
-                          <list-entry
-                            title="Repository Authentication"
-                            :data="component.repoauth ? 'Content Encrypted' : 'Public'"
-                          />
-                          <list-entry
-                            title="Custom Domains"
-                            :data="component.domains.toString() || 'none'"
-                          />
-                          <list-entry
-                            title="Automatic Domains"
-                            :data="constructAutomaticDomains(component.ports, component.name, row.item.name, index).toString()"
-                          />
-                          <list-entry
-                            title="Ports"
-                            :data="component.ports.toString()"
-                          />
-                          <list-entry
-                            title="Container Ports"
-                            :data="component.containerPorts.toString()"
-                          />
-                          <list-entry
-                            title="Container Data"
-                            :data="component.containerData"
-                          />
-                          <list-entry
-                            title="Environment Parameters"
-                            :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
-                          />
-                          <list-entry
-                            title="Commands"
-                            :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
-                          />
-                          <list-entry
-                            title="Secret Environment Parameters"
-                            :data="component.secrets ? 'Content Encrypted' : 'none'"
-                          />
-                          <div v-if="component.tiered">
+                          <h3 class="no-wrap">
+                            <kbd class="alert-success d-flex" style="border-radius: 15px; font-family: monospace; max-width: 500px;">
+                              <b-icon
+                                scale="1"
+                                icon="menu-app-fill"
+                                class="ml-1"
+                              /> &nbsp;{{ component.name }}&nbsp;</kbd>
+                          </h3>
+                          <div class="ml-1">
                             <list-entry
-                              title="CPU Cumulus"
-                              :data="`${component.cpubasic} vCore`"
+                              title="Name"
+                              :data="component.name"
                             />
                             <list-entry
-                              title="CPU Nimbus"
-                              :data="`${component.cpusuper} vCore`"
+                              title="Description"
+                              :data="component.description"
                             />
                             <list-entry
-                              title="CPU Stratus"
-                              :data="`${component.cpubamf} vCore`"
+                              title="Repository"
+                              :data="component.repotag"
                             />
                             <list-entry
-                              title="RAM Cumulus"
-                              :data="`${component.rambasic} MB`"
+                              title="Repository Authentication"
+                              :data="component.repoauth ? 'Content Encrypted' : 'Public'"
                             />
                             <list-entry
-                              title="RAM Nimbus"
-                              :data="`${component.ramsuper} MB`"
+                              title="Custom Domains"
+                              :data="component.domains.toString() || 'none'"
                             />
                             <list-entry
-                              title="RAM Stratus"
-                              :data="`${component.rambamf} MB`"
+                              title="Automatic Domains"
+                              :data="constructAutomaticDomains(component.ports, component.name, row.item.name, index).toString()"
                             />
                             <list-entry
-                              title="SSD Cumulus"
-                              :data="`${component.hddbasic} GB`"
+                              title="Ports"
+                              :data="component.ports.toString()"
                             />
                             <list-entry
-                              title="SSD Nimbus"
-                              :data="`${component.hddsuper} GB`"
+                              title="Container Ports"
+                              :data="component.containerPorts.toString()"
                             />
                             <list-entry
-                              title="SSD Stratus"
-                              :data="`${component.hddbamf} GB`"
-                            />
-                          </div>
-                          <div v-else>
-                            <list-entry
-                              title="CPU"
-                              :data="`${component.cpu} vCore`"
+                              title="Container Data"
+                              :data="component.containerData"
                             />
                             <list-entry
-                              title="RAM"
-                              :data="`${component.ram} MB`"
+                              title="Environment Parameters"
+                              :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
                             />
                             <list-entry
-                              title="SSD"
-                              :data="`${component.hdd} GB`"
+                              title="Commands"
+                              :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
                             />
+                            <list-entry
+                              title="Secret Environment Parameters"
+                              :data="component.secrets ? 'Content Encrypted' : 'none'"
+                            />
+                            <div v-if="component.tiered">
+                              <list-entry
+                                title="CPU Cumulus"
+                                :data="`${component.cpubasic} vCore`"
+                              />
+                              <list-entry
+                                title="CPU Nimbus"
+                                :data="`${component.cpusuper} vCore`"
+                              />
+                              <list-entry
+                                title="CPU Stratus"
+                                :data="`${component.cpubamf} vCore`"
+                              />
+                              <list-entry
+                                title="RAM Cumulus"
+                                :data="`${component.rambasic} MB`"
+                              />
+                              <list-entry
+                                title="RAM Nimbus"
+                                :data="`${component.ramsuper} MB`"
+                              />
+                              <list-entry
+                                title="RAM Stratus"
+                                :data="`${component.rambamf} MB`"
+                              />
+                              <list-entry
+                                title="SSD Cumulus"
+                                :data="`${component.hddbasic} GB`"
+                              />
+                              <list-entry
+                                title="SSD Nimbus"
+                                :data="`${component.hddsuper} GB`"
+                              />
+                              <list-entry
+                                title="SSD Stratus"
+                                :data="`${component.hddbamf} GB`"
+                              />
+                            </div>
+                            <div v-else>
+                              <list-entry
+                                title="CPU"
+                                :data="`${component.cpu} vCore`"
+                              />
+                              <list-entry
+                                title="RAM"
+                                :data="`${component.ram} MB`"
+                              />
+                              <list-entry
+                                title="SSD"
+                                :data="`${component.hdd} GB`"
+                              />
+                            </div>
                           </div>
                         </b-card>
                       </div>
@@ -923,7 +976,7 @@ import {
   BTable,
   BCol,
   BCard,
-  BCardTitle,
+  // BCardTitle,
   BRow,
   BButton,
   BOverlay,
@@ -949,7 +1002,7 @@ export default {
     BTable,
     BCol,
     BCard,
-    BCardTitle,
+    // BCardTitle,
     BRow,
     BButton,
     BOverlay,
@@ -1096,7 +1149,6 @@ export default {
         totalCPU += composeObj.cpu;
         totalHDD += composeObj.hdd;
       });
-      console.log(`Info: ${totalRAM}, ${totalCPU}, ${totalHDD}`);
       // Return an array containing the sum of RAM, CPU, and HDD usage
       return [totalRAM, totalCPU, totalHDD];
       // eslint-disable-next-line no-else-return

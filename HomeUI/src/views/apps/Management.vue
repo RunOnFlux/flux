@@ -32,26 +32,41 @@
         title="Specifications"
       >
         <div>
-          <b-card title="Local application management">
-            <b-col class="my-1">
-              <b-form-group class="mb-0">
-                <label class="d-inline-block text-left mr-50">Select IP to run local application management:</label>
-                <b-form-select
-                  v-model="selectedIp"
-                  style="width: 200px"
-                  :options="null"
-                  @change="selectedIpChanged"
+          <b-card>
+            <h3><b-icon icon="hdd-network-fill" /> &nbsp;Backend Selection</h3>
+            <b-input-group class="my-1" style="width: 350px">
+              <b-input-group-prepend>
+                <b-input-group-text>
+                  <b-icon icon="laptop" />
+                </b-input-group-text>
+              </b-input-group-prepend>
+              <b-form-select
+                v-model="selectedIp"
+                :options="null"
+                @change="selectedIpChanged"
+              >
+                <b-form-select-option
+                  v-for="instance in instances.data"
+                  :key="instance.ip"
+                  :value="instance.ip"
                 >
-                  <b-form-select-option
-                    v-for="instance in instances.data"
-                    :key="instance.ip"
-                    :value="instance.ip"
-                  >
-                    {{ instance.ip }}
-                  </b-form-select-option>
-                </b-form-select>
-              </b-form-group>
-            </b-col>
+                  {{ instance.ip }}
+                </b-form-select-option>
+              </b-form-select>
+
+              <b-button
+                ref="BackendRefresh"
+                v-b-tooltip.hover.top="'Refresh'"
+                v-ripple.400="'rgba(255, 255, 255, 0.12)'"
+                variant="outline-success"
+                size="sm"
+                class="ml-1 bb"
+                style="outline: none !important; box-shadow: none !important"
+                @click="refreshInfo"
+              >
+                <b-icon scale="1.2" icon="arrow-clockwise" />
+              </b-button>
+            </b-input-group>
           </b-card>
         </div>
         <div>
@@ -73,7 +88,7 @@
             >
               <b-card class="">
                 <list-entry
-                  title="Description"
+                  title="Name"
                   :data="callResponse.data.name"
                 />
                 <list-entry
@@ -358,7 +373,7 @@
             >
               <b-card class="">
                 <list-entry
-                  title="Description"
+                  title="Name"
                   :data="callBResponse.data.name"
                 />
                 <list-entry
@@ -3509,7 +3524,6 @@
               size="sm"
               class="my-0"
             />
-            <span class="table-total">Total: {{ instances.totalRows }}</span>
           </b-col>
         </b-row>
       </b-tab>
@@ -5073,9 +5087,9 @@
         <div>
           <b-button
             v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-            variant="success"
+            variant="outline-success"
             aria-label="Compute Update Message"
-            class="mb-2"
+            class="mb-2 w-100"
             :disabled="tosAgreed === false"
             @click="checkFluxUpdateSpecificationsAndFormatMessage"
           >
@@ -5123,24 +5137,41 @@
               lg="8"
             >
               <b-card>
-                <h4>
-                  Note: Data has to be signed by the last application owner
-                </h4>
+                <br>
+                <div class="text-center">
+                  <h4>
+                    <b-icon
+                      class="mr-1"
+                      scale="1.4"
+                      icon="chat-right"
+                    />
+                    Data has to be signed by the last application owner
+                  </h4>
+                </div>
+                <!-- <h4 class="text-center">
+                  <kbd class="alert-info no-wrap" style="border-radius: 15px; font-weight: 700 !important;"> <b-icon scale="1.2" icon="chat-right" />&nbsp;&nbsp;Data has to be signed by the last application owner&nbsp; </kbd>
+                </h4> -->
                 <b-card-text v-if="!freeUpdate">
-                  &nbsp;<b-icon
-                    class="mr-1"
-                    scale="1.4"
-                    icon="cash-coin"
-                  />Price: <b>{{ appPricePerSpecsUSD }} USD + VAT</b>
+                  <br>
+                  <div class="text-center my-3">
+                    <h4>
+                      <b-icon
+                        class="mr-1"
+                        scale="1.4"
+                        icon="cash-coin"
+                      /><b>{{ appPricePerSpecsUSD }} USD + VAT</b>
+                    </h4>
+                  </div>
                 </b-card-text>
+                <br>
                 <b-button
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                  variant="success"
+                  variant="outline-success"
                   aria-label="Update Flux App"
-                  class="my-1"
+                  class="w-100"
                   @click="update"
                 >
-                  Update Flux App
+                  Update Application
                 </b-button>
               </b-card>
             </b-col>
@@ -5148,7 +5179,7 @@
               xs="6"
               lg="4"
             >
-              <b-card title="Sign with">
+              <b-card class="text-center" title="Sign with">
                 <div class="loginRow">
                   <a
                     :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue}`"
@@ -5228,7 +5259,7 @@
               xs="6"
               lg="4"
             >
-              <b-card title="Pay with Stripe/PayPal">
+              <b-card class="text-center" title="Pay with Stripe/PayPal">
                 <div class="loginRow">
                   <a @click="initStripePay(updateHash, appUpdateSpecification.name, appPricePerSpecsUSD, appUpdateSpecification.description)">
                     <img
@@ -5249,15 +5280,14 @@
                     >
                   </a>
                 </div>
-                <div
-                  v-if="fiatCheckoutURL"
-                  className="loginRow"
-                >
-                  <a
-                    :href="fiatCheckoutURL"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
+                <div v-if="checkoutLoading" className="loginRow">
+                  <b-spinner variant="primary" />
+                  <div class="text-center">
+                    Checkout Loading ...
+                  </div>
+                </div>
+                <div v-if="fiatCheckoutURL" className="loginRow">
+                  <a :href="fiatCheckoutURL" target="_blank" rel="noopener noreferrer">
                     Click here for checkout if not redirected
                   </a>
                 </div>
@@ -5274,20 +5304,24 @@
             >
               <b-card>
                 <b-card-text>
-                  To pay in <kbd class="bg-primary"><b>FLUX{{ applicationPriceFluxDiscount }}</b></kbd>, please make a transaction of <b>{{ appPricePerSpecs }} FLUX</b> to address
+                  To pay in FLUX, please make a transaction of <b>{{ appPricePerSpecs }} FLUX</b> to address
                   <b>'{{ deploymentAddress }}'</b>
                   with the following message:
                   <b>'{{ updateHash }}'</b>
                 </b-card-text>
-                <br>
-                <kbd class="bg-danger">The transaction must be sent by <b>{{ new Date(validTill).toLocaleString('en-GB', timeoptions.shortDate) }}</b></kbd>
               </b-card>
             </b-col>
             <b-col
               xs="6"
               lg="4"
             >
-              <b-card title="Pay with Zelcore/SSP">
+              <b-card>
+                <h4 v-if="applicationPriceFluxDiscount > 0">
+                  <kbd class="d-flex justify-content-center bg-primary mb-2">Discount - {{ applicationPriceFluxDiscount }}%</kbd>
+                </h4>
+                <h4 class="text-center mb-2">
+                  Pay with Zelcore/SSP
+                </h4>
                 <div class="loginRow">
                   <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${appPricePerSpecs}&message=${updateHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
                     <img
@@ -5697,6 +5731,7 @@ export default {
   },
   data() {
     return {
+      appInfoObject: [],
       tooltipText: 'Copy to clipboard',
       tableKey: 0,
       isBusy: false,
@@ -6092,6 +6127,7 @@ export default {
       masterSlaveApp: false,
       applicationManagementAndStatus: '',
       fiatCheckoutURL: '',
+      checkoutLoading: false,
       isMarketplaceApp: false,
       ipAccess: false,
     };
@@ -6545,6 +6581,15 @@ export default {
     window.removeEventListener('resize', this.onResize);
   },
   methods: {
+    async refreshInfo() {
+      this.$refs.BackendRefresh.blur();
+      await this.getInstancesForDropDown();
+      this.selectedIpChanged();
+      this.getApplicationLocations().catch(() => {
+        this.isBusy = false;
+        this.showToast('danger', 'Error loading application locations');
+      });
+    },
     copyMessageToSign() {
       const { copy } = useClipboard({ source: this.dataToSign, legacy: true });
       copy();
@@ -7785,15 +7830,15 @@ export default {
       if (!this.selectedIp) {
         await this.getInstancesForDropDown();
         await this.getInstalledApplicationSpecifics();
+        this.getApplicationLocations().catch(() => {
+          this.isBusy = false;
+          this.showToast('danger', 'Error loading application locations');
+        });
       }
       this.getApplicationManagementAndStatus();
       switch (index) {
         case 1:
-          this.getInstancesForDropDown();
-          this.getApplicationLocations().catch(() => {
-            this.isBusy = false;
-            this.showToast('danger', 'Error loading application locations');
-          });
+          // this.getInstancesForDropDown();
           this.getInstalledApplicationSpecifics();
           this.getGlobalApplicationSpecifics();
           break;
@@ -8235,7 +8280,7 @@ export default {
           this.showToast('danger', 'Not possible to complete payment with Flux crypto currency');
         } else {
           this.appPricePerSpecs = +response.data.data.flux;
-          this.applicationPriceFluxDiscount = +response.data.data.fluxDiscount > 0 ? ` with ${+response.data.data.fluxDiscount}% discount` : '';
+          this.applicationPriceFluxDiscount = +response.data.data.fluxDiscount;
         }
 
         const marketPlaceApp = this.marketPlaceApps.find((app) => this.appUpdateSpecification.name.toLowerCase().startsWith(app.name.toLowerCase()));
@@ -8627,6 +8672,7 @@ export default {
     },
     async getInstancesForDropDown() {
       const response = await AppsService.getAppLocation(this.appName);
+      this.selectedIp = null;
       console.log(response);
       if (response.data.status === 'error') {
         this.showToast('danger', response.data.data.message || response.data.data);
@@ -8689,7 +8735,6 @@ export default {
           }
         }
         this.instances.totalRows = this.instances.data.length;
-        console.log(this.selectedIp);
       }
     },
     async getApplicationLocations() {
@@ -9814,6 +9859,8 @@ export default {
     },
     async initStripePay(hash, name, price, description) {
       try {
+        this.fiatCheckoutURL = '';
+        this.checkoutLoading = true;
         const zelidauth = localStorage.getItem('zelidauth');
         const auth = qs.parse(zelidauth);
         const data = {
@@ -9838,16 +9885,21 @@ export default {
         const checkoutURL = await axios.post(`${paymentBridge}/api/v1/stripe/checkout/create`, data);
         if (checkoutURL.data.status === 'error') {
           this.showToast('error', 'Failed to create stripe checkout');
+          this.checkoutLoading = false;
           return;
         }
         this.fiatCheckoutURL = checkoutURL.data.data;
+        this.checkoutLoading = false;
         this.openSite(checkoutURL.data.data);
       } catch (error) {
         this.showToast('error', 'Failed to create stripe checkout');
+        this.checkoutLoading = false;
       }
     },
     async initPaypalPay(hash, name, price, description) {
       try {
+        this.fiatCheckoutURL = '';
+        this.checkoutLoading = true;
         const zelidauth = localStorage.getItem('zelidauth');
         const auth = qs.parse(zelidauth);
         const data = {
@@ -9872,12 +9924,15 @@ export default {
         const checkoutURL = await axios.post(`${paymentBridge}/api/v1/paypal/checkout/create`, data);
         if (checkoutURL.data.status === 'error') {
           this.showToast('error', 'Failed to create PayPal checkout');
+          this.checkoutLoading = false;
           return;
         }
         this.fiatCheckoutURL = checkoutURL.data.data;
+        this.checkoutLoading = false;
         this.openSite(checkoutURL.data.data);
       } catch (error) {
         this.showToast('error', 'Failed to create PayPal checkout');
+        this.checkoutLoading = false;
       }
     },
     async getApplicationManagementAndStatus() {
@@ -9890,6 +9945,7 @@ export default {
           state: foundAppInfo.State || 'Unknown state',
           status: foundAppInfo.Status || 'Unknown status',
         };
+        this.appInfoObject.push(appInfo);
         appInfo.state = appInfo.state.charAt(0).toUpperCase() + appInfo.state.slice(1);
         appInfo.status = appInfo.status.charAt(0).toUpperCase() + appInfo.status.slice(1);
         let niceString = `${appInfo.name} - ${appInfo.state} - ${appInfo.status}`;
@@ -9904,6 +9960,7 @@ export default {
                 state: foundAppInfoComponent.State || 'Unknown state',
                 status: foundAppInfoComponent.Status || 'Unknown status',
               };
+              this.appInfoObject.push(appInfoComponent);
               appInfoComponent.state = appInfoComponent.state.charAt(0).toUpperCase() + appInfoComponent.state.slice(1);
               appInfoComponent.status = appInfoComponent.status.charAt(0).toUpperCase() + appInfoComponent.status.slice(1);
               const niceStringComponent = ` ${appInfoComponent.name} - ${appInfoComponent.state} - ${appInfoComponent.status},`;

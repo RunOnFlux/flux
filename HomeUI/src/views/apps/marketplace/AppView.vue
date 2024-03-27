@@ -30,6 +30,7 @@
           lg="8"
           md="12"
         >
+          <br>
           <b-card title="Details">
             <b-form-textarea
               id="textarea-rows"
@@ -38,17 +39,16 @@
               :value="appData.description"
               class="description-text"
             />
-            <br>
             <div
               v-if="appData.contacts"
-              class="form-row form-group"
+              class="form-row form-group mt-2"
+              style="padding: 0;"
             >
               <label class="col-3 col-form-label">
                 Contact
                 <v-icon
                   v-b-tooltip.hover.top="'Add your email contact to get notifications ex. app about to expire, app spawns. Your contact will be uploaded to Flux Storage to not be public visible'"
                   name="info-circle"
-                  class="mr-1"
                 />
               </label>
               <div class="col">
@@ -58,7 +58,6 @@
                 />
               </div>
             </div>
-            <br>
             <div v-if="appData.geolocationOptions">
               <b-form-group
                 label-cols="3"
@@ -82,29 +81,23 @@
                 </b-form-select>
               </b-form-group>
             </div>
-
-            <b-card
-              class="mt-1"
-              no-body
-            >
+            <b-card style="padding: 0;">
               <b-tabs @activate-tab="componentSelected">
                 <b-tab
                   v-for="(component, index) in appData.compose"
                   :key="index"
                   :title="component.name"
                 >
-                  <list-entry
-                    title="Description"
-                    :data="component.description"
-                  />
-                  <list-entry
-                    title="Repository"
-                    :data="component.repotag"
-                  />
+                  <div class="my-2 ml-2">
+                    <div class="list-entry">
+                      <p><b style="display: inline-block; width: 120px;">Description:</b>&nbsp;{{ component.description }}</p>
+                      <p><b style="display: inline-block; width: 120px;">Repository:</b>&nbsp;{{ component.repotag }}</p>
+                    </div>
+                  </div>
                   <b-card
-                    v-if="component.userEnvironmentParameters"
+                    v-if="component.userEnvironmentParameters?.length > 0"
                     title="Parameters"
-                    border-variant="primary"
+                    border-variant="dark"
                   >
                     <b-tabs v-if="component.userEnvironmentParameters">
                       <b-tab
@@ -113,7 +106,7 @@
                         :title="parameter.name"
                       >
                         <div class="form-row form-group">
-                          <label class="col-2 col-form-label">
+                          <label class="col-2 col-form-label ml-2">
                             Value
                             <v-icon
                               v-b-tooltip.hover.top="parameter.description"
@@ -176,6 +169,32 @@
                 </b-tab>
               </b-tabs>
             </b-card>
+            <div
+              v-if="!appData.enabled"
+              class="text-center"
+            >
+              <h4>
+                This Application is temporarily disabled
+              </h4>
+            </div>
+            <div
+              v-else
+              class="text-center mt-auto"
+            >
+              <b-button
+                v-if="userZelid"
+                variant="outline-success"
+                aria-label="Launch Marketplace App"
+                class="mt-2 text-center"
+                style="position: absolute; bottom: 20px; left: 0; right: 0; margin-left: 3.0rem; margin-right: 3.0rem;"
+                @click="checkFluxSpecificationsAndFormatMessage"
+              >
+                Start Launching Marketplace Application
+              </b-button>
+              <h4 v-else>
+                Please login using your ZelID to deploy Marketplace Apps
+              </h4>
+            </div>
           </b-card>
         </b-col>
         <b-col
@@ -184,6 +203,7 @@
           lg="4"
           class="d-lg-flex d-none"
         >
+          <br>
           <b-card no-body>
             <b-card-header class="app-requirements-header">
               <h4 class="mb-0">
@@ -328,32 +348,6 @@
           </b-col>
         </b-row>
       </b-row>
-      <div
-        v-if="!appData.enabled"
-        class="text-center"
-      >
-        <h4>
-          This app is temporarily disabled
-        </h4>
-      </div>
-      <div
-        v-else
-        class="text-center"
-      >
-        <b-button
-          v-if="userZelid"
-          v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-          variant="success"
-          aria-label="Launch Marketplace App"
-          class="mb-2"
-          @click="checkFluxSpecificationsAndFormatMessage"
-        >
-          Start Launching Marketplace App
-        </b-button>
-        <h4 v-else>
-          Please login using your ZelID to deploy Marketplace Apps
-        </h4>
-      </div>
     </vue-perfect-scrollbar>
 
     <b-modal
@@ -407,13 +401,13 @@
       cancel-title="No"
       @ok="confirmLaunchDialogCloseShowing = false; launchModalShowing = false;"
     >
-      <h3 class="text-center">
+      <h5 class="text-center">
         Please ensure that you have paid for your app, or saved the payment details for later.
-      </h3>
+      </h5>
       <br>
-      <h4 class="text-center">
+      <h5 class="text-center">
         Close the Launch App dialog?
-      </h4>
+      </h5>
     </b-modal>
 
     <b-modal
@@ -423,12 +417,11 @@
       centered
       no-close-on-backdrop
       no-close-on-esc
-      button-size="sm"
-      ok-only
-      ok-title="Cancel"
+      hide-footer
       @ok="confirmLaunchDialogCancel"
     >
       <form-wizard
+        ref="formWizard"
         :color="tierColors.cumulus"
         :title="null"
         :subtitle="null"
@@ -437,6 +430,17 @@
         class="wizard-vertical mb-3"
         @on-complete="confirmLaunchDialogFinish()"
       >
+        <template slot="footer" scope="props">
+          <div>
+            <b-button v-if="props.activeTabIndex > 0" class="wizard-footer-left" type="button" variant="outline-dark" @click="$refs.formWizard.prevTab()">
+              Previous
+            </b-button>
+            <!-- Original Next button -->
+            <b-button class="wizard-footer-right" type="button" variant="outline-dark" @click="$refs.formWizard.nextTab()">
+              {{ props.isLastStep ? 'Done' : 'Next' }}
+            </b-button>
+          </div>
+        </template>
         <tab-content title="Check Registration">
           <b-card
             title="Registration Message"
@@ -457,8 +461,11 @@
           title="Sign App Message"
           :before-change="() => signature !== null"
         >
-          <b-card title="Sign Message with same method you have used for login">
-            <div class="loginRow">
+          <div class="mx-auto" style="width: 600px;">
+            <h4 class="text-center">
+              Sign Message with same method you have used for login
+            </h4>
+            <div class="loginRow mx-auto" style="width: 400px;">
               <a @click="initiateSignWS">
                 <img
                   class="zelidLogin"
@@ -478,7 +485,7 @@
                 >
               </a>
             </div>
-            <div class="loginRow">
+            <div class="loginRow mx-auto" style="width: 400px;">
               <a @click="initWalletConnect">
                 <img
                   class="walletconnectLogin"
@@ -509,32 +516,34 @@
                 >
               </a>
             </div>
-            <b-form-input
-              id="signature"
-              v-model="signature"
-            />
-          </b-card>
+          </div>
+          <b-form-input
+            id="signature"
+            v-model="signature"
+            class="mb-2"
+          />
         </tab-content>
         <tab-content
-          title="Register App"
+          title="Register Application"
           :before-change="() => registrationHash !== null"
         >
           <b-card
-            title="Register App"
+            title="Register Application"
             class="text-center wizard-card"
           >
             <b-card-text>
-              <b-icon class="mr-1" scale="1.4" icon="cash-coin" />Price: <b>{{ appPricePerDeploymentUSD }} USD + VAT</b>
+              <b-icon class="mr-1" scale="1.4" icon="cash-coin" />Price:&nbsp;&nbsp;<b>{{ appPricePerDeploymentUSD }} USD + VAT</b>
             </b-card-text>
             <b-button
               v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-              variant="success"
-              aria-label="Register Flux App"
+              variant="outline-success"
+              aria-label="Register"
               class="my-1"
+              style="width: 250px"
               :disabled="registrationHash && registrationHash.length > 0"
               @click="register"
             >
-              Register Flux App
+              Register
             </b-button>
             <b-card-text
               v-if="registrationHash"
@@ -542,7 +551,7 @@
               :title="registrationHash"
               class="mt-1"
             >
-              Registration Hash received
+              Registration Hash Received
             </b-card-text>
           </b-card>
         </tab-content>
@@ -559,7 +568,7 @@
                 class="text-center wizard-card"
               >
                 <div class="d-flex justify-content-center align-items-center mb-1">
-                  <b-icon class="mr-1" scale="1.4" icon="cash-coin" />Price: <b>{{ appPricePerDeploymentUSD }} USD + VAT</b>
+                  <b-icon class="mr-1" scale="1.4" icon="cash-coin" />Price:&nbsp;&nbsp;<b>{{ appPricePerDeploymentUSD }} USD + VAT</b>
                 </div>
                 <b-card-text>
                   <b>Everything is ready, your payment option links, both for fiat and flux, are valid for the next 30 minutes.</b>
@@ -574,7 +583,10 @@
               xs="6"
               lg="4"
             >
-              <b-card title="Pay with Stripe/PayPal">
+              <b-card
+                title="Pay with Stripe/PayPal"
+                class="text-center wizard-card"
+              >
                 <div class="loginRow">
                   <a @click="initStripePay">
                     <img
@@ -595,6 +607,12 @@
                     >
                   </a>
                 </div>
+                <div v-if="checkoutLoading" className="loginRow">
+                  <b-spinner variant="primary" />
+                  <div class="text-center">
+                    Checkout Loading ...
+                  </div>
+                </div>
                 <div v-if="fiatCheckoutURL" className="loginRow">
                   <a :href="fiatCheckoutURL" target="_blank" rel="noopener noreferrer">
                     Click here for checkout if not redirected
@@ -612,7 +630,7 @@
                 class="text-center wizard-card"
               >
                 <b-card-text>
-                  To pay in <kbd class="bg-primary"><b>FLUX{{ applicationPriceFluxDiscount }}</b></kbd>, please make a transaction of <b>{{ appPricePerDeployment }} FLUX</b> to address<br>
+                  To pay in FLUX, please make a transaction of <b>{{ appPricePerDeployment }} FLUX</b> to address<br>
                   <b>'{{ deploymentAddress }}'</b><br>
                   with the following message<br>
                   <b>'{{ registrationHash }}'</b>
@@ -620,10 +638,13 @@
               </b-card>
             </b-col>
             <b-col xs="6" lg="4">
-              <b-card
-                title="Pay with Zelcore/SSP"
-                class="text-center wizard-card"
-              >
+              <b-card>
+                <h4 v-if="applicationPriceFluxDiscount > 0">
+                  <kbd class="d-flex justify-content-center bg-primary mb-1">Discount - {{ applicationPriceFluxDiscount }}%</kbd>
+                </h4>
+                <h4 class="text-center mb-2">
+                  Pay with Zelcore/SSP
+                </h4>
                 <div class="loginRow">
                   <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${appPricePerDeployment}&message=${registrationHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
                     <img
@@ -829,6 +850,7 @@ export default {
     const appPricePerDeployment = ref(0);
     const appPricePerDeploymentUSD = ref(0);
     const fiatCheckoutURL = ref(null);
+    const checkoutLoading = ref(false);
     const applicationPriceFluxError = ref(false);
     const applicationPriceFluxDiscount = ref('');
     const registrationHash = ref(null);
@@ -1075,6 +1097,8 @@ export default {
 
     const initStripePay = async () => {
       try {
+        fiatCheckoutURL.value = null;
+        checkoutLoading.value = true;
         const hash = registrationHash.value;
         const { name } = appRegistrationSpecification.value;
         const price = appPricePerDeploymentUSD.value;
@@ -1103,17 +1127,22 @@ export default {
         const checkoutURL = await axios.post(`${paymentBridge}/api/v1/stripe/checkout/create`, data);
         if (checkoutURL.data.status === 'error') {
           showToast('error', 'Failed to create stripe checkout');
+          checkoutLoading.value = false;
           return;
         }
         fiatCheckoutURL.value = checkoutURL.data.data;
+        checkoutLoading.value = false;
         openSite(checkoutURL.data.data);
       } catch (error) {
         showToast('error', 'Failed to create stripe checkout');
+        checkoutLoading.value = false;
       }
     };
 
     const initPaypalPay = async () => {
       try {
+        fiatCheckoutURL.value = null;
+        checkoutLoading.value = true;
         const hash = registrationHash.value;
         const { name } = appRegistrationSpecification.value;
         const price = appPricePerDeploymentUSD.value;
@@ -1142,12 +1171,15 @@ export default {
         const checkoutURL = await axios.post(`${paymentBridge}/api/v1/paypal/checkout/create`, data);
         if (checkoutURL.data.status === 'error') {
           showToast('error', 'Failed to create PayPal checkout');
+          checkoutLoading.value = false;
           return;
         }
         fiatCheckoutURL.value = checkoutURL.data.data;
+        checkoutLoading.value = false;
         openSite(checkoutURL.data.data);
       } catch (error) {
         showToast('error', 'Failed to create PayPal checkout');
+        checkoutLoading.value = false;
       }
     };
 
@@ -1551,7 +1583,7 @@ export default {
           showToast('danger', 'Not possible to complete payment with Flux crypto currency');
         } else {
           appPricePerDeployment.value = +response.data.data.flux;
-          applicationPriceFluxDiscount.value = +response.data.data.fluxDiscount > 0 ? ` with ${+response.data.data.fluxDiscount}% discount` : '';
+          applicationPriceFluxDiscount.value = +response.data.data.fluxDiscount;
         }
         if (websocket.value !== null) {
           websocket.value.close();
@@ -1618,15 +1650,15 @@ export default {
           dataLabels: {
             name: {
               offsetY: -15,
-              color: $themeColors.light,
+              color: $themeColors.secondary,
               fontSize: '1.5rem',
             },
             value: {
               formatter: (val) => ((parseFloat(val) * 15) / 100).toFixed(1),
               offsetY: 10,
-              color: $themeColors.light,
+              color: $themeColors.success,
               fontSize: '2.86rem',
-              fontWeight: '600',
+              fontWeight: '300',
             },
           },
         },
@@ -1656,7 +1688,7 @@ export default {
 
     const cpuRadialBarSmall = {
       chart: smallchart,
-      colors: [$themeColors.primary],
+      colors: [$themeColors.success],
       labels: ['Cores'],
       plotOptions: {
         radialBar: {
@@ -1667,21 +1699,21 @@ export default {
             size: '70%',
           },
           track: {
-            background: $themeColors.dark,
+            background: $themeColors.success,
             strokeWidth: '50%',
           },
           dataLabels: {
             name: {
               offsetY: -15,
-              color: $themeColors.light,
+              color: $themeColors.secondary,
               fontSize: '1.2rem',
             },
             value: {
               formatter: (val) => ((parseFloat(val) * 15) / 100).toFixed(1),
               offsetY: 10,
-              color: $themeColors.light,
+              color: $themeColors.success,
               fontSize: '2rem',
-              fontWeight: '400',
+              fontWeight: '300',
             },
           },
         },
@@ -1728,15 +1760,15 @@ export default {
           dataLabels: {
             name: {
               offsetY: -15,
-              color: $themeColors.light,
+              color: $themeColors.secondary,
               fontSize: '1.5rem',
             },
             value: {
               formatter: (val) => ((parseFloat(val) * 59000) / 100).toFixed(0),
               offsetY: 10,
-              color: $themeColors.light,
+              color: $themeColors.success,
               fontSize: '2.86rem',
-              fontWeight: '600',
+              fontWeight: '300',
             },
           },
         },
@@ -1783,15 +1815,15 @@ export default {
           dataLabels: {
             name: {
               offsetY: -15,
-              color: $themeColors.light,
+              color: $themeColors.secondary,
               fontSize: '1.2rem',
             },
             value: {
               formatter: (val) => ((parseFloat(val) * 59000) / 100).toFixed(0),
               offsetY: 10,
-              color: $themeColors.light,
+              color: $themeColors.success,
               fontSize: '2rem',
-              fontWeight: '400',
+              fontWeight: '300',
             },
           },
         },
@@ -1838,15 +1870,15 @@ export default {
           dataLabels: {
             name: {
               offsetY: -15,
-              color: $themeColors.light,
+              color: $themeColors.secondary,
               fontSize: '1.5rem',
             },
             value: {
               formatter: (val) => ((parseFloat(val) * 820) / 100).toFixed(0),
               offsetY: 10,
-              color: $themeColors.light,
+              color: $themeColors.success,
               fontSize: '2.86rem',
-              fontWeight: '600',
+              fontWeight: '300',
             },
           },
         },
@@ -1893,15 +1925,15 @@ export default {
           dataLabels: {
             name: {
               offsetY: -15,
-              color: $themeColors.light,
+              color: $themeColors.secondary,
               fontSize: '1.2rem',
             },
             value: {
               formatter: (val) => ((parseFloat(val) * 820) / 100).toFixed(0),
               offsetY: 10,
-              color: $themeColors.light,
+              color: $themeColors.success,
               fontSize: '2rem',
-              fontWeight: '400',
+              fontWeight: '300',
             },
           },
         },
@@ -1984,7 +2016,6 @@ export default {
     };
 
     return {
-
       // UI
       perfectScrollbarSettings,
       resolveTagVariant,
@@ -2021,6 +2052,7 @@ export default {
       applicationPriceFluxDiscount,
       applicationPriceFluxError,
       fiatCheckoutURL,
+      checkoutLoading,
       registrationHash,
       deploymentAddress,
 
