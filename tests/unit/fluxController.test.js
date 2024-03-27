@@ -111,4 +111,49 @@ describe('fluxController tests', () => {
     await promise;
     expect(fc.aborted).to.be.false;
   });
+
+  it('should start a loop when runner passed in', async () => {
+    const clock = sinon.useFakeTimers();
+
+    const fc = new FluxController();
+
+    let interations = 0
+
+    const runner = () => {
+      interations += 1;
+      return 100
+    }
+
+    const started = fc.startLoop(runner);
+
+    expect(started).to.be.true;
+    expect(fc.running).to.be.true;
+    expect(interations).to.equal(1);
+
+    await clock.tickAsync(10);
+    expect(interations).to.equal(1);
+    await clock.tickAsync(100);
+    expect(interations).to.equal(2);
+    // tidy up
+    fc.abort();
+  });
+
+  it('should stop a running loop when abort called', async () => {
+    const clock = sinon.useFakeTimers();
+    const timeoutSpy = sinon.spy(clock, 'clearTimeout');
+
+    const fc = new FluxController();
+
+    const runner = () => {
+      return 100
+    }
+
+    fc.startLoop(runner);
+
+    // run some iterations
+    await clock.tickAsync(1000);
+
+    await fc.abort();
+    sinon.assert.calledOnce(timeoutSpy);
+  });
 });

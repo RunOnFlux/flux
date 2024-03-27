@@ -4,6 +4,11 @@ class AsyncLock {
   locked = false;
 
   constructor() {
+    /**
+     * A synchronous disable method. Meaning that it can be called,
+     * and any further sync code can be run, before any code
+     * waiting on the promise will resolve.
+     */
     this.disable = () => { };
   }
 
