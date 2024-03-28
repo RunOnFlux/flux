@@ -38,7 +38,10 @@
                 Loading Sign In Options
               </div>
             </div>
-            <div id="ssoLoggedIn" style="display: none">
+            <div
+              id="ssoLoggedIn"
+              style="display: none"
+            >
               <b-spinner variant="primary" />
               <div>
                 Finishing Login Process
@@ -65,7 +68,10 @@
                 width="100%"
               >
             </a>
-            <a title="Login with SSP" @click="initSSP">
+            <a
+              title="Login with SSP"
+              @click="initSSP"
+            >
               <img
                 class="sspLogin"
                 :src="skin === 'dark' ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
@@ -76,7 +82,10 @@
             </a>
           </div>
           <div class="loginRow">
-            <a title="Login with Wallet Connect" @click="initWalletConnect">
+            <a
+              title="Login with Wallet Connect"
+              @click="initWalletConnect"
+            >
               <img
                 class="walletconnectLogin"
                 src="@/assets/images/walletconnect.svg"
@@ -85,7 +94,10 @@
                 width="100%"
               >
             </a>
-            <a title="Login with Metamask" @click="initMetamask">
+            <a
+              title="Login with Metamask"
+              @click="initMetamask"
+            >
               <img
                 class="metamaskLogin"
                 src="@/assets/images/metamask.svg"
@@ -321,7 +333,7 @@ export default {
     };
     const uiConfig = {
       callbacks: {
-      // Called when the user has been successfully signed in.
+        // Called when the user has been successfully signed in.
         signInSuccessWithAuthResult(authResult) {
           if (authResult.user) {
             handleSignedInUser(authResult.user);
@@ -709,7 +721,7 @@ export default {
 
 <style>
 .loginText {
-  color: #2B61D1;
+  color: #2b61d1;
   font-size: 16px;
   font-weight: 500;
 }
@@ -782,8 +794,11 @@ a:hover img {
   border-radius: 3px;
 }
 
+.mdl-textfield.is-focused .mdl-textfield__label:after {
+  bottom: 15px !important;
+}
+
 .firebaseui-title {
   color: black !important;
 }
-
 </style>
