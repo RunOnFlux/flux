@@ -9934,11 +9934,11 @@ async function getAppPrice(req, res) {
         }
       }
       const marketplaceResponse = await axios.get('https://stats.runonflux.io/marketplace/listapps');
-      let marketPlaceApps;
+      let marketPlaceApps = [];
       if (marketplaceResponse.data.status === 'success') {
         marketPlaceApps = marketplaceResponse.data.data;
       } else {
-        throw new Error('Unable to get marketplace information');
+        log.error('Unable to get marketplace information');
       }
 
       if (appSpecification.priceUSD) {
@@ -10072,11 +10072,11 @@ async function getAppFiatAndFluxPrice(req, res) {
         }
       }
       const marketplaceResponse = await axios.get('https://stats.runonflux.io/marketplace/listapps');
-      let marketPlaceApps;
+      let marketPlaceApps = [];
       if (marketplaceResponse.data.status === 'success') {
         marketPlaceApps = marketplaceResponse.data.data;
       } else {
-        throw new Error('Unable to get marketplace information');
+        log.error('Unable to get marketplace information');
       }
 
       if (appSpecification.priceUSD) {
