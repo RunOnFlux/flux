@@ -340,6 +340,9 @@ export default {
           }
           return false;
         },
+        signInFailure(error) {
+          console.log(error);
+        },
         uiShown() {
           document.getElementById('ssoLoading').style.display = 'none';
         },
@@ -353,6 +356,7 @@ export default {
           requireDisplayName: true,
         },
         firebase.auth.GoogleAuthProvider.PROVIDER_ID,
+        'apple.com',
         firebase.auth.GithubAuthProvider.PROVIDER_ID,
       ],
       tosUrl: 'https://cdn.runonflux.io/Flux_Terms_of_Service.pdf',
