@@ -777,47 +777,13 @@ a:hover img {
 }
 
 /* Custom styles for FirebaseUI widget */
-.firebaseui-container {
-  margin: 0 auto;
-  border-radius: 5px;
-}
-
-.firebaseui-input {
-  min-width: 0px;
-  padding: 10px;
-  border: 1px solid #ccc;
-  border-radius: 3px;
-}
-
 .firebaseui-button {
-  display: block;
-  width: 100%;
-  padding: 10px;
-  margin: 5px;
+  margin-left: 10px;
   border-radius: 3px;
-  cursor: pointer;
-}
-
-.firebaseui-form-actions {
-  display: block;
-}
-
-.firebaseui-form-links {
-  display: block;
-  text-align: center;
-}
-
-.firebaseui-form-action {
-  display: block;
 }
 
 .firebaseui-title {
   color: black !important;
-}
-
-.firebaseui-tos-list {
-  display: none;
-  visibility: hidden;
 }
 
 </style>
