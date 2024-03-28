@@ -47,6 +47,17 @@
                 Finishing Login Process
               </div>
             </div>
+            <div id="ssoVerify" style="display: none">
+              <b-button class="mb-2" variant="primary" type="submit" @click="checkVerification">
+                Check Verification Email
+              </b-button>
+              <div>
+                <b-spinner variant="primary" />
+                <div>
+                  Finishing Verification Process
+                </div>
+              </div>
+            </div>
             <div id="firebaseui-auth-container" />
           </div>
         </dd>
@@ -194,6 +205,7 @@ import { MetaMaskSDK } from '@metamask/sdk';
 
 import firebase from 'firebase/compat/app';
 import * as firebaseui from 'firebaseui';
+import { getUser } from '@/libs/firebase';
 import 'firebaseui/dist/firebaseui.css';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import ListEntry from '@/views/components/ListEntry.vue';
@@ -246,6 +258,7 @@ export default {
       applications: 'Buy on marketplace, register your own app, manage your active apps.',
       administration: 'Tools for the infrastructure administrators, node operators.',
       websocket: null,
+      ui: null,
       errorMessage: '',
       loginPhrase: '',
       loginForm: {
@@ -281,68 +294,10 @@ export default {
     this.daemonWelcomeGetFluxNodeStatus();
     this.getZelIdLoginPhrase();
     this.initMMSDK();
-    let ui;
-    const handleSignedInUser = async (user) => {
-      try {
-        document.getElementById('ssoLoggedIn').style.display = 'block';
-        const token = user.auth.currentUser.accessToken;
-        const message = this.loginPhrase;
-        const headers = {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        };
-        const fluxLogin = await axios.post('https://service.fluxcore.ai/api/signInOrUp', { message }, { headers });
-        if (fluxLogin.data?.status !== 'success') {
-          ui.reset();
-          ui.start('#firebaseui-auth-container');
-          throw new Error('Login Failed, please try again.');
-        }
-        const authLogin = {
-          zelid: fluxLogin.data.public_address,
-          signature: fluxLogin.data.signature,
-          loginPhrase: this.loginPhrase,
-        };
-        IDService.verifyLogin(authLogin)
-          .then((response) => {
-            console.log(response);
-            if (response.data.status === 'success') {
-              // user is  now signed. Store their values
-              const zelidauth = {
-                zelid: fluxLogin.data.public_address,
-                signature: fluxLogin.data.signature,
-                loginPhrase: this.loginPhrase,
-              };
-              this.$store.commit('flux/setPrivilege', response.data.data.privilage);
-              this.$store.commit('flux/setZelid', zelidauth.zelid);
-              localStorage.setItem('zelidauth', qs.stringify(zelidauth));
-              this.showToast('success', response.data.data.message);
-            } else {
-              this.showToast(this.getVariant(response.data.status), response.data.data.message || response.data.data);
-              document.getElementById('ssoLoggedIn').style.display = 'none';
-              ui.reset();
-              ui.start('#firebaseui-auth-container');
-            }
-          })
-          .catch((e) => {
-            console.log(e);
-            this.showToast('danger', e.toString());
-          });
-      } catch (error) {
-        this.showToast('warning', 'Login Failed, please try again.');
-      }
-    };
     const uiConfig = {
       callbacks: {
-        // Called when the user has been successfully signed in.
-        signInSuccessWithAuthResult(authResult) {
-          if (authResult.user) {
-            handleSignedInUser(authResult.user);
-          }
-          return false;
-        },
-        signInFailure(error) {
-          console.log(error);
-        },
+      // Called when the user has been successfully signed in.
+        signInSuccessWithAuthResult: this.handleSignInSuccessWithAuthResult,
         uiShown() {
           document.getElementById('ssoLoading').style.display = 'none';
         },
@@ -365,15 +320,97 @@ export default {
     // Initialize the FirebaseUI Widget using Firebase.
     if (this.privilege === 'none') {
       if (firebaseui.auth.AuthUI.getInstance()) {
-        ui = firebaseui.auth.AuthUI.getInstance();
-        ui.start('#firebaseui-auth-container', uiConfig);
+        this.ui = firebaseui.auth.AuthUI.getInstance();
+        this.ui.start('#firebaseui-auth-container', uiConfig);
       } else {
-        ui = new firebaseui.auth.AuthUI(firebase.auth());
-        ui.start('#firebaseui-auth-container', uiConfig);
+        this.ui = new firebaseui.auth.AuthUI(firebase.auth());
+        this.ui.start('#firebaseui-auth-container', uiConfig);
       }
     }
   },
   methods: {
+    handleSignInSuccessWithAuthResult(authResult) {
+      if (authResult.user) {
+        this.handleSignedInUser(authResult.user);
+      }
+      return false;
+    },
+    async handleSignedInUser(user) {
+      try {
+        if (user.emailVerified) {
+          document.getElementById('ssoLoggedIn').style.display = 'block';
+          const token = user.auth.currentUser.accessToken;
+          const message = this.loginPhrase;
+          const headers = {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          };
+          const fluxLogin = await axios.post('https://service.fluxcore.ai/api/signInOrUp', { message }, { headers });
+          if (fluxLogin.data?.status !== 'success') {
+            throw new Error('Login Failed, please try again.');
+          }
+          const authLogin = {
+            zelid: fluxLogin.data.public_address,
+            signature: fluxLogin.data.signature,
+            loginPhrase: this.loginPhrase,
+          };
+          IDService.verifyLogin(authLogin)
+            .then((response) => {
+              console.log(response);
+              if (response.data.status === 'success') {
+                // user is  now signed. Store their values
+                const zelidauth = {
+                  zelid: fluxLogin.data.public_address,
+                  signature: fluxLogin.data.signature,
+                  loginPhrase: this.loginPhrase,
+                };
+                this.$store.commit('flux/setPrivilege', response.data.data.privilage);
+                this.$store.commit('flux/setZelid', zelidauth.zelid);
+                localStorage.setItem('zelidauth', qs.stringify(zelidauth));
+                this.showToast('success', response.data.data.message);
+              } else {
+                this.showToast(this.getVariant(response.data.status), response.data.data.message || response.data.data);
+                this.resetLoginUI();
+              }
+            })
+            .catch((e) => {
+              console.log(e);
+              this.resetLoginUI();
+            });
+        } else {
+          user.sendEmailVerification()
+            .then(() => {
+              this.showToast('info', 'please verify email');
+              document.getElementById('ssoVerify').style.display = 'block';
+            })
+            .catch(() => {
+              document.getElementById('ssoVerify').style.display = 'block';
+              this.showToast('warning', 'failed to send verification email');
+            });
+        }
+      } catch (error) {
+        this.resetLoginUI();
+        this.showToast('warning', 'Login Failed, please try again.');
+      }
+    },
+    async checkVerification() {
+      let user = getUser();
+      if (user) {
+        await user.reload();
+        user = getUser();
+        if (user.emailVerified) {
+          this.showToast('info', 'email verified');
+          document.getElementById('ssoVerify').style.display = 'none';
+          this.handleSignedInUser(user);
+        }
+      }
+    },
+    resetLoginUI() {
+      document.getElementById('ssoVerify').style.display = 'none';
+      document.getElementById('ssoLoggedIn').style.display = 'none';
+      this.ui.reset();
+      this.ui.start('#firebaseui-auth-container');
+    },
     async daemonWelcomeGetFluxNodeStatus() {
       const response = await DaemonService.getFluxNodeStatus();
       this.getNodeStatusResponse.status = response.data.status;
