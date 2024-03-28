@@ -9898,9 +9898,6 @@ async function getAppPrice(req, res) {
         appPrices.push(myLongCache.get('appPrices'));
       } else {
         /* const response = await axios.get('https://api.runonflux.io/apps/getappspecsusdprice', axiosConfig);
-        const response = config.fluxapps.usdprice;
-        myLongCache.set('appPrices', response);
-        appPrices.push(response);
         if (response.data.status === 'success') {
           myLongCache.set('appPrices', response.data.data);
           appPrices.push(response.data.data);
@@ -10039,9 +10036,6 @@ async function getAppFiatAndFluxPrice(req, res) {
         appPrices.push(myLongCache.get('appPrices'));
       } else {
         /* const response = await axios.get('https://api.runonflux.io/apps/getappspecsusdprice', axiosConfig);
-        const response = config.fluxapps.usdprice;
-        myLongCache.set('appPrices', response);
-        appPrices.push(response);
         if (response.data.status === 'success') {
           myLongCache.set('appPrices', response.data.data);
           appPrices.push(response.data.data);
