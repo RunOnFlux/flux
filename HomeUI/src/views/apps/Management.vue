@@ -5349,7 +5349,13 @@
           <b-row
             v-if="updateHash && freeUpdate"
             class="match-height"
-          />
+          >
+            <b-card>
+              <b-card-text>
+                Everything is ready, your application update should be effective automatically in less than 30 minutes.
+              </b-card-text>
+            </b-card>
+          </b-row>
         </div>
       </b-tab>
     </b-tabs>
