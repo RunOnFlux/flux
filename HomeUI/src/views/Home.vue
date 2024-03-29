@@ -48,13 +48,16 @@
               </div>
             </div>
             <div id="ssoVerify" style="display: none">
-              <b-button class="mb-2" variant="primary" type="submit" @click="checkVerification">
-                Check Verification Email
+              <b-button class="mb-2" variant="primary" type="submit" @click="cancelVerification">
+                Cancel Verification
               </b-button>
               <div>
                 <b-spinner variant="primary" />
                 <div>
                   Finishing Verification Process
+                </div>
+                <div>
+                  <i>Please check email for verification link.</i>
                 </div>
               </div>
             </div>
@@ -259,6 +262,7 @@ export default {
       administration: 'Tools for the infrastructure administrators, node operators.',
       websocket: null,
       ui: null,
+      ssoVerification: false,
       errorMessage: '',
       loginPhrase: '',
       loginForm: {
@@ -381,11 +385,14 @@ export default {
           user.sendEmailVerification()
             .then(() => {
               this.showToast('info', 'please verify email');
-              document.getElementById('ssoVerify').style.display = 'block';
             })
             .catch(() => {
+              this.showToast('warning', 'failed to send new verification email');
+            })
+            .finally(async () => {
               document.getElementById('ssoVerify').style.display = 'block';
-              this.showToast('warning', 'failed to send verification email');
+              this.ssoVerification = true;
+              await this.checkVerification();
             });
         }
       } catch (error) {
@@ -394,22 +401,38 @@ export default {
       }
     },
     async checkVerification() {
-      let user = getUser();
-      if (user) {
-        await user.reload();
-        user = getUser();
-        if (user.emailVerified) {
-          this.showToast('info', 'email verified');
-          document.getElementById('ssoVerify').style.display = 'none';
-          this.handleSignedInUser(user);
+      try {
+        let user = getUser();
+        if (user && this.ssoVerification) {
+          await user.reload();
+          user = getUser();
+          if (user.emailVerified) {
+            this.showToast('info', 'email verified');
+            document.getElementById('ssoVerify').style.display = 'none';
+            this.handleSignedInUser(user);
+            this.ssoVerification = false;
+          } else {
+            setTimeout(() => {
+              this.checkVerification();
+            }, 5000);
+          }
+        } else {
+          this.resetLoginUI();
         }
+      } catch (error) {
+        this.showToast('warning', 'email verification failed');
+        this.resetLoginUI();
       }
+    },
+    cancelVerification() {
+      this.resetLoginUI();
     },
     resetLoginUI() {
       document.getElementById('ssoVerify').style.display = 'none';
       document.getElementById('ssoLoggedIn').style.display = 'none';
       this.ui.reset();
       this.ui.start('#firebaseui-auth-container');
+      this.ssoVerification = false;
     },
     async daemonWelcomeGetFluxNodeStatus() {
       const response = await DaemonService.getFluxNodeStatus();
