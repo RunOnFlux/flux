@@ -7811,6 +7811,7 @@ export default {
           }
         }
       } catch (error) {
+        this.generalMultiplier = 10;
         console.log(error);
       }
     },
