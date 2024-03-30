@@ -4715,7 +4715,7 @@ async function getUserBlockedRepositores() {
     return [];
   } catch (error) {
     log.error(error);
-    return null;
+    return [];
   }
 }
 
@@ -9933,9 +9933,9 @@ async function getAppPrice(req, res) {
           actualPriceToPay -= (perc * previousSpecsPrice);
         }
       }
-      const marketplaceResponse = await axios.get('https://stats.runonflux.io/marketplace/listapps');
+      const marketplaceResponse = await axios.get('https://stats.runonflux.io/marketplace/listapps').catch((error) => log.error(error));
       let marketPlaceApps = [];
-      if (marketplaceResponse.data.status === 'success') {
+      if (marketplaceResponse && marketplaceResponse.data && marketplaceResponse.data.status === 'success') {
         marketPlaceApps = marketplaceResponse.data.data;
       } else {
         log.error('Unable to get marketplace information');
@@ -10071,9 +10071,9 @@ async function getAppFiatAndFluxPrice(req, res) {
           actualPriceToPay -= (perc * previousSpecsPrice);
         }
       }
-      const marketplaceResponse = await axios.get('https://stats.runonflux.io/marketplace/listapps');
+      const marketplaceResponse = await axios.get('https://stats.runonflux.io/marketplace/listapps').catch((error) => log.error(error));
       let marketPlaceApps = [];
-      if (marketplaceResponse.data.status === 'success') {
+      if (marketplaceResponse && marketplaceResponse.data && marketplaceResponse.data.status === 'success') {
         marketPlaceApps = marketplaceResponse.data.data;
       } else {
         log.error('Unable to get marketplace information');
