@@ -468,7 +468,7 @@
             <div class="loginRow mx-auto" style="width: 400px;">
               <a @click="initiateSignWS">
                 <img
-                  class="zelidLogin"
+                  class="walletIcon"
                   src="@/assets/images/zelID.svg"
                   alt="Zel ID"
                   height="100%"
@@ -477,7 +477,7 @@
               </a>
               <a @click="initSSP">
                 <img
-                  class="sspLogin"
+                  class="walletIcon"
                   :src="isDark ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
                   alt="SSP"
                   height="100%"
@@ -488,7 +488,7 @@
             <div class="loginRow mx-auto" style="width: 400px;">
               <a @click="initWalletConnect">
                 <img
-                  class="walletconnectLogin"
+                  class="walletIcon"
                   src="@/assets/images/walletconnect.svg"
                   alt="WalletConnect"
                   height="100%"
@@ -497,7 +497,7 @@
               </a>
               <a @click="initMetamask">
                 <img
-                  class="metamaskLogin"
+                  class="walletIcon"
                   src="@/assets/images/metamask.svg"
                   alt="Metamask"
                   height="100%"
@@ -649,7 +649,7 @@
                 <div class="loginRow">
                   <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${appPricePerDeployment}&message=${registrationHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
                     <img
-                      class="zelidLogin"
+                      class="walletIcon"
                       src="@/assets/images/zelID.svg"
                       alt="Zel ID"
                       height="100%"
@@ -658,7 +658,7 @@
                   </a>
                   <a @click="initSSPpay">
                     <img
-                      class="sspLogin"
+                      class="walletIcon"
                       :src="isDark ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
                       alt="SSP"
                       height="100%"
@@ -2127,34 +2127,15 @@ export default {
   align-items: center;
   margin-bottom: 10px;
 }
-.zelidLogin {
-  margin-left: 5px;
+.walletIcon {
   height: 90px;
+  width: 90px;
   padding: 10px;
 }
-.zelidLogin img {
+.walletIcon img {
   -webkit-app-region: no-drag;
   transition: 0.1s;
 }
-
-.walletconnectLogin {
-  height: 100px;
-  padding: 10px;
-}
-.walletconnectLogin img {
-  -webkit-app-region: no-drag;
-  transition: 0.1s;
-}
-
-.metamaskLogin {
-  height: 80px;
-  padding: 10px;
-}
-.metamaskLogin img {
-  -webkit-app-region: no-drag;
-  transition: 0.1s;
-}
-
 .fluxSSO {
   height: 90px;
   padding: 10px;
@@ -2164,17 +2145,6 @@ export default {
   -webkit-app-region: no-drag;
   transition: 0.1s;
 }
-
-.sspLogin {
-  height: 90px;
-  padding: 10px;
-  margin-left: 5px;
-}
-.sspLogin img {
-  -webkit-app-region: no-drag;
-  transition: 0.1s;
-}
-
 .stripePay {
   margin-left: 5px;
   height: 90px;

@@ -75,7 +75,7 @@
               @click="initiateLoginWS"
             >
               <img
-                class="zelidLogin"
+                class="walletIcon"
                 src="@/assets/images/zelID.svg"
                 alt="Zel ID"
                 height="100%"
@@ -87,7 +87,7 @@
               @click="initSSP"
             >
               <img
-                class="sspLogin"
+                class="walletIcon"
                 :src="skin === 'dark' ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
                 alt="SSP"
                 height="100%"
@@ -97,11 +97,11 @@
           </div>
           <div class="loginRow">
             <a
-              title="Login with Wallet Connect"
+              title="Login with WalletConnect"
               @click="initWalletConnect"
             >
               <img
-                class="walletconnectLogin"
+                class="walletIcon"
                 src="@/assets/images/walletconnect.svg"
                 alt="WalletConnect"
                 height="100%"
@@ -113,7 +113,7 @@
               @click="initMetamask"
             >
               <img
-                class="metamaskLogin"
+                class="walletIcon"
                 src="@/assets/images/metamask.svg"
                 alt="Metamask"
                 height="100%"
@@ -793,8 +793,8 @@ export default {
   display: flex;
   flex-direction: row;
   justify-content: space-around;
-  align-items: center;
-  margin-bottom: 10px;
+  margin-top: 10px;
+  padding-top: 10px;
 }
 .ssoLogin {
   display: flex;
@@ -805,44 +805,15 @@ export default {
   margin-top: 30px;
   text-align: center;
 }
-.zelidLogin {
-  margin-left: 5px;
+.walletIcon {
   height: 90px;
+  width: 90px;
   padding: 10px;
 }
-.zelidLogin img {
+.walletIcon img {
   -webkit-app-region: no-drag;
   transition: 0.1s;
 }
-
-.walletconnectLogin {
-  height: 100px;
-  padding: 10px;
-}
-.walletconnectLogin img {
-  -webkit-app-region: no-drag;
-  transition: 0.1s;
-}
-
-.metamaskLogin {
-  height: 80px;
-  padding: 10px;
-}
-.metamaskLogin img {
-  -webkit-app-region: no-drag;
-  transition: 0.1s;
-}
-
-.sspLogin {
-  height: 90px;
-  padding: 10px;
-  margin-left: 5px;
-}
-.sspLogin img {
-  -webkit-app-region: no-drag;
-  transition: 0.1s;
-}
-
 a img {
   transition: all 0.05s ease-in-out;
 }
