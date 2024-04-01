@@ -316,7 +316,7 @@ export default {
         },
         firebase.auth.GoogleAuthProvider.PROVIDER_ID,
         'apple.com',
-        firebase.auth.GithubAuthProvider.PROVIDER_ID,
+        // firebase.auth.GithubAuthProvider.PROVIDER_ID,
       ],
       tosUrl: 'https://cdn.runonflux.io/Flux_Terms_of_Service.pdf',
       privacyPolicyUrl: 'https://runonflux.io/privacyPolicy',

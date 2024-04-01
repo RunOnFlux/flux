@@ -9207,7 +9207,10 @@ export default {
         if (entry.data.networks.eth0) {
           net = `${(entry.data.networks.eth0.rx_bytes / 1e9).toFixed(2)} / ${(entry.data.networks.eth0.tx_bytes / 1e9).toFixed(2)} GB`;
         }
-        const block = `${(entry.data.blkio_stats.io_service_bytes_recursive.find((x) => x.op.toLowerCase() === 'read').value / 1e9).toFixed(2)} / ${(entry.data.blkio_stats.io_service_bytes_recursive.find((x) => x.op.toLowerCase() === 'write').value / 1e9).toFixed(2)} GB`;
+        let block = '0.00 / 0.00 GB';
+        if (Array.isArray(entry.data.blkio_stats.io_service_bytes_recursive) && entry.data.blkio_stats.io_service_bytes_recursive.length !== 0) {
+          block = `${(entry.data.blkio_stats.io_service_bytes_recursive.find((x) => x.op.toLowerCase() === 'read').value / 1e9).toFixed(2)} / ${(entry.data.blkio_stats.io_service_bytes_recursive.find((x) => x.op.toLowerCase() === 'write').value / 1e9).toFixed(2)} GB`;
+        }
         let disk = '0 / 0 GB';
         if (entry.data.disk_stats) {
           disk = `${(entry.data.disk_stats.used / 1e9).toFixed(2)} / ${(specifications.hdd).toFixed(2)} GB, ${((entry.data.disk_stats.used / (specifications.hdd * 1e9)) * 100).toFixed(2)}%`;
