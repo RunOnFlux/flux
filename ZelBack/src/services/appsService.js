@@ -10090,29 +10090,38 @@ async function getAppFiatAndFluxPrice(req, res) {
             actualPriceToPay *= marketPlaceApp.multiplier;
           }
         }
-
         actualPriceToPay = Number(actualPriceToPay * appPrices[0].multiplier).toFixed(2);
         if (actualPriceToPay < appPrices[0].minUSDPrice) {
           actualPriceToPay = Number(appPrices[0].minUSDPrice).toFixed(2);
         }
       }
       let fiatRates;
+      let fluxUSDRate;
       if (myShortCache.has('fluxRates')) {
-        fiatRates = myShortCache.get('fluxRates');
+        fluxUSDRate = myShortCache.get('fluxRates');
       } else {
         fiatRates = await axios.get('https://viprates.runonflux.io/rates', axiosConfig).catch(() => { throw new Error('Unable to get Flux Rates'); });
-        myShortCache.set('fluxRates', fiatRates);
+        if (fiatRates.data) {
+          const rateObj = fiatRates.data[0].find((rate) => rate.code === 'USD');
+          if (!rateObj) {
+            throw new Error('Unable to get USD rate.');
+          }
+          const btcRateforFlux = fiatRates.data[1].FLUX;
+          if (btcRateforFlux === undefined) {
+            throw new Error('Unable to get Flux USD Price.');
+          }
+          fluxUSDRate = rateObj.rate * btcRateforFlux;
+          myShortCache.set('fluxRates', fluxUSDRate);
+        } else {
+          fiatRates = await axios.get('https://api.coingecko.com/api/v3/simple/price?vs_currencies=usd&ids=zelcash', axiosConfig);
+          if (fiatRates.data.zelcash.usd) {
+            fluxUSDRate = fiatRates.data.zelcash.usd;
+          } else {
+            log.error('Unable to get rates information');
+          }
+        }
       }
-      const rateObj = fiatRates.data[0].find((rate) => rate.code === 'USD');
-      if (!rateObj) {
-        throw new Error('Unable to get USD rate.');
-      }
-      const btcRateforFlux = fiatRates.data[1].FLUX;
-      if (btcRateforFlux === undefined) {
-        throw new Error('Unable to get Flux USD Price.');
-      }
-      const fiatRate = rateObj.rate * btcRateforFlux;
-      const fluxPrice = Number(((actualPriceToPay / fiatRate) * appPrices[0].fluxmultiplier));
+      const fluxPrice = Number(((actualPriceToPay / fluxUSDRate) * appPrices[0].fluxmultiplier));
       const fluxChainPrice = Number(await getAppFluxOnChainPrice(appSpecification));
       const price = {
         usd: Number(actualPriceToPay),
