@@ -314,7 +314,12 @@ export default {
           buttonColor: '#2B61D1',
           requireDisplayName: true,
         },
-        firebase.auth.GoogleAuthProvider.PROVIDER_ID,
+        {
+          provider: firebase.auth.GoogleAuthProvider.PROVIDER_ID,
+          customParameters: {
+            prompt: 'select_account',
+          },
+        },
         'apple.com',
         // firebase.auth.GithubAuthProvider.PROVIDER_ID,
       ],
