@@ -10100,7 +10100,7 @@ async function getAppFiatAndFluxPrice(req, res) {
       if (myShortCache.has('fluxRates')) {
         fluxUSDRate = myShortCache.get('fluxRates');
       } else {
-        fiatRates = await axios.get('https://viprates.runonflux.io/ratess', axiosConfig).catch((error) => log.error(error));
+        fiatRates = await axios.get('https://viprates.runonflux.io/rates', axiosConfig).catch((error) => log.error(error));
         if (fiatRates && fiatRates.data) {
           const rateObj = fiatRates.data[0].find((rate) => rate.code === 'USD');
           if (!rateObj) {
