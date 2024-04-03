@@ -1,4 +1,5 @@
 import firebase from 'firebase/compat/app';
+import 'firebase/compat/auth';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyAtMsozWwJhhPIOd9BGkZxk5D6Wr8jVGVM',
@@ -12,10 +13,11 @@ const firebaseConfig = {
 
 // Initialize Firebase
 const firebaseApp = firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
 
 export function getUser() {
   try {
-    return firebaseApp.auth().currentUser;
+    return auth.currentUser;
   } catch (error) {
     return null;
   }

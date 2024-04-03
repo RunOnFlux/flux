@@ -5629,7 +5629,7 @@ import ListEntry from '@/views/components/ListEntry.vue';
 import JsonViewer from 'vue-json-viewer';
 import FileUpload from '@/views/components/FileUpload.vue';
 import { useClipboard } from '@vueuse/core';
-import { getUser } from '../../libs/firebase';
+import { getUser } from '@/libs/firebase';
 
 import AppsService from '@/services/AppsService';
 import DaemonService from '@/services/DaemonService';
