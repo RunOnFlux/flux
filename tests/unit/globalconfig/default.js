@@ -141,6 +141,7 @@ module.exports = {
         staticip: 0.4, // additional price per application for targetting nodes that have static ip address
       },
     ],
+    fluxUSDRate: 1.14,
     usdprice: {
       height: -1, // height from which price spec is valid
       cpu: 0.15, // per 0.1 cpu core,

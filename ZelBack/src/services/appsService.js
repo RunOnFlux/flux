@@ -10118,7 +10118,9 @@ async function getAppFiatAndFluxPrice(req, res) {
             fluxUSDRate = fiatRates.data.zelcash.usd;
             myShortCache.set('fluxRates', fluxUSDRate);
           } else {
-            log.error('Unable to get rates information');
+            // eslint-disable-next-line prefer-destructuring
+            fluxUSDRate = config.fluxapps.fluxUSDRate;
+            myShortCache.set('fluxRates', fluxUSDRate);
           }
         }
       }
