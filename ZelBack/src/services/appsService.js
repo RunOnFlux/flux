@@ -10035,16 +10035,15 @@ async function getAppFiatAndFluxPrice(req, res) {
       if (myLongCache.has('appPrices')) {
         appPrices.push(myLongCache.get('appPrices'));
       } else {
-        /* const response = await axios.get('https://api.runonflux.io/apps/getappspecsusdprice', axiosConfig);
+        let response = await axios.get('https://stats.runonflux.io/apps/getappspecsusdprice', axiosConfig).catch((error) => log.error(error));
         if (response.data.status === 'success') {
           myLongCache.set('appPrices', response.data.data);
           appPrices.push(response.data.data);
         } else {
-          throw new Error('Unable to get standard usd prices for app specs');
-        } */
-        const response = config.fluxapps.usdprice;
-        myLongCache.set('appPrices', response);
-        appPrices.push(response);
+          response = config.fluxapps.usdprice;
+          myLongCache.set('appPrices', response);
+          appPrices.push(response);
+        }
       }
       let actualPriceToPay = 0;
       const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
