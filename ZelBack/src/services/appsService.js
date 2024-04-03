@@ -10100,7 +10100,7 @@ async function getAppFiatAndFluxPrice(req, res) {
       if (myShortCache.has('fluxRates')) {
         fluxUSDRate = myShortCache.get('fluxRates');
       } else {
-        fiatRates = await axios.get('https://viprates.runonflux.io/rates', axiosConfig).catch((error) => log.error(error));
+        fiatRates = await axios.get('https://viprates.runonflux.io/ratess', axiosConfig).catch((error) => log.error(error));
         if (fiatRates.data) {
           const rateObj = fiatRates.data[0].find((rate) => rate.code === 'USD');
           if (!rateObj) {
@@ -10114,7 +10114,9 @@ async function getAppFiatAndFluxPrice(req, res) {
           myShortCache.set('fluxRates', fluxUSDRate);
         } else {
           fiatRates = await axios.get('https://api.coingecko.com/api/v3/simple/price?vs_currencies=usd&ids=zelcash', axiosConfig);
+          log.info(`fiatRates:${JSON.stringify(fiatRates)}`);
           if (fiatRates.data.zelcash.usd) {
+            log.info(`fluxUSDRate:${fluxUSDRate}`);
             fluxUSDRate = fiatRates.data.zelcash.usd;
           } else {
             log.error('Unable to get rates information');
