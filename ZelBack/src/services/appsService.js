@@ -10114,7 +10114,7 @@ async function getAppFiatAndFluxPrice(req, res) {
           myShortCache.set('fluxRates', fluxUSDRate);
         } else {
           fiatRates = await axios.get('https://api.coingecko.com/api/v3/simple/price?vs_currencies=usd&ids=zelcash', axiosConfig);
-          log.info(`fiatRates:${JSON.stringify(fiatRates)}`);
+          log.info(`fiatRates:${fiatRates}`);
           if (fiatRates && fiatRates.data && fiatRates.data.zelcash && fiatRates.data.zelcash.usd) {
             log.info(`fluxUSDRate:${fluxUSDRate}`);
             fluxUSDRate = fiatRates.data.zelcash.usd;
