@@ -4697,7 +4697,7 @@ async function getUserBlockedRepositores() {
     const marketPlaceUrl = 'https://stats.runonflux.io/marketplace/listapps';
     const response = await axios.get(marketPlaceUrl);
     console.log(response);
-    if (response.data.status === 'success') {
+    if (response && response.data && response.data.status === 'success') {
       const visibleApps = response.data.data.filter((val) => val.visible);
       for (let i = 0; i < userBlockedRepos.length; i += 1) {
         const userRepo = userBlockedRepos[i];
@@ -9898,7 +9898,7 @@ async function getAppPrice(req, res) {
         appPrices.push(myLongCache.get('appPrices'));
       } else {
         let response = await axios.get('https://stats.runonflux.io/apps/getappspecsusdprice', axiosConfig).catch((error) => log.error(error));
-        if (response.data.status === 'success') {
+        if (response && response.data && response.data.status === 'success') {
           myLongCache.set('appPrices', response.data.data);
           appPrices.push(response.data.data);
         } else {
@@ -10047,7 +10047,7 @@ async function getAppFiatAndFluxPrice(req, res) {
         appPrices.push(myLongCache.get('appPrices'));
       } else {
         let response = await axios.get('https://stats.runonflux.io/apps/getappspecsusdprice', axiosConfig).catch((error) => log.error(error));
-        if (response.data.status === 'success') {
+        if (response && response.data && response.data.status === 'success') {
           myLongCache.set('appPrices', response.data.data);
           appPrices.push(response.data.data);
         } else {
