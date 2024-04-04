@@ -468,7 +468,7 @@
             <div class="loginRow mx-auto" style="width: 400px;">
               <a @click="initiateSignWS">
                 <img
-                  class="zelidLogin"
+                  class="walletIcon"
                   src="@/assets/images/zelID.svg"
                   alt="Zel ID"
                   height="100%"
@@ -477,7 +477,7 @@
               </a>
               <a @click="initSSP">
                 <img
-                  class="sspLogin"
+                  class="walletIcon"
                   :src="isDark ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
                   alt="SSP"
                   height="100%"
@@ -488,7 +488,7 @@
             <div class="loginRow mx-auto" style="width: 400px;">
               <a @click="initWalletConnect">
                 <img
-                  class="walletconnectLogin"
+                  class="walletIcon"
                   src="@/assets/images/walletconnect.svg"
                   alt="WalletConnect"
                   height="100%"
@@ -497,13 +497,25 @@
               </a>
               <a @click="initMetamask">
                 <img
-                  class="metamaskLogin"
+                  class="walletIcon"
                   src="@/assets/images/metamask.svg"
                   alt="Metamask"
                   height="100%"
                   width="100%"
                 >
               </a>
+            </div>
+            <div class="loginRow">
+              <b-button
+                v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                variant="primary"
+                aria-label="Flux Single Sign On"
+                class="my-1"
+                style="width: 250px"
+                @click="initSignFluxSSO"
+              >
+                Flux Single Sign On (SSO)
+              </b-button>
             </div>
           </div>
           <b-form-input
@@ -637,7 +649,7 @@
                 <div class="loginRow">
                   <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${appPricePerDeployment}&message=${registrationHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
                     <img
-                      class="zelidLogin"
+                      class="walletIcon"
                       src="@/assets/images/zelID.svg"
                       alt="Zel ID"
                       height="100%"
@@ -646,7 +658,7 @@
                   </a>
                   <a @click="initSSPpay">
                     <img
-                      class="sspLogin"
+                      class="walletIcon"
                       :src="isDark ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
                       alt="SSP"
                       height="100%"
@@ -711,6 +723,7 @@ import SignClient from '@walletconnect/sign-client';
 import { MetaMaskSDK } from '@metamask/sdk';
 import useAppConfig from '@core/app-config/useAppConfig';
 import { useClipboard } from '@vueuse/core';
+import { getUser } from '@/libs/firebase';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
 
@@ -910,7 +923,29 @@ export default {
     const onOpen = (evt) => {
       console.log(evt);
     };
-
+    const initSignFluxSSO = async () => {
+      try {
+        const message = dataToSign.value;
+        const firebaseUser = getUser();
+        if (!firebaseUser) {
+          showToast('warning', 'Not logged in as SSO. Login with SSO or use different signing method.');
+          return;
+        }
+        const token = firebaseUser.auth.currentUser.accessToken;
+        const headers = {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        };
+        const signSSO = await axios.post('https://service.fluxcore.ai/api/signMessage', { message }, { headers });
+        if (signSSO.data?.status !== 'success' && signSSO.data?.signature) {
+          showToast('warning', 'Failed to sign message, please try again.');
+          return;
+        }
+        signature.value = signSSO.data.signature;
+      } catch (error) {
+        showToast('warning', 'Failed to sign message, please try again.');
+      }
+    };
     const initiateSignWS = async () => {
       if (dataToSign.value.length > 1800) {
         const message = dataToSign.value;
@@ -2034,6 +2069,7 @@ export default {
       initPaypalPay,
       initStripePay,
       openSite,
+      initSignFluxSSO,
       initWalletConnect,
       onSessionConnect,
       siwe,
@@ -2091,43 +2127,24 @@ export default {
   align-items: center;
   margin-bottom: 10px;
 }
-.zelidLogin {
-  margin-left: 5px;
+.walletIcon {
   height: 90px;
+  width: 90px;
   padding: 10px;
 }
-.zelidLogin img {
+.walletIcon img {
   -webkit-app-region: no-drag;
   transition: 0.1s;
 }
-
-.walletconnectLogin {
-  height: 100px;
-  padding: 10px;
-}
-.walletconnectLogin img {
-  -webkit-app-region: no-drag;
-  transition: 0.1s;
-}
-
-.metamaskLogin {
-  height: 80px;
-  padding: 10px;
-}
-.metamaskLogin img {
-  -webkit-app-region: no-drag;
-  transition: 0.1s;
-}
-.sspLogin {
+.fluxSSO {
   height: 90px;
   padding: 10px;
   margin-left: 5px;
 }
-.sspLogin img {
+.fluxSSO img {
   -webkit-app-region: no-drag;
   transition: 0.1s;
 }
-
 .stripePay {
   margin-left: 5px;
   height: 90px;

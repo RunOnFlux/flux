@@ -25,28 +25,69 @@
     </b-card>
 
     <b-card v-if="privilege === 'none'">
-      <b-card-title>Log In</b-card-title>
+      <b-card-title>Automated Login</b-card-title>
       <dl class="row">
-        <dd class="col-sm-4">
-          <b-card-text class="text-center">
-            Please log in using
+        <dd class="col-sm-6">
+          <b-card-text class="text-center loginText">
+            Flux Single Sign On (SSO) Login
+          </b-card-text>
+          <div class="ssoLogin">
+            <div id="ssoLoading">
+              <b-spinner variant="primary" />
+              <div>
+                Loading Sign In Options
+              </div>
+            </div>
+            <div
+              id="ssoLoggedIn"
+              style="display: none"
+            >
+              <b-spinner variant="primary" />
+              <div>
+                Finishing Login Process
+              </div>
+            </div>
+            <div id="ssoVerify" style="display: none">
+              <b-button class="mb-2" variant="primary" type="submit" @click="cancelVerification">
+                Cancel Verification
+              </b-button>
+              <div>
+                <b-spinner variant="primary" />
+                <div>
+                  Finishing Verification Process
+                </div>
+                <div>
+                  <i>Please check email for verification link.</i>
+                </div>
+              </div>
+            </div>
+            <div id="firebaseui-auth-container" />
+          </div>
+        </dd>
+        <dd class="col-sm-6">
+          <b-card-text class="text-center loginText">
+            Decentralized Login
           </b-card-text>
           <div class="loginRow">
             <a
               :href="`zel:?action=sign&message=${loginPhrase}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue}`"
+              title="Login with Zelcore"
               @click="initiateLoginWS"
             >
               <img
-                class="zelidLogin"
+                class="walletIcon"
                 src="@/assets/images/zelID.svg"
                 alt="Zel ID"
                 height="100%"
                 width="100%"
               >
             </a>
-            <a @click="initSSP">
+            <a
+              title="Login with SSP"
+              @click="initSSP"
+            >
               <img
-                class="sspLogin"
+                class="walletIcon"
                 :src="skin === 'dark' ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
                 alt="SSP"
                 height="100%"
@@ -55,18 +96,24 @@
             </a>
           </div>
           <div class="loginRow">
-            <a @click="initWalletConnect">
+            <a
+              title="Login with WalletConnect"
+              @click="initWalletConnect"
+            >
               <img
-                class="walletconnectLogin"
+                class="walletIcon"
                 src="@/assets/images/walletconnect.svg"
                 alt="WalletConnect"
                 height="100%"
                 width="100%"
               >
             </a>
-            <a @click="initMetamask">
+            <a
+              title="Login with Metamask"
+              @click="initMetamask"
+            >
               <img
-                class="metamaskLogin"
+                class="walletIcon"
                 src="@/assets/images/metamask.svg"
                 alt="Metamask"
                 height="100%"
@@ -75,9 +122,15 @@
             </a>
           </div>
         </dd>
-        <dd class="col-sm-8">
+      </dl>
+    </b-card>
+
+    <b-card v-if="privilege === 'none'">
+      <b-card-title>Manual Login</b-card-title>
+      <dl class="row">
+        <dd class="col-sm-12">
           <b-card-text class="text-center">
-            or sign the following message with any ZelID / SSP Wallet ID / Bitcoin / Ethereum address
+            Sign the following message with any ZelID / SSP Wallet ID / Bitcoin / Ethereum address
           </b-card-text>
           <br><br>
           <b-form
@@ -153,11 +206,16 @@ import SignClient from '@walletconnect/sign-client';
 import { WalletConnectModal } from '@walletconnect/modal';
 import { MetaMaskSDK } from '@metamask/sdk';
 
+import firebase from 'firebase/compat/app';
+import * as firebaseui from 'firebaseui';
+import { getUser } from '@/libs/firebase';
+import 'firebaseui/dist/firebaseui.css';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import ListEntry from '@/views/components/ListEntry.vue';
 import useAppConfig from '@core/app-config/useAppConfig';
 import IDService from '@/services/IDService';
 import DaemonService from '@/services/DaemonService';
+import axios from 'axios';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
 
@@ -203,6 +261,8 @@ export default {
       applications: 'Buy on marketplace, register your own app, manage your active apps.',
       administration: 'Tools for the infrastructure administrators, node operators.',
       websocket: null,
+      ui: null,
+      ssoVerification: false,
       errorMessage: '',
       loginPhrase: '',
       loginForm: {
@@ -238,8 +298,147 @@ export default {
     this.daemonWelcomeGetFluxNodeStatus();
     this.getZelIdLoginPhrase();
     this.initMMSDK();
+    const uiConfig = {
+      callbacks: {
+      // Called when the user has been successfully signed in.
+        signInSuccessWithAuthResult: this.handleSignInSuccessWithAuthResult,
+        uiShown() {
+          document.getElementById('ssoLoading').style.display = 'none';
+        },
+      },
+      popupMode: true,
+      signInFlow: 'popup',
+      signInOptions: [
+        {
+          provider: firebase.auth.EmailAuthProvider.PROVIDER_ID,
+          buttonColor: '#2B61D1',
+          requireDisplayName: true,
+        },
+        {
+          provider: firebase.auth.GoogleAuthProvider.PROVIDER_ID,
+          customParameters: {
+            prompt: 'select_account',
+          },
+        },
+        'apple.com',
+        // firebase.auth.GithubAuthProvider.PROVIDER_ID,
+      ],
+      tosUrl: 'https://cdn.runonflux.io/Flux_Terms_of_Service.pdf',
+      privacyPolicyUrl: 'https://runonflux.io/privacyPolicy',
+    };
+    // Initialize the FirebaseUI Widget using Firebase.
+    if (this.privilege === 'none') {
+      if (firebaseui.auth.AuthUI.getInstance()) {
+        this.ui = firebaseui.auth.AuthUI.getInstance();
+        this.ui.start('#firebaseui-auth-container', uiConfig);
+      } else {
+        this.ui = new firebaseui.auth.AuthUI(firebase.auth());
+        this.ui.start('#firebaseui-auth-container', uiConfig);
+      }
+    }
   },
   methods: {
+    handleSignInSuccessWithAuthResult(authResult) {
+      if (authResult.user) {
+        this.handleSignedInUser(authResult.user);
+      }
+      return false;
+    },
+    async handleSignedInUser(user) {
+      try {
+        if (user.emailVerified) {
+          document.getElementById('ssoLoggedIn').style.display = 'block';
+          const token = user.auth.currentUser.accessToken;
+          const message = this.loginPhrase;
+          const headers = {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          };
+          const fluxLogin = await axios.post('https://service.fluxcore.ai/api/signInOrUp', { message }, { headers });
+          if (fluxLogin.data?.status !== 'success') {
+            throw new Error('Login Failed, please try again.');
+          }
+          const authLogin = {
+            zelid: fluxLogin.data.public_address,
+            signature: fluxLogin.data.signature,
+            loginPhrase: this.loginPhrase,
+          };
+          IDService.verifyLogin(authLogin)
+            .then((response) => {
+              console.log(response);
+              if (response.data.status === 'success') {
+                // user is  now signed. Store their values
+                const zelidauth = {
+                  zelid: fluxLogin.data.public_address,
+                  signature: fluxLogin.data.signature,
+                  loginPhrase: this.loginPhrase,
+                };
+                this.$store.commit('flux/setPrivilege', response.data.data.privilage);
+                this.$store.commit('flux/setZelid', zelidauth.zelid);
+                localStorage.setItem('zelidauth', qs.stringify(zelidauth));
+                this.showToast('success', response.data.data.message);
+              } else {
+                this.showToast(this.getVariant(response.data.status), response.data.data.message || response.data.data);
+                this.resetLoginUI();
+              }
+            })
+            .catch((e) => {
+              console.log(e);
+              this.resetLoginUI();
+            });
+        } else {
+          user.sendEmailVerification()
+            .then(() => {
+              this.showToast('info', 'please verify email');
+            })
+            .catch(() => {
+              this.showToast('warning', 'failed to send new verification email');
+            })
+            .finally(async () => {
+              document.getElementById('ssoVerify').style.display = 'block';
+              this.ssoVerification = true;
+              await this.checkVerification();
+            });
+        }
+      } catch (error) {
+        this.resetLoginUI();
+        this.showToast('warning', 'Login Failed, please try again.');
+      }
+    },
+    async checkVerification() {
+      try {
+        let user = getUser();
+        if (user && this.ssoVerification) {
+          await user.reload();
+          user = getUser();
+          if (user.emailVerified) {
+            this.showToast('info', 'email verified');
+            document.getElementById('ssoVerify').style.display = 'none';
+            this.handleSignedInUser(user);
+            this.ssoVerification = false;
+          } else {
+            setTimeout(() => {
+              this.checkVerification();
+            }, 5000);
+          }
+        } else {
+          this.resetLoginUI();
+        }
+      } catch (error) {
+        this.showToast('warning', 'email verification failed');
+        this.resetLoginUI();
+      }
+    },
+    cancelVerification() {
+      this.resetLoginUI();
+    },
+    resetLoginUI() {
+      document.getElementById('ssoVerify').style.display = 'none';
+      document.getElementById('ssoLoggedIn').style.display = 'none';
+      this.ui.reset();
+      this.ui.start('#firebaseui-auth-container');
+      this.ssoVerification = false;
+    },
     async daemonWelcomeGetFluxNodeStatus() {
       const response = await DaemonService.getFluxNodeStatus();
       this.getNodeStatusResponse.status = response.data.status;
@@ -590,51 +789,36 @@ export default {
 </script>
 
 <style>
+.loginText {
+  color: #2b61d1;
+  font-size: 16px;
+  font-weight: 500;
+}
 .loginRow {
   display: flex;
   flex-direction: row;
   justify-content: space-around;
+  margin-top: 10px;
+  padding-top: 10px;
+}
+.ssoLogin {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
   align-items: center;
   margin-bottom: 10px;
+  margin-top: 30px;
+  text-align: center;
 }
-.zelidLogin {
-  margin-left: 5px;
+.walletIcon {
   height: 90px;
+  width: 90px;
   padding: 10px;
 }
-.zelidLogin img {
+.walletIcon img {
   -webkit-app-region: no-drag;
   transition: 0.1s;
 }
-
-.walletconnectLogin {
-  height: 100px;
-  padding: 10px;
-}
-.walletconnectLogin img {
-  -webkit-app-region: no-drag;
-  transition: 0.1s;
-}
-
-.metamaskLogin {
-  height: 80px;
-  padding: 10px;
-}
-.metamaskLogin img {
-  -webkit-app-region: no-drag;
-  transition: 0.1s;
-}
-
-.sspLogin {
-  height: 90px;
-  padding: 10px;
-  margin-left: 5px;
-}
-.sspLogin img {
-  -webkit-app-region: no-drag;
-  transition: 0.1s;
-}
-
 a img {
   transition: all 0.05s ease-in-out;
 }
@@ -642,5 +826,19 @@ a img {
 a:hover img {
   filter: opacity(70%);
   transform: scale(1.1);
+}
+
+/* Custom styles for FirebaseUI widget */
+.firebaseui-button {
+  margin-left: 10px;
+  border-radius: 3px;
+}
+
+.mdl-textfield.is-focused .mdl-textfield__label:after {
+  bottom: 15px !important;
+}
+
+.firebaseui-title {
+  color: black !important;
 }
 </style>

@@ -5186,7 +5186,7 @@
                     @click="initiateSignWSUpdate"
                   >
                     <img
-                      class="zelidLogin"
+                      class="walletIcon"
                       src="@/assets/images/zelID.svg"
                       alt="Zel ID"
                       height="100%"
@@ -5195,7 +5195,7 @@
                   </a>
                   <a @click="initSSP">
                     <img
-                      class="sspLogin"
+                      class="walletIcon"
                       :src="skin === 'dark' ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
                       alt="SSP"
                       height="100%"
@@ -5206,7 +5206,7 @@
                 <div class="loginRow">
                   <a @click="initWalletConnect">
                     <img
-                      class="walletconnectLogin"
+                      class="walletIcon"
                       src="@/assets/images/walletconnect.svg"
                       alt="WalletConnect"
                       height="100%"
@@ -5215,13 +5215,25 @@
                   </a>
                   <a @click="initMetamask">
                     <img
-                      class="metamaskLogin"
+                      class="walletIcon"
                       src="@/assets/images/metamask.svg"
                       alt="Metamask"
                       height="100%"
                       width="100%"
                     >
                   </a>
+                </div>
+                <div class="loginRow">
+                  <b-button
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="primary"
+                    aria-label="Flux Single Sign On"
+                    class="my-1"
+                    style="width: 250px"
+                    @click="initSignFluxSSO"
+                  >
+                    Flux Single Sign On (SSO)
+                  </b-button>
                 </div>
               </b-card>
             </b-col>
@@ -5314,7 +5326,7 @@
                 <div class="loginRow">
                   <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${appPricePerSpecs}&message=${updateHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
                     <img
-                      class="zelidLogin"
+                      class="walletIcon"
                       src="@/assets/images/zelID.svg"
                       alt="Zel ID"
                       height="100%"
@@ -5323,7 +5335,7 @@
                   </a>
                   <a @click="initSSPpay">
                     <img
-                      class="sspLogin"
+                      class="walletIcon"
                       :src="skin === 'dark' ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
                       alt="SSP"
                       height="100%"
@@ -5337,7 +5349,13 @@
           <b-row
             v-if="updateHash && freeUpdate"
             class="match-height"
-          />
+          >
+            <b-card>
+              <b-card-text>
+                Everything is ready, your application update should be effective automatically in less than 30 minutes.
+              </b-card-text>
+            </b-card>
+          </b-row>
         </div>
       </b-tab>
     </b-tabs>
@@ -5611,6 +5629,7 @@ import ListEntry from '@/views/components/ListEntry.vue';
 import JsonViewer from 'vue-json-viewer';
 import FileUpload from '@/views/components/FileUpload.vue';
 import { useClipboard } from '@vueuse/core';
+import { getUser } from '@/libs/firebase';
 
 import AppsService from '@/services/AppsService';
 import DaemonService from '@/services/DaemonService';
@@ -6534,7 +6553,7 @@ export default {
       }
     },
   },
-  async mounted() {
+  mounted() {
     const { hostname } = window.location;
     const regex = /[A-Za-z]/g;
     if (hostname.match(regex)) {
@@ -7792,6 +7811,7 @@ export default {
           }
         }
       } catch (error) {
+        this.generalMultiplier = 10;
         console.log(error);
       }
     },
@@ -7873,6 +7893,29 @@ export default {
     },
     goBackToApps() {
       this.$emit('back');
+    },
+    async initSignFluxSSO() {
+      try {
+        const message = this.dataToSign;
+        const firebaseUser = getUser();
+        if (!firebaseUser) {
+          this.showToast('warning', 'Not logged in as SSO. Login with SSO or use different signing method.');
+          return;
+        }
+        const token = firebaseUser.auth.currentUser.accessToken;
+        const headers = {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        };
+        const signSSO = await axios.post('https://service.fluxcore.ai/api/signMessage', { message }, { headers });
+        if (signSSO.data?.status !== 'success' && signSSO.data?.signature) {
+          this.showToast('warning', 'Failed to sign message, please try again.');
+          return;
+        }
+        this.signature = signSSO.data.signature;
+      } catch (error) {
+        this.showToast('warning', 'Failed to sign message, please try again.');
+      }
     },
     async initiateSignWSUpdate() {
       if (this.dataToSign.length > 1800) {
@@ -9164,7 +9207,10 @@ export default {
         if (entry.data.networks.eth0) {
           net = `${(entry.data.networks.eth0.rx_bytes / 1e9).toFixed(2)} / ${(entry.data.networks.eth0.tx_bytes / 1e9).toFixed(2)} GB`;
         }
-        const block = `${(entry.data.blkio_stats.io_service_bytes_recursive.find((x) => x.op.toLowerCase() === 'read').value / 1e9).toFixed(2)} / ${(entry.data.blkio_stats.io_service_bytes_recursive.find((x) => x.op.toLowerCase() === 'write').value / 1e9).toFixed(2)} GB`;
+        let block = '0.00 / 0.00 GB';
+        if (Array.isArray(entry.data.blkio_stats.io_service_bytes_recursive) && entry.data.blkio_stats.io_service_bytes_recursive.length !== 0) {
+          block = `${(entry.data.blkio_stats.io_service_bytes_recursive.find((x) => x.op.toLowerCase() === 'read').value / 1e9).toFixed(2)} / ${(entry.data.blkio_stats.io_service_bytes_recursive.find((x) => x.op.toLowerCase() === 'write').value / 1e9).toFixed(2)} GB`;
+        }
         let disk = '0 / 0 GB';
         if (entry.data.disk_stats) {
           disk = `${(entry.data.disk_stats.used / 1e9).toFixed(2)} / ${(specifications.hdd).toFixed(2)} GB, ${((entry.data.disk_stats.used / (specifications.hdd * 1e9)) * 100).toFixed(2)}%`;
@@ -10013,40 +10059,21 @@ export default {
   align-items: center;
   margin-bottom: 10px;
 }
-.zelidLogin {
-  margin-left: 5px;
+.walletIcon {
   height: 90px;
+  width: 90px;
   padding: 10px;
 }
-.zelidLogin img {
+.walletIcon img {
   -webkit-app-region: no-drag;
   transition: 0.1s;
 }
-
-.walletconnectLogin {
-  height: 100px;
-  padding: 10px;
-}
-.walletconnectLogin img {
-  -webkit-app-region: no-drag;
-  transition: 0.1s;
-}
-
-.metamaskLogin {
-  height: 80px;
-  padding: 10px;
-}
-.metamaskLogin img {
-  -webkit-app-region: no-drag;
-  transition: 0.1s;
-}
-
-.sspLogin {
+.fluxSSO {
   height: 90px;
   padding: 10px;
   margin-left: 5px;
 }
-.sspLogin img {
+.fluxSSO img {
   -webkit-app-region: no-drag;
   transition: 0.1s;
 }

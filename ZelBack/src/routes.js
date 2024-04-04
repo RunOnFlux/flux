@@ -370,6 +370,9 @@ module.exports = (app, expressWs) => {
   app.get('/apps/enterprisenodes', cache('30 seconds'), (req, res) => {
     enterpriseNodesService.getEnterpriseNodesAPI(req, res);
   });
+  app.get('/apps/getappspecsusdprice', cache('30 minutes'), (req, res) => {
+    appsService.getAppSpecsUSDPrice(req, res);
+  });
 
   // app.get('/explorer/allutxos', (req, res) => {
   //   explorerService.getAllUtxos(req, res);
