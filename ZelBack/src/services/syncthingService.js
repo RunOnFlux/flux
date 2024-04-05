@@ -1,7 +1,7 @@
-const fs = require('node:fs/promises');
-const os = require('node:os');
-const path = require('node:path');
-const childProcess = require('node:child_process');
+const fs = require('fs/promises');
+const os = require('os');
+const path = require('path');
+const childProcess = require('child_process');
 
 const axios = require('axios');
 const config = require('config');
@@ -16,7 +16,7 @@ const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
 
 // these are just for testing to stub right now
-const util = require('node:util');
+const util = require('util');
 const nodecmd = require('node-cmd');
 
 const cmdAsync = util.promisify(nodecmd.get);
@@ -128,6 +128,8 @@ const axiosCache = {
     this.syncthingApiKey = await getSyncthingApiKey();
 
     if (!this.syncthingApiKey) return null;
+
+    log.info("Creating a new Axios instance for the Flux Syncthing Service");
 
     this.axiosInstance = axios.create({
       baseURL: syncthingURL,

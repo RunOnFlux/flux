@@ -1,5 +1,5 @@
-const util = require('node:util');
-const execFile = util.promisify(require('node:child_process').execFile);
+const util = require('util');
+const execFile = util.promisify(require('child_process').execFile);
 
 const axios = require('axios');
 const config = require('config');
