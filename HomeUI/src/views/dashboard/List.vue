@@ -7,8 +7,7 @@
     <b-card>
       <b-row>
         <b-col
-          md="4"
-          sm="4"
+          md="2"
           class="my-1"
         >
           <b-form-group class="mb-0">
@@ -18,27 +17,24 @@
               v-model="perPage"
               size="sm"
               :options="pageOptions"
-              class="w-50"
             />
           </b-form-group>
         </b-col>
         <b-col
-          md="8"
           class="my-1"
         >
           <b-form-group
-            label="Filter"
-            label-cols-sm="1"
-            label-align-sm="right"
             label-for="filterInput"
             class="mb-0"
           >
+            <label class="d-inline-block text-left mr-50">Filter</label>
             <b-input-group size="sm">
               <b-form-input
                 id="filterInput"
                 v-model="filter"
                 type="search"
                 placeholder="Type to Search"
+                debounce="1500"
               />
               <b-input-group-append>
                 <b-button
@@ -174,17 +170,26 @@ export default {
     async getFluxList() {
       try {
         this.fluxListLoading = true;
-        const resLoc = await axios.get('https://stats.runonflux.io/fluxlocations');
+
+        // Send parallel requests
+        const [resLoc, resList] = await Promise.all([
+          axios.get('https://stats.runonflux.io/fluxlocations'),
+          DashboardService.listFluxNodes(),
+        ]);
+
         const locations = resLoc.data.data;
-        const resList = await DashboardService.listFluxNodes();
         const fluxList = resList.data.data;
-        const adjustedFluxList = [];
-        fluxList.forEach((node) => {
-          const adjustedNode = node;
-          adjustedNode.location = locations.find((location) => location.ip === adjustedNode.ip.split(':')[0]);
-          adjustedFluxList.push(adjustedNode);
-        });
-        this.items = adjustedFluxList.filter((node) => node.ip);
+
+        // Convert locations to a map for quick lookup
+        const locationMap = locations.reduce((map, location) => ({ ...map, [location.ip]: location }), {});
+
+        // Adjust fluxList with location from the map
+        const adjustedFluxList = fluxList.map((node) => ({
+          ...node,
+          location: locationMap[node.ip.split(':')[0]],
+        })).filter((node) => node.ip);
+
+        this.items = adjustedFluxList;
         this.totalRows = this.items.length;
         this.currentPage = 1;
         this.fluxListLoading = false;

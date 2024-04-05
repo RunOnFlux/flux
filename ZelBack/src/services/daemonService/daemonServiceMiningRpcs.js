@@ -185,27 +185,33 @@ async function submitBlock(req, res) {
  * @returns {object} Message.
  */
 async function submitBlockPost(req, res) {
-  const processedBody = serviceHelper.ensureObject(req.body);
-  const { hexdata } = processedBody;
-  let { jsonparametersobject } = processedBody;
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const { hexdata } = processedBody;
+    let { jsonparametersobject } = processedBody;
 
-  const authorized = await verificationHelper.verifyPrivilege('user', req);
-  if (authorized === true) {
-    const rpccall = 'submitBlock';
-    let rpcparameters = [];
-    if (hexdata && jsonparametersobject) {
-      jsonparametersobject = serviceHelper.ensureObject(jsonparametersobject);
-      rpcparameters = [hexdata, jsonparametersobject];
-    } else if (hexdata) {
-      rpcparameters = [hexdata];
+    const authorized = await verificationHelper.verifyPrivilege('user', req);
+    if (authorized === true) {
+      const rpccall = 'submitBlock';
+      let rpcparameters = [];
+      if (hexdata && jsonparametersobject) {
+        jsonparametersobject = serviceHelper.ensureObject(jsonparametersobject);
+        rpcparameters = [hexdata, jsonparametersobject];
+      } else if (hexdata) {
+        rpcparameters = [hexdata];
+      }
+
+      response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
+    } else {
+      response = messageHelper.errUnauthorizedMessage();
     }
 
-    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
-
-  return res.json(response);
+    return res.json(response);
+  });
 }
 
 module.exports = {

@@ -7,6 +7,9 @@ export default [
       pageTitle: 'Get Mining Info',
       breadcrumb: [
         {
+          text: 'Administration',
+        },
+        {
           text: 'Daemon',
         },
         {

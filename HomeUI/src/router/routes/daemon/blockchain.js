@@ -7,6 +7,9 @@ export default [
       pageTitle: 'Get Blockchain Info',
       breadcrumb: [
         {
+          text: 'Administration',
+        },
+        {
           text: 'Daemon',
         },
         {

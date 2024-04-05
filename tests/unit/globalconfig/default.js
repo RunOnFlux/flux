@@ -1,10 +1,13 @@
+// So you can set host.docker.internal (mac) or container name
+const database = process.env.FLUX_DATABASE || '127.0.0.1';
+
 module.exports = {
   server: {
     allowedPorts: [11, 13, 16127, 16137, 16147, 16157, 16167, 16177, 16187, 16197],
     apiport: 16127, // homeport is -1, ssl port is +1
   },
   database: {
-    url: '127.0.0.1',
+    url: database,
     port: 27017,
     local: {
       database: 'zelfluxlocaltest',
@@ -74,46 +77,84 @@ module.exports = {
   deterministicNodesStart: 558000,
   fluxapps: {
     // in flux main chain per month (blocksLasting)
-    price: [{ // any price fork can be done by adjusting object similarily.
+    price: [
+      { // any price fork can be done by adjusting object similarily.
+        height: -1, // height from which price spec is valid
+        cpu: 3, // per 0.1 cpu core,
+        ram: 1, // per 100mb,
+        hdd: 0.5, // per 1gb,
+        minPrice: 1, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
+        port: 2, // additional price per enterprise port
+        scope: 6, // additional price for application targetting specific nodes, private images
+        staticip: 3, // additional price per application for targetting nodes that have static ip address
+      },
+      {
+        height: 983000, // height from which price spec is valid. Counts from when app was registerd on blockchain!
+        cpu: 0.3, // per 0.1 cpu core,
+        ram: 0.1, // per 100mb,
+        hdd: 0.05, // per 1gb,
+        minPrice: 0.1, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
+        port: 2, // additional price per enterprise port
+        scope: 6, // additional price for application targetting specific nodes, private images
+        staticip: 3, // additional price per application for targetting nodes that have static ip address
+      },
+      {
+        height: 1004000, // height from which price spec is valid. Counts from when app was registerd on blockchain! 1004000
+        cpu: 0.06, // per 0.1 cpu core,
+        ram: 0.02, // per 100mb,
+        hdd: 0.01, // per 1gb,
+        minPrice: 0.01, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
+        port: 2, // additional price per enterprise port
+        scope: 6, // additional price for application targetting specific nodes, private images
+        staticip: 3, // additional price per application for targetting nodes that have static ip address
+      },
+      {
+        height: 1288000, // height from which price spec is valid. Counts from when app was registerd on blockchain! 1004000
+        cpu: 0.15, // per 0.1 cpu core,
+        ram: 0.05, // per 100mb,
+        hdd: 0.02, // per 1gb,
+        minPrice: 0.01, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
+        port: 2, // additional price per enterprise port
+        scope: 6, // additional price for application targetting specific nodes, private images
+        staticip: 3, // additional price per application for targetting nodes that have static ip address
+      },
+      // soft fork 1
+      {
+        height: 1594832, // height from which price spec is valid. Counts from when app was registerd on blockchain! 1004000
+        cpu: 0.15, // per 0.1 cpu core,
+        ram: 0.05, // per 100mb,
+        hdd: 0.02, // per 1gb,
+        minPrice: 0.01, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
+        port: 1.5, // additional price per enterprise port
+        scope: 6, // additional price for application targetting specific nodes, private images
+        staticip: 3, // additional price per application for targetting nodes that have static ip address
+      },
+      // soft fork 2
+      {
+        height: 1597156, // height from which price spec is valid. Counts from when app was registerd on blockchain! 1004000
+        cpu: 0.03, // per 0.1 cpu core,
+        ram: 0.01, // per 100mb,
+        hdd: 0.004, // per 1gb,
+        minPrice: 0.01, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
+        port: 0.4, // additional price per enterprise port
+        scope: 0.8, // additional price for application targetting specific nodes, private images
+        staticip: 0.4, // additional price per application for targetting nodes that have static ip address
+      },
+    ],
+    fluxUSDRate: 1.14,
+    usdprice: {
       height: -1, // height from which price spec is valid
-      cpu: 3, // per 0.1 cpu core,
-      ram: 1, // per 100mb,
-      hdd: 0.5, // per 1gb,
-      minPrice: 1, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
-      port: 2, // additional price per enterprise port
-      scope: 6, // additional price for application targetting specific nodes, private images
-      staticip: 3, // additional price per application for targetting nodes that have static ip address
-    },
-    {
-      height: 983000, // height from which price spec is valid. Counts from when app was registerd on blockchain!
-      cpu: 0.3, // per 0.1 cpu core,
-      ram: 0.1, // per 100mb,
-      hdd: 0.05, // per 1gb,
-      minPrice: 0.1, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
-      port: 2, // additional price per enterprise port
-      scope: 6, // additional price for application targetting specific nodes, private images
-      staticip: 3, // additional price per application for targetting nodes that have static ip address
-    },
-    {
-      height: 1004000, // height from which price spec is valid. Counts from when app was registerd on blockchain! 1004000
-      cpu: 0.06, // per 0.1 cpu core,
-      ram: 0.02, // per 100mb,
-      hdd: 0.01, // per 1gb,
-      minPrice: 0.01, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
-      port: 2, // additional price per enterprise port
-      scope: 6, // additional price for application targetting specific nodes, private images
-      staticip: 3, // additional price per application for targetting nodes that have static ip address
-    },
-    {
-      height: 1288000, // height from which price spec is valid. Counts from when app was registerd on blockchain! 1004000
       cpu: 0.15, // per 0.1 cpu core,
       ram: 0.05, // per 100mb,
       hdd: 0.02, // per 1gb,
       minPrice: 0.01, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
       port: 2, // additional price per enterprise port
-      scope: 6, // additional price for application targetting specific nodes, private images
-      staticip: 3, // additional price per application for targetting nodes that have static ip address
-    }],
+      scope: 4, // additional price for application targetting specific nodes, private images
+      staticip: 2, // additional price per application for targetting nodes that have static ip address
+      fluxmultiplier: 0.9, // discount given if payed with flux 1 would be 0%
+      multiplier: 1, // multiplier in case we want to increase prices globaly
+      minUSDPrice: 0.50, // min. usd price that can be paid with stripe/paypal.
+    },
     appSpecsEnforcementHeights: {
       1: 0, // blockheight v1 is deprecated. Not possible to use api to update to its specs
       2: 0, // blockheight
@@ -160,6 +201,7 @@ module.exports = {
     minBlocksAllowance: 5000, // app can be registered for a minimum of this blocks ~ 1 week
     maxBlocksAllowance: 264000, // app can be registered up for a maximum of this blocks ~ 1 year
     blocksAllowanceInterval: 1000, // ap differences can be in 1000s - more than 1 day
+    removeBlocksAllowanceIntervalBlock: 1625000, // after this block we can start having app updates without extending subscription - block expected in April 19th 2024
     ownerAppAllowance: 1000, // in case of node owner installing some app, the app will run for this amount of blocks
     temporaryAppAllowance: 200, // in case of any user installing some temporary app message for testing purposes, the app will run for this many blocks
     expireFluxAppsPeriod: 100, // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago

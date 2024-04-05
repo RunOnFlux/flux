@@ -54,34 +54,40 @@ async function createRawTransaction(req, res) {
  * @returns {object} Message.
  */
 async function createRawTransactionPost(req, res) {
-  const processedBody = serviceHelper.ensureObject(req.body);
-  let { transactions } = processedBody;
-  let { addresses } = processedBody;
-  let { locktime } = processedBody;
-  locktime = locktime || 0;
-  const blockcount = await client.getBlockCount().catch((error) => {
-    response = messageHelper.createErrorMessage(error.message, error.name, error.code);
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
   });
-  if (!blockcount) {
-    // getBlockCount rejected the promise - return error message
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    let { transactions } = processedBody;
+    let { addresses } = processedBody;
+    let { locktime } = processedBody;
+    locktime = locktime || 0;
+    const blockcount = await client.getBlockCount().catch((error) => {
+      response = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    });
+    if (!blockcount) {
+      // getBlockCount rejected the promise - return error message
+      return res.json(response);
+    }
+    const defaultExpiryHeight = blockcount + 20;
+    let { expiryheight } = processedBody;
+    expiryheight = expiryheight || defaultExpiryHeight;
+
+    locktime = serviceHelper.ensureNumber(locktime);
+    expiryheight = serviceHelper.ensureNumber(expiryheight);
+    const rpccall = 'createRawTransaction';
+    let rpcparameters = [];
+    if (transactions && addresses) {
+      transactions = serviceHelper.ensureObject(transactions);
+      addresses = serviceHelper.ensureObject(addresses);
+      rpcparameters = [transactions, addresses, locktime, expiryheight];
+    }
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
+
     return res.json(response);
-  }
-  const defaultExpiryHeight = blockcount + 20;
-  let { expiryheight } = processedBody;
-  expiryheight = expiryheight || defaultExpiryHeight;
-
-  locktime = serviceHelper.ensureNumber(locktime);
-  expiryheight = serviceHelper.ensureNumber(expiryheight);
-  const rpccall = 'createRawTransaction';
-  let rpcparameters = [];
-  if (transactions && addresses) {
-    transactions = serviceHelper.ensureObject(transactions);
-    addresses = serviceHelper.ensureObject(addresses);
-    rpcparameters = [transactions, addresses, locktime, expiryheight];
-  }
-  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-
-  return res.json(response);
+  });
 }
 
 /**
@@ -111,17 +117,23 @@ async function decodeRawTransaction(req, res) {
  * @returns {object} Message.
  */
 async function decodeRawTransactionPost(req, res) {
-  const processedBody = serviceHelper.ensureObject(req.body);
-  const { hexstring } = processedBody;
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const { hexstring } = processedBody;
 
-  const rpccall = 'decodeRawTransaction';
-  let rpcparameters = [];
-  if (hexstring) {
-    rpcparameters = [hexstring];
-  }
-  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
+    const rpccall = 'decodeRawTransaction';
+    let rpcparameters = [];
+    if (hexstring) {
+      rpcparameters = [hexstring];
+    }
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+    return res.json(response);
+  });
 }
 
 /**
@@ -151,17 +163,23 @@ async function decodeScript(req, res) {
  * @returns {object} Message.
  */
 async function decodeScriptPost(req, res) {
-  const processedBody = serviceHelper.ensureObject(req.body);
-  const { hex } = processedBody;
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const { hex } = processedBody;
 
-  const rpccall = 'decodeScript';
-  let rpcparameters = [];
-  if (hex) {
-    rpcparameters = [hex];
-  }
-  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
+    const rpccall = 'decodeScript';
+    let rpcparameters = [];
+    if (hex) {
+      rpcparameters = [hex];
+    }
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+    return res.json(response);
+  });
 }
 
 /**
@@ -191,17 +209,23 @@ async function fundRawTransaction(req, res) {
  * @returns {object} Message.
  */
 async function fundRawTransactionPost(req, res) {
-  const processedBody = serviceHelper.ensureObject(req.body);
-  const { hexstring } = processedBody;
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const { hexstring } = processedBody;
 
-  const rpccall = 'fundRawTransaction';
-  let rpcparameters = [];
-  if (hexstring) {
-    rpcparameters = [hexstring];
-  }
-  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
+    const rpccall = 'fundRawTransaction';
+    let rpcparameters = [];
+    if (hexstring) {
+      rpcparameters = [hexstring];
+    }
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+    return res.json(response);
+  });
 }
 
 /**
@@ -257,20 +281,26 @@ async function sendRawTransaction(req, res) {
  * @returns {object} Message.
  */
 async function sendRawTransactionPost(req, res) {
-  const processedBody = serviceHelper.ensureObject(req.body);
-  const { hexstring } = processedBody;
-  let { allowhighfees } = processedBody;
-  allowhighfees = allowhighfees ?? false;
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const { hexstring } = processedBody;
+    let { allowhighfees } = processedBody;
+    allowhighfees = allowhighfees ?? false;
 
-  const rpccall = 'sendRawTransaction';
-  let rpcparameters = [];
-  if (hexstring) {
-    allowhighfees = serviceHelper.ensureBoolean(allowhighfees);
-    rpcparameters = [hexstring, allowhighfees];
-  }
-  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
+    const rpccall = 'sendRawTransaction';
+    let rpcparameters = [];
+    if (hexstring) {
+      allowhighfees = serviceHelper.ensureBoolean(allowhighfees);
+      rpcparameters = [hexstring, allowhighfees];
+    }
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+    return res.json(response);
+  });
 }
 
 /**
@@ -324,34 +354,40 @@ async function signRawTransaction(req, res) {
  * @returns {object} Message.
  */
 async function signRawTransactionPost(req, res) {
-  const processedBody = serviceHelper.ensureObject(req.body);
-  const { hexstring, branchid } = processedBody;
-  let { prevtxs, privatekeys, sighashtype } = processedBody;
-  sighashtype = sighashtype || 'ALL';
-  const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized !== true) {
-    response = messageHelper.errUnauthorizedMessage();
-    return res.json(response);
-  }
-  const rpccall = 'signRawTransaction';
-  const rpcparameters = [];
-  if (hexstring) {
-    rpcparameters.push(hexstring);
-    if (prevtxs) {
-      prevtxs = serviceHelper.ensureObject(prevtxs);
-      rpcparameters.push(prevtxs);
-      if (privatekeys) {
-        privatekeys = serviceHelper.ensureObject(privatekeys);
-        rpcparameters.push(privatekeys);
-        rpcparameters.push(sighashtype);
-        if (branchid) {
-          rpcparameters.push(branchid);
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const { hexstring, branchid } = processedBody;
+    let { prevtxs, privatekeys, sighashtype } = processedBody;
+    sighashtype = sighashtype || 'ALL';
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    if (authorized !== true) {
+      response = messageHelper.errUnauthorizedMessage();
+      return res.json(response);
+    }
+    const rpccall = 'signRawTransaction';
+    const rpcparameters = [];
+    if (hexstring) {
+      rpcparameters.push(hexstring);
+      if (prevtxs) {
+        prevtxs = serviceHelper.ensureObject(prevtxs);
+        rpcparameters.push(prevtxs);
+        if (privatekeys) {
+          privatekeys = serviceHelper.ensureObject(privatekeys);
+          rpcparameters.push(privatekeys);
+          rpcparameters.push(sighashtype);
+          if (branchid) {
+            rpcparameters.push(branchid);
+          }
         }
       }
     }
-  }
-  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-  return res.json(response);
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
+    return res.json(response);
+  });
 }
 
 module.exports = {

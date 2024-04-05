@@ -1,5 +1,4 @@
 /* eslint-disable no-underscore-dangle */
-global.userconfig = require('../../config/userconfig');
 const sinon = require('sinon');
 const WebSocket = require('ws');
 const { expect } = require('chai');
@@ -263,8 +262,8 @@ describe('fluxCommunication tests', () => {
       const type = 'fluxappregister';
       const name = 'myApp';
       const version = 1;
-      const timestamp = new Date().getTime();
-      const broadcastedAt = new Date().getTime();
+      const timestamp = Date.now();
+      const broadcastedAt = Date.now();
       const messageToHash = type + version + name + timestamp;
       const hash = await generalService.messageHash(messageToHash);
       const message = {
@@ -312,7 +311,7 @@ describe('fluxCommunication tests', () => {
       const name = 'myApp';
       const version = 1;
       const timestamp = 1592988806887;
-      const broadcastedAt = new Date().getTime() - (80 * 60 * 1000);
+      const broadcastedAt = Date.now() - (80 * 60 * 1000);
       const messageToHash = type + version + name + timestamp;
       const hash = await generalService.messageHash(messageToHash);
       const message = {
@@ -431,7 +430,7 @@ describe('fluxCommunication tests', () => {
       const peer2 = {
         ip: '192.168.0.0', // can represent just one ip address, multiport
         port: 16127,
-        lastPingTime: new Date().getTime(),
+        lastPingTime: Date.now(),
         latency: 50,
       };
       outgoingPeers.push(peer1);
@@ -477,7 +476,7 @@ describe('fluxCommunication tests', () => {
       const peer2 = {
         ip: '192.168.0.0',
         port: 16137,
-        lastPingTime: new Date().getTime(),
+        lastPingTime: Date.now(),
         latency: 50,
       };
       outgoingPeers.push(peer1);
@@ -676,7 +675,7 @@ describe('fluxCommunication tests', () => {
       const peer2 = {
         ip: '192.168.0.0',
         port: 16127,
-        lastPingTime: new Date().getTime(),
+        lastPingTime: Date.now(),
         latency: 50,
       };
       incomingConnections.push(peer1);
@@ -909,10 +908,10 @@ describe('fluxCommunication tests', () => {
       wsserver = new WebSocket.Server({ host: '127.0.0.2', port: 16127 });
       daemonServiceMiscRpcsStub.returns({
         data:
-      {
-        synced: false,
-        height: 0,
-      },
+        {
+          synced: false,
+          height: 0,
+        },
       });
       await fluxCommunication.initiateAndHandleConnection(ip);
 
@@ -940,10 +939,10 @@ describe('fluxCommunication tests', () => {
       wsserver = new WebSocket.Server({ host: '127.0.0.2', port: 16127 });
       daemonServiceMiscRpcsStub.returns({
         data:
-      {
-        synced: false,
-        height: 0,
-      },
+        {
+          synced: false,
+          height: 0,
+        },
       });
 
       await fluxCommunication.initiateAndHandleConnection(ip);
@@ -961,7 +960,7 @@ describe('fluxCommunication tests', () => {
 
     it('should not react to the message if rate limit is exceeded', async () => {
       const message = JSON.stringify({
-        timestamp: new Date().getTime(),
+        timestamp: Date.now(),
         pubKey: '1234asd',
         data: {
           type: 'fluxapprunning',
@@ -981,10 +980,10 @@ describe('fluxCommunication tests', () => {
       wsserver = new WebSocket.Server({ host: '127.0.0.2', port: 16127 });
       daemonServiceMiscRpcsStub.returns({
         data:
-      {
-        synced: false,
-        height: 0,
-      },
+        {
+          synced: false,
+          height: 0,
+        },
       });
       lruRateLimitStub.returns(false);
       const checkObjectSpy = sinon.spy(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast');
@@ -999,7 +998,7 @@ describe('fluxCommunication tests', () => {
 
     it('should close the connection if peer is added to blockedList', async () => {
       const message = JSON.stringify({
-        timestamp: new Date().getTime(),
+        timestamp: Date.now(),
         pubKey: '1234asd',
         signature: 'blabla',
         version: 1,
@@ -1021,10 +1020,10 @@ describe('fluxCommunication tests', () => {
       wsserver = new WebSocket.Server({ host: '127.0.0.2', port: 16127 });
       daemonServiceMiscRpcsStub.returns({
         data:
-      {
-        synced: false,
-        height: 0,
-      },
+        {
+          synced: false,
+          height: 0,
+        },
       });
       lruRateLimitStub.returns(true);
       const hasCacheStub = sinon.stub(LRUCache.prototype, 'has');
@@ -1050,7 +1049,7 @@ describe('fluxCommunication tests', () => {
       // eslint-disable-next-line no-loop-func
       it(`should handle the ${command} message properly`, async () => {
         const message = JSON.stringify({
-          timestamp: new Date().getTime(),
+          timestamp: Date.now(),
           pubKey: '1234asd',
           signature: 'blabla',
           version: 1,
@@ -1076,10 +1075,10 @@ describe('fluxCommunication tests', () => {
         const respondWithAppMessageStub = sinon.stub(fluxCommunicationMessagesSender, 'respondWithAppMessage').returns(true);
         daemonServiceMiscRpcsStub.returns({
           data:
-        {
-          synced: false,
-          height: 0,
-        },
+          {
+            synced: false,
+            height: 0,
+          },
         });
         await fluxCommunication.initiateAndHandleConnection(ip);
 
@@ -1098,7 +1097,7 @@ describe('fluxCommunication tests', () => {
       // eslint-disable-next-line no-loop-func
       it(`should handle the ${command} message properly`, async () => {
         const message = JSON.stringify({
-          timestamp: new Date().getTime(),
+          timestamp: Date.now(),
           pubKey: '1234asd',
           signature: 'blabla',
           version: 1,
@@ -1124,10 +1123,10 @@ describe('fluxCommunication tests', () => {
         const storeAppTemporaryMessageStub = sinon.stub(appsService, 'storeAppTemporaryMessage').returns(false);
         daemonServiceMiscRpcsStub.returns({
           data:
-        {
-          synced: false,
-          height: 0,
-        },
+          {
+            synced: false,
+            height: 0,
+          },
         });
         await fluxCommunication.initiateAndHandleConnection(ip);
 
@@ -1146,7 +1145,7 @@ describe('fluxCommunication tests', () => {
       // eslint-disable-next-line no-loop-func
       it(`should handle the ${command} message properly`, async () => {
         const message = JSON.stringify({
-          timestamp: new Date().getTime(),
+          timestamp: Date.now(),
           pubKey: '1234asd',
           signature: 'blabla',
           version: 1,
@@ -1172,10 +1171,10 @@ describe('fluxCommunication tests', () => {
         const storeAppRunningMessageStub = sinon.stub(appsService, 'storeAppRunningMessage').returns(false);
         daemonServiceMiscRpcsStub.returns({
           data:
-        {
-          synced: false,
-          height: 0,
-        },
+          {
+            synced: false,
+            height: 0,
+          },
         });
         await fluxCommunication.initiateAndHandleConnection(ip);
 

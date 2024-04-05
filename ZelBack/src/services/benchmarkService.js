@@ -119,20 +119,26 @@ async function signFluxTransaction(req, res) {
  * @param {object} res Response.
  */
 async function signFluxTransactionPost(req, res) {
-  const processedBody = serviceHelper.ensureObject(req.body);
-  const { hexstring } = processedBody;
-  const authorized = await verificationHelper.verifyPrivilege('admin', req);
-  if (authorized === true) {
-    const rpccall = 'signzelnodetransaction';
-    const rpcparameters = [];
-    if (hexstring) {
-      rpcparameters.push(hexstring);
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const { hexstring } = processedBody;
+    const authorized = await verificationHelper.verifyPrivilege('admin', req);
+    if (authorized === true) {
+      const rpccall = 'signzelnodetransaction';
+      const rpcparameters = [];
+      if (hexstring) {
+        rpcparameters.push(hexstring);
+      }
+      response = await executeCall(rpccall, rpcparameters);
+    } else {
+      response = messageHelper.errUnauthorizedMessage();
     }
-    response = await executeCall(rpccall, rpcparameters);
-  } else {
-    response = messageHelper.errUnauthorizedMessage();
-  }
-  return res.json(response);
+    return res.json(response);
+  });
 }
 
 // == Control ==

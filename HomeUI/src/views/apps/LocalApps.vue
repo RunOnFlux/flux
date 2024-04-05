@@ -1,337 +1,7 @@
 <template>
   <div>
     <div :class="managedApplication ? 'd-none' : ''">
-      <b-tabs @activate-tab="output = ''; downloading = false">
-        <b-tab
-          active
-          title="Running"
-        >
-          <b-overlay
-            :show="tableconfig.running.loading"
-            variant="transparent"
-            blur="5px"
-          >
-            <b-card>
-              <b-row>
-                <b-col cols="12">
-                  <b-table
-                    class="apps-running-table"
-                    striped
-                    hover
-                    responsive
-                    :items="tableconfig.running.apps"
-                    :fields="isLoggedIn() ? tableconfig.running.loggedInFields : tableconfig.running.fields"
-                    show-empty
-                    empty-text="No Flux Apps running"
-                  >
-                    <template #cell(show_details)="row">
-                      <a @click="showLocations(row, tableconfig.installed.apps)">
-                        <v-icon
-                          v-if="!row.detailsShowing"
-                          name="chevron-down"
-                        />
-                        <v-icon
-                          v-if="row.detailsShowing"
-                          name="chevron-up"
-                        />
-                      </a>
-                    </template>
-                    <template #row-details="row">
-                      <b-card class="mx-2">
-                        <list-entry
-                          title="Description"
-                          :data="row.item.description"
-                        />
-                        <list-entry
-                          title="Owner"
-                          :data="row.item.owner"
-                        />
-                        <list-entry
-                          title="Hash"
-                          :data="row.item.hash"
-                        />
-                        <div v-if="row.item.version >= 5">
-                          <div v-if="row.item.geolocation.length">
-                            <div
-                              v-for="location in row.item.geolocation"
-                              :key="location"
-                            >
-                              <list-entry
-                                title="Geolocation"
-                                :data="getGeolocation(location)"
-                              />
-                            </div>
-                          </div>
-                          <div v-else>
-                            <list-entry
-                              title="Continent"
-                              data="All"
-                            />
-                            <list-entry
-                              title="Country"
-                              data="All"
-                            />
-                            <list-entry
-                              title="Region"
-                              data="All"
-                            />
-                          </div>
-                        </div>
-                        <list-entry
-                          v-if="row.item.instances"
-                          title="Instances"
-                          :data="row.item.instances.toString()"
-                        />
-                        <list-entry
-                          title="Expires in"
-                          :data="labelForExpire(row.item.expire, row.item.height)"
-                        />
-                        <list-entry
-                          title="Enterprise Nodes"
-                          :data="row.item.nodes ? row.item.nodes.toString() : 'Not scoped'"
-                        />
-                        <list-entry
-                          title="Static IP"
-                          :data="row.item.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
-                        />
-                        <h4>Composition</h4>
-                        <div v-if="row.item.version <= 3">
-                          <b-card>
-                            <list-entry
-                              title="Repository"
-                              :data="row.item.repotag"
-                            />
-                            <list-entry
-                              title="Custom Domains"
-                              :data="row.item.domains.toString() || 'none'"
-                            />
-                            <list-entry
-                              title="Automatic Domains"
-                              :data="constructAutomaticDomains(row.item.ports, undefined, row.item.name).toString()"
-                            />
-                            <list-entry
-                              title="Ports"
-                              :data="row.item.ports.toString()"
-                            />
-                            <list-entry
-                              title="Container Ports"
-                              :data="row.item.containerPorts.toString()"
-                            />
-                            <list-entry
-                              title="Container Data"
-                              :data="row.item.containerData"
-                            />
-                            <list-entry
-                              title="Environment Parameters"
-                              :data="row.item.enviromentParameters.length > 0 ? row.item.enviromentParameters.toString() : 'none'"
-                            />
-                            <list-entry
-                              title="Commands"
-                              :data="row.item.commands.length > 0 ? row.item.commands.toString() : 'none'"
-                            />
-                            <div v-if="row.item.tiered">
-                              <list-entry
-                                title="CPU Cumulus"
-                                :data="`${row.item.cpubasic} vCore`"
-                              />
-                              <list-entry
-                                title="CPU Nimbus"
-                                :data="`${row.item.cpusuper} vCore`"
-                              />
-                              <list-entry
-                                title="CPU Stratus"
-                                :data="`${row.item.cpubamf} vCore`"
-                              />
-                              <list-entry
-                                title="RAM Cumulus"
-                                :data="`${row.item.rambasic} MB`"
-                              />
-                              <list-entry
-                                title="RAM Nimbus"
-                                :data="`${row.item.ramsuper} MB`"
-                              />
-                              <list-entry
-                                title="RAM Stratus"
-                                :data="`${row.item.rambamf} MB`"
-                              />
-                              <list-entry
-                                title="SSD Cumulus"
-                                :data="`${row.item.hddbasic} GB`"
-                              />
-                              <list-entry
-                                title="SSD Nimbus"
-                                :data="`${row.item.hddsuper} GB`"
-                              />
-                              <list-entry
-                                title="SSD Stratus"
-                                :data="`${row.item.hddbamf} GB`"
-                              />
-                            </div>
-                            <div v-else>
-                              <list-entry
-                                title="CPU"
-                                :data="`${row.item.cpu} vCore`"
-                              />
-                              <list-entry
-                                title="RAM"
-                                :data="`${row.item.ram} MB`"
-                              />
-                              <list-entry
-                                title="SSD"
-                                :data="`${row.item.hdd} GB`"
-                              />
-                            </div>
-                          </b-card>
-                        </div>
-                        <div v-else>
-                          <b-card
-                            v-for="(component, index) in row.item.compose"
-                            :key="index"
-                          >
-                            <b-card-title>
-                              Component {{ component.name }}
-                            </b-card-title>
-                            <list-entry
-                              title="Name"
-                              :data="component.name"
-                            />
-                            <list-entry
-                              title="Description"
-                              :data="component.description"
-                            />
-                            <list-entry
-                              title="Repository"
-                              :data="component.repotag"
-                            />
-                            <list-entry
-                              title="Repository Authentication"
-                              :data="component.repoauth ? 'Content Encrypted' : 'Public'"
-                            />
-                            <list-entry
-                              title="Custom Domains"
-                              :data="component.domains.toString() || 'none'"
-                            />
-                            <list-entry
-                              title="Automatic Domains"
-                              :data="constructAutomaticDomains(component.ports, component.name, row.item.name, index).toString()"
-                            />
-                            <list-entry
-                              title="Ports"
-                              :data="component.ports.toString()"
-                            />
-                            <list-entry
-                              title="Container Ports"
-                              :data="component.containerPorts.toString()"
-                            />
-                            <list-entry
-                              title="Container Data"
-                              :data="component.containerData"
-                            />
-                            <list-entry
-                              title="Environment Parameters"
-                              :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
-                            />
-                            <list-entry
-                              title="Commands"
-                              :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
-                            />
-                            <list-entry
-                              title="Secret Environment Parameters"
-                              :data="component.secrets ? 'Content Encrypted' : 'none'"
-                            />
-                            <div v-if="component.tiered">
-                              <list-entry
-                                title="CPU Cumulus"
-                                :data="`${component.cpubasic} vCore`"
-                              />
-                              <list-entry
-                                title="CPU Nimbus"
-                                :data="`${component.cpusuper} vCore`"
-                              />
-                              <list-entry
-                                title="CPU Stratus"
-                                :data="`${component.cpubamf} vCore`"
-                              />
-                              <list-entry
-                                title="RAM Cumulus"
-                                :data="`${component.rambasic} MB`"
-                              />
-                              <list-entry
-                                title="RAM Nimbus"
-                                :data="`${component.ramsuper} MB`"
-                              />
-                              <list-entry
-                                title="RAM Stratus"
-                                :data="`${component.rambamf} MB`"
-                              />
-                              <list-entry
-                                title="SSD Cumulus"
-                                :data="`${component.hddbasic} GB`"
-                              />
-                              <list-entry
-                                title="SSD Nimbus"
-                                :data="`${component.hddsuper} GB`"
-                              />
-                              <list-entry
-                                title="SSD Stratus"
-                                :data="`${component.hddbamf} GB`"
-                              />
-                            </div>
-                            <div v-else>
-                              <list-entry
-                                title="CPU"
-                                :data="`${component.cpu} vCore`"
-                              />
-                              <list-entry
-                                title="RAM"
-                                :data="`${component.ram} MB`"
-                              />
-                              <list-entry
-                                title="SSD"
-                                :data="`${component.hdd} GB`"
-                              />
-                            </div>
-                          </b-card>
-                        </div>
-                      </b-card>
-                    </template>
-                    <template #cell(Name)="row">
-                      {{ row.item.name }}
-                    </template>
-                    <template #cell(Description)="row">
-                      {{ row.item.description }}
-                    </template>
-                    <template #cell(visit)="row">
-                      <b-button
-                        size="sm"
-                        class="mr-0"
-                        variant="danger"
-                        @click="openApp(row.item.name)"
-                      >
-                        Visit
-                      </b-button>
-                    </template>
-                    <template #cell(actions)="row">
-                      <b-button
-                        :id="`stop-running-app-${row.item.name}`"
-                        size="sm"
-                        class="mr-0"
-                        variant="danger"
-                      >
-                        Stop
-                      </b-button>
-                      <confirm-dialog
-                        :target="`stop-running-app-${row.item.name}`"
-                        confirm-button="Stop App"
-                        @confirm="stopApp(row.item.name)"
-                      />
-                    </template>
-                  </b-table>
-                </b-col>
-              </b-row>
-            </b-card>
-          </b-overlay>
-        </b-tab>
+      <b-tabs pills @activate-tab="tabChanged()">
         <b-tab title="Installed">
           <b-overlay
             :show="tableconfig.installed.loading"
@@ -344,1395 +14,139 @@
                   <b-table
                     class="apps-installed-table"
                     striped
-                    hover
+                    outlined
                     responsive
                     :items="tableconfig.installed.apps"
                     :fields="isLoggedIn() ? tableconfig.installed.loggedInFields : tableconfig.installed.fields"
                     show-empty
                     empty-text="No Flux Apps installed"
+                    sort-icon-left
                   >
+                    <template #cell(name)="row">
+                      <div class="text-left">
+                        <kbd class="alert-info no-wrap" style="border-radius: 15px; font-weight: 700 !important;"> <b-icon scale="1.2" icon="app-indicator" />&nbsp;&nbsp;{{ row.item.name }}&nbsp; </kbd>
+                        <br>
+                        <small style="font-size: 11px;">
+                          <div class="d-flex align-items-center" style="margin-top: 3px">
+                            &nbsp;&nbsp;<b-icon scale="1.4" icon="speedometer2" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(1, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
+                            &nbsp;<b-icon scale="1.4" icon="cpu" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(0, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
+                            &nbsp;<b-icon scale="1.4" icon="hdd" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(2, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
+                            <b-icon scale="1.2" icon="geo-alt" />&nbsp;<kbd class="alert-warning" style="border-radius: 15px;">&nbsp;<b>{{ row.item.instances }}</b>&nbsp;</kbd>
+                          </div>
+                          <span :class="{ 'red-text': isLessThanTwoDays(labelForExpire(row.item.expire, row.item.height)) }" class="no-wrap">
+                            &nbsp;&nbsp;<b-icon scale="1.2" icon="hourglass-split" />
+                            {{ labelForExpire(row.item.expire, row.item.height) }}&nbsp;&nbsp;
+                          </span>
+                        </small>
+                      </div>
+                    </template>
+                    <template #cell(visit)="row">
+                      <b-button
+                        v-b-tooltip.hover.top="'Visit App'"
+                        size="sm"
+                        class="mr-0 no-wrap hover-underline"
+                        variant="link"
+                        @click="openApp(row.item.name)"
+                      >
+                        <b-icon
+                          scale="1"
+                          icon="front"
+                        />
+                        Visit
+                      </b-button>
+                    </template>
+                    <template #cell(description)="row">
+                      <kbd class="text-secondary textarea" style="float: left; text-align:left;">{{ row.item.description }}</kbd>
+                    </template>
+                    <template #cell(state)="row">
+                      <kbd :class="getBadgeClass(row.item.name)" style="border-radius: 15px">&nbsp;<b>{{ getStateByName(row.item.name) }}</b>&nbsp;</kbd>
+                    </template>
                     <template #cell(show_details)="row">
                       <a @click="showLocations(row, tableconfig.installed.apps)">
                         <v-icon
                           v-if="!row.detailsShowing"
                           name="chevron-down"
+                          class="ml-1"
                         />
                         <v-icon
                           v-if="row.detailsShowing"
                           name="chevron-up"
+                          class="ml-1"
                         />
                       </a>
                     </template>
                     <template #row-details="row">
                       <b-card class="mx-2">
-                        <list-entry
-                          v-if="row.item.description"
-                          title="Description"
-                          :data="row.item.description"
-                        />
-                        <list-entry
-                          v-if="row.item.owner"
-                          title="Owner"
-                          :data="row.item.owner"
-                        />
-                        <list-entry
-                          v-if="row.item.hash"
-                          title="Hash"
-                          :data="row.item.hash"
-                        />
-                        <div v-if="row.item.version >= 5">
-                          <div v-if="row.item.geolocation.length">
-                            <div
-                              v-for="location in row.item.geolocation"
-                              :key="location"
-                            >
-                              <list-entry
-                                title="Geolocation"
-                                :data="getGeolocation(location)"
-                              />
-                            </div>
-                          </div>
-                          <div v-else>
-                            <list-entry
-                              title="Continent"
-                              data="All"
-                            />
-                            <list-entry
-                              title="Country"
-                              data="All"
-                            />
-                            <list-entry
-                              title="Region"
-                              data="All"
-                            />
-                          </div>
-                        </div>
-                        <list-entry
-                          v-if="row.item.instances"
-                          title="Instances"
-                          :data="row.item.instances.toString()"
-                        />
-                        <list-entry
-                          title="Expires in"
-                          :data="labelForExpire(row.item.expire, row.item.height)"
-                        />
-                        <list-entry
-                          title="Enterprise Nodes"
-                          :data="row.item.nodes ? row.item.nodes.toString() : 'Not scoped'"
-                        />
-                        <list-entry
-                          title="Static IP"
-                          :data="row.item.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
-                        />
-                        <h4>Composition</h4>
-                        <div v-if="row.item.version <= 3">
-                          <b-card>
-                            <list-entry
-                              title="Repository"
-                              :data="row.item.repotag"
-                            />
-                            <list-entry
-                              title="Custom Domains"
-                              :data="row.item.domains.toString() || 'none'"
-                            />
-                            <list-entry
-                              title="Automatic Domains"
-                              :data="constructAutomaticDomains(row.item.ports, undefined, row.item.name).toString()"
-                            />
-                            <list-entry
-                              title="Ports"
-                              :data="row.item.ports.toString()"
-                            />
-                            <list-entry
-                              title="Container Ports"
-                              :data="row.item.containerPorts.toString()"
-                            />
-                            <list-entry
-                              title="Container Data"
-                              :data="row.item.containerData"
-                            />
-                            <list-entry
-                              title="Environment Parameters"
-                              :data="row.item.enviromentParameters.length > 0 ? row.item.enviromentParameters.toString() : 'none'"
-                            />
-                            <list-entry
-                              title="Commands"
-                              :data="row.item.commands.length > 0 ? row.item.commands.toString() : 'none'"
-                            />
-                            <list-entry
-                              title="Secret Environment Parameters"
-                              :data="row.item.secrets || 'none'"
-                            />
-                            <div v-if="row.item.tiered">
-                              <list-entry
-                                title="CPU Cumulus"
-                                :data="`${row.item.cpubasic} vCore`"
-                              />
-                              <list-entry
-                                title="CPU Nimbus"
-                                :data="`${row.item.cpusuper} vCore`"
-                              />
-                              <list-entry
-                                title="CPU Stratus"
-                                :data="`${row.item.cpubamf} vCore`"
-                              />
-                              <list-entry
-                                title="RAM Cumulus"
-                                :data="`${row.item.rambasic} MB`"
-                              />
-                              <list-entry
-                                title="RAM Nimbus"
-                                :data="`${row.item.ramsuper} MB`"
-                              />
-                              <list-entry
-                                title="RAM Stratus"
-                                :data="`${row.item.rambamf} MB`"
-                              />
-                              <list-entry
-                                title="SSD Cumulus"
-                                :data="`${row.item.hddbasic} GB`"
-                              />
-                              <list-entry
-                                title="SSD Nimbus"
-                                :data="`${row.item.hddsuper} GB`"
-                              />
-                              <list-entry
-                                title="SSD Stratus"
-                                :data="`${row.item.hddbamf} GB`"
-                              />
-                            </div>
-                            <div v-else>
-                              <list-entry
-                                title="CPU"
-                                :data="`${row.item.cpu} vCore`"
-                              />
-                              <list-entry
-                                title="RAM"
-                                :data="`${row.item.ram} MB`"
-                              />
-                              <list-entry
-                                title="SSD"
-                                :data="`${row.item.hdd} GB`"
-                              />
-                            </div>
-                          </b-card>
-                        </div>
-                        <div v-else>
-                          <b-card
-                            v-for="(component, index) in row.item.compose"
-                            :key="index"
-                          >
-                            <b-card-title>
-                              Component {{ component.name }}
-                            </b-card-title>
-                            <list-entry
-                              title="Name"
-                              :data="component.name"
-                            />
-                            <list-entry
-                              title="Description"
-                              :data="component.description"
-                            />
-                            <list-entry
-                              title="Repository"
-                              :data="component.repotag"
-                            />
-                            <list-entry
-                              title="Repository Authentication"
-                              :data="component.repoauth ? 'Content Encrypted' : 'Public'"
-                            />
-                            <list-entry
-                              title="Custom Domains"
-                              :data="component.domains.toString() || 'none'"
-                            />
-                            <list-entry
-                              title="Automatic Domains"
-                              :data="constructAutomaticDomains(component.ports, component.name, row.item.name, index).toString()"
-                            />
-                            <list-entry
-                              title="Ports"
-                              :data="component.ports.toString()"
-                            />
-                            <list-entry
-                              title="Container Ports"
-                              :data="component.containerPorts.toString()"
-                            />
-                            <list-entry
-                              title="Container Data"
-                              :data="component.containerData"
-                            />
-                            <list-entry
-                              title="Environment Parameters"
-                              :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
-                            />
-                            <list-entry
-                              title="Commands"
-                              :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
-                            />
-                            <list-entry
-                              title="Secret Environment Parameters"
-                              :data="component.secrets ? 'Content Encrypted' : 'none'"
-                            />
-                            <div v-if="component.tiered">
-                              <list-entry
-                                title="CPU Cumulus"
-                                :data="`${component.cpubasic} vCore`"
-                              />
-                              <list-entry
-                                title="CPU Nimbus"
-                                :data="`${component.cpusuper} vCore`"
-                              />
-                              <list-entry
-                                title="CPU Stratus"
-                                :data="`${component.cpubamf} vCore`"
-                              />
-                              <list-entry
-                                title="RAM Cumulus"
-                                :data="`${component.rambasic} MB`"
-                              />
-                              <list-entry
-                                title="RAM Nimbus"
-                                :data="`${component.ramsuper} MB`"
-                              />
-                              <list-entry
-                                title="RAM Stratus"
-                                :data="`${component.rambamf} MB`"
-                              />
-                              <list-entry
-                                title="SSD Cumulus"
-                                :data="`${component.hddbasic} GB`"
-                              />
-                              <list-entry
-                                title="SSD Nimbus"
-                                :data="`${component.hddsuper} GB`"
-                              />
-                              <list-entry
-                                title="SSD Stratus"
-                                :data="`${component.hddbamf} GB`"
-                              />
-                            </div>
-                            <div v-else>
-                              <list-entry
-                                title="CPU"
-                                :data="`${component.cpu} vCore`"
-                              />
-                              <list-entry
-                                title="RAM"
-                                :data="`${component.ram} MB`"
-                              />
-                              <list-entry
-                                title="SSD"
-                                :data="`${component.hdd} GB`"
-                              />
-                            </div>
-                          </b-card>
-                        </div>
-                        <h4>Locations</h4>
-                        <b-row>
-                          <b-col
-                            md="4"
-                            sm="4"
-                            class="my-1"
-                          >
-                            <b-form-group class="mb-0">
-                              <label class="d-inline-block text-left mr-50">Per page</label>
-                              <b-form-select
-                                id="perPageSelect"
-                                v-model="appLocationOptions.perPage"
-                                size="sm"
-                                :options="appLocationOptions.pageOptions"
-                                class="w-50"
-                              />
-                            </b-form-group>
-                          </b-col>
-                          <b-col
-                            md="8"
-                            class="my-1"
-                          >
-                            <b-form-group
-                              label="Filter"
-                              label-cols-sm="1"
-                              label-align-sm="right"
-                              label-for="filterInput"
-                              class="mb-0"
-                            >
-                              <b-input-group size="sm">
-                                <b-form-input
-                                  id="filterInput"
-                                  v-model="appLocationOptions.filter"
-                                  type="search"
-                                  placeholder="Type to Search"
-                                />
-                                <b-input-group-append>
-                                  <b-button
-                                    :disabled="!appLocationOptions.filter"
-                                    @click="appLocationOptions.filter = ''"
-                                  >
-                                    Clear
-                                  </b-button>
-                                </b-input-group-append>
-                              </b-input-group>
-                            </b-form-group>
-                          </b-col>
-
-                          <b-col cols="12">
-                            <b-table
-                              class="locations-table"
-                              striped
-                              hover
-                              :per-page="appLocationOptions.perPage"
-                              :current-page="appLocationOptions.currentPage"
-                              :items="appLocations"
-                              :fields="appLocationFields"
-                            >
-                              <template #cell(visit)="locationRow">
-                                <b-button
-                                  size="sm"
-                                  class="mr-0"
-                                  variant="danger"
-                                  @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
-                                >
-                                  Visit
-                                </b-button>
-                              </template>
-                            </b-table>
-                          </b-col>
-                          <b-col cols="12">
-                            <b-pagination
-                              v-model="appLocationOptions.currentPage"
-                              :total-rows="appLocationOptions.totalRows"
-                              :per-page="appLocationOptions.perPage"
-                              align="center"
-                              size="sm"
-                              class="my-0"
-                            />
-                            <span class="table-total">Total: {{ appLocationOptions.totalRows }}</span>
-                          </b-col>
-                        </b-row>
-                      </b-card>
-                    </template>
-                    <template #cell(Name)="row">
-                      {{ getAppName(row.item.name) }}
-                    </template>
-                    <template #cell(Description)="row">
-                      {{ row.item.description }}
-                    </template>
-                    <template #cell(actions)="row">
-                      <b-button
-                        :id="`start-installed-app-${row.item.name}`"
-                        size="sm"
-                        class="w-100 mr-1"
-                        style="margin-bottom: 2px;"
-                        variant="danger"
-                      >
-                        Start
-                      </b-button>
-                      <confirm-dialog
-                        :target="`start-installed-app-${row.item.name}`"
-                        confirm-button="Start App"
-                        @confirm="startApp(row.item.name)"
-                      />
-                      <b-button
-                        :id="`restart-installed-app-${row.item.name}`"
-                        size="sm"
-                        class="w-100 mr-1"
-                        variant="danger"
-                      >
-                        Restart
-                      </b-button>
-                      <confirm-dialog
-                        :target="`restart-installed-app-${row.item.name}`"
-                        confirm-button="Restart App"
-                        @confirm="restartApp(row.item.name)"
-                      />
-                    </template>
-                    <template #cell(remove)="row">
-                      <b-button
-                        :id="`remove-installed-app-${row.item.name}`"
-                        size="sm"
-                        class="mr-0"
-                        variant="danger"
-                      >
-                        Remove
-                      </b-button>
-                      <confirm-dialog
-                        :target="`remove-installed-app-${row.item.name}`"
-                        confirm-button="Remove App"
-                        @confirm="removeApp(row.item.name)"
-                      />
-                    </template>
-                    <template #cell(manage)="row">
-                      <b-button
-                        :id="`manage-installed-app-${row.item.name}`"
-                        size="sm"
-                        class="mr-0"
-                        variant="danger"
-                      >
-                        Manage
-                      </b-button>
-                      <confirm-dialog
-                        :target="`manage-installed-app-${row.item.name}`"
-                        confirm-button="Manage App"
-                        @confirm="openAppManagement(row.item.name)"
-                      />
-                    </template>
-                  </b-table>
-                </b-col>
-              </b-row>
-            </b-card>
-          </b-overlay>
-        </b-tab>
-        <b-tab title="Available">
-          <b-overlay
-            :show="tableconfig.available.loading"
-            variant="transparent"
-            blur="5px"
-          >
-            <b-card>
-              Prebuilt applications to install
-              <b-row>
-                <b-col cols="12">
-                  <b-table
-                    class="apps-available-table"
-                    striped
-                    hover
-                    responsive
-                    :items="tableconfig.available.apps"
-                    :fields="isLoggedIn() ? tableconfig.available.loggedInFields : tableconfig.available.fields"
-                    show-empty
-                    empty-text="No Flux Apps available"
-                  >
-                    <template #cell(show_details)="row">
-                      <a @click="showLocations(row, tableconfig.available.apps)">
-                        <v-icon
-                          v-if="!row.detailsShowing"
-                          name="chevron-down"
-                        />
-                        <v-icon
-                          v-if="row.detailsShowing"
-                          name="chevron-up"
-                        />
-                      </a>
-                    </template>
-                    <template #row-details="row">
-                      <b-card class="mx-2">
-                        <list-entry
-                          title="Description"
-                          :data="row.item.description"
-                        />
-                        <list-entry
-                          title="Owner"
-                          :data="row.item.owner"
-                        />
-                        <list-entry
-                          title="Hash"
-                          :data="row.item.hash"
-                        />
-                        <div v-if="row.item.version >= 5">
+                        <h3 class="no-wrap">
+                          <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
+                            <b-icon
+                              scale="1"
+                              icon="info-square"
+                              class="ml-1"
+                            /> &nbsp;Application Information&nbsp;</kbd>
+                        </h3>
+                        <div class="ml-1">
                           <list-entry
-                            title="Contacts"
-                            :data="JSON.stringify(row.item.contacts)"
+                            v-if="row.item.owner"
+                            title="Owner"
+                            :data="row.item.owner"
                           />
-                          <div v-if="row.item.geolocation.length">
-                            <div
-                              v-for="location in row.item.geolocation"
-                              :key="location"
-                            >
-                              <list-entry
-                                title="Geolocation"
-                                :data="getGeolocation(location)"
-                              />
-                            </div>
-                          </div>
-                          <div v-else>
-                            <list-entry
-                              title="Continent"
-                              data="All"
-                            />
-                            <list-entry
-                              title="Country"
-                              data="All"
-                            />
-                            <list-entry
-                              title="Region"
-                              data="All"
-                            />
-                          </div>
-                        </div>
-                        <list-entry
-                          v-if="row.item.instances"
-                          title="Instances"
-                          :data="row.item.instances.toString()"
-                        />
-                        <list-entry
-                          title="Expires in"
-                          :data="labelForExpire(row.item.expire, row.item.height)"
-                        />
-                        <list-entry
-                          title="Enterprise Nodes"
-                          :data="row.item.nodes ? row.item.nodes.toString() : 'Not scoped'"
-                        />
-                        <list-entry
-                          title="Static IP"
-                          :data="row.item.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
-                        />
-                        <h4>Composition</h4>
-                        <div v-if="row.item.version <= 3">
-                          <b-card>
-                            <list-entry
-                              title="Repository"
-                              :data="row.item.repotag"
-                            />
-                            <list-entry
-                              title="Custom Domains"
-                              :data="row.item.domains.toString() || 'none'"
-                            />
-                            <list-entry
-                              title="Automatic Domains"
-                              :data="constructAutomaticDomains(row.item.ports, undefined, row.item.name).toString()"
-                            />
-                            <list-entry
-                              title="Ports"
-                              :data="row.item.ports.toString()"
-                            />
-                            <list-entry
-                              title="Container Ports"
-                              :data="row.item.containerPorts.toString()"
-                            />
-                            <list-entry
-                              title="Container Data"
-                              :data="row.item.containerData"
-                            />
-                            <list-entry
-                              title="Environment Parameters"
-                              :data="row.item.enviromentParameters.length > 0 ? row.item.enviromentParameters.toString() : 'none'"
-                            />
-                            <list-entry
-                              title="Commands"
-                              :data="row.item.commands.length > 0 ? row.item.commands.toString() : 'none'"
-                            />
-                            <div v-if="row.item.tiered">
-                              <list-entry
-                                title="CPU Cumulus"
-                                :data="`${row.item.cpubasic} vCore`"
-                              />
-                              <list-entry
-                                title="CPU Nimbus"
-                                :data="`${row.item.cpusuper} vCore`"
-                              />
-                              <list-entry
-                                title="CPU Stratus"
-                                :data="`${row.item.cpubamf} vCore`"
-                              />
-                              <list-entry
-                                title="RAM Cumulus"
-                                :data="`${row.item.rambasic} MB`"
-                              />
-                              <list-entry
-                                title="RAM Nimbus"
-                                :data="`${row.item.ramsuper} MB`"
-                              />
-                              <list-entry
-                                title="RAM Stratus"
-                                :data="`${row.item.rambamf} MB`"
-                              />
-                              <list-entry
-                                title="SSD Cumulus"
-                                :data="`${row.item.hddbasic} GB`"
-                              />
-                              <list-entry
-                                title="SSD Nimbus"
-                                :data="`${row.item.hddsuper} GB`"
-                              />
-                              <list-entry
-                                title="SSD Stratus"
-                                :data="`${row.item.hddbamf} GB`"
-                              />
-                            </div>
-                            <div v-else>
-                              <list-entry
-                                title="CPU"
-                                :data="`${row.item.cpu} vCore`"
-                              />
-                              <list-entry
-                                title="RAM"
-                                :data="`${row.item.ram} MB`"
-                              />
-                              <list-entry
-                                title="SSD"
-                                :data="`${row.item.hdd} GB`"
-                              />
-                            </div>
-                          </b-card>
-                        </div>
-                        <div v-else>
-                          <b-card
-                            v-for="(component, index) in row.item.compose"
-                            :key="index"
-                          >
-                            <b-card-title>
-                              Component {{ component.name }}
-                            </b-card-title>
-                            <list-entry
-                              title="Name"
-                              :data="component.name"
-                            />
-                            <list-entry
-                              title="Description"
-                              :data="component.description"
-                            />
-                            <list-entry
-                              title="Repository"
-                              :data="component.repotag"
-                            />
-                            <list-entry
-                              title="Repository Authentication"
-                              :data="component.repoauth ? 'Content Encrypted' : 'Public'"
-                            />
-                            <list-entry
-                              title="Custom Domains"
-                              :data="component.domains.toString() || 'none'"
-                            />
-                            <list-entry
-                              title="Automatic Domains"
-                              :data="constructAutomaticDomains(component.ports, component.name, row.item.name, index).toString()"
-                            />
-                            <list-entry
-                              title="Ports"
-                              :data="component.ports.toString()"
-                            />
-                            <list-entry
-                              title="Container Ports"
-                              :data="component.containerPorts.toString()"
-                            />
-                            <list-entry
-                              title="Container Data"
-                              :data="component.containerData"
-                            />
-                            <list-entry
-                              title="Environment Parameters"
-                              :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
-                            />
-                            <list-entry
-                              title="Commands"
-                              :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
-                            />
-                            <list-entry
-                              title="Secret Environment Parameters"
-                              :data="component.secrets ? 'Content Encrypted' : 'none'"
-                            />
-                            <div v-if="component.tiered">
-                              <list-entry
-                                title="CPU Cumulus"
-                                :data="`${component.cpubasic} vCore`"
-                              />
-                              <list-entry
-                                title="CPU Nimbus"
-                                :data="`${component.cpusuper} vCore`"
-                              />
-                              <list-entry
-                                title="CPU Stratus"
-                                :data="`${component.cpubamf} vCore`"
-                              />
-                              <list-entry
-                                title="RAM Cumulus"
-                                :data="`${component.rambasic} MB`"
-                              />
-                              <list-entry
-                                title="RAM Nimbus"
-                                :data="`${component.ramsuper} MB`"
-                              />
-                              <list-entry
-                                title="RAM Stratus"
-                                :data="`${component.rambamf} MB`"
-                              />
-                              <list-entry
-                                title="SSD Cumulus"
-                                :data="`${component.hddbasic} GB`"
-                              />
-                              <list-entry
-                                title="SSD Nimbus"
-                                :data="`${component.hddsuper} GB`"
-                              />
-                              <list-entry
-                                title="SSD Stratus"
-                                :data="`${component.hddbamf} GB`"
-                              />
-                            </div>
-                            <div v-else>
-                              <list-entry
-                                title="CPU"
-                                :data="`${component.cpu} vCore`"
-                              />
-                              <list-entry
-                                title="RAM"
-                                :data="`${component.ram} MB`"
-                              />
-                              <list-entry
-                                title="SSD"
-                                :data="`${component.hdd} GB`"
-                              />
-                            </div>
-                          </b-card>
-                        </div>
-                        <h4>Locations</h4>
-                        <b-row>
-                          <b-col
-                            md="4"
-                            sm="4"
-                            class="my-1"
-                          >
-                            <b-form-group class="mb-0">
-                              <label class="d-inline-block text-left mr-50">Per page</label>
-                              <b-form-select
-                                id="perPageSelect"
-                                v-model="appLocationOptions.perPage"
-                                size="sm"
-                                :options="appLocationOptions.pageOptions"
-                                class="w-50"
-                              />
-                            </b-form-group>
-                          </b-col>
-                          <b-col
-                            md="8"
-                            class="my-1"
-                          >
-                            <b-form-group
-                              label="Filter"
-                              label-cols-sm="1"
-                              label-align-sm="right"
-                              label-for="filterInput"
-                              class="mb-0"
-                            >
-                              <b-input-group size="sm">
-                                <b-form-input
-                                  id="filterInput"
-                                  v-model="appLocationOptions.filter"
-                                  type="search"
-                                  placeholder="Type to Search"
-                                />
-                                <b-input-group-append>
-                                  <b-button
-                                    :disabled="!appLocationOptions.filter"
-                                    @click="appLocationOptions.filter = ''"
-                                  >
-                                    Clear
-                                  </b-button>
-                                </b-input-group-append>
-                              </b-input-group>
-                            </b-form-group>
-                          </b-col>
-
-                          <b-col cols="12">
-                            <b-table
-                              class="locations-table"
-                              striped
-                              hover
-                              :per-page="appLocationOptions.perPage"
-                              :current-page="appLocationOptions.currentPage"
-                              :items="appLocations"
-                              :fields="appLocationFields"
-                            >
-                              <template #cell(visit)="locationRow">
-                                <b-button
-                                  size="sm"
-                                  class="mr-0"
-                                  variant="danger"
-                                  @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
-                                >
-                                  Visit
-                                </b-button>
-                              </template>
-                            </b-table>
-                          </b-col>
-                          <b-col cols="12">
-                            <b-pagination
-                              v-model="appLocationOptions.currentPage"
-                              :total-rows="appLocationOptions.totalRows"
-                              :per-page="appLocationOptions.perPage"
-                              align="center"
-                              size="sm"
-                              class="my-0"
-                            />
-                            <span class="table-total">Total: {{ appLocationOptions.totalRows }}</span>
-                          </b-col>
-                        </b-row>
-                      </b-card>
-                    </template>
-                    <template #cell(Name)="row">
-                      {{ getAppName(row.item.name) }}
-                    </template>
-                    <template #cell(Description)="row">
-                      {{ row.item.description }}
-                    </template>
-                    <template #cell(install)="row">
-                      <b-button
-                        :id="`install-app-${row.item.name}`"
-                        size="sm"
-                        class="mr-0"
-                        variant="danger"
-                      >
-                        Install
-                      </b-button>
-                      <confirm-dialog
-                        :target="`install-app-${row.item.name}`"
-                        confirm-button="Install App"
-                        @confirm="installAppLocally(row.item.name)"
-                      />
-                    </template>
-                  </b-table>
-                </b-col>
-              </b-row>
-            </b-card>
-            <b-card>
-              Global Applications to install
-              <b-row>
-                <b-col cols="12">
-                  <b-table
-                    class="apps-globalAvailable-table"
-                    striped
-                    hover
-                    responsive
-                    :items="tableconfig.globalAvailable.apps"
-                    :fields="isLoggedIn() ? tableconfig.globalAvailable.loggedInFields : tableconfig.globalAvailable.fields"
-                    show-empty
-                    empty-text="No Flux Apps Globally Available"
-                  >
-                    <template #cell(show_details)="row">
-                      <a @click="showLocations(row, tableconfig.globalAvailable.apps)">
-                        <v-icon
-                          v-if="!row.detailsShowing"
-                          name="chevron-down"
-                        />
-                        <v-icon
-                          v-if="row.detailsShowing"
-                          name="chevron-up"
-                        />
-                      </a>
-                    </template>
-                    <template #row-details="row">
-                      <b-card class="mx-2">
-                        <list-entry
-                          title="Description"
-                          :data="row.item.description"
-                        />
-                        <list-entry
-                          title="Owner"
-                          :data="row.item.owner"
-                        />
-                        <list-entry
-                          title="Hash"
-                          :data="row.item.hash"
-                        />
-                        <div v-if="row.item.version >= 5">
                           <list-entry
-                            title="Contacts"
-                            :data="JSON.stringify(row.item.contacts)"
+                            v-if="row.item.hash"
+                            title="Hash"
+                            :data="row.item.hash"
                           />
-                          <div v-if="row.item.geolocation.length">
-                            <div
-                              v-for="location in row.item.geolocation"
-                              :key="location"
-                            >
-                              <list-entry
-                                title="Geolocation"
-                                :data="getGeolocation(location)"
-                              />
-                            </div>
-                          </div>
-                          <div v-else>
+                          <div v-if="row.item.version >= 5">
                             <list-entry
-                              title="Continent"
-                              data="All"
+                              v-if="row.item.contacts.length > 0"
+                              title="Contacts"
+                              :data="JSON.stringify(row.item.contacts)"
                             />
-                            <list-entry
-                              title="Country"
-                              data="All"
-                            />
-                            <list-entry
-                              title="Region"
-                              data="All"
-                            />
-                          </div>
-                        </div>
-                        <list-entry
-                          v-if="row.item.instances"
-                          title="Instances"
-                          :data="row.item.instances.toString()"
-                        />
-                        <list-entry
-                          title="Expires in"
-                          :data="labelForExpire(row.item.expire, row.item.height)"
-                        />
-                        <list-entry
-                          title="Enterprise Nodes"
-                          :data="row.item.nodes ? row.item.nodes.toString() : 'Not scoped'"
-                        />
-                        <list-entry
-                          title="Static IP"
-                          :data="row.item.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
-                        />
-                        <h4>Composition</h4>
-                        <div v-if="row.item.version <= 3">
-                          <b-card>
-                            <list-entry
-                              title="Repository"
-                              :data="row.item.repotag"
-                            />
-                            <list-entry
-                              title="Custom Domains"
-                              :data="row.item.domains.toString() || 'none'"
-                            />
-                            <list-entry
-                              title="Automatic Domains"
-                              :data="constructAutomaticDomains(row.item.ports, undefined, row.item.name).toString()"
-                            />
-                            <list-entry
-                              title="Ports"
-                              :data="row.item.ports.toString()"
-                            />
-                            <list-entry
-                              title="Container Ports"
-                              :data="row.item.containerPorts.toString()"
-                            />
-                            <list-entry
-                              title="Container Data"
-                              :data="row.item.containerData"
-                            />
-                            <list-entry
-                              title="Environment Parameters"
-                              :data="row.item.enviromentParameters.length > 0 ? row.item.enviromentParameters.toString() : 'none'"
-                            />
-                            <list-entry
-                              title="Commands"
-                              :data="row.item.commands.length > 0 ? row.item.commands.toString() : 'none'"
-                            />
-                            <div v-if="row.item.tiered">
-                              <list-entry
-                                title="CPU Cumulus"
-                                :data="`${row.item.cpubasic} vCore`"
-                              />
-                              <list-entry
-                                title="CPU Nimbus"
-                                :data="`${row.item.cpusuper} vCore`"
-                              />
-                              <list-entry
-                                title="CPU Stratus"
-                                :data="`${row.item.cpubamf} vCore`"
-                              />
-                              <list-entry
-                                title="RAM Cumulus"
-                                :data="`${row.item.rambasic} MB`"
-                              />
-                              <list-entry
-                                title="RAM Nimbus"
-                                :data="`${row.item.ramsuper} MB`"
-                              />
-                              <list-entry
-                                title="RAM Stratus"
-                                :data="`${row.item.rambamf} MB`"
-                              />
-                              <list-entry
-                                title="SSD Cumulus"
-                                :data="`${row.item.hddbasic} GB`"
-                              />
-                              <list-entry
-                                title="SSD Nimbus"
-                                :data="`${row.item.hddsuper} GB`"
-                              />
-                              <list-entry
-                                title="SSD Stratus"
-                                :data="`${row.item.hddbamf} GB`"
-                              />
-                            </div>
-                            <div v-else>
-                              <list-entry
-                                title="CPU"
-                                :data="`${row.item.cpu} vCore`"
-                              />
-                              <list-entry
-                                title="RAM"
-                                :data="`${row.item.ram} MB`"
-                              />
-                              <list-entry
-                                title="SSD"
-                                :data="`${row.item.hdd} GB`"
-                              />
-                            </div>
-                          </b-card>
-                        </div>
-                        <div v-else>
-                          <b-card
-                            v-for="(component, index) in row.item.compose"
-                            :key="index"
-                          >
-                            <b-card-title>
-                              Component {{ component.name }}
-                            </b-card-title>
-                            <list-entry
-                              title="Name"
-                              :data="component.name"
-                            />
-                            <list-entry
-                              title="Description"
-                              :data="component.description"
-                            />
-                            <list-entry
-                              title="Repository"
-                              :data="component.repotag"
-                            />
-                            <list-entry
-                              title="Repository Authentication"
-                              :data="component.repoauth ? 'Content Encrypted' : 'Public'"
-                            />
-                            <list-entry
-                              title="Custom Domains"
-                              :data="component.domains.toString() || 'none'"
-                            />
-                            <list-entry
-                              title="Automatic Domains"
-                              :data="constructAutomaticDomains(component.ports, component.name, row.item.name, index).toString()"
-                            />
-                            <list-entry
-                              title="Ports"
-                              :data="component.ports.toString()"
-                            />
-                            <list-entry
-                              title="Container Ports"
-                              :data="component.containerPorts.toString()"
-                            />
-                            <list-entry
-                              title="Container Data"
-                              :data="component.containerData"
-                            />
-                            <list-entry
-                              title="Environment Parameters"
-                              :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
-                            />
-                            <list-entry
-                              title="Commands"
-                              :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
-                            />
-                            <list-entry
-                              title="Secret Environment Parameters"
-                              :data="component.secrets ? 'Content Encrypted' : 'none'"
-                            />
-                            <div v-if="component.tiered">
-                              <list-entry
-                                title="CPU Cumulus"
-                                :data="`${component.cpubasic} vCore`"
-                              />
-                              <list-entry
-                                title="CPU Nimbus"
-                                :data="`${component.cpusuper} vCore`"
-                              />
-                              <list-entry
-                                title="CPU Stratus"
-                                :data="`${component.cpubamf} vCore`"
-                              />
-                              <list-entry
-                                title="RAM Cumulus"
-                                :data="`${component.rambasic} MB`"
-                              />
-                              <list-entry
-                                title="RAM Nimbus"
-                                :data="`${component.ramsuper} MB`"
-                              />
-                              <list-entry
-                                title="RAM Stratus"
-                                :data="`${component.rambamf} MB`"
-                              />
-                              <list-entry
-                                title="SSD Cumulus"
-                                :data="`${component.hddbasic} GB`"
-                              />
-                              <list-entry
-                                title="SSD Nimbus"
-                                :data="`${component.hddsuper} GB`"
-                              />
-                              <list-entry
-                                title="SSD Stratus"
-                                :data="`${component.hddbamf} GB`"
-                              />
-                            </div>
-                            <div v-else>
-                              <list-entry
-                                title="CPU"
-                                :data="`${component.cpu} vCore`"
-                              />
-                              <list-entry
-                                title="RAM"
-                                :data="`${component.ram} MB`"
-                              />
-                              <list-entry
-                                title="SSD"
-                                :data="`${component.hdd} GB`"
-                              />
-                            </div>
-                          </b-card>
-                        </div>
-                        <h4>Locations</h4>
-                        <b-row>
-                          <b-col
-                            md="4"
-                            sm="4"
-                            class="my-1"
-                          >
-                            <b-form-group class="mb-0">
-                              <label class="d-inline-block text-left mr-50">Per page</label>
-                              <b-form-select
-                                id="perPageSelect"
-                                v-model="appLocationOptions.perPage"
-                                size="sm"
-                                :options="appLocationOptions.pageOptions"
-                                class="w-50"
-                              />
-                            </b-form-group>
-                          </b-col>
-                          <b-col
-                            md="8"
-                            class="my-1"
-                          >
-                            <b-form-group
-                              label="Filter"
-                              label-cols-sm="1"
-                              label-align-sm="right"
-                              label-for="filterInput"
-                              class="mb-0"
-                            >
-                              <b-input-group size="sm">
-                                <b-form-input
-                                  id="filterInput"
-                                  v-model="appLocationOptions.filter"
-                                  type="search"
-                                  placeholder="Type to Search"
+                            <div v-if="row.item.geolocation.length">
+                              <div
+                                v-for="location in row.item.geolocation"
+                                :key="location"
+                              >
+                                <list-entry
+                                  title="Geolocation"
+                                  :data="getGeolocation(location)"
                                 />
-                                <b-input-group-append>
-                                  <b-button
-                                    :disabled="!appLocationOptions.filter"
-                                    @click="appLocationOptions.filter = ''"
-                                  >
-                                    Clear
-                                  </b-button>
-                                </b-input-group-append>
-                              </b-input-group>
-                            </b-form-group>
-                          </b-col>
-
-                          <b-col cols="12">
-                            <b-table
-                              class="locations-table"
-                              striped
-                              hover
-                              :per-page="appLocationOptions.perPage"
-                              :current-page="appLocationOptions.currentPage"
-                              :items="appLocations"
-                              :fields="appLocationFields"
-                            >
-                              <template #cell(visit)="locationRow">
-                                <b-button
-                                  size="sm"
-                                  class="mr-0"
-                                  variant="danger"
-                                  @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
-                                >
-                                  Visit
-                                </b-button>
-                              </template>
-                            </b-table>
-                          </b-col>
-                          <b-col cols="12">
-                            <b-pagination
-                              v-model="appLocationOptions.currentPage"
-                              :total-rows="appLocationOptions.totalRows"
-                              :per-page="appLocationOptions.perPage"
-                              align="center"
-                              size="sm"
-                              class="my-0"
-                            />
-                            <span class="table-total">Total: {{ appLocationOptions.totalRows }}</span>
-                          </b-col>
-                        </b-row>
-                      </b-card>
-                    </template>
-                    <template #cell(Name)="row">
-                      {{ getAppName(row.item.name) }}
-                    </template>
-                    <template #cell(Description)="row">
-                      {{ row.item.description }}
-                    </template>
-                    <template #cell(install)="row">
-                      <b-button
-                        :id="`install-app-${row.item.name}`"
-                        size="sm"
-                        class="mr-0"
-                        variant="danger"
-                      >
-                        Install
-                      </b-button>
-                      <confirm-dialog
-                        :target="`install-app-${row.item.name}`"
-                        confirm-button="Install App"
-                        @confirm="installAppLocally(row.item.name)"
-                      />
-                    </template>
-                  </b-table>
-                </b-col>
-              </b-row>
-            </b-card>
-          </b-overlay>
-        </b-tab>
-        <b-tab title="My Local Apps">
-          <b-overlay
-            :show="tableconfig.installed.loading"
-            variant="transparent"
-            blur="5px"
-          >
-            <b-card>
-              <b-row>
-                <b-col
-                  md="4"
-                  sm="4"
-                  class="my-1"
-                >
-                  <b-form-group class="mb-0">
-                    <label class="d-inline-block text-left mr-50">Per page</label>
-                    <b-form-select
-                      id="perPageSelect"
-                      v-model="tableconfig.local.perPage"
-                      size="sm"
-                      :options="tableconfig.local.pageOptions"
-                      class="w-50"
-                    />
-                  </b-form-group>
-                </b-col>
-                <b-col
-                  md="8"
-                  class="my-1"
-                >
-                  <b-form-group
-                    label="Filter"
-                    label-cols-sm="1"
-                    label-align-sm="right"
-                    label-for="filterInput"
-                    class="mb-0"
-                  >
-                    <b-input-group size="sm">
-                      <b-form-input
-                        id="filterInput"
-                        v-model="tableconfig.local.filter"
-                        type="search"
-                        placeholder="Type to Search"
-                      />
-                      <b-input-group-append>
-                        <b-button
-                          :disabled="!tableconfig.local.filter"
-                          @click="tableconfig.local.filter = ''"
-                        >
-                          Clear
-                        </b-button>
-                      </b-input-group-append>
-                    </b-input-group>
-                  </b-form-group>
-                </b-col>
-
-                <b-col cols="12">
-                  <b-table
-                    class="apps-local-table"
-                    striped
-                    hover
-                    responsive
-                    :per-page="tableconfig.local.perPage"
-                    :current-page="tableconfig.local.currentPage"
-                    :items="tableconfig.local.apps"
-                    :fields="tableconfig.local.fields"
-                    :sort-by.sync="tableconfig.local.sortBy"
-                    :sort-desc.sync="tableconfig.local.sortDesc"
-                    :sort-direction="tableconfig.local.sortDirection"
-                    :filter="tableconfig.local.filter"
-                    :filter-included-fields="tableconfig.local.filterOn"
-                    show-empty
-                    empty-text="No Local Apps owned"
-                    @filtered="onFilteredLocal"
-                  >
-                    <template #cell(show_details)="row">
-                      <a @click="showLocations(row, tableconfig.local.apps)">
-                        <v-icon
-                          v-if="!row.detailsShowing"
-                          name="chevron-down"
-                        />
-                        <v-icon
-                          v-if="row.detailsShowing"
-                          name="chevron-up"
-                        />
-                      </a>
-                    </template>
-                    <template #row-details="row">
-                      <b-card class="mx-2">
-                        <list-entry
-                          v-if="row.item.description"
-                          title="Description"
-                          :data="row.item.description"
-                        />
-                        <list-entry
-                          v-if="row.item.owner"
-                          title="Owner"
-                          :data="row.item.owner"
-                        />
-                        <list-entry
-                          v-if="row.item.hash"
-                          title="Hash"
-                          :data="row.item.hash"
-                        />
-                        <div v-if="row.item.version >= 5">
-                          <list-entry
-                            title="Contacts"
-                            :data="JSON.stringify(row.item.contacts)"
-                          />
-                          <div v-if="row.item.geolocation.length">
-                            <div
-                              v-for="location in row.item.geolocation"
-                              :key="location"
-                            >
+                              </div>
+                            </div>
+                            <div v-else>
                               <list-entry
-                                title="Geolocation"
-                                :data="getGeolocation(location)"
+                                title="Continent"
+                                data="All"
+                              />
+                              <list-entry
+                                title="Country"
+                                data="All"
+                              />
+                              <list-entry
+                                title="Region"
+                                data="All"
                               />
                             </div>
                           </div>
-                          <div v-else>
-                            <list-entry
-                              title="Continent"
-                              data="All"
-                            />
-                            <list-entry
-                              title="Country"
-                              data="All"
-                            />
-                            <list-entry
-                              title="Region"
-                              data="All"
-                            />
-                          </div>
+                          <list-entry
+                            v-if="row.item.instances"
+                            title="Instances"
+                            :data="row.item.instances.toString()"
+                          />
+                          <list-entry
+                            title="Expires in"
+                            :data="labelForExpire(row.item.expire, row.item.height)"
+                          />
+                          <list-entry
+                            v-if="row.item?.nodes?.length > 0"
+                            title="Enterprise Nodes"
+                            :data="row.item.nodes ? row.item.nodes.toString() : 'Not scoped'"
+                          />
+                          <list-entry
+                            title="Static IP"
+                            :data="row.item.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
+                          />
                         </div>
-                        <list-entry
-                          v-if="row.item.instances"
-                          title="Instances"
-                          :data="row.item.instances.toString()"
-                        />
-                        <list-entry
-                          title="Expires in"
-                          :data="labelForExpire(row.item.expire, row.item.height)"
-                        />
-                        <list-entry
-                          title="Enterprise Nodes"
-                          :data="row.item.nodes ? row.item.nodes.toString() : 'Not scoped'"
-                        />
-                        <list-entry
-                          title="Static IP"
-                          :data="row.item.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
-                        />
-                        <h4>Composition</h4>
                         <div v-if="row.item.version <= 3">
                           <b-card>
                             <list-entry
@@ -1822,116 +236,139 @@
                           </b-card>
                         </div>
                         <div v-else>
+                          <h3 class="no-wrap">
+                            <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
+                              <b-icon
+                                scale="1"
+                                icon="box"
+                                class="ml-1"
+                              /> &nbsp;Composition&nbsp;</kbd>
+                          </h3>
                           <b-card
                             v-for="(component, index) in row.item.compose"
                             :key="index"
+                            class="mb-0"
                           >
-                            <b-card-title>
-                              Component {{ component.name }}
-                            </b-card-title>
-                            <list-entry
-                              title="Name"
-                              :data="component.name"
-                            />
-                            <list-entry
-                              title="Description"
-                              :data="component.description"
-                            />
-                            <list-entry
-                              title="Repository"
-                              :data="component.repotag"
-                            />
-                            <list-entry
-                              title="Repository Authentication"
-                              :data="component.repoauth ? 'Content Encrypted' : 'Public'"
-                            />
-                            <list-entry
-                              title="Custom Domains"
-                              :data="component.domains.toString() || 'none'"
-                            />
-                            <list-entry
-                              title="Automatic Domains"
-                              :data="constructAutomaticDomains(component.ports, component.name, row.item.name, index).toString()"
-                            />
-                            <list-entry
-                              title="Ports"
-                              :data="component.ports.toString()"
-                            />
-                            <list-entry
-                              title="Container Ports"
-                              :data="component.containerPorts.toString()"
-                            />
-                            <list-entry
-                              title="Container Data"
-                              :data="component.containerData"
-                            />
-                            <list-entry
-                              title="Environment Parameters"
-                              :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
-                            />
-                            <list-entry
-                              title="Commands"
-                              :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
-                            />
-                            <list-entry
-                              title="Secret Environment Parameters"
-                              :data="component.secrets ? 'Content Encrypted' : 'none'"
-                            />
-                            <div v-if="component.tiered">
+                            <h3 class="no-wrap">
+                              <kbd class="alert-success d-flex" style="border-radius: 15px; font-family: monospace; max-width: 500px;">
+                                <b-icon
+                                  scale="1"
+                                  icon="menu-app-fill"
+                                  class="ml-1"
+                                /> &nbsp;{{ component.name }}&nbsp;</kbd>
+                            </h3>
+                            <div class="ml-1">
                               <list-entry
-                                title="CPU Cumulus"
-                                :data="`${component.cpubasic} vCore`"
+                                title="Name"
+                                :data="component.name"
                               />
                               <list-entry
-                                title="CPU Nimbus"
-                                :data="`${component.cpusuper} vCore`"
+                                title="Description"
+                                :data="component.description"
                               />
                               <list-entry
-                                title="CPU Stratus"
-                                :data="`${component.cpubamf} vCore`"
+                                title="Repository"
+                                :data="component.repotag"
                               />
                               <list-entry
-                                title="RAM Cumulus"
-                                :data="`${component.rambasic} MB`"
+                                title="Repository Authentication"
+                                :data="component.repoauth ? 'Content Encrypted' : 'Public'"
                               />
                               <list-entry
-                                title="RAM Nimbus"
-                                :data="`${component.ramsuper} MB`"
+                                title="Custom Domains"
+                                :data="component.domains.toString() || 'none'"
                               />
                               <list-entry
-                                title="RAM Stratus"
-                                :data="`${component.rambamf} MB`"
+                                title="Automatic Domains"
+                                :data="constructAutomaticDomains(component.ports, component.name, row.item.name, index).toString()"
                               />
                               <list-entry
-                                title="SSD Cumulus"
-                                :data="`${component.hddbasic} GB`"
+                                title="Ports"
+                                :data="component.ports.toString()"
                               />
                               <list-entry
-                                title="SSD Nimbus"
-                                :data="`${component.hddsuper} GB`"
+                                title="Container Ports"
+                                :data="component.containerPorts.toString()"
                               />
                               <list-entry
-                                title="SSD Stratus"
-                                :data="`${component.hddbamf} GB`"
-                              />
-                            </div>
-                            <div v-else>
-                              <list-entry
-                                title="CPU"
-                                :data="`${component.cpu} vCore`"
+                                title="Container Data"
+                                :data="component.containerData"
                               />
                               <list-entry
-                                title="RAM"
-                                :data="`${component.ram} MB`"
+                                title="Environment Parameters"
+                                :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
                               />
                               <list-entry
-                                title="SSD"
-                                :data="`${component.hdd} GB`"
+                                title="Commands"
+                                :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
                               />
+                              <list-entry
+                                title="Secret Environment Parameters"
+                                :data="component.secrets ? 'Content Encrypted' : 'none'"
+                              />
+                              <div v-if="component.tiered">
+                                <list-entry
+                                  title="CPU Cumulus"
+                                  :data="`${component.cpubasic} vCore`"
+                                />
+                                <list-entry
+                                  title="CPU Nimbus"
+                                  :data="`${component.cpusuper} vCore`"
+                                />
+                                <list-entry
+                                  title="CPU Stratus"
+                                  :data="`${component.cpubamf} vCore`"
+                                />
+                                <list-entry
+                                  title="RAM Cumulus"
+                                  :data="`${component.rambasic} MB`"
+                                />
+                                <list-entry
+                                  title="RAM Nimbus"
+                                  :data="`${component.ramsuper} MB`"
+                                />
+                                <list-entry
+                                  title="RAM Stratus"
+                                  :data="`${component.rambamf} MB`"
+                                />
+                                <list-entry
+                                  title="SSD Cumulus"
+                                  :data="`${component.hddbasic} GB`"
+                                />
+                                <list-entry
+                                  title="SSD Nimbus"
+                                  :data="`${component.hddsuper} GB`"
+                                />
+                                <list-entry
+                                  title="SSD Stratus"
+                                  :data="`${component.hddbamf} GB`"
+                                />
+                              </div>
+                              <div v-else>
+                                <list-entry
+                                  title="CPU"
+                                  :data="`${component.cpu} vCore`"
+                                />
+                                <list-entry
+                                  title="RAM"
+                                  :data="`${component.ram} MB`"
+                                />
+                                <list-entry
+                                  title="SSD"
+                                  :data="`${component.hdd} GB`"
+                                />
+                              </div>
                             </div>
                           </b-card>
                         </div>
-                        <h4>Locations</h4>
+                        <h3>
+                          <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
+                            <b-icon
+                              scale="1"
+                              icon="globe"
+                              class="ml-1"
+                            /> &nbsp;Locations&nbsp;</kbd>
+                        </h3>
                         <b-row>
                           <b-col
                             md="4"
@@ -1963,14 +400,14 @@
                               <b-input-group size="sm">
                                 <b-form-input
                                   id="filterInput"
-                                  v-model="appLocationOptions.filter"
+                                  v-model="appLocationOptions.filterOne"
                                   type="search"
                                   placeholder="Type to Search"
                                 />
                                 <b-input-group-append>
                                   <b-button
-                                    :disabled="!appLocationOptions.filter"
-                                    @click="appLocationOptions.filter = ''"
+                                    :disabled="!appLocationOptions.filterOne"
+                                    @click="appLocationOptions.filterOne = ''"
                                   >
                                     Clear
                                   </b-button>
@@ -1982,22 +419,60 @@
                           <b-col cols="12">
                             <b-table
                               class="locations-table"
-                              striped
-                              hover
+                              borderless
                               :per-page="appLocationOptions.perPage"
                               :current-page="appLocationOptions.currentPage"
                               :items="appLocations"
                               :fields="appLocationFields"
+                              thead-class="d-none"
+                              :filter="appLocationOptions.filterOne"
+                              show-empty
+                              sort-icon-left
+                              empty-text="No instances found.."
                             >
+                              <template #cell(ip)="locationRow">
+                                <div class="no-wrap">
+                                  <kbd class="alert-info" style="border-radius: 15px;">
+                                    <b-icon
+                                      scale="1.1"
+                                      icon="hdd-network-fill"
+                                    /></kbd>
+                                  &nbsp;<kbd class="alert-success no-wrap" style="border-radius: 15px;">
+                                    <b>&nbsp;&nbsp;{{ locationRow.item.ip }}&nbsp;&nbsp;</b>
+                                  </kbd>
+                                </div>
+                              </template>
                               <template #cell(visit)="locationRow">
-                                <b-button
-                                  size="sm"
-                                  class="mr-0"
-                                  variant="danger"
-                                  @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
-                                >
-                                  Visit
-                                </b-button>
+                                <div class="d-flex justify-content-end">
+                                  <b-button
+                                    v-b-tooltip.hover.top="'Visit App'"
+                                    size="sm"
+                                    class="mr-1"
+                                    pill
+                                    variant="dark"
+                                    @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
+                                  >
+                                    <b-icon
+                                      scale="1"
+                                      icon="door-open"
+                                    />
+                                    App
+                                  </b-button>
+                                  <b-button
+                                    v-b-tooltip.hover.top="'Visit FluxNode'"
+                                    size="sm"
+                                    class="mr-0"
+                                    pill
+                                    variant="outline-dark"
+                                    @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
+                                  >
+                                    <b-icon
+                                      scale="1"
+                                      icon="house-door-fill"
+                                    />
+                                    FluxNode
+                                  </b-button>&nbsp;&nbsp;
+                                </div>
                               </template>
                             </b-table>
                           </b-col>
@@ -2008,9 +483,8 @@
                               :per-page="appLocationOptions.perPage"
                               align="center"
                               size="sm"
-                              class="my-0"
+                              class="my-0 mt-1"
                             />
-                            <span class="table-total">Total: {{ appLocationOptions.totalRows }}</span>
                           </b-col>
                         </b-row>
                       </b-card>
@@ -2022,76 +496,1860 @@
                       {{ row.item.description }}
                     </template>
                     <template #cell(actions)="row">
+                      <b-button-toolbar>
+                        <b-button-group size="sm">
+                          <b-button
+                            :id="`start-installed-app-${row.item.name}`"
+                            v-b-tooltip.hover.top="'Start App'"
+                            :disabled="isAppInList(row.item.name, tableconfig.running.apps)"
+                            size="sm"
+                            class="no-wrap"
+                            variant="outline-dark"
+                          >
+                            <b-icon
+                              scale="1.2"
+                              icon="play-fill"
+                              class="icon-style-start"
+                              :class="{ 'disable-hover': isAppInList(row.item.name, tableconfig.running.apps) }"
+                            />
+                          </b-button>
+                          <confirm-dialog
+                            :target="`start-installed-app-${row.item.name}`"
+                            confirm-button="Start App"
+                            @confirm="startApp(row.item.name)"
+                          />
+                          <b-button
+                            :id="`stop-installed-app-${row.item.name}`"
+                            v-b-tooltip.hover.top="'Stop App'"
+                            size="sm"
+                            class="mr-0"
+                            variant="outline-dark"
+                            :disabled="!isAppInList(row.item.name, tableconfig.running.apps)"
+                          >
+                            <b-icon
+                              scale="1.2"
+                              icon="stop-circle"
+                              class="icon-style-stop"
+                              :class="{ 'disable-hover': !isAppInList(row.item.name, tableconfig.running.apps) }"
+                            />
+                          </b-button>
+                          <confirm-dialog
+                            :target="`stop-installed-app-${row.item.name}`"
+                            confirm-button="Stop App"
+                            @confirm="stopApp(row.item.name)"
+                          />
+                          <b-button
+                            :id="`restart-installed-app-${row.item.name}`"
+                            v-b-tooltip.hover.top="'Restart App'"
+                            size="sm"
+                            class="no-wrap"
+                            variant="outline-dark"
+                          >
+                            <b-icon
+                              scale="1"
+                              icon="bootstrap-reboot"
+                              class="icon-style-restart"
+                            />
+                          </b-button>
+                          <confirm-dialog
+                            :target="`restart-installed-app-${row.item.name}`"
+                            confirm-button="Restart App"
+                            @confirm="restartApp(row.item.name)"
+                          />
+                          <b-button
+                            :id="`remove-installed-app-${row.item.name}`"
+                            v-b-tooltip.hover.top="'Remove App'"
+                            size="sm"
+                            class="no-wrap"
+                            variant="outline-dark"
+                          >
+                            <b-icon
+                              scale="1"
+                              icon="trash"
+                              class="icon-style-trash"
+                            />
+                          </b-button>
+                          <confirm-dialog
+                            :target="`remove-installed-app-${row.item.name}`"
+                            confirm-button="Remove App"
+                            @confirm="removeApp(row.item.name)"
+                          />
+                          <!-- <b-button
+                            :id="`manage-installed-app-${row.item.name}`"
+                            v-b-tooltip.hover.top="'Manage App'"
+                            size="sm"
+                            class="no-wrap"
+                            variant="outline-dark"
+                          >
+                            <b-icon
+                              scale="1"
+                              icon="gear"
+                              class="icon-style-gear"
+                            />
+                          </b-button>
+                          <confirm-dialog
+                            :target="`manage-installed-app-${row.item.name}`"
+                            confirm-button="Manage App"
+                            @confirm="openAppManagement(row.item.name)"
+                          /> -->
+                        </b-button-group>
+                      </b-button-toolbar>
+                    </template>
+                  </b-table>
+                </b-col>
+              </b-row>
+              <b-icon class="ml-1" scale="1.4" icon="layers" />&nbsp;
+              <b>&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;{{ tableconfig.installed?.apps?.length || 0 }}&nbsp;</kbd></b>
+            </b-card>
+          </b-overlay>
+        </b-tab>
+        <b-tab title="Available">
+          <b-overlay
+            :show="tableconfig.available.loading"
+            variant="transparent"
+            blur="5px"
+          >
+            <b-card>
+              <h3 class="mb-1">
+                <kbd class="alert-info d-flex no-wrap" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
+                  &nbsp;<b-icon
+                    scale="1"
+                    icon="building"
+                    class="mr-1"
+                  /> Prebuilt Applications&nbsp;</kbd>
+              </h3>
+              <b-row>
+                <b-col cols="12">
+                  <b-table
+                    class="apps-available-table"
+                    striped
+                    outlined
+                    responsive
+                    :items="tableconfig.available.apps"
+                    :fields="isLoggedIn() ? tableconfig.available.loggedInFields : tableconfig.available.fields"
+                    show-empty
+                    sort-icon-left
+                    empty-text="No Flux Apps available"
+                  >
+                    <template #cell(name)="row">
+                      <div class="text-left">
+                        <kbd class="alert-info no-wrap" style="border-radius: 15px; font-weight: 700 !important;"> <b-icon scale="1.2" icon="app-indicator" />&nbsp;&nbsp;{{ row.item.name }}&nbsp; </kbd>
+                        <br>
+                        <small style="font-size: 11px;">
+                          <div class="d-flex align-items-center" style="margin-top: 3px">
+                            &nbsp;&nbsp;<b-icon scale="1.4" icon="speedometer2" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(1, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
+                            &nbsp;<b-icon scale="1.4" icon="cpu" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(0, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
+                            &nbsp;<b-icon scale="1.4" icon="hdd" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(2, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
+                          </div>
+                        </small>
+                      </div>
+                    </template>
+                    <template #cell(visit)="row">
                       <b-button
-                        :id="`start-local-app-${row.item.name}`"
+                        v-b-tooltip.hover.top="'Visit App'"
                         size="sm"
-                        class="w-100 mr-1"
-                        style="margin-bottom: 2px;"
-                        variant="danger"
+                        class="mr-0 no-wrap hover-underline"
+                        variant="link"
+                        @click="openApp(row.item.name)"
                       >
-                        Start
+                        <b-icon
+                          scale="1"
+                          icon="front"
+                        />
+                        Visit
+                      </b-button>
+                    </template>
+                    <template #cell(description)="row">
+                      <kbd class="text-secondary textarea" style="float: left; text-align:left;">{{ row.item.description }}</kbd>
+                    </template>
+                    <template #cell(state)="row">
+                      <kbd :class="getBadgeClass(row.item.name)" style="border-radius: 15px">&nbsp;<b>{{ getStateByName(row.item.name) }}</b>&nbsp;</kbd>
+                    </template>
+                    <template #cell(show_details)="row">
+                      <a @click="showLocations(row, tableconfig.available.apps)">
+                        <v-icon
+                          v-if="!row.detailsShowing"
+                          name="chevron-down"
+                          class="ml-1"
+                        />
+                        <v-icon
+                          v-if="row.detailsShowing"
+                          name="chevron-up"
+                          class="ml-1"
+                        />
+                      </a>
+                    </template>
+                    <template #row-details="row">
+                      <b-card class="mx-2">
+                        <h3 class="no-wrap">
+                          <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
+                            <b-icon
+                              scale="1"
+                              icon="info-square"
+                              class="ml-1"
+                            /> &nbsp;Application Information&nbsp;</kbd>
+                        </h3>
+                        <div class="ml-1">
+                          <list-entry
+                            v-if="row.item.owner"
+                            title="Owner"
+                            :data="row.item.owner"
+                          />
+                          <list-entry
+                            v-if="row.item.hash"
+                            title="Hash"
+                            :data="row.item.hash"
+                          />
+                          <div v-if="row.item.version >= 5">
+                            <list-entry
+                              v-if="row.item.contacts.length > 0"
+                              title="Contacts"
+                              :data="JSON.stringify(row.item.contacts)"
+                            />
+                            <div v-if="row.item.geolocation.length">
+                              <div
+                                v-for="location in row.item.geolocation"
+                                :key="location"
+                              >
+                                <list-entry
+                                  title="Geolocation"
+                                  :data="getGeolocation(location)"
+                                />
+                              </div>
+                            </div>
+                            <div v-else>
+                              <list-entry
+                                title="Continent"
+                                data="All"
+                              />
+                              <list-entry
+                                title="Country"
+                                data="All"
+                              />
+                              <list-entry
+                                title="Region"
+                                data="All"
+                              />
+                            </div>
+                          </div>
+                          <list-entry
+                            v-if="row.item.instances"
+                            title="Instances"
+                            :data="row.item.instances.toString()"
+                          />
+                          <list-entry
+                            title="Expires in"
+                            :data="labelForExpire(row.item.expire, row.item.height)"
+                          />
+                          <list-entry
+                            v-if="row.item?.nodes?.length > 0"
+                            title="Enterprise Nodes"
+                            :data="row.item.nodes ? row.item.nodes.toString() : 'Not scoped'"
+                          />
+                          <list-entry
+                            title="Static IP"
+                            :data="row.item.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
+                          />
+                        </div>
+                        <div v-if="row.item.version <= 3">
+                          <b-card>
+                            <list-entry
+                              title="Repository"
+                              :data="row.item.repotag"
+                            />
+                            <list-entry
+                              title="Custom Domains"
+                              :data="row.item.domains.toString() || 'none'"
+                            />
+                            <list-entry
+                              title="Automatic Domains"
+                              :data="constructAutomaticDomains(row.item.ports, undefined, row.item.name).toString()"
+                            />
+                            <list-entry
+                              title="Ports"
+                              :data="row.item.ports.toString()"
+                            />
+                            <list-entry
+                              title="Container Ports"
+                              :data="row.item.containerPorts.toString()"
+                            />
+                            <list-entry
+                              title="Container Data"
+                              :data="row.item.containerData"
+                            />
+                            <list-entry
+                              title="Enviroment Parameters"
+                              :data="row.item.enviromentParameters.length > 0 ? row.item.enviromentParameters.toString() : 'none'"
+                            />
+                            <list-entry
+                              title="Commands"
+                              :data="row.item.commands.length > 0 ? row.item.commands.toString() : 'none'"
+                            />
+                            <div v-if="row.item.tiered">
+                              <list-entry
+                                title="CPU Cumulus"
+                                :data="`${row.item.cpubasic} vCore`"
+                              />
+                              <list-entry
+                                title="CPU Nimbus"
+                                :data="`${row.item.cpusuper} vCore`"
+                              />
+                              <list-entry
+                                title="CPU Stratus"
+                                :data="`${row.item.cpubamf} vCore`"
+                              />
+                              <list-entry
+                                title="RAM Cumulus"
+                                :data="`${row.item.rambasic} MB`"
+                              />
+                              <list-entry
+                                title="RAM Nimbus"
+                                :data="`${row.item.ramsuper} MB`"
+                              />
+                              <list-entry
+                                title="RAM Stratus"
+                                :data="`${row.item.rambamf} MB`"
+                              />
+                              <list-entry
+                                title="SSD Cumulus"
+                                :data="`${row.item.hddbasic} GB`"
+                              />
+                              <list-entry
+                                title="SSD Nimbus"
+                                :data="`${row.item.hddsuper} GB`"
+                              />
+                              <list-entry
+                                title="SSD Stratus"
+                                :data="`${row.item.hddbamf} GB`"
+                              />
+                            </div>
+                            <div v-else>
+                              <list-entry
+                                title="CPU"
+                                :data="`${row.item.cpu} vCore`"
+                              />
+                              <list-entry
+                                title="RAM"
+                                :data="`${row.item.ram} MB`"
+                              />
+                              <list-entry
+                                title="SSD"
+                                :data="`${row.item.hdd} GB`"
+                              />
+                            </div>
+                          </b-card>
+                        </div>
+                        <div v-else>
+                          <h3 class="no-wrap">
+                            <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
+                              <b-icon
+                                scale="1"
+                                icon="box"
+                                class="ml-1"
+                              /> &nbsp;Composition&nbsp;</kbd>
+                          </h3>
+                          <b-card
+                            v-for="(component, index) in row.item.compose"
+                            :key="index"
+                            class="mb-0"
+                          >
+                            <h3 class="no-wrap">
+                              <kbd class="alert-success d-flex" style="border-radius: 15px; font-family: monospace; max-width: 500px;">
+                                <b-icon
+                                  scale="1"
+                                  icon="menu-app-fill"
+                                  class="ml-1"
+                                /> &nbsp;{{ component.name }}&nbsp;</kbd>
+                            </h3>
+                            <div class="ml-1">
+                              <list-entry
+                                title="Name"
+                                :data="component.name"
+                              />
+                              <list-entry
+                                title="Description"
+                                :data="component.description"
+                              />
+                              <list-entry
+                                title="Repository"
+                                :data="component.repotag"
+                              />
+                              <list-entry
+                                title="Repository Authentication"
+                                :data="component.repoauth ? 'Content Encrypted' : 'Public'"
+                              />
+                              <list-entry
+                                title="Custom Domains"
+                                :data="component.domains.toString() || 'none'"
+                              />
+                              <list-entry
+                                title="Automatic Domains"
+                                :data="constructAutomaticDomains(component.ports, component.name, row.item.name, index).toString()"
+                              />
+                              <list-entry
+                                title="Ports"
+                                :data="component.ports.toString()"
+                              />
+                              <list-entry
+                                title="Container Ports"
+                                :data="component.containerPorts.toString()"
+                              />
+                              <list-entry
+                                title="Container Data"
+                                :data="component.containerData"
+                              />
+                              <list-entry
+                                title="Environment Parameters"
+                                :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
+                              />
+                              <list-entry
+                                title="Commands"
+                                :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
+                              />
+                              <list-entry
+                                title="Secret Environment Parameters"
+                                :data="component.secrets ? 'Content Encrypted' : 'none'"
+                              />
+                              <div v-if="component.tiered">
+                                <list-entry
+                                  title="CPU Cumulus"
+                                  :data="`${component.cpubasic} vCore`"
+                                />
+                                <list-entry
+                                  title="CPU Nimbus"
+                                  :data="`${component.cpusuper} vCore`"
+                                />
+                                <list-entry
+                                  title="CPU Stratus"
+                                  :data="`${component.cpubamf} vCore`"
+                                />
+                                <list-entry
+                                  title="RAM Cumulus"
+                                  :data="`${component.rambasic} MB`"
+                                />
+                                <list-entry
+                                  title="RAM Nimbus"
+                                  :data="`${component.ramsuper} MB`"
+                                />
+                                <list-entry
+                                  title="RAM Stratus"
+                                  :data="`${component.rambamf} MB`"
+                                />
+                                <list-entry
+                                  title="SSD Cumulus"
+                                  :data="`${component.hddbasic} GB`"
+                                />
+                                <list-entry
+                                  title="SSD Nimbus"
+                                  :data="`${component.hddsuper} GB`"
+                                />
+                                <list-entry
+                                  title="SSD Stratus"
+                                  :data="`${component.hddbamf} GB`"
+                                />
+                              </div>
+                              <div v-else>
+                                <list-entry
+                                  title="CPU"
+                                  :data="`${component.cpu} vCore`"
+                                />
+                                <list-entry
+                                  title="RAM"
+                                  :data="`${component.ram} MB`"
+                                />
+                                <list-entry
+                                  title="SSD"
+                                  :data="`${component.hdd} GB`"
+                                />
+                              </div>
+                            </div>
+                          </b-card>
+                        </div>
+                        <h3>
+                          <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
+                            <b-icon
+                              scale="1"
+                              icon="globe"
+                              class="ml-1"
+                            /> &nbsp;Locations&nbsp;</kbd>
+                        </h3>
+                        <b-row>
+                          <b-col
+                            md="4"
+                            sm="4"
+                            class="my-1"
+                          >
+                            <b-form-group class="mb-0">
+                              <label class="d-inline-block text-left mr-50">Per page</label>
+                              <b-form-select
+                                id="perPageSelect"
+                                v-model="appLocationOptions.perPage"
+                                size="sm"
+                                :options="appLocationOptions.pageOptions"
+                                class="w-50"
+                              />
+                            </b-form-group>
+                          </b-col>
+                          <b-col
+                            md="8"
+                            class="my-1"
+                          >
+                            <b-form-group
+                              label="Filter"
+                              label-cols-sm="1"
+                              label-align-sm="right"
+                              label-for="filterInput"
+                              class="mb-0"
+                            >
+                              <b-input-group size="sm">
+                                <b-form-input
+                                  id="filterInput"
+                                  v-model="appLocationOptions.filterTwo"
+                                  type="search"
+                                  placeholder="Type to Search"
+                                />
+                                <b-input-group-append>
+                                  <b-button
+                                    :disabled="!appLocationOptions.filterTwo"
+                                    @click="appLocationOptions.filterTwo = ''"
+                                  >
+                                    Clear
+                                  </b-button>
+                                </b-input-group-append>
+                              </b-input-group>
+                            </b-form-group>
+                          </b-col>
+
+                          <b-col cols="12">
+                            <b-table
+                              class="locations-table"
+                              borderless
+                              :per-page="appLocationOptions.perPage"
+                              :current-page="appLocationOptions.currentPage"
+                              :items="appLocations"
+                              :fields="appLocationFields"
+                              thead-class="d-none"
+                              :filter="appLocationOptions.filterTwo"
+                              show-empty
+                              sort-icon-left
+                              empty-text="No instances found.."
+                            >
+                              <template #cell(ip)="locationRow">
+                                <div class="no-wrap">
+                                  <kbd class="alert-info" style="border-radius: 15px;">
+                                    <b-icon
+                                      scale="1.1"
+                                      icon="hdd-network-fill"
+                                    /></kbd>
+                                  &nbsp;<kbd class="alert-success no-wrap" style="border-radius: 15px;">
+                                    <b>&nbsp;&nbsp;{{ locationRow.item.ip }}&nbsp;&nbsp;</b>
+                                  </kbd>
+                                </div>
+                              </template>
+                              <template #cell(visit)="locationRow">
+                                <div class="d-flex justify-content-end">
+                                  <b-button
+                                    v-b-tooltip.hover.top="'Visit App'"
+                                    size="sm"
+                                    class="mr-1"
+                                    pill
+                                    variant="dark"
+                                    @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
+                                  >
+                                    <b-icon
+                                      scale="1"
+                                      icon="door-open"
+                                    />
+                                    App
+                                  </b-button>
+                                  <b-button
+                                    v-b-tooltip.hover.top="'Visit FluxNode'"
+                                    size="sm"
+                                    class="mr-0"
+                                    pill
+                                    variant="outline-dark"
+                                    @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
+                                  >
+                                    <b-icon
+                                      scale="1"
+                                      icon="house-door-fill"
+                                    />
+                                    FluxNode
+                                  </b-button>&nbsp;&nbsp;
+                                </div>
+                              </template>
+                            </b-table>
+                          </b-col>
+                          <b-col cols="12">
+                            <b-pagination
+                              v-model="appLocationOptions.currentPage"
+                              :total-rows="appLocationOptions.totalRows"
+                              :per-page="appLocationOptions.perPage"
+                              align="center"
+                              size="sm"
+                              class="my-0 mt-1"
+                            />
+                          </b-col>
+                        </b-row>
+                      </b-card>
+                    </template>
+                    <template #cell(Name)="row">
+                      {{ getAppName(row.item.name) }}
+                    </template>
+                    <template #cell(Description)="row">
+                      {{ row.item.description }}
+                    </template>
+                    <template #cell(install)="row">
+                      <b-button
+                        :id="`install-app-${row.item.name}`"
+                        v-b-tooltip.hover.top="'Install App'"
+                        size="sm"
+                        class="mr-0 no-wrap"
+                        variant="primary"
+                        pill
+                      >
+                        <b-icon
+                          scale="0.9"
+                          icon="layer-forward"
+                        />
+                        Install
                       </b-button>
                       <confirm-dialog
-                        :target="`start-local-app-${row.item.name}`"
-                        confirm-button="Start App"
-                        @confirm="startApp(row.item.name)"
-                      />
-                      <b-button
-                        :id="`restart-local-app-${row.item.name}`"
-                        size="sm"
-                        class="w-100 mr-1"
-                        variant="danger"
-                      >
-                        Restart
-                      </b-button>
-                      <confirm-dialog
-                        :target="`restart-local-app-${row.item.name}`"
-                        confirm-button="Restart App"
-                        @confirm="restartApp(row.item.name)"
+                        :target="`install-app-${row.item.name}`"
+                        confirm-button="Install App"
+                        @confirm="installAppLocally(row.item.name)"
                       />
                     </template>
-                    <template #cell(remove)="row">
-                      <b-button
-                        :id="`remove-local-app-${row.item.name}`"
-                        size="sm"
-                        class="mr-0"
-                        variant="danger"
-                      >
-                        Remove
-                      </b-button>
-                      <confirm-dialog
-                        :target="`remove-local-app-${row.item.name}`"
-                        confirm-button="Remove App"
-                        @confirm="removeApp(row.item.name)"
+                  </b-table>
+                </b-col>
+              </b-row>
+            </b-card>
+            <b-card>
+              <div class="mb-0">
+                <h3>
+                  <kbd class="alert-info d-flex no-wrap" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
+                    &nbsp;<b-icon
+                      scale="1"
+                      icon="globe"
+                      class="mr-1"
+                    /> Global Applications&nbsp;</kbd>
+                </h3>
+              </div>
+              <b-row>
+                <b-col
+                  md="4"
+                  sm="4"
+                  class="my-1"
+                >
+                  <b-form-group class="mb-0">
+                    <label class="d-inline-block text-left mr-50">Per page</label>
+                    <b-form-select
+                      id="perPageSelect"
+                      v-model="tableconfig.globalAvailable.perPage"
+                      size="sm"
+                      :options="appLocationOptions.pageOptions"
+                      class="w-50"
+                    />
+                  </b-form-group>
+                </b-col>
+                <b-col
+                  md="8"
+                  class="my-1"
+                >
+                  <b-form-group
+                    label="Filter"
+                    label-cols-sm="1"
+                    label-align-sm="right"
+                    label-for="filterInput"
+                    class="mb-0 mt-0"
+                  >
+                    <b-input-group size="sm">
+                      <b-form-input
+                        id="filterInput"
+                        v-model="tableconfig.globalAvailable.filter"
+                        type="search"
+                        placeholder="Type to Search"
                       />
+                      <b-input-group-append>
+                        <b-button
+                          :disabled="!tableconfig.globalAvailable.filter"
+                          @click="tableconfig.globalAvailable.filter = ''"
+                        >
+                          Clear
+                        </b-button>
+                      </b-input-group-append>
+                    </b-input-group>
+                  </b-form-group>
+                </b-col>
+                <b-col cols="12 mt-0">
+                  <b-table
+                    class="apps-globalAvailable-table"
+                    striped
+                    outlined
+                    responsive
+                    :per-page="tableconfig.globalAvailable.perPage"
+                    :current-page="tableconfig.globalAvailable.currentPage"
+                    :items="tableconfig.globalAvailable.apps"
+                    :fields="isLoggedIn() ? tableconfig.globalAvailable.loggedInFields : tableconfig.globalAvailable.fields"
+                    :filter="tableconfig.globalAvailable.filter"
+                    show-empty
+                    sort-icon-left
+                    empty-text="No Flux Apps Globally Available"
+                  >
+                    <template #cell(name)="row">
+                      <div class="text-left">
+                        <kbd class="alert-info no-wrap" style="border-radius: 15px; font-weight: 700 !important;"> <b-icon scale="1.2" icon="app-indicator" />&nbsp;&nbsp;{{ row.item.name }}&nbsp; </kbd>
+                        <br>
+                        <small style="font-size: 11px;">
+                          <div class="d-flex align-items-center" style="margin-top: 3px">
+                          &nbsp;&nbsp;<b-icon scale="1.4" icon="speedometer2" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(1, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
+                            &nbsp;<b-icon scale="1.4" icon="cpu" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(0, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
+                            &nbsp;<b-icon scale="1.4" icon="hdd" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(2, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
+                            <b-icon scale="1.2" icon="geo-alt" />&nbsp;<kbd class="alert-warning" style="border-radius: 15px;">&nbsp;<b>{{ row.item.instances }}</b>&nbsp;</kbd>
+                          </div>
+                          <span :class="{ 'red-text': isLessThanTwoDays(labelForExpire(row.item.expire, row.item.height)) }" class="no-wrap">
+                            &nbsp;&nbsp;<b-icon scale="1.2" icon="hourglass-split" />
+                            {{ labelForExpire(row.item.expire, row.item.height) }}&nbsp;&nbsp;
+                          </span>
+                        </small>
+                      </div>
                     </template>
-                    <template #cell(manage)="row">
+                    <template #cell(description)="row">
+                      <kbd class="text-secondary textarea" style="float: left; text-align:left;">{{ row.item.description }}</kbd>
+                    </template>
+                    <template #cell(show_details)="row">
+                      <a @click="showLocations(row, tableconfig.globalAvailable.apps)">
+                        <v-icon
+                          v-if="!row.detailsShowing"
+                          name="chevron-down"
+                          class="ml-1"
+                        />
+                        <v-icon
+                          v-if="row.detailsShowing"
+                          name="chevron-up"
+                          class="ml-1"
+                        />
+                      </a>
+                    </template>
+                    <template #row-details="row">
+                      <b-card class="mx-2">
+                        <h3 class="no-wrap">
+                          <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
+                            <b-icon
+                              scale="1"
+                              icon="info-square"
+                              class="ml-1"
+                            /> &nbsp;Application Information&nbsp;</kbd>
+                        </h3>
+                        <div class="ml-1">
+                          <list-entry
+                            v-if="row.item.owner"
+                            title="Owner"
+                            :data="row.item.owner"
+                          />
+                          <list-entry
+                            v-if="row.item.hash"
+                            title="Hash"
+                            :data="row.item.hash"
+                          />
+                          <div v-if="row.item.version >= 5">
+                            <list-entry
+                              v-if="row.item.contacts.length > 0"
+                              title="Contacts"
+                              :data="JSON.stringify(row.item.contacts)"
+                            />
+                            <div v-if="row.item.geolocation.length">
+                              <div
+                                v-for="location in row.item.geolocation"
+                                :key="location"
+                              >
+                                <list-entry
+                                  title="Geolocation"
+                                  :data="getGeolocation(location)"
+                                />
+                              </div>
+                            </div>
+                            <div v-else>
+                              <list-entry
+                                title="Continent"
+                                data="All"
+                              />
+                              <list-entry
+                                title="Country"
+                                data="All"
+                              />
+                              <list-entry
+                                title="Region"
+                                data="All"
+                              />
+                            </div>
+                          </div>
+                          <list-entry
+                            v-if="row.item.instances"
+                            title="Instances"
+                            :data="row.item.instances.toString()"
+                          />
+                          <list-entry
+                            title="Expires in"
+                            :data="labelForExpire(row.item.expire, row.item.height)"
+                          />
+                          <list-entry
+                            v-if="row.item?.nodes?.length > 0"
+                            title="Enterprise Nodes"
+                            :data="row.item.nodes ? row.item.nodes.toString() : 'Not scoped'"
+                          />
+                          <list-entry
+                            title="Static IP"
+                            :data="row.item.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
+                          />
+                        </div>
+                        <div v-if="row.item.version <= 3">
+                          <b-card>
+                            <list-entry
+                              title="Repository"
+                              :data="row.item.repotag"
+                            />
+                            <list-entry
+                              title="Custom Domains"
+                              :data="row.item.domains.toString() || 'none'"
+                            />
+                            <list-entry
+                              title="Automatic Domains"
+                              :data="constructAutomaticDomains(row.item.ports, undefined, row.item.name).toString()"
+                            />
+                            <list-entry
+                              title="Ports"
+                              :data="row.item.ports.toString()"
+                            />
+                            <list-entry
+                              title="Container Ports"
+                              :data="row.item.containerPorts.toString()"
+                            />
+                            <list-entry
+                              title="Container Data"
+                              :data="row.item.containerData"
+                            />
+                            <list-entry
+                              title="Enviroment Parameters"
+                              :data="row.item.enviromentParameters.length > 0 ? row.item.enviromentParameters.toString() : 'none'"
+                            />
+                            <list-entry
+                              title="Commands"
+                              :data="row.item.commands.length > 0 ? row.item.commands.toString() : 'none'"
+                            />
+                            <div v-if="row.item.tiered">
+                              <list-entry
+                                title="CPU Cumulus"
+                                :data="`${row.item.cpubasic} vCore`"
+                              />
+                              <list-entry
+                                title="CPU Nimbus"
+                                :data="`${row.item.cpusuper} vCore`"
+                              />
+                              <list-entry
+                                title="CPU Stratus"
+                                :data="`${row.item.cpubamf} vCore`"
+                              />
+                              <list-entry
+                                title="RAM Cumulus"
+                                :data="`${row.item.rambasic} MB`"
+                              />
+                              <list-entry
+                                title="RAM Nimbus"
+                                :data="`${row.item.ramsuper} MB`"
+                              />
+                              <list-entry
+                                title="RAM Stratus"
+                                :data="`${row.item.rambamf} MB`"
+                              />
+                              <list-entry
+                                title="SSD Cumulus"
+                                :data="`${row.item.hddbasic} GB`"
+                              />
+                              <list-entry
+                                title="SSD Nimbus"
+                                :data="`${row.item.hddsuper} GB`"
+                              />
+                              <list-entry
+                                title="SSD Stratus"
+                                :data="`${row.item.hddbamf} GB`"
+                              />
+                            </div>
+                            <div v-else>
+                              <list-entry
+                                title="CPU"
+                                :data="`${row.item.cpu} vCore`"
+                              />
+                              <list-entry
+                                title="RAM"
+                                :data="`${row.item.ram} MB`"
+                              />
+                              <list-entry
+                                title="SSD"
+                                :data="`${row.item.hdd} GB`"
+                              />
+                            </div>
+                          </b-card>
+                        </div>
+                        <div v-else>
+                          <h3 class="no-wrap">
+                            <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
+                              <b-icon
+                                scale="1"
+                                icon="box"
+                                class="ml-1"
+                              /> &nbsp;Composition&nbsp;</kbd>
+                          </h3>
+                          <b-card
+                            v-for="(component, index) in row.item.compose"
+                            :key="index"
+                            class="mb-0"
+                          >
+                            <h3 class="no-wrap">
+                              <kbd class="alert-success d-flex" style="border-radius: 15px; font-family: monospace; max-width: 500px;">
+                                <b-icon
+                                  scale="1"
+                                  icon="menu-app-fill"
+                                  class="ml-1"
+                                /> &nbsp;{{ component.name }}&nbsp;</kbd>
+                            </h3>
+                            <div class="ml-1">
+                              <list-entry
+                                title="Name"
+                                :data="component.name"
+                              />
+                              <list-entry
+                                title="Description"
+                                :data="component.description"
+                              />
+                              <list-entry
+                                title="Repository"
+                                :data="component.repotag"
+                              />
+                              <list-entry
+                                title="Repository Authentication"
+                                :data="component.repoauth ? 'Content Encrypted' : 'Public'"
+                              />
+                              <list-entry
+                                title="Custom Domains"
+                                :data="component.domains.toString() || 'none'"
+                              />
+                              <list-entry
+                                title="Automatic Domains"
+                                :data="constructAutomaticDomains(component.ports, component.name, row.item.name, index).toString()"
+                              />
+                              <list-entry
+                                title="Ports"
+                                :data="component.ports.toString()"
+                              />
+                              <list-entry
+                                title="Container Ports"
+                                :data="component.containerPorts.toString()"
+                              />
+                              <list-entry
+                                title="Container Data"
+                                :data="component.containerData"
+                              />
+                              <list-entry
+                                title="Environment Parameters"
+                                :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
+                              />
+                              <list-entry
+                                title="Commands"
+                                :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
+                              />
+                              <list-entry
+                                title="Secret Environment Parameters"
+                                :data="component.secrets ? 'Content Encrypted' : 'none'"
+                              />
+                              <div v-if="component.tiered">
+                                <list-entry
+                                  title="CPU Cumulus"
+                                  :data="`${component.cpubasic} vCore`"
+                                />
+                                <list-entry
+                                  title="CPU Nimbus"
+                                  :data="`${component.cpusuper} vCore`"
+                                />
+                                <list-entry
+                                  title="CPU Stratus"
+                                  :data="`${component.cpubamf} vCore`"
+                                />
+                                <list-entry
+                                  title="RAM Cumulus"
+                                  :data="`${component.rambasic} MB`"
+                                />
+                                <list-entry
+                                  title="RAM Nimbus"
+                                  :data="`${component.ramsuper} MB`"
+                                />
+                                <list-entry
+                                  title="RAM Stratus"
+                                  :data="`${component.rambamf} MB`"
+                                />
+                                <list-entry
+                                  title="SSD Cumulus"
+                                  :data="`${component.hddbasic} GB`"
+                                />
+                                <list-entry
+                                  title="SSD Nimbus"
+                                  :data="`${component.hddsuper} GB`"
+                                />
+                                <list-entry
+                                  title="SSD Stratus"
+                                  :data="`${component.hddbamf} GB`"
+                                />
+                              </div>
+                              <div v-else>
+                                <list-entry
+                                  title="CPU"
+                                  :data="`${component.cpu} vCore`"
+                                />
+                                <list-entry
+                                  title="RAM"
+                                  :data="`${component.ram} MB`"
+                                />
+                                <list-entry
+                                  title="SSD"
+                                  :data="`${component.hdd} GB`"
+                                />
+                              </div>
+                            </div>
+                          </b-card>
+                        </div>
+                        <h3>
+                          <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
+                            <b-icon
+                              scale="1"
+                              icon="globe"
+                              class="ml-1"
+                            /> &nbsp;Locations&nbsp;</kbd>
+                        </h3>
+                        <b-row>
+                          <b-col
+                            md="4"
+                            sm="4"
+                            class="my-1"
+                          >
+                            <b-form-group class="mb-0">
+                              <label class="d-inline-block text-left mr-50">Per page</label>
+                              <b-form-select
+                                id="perPageSelect"
+                                v-model="appLocationOptions.perPage"
+                                size="sm"
+                                :options="appLocationOptions.pageOptions"
+                                class="w-50"
+                              />
+                            </b-form-group>
+                          </b-col>
+                          <b-col
+                            md="8"
+                            class="my-1"
+                          >
+                            <b-form-group
+                              label="Filter"
+                              label-cols-sm="1"
+                              label-align-sm="right"
+                              label-for="filterInput"
+                              class="mb-0"
+                            >
+                              <b-input-group size="sm">
+                                <b-form-input
+                                  id="filterInput"
+                                  v-model="appLocationOptions.filterTree"
+                                  type="search"
+                                  placeholder="Type to Search"
+                                />
+                                <b-input-group-append>
+                                  <b-button
+                                    :disabled="!appLocationOptions.filterTree"
+                                    @click="appLocationOptions.filterTree = ''"
+                                  >
+                                    Clear
+                                  </b-button>
+                                </b-input-group-append>
+                              </b-input-group>
+                            </b-form-group>
+                          </b-col>
+
+                          <b-col cols="12">
+                            <b-table
+                              class="locations-table"
+                              borderless
+                              :per-page="appLocationOptions.perPage"
+                              :current-page="appLocationOptions.currentPage"
+                              :items="appLocations"
+                              :fields="appLocationFields"
+                              thead-class="d-none"
+                              :filter="appLocationOptions.filterTree"
+                              show-empty
+                              sort-icon-left
+                              empty-text="No instances found.."
+                            >
+                              <template #cell(ip)="locationRow">
+                                <div class="no-wrap">
+                                  <kbd class="alert-info" style="border-radius: 15px;">
+                                    <b-icon
+                                      scale="1.1"
+                                      icon="hdd-network-fill"
+                                    /></kbd>
+                                  &nbsp;<kbd class="alert-success no-wrap" style="border-radius: 15px;">
+                                    <b>&nbsp;&nbsp;{{ locationRow.item.ip }}&nbsp;&nbsp;</b>
+                                  </kbd>
+                                </div>
+                              </template>
+                              <template #cell(visit)="locationRow">
+                                <div class="d-flex justify-content-end">
+                                  <b-button
+                                    v-b-tooltip.hover.top="'Visit App'"
+                                    size="sm"
+                                    class="mr-1"
+                                    pill
+                                    variant="dark"
+                                    @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
+                                  >
+                                    <b-icon
+                                      scale="1"
+                                      icon="door-open"
+                                    />
+                                    App
+                                  </b-button>
+                                  <b-button
+                                    v-b-tooltip.hover.top="'Visit FluxNode'"
+                                    size="sm"
+                                    class="mr-0"
+                                    pill
+                                    variant="outline-dark"
+                                    @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
+                                  >
+                                    <b-icon
+                                      scale="1"
+                                      icon="house-door-fill"
+                                    />
+                                    FluxNode
+                                  </b-button>&nbsp;&nbsp;
+                                </div>
+                              </template>
+                            </b-table>
+                          </b-col>
+                          <b-col cols="12">
+                            <b-pagination
+                              v-model="appLocationOptions.currentPage"
+                              :total-rows="appLocationOptions.totalRows"
+                              :per-page="appLocationOptions.perPage"
+                              align="center"
+                              size="sm"
+                              class="my-0 mt-1"
+                            />
+                          </b-col>
+                        </b-row>
+                      </b-card>
+                    </template>
+                    <template #cell(install)="row">
                       <b-button
-                        :id="`manage-local-app-${row.item.name}`"
+                        :id="`install-app-${row.item.name}`"
+                        v-b-tooltip.hover.top="'Install App'"
                         size="sm"
-                        class="mr-0"
-                        variant="danger"
+                        class="mr-0 no-wrap"
+                        pill
+                        variant="primary"
                       >
-                        Manage
+                        <b-icon
+                          scale="0.9"
+                          icon="layer-forward"
+                        />
+                        Install
                       </b-button>
                       <confirm-dialog
-                        :target="`manage-local-app-${row.item.name}`"
-                        confirm-button="Manage App"
-                        @confirm="openAppManagement(row.item.name)"
+                        :target="`install-app-${row.item.name}`"
+                        confirm-button="Install App"
+                        @confirm="installAppLocally(row.item.name)"
                       />
                     </template>
                   </b-table>
                 </b-col>
                 <b-col cols="12">
                   <b-pagination
-                    v-model="tableconfig.local.currentPage"
-                    :total-rows="tableconfig.local.totalRows"
-                    :per-page="tableconfig.local.perPage"
+                    v-model="tableconfig.globalAvailable.currentPage"
+                    :total-rows="tableconfig.globalAvailable.apps.length"
+                    :per-page="tableconfig.globalAvailable.perPage"
                     align="center"
                     size="sm"
                     class="my-0"
                   />
-                  <span class="table-total">Total: {{ tableconfig.local.totalRows }}</span>
+                </b-col>
+              </b-row>
+            </b-card>
+          </b-overlay>
+        </b-tab>
+        <b-tab title="My Local Apps">
+          <b-overlay
+            :show="tableconfig.installed.loading"
+            variant="transparent"
+            blur="5px"
+          >
+            <b-card>
+              <b-row>
+                <b-col
+                  md="4"
+                  sm="4"
+                  class="my-1"
+                >
+                  <b-form-group class="mb-0">
+                    <label class="d-inline-block text-left mr-50">Per page</label>
+                    <b-form-select
+                      id="perPageSelect"
+                      v-model="tableconfig.local.perPage"
+                      size="sm"
+                      :options="tableconfig.local.pageOptions"
+                      class="w-50"
+                    />
+                  </b-form-group>
+                </b-col>
+                <b-col
+                  md="8"
+                  class="my-1"
+                >
+                  <b-form-group
+                    label="Filter"
+                    label-cols-sm="1"
+                    label-align-sm="right"
+                    label-for="filterInput"
+                    class="mb-0"
+                  >
+                    <b-input-group size="sm">
+                      <b-form-input
+                        id="filterInput"
+                        v-model="tableconfig.local.filter"
+                        type="search"
+                        placeholder="Type to Search"
+                      />
+                      <b-input-group-append>
+                        <b-button
+                          :disabled="!tableconfig.local.filter"
+                          @click="tableconfig.local.filter = ''"
+                        >
+                          Clear
+                        </b-button>
+                      </b-input-group-append>
+                    </b-input-group>
+                  </b-form-group>
+                </b-col>
+
+                <b-col cols="12">
+                  <b-table
+                    class="apps-local-table"
+                    striped
+                    outlined
+                    responsive
+                    :per-page="tableconfig.local.perPage"
+                    :current-page="tableconfig.local.currentPage"
+                    :items="tableconfig.local.apps"
+                    :fields="tableconfig.local.fields"
+                    :sort-by.sync="tableconfig.local.sortBy"
+                    :sort-desc.sync="tableconfig.local.sortDesc"
+                    :sort-direction="tableconfig.local.sortDirection"
+                    :filter="tableconfig.local.filter"
+                    show-empty
+                    sort-icon-left
+                    :empty-text="'No Local Apps owned.'"
+                    @filtered="onFilteredLocal"
+                  >
+                    <template #cell(name)="row">
+                      <div class="text-left">
+                        <kbd class="alert-info no-wrap" style="border-radius: 15px; font-weight: 700 !important;"> <b-icon scale="1.2" icon="app-indicator" />&nbsp;&nbsp;{{ row.item.name }}&nbsp; </kbd>
+                        <br>
+                        <small style="font-size: 11px;">
+                          <div class="d-flex align-items-center" style="margin-top: 3px">
+                          &nbsp;&nbsp;<b-icon scale="1.4" icon="speedometer2" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(1, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
+                            &nbsp;<b-icon scale="1.4" icon="cpu" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(0, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
+                            &nbsp;<b-icon scale="1.4" icon="hdd" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(2, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
+                            <b-icon scale="1.2" icon="geo-alt" />&nbsp;<kbd class="alert-warning" style="border-radius: 15px;">&nbsp;<b>{{ row.item.instances }}</b>&nbsp;</kbd>
+                          </div>
+                          <span :class="{ 'red-text': isLessThanTwoDays(labelForExpire(row.item.expire, row.item.height)) }" class="no-wrap">
+                            &nbsp;&nbsp;<b-icon scale="1.2" icon="hourglass-split" />
+                            {{ labelForExpire(row.item.expire, row.item.height) }}&nbsp;&nbsp;
+                          </span>
+                        </small>
+                      </div>
+                    </template>
+                    <template #cell(visit)="row">
+                      <b-button
+                        v-b-tooltip.hover.top="'Visit App'"
+                        size="sm"
+                        class="mr-0 no-wrap hover-underline"
+                        variant="link"
+                        @click="openApp(row.item.name)"
+                      >
+                        <b-icon
+                          scale="1"
+                          icon="front"
+                        />
+                        Visit
+                      </b-button>
+                    </template>
+                    <template #cell(description)="row">
+                      <kbd class="text-secondary textarea" style="float: left; text-align:left;">{{ row.item.description }}</kbd>
+                    </template>
+                    <template #cell(state)="row">
+                      <kbd :class="getBadgeClass(row.item.name)" style="border-radius: 15px">&nbsp;<b>{{ getStateByName(row.item.name) }}</b>&nbsp;</kbd>
+                    </template>
+
+                    <template #cell(show_details)="row">
+                      <a @click="showLocations(row, tableconfig.local.apps)">
+                        <v-icon
+                          v-if="!row.detailsShowing"
+                          name="chevron-down"
+                          class="ml-1"
+                        />
+                        <v-icon
+                          v-if="row.detailsShowing"
+                          name="chevron-up"
+                          class="ml-1"
+                        />
+                      </a>
+                    </template>
+                    <template #row-details="row">
+                      <b-card class="mx-2">
+                        <h3 class="no-wrap">
+                          <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
+                            <b-icon
+                              scale="1"
+                              icon="info-square"
+                              class="ml-1"
+                            /> &nbsp;Application Information&nbsp;</kbd>
+                        </h3>
+                        <div class="ml-1">
+                          <list-entry
+                            v-if="row.item.owner"
+                            title="Owner"
+                            :data="row.item.owner"
+                          />
+                          <list-entry
+                            v-if="row.item.hash"
+                            title="Hash"
+                            :data="row.item.hash"
+                          />
+                          <div v-if="row.item.version >= 5">
+                            <list-entry
+                              v-if="row.item.contacts.length > 0"
+                              title="Contacts"
+                              :data="JSON.stringify(row.item.contacts)"
+                            />
+                            <div v-if="row.item.geolocation.length">
+                              <div
+                                v-for="location in row.item.geolocation"
+                                :key="location"
+                              >
+                                <list-entry
+                                  title="Geolocation"
+                                  :data="getGeolocation(location)"
+                                />
+                              </div>
+                            </div>
+                            <div v-else>
+                              <list-entry
+                                title="Continent"
+                                data="All"
+                              />
+                              <list-entry
+                                title="Country"
+                                data="All"
+                              />
+                              <list-entry
+                                title="Region"
+                                data="All"
+                              />
+                            </div>
+                          </div>
+                          <list-entry
+                            v-if="row.item.instances"
+                            title="Instances"
+                            :data="row.item.instances.toString()"
+                          />
+                          <list-entry
+                            title="Expires in"
+                            :data="labelForExpire(row.item.expire, row.item.height)"
+                          />
+                          <list-entry
+                            v-if="row.item?.nodes?.length > 0"
+                            title="Enterprise Nodes"
+                            :data="row.item.nodes ? row.item.nodes.toString() : 'Not scoped'"
+                          />
+                          <list-entry
+                            title="Static IP"
+                            :data="row.item.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
+                          />
+                        </div>
+                        <div v-if="row.item.version <= 3">
+                          <b-card>
+                            <list-entry
+                              title="Repository"
+                              :data="row.item.repotag"
+                            />
+                            <list-entry
+                              title="Custom Domains"
+                              :data="row.item.domains.toString() || 'none'"
+                            />
+                            <list-entry
+                              title="Automatic Domains"
+                              :data="constructAutomaticDomains(row.item.ports, undefined, row.item.name).toString()"
+                            />
+                            <list-entry
+                              title="Ports"
+                              :data="row.item.ports.toString()"
+                            />
+                            <list-entry
+                              title="Container Ports"
+                              :data="row.item.containerPorts.toString()"
+                            />
+                            <list-entry
+                              title="Container Data"
+                              :data="row.item.containerData"
+                            />
+                            <list-entry
+                              title="Enviroment Parameters"
+                              :data="row.item.enviromentParameters.length > 0 ? row.item.enviromentParameters.toString() : 'none'"
+                            />
+                            <list-entry
+                              title="Commands"
+                              :data="row.item.commands.length > 0 ? row.item.commands.toString() : 'none'"
+                            />
+                            <div v-if="row.item.tiered">
+                              <list-entry
+                                title="CPU Cumulus"
+                                :data="`${row.item.cpubasic} vCore`"
+                              />
+                              <list-entry
+                                title="CPU Nimbus"
+                                :data="`${row.item.cpusuper} vCore`"
+                              />
+                              <list-entry
+                                title="CPU Stratus"
+                                :data="`${row.item.cpubamf} vCore`"
+                              />
+                              <list-entry
+                                title="RAM Cumulus"
+                                :data="`${row.item.rambasic} MB`"
+                              />
+                              <list-entry
+                                title="RAM Nimbus"
+                                :data="`${row.item.ramsuper} MB`"
+                              />
+                              <list-entry
+                                title="RAM Stratus"
+                                :data="`${row.item.rambamf} MB`"
+                              />
+                              <list-entry
+                                title="SSD Cumulus"
+                                :data="`${row.item.hddbasic} GB`"
+                              />
+                              <list-entry
+                                title="SSD Nimbus"
+                                :data="`${row.item.hddsuper} GB`"
+                              />
+                              <list-entry
+                                title="SSD Stratus"
+                                :data="`${row.item.hddbamf} GB`"
+                              />
+                            </div>
+                            <div v-else>
+                              <list-entry
+                                title="CPU"
+                                :data="`${row.item.cpu} vCore`"
+                              />
+                              <list-entry
+                                title="RAM"
+                                :data="`${row.item.ram} MB`"
+                              />
+                              <list-entry
+                                title="SSD"
+                                :data="`${row.item.hdd} GB`"
+                              />
+                            </div>
+                          </b-card>
+                        </div>
+                        <div v-else>
+                          <h3 class="no-wrap">
+                            <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
+                              <b-icon
+                                scale="1"
+                                icon="box"
+                                class="ml-1"
+                              /> &nbsp;Composition&nbsp;</kbd>
+                          </h3>
+                          <b-card
+                            v-for="(component, index) in row.item.compose"
+                            :key="index"
+                            class="mb-0"
+                          >
+                            <h3 class="no-wrap">
+                              <kbd class="alert-success d-flex" style="border-radius: 15px; font-family: monospace; max-width: 500px;">
+                                <b-icon
+                                  scale="1"
+                                  icon="menu-app-fill"
+                                  class="ml-1"
+                                /> &nbsp;{{ component.name }}&nbsp;</kbd>
+                            </h3>
+                            <div class="ml-1">
+                              <list-entry
+                                title="Name"
+                                :data="component.name"
+                              />
+                              <list-entry
+                                title="Description"
+                                :data="component.description"
+                              />
+                              <list-entry
+                                title="Repository"
+                                :data="component.repotag"
+                              />
+                              <list-entry
+                                title="Repository Authentication"
+                                :data="component.repoauth ? 'Content Encrypted' : 'Public'"
+                              />
+                              <list-entry
+                                title="Custom Domains"
+                                :data="component.domains.toString() || 'none'"
+                              />
+                              <list-entry
+                                title="Automatic Domains"
+                                :data="constructAutomaticDomains(component.ports, component.name, row.item.name, index).toString()"
+                              />
+                              <list-entry
+                                title="Ports"
+                                :data="component.ports.toString()"
+                              />
+                              <list-entry
+                                title="Container Ports"
+                                :data="component.containerPorts.toString()"
+                              />
+                              <list-entry
+                                title="Container Data"
+                                :data="component.containerData"
+                              />
+                              <list-entry
+                                title="Environment Parameters"
+                                :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
+                              />
+                              <list-entry
+                                title="Commands"
+                                :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
+                              />
+                              <list-entry
+                                title="Secret Environment Parameters"
+                                :data="component.secrets ? 'Content Encrypted' : 'none'"
+                              />
+                              <div v-if="component.tiered">
+                                <list-entry
+                                  title="CPU Cumulus"
+                                  :data="`${component.cpubasic} vCore`"
+                                />
+                                <list-entry
+                                  title="CPU Nimbus"
+                                  :data="`${component.cpusuper} vCore`"
+                                />
+                                <list-entry
+                                  title="CPU Stratus"
+                                  :data="`${component.cpubamf} vCore`"
+                                />
+                                <list-entry
+                                  title="RAM Cumulus"
+                                  :data="`${component.rambasic} MB`"
+                                />
+                                <list-entry
+                                  title="RAM Nimbus"
+                                  :data="`${component.ramsuper} MB`"
+                                />
+                                <list-entry
+                                  title="RAM Stratus"
+                                  :data="`${component.rambamf} MB`"
+                                />
+                                <list-entry
+                                  title="SSD Cumulus"
+                                  :data="`${component.hddbasic} GB`"
+                                />
+                                <list-entry
+                                  title="SSD Nimbus"
+                                  :data="`${component.hddsuper} GB`"
+                                />
+                                <list-entry
+                                  title="SSD Stratus"
+                                  :data="`${component.hddbamf} GB`"
+                                />
+                              </div>
+                              <div v-else>
+                                <list-entry
+                                  title="CPU"
+                                  :data="`${component.cpu} vCore`"
+                                />
+                                <list-entry
+                                  title="RAM"
+                                  :data="`${component.ram} MB`"
+                                />
+                                <list-entry
+                                  title="SSD"
+                                  :data="`${component.hdd} GB`"
+                                />
+                              </div>
+                            </div>
+                          </b-card>
+                        </div>
+                        <h3>
+                          <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
+                            <b-icon
+                              scale="1"
+                              icon="globe"
+                              class="ml-1"
+                            /> &nbsp;Locations&nbsp;</kbd>
+                        </h3>
+                        <b-row>
+                          <b-col
+                            md="4"
+                            sm="4"
+                            class="my-1"
+                          >
+                            <b-form-group class="mb-0">
+                              <label class="d-inline-block text-left mr-50">Per page</label>
+                              <b-form-select
+                                id="perPageSelect"
+                                v-model="appLocationOptions.perPage"
+                                size="sm"
+                                :options="appLocationOptions.pageOptions"
+                                class="w-50"
+                              />
+                            </b-form-group>
+                          </b-col>
+                          <b-col
+                            md="8"
+                            class="my-1"
+                          >
+                            <b-form-group
+                              label="Filter"
+                              label-cols-sm="1"
+                              label-align-sm="right"
+                              label-for="filterInput"
+                              class="mb-0"
+                            >
+                              <b-input-group size="sm">
+                                <b-form-input
+                                  id="filterInput"
+                                  v-model="appLocationOptions.filterTree"
+                                  type="search"
+                                  placeholder="Type to Search"
+                                />
+                                <b-input-group-append>
+                                  <b-button
+                                    :disabled="!appLocationOptions.filterTree"
+                                    @click="appLocationOptions.filterTree = ''"
+                                  >
+                                    Clear
+                                  </b-button>
+                                </b-input-group-append>
+                              </b-input-group>
+                            </b-form-group>
+                          </b-col>
+
+                          <b-col cols="12">
+                            <b-table
+                              class="locations-table"
+                              borderless
+                              :per-page="appLocationOptions.perPage"
+                              :current-page="appLocationOptions.currentPage"
+                              :items="appLocations"
+                              :fields="appLocationFields"
+                              thead-class="d-none"
+                              :filter="appLocationOptions.filterTree"
+                              show-empty
+                              sort-icon-left
+                              empty-text="No instances found.."
+                            >
+                              <template #cell(ip)="locationRow">
+                                <div class="no-wrap">
+                                  <kbd class="alert-info" style="border-radius: 15px;">
+                                    <b-icon
+                                      scale="1.1"
+                                      icon="hdd-network-fill"
+                                    /></kbd>
+                                  &nbsp;<kbd class="alert-success no-wrap" style="border-radius: 15px;">
+                                    <b>&nbsp;&nbsp;{{ locationRow.item.ip }}&nbsp;&nbsp;</b>
+                                  </kbd>
+                                </div>
+                              </template>
+                              <template #cell(visit)="locationRow">
+                                <div class="d-flex justify-content-end">
+                                  <b-button
+                                    v-b-tooltip.hover.top="'Visit App'"
+                                    size="sm"
+                                    class="mr-1"
+                                    pill
+                                    variant="dark"
+                                    @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
+                                  >
+                                    <b-icon
+                                      scale="1"
+                                      icon="door-open"
+                                    />
+                                    App
+                                  </b-button>
+                                  <b-button
+                                    v-b-tooltip.hover.top="'Visit FluxNode'"
+                                    size="sm"
+                                    class="mr-0"
+                                    pill
+                                    variant="outline-dark"
+                                    @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
+                                  >
+                                    <b-icon
+                                      scale="1"
+                                      icon="house-door-fill"
+                                    />
+                                    FluxNode
+                                  </b-button>&nbsp;&nbsp;
+                                </div>
+                              </template>
+                            </b-table>
+                          </b-col>
+                          <b-col cols="12">
+                            <b-pagination
+                              v-model="appLocationOptions.currentPage"
+                              :total-rows="appLocationOptions.totalRows"
+                              :per-page="appLocationOptions.perPage"
+                              align="center"
+                              size="sm"
+                              class="my-0 mt-1"
+                            />
+                          </b-col>
+                        </b-row>
+                      </b-card>
+                    </template>
+                    <template #cell(Name)="row">
+                      {{ getAppName(row.item.name) }}
+                    </template>
+                    <template #cell(Description)="row">
+                      {{ row.item.description }}
+                    </template>
+                    <template #cell(actions)="row">
+                      <b-button-toolbar>
+                        <b-button-group size="sm">
+                          <b-button
+                            :id="`start-local-app-${row.item.name}`"
+                            v-b-tooltip.hover.top="'Start App'"
+                            :disabled="isAppInList(row.item.name, tableconfig.running.apps)"
+                            size="sm"
+                            class="no-wrap"
+                            variant="outline-dark"
+                          >
+                            <b-icon
+                              scale="1.2"
+                              icon="play-fill"
+                              class="icon-style-start"
+                              :class="{ 'disable-hover': isAppInList(row.item.name, tableconfig.running.apps) }"
+                            />
+                          </b-button>
+                          <confirm-dialog
+                            :target="`start-local-app-${row.item.name}`"
+                            confirm-button="Start App"
+                            @confirm="startApp(row.item.name)"
+                          />
+                          <b-button
+                            :id="`stop-local-app-${row.item.name}`"
+                            v-b-tooltip.hover.top="'Stop App'"
+                            size="sm"
+                            class="mr-0"
+                            variant="outline-dark"
+                            :disabled="!isAppInList(row.item.name, tableconfig.running.apps)"
+                          >
+                            <b-icon
+                              scale="1.2"
+                              icon="stop-circle"
+                              class="icon-style-stop"
+                              :class="{ 'disable-hover': !isAppInList(row.item.name, tableconfig.running.apps) }"
+                            />
+                          </b-button>
+                          <confirm-dialog
+                            :target="`stop-local-app-${row.item.name}`"
+                            confirm-button="Stop App"
+                            @confirm="stopApp(row.item.name)"
+                          />
+                          <b-button
+                            :id="`restart-local-app-${row.item.name}`"
+                            v-b-tooltip.hover.top="'Restart App'"
+                            size="sm"
+                            class="no-wrap"
+                            variant="outline-dark"
+                          >
+                            <b-icon
+                              scale="1"
+                              icon="bootstrap-reboot"
+                              class="icon-style-restart"
+                            />
+                          </b-button>
+                          <confirm-dialog
+                            :target="`restart-local-app-${row.item.name}`"
+                            confirm-button="Restart App"
+                            @confirm="restartApp(row.item.name)"
+                          />
+                          <b-button
+                            :id="`remove-local-app-${row.item.name}`"
+                            v-b-tooltip.hover.top="'Remove App'"
+                            size="sm"
+                            class="no-wrap"
+                            variant="outline-dark"
+                          >
+                            <b-icon
+                              scale="1"
+                              icon="trash"
+                              class="icon-style-trash"
+                            />
+                          </b-button>
+                          <confirm-dialog
+                            :target="`remove-local-app-${row.item.name}`"
+                            confirm-button="Remove App"
+                            @confirm="removeApp(row.item.name)"
+                          />
+                          <b-button
+                            :id="`manage-local-app-${row.item.name}`"
+                            v-b-tooltip.hover.top="'Manage App'"
+                            size="sm"
+                            class="no-wrap"
+                            variant="outline-dark"
+                          >
+                            <b-icon
+                              scale="1"
+                              icon="gear"
+                              class="icon-style-gear"
+                            />
+                          </b-button>
+                          <confirm-dialog
+                            :target="`manage-local-app-${row.item.name}`"
+                            confirm-button="Manage App"
+                            @confirm="openAppManagement(row.item.name)"
+                          />
+                        </b-button-group>
+                      </b-button-toolbar>
+                    </template>
+                  </b-table>
+                </b-col>
+                <b-col cols="12">
+                  <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                      <div v-if="isLoggedIn()" class="d-inline ml-2">
+                        <b-icon scale="1.4" icon="layers" />
+                        <b>&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;{{ tableconfig.local.totalRows }}&nbsp;</kbd></b>
+                      </div>
+                    </div>
+                    <div class="text-center flex-grow-1">
+                      <b-pagination
+                        v-model="tableconfig.local.currentPage"
+                        :total-rows="tableconfig.local.totalRows"
+                        :per-page="tableconfig.local.perPage"
+                        align="center"
+                        size="sm"
+                        class="my-0"
+                      />
+                    </div>
+                  </div>
                 </b-col>
               </b-row>
             </b-card>
@@ -2154,10 +2412,12 @@ import {
   BTable,
   BCol,
   BCard,
-  BCardTitle,
+  // BCardTitle,
   BRow,
   BButton,
   BFormGroup,
+  BButtonToolbar,
+  BButtonGroup,
   BFormInput,
   BFormSelect,
   BInputGroup,
@@ -2190,9 +2450,11 @@ export default {
     BTable,
     BCol,
     BCard,
-    BCardTitle,
+    // BCardTitle,
     BRow,
     BButton,
+    BButtonToolbar,
+    BButtonGroup,
     BFormGroup,
     BFormInput,
     BFormSelect,
@@ -2213,6 +2475,8 @@ export default {
   },
   data() {
     return {
+      stateAppsNames: [],
+      tableKey: 0,
       timeoptions,
       output: [],
       downloading: false,
@@ -2227,15 +2491,15 @@ export default {
           loggedInFields: [
             { key: 'show_details', label: '' },
             { key: 'name', label: 'Name', sortable: true },
-            { key: 'description', label: 'Description', sortable: true },
-            { key: 'visit', label: 'Visit' },
-            { key: 'actions', label: 'Actions' },
+            { key: 'description', label: 'Description' },
+            { key: 'visit', label: 'Visit', thStyle: { width: '3%' } },
+            { key: 'actions', label: 'Actions', thStyle: { width: '15%' } },
           ],
           fields: [
             { key: 'show_details', label: '' },
             { key: 'name', label: 'Name', sortable: true },
-            { key: 'description', label: 'Description', sortable: true },
-            { key: 'visit', label: 'Visit' },
+            { key: 'description', label: 'Description' },
+            { key: 'visit', label: 'Visit', thStyle: { width: '3%' } },
           ],
           loading: true,
         },
@@ -2244,16 +2508,24 @@ export default {
           status: '',
           loggedInFields: [
             { key: 'show_details', label: '' },
+            // eslint-disable-next-line object-curly-newline
             { key: 'name', label: 'Name', sortable: true },
-            { key: 'description', label: 'Description', sortable: true },
-            { key: 'actions', label: 'Actions' },
-            { key: 'remove', label: 'Remove' },
-            { key: 'manage', label: 'Manage' },
+            {
+              key: 'state', label: 'State', class: 'text-center', thStyle: { width: '2%' },
+            },
+            {
+              key: 'description', label: 'Description', class: 'text-center',
+            },
+            { key: 'actions', label: '', thStyle: { width: '12%' } },
+            // eslint-disable-next-line object-curly-newline
+            { key: 'visit', label: '', class: 'text-center', thStyle: { width: '2%' } },
           ],
           fields: [
             { key: 'show_details', label: '' },
             { key: 'name', label: 'Name', sortable: true },
-            { key: 'description', label: 'Description', sortable: true },
+            { key: 'description', label: 'Description' },
+            // eslint-disable-next-line object-curly-newline
+            { key: 'visit', label: '', class: 'text-center', thStyle: { width: '3%' } },
           ],
           loading: true,
         },
@@ -2262,14 +2534,15 @@ export default {
           status: '',
           loggedInFields: [
             { key: 'show_details', label: '' },
-            { key: 'name', label: 'Name', sortable: true },
-            { key: 'description', label: 'Description', sortable: true },
-            { key: 'install', label: 'Install' },
+            // eslint-disable-next-line object-curly-newline
+            { key: 'name', label: 'Name', sortable: true, thStyle: { width: '18%' } },
+            { key: 'description', label: 'Description', thStyle: { width: '75%' } },
+            { key: 'install', label: '', thStyle: { width: '5%' } },
           ],
           fields: [
             { key: 'show_details', label: '' },
             { key: 'name', label: 'Name', sortable: true },
-            { key: 'description', label: 'Description', sortable: true },
+            { key: 'description', label: 'Description', thStyle: { width: '80%' } },
           ],
           loading: true,
         },
@@ -2278,16 +2551,23 @@ export default {
           status: '',
           loggedInFields: [
             { key: 'show_details', label: '' },
-            { key: 'name', label: 'Name', sortable: true },
-            { key: 'description', label: 'Description', sortable: true },
-            { key: 'install', label: 'Install' },
+            // eslint-disable-next-line object-curly-newline
+            { key: 'name', label: 'Name', sortable: true, thStyle: { width: '18%' } },
+            { key: 'description', label: 'Description', thStyle: { width: '75%' } },
+            { key: 'install', label: '', thStyle: { width: '5%' } },
           ],
           fields: [
             { key: 'show_details', label: '' },
             { key: 'name', label: 'Name', sortable: true },
-            { key: 'description', label: 'Description', sortable: true },
+            { key: 'description', label: 'Description', thStyle: { width: '80%' } },
           ],
           loading: true,
+          perPage: 50,
+          pageOptions: [5, 10, 25, 50, 100],
+          filter: '',
+          filterOn: [],
+          currentPage: 1,
+          totalRows: 1,
         },
         local: {
           apps: [],
@@ -2295,13 +2575,13 @@ export default {
           fields: [
             { key: 'show_details', label: '' },
             { key: 'name', label: 'Name', sortable: true },
-            { key: 'description', label: 'Description', sortable: true },
-            { key: 'actions', label: 'Actions' },
-            { key: 'remove', label: 'Remove' },
-            { key: 'manage', label: 'Manage' },
+            { key: 'description', label: 'Description' },
+            { key: 'actions', label: '', thStyle: { width: '15%' } },
+            // eslint-disable-next-line object-curly-newline
+            { key: 'visit', label: '', class: 'text-center', thStyle: { width: '3%' } },
           ],
-          perPage: 10,
-          pageOptions: [10, 25, 50, 100],
+          perPage: 5,
+          pageOptions: [5, 10, 25, 50, 100],
           sortBy: '',
           sortDesc: false,
           sortDirection: 'asc',
@@ -2319,10 +2599,13 @@ export default {
         { key: 'visit', label: '' },
       ],
       appLocationOptions: {
-        perPage: 10,
-        pageOptions: [10, 25, 50, 100],
+        perPage: 5,
+        pageOptions: [5, 10, 25, 50, 100],
         currentPage: 1,
         totalRows: 1,
+        filterOne: '',
+        filterTwo: '',
+        filterTree: '',
       },
       callResponse: { // general
         status: '',
@@ -2367,6 +2650,104 @@ export default {
     this.getDaemonBlockCount();
   },
   methods: {
+    openNodeFluxOS(_ip, _port) {
+      console.log(_ip, _port);
+      if ((_port && _ip)) {
+        const ip = _ip;
+        const port = _port;
+        const url = `http://${ip}:${port}`;
+        this.openSite(url);
+      } else {
+        this.showToast('danger', 'Unable to open FluxOS :(');
+      }
+    },
+    tabChanged() {
+      this.tableconfig.installed.apps.forEach((item) => {
+        this.$set(item, '_showDetails', false);
+      });
+      this.tableconfig.available.apps.forEach((item) => {
+        this.$set(item, '_showDetails', false);
+      });
+      this.tableconfig.globalAvailable.apps.forEach((item) => {
+        this.$set(item, '_showDetails', false);
+      });
+      this.appLocations = [];
+    },
+    isLessThanTwoDays(timeString) {
+      const parts = timeString?.split(',').map((str) => str.trim());
+      let days = 0;
+      let hours = 0;
+      let minutes = 0;
+      // eslint-disable-next-line no-restricted-syntax
+      for (const part of parts) {
+        if (part.includes('days')) {
+          days = parseInt(part, 10);
+        } else if (part.includes('hours')) {
+          hours = parseInt(part, 10);
+        } else if (part.includes('minutes')) {
+          minutes = parseInt(part, 10);
+        }
+      }
+      const totalMinutes = ((days * 24 * 60) + (hours * 60) + minutes);
+      return totalMinutes < 2880;
+    },
+    getServiceUsageValue(index, name, compose) {
+      if (typeof compose?.compose === 'undefined') {
+        this.usage = [+compose.cpu, +compose.ram, +compose.hdd];
+        return this.usage[index];
+      }
+      const serviceUsage = this.getServiceUsage(name, compose.compose);
+      return serviceUsage[index];
+    },
+    getServiceUsage(serviceName, spec) {
+      // Calculate total RAM, CPU, and HDD usage using reduce method
+      const [totalRAM, totalCPU, totalHDD] = spec.reduce((acc, composeObj) => {
+        // Ensure composeObj properties are numbers
+        const ram = +composeObj.ram || 0;
+        const cpu = +composeObj.cpu || 0;
+        const hdd = +composeObj.hdd || 0;
+        // Add to accumulator
+        acc[0] += ram;
+        acc[1] += cpu;
+        acc[2] += hdd;
+        return acc;
+      }, [0, 0, 0]); // Initialize accumulator with zeros for RAM, CPU, and HDD
+      // Return total RAM, CPU, and HDD usage
+      return [totalRAM, totalCPU, totalHDD];
+    },
+    getBadgeClass(appName) {
+      const state = this.getStateByName(appName);
+      return {
+        'alert-success': state === 'running',
+        'alert-danger': state === 'stopped',
+      };
+    },
+    getStateByName(appName) {
+      const filteredApps = this.stateAppsNames.filter((obj) => obj.name === appName);
+      if (filteredApps?.length > 0) {
+        return filteredApps[0].state;
+      // eslint-disable-next-line no-else-return
+      } else {
+        return 'stopped';
+      }
+    },
+    isAppInList(appName, appList) {
+      // console.log(appList.length);
+      if (appList?.length === 0) {
+        return false;
+      }
+      // console.log(appList.some((app) => app.name === appName));
+      return appList.some((app) => app.name === appName);
+    },
+    // getStateByName(name, data) {
+    //   const foundObject = data.find((obj) => obj.Names.some((n) => n.includes(`_${name}`)));
+    //   if (foundObject) {
+    //     return true;
+    //   // eslint-disable-next-line no-else-return
+    //   } else {
+    //     return false;
+    //   }
+    // },
     minutesToString(minutes) {
       let value = minutes * 60;
       const units = {
@@ -2396,15 +2777,24 @@ export default {
       }
       const minutesRemaining = blocksToExpire * 2;
       const result = this.minutesToString(minutesRemaining);
-      return `${result[0]}, ${result[1]}, ${result[2]}`;
+      if (result.length > 2) {
+        return `${result[0]}, ${result[1]}, ${result[2]}`;
+      }
+      if (result.length > 1) {
+        return `${result[0]}, ${result[1]}`;
+      }
+      return `${result[0]}`;
     },
     async appsGetListGlobalApps() {
       this.tableconfig.globalAvailable.loading = true;
+      console.log('CALL1');
       const response = await AppsService.globalAppSpecifications();
       console.log(response);
+      console.log('CALL2');
       // remove marketplace apps from the list and extract
       // marketplace apps to parse the title
       const apps = response.data.data.sort((a, b) => (a.name.toLowerCase() > b.name.toLowerCase() ? 1 : -1));
+      console.log('CALL3');
       this.tableconfig.globalAvailable.apps = apps;
       this.tableconfig.globalAvailable.loading = false;
       this.tableconfig.globalAvailable.status = response.data.status;
@@ -2424,7 +2814,7 @@ export default {
     async appsGetInstalledApps() {
       this.tableconfig.installed.loading = true;
       const response = await AppsService.installedApps();
-      console.log(response);
+      // console.log(response);
       this.tableconfig.installed.status = response.data.status;
       this.tableconfig.installed.apps = response.data.data;
       this.tableconfig.installed.loading = false;
@@ -2439,19 +2829,36 @@ export default {
       const self = this;
       setTimeout(async () => {
         const response = await AppsService.listRunningApps();
+        // console.log(response.data);
         // this is coming from docker;
         const apps = response.data.data;
         const runningAppsNames = [];
         const runningAppsSpecifics = [];
+        self.stateAppsNames = [];
         apps.forEach((app) => {
           // get application specification IF it is composed app
           const appName = app.Names[0].startsWith('/flux') ? app.Names[0].slice(5) : app.Names[0].slice(4);
           if (appName.includes('_')) {
             runningAppsNames.push(appName.split('_')[1]);
+            if (!appName.includes('watchtower')) {
+              const jsonObject = {
+                name: appName.split('_')[1],
+                state: app.State,
+              };
+              self.stateAppsNames.push(jsonObject);
+            }
           } else {
             runningAppsNames.push(appName);
+            if (!appName.includes('watchtower')) {
+              const jsonObject = {
+                name: appName,
+                state: app.State,
+              };
+              self.stateAppsNames.push(jsonObject);
+            }
           }
         });
+        // console.log(self.stateAppsNames);
         const runningAppsok = [...new Set(runningAppsNames)];
         // eslint-disable-next-line no-restricted-syntax
         for (const app of runningAppsok) {
@@ -2462,23 +2869,24 @@ export default {
             runningAppsSpecifics.push(res.data.data);
           }
         }
-        console.log(response);
+        // console.log(response);
         self.tableconfig.running.status = response.data.status;
         self.tableconfig.running.apps = runningAppsSpecifics;
         self.tableconfig.running.loading = false;
+        self.tableconfig.running.status = response.data.data;
       }, timeout);
     },
     async appsGetAvailableApps() {
       this.tableconfig.available.loading = true;
       const response = await AppsService.availableApps();
-      console.log(response);
+      // console.log(response);
       this.tableconfig.available.status = response.data.status;
       this.tableconfig.available.apps = response.data.data;
       this.tableconfig.available.loading = false;
     },
     openApp(name, _ip, _port) {
       if (_port && _ip) {
-        console.log(name, _ip, _port);
+        // console.log(name, _ip, _port);
         const url = `http://${_ip}:${_port}`;
         this.openSite(url);
       } else {
@@ -2486,7 +2894,7 @@ export default {
         const backendURL = store.get('backendURL') || `http://${this.userconfig.externalip}:${this.config.apiPort}`;
         const ip = backendURL.split(':')[1].split('//')[1];
         const port = appInfo.port || appInfo.ports ? appInfo?.ports[0] : appInfo?.compose[0].ports[0];
-        console.log(name, ip, port);
+        // console.log(name, ip, port);
         if (port === '') {
           this.showToast('danger', 'Unable to open App :(, App does not have a port.');
           return;
@@ -2526,8 +2934,8 @@ export default {
       } else {
         this.showToast('danger', response.data.data.message || response.data.data);
       }
-      this.appsGetListRunningApps(8000);
-      console.log(response);
+      this.appsGetListRunningApps(5000);
+      // console.log(response);
     },
     async startApp(app) {
       this.output = '';
@@ -2539,8 +2947,8 @@ export default {
       } else {
         this.showToast('danger', response.data.data.message || response.data.data);
       }
-      this.appsGetListRunningApps(15000);
-      console.log(response);
+      this.appsGetListRunningApps(5000);
+      // console.log(response);
     },
     async restartApp(app) {
       this.output = '';
@@ -2552,8 +2960,8 @@ export default {
       } else {
         this.showToast('danger', response.data.data.message || response.data.data);
       }
-      this.appsGetListRunningApps(15000);
-      console.log(response);
+      this.appsGetListRunningApps(5000);
+      // console.log(response);
     },
     async pauseApp(app) {
       this.output = '';
@@ -2565,7 +2973,7 @@ export default {
       } else {
         this.showToast('danger', response.data.data.message || response.data.data);
       }
-      console.log(response);
+      // console.log(response);
     },
     async unpauseApp(app) {
       this.output = '';
@@ -2577,7 +2985,7 @@ export default {
       } else {
         this.showToast('danger', response.data.data.message || response.data.data);
       }
-      console.log(response);
+      // console.log(response);
     },
     redeployAppSoft(app) {
       this.redeployApp(app, false);
@@ -2898,16 +3306,111 @@ export default {
 </script>
 
 <style>
+.apps-installed-table thead th,
+.apps-installed-table tbody td {
+  text-transform: none !important;
+}
+.apps-available-table thead th,
+.apps-available-table tbody td {
+  text-transform: none !important;
+}
+.apps-available-table thead th,
+.apps-available-table tbody td {
+  text-transform: none !important;
+}
+.apps-globalAvailable-table thead th,
+.apps-globalAvailable-tablet body td {
+  text-transform: none !important;
+}
+.apps-local-table thead th,
+.apps-local-table tbody td {
+  text-transform: none !important;
+}
+
+.apps-running-table td:nth-child(1) {
+  padding: 0 0 0 5px;
+}
+.apps-running-table th:nth-child(1) {
+  padding: 0 0 0 5px;
+}
+
+.apps-local-table td:nth-child(1) {
+  padding: 0 0 0 5px;
+}
+.apps-local-table th:nth-child(1) {
+  padding: 0 0 0 5px;
+}
+
+.apps-installed-table td:nth-child(1) {
+  padding: 0 0 0 5px;
+}
+.apps-installed-table th:nth-child(1) {
+  padding: 0 0 0 5px;
+}
+
+.apps-globalAvailable-table td:nth-child(1) {
+  padding: 0 0 0 5px;
+}
+
+.apps-globalAvailable-table th:nth-child(1) {
+  padding: 0 0 0 5px;
+}
+
 .apps-available-table td:nth-child(1) {
   padding: 0 0 0 5px;
 }
 .apps-available-table th:nth-child(1) {
   padding: 0 0 0 5px;
 }
+
 .locations-table td:nth-child(1) {
   width: 105px;
 }
 .locations-table th:nth-child(1) {
   width: 105px;
+}
+
+.icon-style-trash:hover {
+  color: red; /* Color on hover */
+  transition: color 0.2s;
+}
+.icon-style-start:hover {
+  color: green; /* Color on hover */
+  transition: color 0.2s;
+}
+.icon-style-stop:hover {
+  color: red; /* Color on hover */
+  transition: color 0.3s;
+}
+.icon-style-restart:hover {
+  color: cornflowerblue; /* Color on hover */
+  transition: color 0.2s;
+}
+.icon-style-gear:hover {
+  color: cornflowerblue; /* Color on hover */
+  transition: color 0.2s;
+}
+.disable-hover:hover {
+  /* Define a style to disable hover effects */
+  /* For example, setting the same styles as normal state to effectively disable hover effects */
+  color: inherit;
+  background-color: inherit;
+  border-color: inherit;
+  /* Add any other styles to visually indicate that hover is disabled */
+}
+.textarea {
+ display: block; height: inherit; white-space: normal; border-radius: 10px;
+  }
+.hover-underline:hover {
+    text-decoration: underline;
+}
+.red-text {
+  background-color: rgba(255, 0, 0, 0.25);
+  border-radius: 15px;
+  display: inline-block;
+  margin: 0 0.1em;
+  padding: 0.1em 0.6em;
+  font-weight: 800;
+  color: #FF0000;
 }
 </style>

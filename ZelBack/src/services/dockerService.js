@@ -8,6 +8,8 @@ const pgpService = require('./pgpService');
 const generalService = require('./generalService');
 const deviceHelper = require('./deviceHelper');
 const log = require('../lib/log');
+const util = require('util');
+const nodecmd = require('node-cmd');
 
 const fluxDirPath = path.join(__dirname, '../../../');
 const appsFolder = `${fluxDirPath}ZelApps/`;
@@ -822,6 +824,46 @@ async function createFluxDockerNetwork() {
 }
 
 /**
+ *
+ * @returns {Promise<Docker.NetworkInspectInfo[]>}
+ */
+async function getFluxDockerNetworks() {
+  const fluxNetworks = await docker.listNetworks({
+    filters: JSON.stringify({
+      name: ['fluxDockerNetwork'],
+    }),
+  });
+
+  return fluxNetworks;
+}
+
+/**
+ *
+ * @returns {Promise<string[]>}
+ */
+async function getFluxDockerNetworkPhysicalInterfaceNames() {
+  const fluxNetworks = await getFluxDockerNetworks();
+
+  const interfaceNames = fluxNetworks.map((network) => {
+    // the physical interface name is br-<first 12 chars of Id>
+    const intName = `br-${network.Id.slice(0, 12)}`;
+    return intName;
+  });
+
+  return interfaceNames;
+}
+
+/**
+ *
+ * @returns {Promise<string[]>}
+ */
+async function getFluxDockerNetworkSubnets() {
+  const fluxNetworks = await getFluxDockerNetworks();
+  const subnets = fluxNetworks.map((network) => network.IPAM.Config[0].Subnet);
+  return subnets;
+}
+
+/**
  * Creates flux application docker network if doesn't exist
  *
  * @returns {object} response
@@ -943,6 +985,21 @@ async function dockerGetUsage() {
   return df;
 }
 
+/**
+ * Fix docker logs.
+ */
+async function dockerLogsFix() {
+  try {
+    const nodedpath = path.join(__dirname, '../../../helpers');
+    const exec = `cd ${nodedpath} && bash dockerLogsFix.sh`;
+    const cmdAsync = util.promisify(nodecmd.get);
+    const cmdres = await cmdAsync(exec);
+    log.info(cmdres);
+  } catch (error) {
+    log.error(error);
+  }
+}
+
 module.exports = {
   getDockerContainer,
   getAppIdentifier,
@@ -973,6 +1030,8 @@ module.exports = {
   createFluxDockerNetwork,
   getDockerContainerOnly,
   getDockerContainerByIdOrName,
+  getFluxDockerNetworkPhysicalInterfaceNames,
+  getFluxDockerNetworkSubnets,
   createFluxAppDockerNetwork,
   removeFluxAppDockerNetwork,
   pruneNetworks,
@@ -983,4 +1042,5 @@ module.exports = {
   dockerVersion,
   dockerGetEvents,
   dockerGetUsage,
+  dockerLogsFix,
 };

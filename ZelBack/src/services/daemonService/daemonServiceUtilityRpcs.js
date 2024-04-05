@@ -35,19 +35,25 @@ async function createMultiSig(req, res) {
  * @returns {object} Message.
  */
 async function createMultiSigPost(req, res) {
-  const processedBody = serviceHelper.ensureObject(req.body);
-  let { n, keys } = processedBody;
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    let { n, keys } = processedBody;
 
-  const rpccall = 'createMultiSig';
-  let rpcparameters = [];
-  if (n && keys) {
-    n = serviceHelper.ensureNumber(n);
-    keys = serviceHelper.ensureObject(keys);
-    rpcparameters = [n, keys];
-  }
-  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
+    const rpccall = 'createMultiSig';
+    let rpcparameters = [];
+    if (n && keys) {
+      n = serviceHelper.ensureNumber(n);
+      keys = serviceHelper.ensureObject(keys);
+      rpcparameters = [n, keys];
+    }
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+    return res.json(response);
+  });
 }
 
 /**
@@ -154,17 +160,23 @@ async function verifyMessage(req, res) {
  * @returns {object} Message.
  */
 async function verifyMessagePost(req, res) {
-  const processedBody = serviceHelper.ensureObject(req.body);
-  const { fluxaddress, signature, message } = processedBody;
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    const processedBody = serviceHelper.ensureObject(body);
+    const { fluxaddress, signature, message } = processedBody;
 
-  const rpccall = 'verifyMessage';
-  let rpcparameters = [];
-  if (fluxaddress && signature && message) {
-    rpcparameters = [fluxaddress, signature, message];
-  }
-  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
+    const rpccall = 'verifyMessage';
+    let rpcparameters = [];
+    if (fluxaddress && signature && message) {
+      rpcparameters = [fluxaddress, signature, message];
+    }
+    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+    return res.json(response);
+  });
 }
 
 /**

@@ -417,5 +417,11 @@
    "nginxproxy/acme-companion",
    "tmart1010/streamlit_music-server",
    "golang",
-   "prom"
+   "prom",
+   "ghcr.io/lloesche/valheim-server",
+   "zachprice105",
+   "rakkuk",
+   "edoburu",
+   "erfan272758",
+   "spriale"
 ]

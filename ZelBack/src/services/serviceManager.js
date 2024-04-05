@@ -14,6 +14,8 @@ const geolocationService = require('./geolocationService');
 const upnpService = require('./upnpService');
 const syncthingService = require('./syncthingService');
 const pgpService = require('./pgpService');
+const dockerService = require('./dockerService');
+const backupRestoreService = require('./backupRestoreService');
 
 const apiPort = userconfig.initial.apiport || config.server.apiport;
 const development = userconfig.initial.development || false;
@@ -34,7 +36,8 @@ async function startFluxFunctions() {
         upnpService.adjustFirewallForUPNP();
       }, 1 * 60 * 60 * 1000); // every 1 hours
     }
-
+    log.info('Checking docker log for corruption...');
+    await dockerService.dockerLogsFix();
     fluxNetworkHelper.installNetcat();
     log.info('Initiating MongoDB connection');
     await dbHelper.initiateDB(); // either true or throws error
@@ -91,10 +94,11 @@ async function startFluxFunctions() {
     setTimeout(() => {
       fluxCommunicationUtils.constantlyUpdateDeterministicFluxList(); // updates deterministic flux list for communication every 2 minutes, so we always trigger cache and have up to date value
     }, 15 * 1000);
-    setTimeout(() => {
+    setTimeout(async () => {
       log.info('Rechecking firewall app rules');
       fluxNetworkHelper.purgeUFW();
-      fluxNetworkHelper.removeDockerContainerAccessToHost();
+      const fluxNetworkInterfaces = await dockerService.getFluxDockerNetworkPhysicalInterfaceNames();
+      fluxNetworkHelper.removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces);
       appsService.testAppMount(); // test if our node can mount a volume
     }, 30 * 1000);
     setTimeout(() => {
@@ -153,6 +157,9 @@ async function startFluxFunctions() {
     setTimeout(() => {
       appsService.checkStorageSpaceForApps();
     }, 20 * 60 * 1000);
+    setInterval(() => {
+      backupRestoreService.cleanLocalBackup();
+    }, 25 * 60 * 1000); // every 25 minutes
     if (development) { // just on development branch
       setInterval(async () => {
         await fluxService.enterDevelopment().catch((error) => log.error(error));

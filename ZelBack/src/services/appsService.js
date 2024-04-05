@@ -8,11 +8,14 @@ const http = require('http');
 const os = require('os');
 const path = require('path');
 const nodecmd = require('node-cmd');
+const archiver = require('archiver');
 const df = require('node-df');
 const { LRUCache } = require('lru-cache');
 const systemcrontab = require('crontab');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
+const fs = require('fs').promises;
+const execShell = util.promisify(require('child_process').exec);
 const httpShutdown = require('http-shutdown');
 const fluxCommunication = require('./fluxCommunication');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
@@ -38,6 +41,7 @@ const signatureVerifier = require('./signatureVerifier');
 const backupRestoreService = require('./backupRestoreService');
 const IOUtils = require('./IOUtils');
 const log = require('../lib/log');
+const { PassThrough } = require('stream');
 const { invalidMessages } = require('./invalidMessages');
 
 const fluxDirPath = path.join(__dirname, '../../../');
@@ -66,6 +70,11 @@ const GlobalAppsSpawnLRUoptions = {
   ttl: 1000 * 60 * 60 * 2, // 2 hours
   maxAge: 1000 * 60 * 60 * 2, // 2 hours
 };
+const shortCache = {
+  max: 500,
+  ttl: 1000 * 60 * 5, // 5 minutes
+  maxAge: 1000 * 60 * 5, // 5 minutes
+};
 const longCache = {
   max: 500,
   ttl: 1000 * 60 * 60 * 3, // 3 hours
@@ -88,11 +97,19 @@ const stopedAppsCache = {
   maxAge: 1000 * 60 * 60 * 1.5, // 1.5 hours
 };
 
+const syncthingDevicesCache = {
+  max: 5000,
+  ttl: 1000 * 60 * 60 * 24, // 24 hours
+  maxAge: 1000 * 60 * 60 * 24, // 24 hours
+};
+
 const trySpawningGlobalAppCache = new LRUCache(GlobalAppsSpawnLRUoptions);
+const myShortCache = new LRUCache(shortCache);
 const myLongCache = new LRUCache(longCache);
 const failedNodesTestPortsCache = new LRUCache(testPortsCache);
 const receiveOnlySyncthingAppsCache = new LRUCache(syncthingAppsCache);
 const appsStopedCache = new LRUCache(stopedAppsCache);
+const syncthingDevicesIDCache = new LRUCache(syncthingDevicesCache);
 
 let removalInProgress = false;
 let installationInProgress = false;
@@ -1075,6 +1092,39 @@ async function getAppFolderSize(appName) {
 }
 
 /**
+ * Returns total app container storage in bytes
+ * @param {string} appName - name or id of the container
+ * @returns {Promise<number>}
+ */
+async function getContainerStorage(appName) {
+  try {
+    const containerInfo = await dockerService.dockerContainerInspect(appName, { size: true });
+    let containerTotalSize = serviceHelper.ensureNumber(containerInfo.SizeRootFs) || 0;
+    // traverse mounts/volumes to find size used on host
+    if (containerInfo?.Mounts?.length) {
+      await Promise.all(containerInfo.Mounts.map(async (mount) => {
+        let source = mount?.Source;
+        if (source) {
+          // remove /appdata to get true size of the app folder
+          source = source.replace('/appdata', '');
+          const exec = `sudo du -sb ${source}`;
+          const mountInfo = await cmdAsync(exec);
+          const mountSize = serviceHelper.ensureNumber(mountInfo?.split(source)[0]) || 0;
+          if (typeof mountSize === 'number' && !Number.isNaN(mountSize)) {
+            containerTotalSize += mountSize;
+          }
+        }
+      }));
+      return containerTotalSize;
+    }
+    return containerTotalSize;
+  } catch (error) {
+    log.error(error);
+    return 0;
+  }
+}
+
+/**
  * Starts app monitoring for a single app and saves monitoring data in-memory to the appsMonitored object.
  * @param {object} appName monitored component name
  */
@@ -1105,13 +1155,14 @@ function startAppMonitoring(appName) {
           return;
         }
         const statsNow = await dockerService.dockerContainerStats(appName);
-        const containerSize = await dockerService.dockerContainerInspect(appName, { size: true });
+        const containerTotalSize = await getContainerStorage(appName);
+
         // const appFolderName = dockerService.getAppDockerNameIdentifier(appName).substring(1);
         // const folderSize = await getAppFolderSize(appFolderName);
         statsNow.disk_stats = {
-          used: containerSize.SizeRootFs ?? 0,
+          used: containerTotalSize ?? 0,
         };
-        appsMonitored[appName].oneMinuteStatsStore.unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
+        appsMonitored[appName].oneMinuteStatsStore.unshift({ timestamp: Date.now(), data: statsNow }); // Most recent stats object is at position 0 in the array
         if (appsMonitored[appName].oneMinuteStatsStore.length > 60) {
           appsMonitored[appName].oneMinuteStatsStore.length = 60; // Store stats every 1 min for the last hour only
         }
@@ -1135,12 +1186,14 @@ function startAppMonitoring(appName) {
           return;
         }
         const statsNow = await dockerService.dockerContainerStats(appName);
-        const appFolderName = dockerService.getAppDockerNameIdentifier(appName).substring(1);
-        const folderSize = await getAppFolderSize(appFolderName);
+        const containerTotalSize = await getContainerStorage(appName);
+
+        // const appFolderName = dockerService.getAppDockerNameIdentifier(appName).substring(1);
+        // const folderSize = await getAppFolderSize(appFolderName);
         statsNow.disk_stats = {
-          used: folderSize,
+          used: containerTotalSize ?? 0,
         };
-        appsMonitored[appName].fifteenMinStatsStore.unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
+        appsMonitored[appName].fifteenMinStatsStore.unshift({ timestamp: Date.now(), data: statsNow }); // Most recent stats object is at position 0 in the array
         if (appsMonitored[appName].oneMinuteStatsStore.length > 96) {
           appsMonitored[appName].fifteenMinStatsStore.length = 96; // Store stats every 15 mins for the last day only
         }
@@ -1436,60 +1489,66 @@ async function appChanges(req, res) {
  * @param {object} res Response.
  */
 async function appExec(req, res) {
-  try {
-    const processedBody = serviceHelper.ensureObject(req.body);
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const processedBody = serviceHelper.ensureObject(body);
 
-    if (!processedBody.appname) {
-      throw new Error('No Flux App specified');
+      if (!processedBody.appname) {
+        throw new Error('No Flux App specified');
+      }
+
+      if (!processedBody.cmd) {
+        throw new Error('No command specified');
+      }
+
+      const mainAppName = processedBody.appname.split('_')[1] || processedBody.appname;
+
+      const authorized = await verificationHelper.verifyPrivilege('appowner', req, mainAppName);
+      if (authorized === true) {
+        let cmd = processedBody.cmd || [];
+        let env = processedBody.env || [];
+
+        cmd = serviceHelper.ensureObject(cmd);
+        env = serviceHelper.ensureObject(env);
+
+        const containers = await dockerService.dockerListContainers(true);
+        const myContainer = containers.find((container) => (container.Names[0] === dockerService.getAppDockerNameIdentifier(processedBody.appname) || container.Id === processedBody.appname));
+        const dockerContainer = dockerService.getDockerContainer(myContainer.Id);
+
+        res.setHeader('Content-Type', 'application/json');
+
+        dockerService.dockerContainerExec(dockerContainer, cmd, env, res, (error) => {
+          if (error) {
+            log.error(error);
+            const errorResponse = messageHelper.createErrorMessage(
+              error.message || error,
+              error.name,
+              error.code,
+            );
+            res.write(errorResponse);
+            res.end();
+          } else {
+            res.end();
+          }
+        });
+      } else {
+        const errMessage = messageHelper.errUnauthorizedMessage();
+        res.json(errMessage);
+      }
+    } catch (error) {
+      log.error(error);
+      const errorResponse = messageHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      res.json(errorResponse);
     }
-
-    if (!processedBody.cmd) {
-      throw new Error('No command specified');
-    }
-
-    const mainAppName = processedBody.appname.split('_')[1] || processedBody.appname;
-
-    const authorized = await verificationHelper.verifyPrivilege('appowner', req, mainAppName);
-    if (authorized === true) {
-      let cmd = processedBody.cmd || [];
-      let env = processedBody.env || [];
-
-      cmd = serviceHelper.ensureObject(cmd);
-      env = serviceHelper.ensureObject(env);
-
-      const containers = await dockerService.dockerListContainers(true);
-      const myContainer = containers.find((container) => (container.Names[0] === dockerService.getAppDockerNameIdentifier(processedBody.appname) || container.Id === processedBody.appname));
-      const dockerContainer = dockerService.getDockerContainer(myContainer.Id);
-
-      res.setHeader('Content-Type', 'application/json');
-
-      dockerService.dockerContainerExec(dockerContainer, cmd, env, res, (error) => {
-        if (error) {
-          log.error(error);
-          const errorResponse = messageHelper.createErrorMessage(
-            error.message || error,
-            error.name,
-            error.code,
-          );
-          res.write(errorResponse);
-          res.end();
-        } else {
-          res.end();
-        }
-      });
-    } else {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-    }
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    res.json(errorResponse);
-  }
+  });
 }
 
 /**
@@ -2444,7 +2503,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     if (sendMessage) {
       const ip = await fluxNetworkHelper.getMyFluxIPandPort();
       if (ip) {
-        const broadcastedAt = new Date().getTime();
+        const broadcastedAt = Date.now();
         const appRemovedMessage = {
           type: 'fluxappremoved',
           version: 1,
@@ -3386,11 +3445,27 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
       if (res) {
         res.write(serviceHelper.ensureString(fluxNetworkStatus));
       }
-      const fluxNet = await dockerService.createFluxAppDockerNetwork(appName, dockerNetworkAddrValue).catch((error) => log.error(error));
+      let fluxNet = null;
+      for (let i = 0; i <= 20; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        fluxNet = await dockerService.createFluxAppDockerNetwork(appName, dockerNetworkAddrValue).catch((error) => log.error(error));
+        if (fluxNet || appsThatMightBeUsingOldGatewayIpAssignment.includes(appName)) {
+          break;
+        }
+        dockerNetworkAddrValue = Math.floor(Math.random() * 256);
+      }
       if (!fluxNet) {
-        throw new Error(`Flux App network of ${appName} failed to initiate. Range already assigned to different application.`);
+        throw new Error(`Flux App network of ${appName} failed to initiate. Not possible to create docker application network.`);
       }
       log.info(serviceHelper.ensureString(fluxNet));
+      const fluxNetworkInterfaces = await dockerService.getFluxDockerNetworkPhysicalInterfaceNames();
+      const accessRemoved = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces);
+      const accessRemovedRes = {
+        status: accessRemoved ? `Private network access removed for ${appName}` : `Error removing private network access for ${appName}`,
+      };
+      if (res) {
+        res.write(serviceHelper.ensureString(accessRemovedRes));
+      }
       const fluxNetResponse = {
         status: `Docker network of ${appName} initiated.`,
       };
@@ -3442,7 +3517,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     } else {
       await installApplicationHard(specificationsToInstall, appName, isComponent, res, appSpecifications);
     }
-    const broadcastedAt = new Date().getTime();
+    const broadcastedAt = Date.now();
     const newAppRunningMessage = {
       type: 'fluxapprunning',
       version: 1,
@@ -3759,11 +3834,27 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       if (res) {
         res.write(serviceHelper.ensureString(fluxNetworkStatus));
       }
-      const fluxNet = await dockerService.createFluxAppDockerNetwork(appName, dockerNetworkAddrValue).catch((error) => log.error(error));
+      let fluxNet = null;
+      for (let i = 0; i <= 20; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        fluxNet = await dockerService.createFluxAppDockerNetwork(appName, dockerNetworkAddrValue).catch((error) => log.error(error));
+        if (fluxNet || appsThatMightBeUsingOldGatewayIpAssignment.includes(appName)) {
+          break;
+        }
+        dockerNetworkAddrValue = Math.floor(Math.random() * 256);
+      }
       if (!fluxNet) {
-        throw new Error(`Flux App network of ${appName} failed to initiate. Range already assigned to different application`);
+        throw new Error(`Flux App network of ${appName} failed to initiate. Not possible to create docker application network.`);
       }
       log.info(serviceHelper.ensureString(fluxNet));
+      const fluxNetworkInterfaces = await dockerService.getFluxDockerNetworkPhysicalInterfaceNames();
+      const accessRemoved = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces);
+      const accessRemovedRes = {
+        status: accessRemoved ? `Private network access removed for ${appName}` : `Error removing private network access for ${appName}`,
+      };
+      if (res) {
+        res.write(serviceHelper.ensureString(accessRemovedRes));
+      }
       const fluxNetResponse = {
         status: `Docker network of ${appName} initiated.`,
       };
@@ -4606,7 +4697,7 @@ async function getUserBlockedRepositores() {
     const marketPlaceUrl = 'https://stats.runonflux.io/marketplace/listapps';
     const response = await axios.get(marketPlaceUrl);
     console.log(response);
-    if (response.data.status === 'success') {
+    if (response && response.data && response.data.status === 'success') {
       const visibleApps = response.data.data.filter((val) => val.visible);
       for (let i = 0; i < userBlockedRepos.length; i += 1) {
         const userRepo = userBlockedRepos[i];
@@ -4624,7 +4715,7 @@ async function getUserBlockedRepositores() {
     return [];
   } catch (error) {
     log.error(error);
-    return null;
+    return [];
   }
 }
 
@@ -5441,8 +5532,10 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
     if (appSpecifications.expire > config.fluxapps.maxBlocksAllowance) {
       throw new Error(`Maximum expiration of application is ${config.fluxapps.maxBlocksAllowance} blocks ~ 1 year`);
     }
-    if (appSpecifications.expire % config.fluxapps.blocksAllowanceInterval !== 0) {
-      throw new Error(`Expiration of application has to be a multiple of ${config.fluxapps.blocksAllowanceInterval} blocks ~ 1 day`);
+    if (height < config.fluxapps.removeBlocksAllowanceIntervalBlock) {
+      if (appSpecifications.expire % config.fluxapps.blocksAllowanceInterval !== 0) {
+        throw new Error(`Expiration of application has to be a multiple of ${config.fluxapps.blocksAllowanceInterval} blocks ~ 1 day`);
+      }
     }
   }
 
@@ -6498,7 +6591,7 @@ async function storeAppRunningMessage(message) {
   }
 
   const validTill = message.broadcastedAt + (65 * 60 * 1000); // 3900 seconds
-  if (validTill < new Date().getTime()) {
+  if (validTill < Date.now()) {
     // reject old message
     return false;
   }
@@ -6586,7 +6679,7 @@ async function storeIPChangedMessage(message) {
   log.info(message);
 
   const validTill = message.broadcastedAt + (65 * 60 * 1000); // 3900 seconds
-  if (validTill < new Date().getTime()) {
+  if (validTill < Date.now()) {
     // reject old message
     return false;
   }
@@ -6635,7 +6728,7 @@ async function storeAppRemovedMessage(message) {
   log.info(message);
 
   const validTill = message.broadcastedAt + (65 * 60 * 1000); // 3900 seconds
-  if (validTill < new Date().getTime()) {
+  if (validTill < Date.now()) {
     // reject old message
     return false;
   }
@@ -7135,9 +7228,6 @@ function specificationFormatter(appSpecification) {
     if (expire > config.fluxapps.maxBlocksAllowance) {
       throw new Error(`Maximum expiration of application is ${config.fluxapps.maxBlocksAllowance} blocks ~ 1 year`);
     }
-    if (expire % config.fluxapps.blocksAllowanceInterval !== 0) {
-      throw new Error(`Expiration of application has to be a multiple of ${config.fluxapps.blocksAllowanceInterval} blocks ~ 1 day`);
-    }
     appSpecFormatted.expire = expire;
   }
 
@@ -7174,106 +7264,119 @@ function specificationFormatter(appSpecification) {
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function registerAppGlobalyApi(req, res) {
-  try {
-    const authorized = await verificationHelper.verifyPrivilege('user', req);
-    if (!authorized) {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-      return;
-    }
-    // first check if this node is available for application registration
-    if (outgoingPeers.length < config.fluxapps.minOutgoing) {
-      throw new Error('Sorry, This Flux does not have enough outgoing peers for safe application registration');
-    }
-    if (incomingPeers.length < config.fluxapps.minIncoming) {
-      throw new Error('Sorry, This Flux does not have enough incoming peers for safe application registration');
-    }
-    const processedBody = serviceHelper.ensureObject(req.body);
-    // Note. Actually signature, timestamp is not needed. But we require it only to verify that user indeed has access to the private key of the owner zelid.
-    // name and port HAVE to be unique for application. Check if they don't exist in global database
-    // first let's check if all fields are present and have proper format except tiered and tiered specifications and those can be omitted
-    let { appSpecification, timestamp, signature } = processedBody;
-    let messageType = processedBody.type; // determines how data is treated in the future
-    let typeVersion = processedBody.version; // further determines how data is treated in the future
-    if (!appSpecification || !timestamp || !signature || !messageType || !typeVersion) {
-      throw new Error('Incomplete message received. Check if appSpecification, type, version, timestamp and signature are provided.');
-    }
-    if (messageType !== 'zelappregister' && messageType !== 'fluxappregister') {
-      throw new Error('Invalid type of message');
-    }
-    if (typeVersion !== 1) {
-      throw new Error('Invalid version of message');
-    }
-    appSpecification = serviceHelper.ensureObject(appSpecification);
-    timestamp = serviceHelper.ensureNumber(timestamp);
-    signature = serviceHelper.ensureString(signature);
-    messageType = serviceHelper.ensureString(messageType);
-    typeVersion = serviceHelper.ensureNumber(typeVersion);
-
-    const appSpecFormatted = specificationFormatter(appSpecification);
-
-    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-    if (!syncStatus.data.synced) {
-      throw new Error('Daemon not yet synced.');
-    }
-    const daemonHeight = syncStatus.data.height;
-
-    // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-    await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
-
-    // check if name is not yet registered
-    await checkApplicationRegistrationNameConflicts(appSpecFormatted);
-
-    // check if zelid owner is correct ( done in message verification )
-    // if signature is not correct, then specifications are not correct type or bad message received. Respond with 'Received message is invalid';
-    await verifyAppMessageSignature(messageType, typeVersion, appSpecFormatted, timestamp, signature);
-
-    // if all ok, then sha256 hash of entire message = message + timestamp + signature. We are hashing all to have always unique value.
-    // If hashing just specificiations, if application goes back to previous specifications, it may pose some issues if we have indeed correct state
-    // We respond with a hash that is supposed to go to transaction.
-    const message = messageType + typeVersion + JSON.stringify(appSpecFormatted) + timestamp + signature;
-    const messageHASH = await generalService.messageHash(message);
-    // now all is great. Store appSpecFormatted, timestamp, signature and hash in appsTemporaryMessages. with 1 hours expiration time. Broadcast this message to all outgoing connections.
-    const temporaryAppMessage = { // specification of temp message
-      type: messageType,
-      version: typeVersion,
-      appSpecifications: appSpecFormatted,
-      hash: messageHASH,
-      timestamp,
-      signature,
-    };
-    await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
-    // above takes 2-3 seconds
-    await serviceHelper.delay(1200); // it takes receiving node at least 1 second to process the message. Add 1200 ms mas for processing
-    // this operations takes 2.5-3.5 seconds and is heavy, message gets verified again.
-    await requestAppMessage(messageHASH); // this itself verifies that Peers received our message broadcast AND peers send us the message back. By peers sending the message back we finally store it to our temporary message storage and rebroadcast it again
-    // request app message is quite slow and from performance testing message will appear roughly 5 seconds after ask
-    await serviceHelper.delay(1200); // 1200 ms mas for processing - peer sends message back to us
-    // check temporary message storage
-    let tempMessage = await checkAppTemporaryMessageExistence(messageHASH); // Cumulus measurement: after roughly 8 seconds here
-    for (let i = 0; i < 20; i += 1) { // ask for up to 20 times - 10 seconds. Must have been processed by that time or it failed. Cumulus measurement: Approx 5-6 seconds
-      if (!tempMessage) {
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(500);
-        // eslint-disable-next-line no-await-in-loop
-        tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const authorized = await verificationHelper.verifyPrivilege('user', req);
+      if (!authorized) {
+        const errMessage = messageHelper.errUnauthorizedMessage();
+        res.json(errMessage);
+        return;
       }
+      // first check if this node is available for application registration
+      if (outgoingPeers.length < config.fluxapps.minOutgoing) {
+        throw new Error('Sorry, This Flux does not have enough outgoing peers for safe application registration');
+      }
+      if (incomingPeers.length < config.fluxapps.minIncoming) {
+        throw new Error('Sorry, This Flux does not have enough incoming peers for safe application registration');
+      }
+      const processedBody = serviceHelper.ensureObject(body);
+      // Note. Actually signature, timestamp is not needed. But we require it only to verify that user indeed has access to the private key of the owner zelid.
+      // name and port HAVE to be unique for application. Check if they don't exist in global database
+      // first let's check if all fields are present and have proper format except tiered and tiered specifications and those can be omitted
+      let { appSpecification, timestamp, signature } = processedBody;
+      let messageType = processedBody.type; // determines how data is treated in the future
+      let typeVersion = processedBody.version; // further determines how data is treated in the future
+      if (!appSpecification || !timestamp || !signature || !messageType || !typeVersion) {
+        throw new Error('Incomplete message received. Check if appSpecification, type, version, timestamp and signature are provided.');
+      }
+      if (messageType !== 'zelappregister' && messageType !== 'fluxappregister') {
+        throw new Error('Invalid type of message');
+      }
+      if (typeVersion !== 1) {
+        throw new Error('Invalid version of message');
+      }
+      appSpecification = serviceHelper.ensureObject(appSpecification);
+      timestamp = serviceHelper.ensureNumber(timestamp);
+      signature = serviceHelper.ensureString(signature);
+      messageType = serviceHelper.ensureString(messageType);
+      typeVersion = serviceHelper.ensureNumber(typeVersion);
+
+      const timestampNow = Date.now();
+      if (timestamp < timestampNow - 1000 * 3600) {
+        throw new Error('Message timestamp is over 1 hour old, not valid. Check if your computer clock is synced and restart the registration process.');
+      } else if (timestamp > timestampNow + 1000 * 60 * 5) {
+        throw new Error('Message timestamp from future, not valid. Check if your computer clock is synced and restart the registration process.');
+      }
+
+      const appSpecFormatted = specificationFormatter(appSpecification);
+
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+      if (!syncStatus.data.synced) {
+        throw new Error('Daemon not yet synced.');
+      }
+      const daemonHeight = syncStatus.data.height;
+
+      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
+      await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
+
+      // check if name is not yet registered
+      await checkApplicationRegistrationNameConflicts(appSpecFormatted);
+
+      // check if zelid owner is correct ( done in message verification )
+      // if signature is not correct, then specifications are not correct type or bad message received. Respond with 'Received message is invalid';
+      await verifyAppMessageSignature(messageType, typeVersion, appSpecFormatted, timestamp, signature);
+
+      // if all ok, then sha256 hash of entire message = message + timestamp + signature. We are hashing all to have always unique value.
+      // If hashing just specificiations, if application goes back to previous specifications, it may pose some issues if we have indeed correct state
+      // We respond with a hash that is supposed to go to transaction.
+      const message = messageType + typeVersion + JSON.stringify(appSpecFormatted) + timestamp + signature;
+      const messageHASH = await generalService.messageHash(message);
+      // now all is great. Store appSpecFormatted, timestamp, signature and hash in appsTemporaryMessages. with 1 hours expiration time. Broadcast this message to all outgoing connections.
+      const temporaryAppMessage = { // specification of temp message
+        type: messageType,
+        version: typeVersion,
+        appSpecifications: appSpecFormatted,
+        hash: messageHASH,
+        timestamp,
+        signature,
+      };
+      await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
+      // above takes 2-3 seconds
+      await serviceHelper.delay(1200); // it takes receiving node at least 1 second to process the message. Add 1200 ms mas for processing
+      // this operations takes 2.5-3.5 seconds and is heavy, message gets verified again.
+      await requestAppMessage(messageHASH); // this itself verifies that Peers received our message broadcast AND peers send us the message back. By peers sending the message back we finally store it to our temporary message storage and rebroadcast it again
+      // request app message is quite slow and from performance testing message will appear roughly 5 seconds after ask
+      await serviceHelper.delay(1200); // 1200 ms mas for processing - peer sends message back to us
+      // check temporary message storage
+      let tempMessage = await checkAppTemporaryMessageExistence(messageHASH); // Cumulus measurement: after roughly 8 seconds here
+      for (let i = 0; i < 20; i += 1) { // ask for up to 20 times - 10 seconds. Must have been processed by that time or it failed. Cumulus measurement: Approx 5-6 seconds
+        if (!tempMessage) {
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.delay(500);
+          // eslint-disable-next-line no-await-in-loop
+          tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
+        }
+      }
+      if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
+        const responseHash = messageHelper.createDataMessage(tempMessage.hash);
+        res.json(responseHash); // all ok
+        return;
+      }
+      throw new Error('Unable to register application on the network. Try again later.');
+    } catch (error) {
+      log.warn(error);
+      const errorResponse = messageHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      res.json(errorResponse);
     }
-    if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
-      const responseHash = messageHelper.createDataMessage(tempMessage.hash);
-      res.json(responseHash); // all ok
-      return;
-    }
-    throw new Error('Unable to register application on the network. Try again later.');
-  } catch (error) {
-    log.warn(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    res.json(errorResponse);
-  }
+  });
 }
 
 /**
@@ -7283,121 +7386,134 @@ async function registerAppGlobalyApi(req, res) {
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function updateAppGlobalyApi(req, res) {
-  try {
-    const authorized = await verificationHelper.verifyPrivilege('user', req);
-    if (!authorized) {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-      return;
-    }
-    // first check if this node is available for application update
-    if (outgoingPeers.length < config.fluxapps.minOutgoing) {
-      throw new Error('Sorry, This Flux does not have enough outgoing peers for safe application update');
-    }
-    if (incomingPeers.length < config.fluxapps.minIncoming) {
-      throw new Error('Sorry, This Flux does not have enough incoming peers for safe application update');
-    }
-    const processedBody = serviceHelper.ensureObject(req.body);
-    // Note. Actually signature, timestamp is not needed. But we require it only to verify that user indeed has access to the private key of the owner zelid.
-    // name and ports HAVE to be unique for application. Check if they don't exist in global database
-    // first let's check if all fields are present and have proper format except tiered and tiered specifications and those can be omitted
-    let { appSpecification, timestamp, signature } = processedBody;
-    let messageType = processedBody.type; // determines how data is treated in the future
-    let typeVersion = processedBody.version; // further determines how data is treated in the future
-    if (!appSpecification || !timestamp || !signature || !messageType || !typeVersion) {
-      throw new Error('Incomplete message received. Check if appSpecification, timestamp, type, version and signature are provided.');
-    }
-    if (messageType !== 'zelappupdate' && messageType !== 'fluxappupdate') {
-      throw new Error('Invalid type of message');
-    }
-    if (typeVersion !== 1) {
-      throw new Error('Invalid version of message');
-    }
-    appSpecification = serviceHelper.ensureObject(appSpecification);
-    timestamp = serviceHelper.ensureNumber(timestamp);
-    signature = serviceHelper.ensureString(signature);
-    messageType = serviceHelper.ensureString(messageType);
-    typeVersion = serviceHelper.ensureNumber(typeVersion);
-
-    const appSpecFormatted = specificationFormatter(appSpecification);
-
-    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-    if (!syncStatus.data.synced) {
-      throw new Error('Daemon not yet synced.');
-    }
-    const daemonHeight = syncStatus.data.height;
-
-    // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-    await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
-
-    // verify that app exists, does not change repotag and is signed by app owner.
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-    // may throw
-    const query = { name: appSpecFormatted.name };
-    const projection = {
-      projection: {
-        _id: 0,
-      },
-    };
-    const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-    if (!appInfo) {
-      throw new Error('Flux App update received but application to update does not exist!');
-    }
-    if (appInfo.repotag !== appSpecFormatted.repotag) { // this is OK. <= v3 cannot change, v4 can but does not have this in specifications as its compose
-      throw new Error('Flux App update of repotag is not allowed');
-    }
-    const appOwner = appInfo.owner; // ensure previous app owner is signing this message
-    // here signature is checked against PREVIOUS app owner
-    await verifyAppMessageUpdateSignature(messageType, typeVersion, appSpecFormatted, timestamp, signature, appOwner);
-
-    // if all ok, then sha256 hash of entire message = message + timestamp + signature. We are hashing all to have always unique value.
-    // If hashing just specificiations, if application goes back to previous specifications, it may pose some issues if we have indeed correct state
-    // We respond with a hash that is supposed to go to transaction.
-    const message = messageType + typeVersion + JSON.stringify(appSpecFormatted) + timestamp + signature;
-    const messageHASH = await generalService.messageHash(message);
-    // now all is great. Store appSpecFormatted, timestamp, signature and hash in appsTemporaryMessages. with 1 hours expiration time. Broadcast this message to all outgoing connections.
-    const temporaryAppMessage = { // specification of temp message
-      type: messageType,
-      version: typeVersion,
-      appSpecifications: appSpecFormatted,
-      hash: messageHASH,
-      timestamp,
-      signature,
-    };
-    // verify that app exists, does not change repotag (for v1-v3), does not change name and does not change component names
-    await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, temporaryAppMessage.timestamp);
-    await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
-    // above takes 2-3 seconds
-    await serviceHelper.delay(1200); // it takes receiving node at least 1 second to process the message. Add 1200 ms mas for processing
-    // this operations takes 2.5-3.5 seconds and is heavy, message gets verified again.
-    await requestAppMessage(messageHASH); // this itself verifies that Peers received our message broadcast AND peers send us the message back. By peers sending the message back we finally store it to our temporary message storage and rebroadcast it again
-    await serviceHelper.delay(1200); // 1200 ms mas for processing - peer sends message back to us
-    // check temporary message storage
-    let tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
-    for (let i = 0; i < 20; i += 1) { // ask for up to 20 times - 10 seconds. Must have been processed by that time or it failed.
-      if (!tempMessage) {
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(500);
-        // eslint-disable-next-line no-await-in-loop
-        tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const authorized = await verificationHelper.verifyPrivilege('user', req);
+      if (!authorized) {
+        const errMessage = messageHelper.errUnauthorizedMessage();
+        res.json(errMessage);
+        return;
       }
+      // first check if this node is available for application update
+      if (outgoingPeers.length < config.fluxapps.minOutgoing) {
+        throw new Error('Sorry, This Flux does not have enough outgoing peers for safe application update');
+      }
+      if (incomingPeers.length < config.fluxapps.minIncoming) {
+        throw new Error('Sorry, This Flux does not have enough incoming peers for safe application update');
+      }
+      const processedBody = serviceHelper.ensureObject(body);
+      // Note. Actually signature, timestamp is not needed. But we require it only to verify that user indeed has access to the private key of the owner zelid.
+      // name and ports HAVE to be unique for application. Check if they don't exist in global database
+      // first let's check if all fields are present and have proper format except tiered and tiered specifications and those can be omitted
+      let { appSpecification, timestamp, signature } = processedBody;
+      let messageType = processedBody.type; // determines how data is treated in the future
+      let typeVersion = processedBody.version; // further determines how data is treated in the future
+      if (!appSpecification || !timestamp || !signature || !messageType || !typeVersion) {
+        throw new Error('Incomplete message received. Check if appSpecification, timestamp, type, version and signature are provided.');
+      }
+      if (messageType !== 'zelappupdate' && messageType !== 'fluxappupdate') {
+        throw new Error('Invalid type of message');
+      }
+      if (typeVersion !== 1) {
+        throw new Error('Invalid version of message');
+      }
+      appSpecification = serviceHelper.ensureObject(appSpecification);
+      timestamp = serviceHelper.ensureNumber(timestamp);
+      signature = serviceHelper.ensureString(signature);
+      messageType = serviceHelper.ensureString(messageType);
+      typeVersion = serviceHelper.ensureNumber(typeVersion);
+
+      const timestampNow = Date.now();
+      if (timestamp < timestampNow - 1000 * 3600) {
+        throw new Error('Message timestamp is over 1 hour old, not valid. Check if your computer clock is synced and restart the registration process.');
+      } else if (timestamp > timestampNow + 1000 * 60 * 5) {
+        throw new Error('Message timestamp from future, not valid. Check if your computer clock is synced and restart the registration process.');
+      }
+
+      const appSpecFormatted = specificationFormatter(appSpecification);
+
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+      if (!syncStatus.data.synced) {
+        throw new Error('Daemon not yet synced.');
+      }
+      const daemonHeight = syncStatus.data.height;
+
+      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
+      await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
+
+      // verify that app exists, does not change repotag and is signed by app owner.
+      const db = dbHelper.databaseConnection();
+      const database = db.db(config.database.appsglobal.database);
+      // may throw
+      const query = { name: appSpecFormatted.name };
+      const projection = {
+        projection: {
+          _id: 0,
+        },
+      };
+      const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+      if (!appInfo) {
+        throw new Error('Flux App update received but application to update does not exist!');
+      }
+      if (appInfo.repotag !== appSpecFormatted.repotag) { // this is OK. <= v3 cannot change, v4 can but does not have this in specifications as its compose
+        throw new Error('Flux App update of repotag is not allowed');
+      }
+      const appOwner = appInfo.owner; // ensure previous app owner is signing this message
+      // here signature is checked against PREVIOUS app owner
+      await verifyAppMessageUpdateSignature(messageType, typeVersion, appSpecFormatted, timestamp, signature, appOwner);
+
+      // if all ok, then sha256 hash of entire message = message + timestamp + signature. We are hashing all to have always unique value.
+      // If hashing just specificiations, if application goes back to previous specifications, it may pose some issues if we have indeed correct state
+      // We respond with a hash that is supposed to go to transaction.
+      const message = messageType + typeVersion + JSON.stringify(appSpecFormatted) + timestamp + signature;
+      const messageHASH = await generalService.messageHash(message);
+      // now all is great. Store appSpecFormatted, timestamp, signature and hash in appsTemporaryMessages. with 1 hours expiration time. Broadcast this message to all outgoing connections.
+      const temporaryAppMessage = { // specification of temp message
+        type: messageType,
+        version: typeVersion,
+        appSpecifications: appSpecFormatted,
+        hash: messageHASH,
+        timestamp,
+        signature,
+      };
+      // verify that app exists, does not change repotag (for v1-v3), does not change name and does not change component names
+      await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, temporaryAppMessage.timestamp);
+      await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
+      // above takes 2-3 seconds
+      await serviceHelper.delay(1200); // it takes receiving node at least 1 second to process the message. Add 1200 ms mas for processing
+      // this operations takes 2.5-3.5 seconds and is heavy, message gets verified again.
+      await requestAppMessage(messageHASH); // this itself verifies that Peers received our message broadcast AND peers send us the message back. By peers sending the message back we finally store it to our temporary message storage and rebroadcast it again
+      await serviceHelper.delay(1200); // 1200 ms mas for processing - peer sends message back to us
+      // check temporary message storage
+      let tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
+      for (let i = 0; i < 20; i += 1) { // ask for up to 20 times - 10 seconds. Must have been processed by that time or it failed.
+        if (!tempMessage) {
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.delay(500);
+          // eslint-disable-next-line no-await-in-loop
+          tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
+        }
+      }
+      if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
+        const responseHash = messageHelper.createDataMessage(tempMessage.hash);
+        res.json(responseHash); // all ok
+        return;
+      }
+      throw new Error('Unable to update application on the network. Try again later.');
+    } catch (error) {
+      log.warn(error);
+      const errorResponse = messageHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      res.json(errorResponse);
     }
-    if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
-      const responseHash = messageHelper.createDataMessage(tempMessage.hash);
-      res.json(responseHash); // all ok
-      return;
-    }
-    throw new Error('Unable to update application on the network. Try again later.');
-  } catch (error) {
-    log.warn(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    res.json(errorResponse);
-  }
+  });
 }
 
 /**
@@ -7908,31 +8024,37 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
  * @returns {object} Message.
  */
 async function checkDockerAccessibility(req, res) {
-  try {
-    const authorized = await verificationHelper.verifyPrivilege('user', req);
-    if (!authorized) {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      return res.json(errMessage);
-    }
-    // check repotag if available for download
-    const processedBody = serviceHelper.ensureObject(req.body);
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const authorized = await verificationHelper.verifyPrivilege('user', req);
+      if (!authorized) {
+        const errMessage = messageHelper.errUnauthorizedMessage();
+        return res.json(errMessage);
+      }
+      // check repotag if available for download
+      const processedBody = serviceHelper.ensureObject(body);
 
-    if (!processedBody.repotag) {
-      throw new Error('No repotag specifiec');
-    }
+      if (!processedBody.repotag) {
+        throw new Error('No repotag specifiec');
+      }
 
-    await verifyRepository(processedBody.repotag);
-    const message = messageHelper.createSuccessMessage('Repotag is accessible');
-    return res.json(message);
-  } catch (error) {
-    log.warn(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    return res.json(errorResponse);
-  }
+      await verifyRepository(processedBody.repotag);
+      const message = messageHelper.createSuccessMessage('Repotag is accessible');
+      return res.json(message);
+    } catch (error) {
+      log.warn(error);
+      const errorResponse = messageHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      return res.json(errorResponse);
+    }
+  });
 }
 
 /**
@@ -8954,7 +9076,7 @@ async function trySpawningGlobalApplication() {
     const registerOk = await registerAppLocally(appSpecifications); // can throw
     if (!registerOk) {
       log.info('Error on registerAppLocally');
-      const broadcastedAt = new Date().getTime();
+      const broadcastedAt = Date.now();
       const appRemovedMessage = {
         type: 'fluxappremoved',
         version: 1,
@@ -9143,7 +9265,7 @@ async function checkAndNotifyPeersOfRunningApps() {
           name: application.name,
           hash: application.hash, // hash of application specifics that are running
           ip: myIP,
-          broadcastedAt: new Date().getTime(),
+          broadcastedAt: Date.now(),
         };
         const app = {
           name: application.name,
@@ -9170,7 +9292,7 @@ async function checkAndNotifyPeersOfRunningApps() {
           version: 2,
           apps,
           ip: myIP,
-          broadcastedAt: new Date().getTime(),
+          broadcastedAt: Date.now(),
         };
         // eslint-disable-next-line no-await-in-loop
         await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessageV2);
@@ -9671,20 +9793,13 @@ async function reinstallOldApplications() {
 }
 
 /**
- * To get app price.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message.
+ * To get app flux onchain price.
+ * @param {object} appSpecification Request.
+ * @returns {number} Flux Chain Price.
  */
-async function getAppPrice(req, res) {
+async function getAppFluxOnChainPrice(appSpecification) {
   try {
-    const processedBody = serviceHelper.ensureObject(req.body);
-    let appSpecification = processedBody;
-
-    appSpecification = serviceHelper.ensureObject(appSpecification);
     const appSpecFormatted = specificationFormatter(appSpecification);
-
-    // verifications skipped. This endpoint is only for price evaluation
 
     // check if app exists or its a new registration price
     const db = dbHelper.databaseConnection();
@@ -9732,17 +9847,313 @@ async function getAppPrice(req, res) {
     if (actualPriceToPay < priceSpecifications.minPrice) {
       actualPriceToPay = priceSpecifications.minPrice;
     }
-    const respondPrice = messageHelper.createDataMessage(actualPriceToPay);
-    return res.json(respondPrice);
+    return Number(actualPriceToPay).toFixed(2);
   } catch (error) {
     log.warn(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    return res.json(errorResponse);
+    throw error;
   }
+}
+
+/**
+ * DEPRECATED: To get app price. Should be used getAppFiatAndFluxPrice method instead
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+async function getAppPrice(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const processedBody = serviceHelper.ensureObject(body);
+      let appSpecification = processedBody;
+
+      appSpecification = serviceHelper.ensureObject(appSpecification);
+      const appSpecFormatted = specificationFormatter(appSpecification);
+
+      // verifications skipped. This endpoint is only for price evaluation
+
+      // check if app exists or its a new registration price
+      const db = dbHelper.databaseConnection();
+      const database = db.db(config.database.appsglobal.database);
+      // may throw
+      const query = { name: appSpecFormatted.name };
+      const projection = {
+        projection: {
+          _id: 0,
+        },
+      };
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+      if (!syncStatus.data.synced) {
+        throw new Error('Daemon not yet synced.');
+      }
+      const daemonHeight = syncStatus.data.height;
+      const axiosConfig = {
+        timeout: 5000,
+      };
+      const appPrices = [];
+      if (myLongCache.has('appPrices')) {
+        appPrices.push(myLongCache.get('appPrices'));
+      } else {
+        let response = await axios.get('https://stats.runonflux.io/apps/getappspecsusdprice', axiosConfig).catch((error) => log.error(error));
+        if (response && response.data && response.data.status === 'success') {
+          myLongCache.set('appPrices', response.data.data);
+          appPrices.push(response.data.data);
+        } else {
+          response = config.fluxapps.usdprice;
+          myLongCache.set('appPrices', response);
+          appPrices.push(response);
+        }
+      }
+      let actualPriceToPay = 0;
+      const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+      const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
+      actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices);
+      const expireIn = appSpecFormatted.expire || defaultExpire;
+      // app prices are ceiled to highest 0.01
+      const multiplier = expireIn / defaultExpire;
+      actualPriceToPay *= multiplier;
+      actualPriceToPay = Number(actualPriceToPay).toFixed(2);
+      if (appInfo) {
+        let previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices); // calculate previous based on CURRENT height, with current interval of prices!
+        let previousExpireIn = previousSpecsPrice.expire || defaultExpire; // bad typo bug line. Leave it like it is, this bug is a feature now.
+        if (daemonHeight > 1315000) {
+          previousExpireIn = appInfo.expire || defaultExpire;
+        }
+        const multiplierPrevious = previousExpireIn / defaultExpire;
+        previousSpecsPrice *= multiplierPrevious;
+        previousSpecsPrice = Number(previousSpecsPrice).toFixed(2);
+        // what is the height difference
+        const heightDifference = daemonHeight - appInfo.height;
+        const perc = (previousExpireIn - heightDifference) / previousExpireIn;
+        if (perc > 0) {
+          actualPriceToPay -= (perc * previousSpecsPrice);
+        }
+      }
+      const marketplaceResponse = await axios.get('https://stats.runonflux.io/marketplace/listapps').catch((error) => log.error(error));
+      let marketPlaceApps = [];
+      if (marketplaceResponse && marketplaceResponse.data && marketplaceResponse.data.status === 'success') {
+        marketPlaceApps = marketplaceResponse.data.data;
+      } else {
+        log.error('Unable to get marketplace information');
+      }
+
+      if (appSpecification.priceUSD) {
+        if (appSpecification.priceUSD < actualPriceToPay) {
+          throw new Error('USD price is not valid');
+        }
+        actualPriceToPay = Number(appSpecification.priceUSD).toFixed(2);
+      } else {
+        const marketPlaceApp = marketPlaceApps.find((app) => appSpecFormatted.name.toLowerCase().startsWith(app.name.toLowerCase()));
+        if (marketPlaceApp) {
+          if (marketPlaceApp.multiplier > 1) {
+            actualPriceToPay *= marketPlaceApp.multiplier;
+          }
+        }
+        actualPriceToPay = Number(actualPriceToPay * appPrices[0].multiplier).toFixed(2);
+        if (actualPriceToPay < appPrices[0].minUSDPrice) {
+          actualPriceToPay = Number(appPrices[0].minUSDPrice).toFixed(2);
+        }
+      }
+      let fiatRates;
+      let fluxUSDRate;
+      if (myShortCache.has('fluxRates')) {
+        fluxUSDRate = myShortCache.get('fluxRates');
+      } else {
+        fiatRates = await axios.get('https://viprates.runonflux.io/rates', axiosConfig).catch((error) => log.error(error));
+        if (fiatRates && fiatRates.data) {
+          const rateObj = fiatRates.data[0].find((rate) => rate.code === 'USD');
+          if (!rateObj) {
+            throw new Error('Unable to get USD rate.');
+          }
+          const btcRateforFlux = fiatRates.data[1].FLUX;
+          if (btcRateforFlux === undefined) {
+            throw new Error('Unable to get Flux USD Price.');
+          }
+          fluxUSDRate = rateObj.rate * btcRateforFlux;
+          myShortCache.set('fluxRates', fluxUSDRate);
+        } else {
+          fiatRates = await axios.get('https://api.coingecko.com/api/v3/simple/price?vs_currencies=usd&ids=zelcash', axiosConfig);
+          if (fiatRates && fiatRates.data && fiatRates.data.zelcash && fiatRates.data.zelcash.usd) {
+            fluxUSDRate = fiatRates.data.zelcash.usd;
+            myShortCache.set('fluxRates', fluxUSDRate);
+          } else {
+            // eslint-disable-next-line prefer-destructuring
+            fluxUSDRate = config.fluxapps.fluxUSDRate;
+            myShortCache.set('fluxRates', fluxUSDRate);
+          }
+        }
+      }
+      const fluxPrice = Number(((actualPriceToPay / fluxUSDRate) * appPrices[0].fluxmultiplier));
+      const fluxChainPrice = Number(await getAppFluxOnChainPrice(appSpecification));
+      const price = fluxChainPrice > fluxPrice ? Number(fluxChainPrice.toFixed(2)) : Number(fluxPrice.toFixed(2));
+      const respondPrice = messageHelper.createDataMessage(price);
+      return res.json(respondPrice);
+    } catch (error) {
+      log.warn(error);
+      const errorResponse = messageHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      return res.json(errorResponse);
+    }
+  });
+}
+
+/**
+ * To get app price.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+async function getAppFiatAndFluxPrice(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const processedBody = serviceHelper.ensureObject(body);
+      let appSpecification = processedBody;
+
+      appSpecification = serviceHelper.ensureObject(appSpecification);
+      const appSpecFormatted = specificationFormatter(appSpecification);
+
+      // verifications skipped. This endpoint is only for price evaluation
+
+      // check if app exists or its a new registration price
+      const db = dbHelper.databaseConnection();
+      const database = db.db(config.database.appsglobal.database);
+      // may throw
+      const query = { name: appSpecFormatted.name };
+      const projection = {
+        projection: {
+          _id: 0,
+        },
+      };
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+      if (!syncStatus.data.synced) {
+        throw new Error('Daemon not yet synced.');
+      }
+      const daemonHeight = syncStatus.data.height;
+      const axiosConfig = {
+        timeout: 5000,
+      };
+      const appPrices = [];
+      if (myLongCache.has('appPrices')) {
+        appPrices.push(myLongCache.get('appPrices'));
+      } else {
+        let response = await axios.get('https://stats.runonflux.io/apps/getappspecsusdprice', axiosConfig).catch((error) => log.error(error));
+        if (response && response.data && response.data.status === 'success') {
+          myLongCache.set('appPrices', response.data.data);
+          appPrices.push(response.data.data);
+        } else {
+          response = config.fluxapps.usdprice;
+          myLongCache.set('appPrices', response);
+          appPrices.push(response);
+        }
+      }
+      let actualPriceToPay = 0;
+      const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+      const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
+      actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices);
+      const expireIn = appSpecFormatted.expire || defaultExpire;
+      // app prices are ceiled to highest 0.01
+      const multiplier = expireIn / defaultExpire;
+      actualPriceToPay *= multiplier;
+      actualPriceToPay = Number(actualPriceToPay).toFixed(2);
+      if (appInfo) {
+        let previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices); // calculate previous based on CURRENT height, with current interval of prices!
+        let previousExpireIn = previousSpecsPrice.expire || defaultExpire; // bad typo bug line. Leave it like it is, this bug is a feature now.
+        if (daemonHeight > 1315000) {
+          previousExpireIn = appInfo.expire || defaultExpire;
+        }
+        const multiplierPrevious = previousExpireIn / defaultExpire;
+        previousSpecsPrice *= multiplierPrevious;
+        previousSpecsPrice = Number(previousSpecsPrice).toFixed(2);
+        // what is the height difference
+        const heightDifference = daemonHeight - appInfo.height;
+        const perc = (previousExpireIn - heightDifference) / previousExpireIn;
+        if (perc > 0) {
+          actualPriceToPay -= (perc * previousSpecsPrice);
+        }
+      }
+      const marketplaceResponse = await axios.get('https://stats.runonflux.io/marketplace/listapps').catch((error) => log.error(error));
+      let marketPlaceApps = [];
+      if (marketplaceResponse && marketplaceResponse.data && marketplaceResponse.data.status === 'success') {
+        marketPlaceApps = marketplaceResponse.data.data;
+      } else {
+        log.error('Unable to get marketplace information');
+      }
+
+      if (appSpecification.priceUSD) {
+        if (appSpecification.priceUSD < actualPriceToPay) {
+          throw new Error('USD price is not valid');
+        }
+        actualPriceToPay = Number(appSpecification.priceUSD).toFixed(2);
+      } else {
+        const marketPlaceApp = marketPlaceApps.find((app) => appSpecFormatted.name.toLowerCase().startsWith(app.name.toLowerCase()));
+        if (marketPlaceApp) {
+          if (marketPlaceApp.multiplier > 1) {
+            actualPriceToPay *= marketPlaceApp.multiplier;
+          }
+        }
+        actualPriceToPay = Number(actualPriceToPay * appPrices[0].multiplier).toFixed(2);
+        if (actualPriceToPay < appPrices[0].minUSDPrice) {
+          actualPriceToPay = Number(appPrices[0].minUSDPrice).toFixed(2);
+        }
+      }
+      let fiatRates;
+      let fluxUSDRate;
+      if (myShortCache.has('fluxRates')) {
+        fluxUSDRate = myShortCache.get('fluxRates');
+      } else {
+        fiatRates = await axios.get('https://viprates.runonflux.io/rates', axiosConfig).catch((error) => log.error(error));
+        if (fiatRates && fiatRates.data) {
+          const rateObj = fiatRates.data[0].find((rate) => rate.code === 'USD');
+          if (!rateObj) {
+            throw new Error('Unable to get USD rate.');
+          }
+          const btcRateforFlux = fiatRates.data[1].FLUX;
+          if (btcRateforFlux === undefined) {
+            throw new Error('Unable to get Flux USD Price.');
+          }
+          fluxUSDRate = rateObj.rate * btcRateforFlux;
+          myShortCache.set('fluxRates', fluxUSDRate);
+        } else {
+          fiatRates = await axios.get('https://api.coingecko.com/api/v3/simple/price?vs_currencies=usd&ids=zelcash', axiosConfig);
+          if (fiatRates && fiatRates.data && fiatRates.data.zelcash && fiatRates.data.zelcash.usd) {
+            fluxUSDRate = fiatRates.data.zelcash.usd;
+            myShortCache.set('fluxRates', fluxUSDRate);
+          } else {
+            // eslint-disable-next-line prefer-destructuring
+            fluxUSDRate = config.fluxapps.fluxUSDRate;
+            myShortCache.set('fluxRates', fluxUSDRate);
+          }
+        }
+      }
+      const fluxPrice = Number(((actualPriceToPay / fluxUSDRate) * appPrices[0].fluxmultiplier));
+      const fluxChainPrice = Number(await getAppFluxOnChainPrice(appSpecification));
+      const price = {
+        usd: Number(actualPriceToPay),
+        flux: fluxChainPrice > fluxPrice ? Number(fluxChainPrice.toFixed(2)) : Number(fluxPrice.toFixed(2)),
+        fluxDiscount: fluxChainPrice > fluxPrice ? 'Not possible to define discount' : Number(100 - (appPrices[0].fluxmultiplier * 100)),
+      };
+      const respondPrice = messageHelper.createDataMessage(price);
+      return res.json(respondPrice);
+    } catch (error) {
+      log.warn(error);
+      const errorResponse = messageHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      return res.json(errorResponse);
+    }
+  });
 }
 
 /**
@@ -9821,38 +10232,44 @@ async function redeployAPI(req, res) {
  * @returns {object} Message.
  */
 async function verifyAppRegistrationParameters(req, res) {
-  try {
-    const processedBody = serviceHelper.ensureObject(req.body);
-    let appSpecification = processedBody;
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const processedBody = serviceHelper.ensureObject(body);
+      let appSpecification = processedBody;
 
-    appSpecification = serviceHelper.ensureObject(appSpecification);
-    const appSpecFormatted = specificationFormatter(appSpecification);
+      appSpecification = serviceHelper.ensureObject(appSpecification);
+      const appSpecFormatted = specificationFormatter(appSpecification);
 
-    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-    if (!syncStatus.data.synced) {
-      throw new Error('Daemon not yet synced.');
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+      if (!syncStatus.data.synced) {
+        throw new Error('Daemon not yet synced.');
+      }
+      const daemonHeight = syncStatus.data.height;
+
+      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
+      await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
+
+      // check if name is not yet registered
+      await checkApplicationRegistrationNameConflicts(appSpecFormatted);
+
+      // app is valid and can be registered
+      // respond with formatted specifications
+      const respondPrice = messageHelper.createDataMessage(appSpecFormatted);
+      return res.json(respondPrice);
+    } catch (error) {
+      log.warn(error);
+      const errorResponse = messageHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      return res.json(errorResponse);
     }
-    const daemonHeight = syncStatus.data.height;
-
-    // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-    await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
-
-    // check if name is not yet registered
-    await checkApplicationRegistrationNameConflicts(appSpecFormatted);
-
-    // app is valid and can be registered
-    // respond with formatted specifications
-    const respondPrice = messageHelper.createDataMessage(appSpecFormatted);
-    return res.json(respondPrice);
-  } catch (error) {
-    log.warn(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    return res.json(errorResponse);
-  }
+  });
 }
 
 /**
@@ -9862,39 +10279,45 @@ async function verifyAppRegistrationParameters(req, res) {
  * @returns {object} Message.
  */
 async function verifyAppUpdateParameters(req, res) {
-  try {
-    const processedBody = serviceHelper.ensureObject(req.body);
-    let appSpecification = processedBody;
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const processedBody = serviceHelper.ensureObject(body);
+      let appSpecification = processedBody;
 
-    appSpecification = serviceHelper.ensureObject(appSpecification);
-    const appSpecFormatted = specificationFormatter(appSpecification);
+      appSpecification = serviceHelper.ensureObject(appSpecification);
+      const appSpecFormatted = specificationFormatter(appSpecification);
 
-    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-    if (!syncStatus.data.synced) {
-      throw new Error('Daemon not yet synced.');
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+      if (!syncStatus.data.synced) {
+        throw new Error('Daemon not yet synced.');
+      }
+      const daemonHeight = syncStatus.data.height;
+
+      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
+      await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
+
+      // check if name is not yet registered
+      const timestamp = Date.now();
+      await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, timestamp);
+
+      // app is valid and can be registered
+      // respond with formatted specifications
+      const respondPrice = messageHelper.createDataMessage(appSpecFormatted);
+      return res.json(respondPrice);
+    } catch (error) {
+      log.warn(error);
+      const errorResponse = messageHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      return res.json(errorResponse);
     }
-    const daemonHeight = syncStatus.data.height;
-
-    // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-    await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
-
-    // check if name is not yet registered
-    const timestamp = new Date().getTime();
-    await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, timestamp);
-
-    // app is valid and can be registered
-    // respond with formatted specifications
-    const respondPrice = messageHelper.createDataMessage(appSpecFormatted);
-    return res.json(respondPrice);
-  } catch (error) {
-    log.warn(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    return res.json(errorResponse);
-  }
+  });
 }
 
 /**
@@ -10351,8 +10774,16 @@ async function syncthingApps() {
               const port = appInstance.ip.split(':')[1] || 16127;
               const addresses = [`tcp://${ip}:${+port + 2}`, `quic://${ip}:${+port + 2}`];
               const name = `${ip}:${port}`;
-              // eslint-disable-next-line no-await-in-loop
-              const deviceID = await getDeviceID(name);
+              let deviceID;
+              if (syncthingDevicesIDCache.has(name)) {
+                deviceID = syncthingDevicesIDCache.get(name);
+              } else {
+                // eslint-disable-next-line no-await-in-loop
+                deviceID = await getDeviceID(name);
+                if (deviceID) {
+                  syncthingDevicesIDCache.set(name, deviceID);
+                }
+              }
               if (deviceID) {
                 if (deviceID !== myDeviceID.data) { // skip my id, already present
                   const folderDeviceExists = devices.find((device) => device.deviceID === deviceID);
@@ -10537,8 +10968,16 @@ async function syncthingApps() {
                 const port = appInstance.ip.split(':')[1] || 16127;
                 const addresses = [`tcp://${ip}:${+port + 2}`, `quic://${ip}:${+port + 2}`];
                 const name = `${ip}:${port}`;
-                // eslint-disable-next-line no-await-in-loop
-                const deviceID = await getDeviceID(name);
+                let deviceID;
+                if (syncthingDevicesIDCache.has(name)) {
+                  deviceID = syncthingDevicesIDCache.get(name);
+                } else {
+                  // eslint-disable-next-line no-await-in-loop
+                  deviceID = await getDeviceID(name);
+                  if (deviceID) {
+                    syncthingDevicesIDCache.set(name, deviceID);
+                  }
+                }
                 if (deviceID) {
                   if (deviceID !== myDeviceID.data) { // skip my id, already present
                     const folderDeviceExists = devices.find((device) => device.deviceID === deviceID);
@@ -10917,7 +11356,7 @@ async function masterSlaveApps() {
                   log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
                 } else {
                   const previousMasterIndex = runningAppList.findIndex((x) => x.ip === mastersRunningGSyncthingApps.get(identifier));
-                  let timetoStartApp = new Date().getTime();
+                  let timetoStartApp = Date.now();
                   if (previousMasterIndex >= 0) {
                     if (index > previousMasterIndex) {
                       timetoStartApp += (index - 1) * 5 * 60 * 1000;
@@ -10927,14 +11366,14 @@ async function masterSlaveApps() {
                   } else {
                     timetoStartApp += index * 5 * 60 * 1000;
                   }
-                  if (timetoStartApp <= new Date().getTime()) {
+                  if (timetoStartApp <= Date.now()) {
                     appDockerRestart(installedApp.name);
                     log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
                   } else {
                     timeTostartNewMasterApp.set(identifier, timetoStartApp);
                   }
                 }
-              } else if (timeTostartNewMasterApp.has(identifier) && timeTostartNewMasterApp.get(identifier) <= new Date().getTime()) {
+              } else if (timeTostartNewMasterApp.has(identifier) && timeTostartNewMasterApp.get(identifier) <= Date.now()) {
                 appDockerRestart(installedApp.name);
                 log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
               }
@@ -11767,29 +12206,30 @@ async function appendBackupTask(req, res) {
 
       await sendChunk(res, 'Stopping application...\n');
       await appDockerStop(appname);
+      await serviceHelper.delay(5 * 1000);
       // eslint-disable-next-line no-restricted-syntax
       for (const component of backup) {
         if (component.backup) {
           // eslint-disable-next-line no-await-in-loop
           const componentPath = await IOUtils.getVolumeInfo(appname, component.component, 'B', 0, 'mount');
           const targetPath = `${componentPath[0].mount}/appdata`;
-          const tarGzPath = `${componentPath[0].mount}/backup/local/backup_${component.component}.tar.gz`;
+          const tarGzPath = `${componentPath[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`;
           // eslint-disable-next-line no-await-in-loop
-          const existStatus = await IOUtils.checkFileExists(`${componentPath[0].mount}/backup/local/backup_${component.component}.tar.gz`);
+          const existStatus = await IOUtils.checkFileExists(`${componentPath[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`);
           if (existStatus === true) {
             // eslint-disable-next-line no-await-in-loop
-            await sendChunk(res, `Removing exists backup archive for ${component.component}...\n`);
+            await sendChunk(res, `Removing exists backup archive for ${component.component.toLowerCase()}...\n`);
             // eslint-disable-next-line no-await-in-loop
-            await IOUtils.removeFile(`${componentPath[0].mount}/backup/local/backup_${component.component}.tar.gz`);
+            await IOUtils.removeFile(`${componentPath[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`);
           }
           // eslint-disable-next-line no-await-in-loop
-          await sendChunk(res, `Creating backup archive for ${component.component}...\n`);
+          await sendChunk(res, `Creating backup archive for ${component.component.toLowerCase()}...\n`);
           // eslint-disable-next-line no-await-in-loop
           const tarStatus = await IOUtils.createTarGz(targetPath, tarGzPath);
           if (tarStatus.status === false) {
             // eslint-disable-next-line no-await-in-loop
-            await IOUtils.removeFile(`${componentPath[0].mount}/backup/local/backup_${component.component}.tar.gz`);
-            throw new Error(`Error: Failed to create backup archive for ${component.component}, ${tarStatus.error}`);
+            await IOUtils.removeFile(`${componentPath[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`);
+            throw new Error(`Error: Failed to create backup archive for ${component.component.toLowerCase()}, ${tarStatus.error}`);
           }
         }
       }
@@ -11811,7 +12251,7 @@ async function appendBackupTask(req, res) {
       backupInProgress.splice(indexToRemove, 1);
       res.end();
       return true;
-    // eslint-disable-next-line no-else-return
+      // eslint-disable-next-line no-else-return
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res.json(errMessage);
@@ -11882,7 +12322,7 @@ async function appendRestoreTask(req, res) {
       }
       await sendChunk(res, 'Stopping application...\n');
       await appDockerStop(appname);
-
+      await serviceHelper.delay(5 * 1000);
       // eslint-disable-next-line no-restricted-syntax
       for (const component of restore) {
         if (component.restore) {
@@ -11923,16 +12363,16 @@ async function appendRestoreTask(req, res) {
           // eslint-disable-next-line no-await-in-loop
           const componentPath = await IOUtils.getVolumeInfo(appname, component.component, 'B', 0, 'mount');
           const targetPath = `${componentPath[0].mount}/appdata`;
-          const tarGzPath = `${componentPath[0].mount}/backup/${type}/backup_${component.component}.tar.gz`;
+          const tarGzPath = `${componentPath[0].mount}/backup/${type}/backup_${component.component.toLowerCase()}.tar.gz`;
           // eslint-disable-next-line no-await-in-loop
-          await sendChunk(res, `Unpacking backup archive for ${component.component}...\n`);
+          await sendChunk(res, `Unpacking backup archive for ${component.component.toLowerCase()}...\n`);
           // eslint-disable-next-line no-await-in-loop
           const tarStatus = await IOUtils.untarFile(targetPath, tarGzPath);
           if (tarStatus.status === false) {
-            throw new Error(`Error: Failed to unpack archive file for ${component.component}, ${tarStatus.error}`);
+            throw new Error(`Error: Failed to unpack archive file for ${component.component.toLowerCase()}, ${tarStatus.error}`);
           } else {
             // eslint-disable-next-line no-await-in-loop
-            await sendChunk(res, `Removing backup file for ${component.component}...\n`);
+            await sendChunk(res, `Removing backup file for ${component.component.toLowerCase()}...\n`);
             // eslint-disable-next-line no-await-in-loop
             await IOUtils.removeFile(tarGzPath);
           }
@@ -11963,7 +12403,7 @@ async function appendRestoreTask(req, res) {
       restoreInProgress.splice(indexToRemove, 1);
       res.end();
       return true;
-    // eslint-disable-next-line no-else-return
+      // eslint-disable-next-line no-else-return
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res.json(errMessage);
@@ -11977,6 +12417,377 @@ async function appendRestoreTask(req, res) {
     await sendChunk(res, `${error?.message}\n`);
     res.end();
     return false;
+  }
+}
+
+/**
+ * To get a list of files with their details for all files.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function getAppsFolder(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname || '';
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    if (authorized) {
+      let { folder } = req.params;
+      folder = folder || req.query.folder || '';
+      let { component } = req.params;
+      component = component || req.query.component || '';
+      if (!appname || !component) {
+        throw new Error('appname and component parameters are mandatory');
+      }
+      let filepath;
+      const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
+      if (appVolumePath.length > 0) {
+        filepath = `${appVolumePath[0].mount}/appdata/${folder}`;
+      } else {
+        throw new Error('Application volume not found');
+      }
+      const options = {
+        withFileTypes: false,
+      };
+      const files = await fs.readdir(filepath, options);
+      const filesWithDetails = [];
+      // eslint-disable-next-line no-restricted-syntax
+      for (const file of files) {
+        // eslint-disable-next-line no-await-in-loop
+        const fileStats = await fs.lstat(`${filepath}/${file}`);
+        const isDirectory = fileStats.isDirectory();
+        const isFile = fileStats.isFile();
+        const isSymbolicLink = fileStats.isSymbolicLink();
+        let fileFolderSize = fileStats.size;
+        if (isDirectory) {
+          // eslint-disable-next-line no-await-in-loop
+          fileFolderSize = await IOUtils.getFolderSize(`${filepath}/${file}`);
+        }
+        const detailedFile = {
+          name: file,
+          size: fileFolderSize, // bytes
+          isDirectory,
+          isFile,
+          isSymbolicLink,
+          createdAt: fileStats.birthtime,
+          modifiedAt: fileStats.mtime,
+        };
+        filesWithDetails.push(detailedFile);
+      }
+      const resultsResponse = messageHelper.createDataMessage(filesWithDetails);
+      res.json(resultsResponse);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
+}
+
+/**
+ * To create a folder
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function createAppsFolder(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname || '';
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    if (authorized) {
+      let { folder } = req.params;
+      folder = folder || req.query.folder || '';
+      let { component } = req.params;
+      component = component || req.query.component || '';
+      if (!appname || !component) {
+        throw new Error('appname and component parameters are mandatory');
+      }
+      let filepath;
+      const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
+      if (appVolumePath.length > 0) {
+        filepath = `${appVolumePath[0].mount}/appdata/${folder}`;
+      } else {
+        throw new Error('Application volume not found');
+      }
+      const cmd = `sudo mkdir "${filepath}"`;
+      await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      const resultsResponse = messageHelper.createSuccessMessage('Folder Created');
+      res.json(resultsResponse);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
+}
+
+/**
+ * To rename a file or folder. Oldpath is relative path to default fluxshare directory; newname is just a new name of folder/file. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function renameAppsObject(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname || '';
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    if (authorized) {
+      let { oldpath } = req.params;
+      let { component } = req.params;
+      component = component || req.query.component || '';
+      if (!appname || !component) {
+        throw new Error('appname and component parameters are mandatory');
+      }
+      oldpath = oldpath || req.query.oldpath;
+      if (!oldpath) {
+        throw new Error('No file nor folder to rename specified');
+      }
+      let { newname } = req.params;
+      newname = newname || req.query.newname;
+      if (!newname) {
+        throw new Error('No new name specified');
+      }
+      if (newname.includes('/')) {
+        throw new Error('New name is invalid');
+      }
+      // stop sharing of ALL files that start with the path
+      const fileURI = encodeURIComponent(oldpath);
+      let oldfullpath;
+      let newfullpath;
+      const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
+      if (appVolumePath.length > 0) {
+        oldfullpath = `${appVolumePath[0].mount}/appdata/${oldpath}`;
+        newfullpath = `${appVolumePath[0].mount}/appdata/${newname}`;
+      } else {
+        throw new Error('Application volume not found');
+      }
+      const fileURIArray = fileURI.split('%2F');
+      fileURIArray.pop();
+      if (fileURIArray.length > 0) {
+        const renamingFolder = fileURIArray.join('/');
+        newfullpath = `${appVolumePath[0].mount}/appdata/${renamingFolder}/${newname}`;
+      }
+      const cmd = `sudo mv -T "${oldfullpath}" "${newfullpath}"`;
+      await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      const response = messageHelper.createSuccessMessage('Rename successful');
+      res.json(response);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
+/**
+ * To remove a specified shared file. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function removeAppsObject(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname || '';
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    if (authorized) {
+      let { object } = req.params;
+      object = object || req.query.object;
+      let { component } = req.params;
+      component = component || req.query.component || '';
+      if (!component) {
+        throw new Error('component parameter is mandatory');
+      }
+      if (!object) {
+        throw new Error('No object specified');
+      }
+      let filepath;
+      const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
+      if (appVolumePath.length > 0) {
+        filepath = `${appVolumePath[0].mount}/appdata/${object}`;
+      } else {
+        throw new Error('Application volume not found');
+      }
+      const cmd = `sudo rm -rf "${filepath}"`;
+      await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      const response = messageHelper.createSuccessMessage('File Removed');
+      res.json(response);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
+/**
+ * To download a zip folder for a specified directory. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @param {boolean} authorized False until verified as an admin.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
+async function downloadAppsFolder(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname || '';
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    if (authorized) {
+      let { folder } = req.params;
+      folder = folder || req.query.folder;
+      let { component } = req.params;
+      component = component || req.query.component;
+      if (!folder || !component) {
+        const errorResponse = messageHelper.createErrorMessage('folder and component parameters are mandatory');
+        res.json(errorResponse);
+        return;
+      }
+      let folderpath;
+      const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
+      if (appVolumePath.length > 0) {
+        folderpath = `${appVolumePath[0].mount}/appdata/${folder}`;
+      } else {
+        throw new Error('Application volume not found');
+      }
+      const zip = archiver('zip');
+      const sizeStream = new PassThrough();
+      let compressedSize = 0;
+      sizeStream.on('data', (chunk) => {
+        compressedSize += chunk.length;
+      });
+      sizeStream.on('end', () => {
+        const folderNameArray = folderpath.split('/');
+        const folderName = folderNameArray[folderNameArray.length - 1];
+        res.writeHead(200, {
+          'Content-Type': 'application/zip',
+          'Content-disposition': `attachment; filename=${folderName}.zip`,
+          'Content-Length': compressedSize,
+        });
+        // Now, pipe the compressed data to the response stream
+        const zipFinal = archiver('zip');
+        zipFinal.pipe(res);
+        zipFinal.directory(folderpath, false);
+        zipFinal.finalize();
+      });
+      zip.pipe(sizeStream);
+      zip.directory(folderpath, false);
+      zip.finalize();
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
+/**
+ * To download a specified file. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
+async function downloadAppsFile(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname || '';
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    if (authorized) {
+      let { file } = req.params;
+      file = file || req.query.file;
+      let { component } = req.params;
+      component = component || req.query.component;
+      if (!file || !component) {
+        const errorResponse = messageHelper.createErrorMessage('file and component parameters are mandatory');
+        res.json(errorResponse);
+        return;
+      }
+      let filepath;
+      const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
+      if (appVolumePath.length > 0) {
+        filepath = `${appVolumePath[0].mount}/appdata/${file}`;
+      } else {
+        throw new Error('Application volume not found');
+      }
+      const cmd = `sudo chmod 777 "${filepath}"`;
+      await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      // beautify name
+      const fileNameArray = filepath.split('/');
+      const fileName = fileNameArray[fileNameArray.length - 1];
+      res.download(filepath, fileName);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
+/**
+ * To get application specification usd prices.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Returns object with application specification usd prices.
+ */
+async function getAppSpecsUSDPrice(req, res) {
+  try {
+    const resMessage = serviceHelper.createDataMessage(config.fluxapps.usdprice);
+    res.json(resMessage);
+  } catch (error) {
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    log.error(error);
   }
 }
 
@@ -12052,6 +12863,7 @@ module.exports = {
   installAppLocally,
   updateAppGlobalyApi,
   getAppPrice,
+  getAppFiatAndFluxPrice,
   reinstallOldApplications,
   checkAndRemoveApplicationInstance,
   checkAppTemporaryMessageExistence,
@@ -12080,6 +12892,12 @@ module.exports = {
   appendBackupTask,
   appendRestoreTask,
   sendChunk,
+  getAppsFolder,
+  createAppsFolder,
+  renameAppsObject,
+  removeAppsObject,
+  downloadAppsFolder,
+  downloadAppsFile,
   // exports for testing purposes
   setAppsMonitored,
   getAppsMonitored,
@@ -12105,4 +12923,5 @@ module.exports = {
   triggerAppHashesCheckAPI,
   getAuthToken,
   masterSlaveApps,
+  getAppSpecsUSDPrice,
 };

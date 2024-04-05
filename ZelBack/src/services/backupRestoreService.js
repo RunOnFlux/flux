@@ -1,10 +1,11 @@
-// const fs = require('fs').promises;
 const log = require('../lib/log');
 const path = require('path');
 const messageHelper = require('./messageHelper');
-// const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
 const IOUtils = require('./IOUtils');
+const fs = require('fs').promises;
+const util = require('util');
+const exec = util.promisify(require('child_process').exec);
 
 const fluxDirPath = path.join(__dirname, '../../../');
 const appsFolder = `${fluxDirPath}ZelApps/`;
@@ -184,60 +185,6 @@ async function getRemoteFileSize(req, res) {
 }
 
 /**
- * Handles a request to retrieve remote files.
- * @param {object} req - Request object.
- * @param {object} res - Response object.
- * @returns {object} - JSON response indicating the success or failure.
- * @throws {object} - JSON error response if an error occurs.
- */
-// eslint-disable-next-line consistent-return
-// async function getRemoteFile(req, res) {
-//   const authorized = await verificationHelper.verifyPrivilege('appownerabove', req);
-//   if (authorized === true) {
-//     try {
-//       console.log();
-//       const bodyData = serviceHelper.ensureObject(req.body);
-//       console.log(bodyData);
-//       if (!bodyData || bodyData.length === 0) {
-//         throw new Error('Request body must contain data (body parameters are required)');
-//       }
-//       const isValidData = bodyData.every((item) => 'url' in item && 'component' in item && 'appname' in item);
-//       if (!isValidData) {
-//         throw new Error('Each object in bodyData must have "url", "component", and "appname" properties');
-//       }
-//       // eslint-disable-next-line no-restricted-syntax
-//       for (const { url, component, appname } of bodyData) {
-//         // eslint-disable-next-line no-await-in-loop
-//         const volumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 0, 'mount');
-//         // eslint-disable-next-line no-await-in-loop
-//         if (await IOUtils.checkFileExists(`${volumePath[0].mount}/backup/remote/${component}_${appname}.tar.gz`)) {
-//           // eslint-disable-next-line no-await-in-loop
-//           await IOUtils.removeFile(`${volumePath[0].mount}/backup/remote/${component}_${appname}.tar.gz`);
-//         }
-//         // eslint-disable-next-line no-await-in-loop
-//         await fs.mkdir(`${volumePath[0].mount}/backup/remote`, { recursive: true });
-//         // eslint-disable-next-line no-await-in-loop
-//         await IOUtils.downloadFileFromUrl(url, `${volumePath[0].mount}/backup/remote`, component, appname, true);
-//       }
-//       const response = messageHelper.createDataMessage(true);
-//       return res ? res.json(response) : response;
-//       // eslint-disable-next-line no-else-return
-//     } catch (error) {
-//       log.error(error);
-//       const errorResponse = messageHelper.createErrorMessage(
-//         error.message || error,
-//         error.name,
-//         error.code,
-//       );
-//       return res ? res.json(errorResponse) : errorResponse;
-//     }
-//   } else {
-//     const errMessage = messageHelper.errUnauthorizedMessage();
-//     return res.json(errMessage);
-//   }
-// }
-
-/**
  * Remove a backup file specified by the filepath.
  * @param {object} req - Request object.
  * @param {object} res - Response object.
@@ -302,6 +249,8 @@ async function downloadLocalFile(req, res) {
       }
       const fileNameArray = filepath.split('/');
       const fileName = fileNameArray[fileNameArray.length - 1];
+      const cmd = `sudo chmod 777 "${filepath}"`;
+      await exec(cmd, { maxBuffer: 1024 * 1024 * 10 });
       return res.download(filepath, fileName);
     // eslint-disable-next-line no-else-return
     } else {
@@ -319,11 +268,62 @@ async function downloadLocalFile(req, res) {
   }
 }
 
+async function cleanLocalBackup() {
+  try {
+    // Get a list of folders in the root path
+    const folders = await fs.readdir(appsFolder);
+    // eslint-disable-next-line no-restricted-syntax
+    for (const folder of folders) {
+      if (folder.toLowerCase() === 'zelshare') {
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      const folderPath = path.join(appsFolder, folder);
+      // eslint-disable-next-line no-await-in-loop
+      const isDirectory = (await fs.stat(folderPath)).isDirectory();
+      if (isDirectory) {
+        // Check if there is a 'local' folder in each subdirectory
+        const localFolderPath = path.join(folderPath, 'backup', 'local');
+        try {
+          // Check if 'local' folder exists
+          // eslint-disable-next-line no-await-in-loop
+          await fs.access(localFolderPath);
+          // Get a list of files in the 'local' folder
+          // eslint-disable-next-line no-await-in-loop
+          const localFiles = await fs.readdir(localFolderPath);
+          // Filter out files older than 24 hours
+          const currentDate = Date.now();
+          const twentyFourHoursAgo = currentDate - 24 * 60 * 60 * 1000;
+          // eslint-disable-next-line no-restricted-syntax
+          for (const file of localFiles) {
+            const filePath = path.join(localFolderPath, file);
+            // Get file stats
+            // eslint-disable-next-line no-await-in-loop
+            const stats = await fs.stat(filePath);
+            const creationTime = new Date(stats.birthtime);
+            // Check if the file is older than 24 hours
+            if (creationTime < twentyFourHoursAgo) {
+              // Delete the file
+              // eslint-disable-next-line no-await-in-loop
+              await fs.unlink(filePath);
+              log.info(`Deleted file: ${filePath}`);
+            }
+          }
+        } catch (error) {
+          // 'local' folder doesn't exist in this subdirectory
+        }
+      }
+    }
+  } catch (err) {
+    log.error('Error:', err);
+  }
+}
+
 module.exports = {
   getVolumeDataOfComponent,
   getRemoteFileSize,
-  // getRemoteFile,
   getLocalBackupList,
   removeBackupFile,
   downloadLocalFile,
+  cleanLocalBackup,
 };

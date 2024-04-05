@@ -17,606 +17,646 @@
     <b-tabs
       class="mt-2"
       pills
-      vertical
+      style="flex-wrap: nowrap;"
+      :vertical="windowWidth > 860 ? true : false"
       lazy
       @input="index => updateManagementTab(index)"
     >
       <b-tab
+        v-if="windowWidth > 860"
         title="Local App Management"
         disabled
       />
       <b-tab
+        active
         title="Specifications"
-        :active="!global"
-        :disabled="!isApplicationInstalledLocally"
       >
-        <div v-if="callBResponse.data && callResponse.data">
-          <div v-if="callBResponse.data.hash !== callResponse.data.hash">
-            <h1>Locally running application does not match global specifications! Update needed</h1>
-            <br><br>
-          </div>
-          <div v-else>
-            Application is synced with Global network
-            <br><br>
-          </div>
-        </div>
-        <h2>Installed Specifications</h2>
-        <div
-          v-if="callResponse.data"
-          style="text-align: left"
-        >
-          <b-card class="mx-2">
-            <list-entry
-              title="Description"
-              :data="callResponse.data.name"
-            />
-            <list-entry
-              title="Description"
-              :data="callResponse.data.description"
-            />
-            <list-entry
-              title="Owner"
-              :data="callResponse.data.owner"
-            />
-            <list-entry
-              title="Hash"
-              :data="callResponse.data.hash"
-            />
-            <div v-if="callResponse.data.version >= 5">
-              <div v-if="callResponse.data.geolocation.length">
-                <div
-                  v-for="location in callResponse.data.geolocation"
-                  :key="location"
+        <div>
+          <b-card>
+            <h3><b-icon icon="hdd-network-fill" /> &nbsp;Backend Selection</h3>
+            <b-input-group class="my-1" style="width: 350px">
+              <b-input-group-prepend>
+                <b-input-group-text>
+                  <b-icon icon="laptop" />
+                </b-input-group-text>
+              </b-input-group-prepend>
+              <b-form-select
+                v-model="selectedIp"
+                :options="null"
+                @change="selectedIpChanged"
+              >
+                <b-form-select-option
+                  v-for="instance in instances.data"
+                  :key="instance.ip"
+                  :value="instance.ip"
                 >
-                  <list-entry
-                    title="Geolocation"
-                    :data="getGeolocation(location)"
-                  />
-                </div>
+                  {{ instance.ip }}
+                </b-form-select-option>
+              </b-form-select>
+
+              <b-button
+                ref="BackendRefresh"
+                v-b-tooltip.hover.top="'Refresh'"
+                v-ripple.400="'rgba(255, 255, 255, 0.12)'"
+                variant="outline-success"
+                size="sm"
+                class="ml-1 bb"
+                style="outline: none !important; box-shadow: none !important"
+                @click="refreshInfo"
+              >
+                <b-icon scale="1.2" icon="arrow-clockwise" />
+              </b-button>
+            </b-input-group>
+          </b-card>
+        </div>
+        <div>
+          <b-card>
+            <div v-if="callBResponse.data && callResponse.data">
+              <div v-if="callBResponse.data.hash !== callResponse.data.hash">
+                <h1>Locally running application does not match global specifications! Update needed</h1>
+                <br><br>
               </div>
               <div v-else>
-                <list-entry
-                  title="Continent"
-                  data="All"
-                />
-                <list-entry
-                  title="Country"
-                  data="All"
-                />
-                <list-entry
-                  title="Region"
-                  data="All"
-                />
+                Application is synced with Global network
+                <br><br>
               </div>
             </div>
-            <list-entry
-              v-if="callResponse.data.instances"
-              title="Instances"
-              :data="callResponse.data.instances.toString()"
-            />
-            <list-entry
-              title="Specifications version"
-              :number="callResponse.data.version"
-            />
-            <list-entry
-              title="Registered on Blockheight"
-              :number="callResponse.data.height"
-            />
-            <list-entry
-              v-if="callResponse.data.hash && callResponse.data.hash.length === 64"
-              title="Expires on Blockheight"
-              :number="callResponse.data.height + (callResponse.data.expire || 22000)"
-            />
-            <list-entry
-              title="Period"
-              :data="getExpireLabel || (callResponse.data.expire ? `${callResponse.data.expire} blocks` : '1 month')"
-            />
-            <list-entry
-              title="Enterprise Nodes"
-              :data="callResponse.data.nodes ? callResponse.data.nodes.toString() : 'Not scoped'"
-            />
-            <list-entry
-              title="Static IP"
-              :data="callResponse.data.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
-            />
-            <h4>Composition</h4>
-            <div v-if="callResponse.data.version <= 3">
-              <b-card>
+            <h2>Installed Specifications</h2>
+            <div
+              v-if="callResponse.data"
+              style="text-align: left;"
+            >
+              <b-card class="">
                 <list-entry
-                  title="Repository"
-                  :data="callResponse.data.repotag"
+                  title="Name"
+                  :data="callResponse.data.name"
                 />
                 <list-entry
-                  title="Custom Domains"
-                  :data="callResponse.data.domains.toString() || 'none'"
+                  title="Description"
+                  :data="callResponse.data.description"
                 />
                 <list-entry
-                  title="Automatic Domains"
-                  :data="constructAutomaticDomains(callResponse.data.ports, callResponse.data.name).toString() || 'none'"
+                  title="Owner"
+                  :data="callResponse.data.owner"
                 />
                 <list-entry
-                  title="Ports"
-                  :data="callResponse.data.ports.toString() || 'none'"
+                  title="Hash"
+                  :data="callResponse.data.hash"
+                />
+                <div v-if="callResponse.data.version >= 5">
+                  <div v-if="callResponse.data.geolocation.length">
+                    <div
+                      v-for="location in callResponse.data.geolocation"
+                      :key="location"
+                    >
+                      <list-entry
+                        title="Geolocation"
+                        :data="getGeolocation(location)"
+                      />
+                    </div>
+                  </div>
+                  <div v-else>
+                    <list-entry
+                      title="Continent"
+                      data="All"
+                    />
+                    <list-entry
+                      title="Country"
+                      data="All"
+                    />
+                    <list-entry
+                      title="Region"
+                      data="All"
+                    />
+                  </div>
+                </div>
+                <list-entry
+                  v-if="callResponse.data.instances"
+                  title="Instances"
+                  :data="callResponse.data.instances.toString()"
                 />
                 <list-entry
-                  title="Container Ports"
-                  :data="callResponse.data.containerPorts.toString() || 'none'"
+                  title="Specifications version"
+                  :number="callResponse.data.version"
                 />
                 <list-entry
-                  title="Container Data"
-                  :data="callResponse.data.containerData.toString() || 'none'"
+                  title="Registered on Blockheight"
+                  :number="callResponse.data.height"
                 />
                 <list-entry
-                  title="Environment Parameters"
-                  :data="callResponse.data.enviromentParameters.length > 0 ? callResponse.data.enviromentParameters.toString() : 'none'"
+                  v-if="callResponse.data.hash && callResponse.data.hash.length === 64"
+                  title="Expires on Blockheight"
+                  :number="callResponse.data.height + (callResponse.data.expire || 22000)"
                 />
                 <list-entry
-                  title="Commands"
-                  :data="callResponse.data.commands.length > 0 ? callResponse.data.commands.toString() : 'none'"
+                  title="Expires in"
+                  :data="getNewExpireLabel"
                 />
-                <div v-if="callResponse.data.tiered">
-                  <list-entry
-                    title="CPU Cumulus"
-                    :data="`${callResponse.data.cpubasic} vCore`"
-                  />
-                  <list-entry
-                    title="CPU Nimbus"
-                    :data="`${callResponse.data.cpusuper} vCore`"
-                  />
-                  <list-entry
-                    title="CPU Stratus"
-                    :data="`${callResponse.data.cpubamf} vCore`"
-                  />
-                  <list-entry
-                    title="RAM Cumulus"
-                    :data="`${callResponse.data.rambasic} MB`"
-                  />
-                  <list-entry
-                    title="RAM Nimbus"
-                    :data="`${callResponse.data.ramsuper} MB`"
-                  />
-                  <list-entry
-                    title="RAM Stratus"
-                    :data="`${callResponse.data.rambamf} MB`"
-                  />
-                  <list-entry
-                    title="SSD Cumulus"
-                    :data="`${callResponse.data.hddbasic} GB`"
-                  />
-                  <list-entry
-                    title="SSD Nimbus"
-                    :data="`${callResponse.data.hddsuper} GB`"
-                  />
-                  <list-entry
-                    title="SSD Stratus"
-                    :data="`${callResponse.data.hddbamf} GB`"
-                  />
+                <list-entry
+                  title="Enterprise Nodes"
+                  :data="callResponse.data.nodes ? callResponse.data.nodes.toString() : 'Not scoped'"
+                />
+                <list-entry
+                  title="Static IP"
+                  :data="callResponse.data.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
+                />
+                <h4>Composition</h4>
+                <div v-if="callResponse.data.version <= 3">
+                  <b-card>
+                    <list-entry
+                      title="Repository"
+                      :data="callResponse.data.repotag"
+                    />
+                    <list-entry
+                      title="Custom Domains"
+                      :data="callResponse.data.domains.toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Automatic Domains"
+                      :data="constructAutomaticDomains(callResponse.data.ports, callResponse.data.name).toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Ports"
+                      :data="callResponse.data.ports.toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Container Ports"
+                      :data="callResponse.data.containerPorts.toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Container Data"
+                      :data="callResponse.data.containerData.toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Environment Parameters"
+                      :data="callResponse.data.enviromentParameters.length > 0 ? callResponse.data.enviromentParameters.toString() : 'none'"
+                    />
+                    <list-entry
+                      title="Commands"
+                      :data="callResponse.data.commands.length > 0 ? callResponse.data.commands.toString() : 'none'"
+                    />
+                    <div v-if="callResponse.data.tiered">
+                      <list-entry
+                        title="CPU Cumulus"
+                        :data="`${callResponse.data.cpubasic} vCore`"
+                      />
+                      <list-entry
+                        title="CPU Nimbus"
+                        :data="`${callResponse.data.cpusuper} vCore`"
+                      />
+                      <list-entry
+                        title="CPU Stratus"
+                        :data="`${callResponse.data.cpubamf} vCore`"
+                      />
+                      <list-entry
+                        title="RAM Cumulus"
+                        :data="`${callResponse.data.rambasic} MB`"
+                      />
+                      <list-entry
+                        title="RAM Nimbus"
+                        :data="`${callResponse.data.ramsuper} MB`"
+                      />
+                      <list-entry
+                        title="RAM Stratus"
+                        :data="`${callResponse.data.rambamf} MB`"
+                      />
+                      <list-entry
+                        title="SSD Cumulus"
+                        :data="`${callResponse.data.hddbasic} GB`"
+                      />
+                      <list-entry
+                        title="SSD Nimbus"
+                        :data="`${callResponse.data.hddsuper} GB`"
+                      />
+                      <list-entry
+                        title="SSD Stratus"
+                        :data="`${callResponse.data.hddbamf} GB`"
+                      />
+                    </div>
+                    <div v-else>
+                      <list-entry
+                        title="CPU"
+                        :data="`${callResponse.data.cpu} vCore`"
+                      />
+                      <list-entry
+                        title="RAM"
+                        :data="`${callResponse.data.ram} MB`"
+                      />
+                      <list-entry
+                        title="SSD"
+                        :data="`${callResponse.data.hdd} GB`"
+                      />
+                    </div>
+                  </b-card>
                 </div>
                 <div v-else>
-                  <list-entry
-                    title="CPU"
-                    :data="`${callResponse.data.cpu} vCore`"
-                  />
-                  <list-entry
-                    title="RAM"
-                    :data="`${callResponse.data.ram} MB`"
-                  />
-                  <list-entry
-                    title="SSD"
-                    :data="`${callResponse.data.hdd} GB`"
-                  />
+                  <b-card
+                    v-for="(component, index) in callResponse.data.compose"
+                    :key="index"
+                  >
+                    <b-card-title>
+                      Component {{ component.name }}
+                    </b-card-title>
+                    <list-entry
+                      title="Name"
+                      :data="component.name"
+                    />
+                    <list-entry
+                      title="Description"
+                      :data="component.description"
+                    />
+                    <list-entry
+                      title="Repository"
+                      :data="component.repotag"
+                    />
+                    <list-entry
+                      title="Repository Authentication"
+                      :data="component.repoauth ? 'Content Encrypted' : 'Public'"
+                    />
+                    <list-entry
+                      title="Custom Domains"
+                      :data="component.domains.toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Automatic Domains"
+                      :data="constructAutomaticDomains(component.ports, callResponse.data.name, index).toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Ports"
+                      :data="component.ports.toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Container Ports"
+                      :data="component.containerPorts.toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Container Data"
+                      :data="component.containerData"
+                    />
+                    <list-entry
+                      title="Environment Parameters"
+                      :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
+                    />
+                    <list-entry
+                      title="Commands"
+                      :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
+                    />
+                    <list-entry
+                      title="Secret Environment Parameters"
+                      :data="component.secrets ? 'Content Encrypted' : 'none'"
+                    />
+                    <div v-if="component.tiered">
+                      <list-entry
+                        title="CPU Cumulus"
+                        :data="`${component.cpubasic} vCore`"
+                      />
+                      <list-entry
+                        title="CPU Nimbus"
+                        :data="`${component.cpusuper} vCore`"
+                      />
+                      <list-entry
+                        title="CPU Stratus"
+                        :data="`${component.cpubamf} vCore`"
+                      />
+                      <list-entry
+                        title="RAM Cumulus"
+                        :data="`${component.rambasic} MB`"
+                      />
+                      <list-entry
+                        title="RAM Nimbus"
+                        :data="`${component.ramsuper} MB`"
+                      />
+                      <list-entry
+                        title="RAM Stratus"
+                        :data="`${component.rambamf} MB`"
+                      />
+                      <list-entry
+                        title="SSD Cumulus"
+                        :data="`${component.hddbasic} GB`"
+                      />
+                      <list-entry
+                        title="SSD Nimbus"
+                        :data="`${component.hddsuper} GB`"
+                      />
+                      <list-entry
+                        title="SSD Stratus"
+                        :data="`${component.hddbamf} GB`"
+                      />
+                    </div>
+                    <div v-else>
+                      <list-entry
+                        title="CPU"
+                        :data="`${component.cpu} vCore`"
+                      />
+                      <list-entry
+                        title="RAM"
+                        :data="`${component.ram} MB`"
+                      />
+                      <list-entry
+                        title="SSD"
+                        :data="`${component.hdd} GB`"
+                      />
+                    </div>
+                  </b-card>
                 </div>
               </b-card>
             </div>
             <div v-else>
-              <b-card
-                v-for="(component, index) in callResponse.data.compose"
-                :key="index"
-              >
-                <b-card-title>
-                  Component {{ component.name }}
-                </b-card-title>
+              Local Specifications loading...
+            </div>
+            <h2 class="mt-2">
+              Global Specifications
+            </h2>
+            <div
+              v-if="callBResponse.data"
+              style="text-align: left;"
+            >
+              <b-card class="">
                 <list-entry
                   title="Name"
-                  :data="component.name"
+                  :data="callBResponse.data.name"
                 />
                 <list-entry
                   title="Description"
-                  :data="component.description"
+                  :data="callBResponse.data.description"
                 />
                 <list-entry
-                  title="Repository"
-                  :data="component.repotag"
+                  title="Owner"
+                  :data="callBResponse.data.owner"
                 />
                 <list-entry
-                  title="Repository Authentication"
-                  :data="component.repoauth ? 'Content Encrypted' : 'Public'"
+                  title="Hash"
+                  :data="callBResponse.data.hash"
+                />
+                <div v-if="callBResponse.data.version >= 5">
+                  <div v-if="callBResponse.data.geolocation.length">
+                    <div
+                      v-for="location in callBResponse.data.geolocation"
+                      :key="location"
+                    >
+                      <list-entry
+                        title="Geolocation"
+                        :data="getGeolocation(location)"
+                      />
+                    </div>
+                  </div>
+                  <div v-else>
+                    <list-entry
+                      title="Continent"
+                      data="All"
+                    />
+                    <list-entry
+                      title="Country"
+                      data="All"
+                    />
+                    <list-entry
+                      title="Region"
+                      data="All"
+                    />
+                  </div>
+                </div>
+                <list-entry
+                  v-if="callBResponse.data.instances"
+                  title="Instances"
+                  :data="callBResponse.data.instances.toString()"
                 />
                 <list-entry
-                  title="Custom Domains"
-                  :data="component.domains.toString() || 'none'"
+                  title="Specifications version"
+                  :number="callBResponse.data.version"
                 />
                 <list-entry
-                  title="Automatic Domains"
-                  :data="constructAutomaticDomains(component.ports, callResponse.data.name, index).toString() || 'none'"
+                  title="Registered on Blockheight"
+                  :number="callBResponse.data.height"
                 />
                 <list-entry
-                  title="Ports"
-                  :data="component.ports.toString() || 'none'"
+                  v-if="callBResponse.data.hash && callBResponse.data.hash.length === 64"
+                  title="Expires on Blockheight"
+                  :number="callBResponse.data.height + (callBResponse.data.expire || 22000)"
                 />
                 <list-entry
-                  title="Container Ports"
-                  :data="component.containerPorts.toString() || 'none'"
+                  title="Expires in"
+                  :data="getNewExpireLabel"
                 />
                 <list-entry
-                  title="Container Data"
-                  :data="component.containerData"
+                  title="Enterprise Nodes"
+                  :data="callBResponse.data.nodes ? callBResponse.data.nodes.toString() : 'Not scoped'"
                 />
                 <list-entry
-                  title="Environment Parameters"
-                  :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
+                  title="Static IP"
+                  :data="callBResponse.data.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
                 />
-                <list-entry
-                  title="Commands"
-                  :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
-                />
-                <list-entry
-                  title="Secret Environment Parameters"
-                  :data="component.secrets ? 'Content Encrypted' : 'none'"
-                />
-                <div v-if="component.tiered">
-                  <list-entry
-                    title="CPU Cumulus"
-                    :data="`${component.cpubasic} vCore`"
-                  />
-                  <list-entry
-                    title="CPU Nimbus"
-                    :data="`${component.cpusuper} vCore`"
-                  />
-                  <list-entry
-                    title="CPU Stratus"
-                    :data="`${component.cpubamf} vCore`"
-                  />
-                  <list-entry
-                    title="RAM Cumulus"
-                    :data="`${component.rambasic} MB`"
-                  />
-                  <list-entry
-                    title="RAM Nimbus"
-                    :data="`${component.ramsuper} MB`"
-                  />
-                  <list-entry
-                    title="RAM Stratus"
-                    :data="`${component.rambamf} MB`"
-                  />
-                  <list-entry
-                    title="SSD Cumulus"
-                    :data="`${component.hddbasic} GB`"
-                  />
-                  <list-entry
-                    title="SSD Nimbus"
-                    :data="`${component.hddsuper} GB`"
-                  />
-                  <list-entry
-                    title="SSD Stratus"
-                    :data="`${component.hddbamf} GB`"
-                  />
+                <h4>Composition</h4>
+                <div v-if="callBResponse.data.version <= 3">
+                  <b-card>
+                    <list-entry
+                      title="Repository"
+                      :data="callBResponse.data.repotag"
+                    />
+                    <list-entry
+                      title="Custom Domains"
+                      :data="callBResponse.data.domains.toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Automatic Domains"
+                      :data="constructAutomaticDomainsGlobal.toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Ports"
+                      :data="callBResponse.data.ports.toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Container Ports"
+                      :data="callBResponse.data.containerPorts.toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Container Data"
+                      :data="callBResponse.data.containerData"
+                    />
+                    <list-entry
+                      title="Environment Parameters"
+                      :data="callBResponse.data.enviromentParameters.length > 0 ? callBResponse.data.enviromentParameters.toString() : 'none'"
+                    />
+                    <list-entry
+                      title="Commands"
+                      :data="callBResponse.data.commands.length > 0 ? callBResponse.data.commands.toString() : 'none'"
+                    />
+                    <div v-if="callBResponse.data.tiered">
+                      <list-entry
+                        title="CPU Cumulus"
+                        :data="`${callBResponse.data.cpubasic} vCore`"
+                      />
+                      <list-entry
+                        title="CPU Nimbus"
+                        :data="`${callBResponse.data.cpusuper} vCore`"
+                      />
+                      <list-entry
+                        title="CPU Stratus"
+                        :data="`${callBResponse.data.cpubamf} vCore`"
+                      />
+                      <list-entry
+                        title="RAM Cumulus"
+                        :data="`${callBResponse.data.rambasic} MB`"
+                      />
+                      <list-entry
+                        title="RAM Nimbus"
+                        :data="`${callBResponse.data.ramsuper} MB`"
+                      />
+                      <list-entry
+                        title="RAM Stratus"
+                        :data="`${callBResponse.data.rambamf} MB`"
+                      />
+                      <list-entry
+                        title="SSD Cumulus"
+                        :data="`${callBResponse.data.hddbasic} GB`"
+                      />
+                      <list-entry
+                        title="SSD Nimbus"
+                        :data="`${callBResponse.data.hddsuper} GB`"
+                      />
+                      <list-entry
+                        title="SSD Stratus"
+                        :data="`${callBResponse.data.hddbamf} GB`"
+                      />
+                    </div>
+                    <div v-else>
+                      <list-entry
+                        title="CPU"
+                        :data="`${callBResponse.data.cpu} vCore`"
+                      />
+                      <list-entry
+                        title="RAM"
+                        :data="`${callBResponse.data.ram} MB`"
+                      />
+                      <list-entry
+                        title="SSD"
+                        :data="`${callBResponse.data.hdd} GB`"
+                      />
+                    </div>
+                  </b-card>
                 </div>
                 <div v-else>
-                  <list-entry
-                    title="CPU"
-                    :data="`${component.cpu} vCore`"
-                  />
-                  <list-entry
-                    title="RAM"
-                    :data="`${component.ram} MB`"
-                  />
-                  <list-entry
-                    title="SSD"
-                    :data="`${component.hdd} GB`"
-                  />
+                  <b-card
+                    v-for="(component, index) in callBResponse.data.compose"
+                    :key="index"
+                  >
+                    <b-card-title>
+                      Component {{ component.name }}
+                    </b-card-title>
+                    <list-entry
+                      title="Name"
+                      :data="component.name"
+                    />
+                    <list-entry
+                      title="Description"
+                      :data="component.description"
+                    />
+                    <list-entry
+                      title="Repository"
+                      :data="component.repotag"
+                    />
+                    <list-entry
+                      title="Repository Authentication"
+                      :data="component.repoauth ? 'Content Encrypted' : 'Public'"
+                    />
+                    <list-entry
+                      title="Custom Domains"
+                      :data="component.domains.toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Automatic Domains"
+                      :data="constructAutomaticDomains(component.ports, callBResponse.data.name, index).toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Ports"
+                      :data="component.ports.toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Container Ports"
+                      :data="component.containerPorts.toString() || 'none'"
+                    />
+                    <list-entry
+                      title="Container Data"
+                      :data="component.containerData"
+                    />
+                    <list-entry
+                      title="Environment Parameters"
+                      :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
+                    />
+                    <list-entry
+                      title="Commands"
+                      :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
+                    />
+                    <list-entry
+                      title="Secret Environment Parameters"
+                      :data="component.secrets ? 'Content Encrypted' : 'none'"
+                    />
+                    <div v-if="component.tiered">
+                      <list-entry
+                        title="CPU Cumulus"
+                        :data="`${component.cpubasic} vCore`"
+                      />
+                      <list-entry
+                        title="CPU Nimbus"
+                        :data="`${component.cpusuper} vCore`"
+                      />
+                      <list-entry
+                        title="CPU Stratus"
+                        :data="`${component.cpubamf} vCore`"
+                      />
+                      <list-entry
+                        title="RAM Cumulus"
+                        :data="`${component.rambasic} MB`"
+                      />
+                      <list-entry
+                        title="RAM Nimbus"
+                        :data="`${component.ramsuper} MB`"
+                      />
+                      <list-entry
+                        title="RAM Stratus"
+                        :data="`${component.rambamf} MB`"
+                      />
+                      <list-entry
+                        title="SSD Cumulus"
+                        :data="`${component.hddbasic} GB`"
+                      />
+                      <list-entry
+                        title="SSD Nimbus"
+                        :data="`${component.hddsuper} GB`"
+                      />
+                      <list-entry
+                        title="SSD Stratus"
+                        :data="`${component.hddbamf} GB`"
+                      />
+                    </div>
+                    <div v-else>
+                      <list-entry
+                        title="CPU"
+                        :data="`${component.cpu} vCore`"
+                      />
+                      <list-entry
+                        title="RAM"
+                        :data="`${component.ram} MB`"
+                      />
+                      <list-entry
+                        title="SSD"
+                        :data="`${component.hdd} GB`"
+                      />
+                    </div>
+                  </b-card>
                 </div>
               </b-card>
             </div>
-          </b-card>
-        </div>
-        <div v-else>
-          Local Specifications loading...
-        </div>
-        <h2 class="mt-2">
-          Global Specifications
-        </h2>
-        <div
-          v-if="callBResponse.data"
-          style="text-align: left"
-        >
-          <b-card class="mx-2">
-            <list-entry
-              title="Description"
-              :data="callBResponse.data.name"
-            />
-            <list-entry
-              title="Description"
-              :data="callBResponse.data.description"
-            />
-            <list-entry
-              title="Owner"
-              :data="callBResponse.data.owner"
-            />
-            <list-entry
-              title="Hash"
-              :data="callBResponse.data.hash"
-            />
-            <div v-if="callBResponse.data.version >= 5">
-              <div v-if="callBResponse.data.geolocation.length">
-                <div
-                  v-for="location in callBResponse.data.geolocation"
-                  :key="location"
-                >
-                  <list-entry
-                    title="Geolocation"
-                    :data="getGeolocation(location)"
-                  />
-                </div>
-              </div>
-              <div v-else>
-                <list-entry
-                  title="Continent"
-                  data="All"
-                />
-                <list-entry
-                  title="Country"
-                  data="All"
-                />
-                <list-entry
-                  title="Region"
-                  data="All"
-                />
-              </div>
-            </div>
-            <list-entry
-              v-if="callBResponse.data.instances"
-              title="Instances"
-              :data="callBResponse.data.instances.toString()"
-            />
-            <list-entry
-              title="Specifications version"
-              :number="callBResponse.data.version"
-            />
-            <list-entry
-              title="Registered on Blockheight"
-              :number="callBResponse.data.height"
-            />
-            <list-entry
-              v-if="callBResponse.data.hash && callBResponse.data.hash.length === 64"
-              title="Expires on Blockheight"
-              :number="callBResponse.data.height + (callBResponse.data.expire || 22000)"
-            />
-            <list-entry
-              title="Period"
-              :data="getExpireLabel || (callBResponse.data.expire ? `${callBResponse.data.expire} blocks` : '1 month')"
-            />
-            <list-entry
-              title="Enterprise Nodes"
-              :data="callBResponse.data.nodes ? callBResponse.data.nodes.toString() : 'Not scoped'"
-            />
-            <list-entry
-              title="Static IP"
-              :data="callBResponse.data.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
-            />
-            <h4>Composition</h4>
-            <div v-if="callBResponse.data.version <= 3">
-              <b-card>
-                <list-entry
-                  title="Repository"
-                  :data="callBResponse.data.repotag"
-                />
-                <list-entry
-                  title="Custom Domains"
-                  :data="callBResponse.data.domains.toString() || 'none'"
-                />
-                <list-entry
-                  title="Automatic Domains"
-                  :data="constructAutomaticDomainsGlobal.toString() || 'none'"
-                />
-                <list-entry
-                  title="Ports"
-                  :data="callBResponse.data.ports.toString() || 'none'"
-                />
-                <list-entry
-                  title="Container Ports"
-                  :data="callBResponse.data.containerPorts.toString() || 'none'"
-                />
-                <list-entry
-                  title="Container Data"
-                  :data="callBResponse.data.containerData"
-                />
-                <list-entry
-                  title="Environment Parameters"
-                  :data="callBResponse.data.enviromentParameters.length > 0 ? callBResponse.data.enviromentParameters.toString() : 'none'"
-                />
-                <list-entry
-                  title="Commands"
-                  :data="callBResponse.data.commands.length > 0 ? callBResponse.data.commands.toString() : 'none'"
-                />
-                <div v-if="callBResponse.data.tiered">
-                  <list-entry
-                    title="CPU Cumulus"
-                    :data="`${callBResponse.data.cpubasic} vCore`"
-                  />
-                  <list-entry
-                    title="CPU Nimbus"
-                    :data="`${callBResponse.data.cpusuper} vCore`"
-                  />
-                  <list-entry
-                    title="CPU Stratus"
-                    :data="`${callBResponse.data.cpubamf} vCore`"
-                  />
-                  <list-entry
-                    title="RAM Cumulus"
-                    :data="`${callBResponse.data.rambasic} MB`"
-                  />
-                  <list-entry
-                    title="RAM Nimbus"
-                    :data="`${callBResponse.data.ramsuper} MB`"
-                  />
-                  <list-entry
-                    title="RAM Stratus"
-                    :data="`${callBResponse.data.rambamf} MB`"
-                  />
-                  <list-entry
-                    title="SSD Cumulus"
-                    :data="`${callBResponse.data.hddbasic} GB`"
-                  />
-                  <list-entry
-                    title="SSD Nimbus"
-                    :data="`${callBResponse.data.hddsuper} GB`"
-                  />
-                  <list-entry
-                    title="SSD Stratus"
-                    :data="`${callBResponse.data.hddbamf} GB`"
-                  />
-                </div>
-                <div v-else>
-                  <list-entry
-                    title="CPU"
-                    :data="`${callBResponse.data.cpu} vCore`"
-                  />
-                  <list-entry
-                    title="RAM"
-                    :data="`${callBResponse.data.ram} MB`"
-                  />
-                  <list-entry
-                    title="SSD"
-                    :data="`${callBResponse.data.hdd} GB`"
-                  />
-                </div>
-              </b-card>
+            <div v-else-if="callBResponse.status === 'error'">
+              Global specifications not found!
             </div>
             <div v-else>
-              <b-card
-                v-for="(component, index) in callBResponse.data.compose"
-                :key="index"
-              >
-                <b-card-title>
-                  Component {{ component.name }}
-                </b-card-title>
-                <list-entry
-                  title="Name"
-                  :data="component.name"
-                />
-                <list-entry
-                  title="Description"
-                  :data="component.description"
-                />
-                <list-entry
-                  title="Repository"
-                  :data="component.repotag"
-                />
-                <list-entry
-                  title="Repository Authentication"
-                  :data="component.repoauth ? 'Content Encrypted' : 'Public'"
-                />
-                <list-entry
-                  title="Custom Domains"
-                  :data="component.domains.toString() || 'none'"
-                />
-                <list-entry
-                  title="Automatic Domains"
-                  :data="constructAutomaticDomains(component.ports, callBResponse.data.name, index).toString() || 'none'"
-                />
-                <list-entry
-                  title="Ports"
-                  :data="component.ports.toString() || 'none'"
-                />
-                <list-entry
-                  title="Container Ports"
-                  :data="component.containerPorts.toString() || 'none'"
-                />
-                <list-entry
-                  title="Container Data"
-                  :data="component.containerData"
-                />
-                <list-entry
-                  title="Environment Parameters"
-                  :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
-                />
-                <list-entry
-                  title="Commands"
-                  :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
-                />
-                <list-entry
-                  title="Secret Environment Parameters"
-                  :data="component.secrets ? 'Content Encrypted' : 'none'"
-                />
-                <div v-if="component.tiered">
-                  <list-entry
-                    title="CPU Cumulus"
-                    :data="`${component.cpubasic} vCore`"
-                  />
-                  <list-entry
-                    title="CPU Nimbus"
-                    :data="`${component.cpusuper} vCore`"
-                  />
-                  <list-entry
-                    title="CPU Stratus"
-                    :data="`${component.cpubamf} vCore`"
-                  />
-                  <list-entry
-                    title="RAM Cumulus"
-                    :data="`${component.rambasic} MB`"
-                  />
-                  <list-entry
-                    title="RAM Nimbus"
-                    :data="`${component.ramsuper} MB`"
-                  />
-                  <list-entry
-                    title="RAM Stratus"
-                    :data="`${component.rambamf} MB`"
-                  />
-                  <list-entry
-                    title="SSD Cumulus"
-                    :data="`${component.hddbasic} GB`"
-                  />
-                  <list-entry
-                    title="SSD Nimbus"
-                    :data="`${component.hddsuper} GB`"
-                  />
-                  <list-entry
-                    title="SSD Stratus"
-                    :data="`${component.hddbamf} GB`"
-                  />
-                </div>
-                <div v-else>
-                  <list-entry
-                    title="CPU"
-                    :data="`${component.cpu} vCore`"
-                  />
-                  <list-entry
-                    title="RAM"
-                    :data="`${component.ram} MB`"
-                  />
-                  <list-entry
-                    title="SSD"
-                    :data="`${component.hdd} GB`"
-                  />
-                </div>
-              </b-card>
+              Global Specifications loading...
             </div>
           </b-card>
-        </div>
-        <div v-else-if="callBResponse.status === 'error'">
-          Global specifications not found!
-        </div>
-        <div v-else>
-          Global Specifications loading...
         </div>
       </b-tab>
-      <b-tab
-        title="Information"
-        :disabled="!isApplicationInstalledLocally"
-      >
-        <h3>Application: {{ appSpecification.name }}</h3>
+      <b-tab title="Information">
+        <h3><b-icon icon="app-indicator" /> {{ appSpecification.name }}</h3>
         <div v-if="appSpecification.version >= 4">
           <div
             v-for="(component, index) in callResponse.data"
@@ -646,11 +686,8 @@
           </div>
         </div>
       </b-tab>
-      <b-tab
-        title="Resources"
-        :disabled="!isApplicationInstalledLocally"
-      >
-        <h3>Application: {{ appSpecification.name }}</h3>
+      <b-tab title="Resources">
+        <h3><b-icon icon="app-indicator" /> {{ appSpecification.name }}</h3>
         <div v-if="commandExecuting">
           <v-icon
             class="spin-icon"
@@ -686,10 +723,7 @@
           </div>
         </div>
       </b-tab>
-      <b-tab
-        title="Monitoring"
-        :disabled="!isApplicationInstalledLocally"
-      >
+      <b-tab title="Monitoring">
         <h3>History Statistics 1 hour</h3>
         <div v-if="appSpecification.version >= 4">
           <div
@@ -750,11 +784,53 @@
           </div>
         </div>
       </b-tab>
-      <b-tab
-        title="File Changes"
-        :disabled="!isApplicationInstalledLocally"
-      >
-        <h3>Application: {{ appSpecification.name }}</h3>
+      <b-tab title="File Changes">
+        <h3><b-icon icon="app-indicator" /> {{ appSpecification.name }}</h3>
+        <div v-if="commandExecuting">
+          <v-icon
+            class="spin-icon"
+            name="spinner"
+          />
+        </div>
+        <div v-if="appSpecification.version >= 4">
+          <div
+            v-for="(component, index) in callResponse.data"
+            :key="index"
+          >
+            <h4>Component: {{ component.name }}</h4>
+            <div v-if="component.callData">
+              <kbd class="bg-primary mr-1">Kind: 0 = Modified</kbd>
+              <kbd class="bg-success mr-1">Kind: 1 = Added </kbd>
+              <kbd class="bg-danger">Kind: 2 = Deleted</kbd>
+              <json-viewer
+                class="mt-1"
+                :value="component.callData"
+                :expand-depth="5"
+                copyable
+                boxed
+                theme="jv-dark"
+              />
+            </div>
+          </div>
+        </div>
+        <div v-else>
+          <div v-if="callResponse.data && callResponse.data[0]">
+            <kbd class="bg-primary mr-1">Kind: 0 = Modified</kbd>
+            <kbd class="bg-success mr-1">Kind: 1 = Added </kbd>
+            <kbd class="bg-danger">Kind: 2 = Deleted</kbd>
+            <json-viewer
+              class="mt-1"
+              :value="callResponse.data[0].callData"
+              :expand-depth="5"
+              copyable
+              boxed
+              theme="jv-dark"
+            />
+          </div>
+        </div>
+      </b-tab>
+      <b-tab title="Processes">
+        <h3><b-icon icon="app-indicator" /> {{ appSpecification.name }}</h3>
         <div v-if="commandExecuting">
           <v-icon
             class="spin-icon"
@@ -790,70 +866,41 @@
           </div>
         </div>
       </b-tab>
-      <b-tab
-        title="Processes"
-        :disabled="!isApplicationInstalledLocally"
-      >
-        <h3>Application: {{ appSpecification.name }}</h3>
-        <div v-if="commandExecuting">
-          <v-icon
-            class="spin-icon"
-            name="spinner"
-          />
-        </div>
+      <b-tab title="Log File">
+        <h3><b-icon icon="app-indicator" /> {{ appSpecification.name }}</h3>
+        <h6 class="mb-2">
+          Click the 'Download' button to download the Log file from your Application debug file. This may take a few minutes depending on file size.
+        </h6>
         <div v-if="appSpecification.version >= 4">
           <div
             v-for="(component, index) in callResponse.data"
             :key="index"
           >
             <h4>Component: {{ component.name }}</h4>
-            <div v-if="component.callData">
-              <json-viewer
-                :value="component.callData"
-                :expand-depth="5"
-                copyable
-                boxed
-                theme="jv-dark"
-              />
-            </div>
-          </div>
-        </div>
-        <div v-else>
-          <div v-if="callResponse.data && callResponse.data[0]">
-            <json-viewer
-              :value="callResponse.data[0].callData"
-              :expand-depth="5"
-              copyable
-              boxed
-              theme="jv-dark"
-            />
-          </div>
-        </div>
-      </b-tab>
-      <b-tab
-        title="Log File"
-        :disabled="!isApplicationInstalledLocally"
-      >
-        <h3>Application: {{ appSpecification.name }}</h3>
-        <div v-if="appSpecification.version >= 4">
-          <div
-            v-for="(component, index) in callResponse.data"
-            :key="index"
-          >
-            <h4>Component: {{ component.name }}</h4>
-            <div class="text-center">
-              <h6>
-                Click the 'Download Log File' button to download the Log file from your Application debug file. This may take a few minutes depending on file size.
-              </h6>
+            <div>
               <div>
+                <div class="d-flex align-items-center">
+                  <h5 class="mt-1">
+                    <kbd class="bg-primary">Last 100 lines of the log file</kbd>
+                  </h5>
+                </div>
+                <b-form-textarea
+                  v-if="component.callData"
+                  plaintext
+                  no-resize
+                  rows="15"
+                  :value="decodeAsciiResponse(component.callData)"
+                  class="mt-1 mb-1"
+                  style="background-color: black; color: white; padding: 20px; font-family: monospace; margin-bottom: 25px"
+                />
                 <b-button
                   :id="`start-download-log-${component.name}_${appSpecification.name}`"
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
                   variant="outline-primary"
                   size="md"
-                  class="mt-2"
+                  class="w-100 mb-2"
                 >
-                  Download Debug File
+                  Download
                 </b-button>
                 <confirm-dialog
                   :target="`start-download-log-${component.name}_${appSpecification.name}`"
@@ -861,38 +908,30 @@
                   @confirm="downloadApplicationLog(`${component.name}_${appSpecification.name}`)"
                 />
               </div>
-              <div>
-                <b-card-text v-if="total && downloaded">
-                  {{ `${(downloaded / 1e6).toFixed(2)} / ${(total / 1e6).toFixed(2)}` }} MB - {{ `${((downloaded / total) * 100).toFixed(2)}%` }}
-                </b-card-text>
-                <h6 class="mb-1 mt-2">
-                  Last 100 lines of the log file
-                </h6>
-                <b-form-textarea
-                  v-if="component.callData"
-                  plaintext
-                  no-resize
-                  rows="15"
-                  :value="decodeAsciiResponse(component.callData)"
-                  class="mt-1"
-                  style="background-color: black; color: white; padding: 20px; font-family: monospace; margin-bottom: 25px"
-                />
-              </div>
             </div>
           </div>
         </div>
         <div v-else>
-          <div class="text-center">
-            <h6>
-              Click the 'Download Log File' button to download the Log file from your Application debug file. This may take a few minutes depending on file size.
-            </h6>
+          <div>
             <div>
+              <h6 class="mb-1 mt-1">
+                <kbd class="bg-primary">Last 100 lines of the log file</kbd>
+              </h6>
+              <b-form-textarea
+                v-if="callResponse.data && callResponse.data[0]"
+                plaintext
+                no-resize
+                rows="15"
+                :value="decodeAsciiResponse(callResponse.data[0].callData)"
+                class="mt-1 mb-1"
+                style="background-color: black; color: white; padding: 20px; font-family: monospace; margin-bottom: 25px"
+              />
               <b-button
                 id="start-download-log"
                 v-ripple.400="'rgba(255, 255, 255, 0.15)'"
                 variant="outline-primary"
                 size="md"
-                class="mt-2"
+                class="w-100 mb-2"
               >
                 Download Debug File
               </b-button>
@@ -902,31 +941,11 @@
                 @confirm="downloadApplicationLog(appSpecification.name)"
               />
             </div>
-            <div>
-              <b-card-text v-if="total && downloaded">
-                {{ `${(downloaded / 1e6).toFixed(2)} / ${(total / 1e6).toFixed(2)}` }} MB - {{ `${((downloaded / total) * 100).toFixed(2)}%` }}
-              </b-card-text>
-              <h6 class="mb-1 mt-2">
-                Last 100 lines of the log file
-              </h6>
-              <b-form-textarea
-                v-if="callResponse.data && callResponse.data[0]"
-                plaintext
-                no-resize
-                rows="15"
-                :value="decodeAsciiResponse(callResponse.data[0].callData)"
-                class="mt-1"
-                style="background-color: black; color: white; padding: 20px; font-family: monospace; margin-bottom: 25px"
-              />
-            </div>
           </div>
         </div>
       </b-tab>
-      <b-tab
-        title="Control"
-        :disabled="!isApplicationInstalledLocally"
-      >
-        <b-row class="match-height">
+      <b-tab title="Control">
+        <b-row class="match-height ">
           <b-col xs="6">
             <b-card title="Control">
               <b-card-text class="mb-2">
@@ -1067,7 +1086,7 @@
             </b-card>
           </b-col>
         </b-row>
-        <b-row class="match-height">
+        <b-row class="match-height ">
           <b-col xs="6">
             <b-card title="Redeploy">
               <b-card-text class="mb-2">
@@ -1131,6 +1150,7 @@
         </b-row>
       </b-tab>
       <b-tab
+        v-if="windowWidth > 860"
         title="Component Control"
         :disabled="!isApplicationInstalledLocally || appSpecification.version <= 3"
       >
@@ -1284,12 +1304,18 @@
       </b-tab>
       <b-tab
         title="Backup/Restore"
-        :disabled="!isApplicationInstalledLocally"
+        :disabled="!appSpecification?.compose"
       >
         <div>
           <b-card no-body>
-            <b-tabs pills card>
-              <b-tab title="Backup" style="margin: 0; padding-top: 0px;">
+            <b-tabs
+              pills
+              card
+            >
+              <b-tab
+                title="Backup"
+                style="margin: 0; padding-top: 0px;"
+              >
                 <div
                   class="mb-2"
                   style="
@@ -1300,7 +1326,12 @@
                     line-height: 0px;
                   "
                 >
-                  <h5><b-icon class="mr-1" icon="back" /> Manual Triggered Backup</h5>
+                  <h5>
+                    <b-icon
+                      class="mr-1"
+                      icon="back"
+                    /> Manual Backup Container Data
+                  </h5>
                 </div>
                 <div class="mb-2">
                   <b-form-group>
@@ -1327,7 +1358,11 @@
                           v-if="tags.length > 0"
                           class="list-inline d-inline-block mb-2"
                         >
-                          <li v-for="tag in tags" :key="tag" class="list-inline-item">
+                          <li
+                            v-for="tag in tags"
+                            :key="tag"
+                            class="list-inline-item"
+                          >
                             <b-form-tag
                               :title="tag"
                               :disabled="disabled"
@@ -1345,7 +1380,10 @@
                           v-on="inputHandlers"
                         >
                           <template #first>
-                            <option disabled value="">
+                            <option
+                              disabled
+                              value=""
+                            >
                               Select the application component(s) you would like to backup
                             </option>
                           </template>
@@ -1354,8 +1392,17 @@
                     </b-form-tags>
                   </b-form-group>
                 </div>
-                <b-button v-if="components?.length > 1" class="mr-1" variant="outline-primary" @click="addAllTags">
-                  <b-icon scale="0.9" icon="check2-square" class="mr-1" />
+                <b-button
+                  v-if="components?.length > 1"
+                  class="mr-1"
+                  variant="outline-primary"
+                  @click="addAllTags"
+                >
+                  <b-icon
+                    scale="0.9"
+                    icon="check2-square"
+                    class="mr-1"
+                  />
                   Select all
                 </b-button>
                 <b-button
@@ -1364,7 +1411,11 @@
                   style="white-space: nowrap;"
                   @click="createBackup(appName, selectedBackupComponents)"
                 >
-                  <b-icon scale="0.9" icon="back" class="mr-1" />
+                  <b-icon
+                    scale="0.9"
+                    icon="back"
+                    class="mr-1"
+                  />
                   Create backup
                 </b-button>
 
@@ -1389,7 +1440,14 @@
                         <!-- <b-spinner small /> Backing up {{ tarProgress[0] }}... -->
                       </span>
                     </h5>
-                    <b-progress v-for="(item, index) in computedFileProgress" v-if="item.progress > 0" :key="index" class="mt-1" style="height: 16px;" :max="100">
+                    <b-progress
+                      v-for="(item, index) in computedFileProgress"
+                      v-if="item.progress > 0"
+                      :key="index"
+                      class="mt-1"
+                      style="height: 16px;"
+                      :max="100"
+                    >
                       <b-progress-bar
                         :value="item.progress"
                         :label="`${item.fileName} - ${item.progress.toFixed(2)}%`"
@@ -1402,48 +1460,90 @@
                 <div v-if="backupList?.length > 0 && backupProgress === false">
                   <div class="mb-1 text-right">
                     <!-- Select Dropdown -->
-                    <b-dropdown class="mr-1" text="Select" variant="outline-primary" style="max-height: 38px; min-width: 100px; white-space: nowrap;">
+                    <b-dropdown
+                      class="mr-1"
+                      text="Select"
+                      variant="outline-primary"
+                      style="max-height: 38px; min-width: 100px; white-space: nowrap;"
+                    >
                       <template #button-content>
-                        <b-icon scale="0.9" icon="check2-square" class="mr-1" />
+                        <b-icon
+                          scale="0.9"
+                          icon="check2-square"
+                          class="mr-1"
+                        />
                         Select
                       </template>
                       <b-dropdown-item
                         :disabled="backupToUpload?.length === backupList?.length"
                         @click="selectAllRows"
                       >
-                        <b-icon scale="0.9" icon="check2-circle" class="mr-1" />
+                        <b-icon
+                          scale="0.9"
+                          icon="check2-circle"
+                          class="mr-1"
+                        />
                         Select all
                       </b-dropdown-item>
                       <b-dropdown-item
                         :disabled="backupToUpload?.length === 0"
                         @click="clearSelected"
                       >
-                        <b-icon scale="0.7" icon="square" class="mr-1" />
+                        <b-icon
+                          scale="0.7"
+                          icon="square"
+                          class="mr-1"
+                        />
                         Select none
                       </b-dropdown-item>
                     </b-dropdown>
 
                     <!-- Download Dropdown -->
-                    <b-dropdown class="mr-1" text="Download" variant="outline-primary" style="max-height: 38px; min-width: 100px; white-space: nowrap;">
+                    <b-dropdown
+                      class="mr-1"
+                      text="Download"
+                      variant="outline-primary"
+                      style="max-height: 38px; min-width: 100px; white-space: nowrap;"
+                    >
                       <template #button-content>
-                        <b-icon scale="0.9" icon="download" class="mr-1" />
+                        <b-icon
+                          scale="0.9"
+                          icon="download"
+                          class="mr-1"
+                        />
                         Download
                       </template>
                       <b-dropdown-item
                         :disabled="backupToUpload?.length === 0"
                         @click="downloadAllBackupFiles(backupToUpload)"
                       >
-                        <b-icon scale="0.7" icon="download" class="mr-1" />
+                        <b-icon
+                          scale="0.7"
+                          icon="download"
+                          class="mr-1"
+                        />
                         Download selected
                       </b-dropdown-item>
                       <b-dropdown-item @click="downloadAllBackupFiles(backupList)">
-                        <b-icon scale="0.7" icon="download" class="mr-1" />
+                        <b-icon
+                          scale="0.7"
+                          icon="download"
+                          class="mr-1"
+                        />
                         Download all
                       </b-dropdown-item>
                     </b-dropdown>
 
-                    <b-button variant="outline-danger" style="max-height: 38px; min-width: 100px; white-space: nowrap;" @click="deleteLocalBackup(null, backupList)">
-                      <b-icon scale="0.9" icon="trash" class="mr-1" />
+                    <b-button
+                      variant="outline-danger"
+                      style="max-height: 38px; min-width: 100px; white-space: nowrap;"
+                      @click="deleteLocalBackup(null, backupList)"
+                    >
+                      <b-icon
+                        scale="0.9"
+                        icon="trash"
+                        class="mr-1"
+                      />
                       Remove all
                     </b-button>
                   </div>
@@ -1473,7 +1573,10 @@
                   >
                     <template #thead-top>
                       <b-tr>
-                        <b-td colspan="6" class="text-center">
+                        <b-td
+                          colspan="6"
+                          class="text-center"
+                        >
                           <b>
                             List of available backups on the local machine (backups are automatically deleted 24 hours after creation)
                           </b>
@@ -1489,7 +1592,10 @@
                     </template>
                     <template #cell(isActive)="{ rowSelected }">
                       <template v-if="rowSelected">
-                        <span style="color: green" aria-hidden="true">
+                        <span
+                          style="color: green"
+                          aria-hidden="true"
+                        >
                           <b-icon
                             icon="calendar2-check-fill"
                             scale="1"
@@ -1572,7 +1678,14 @@
                             Download Completed
                           </span>
                         </h5>
-                        <b-progress v-for="(item, index) in computedFileProgress" v-if="item.progress > 0" :key="index" class="mt-1" style="height: 16px;" :max="100">
+                        <b-progress
+                          v-for="(item, index) in computedFileProgress"
+                          v-if="item.progress > 0"
+                          :key="index"
+                          class="mt-1"
+                          style="height: 16px;"
+                          :max="100"
+                        >
                           <b-progress-bar
                             :value="item.progress"
                             :label="`${item.fileName} - ${item.progress.toFixed(2)}%`"
@@ -1582,7 +1695,10 @@
                       </div>
                     </div>
                   </b-card-text>
-                  <div v-if="backupToUpload.length > 0" class="mt-2">
+                  <div
+                    v-if="backupToUpload.length > 0"
+                    class="mt-2"
+                  >
                     <div
                       class="mb-2 mt-3"
                       style="
@@ -1624,9 +1740,7 @@
 
                             "
                           >
-                            <h5
-                              style="font-size: 16px; margin-bottom: 5px;"
-                            >
+                            <h5 style="font-size: 16px; margin-bottom: 5px;">
                               Sign in to enable FluxDrive functionality
                             </h5>
                           </div>
@@ -1646,7 +1760,10 @@
                                 margin-bottom: 10px;
                               "
                             >
-                              <a href="" @click="removeAllBackup">
+                              <a
+                                href=""
+                                @click="removeAllBackup"
+                              >
                                 <img
                                   style="margin-left: 5px; height: 90px; padding: 10px"
                                   src="https://home.runonflux.io/img/zelID.svg"
@@ -1787,7 +1904,10 @@
                   </div>
                 </div>
               </b-tab>
-              <b-tab title="Restore" style="margin: 0; padding-top: 0px;">
+              <b-tab
+                title="Restore"
+                style="margin: 0; padding-top: 0px;"
+              >
                 <div
                   class="mb-2"
                   style="
@@ -1798,11 +1918,20 @@
                     line-height: 0px;
                   "
                 >
-                  <h5><b-icon class="mr-1" scale="1.4" icon="cloud-download" /> Select restore method</h5>
+                  <h5>
+                    <b-icon
+                      class="mr-1"
+                      scale="1.4"
+                      icon="cloud-download"
+                    /> Select restore method
+                  </h5>
                 </div>
                 <b-form-group class="mb-2">
                   <b-row>
-                    <b-col class="d-flex align-items-center" style="height: 38px;">
+                    <b-col
+                      class="d-flex align-items-center"
+                      style="height: 38px;"
+                    >
                       <b-form-radio-group
                         id="btn-radios-2"
                         v-model="selectedRestoreOption"
@@ -1816,13 +1945,20 @@
                       />
                     </b-col>
 
-                    <b-col class="text-right" style="height: 38px;">
+                    <b-col
+                      class="text-right"
+                      style="height: 38px;"
+                    >
                       <b-button
                         v-if="selectedRestoreOption === 'FluxDrive'"
                         variant="outline-success"
                         style="max-height: 38px; min-width: 100px; white-space: nowrap;"
                       >
-                        <b-icon class="mr-1" scale="1.2" icon="arrow-repeat" />Refresh
+                        <b-icon
+                          class="mr-1"
+                          scale="1.2"
+                          icon="arrow-repeat"
+                        />Refresh
                       </b-button>
                     </b-col>
                   </b-row>
@@ -1866,7 +2002,10 @@
                             margin-bottom: 10px;
                           "
                         >
-                          <a href="" @click="removeAllBackup">
+                          <a
+                            href=""
+                            @click="removeAllBackup"
+                          >
                             <img
                               style="margin-left: 5px; height: 90px; padding: 10px"
                               src="https://home.runonflux.io/img/zelID.svg"
@@ -2009,7 +2148,11 @@
                             variant="dark"
                             class="text-center"
                           >
-                            <b-icon scale="1.2" icon="back" class="mr-2" /><b>Backups Inventory</b>
+                            <b-icon
+                              scale="1.2"
+                              icon="back"
+                              class="mr-2"
+                            /><b>Backups Inventory</b>
                           </b-td>
                         </b-tr>
                       </template>
@@ -2020,7 +2163,6 @@
                             variant="outline-danger"
                             class="d-flex justify-content-center align-items-center mr-1"
                             style="width: 15px; height: 25px"
-
                             @click="deleteRestoreBackup(row.item.component, checkpoints, row.item.timestamp)"
                           >
                             <b-icon
@@ -2141,7 +2283,11 @@
                             variant="dark"
                             style="text-align: center; vertical-align: middle;"
                           >
-                            <b-icon class="mr-2" icon="hdd" scale="1.4" /> {{ totalArchiveFileSize(newComponents).toFixed(2) }} MB
+                            <b-icon
+                              class="mr-2"
+                              icon="hdd"
+                              scale="1.4"
+                            /> {{ totalArchiveFileSize(newComponents).toFixed(2) }} MB
                           </b-td>
                         </b-tr>
                       </template>
@@ -2193,7 +2339,10 @@
                           variant="outline-primary"
                           @click="addRemoteFile"
                         >
-                          <b-icon icon="cloud-arrow-up" scale="1.5" />
+                          <b-icon
+                            icon="cloud-arrow-up"
+                            scale="1.5"
+                          />
                         </b-button>
                       </b-input-group-append>
                     </b-input-group>
@@ -2287,7 +2436,11 @@
                             variant="dark"
                             style="text-align: center; vertical-align: middle;"
                           >
-                            <b-icon class="mr-1" icon="hdd" scale="1.4" />{{ addAndConvertFileSizes(files) }}
+                            <b-icon
+                              class="mr-1"
+                              icon="hdd"
+                              scale="1.4"
+                            />{{ addAndConvertFileSizes(files) }}
                           </b-td>
                         </b-tr>
                       </template>
@@ -2319,8 +2472,15 @@
                         <div :class="file.uploading ? '' : 'hidden'">
                           {{ file.file_name }}
                         </div>
-                        <b-progress max="100" height="15px">
-                          <b-progress-bar :value="file.progress" :label="`${file.progress.toFixed(2)}%`" :class="file.uploading ? '' : 'hidden'" />
+                        <b-progress
+                          max="100"
+                          height="15px"
+                        >
+                          <b-progress-bar
+                            :value="file.progress"
+                            :label="`${file.progress.toFixed(2)}%`"
+                            :class="file.uploading ? '' : 'hidden'"
+                          />
                         </b-progress>
                         <!-- <b-progress
                           :value="file.progress"
@@ -2340,7 +2500,11 @@
                     variant="outline-primary"
                     @click="startUpload()"
                   >
-                    <b-icon icon="arrow-clockwise" scale="1.1" class="mr-1" />Restore
+                    <b-icon
+                      icon="arrow-clockwise"
+                      scale="1.1"
+                      class="mr-1"
+                    />Restore
                   </b-button>
                 </div>
                 <div v-if="selectedRestoreOption === 'Remote URL'">
@@ -2381,11 +2545,17 @@
                           variant="outline-primary"
                           @click="addRemoteUrlItem(appName, restoreRemoteUrlComponent)"
                         >
-                          <b-icon scale="0.8" icon="plus-lg" />
+                          <b-icon
+                            scale="0.8"
+                            icon="plus-lg"
+                          />
                         </b-button>
                       </b-input-group-append>
                     </b-input-group>
-                    <b-form-invalid-feedback class="mb-2" :state="urlValidationState">
+                    <b-form-invalid-feedback
+                      class="mb-2"
+                      :state="urlValidationState"
+                    >
                       {{ urlValidationMessage }}
                     </b-form-invalid-feedback>
                   </div>
@@ -2472,7 +2642,11 @@
                             variant="dark"
                             style="text-align: center; vertical-align: middle;"
                           >
-                            <b-icon class="mr-1" icon="hdd" scale="1.4" />{{ addAndConvertFileSizes(restoreRemoteUrlItems) }}
+                            <b-icon
+                              class="mr-1"
+                              icon="hdd"
+                              scale="1.4"
+                            />{{ addAndConvertFileSizes(restoreRemoteUrlItems) }}
                           </b-td>
                         </b-tr>
                       </template>
@@ -2494,7 +2668,7 @@
                       <h5 style="font-size: 16px; margin-bottom: 5px;">
                         <span v-if="downloadingFromUrl === true">
                           <b-spinner small /> {{ restoreFromRemoteURLStatus }}
-                        <!-- <b-spinner small /> Backing up {{ tarProgress[0] }}... -->
+                          <!-- <b-spinner small /> Backing up {{ tarProgress[0] }}... -->
                         </span>
                       </h5>
                     </div>
@@ -2506,7 +2680,11 @@
                     variant="outline-primary"
                     @click="restoreFromRemoteFile(appName)"
                   >
-                    <b-icon icon="arrow-clockwise" scale="1.1" class="mr-1" />Restore
+                    <b-icon
+                      icon="arrow-clockwise"
+                      scale="1.1"
+                      class="mr-1"
+                    />Restore
                   </b-button>
                 </div>
               </b-tab>
@@ -2514,11 +2692,8 @@
           </b-card>
         </div>
       </b-tab>
-      <b-tab
-        title="Interactive Terminal"
-        :disabled="!isApplicationInstalledLocally"
-      >
-        <div class="text-center">
+      <b-tab title="Interactive Terminal">
+        <div class="text-center ">
           <div>
             <b-card-group deck>
               <b-card header-tag="header">
@@ -2533,10 +2708,19 @@
                     line-height: 0px;
                   "
                 >
-                  <h5><b-icon class="mr-1" scale="1.2" icon="terminal" /> Browser-based Interactive Terminal</h5>
+                  <h5>
+                    <b-icon
+                      class="mr-1"
+                      scale="1.2"
+                      icon="terminal"
+                    /> Browser-based Interactive Terminal
+                  </h5>
                 </div>
                 <div class="d-flex align-items-center">
-                  <div class="mr-4">
+                  <div
+                    v-show="appSpecification?.compose"
+                    class="mr-4"
+                  >
                     <b-form-select
                       v-model="selectedApp"
                       :options="null"
@@ -2549,7 +2733,7 @@
                         -- Please select component --
                       </b-form-select-option>
                       <b-form-select-option
-                        v-for="component in appSpecification.compose"
+                        v-for="component in appSpecification?.compose"
                         :key="component.name"
                         :value="component.name"
                       >
@@ -2594,18 +2778,23 @@
                   </b-button>
                   <b-button
                     v-if="isConnecting"
-                    class="col-2"
+                    class="col-2 align-items-center justify-content-center"
                     variant="outline-primary"
                     disabled
                   >
-                    <b-spinner small />
-                    Connecting...
+                    <div class="d-flex align-items-center justify-content-center">
+                      <b-spinner
+                        class="mr-1"
+                        small
+                      />
+                      Connecting...
+                    </div>
                   </b-button>
                   <div class="ml-auto mt-1">
                     <div class="ml-auto d-flex">
                       <b-form-checkbox
                         v-model="enableUser"
-                        class="ml-4 mr-2 d-flex align-items-center justify-content-center"
+                        class="ml-4 mr-1 d-flex align-items-center justify-content-center"
                         switch
                         :disabled="!!isVisible"
                         @input="onSelectChangeUser"
@@ -2614,7 +2803,7 @@
                           class="d-flex"
                           style="font-size: 14px;"
                         >
-                          Custom User
+                          User
                         </div>
                       </b-form-checkbox>
                       <b-form-checkbox
@@ -2628,7 +2817,7 @@
                           class="d-flex"
                           style="font-size: 14px;"
                         >
-                          Enable Environment
+                          Environment
                         </div>
                       </b-form-checkbox>
                     </div>
@@ -2696,305 +2885,344 @@
             />
           </div>
         </div>
+        <div>
+          <b-card class="mt-1">
+            <div
+              class="mb-2"
+              style="
+                display: flex;
+                justify-content: space-between;
+                border: 1px solid #ccc;
+                border-radius: 8px;
+                height: 45px;
+                padding: 12px;
+                text-align: left;
+                line-height: 0px;
+              "
+            >
+              <h5>
+                <b-icon
+                  class="mr-1"
+                  scale="1.2"
+                  icon="server"
+                /> Volume browser
+              </h5>
+              <h6
+                v-if="selectedAppVolume || !appSpecification?.compose"
+                class="progress-label"
+              >
+                <b-icon
+                  class="mr-1"
+                  :style="getIconColorStyle(storage.used, storage.total)"
+                  :icon="getIconName(storage.used, storage.total)"
+                  scale="1.4"
+                /> {{ `${storage.used.toFixed(2)} / ${storage.total.toFixed(2)}` }} GB
+              </h6>
+            </div>
+            <div
+              class="mr-4 d-flex"
+              :class="{ 'mb-2': appSpecification && appSpecification.compose }"
+              style="max-width: 250px;"
+            >
+              <b-form-select
+                v-show="appSpecification?.compose"
+                v-model="selectedAppVolume"
+                :options="null"
+                :disabled="isComposeSingle"
+                @change="refreshFolderSwitch"
+              >
+                <b-form-select-option
+                  value="null"
+                  disabled
+                >
+                  -- Please select component --
+                </b-form-select-option>
+                <b-form-select-option
+                  v-for="component in appSpecification.compose"
+                  :key="component.name"
+                  :value="component.name"
+                >
+                  {{ component.name }}
+                </b-form-select-option>
+              </b-form-select>
+            </div>
+            <div
+              v-if="fileProgressVolume.length > 0"
+              class="mb-2 mt-2 w-100"
+              style="
+                margin: 0 auto;
+                padding: 12px;
+                border: 1px solid #eaeaea;
+                border-radius: 8px;
+                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                text-align: center;
+
+              "
+            >
+              <h5 style="font-size: 16px; margin-bottom: 5px;">
+                <span v-if="!allDownloadsCompletedVolume()">
+                  <b-spinner small /> Downloading...
+                </span>
+                <span v-else>
+                  Download Completed
+                </span>
+              </h5>
+              <b-progress
+                v-for="(item, index) in computedFileProgressVolume"
+                v-if="item.progress > 0"
+                :key="index"
+                class="mt-1"
+                style="height: 16px;"
+                :max="100"
+              >
+                <b-progress-bar
+                  :value="item.progress"
+                  :label="`${item.fileName} - ${item.progress.toFixed(2)}%`"
+                  style="font-size: 14px;"
+                />
+              </b-progress>
+            </div>
+            <div>
+              <b-button-toolbar
+                v-if="selectedAppVolume || !appSpecification?.compose"
+                justify
+                class="mb-1 w-100"
+              >
+                <div class="d-flex flex-row w-100">
+                  <b-input-group class="w-100 mr-2">
+                    <b-input-group-prepend>
+                      <b-input-group-text>
+                        <b-icon icon="house-fill" />
+                      </b-input-group-text>
+                    </b-input-group-prepend>
+                    <b-form-input
+                      v-model="inputPathValue"
+                      class="text-secondary"
+                      style="font-weight: bold; font-size: 1.0em;"
+                    />
+                  </b-input-group>
+                  <b-button-group size="sm" />
+                  <b-button-group
+                    size="sm"
+                    class="ml-auto"
+                  >
+                    <b-button
+                      variant="outline-primary"
+                      @click="refreshFolder()"
+                    >
+                      <v-icon name="redo-alt" />
+                    </b-button>
+                    <b-button
+                      variant="outline-primary"
+                      @click="uploadFilesDialog = true"
+                    >
+                      <v-icon name="cloud-upload-alt" />
+                    </b-button>
+                    <b-button
+                      variant="outline-primary"
+                      @click="createDirectoryDialogVisible = true"
+                    >
+                      <v-icon name="folder-plus" />
+                    </b-button>
+                    <b-modal
+                      v-model="createDirectoryDialogVisible"
+                      title="Create Folder"
+                      size="lg"
+                      centered
+                      ok-only
+                      ok-title="Create Folder"
+                      header-bg-variant="primary"
+                      @ok="createFolder(newDirName)"
+                    >
+                      <b-form-group
+                        label="Folder Name"
+                        label-for="folderNameInput"
+                      >
+                        <b-form-input
+                          id="folderNameInput"
+                          v-model="newDirName"
+                          size="lg"
+                          placeholder="New Folder Name"
+                        />
+                      </b-form-group>
+                    </b-modal>
+                    <b-modal
+                      v-model="uploadFilesDialog"
+                      title="Upload Files"
+                      size="lg"
+                      header-bg-variant="primary"
+                      centered
+                      hide-footer
+                      @close="refreshFolder()"
+                    >
+                      <file-upload
+                        :upload-folder="getUploadFolder()"
+                        :headers="zelidHeader"
+                        @complete="refreshFolder"
+                      />
+                    </b-modal>
+                  </b-button-group>
+                </div>
+              </b-button-toolbar>
+              <b-table
+                v-if="selectedAppVolume || !appSpecification?.compose"
+                class="fluxshare-table"
+                hover
+                responsive
+                small
+                outlined
+                size="sm"
+                :items="folderContentFilter"
+                :fields="fields"
+                :busy="loadingFolder"
+                :sort-compare="sort"
+                sort-by="name"
+                show-empty
+                :empty-text="`Directory is empty.`"
+              >
+                <template #table-busy>
+                  <div class="text-center text-danger my-2">
+                    <b-spinner class="align-middle mx-2" />
+                    <strong>Loading...</strong>
+                  </div>
+                </template>
+                <template #head(name)="data">
+                  {{ data.label.toUpperCase() }}
+                </template>
+                <template #cell(name)="data">
+                  <div v-if="data.item.symLink">
+                    <b-link @click="changeFolder(data.item.name)">
+                      <b-icon
+                        class="mr-1"
+                        scale="1.4"
+                        icon="folder-symlink"
+                      /> {{ data.item.name }}
+                    </b-link>
+                  </div>
+                  <div v-if="data.item.isDirectory">
+                    <b-link @click="changeFolder(data.item.name)">
+                      <b-icon
+                        class="mr-1"
+                        scale="1.4"
+                        icon="folder"
+                      /> {{ data.item.name }}
+                    </b-link>
+                  </div>
+                  <div v-else>
+                    <div v-if="!data.item.symLink">
+                      <b-icon
+                        class="mr-1"
+                        scale="1.4"
+                        icon="file-earmark"
+                      /> {{ data.item.name }}
+                    </div>
+                  </div>
+                </template>
+                <template #cell(modifiedAt)="data">
+                  <div
+                    v-if="!data.item.isUpButton"
+                    class="no-wrap"
+                  >
+                    {{ new Date(data.item.modifiedAt).toLocaleString('en-GB', timeoptions) }}
+                  </div>
+                </template>
+                <template #cell(type)="data">
+                  <div v-if="!data.item.isUpButton">
+                    <div v-if="data.item.isDirectory">
+                      Folder
+                    </div>
+                    <div v-else-if="data.item.isFile">
+                      File
+                    </div>
+                    <div v-else-if="data.item.isSymbolicLink">
+                      File
+                    </div>
+                    <div v-else>
+                      Other
+                    </div>
+                  </div>
+                </template>
+                <template #cell(size)="data">
+                  <div
+                    v-if="data.item.size > 0 && !data.item.isUpButton"
+                    class="no-wrap"
+                  >
+                    {{ addAndConvertFileSizes(data.item.size) }}
+                  </div>
+                </template>
+                <template #cell(actions)="data">
+                  <b-button-group
+                    v-if="!data.item.isUpButton"
+                    size="sm"
+                  >
+                    <b-button
+                      :id="`download-${data.item.name}`"
+                      v-b-tooltip.hover.bottom="data.item.isFile ? 'Download' : 'Download zip of folder'"
+                      v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                      variant="outline-secondary"
+                    >
+                      <v-icon :name="data.item.isFile ? 'file-download' : 'file-archive'" />
+                    </b-button>
+                    <b-button
+                      :id="`rename-${data.item.name}`"
+                      v-b-tooltip.hover.bottom="'Rename'"
+                      v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                      variant="outline-secondary"
+                      @click="rename(data.item.name)"
+                    >
+                      <v-icon name="edit" />
+                    </b-button>
+                    <b-button
+                      :id="`delete-${data.item.name}`"
+                      v-b-tooltip.hover.bottom="'Delete'"
+                      v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                      variant="outline-secondary"
+                    >
+                      <v-icon name="trash-alt" />
+                    </b-button>
+                    <confirm-dialog
+                      :target="`delete-${data.item.name}`"
+                      :confirm-button="data.item.isFile ? 'Delete File' : 'Delete Folder'"
+                      @confirm="deleteFile(data.item.name)"
+                    />
+                  </b-button-group>
+                  <confirm-dialog
+                    :target="`download-${data.item.name}`"
+                    :confirm-button="data.item.isFile ? 'Download File' : 'Download Folder'"
+                    @confirm="data.item.isFile ? download(data.item.name) : download(data.item.name, true, data.item.size)"
+                  />
+                  <b-modal
+                    v-model="renameDialogVisible"
+                    title="Rename"
+                    size="lg"
+                    centered
+                    ok-only
+                    ok-title="Rename"
+                    @ok="confirmRename()"
+                  >
+                    <b-form-group
+                      label="Name"
+                      label-for="nameInput"
+                    >
+                      <b-form-input
+                        id="nameInput"
+                        v-model="newName"
+                        size="lg"
+                        placeholder="Name"
+                      />
+                    </b-form-group>
+                  </b-modal>
+                </template>
+              </b-table>
+            </div>
+          </b-card>
+        </div>
       </b-tab>
       <b-tab
+        v-if="windowWidth > 860"
         title="Global App Management"
         disabled
       />
-      <b-tab
-        title="Global Specifications"
-        :active="global"
-      >
-        <h2 class="mt-2">
-          Global Specifications
-        </h2>
-        <div
-          v-if="callBResponse.data"
-          style="text-align: left"
-        >
-          <b-card class="mx-2">
-            <list-entry
-              title="Description"
-              :data="callBResponse.data.name"
-            />
-            <list-entry
-              title="Description"
-              :data="callBResponse.data.description"
-            />
-            <list-entry
-              title="Owner"
-              :data="callBResponse.data.owner"
-            />
-            <list-entry
-              title="Hash"
-              :data="callBResponse.data.hash"
-            />
-            <div v-if="callBResponse.data.version >= 5">
-              <list-entry
-                title="Contacts"
-                :data="callBResponse.data.contacts.toString() || 'none'"
-              />
-              <div v-if="callBResponse.data.geolocation.length">
-                <div
-                  v-for="location in callBResponse.data.geolocation"
-                  :key="location"
-                >
-                  <list-entry
-                    title="Geolocation"
-                    :data="getGeolocation(location)"
-                  />
-                </div>
-              </div>
-              <div v-else>
-                <list-entry
-                  title="Continent"
-                  data="All"
-                />
-                <list-entry
-                  title="Country"
-                  data="All"
-                />
-                <list-entry
-                  title="Region"
-                  data="All"
-                />
-              </div>
-            </div>
-            <list-entry
-              v-if="callBResponse.data.instances"
-              title="Instances"
-              :data="callBResponse.data.instances.toString()"
-            />
-            <list-entry
-              title="Specifications version"
-              :number="callBResponse.data.version"
-            />
-            <list-entry
-              title="Registered on Blockheight"
-              :number="callBResponse.data.height"
-            />
-            <list-entry
-              v-if="callBResponse.data.hash && callBResponse.data.hash.length === 64"
-              title="Expires on Blockheight"
-              :number="callBResponse.data.height + (callBResponse.data.expire || 22000)"
-            />
-            <list-entry
-              title="Period"
-              :data="getExpireLabel || (callBResponse.data.expire ? `${callBResponse.data.expire} blocks` : '1 month')"
-            />
-            <list-entry
-              title="Enterprise Nodes"
-              :data="callBResponse.data.nodes ? callBResponse.data.nodes.toString() : 'Not scoped'"
-            />
-            <list-entry
-              title="Static IP"
-              :data="callBResponse.data.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
-            />
-            <h4>Composition</h4>
-            <b-card v-if="callBResponse.data.version <= 3">
-              <list-entry
-                title="Repository"
-                :data="callBResponse.data.repotag"
-              />
-              <list-entry
-                title="Custom Domains"
-                :data="callBResponse.data.domains.toString() || 'none'"
-              />
-              <list-entry
-                title="Automatic Domains"
-                :data="constructAutomaticDomainsGlobal.toString() || 'none'"
-              />
-              <list-entry
-                title="Ports"
-                :data="callBResponse.data.ports.toString() || 'none'"
-              />
-              <list-entry
-                title="Container Ports"
-                :data="callBResponse.data.containerPorts.toString() || 'none'"
-              />
-              <list-entry
-                title="Container Data"
-                :data="callBResponse.data.containerData"
-              />
-              <list-entry
-                title="Environment Parameters"
-                :data="callBResponse.data.enviromentParameters.length > 0 ? callBResponse.data.enviromentParameters.toString() : 'none'"
-              />
-              <list-entry
-                title="Commands"
-                :data="callBResponse.data.commands.length > 0 ? callBResponse.data.commands.toString() : 'none'"
-              />
-              <div v-if="callBResponse.data.tiered">
-                <list-entry
-                  title="CPU Cumulus"
-                  :data="`${callBResponse.data.cpubasic} vCore`"
-                />
-                <list-entry
-                  title="CPU Nimbus"
-                  :data="`${callBResponse.data.cpusuper} vCore`"
-                />
-                <list-entry
-                  title="CPU Stratus"
-                  :data="`${callBResponse.data.cpubamf} vCore`"
-                />
-                <list-entry
-                  title="RAM Cumulus"
-                  :data="`${callBResponse.data.rambasic} MB`"
-                />
-                <list-entry
-                  title="RAM Nimbus"
-                  :data="`${callBResponse.data.ramsuper} MB`"
-                />
-                <list-entry
-                  title="RAM Stratus"
-                  :data="`${callBResponse.data.rambamf} MB`"
-                />
-                <list-entry
-                  title="SSD Cumulus"
-                  :data="`${callBResponse.data.hddbasic} GB`"
-                />
-                <list-entry
-                  title="SSD Nimbus"
-                  :data="`${callBResponse.data.hddsuper} GB`"
-                />
-                <list-entry
-                  title="SSD Stratus"
-                  :data="`${callBResponse.data.hddbamf} GB`"
-                />
-              </div>
-              <div v-else>
-                <list-entry
-                  title="CPU"
-                  :data="`${callBResponse.data.cpu} vCore`"
-                />
-                <list-entry
-                  title="RAM"
-                  :data="`${callBResponse.data.ram} MB`"
-                />
-                <list-entry
-                  title="SSD"
-                  :data="`${callBResponse.data.hdd} GB`"
-                />
-              </div>
-            </b-card>
-            <b-card
-              v-for="(component, index) in callBResponse.data.compose"
-              v-if="callBResponse.data.version >= 4"
-              :key="index"
-            >
-              <b-card-title>
-                Component {{ component.name }}
-              </b-card-title>
-              <list-entry
-                title="Name"
-                :data="component.name"
-              />
-              <list-entry
-                title="Description"
-                :data="component.description"
-              />
-              <list-entry
-                title="Repository"
-                :data="component.repotag"
-              />
-              <list-entry
-                title="Repository Authentication"
-                :data="component.repoauth ? 'Content Encrypted' : 'Public'"
-              />
-              <list-entry
-                title="Custom Domains"
-                :data="component.domains.toString() || 'none'"
-              />
-              <list-entry
-                title="Automatic Domains"
-                :data="constructAutomaticDomains(component.ports, callBResponse.data.name, index).toString() || 'none'"
-              />
-              <list-entry
-                title="Ports"
-                :data="component.ports.toString() || 'none'"
-              />
-              <list-entry
-                title="Container Ports"
-                :data="component.containerPorts.toString() || 'none'"
-              />
-              <list-entry
-                title="Container Data"
-                :data="component.containerData"
-              />
-              <list-entry
-                title="Environment Parameters"
-                :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
-              />
-              <list-entry
-                title="Commands"
-                :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
-              />
-              <list-entry
-                title="Secret Environment Parameters"
-                :data="component.secrets ? 'Content Encrypted' : 'none'"
-              />
-              <div v-if="component.tiered">
-                <list-entry
-                  title="CPU Cumulus"
-                  :data="`${component.cpubasic} vCore`"
-                />
-                <list-entry
-                  title="CPU Nimbus"
-                  :data="`${component.cpusuper} vCore`"
-                />
-                <list-entry
-                  title="CPU Stratus"
-                  :data="`${component.cpubamf} vCore`"
-                />
-                <list-entry
-                  title="RAM Cumulus"
-                  :data="`${component.rambasic} MB`"
-                />
-                <list-entry
-                  title="RAM Nimbus"
-                  :data="`${component.ramsuper} MB`"
-                />
-                <list-entry
-                  title="RAM Stratus"
-                  :data="`${component.rambamf} MB`"
-                />
-                <list-entry
-                  title="SSD Cumulus"
-                  :data="`${component.hddbasic} GB`"
-                />
-                <list-entry
-                  title="SSD Nimbus"
-                  :data="`${component.hddsuper} GB`"
-                />
-                <list-entry
-                  title="SSD Stratus"
-                  :data="`${component.hddbamf} GB`"
-                />
-              </div>
-              <div v-else>
-                <list-entry
-                  title="CPU"
-                  :data="`${component.cpu} vCore`"
-                />
-                <list-entry
-                  title="RAM"
-                  :data="`${component.ram} MB`"
-                />
-                <list-entry
-                  title="SSD"
-                  :data="`${component.hdd} GB`"
-                />
-              </div>
-            </b-card>
-          </b-card>
-        </div>
-        <div v-else-if="callBResponse.status === 'error'">
-          Global specifications not found!
-        </div>
-        <div v-else>
-          Global Specifications loading...
-        </div>
-      </b-tab>
       <b-tab title="Global Control">
         <div v-if="globalZelidAuthorized">
           <b-row class="match-height">
@@ -3091,7 +3319,8 @@
             <b-col xs="6">
               <b-card title="Redeploy">
                 <b-card-text class="mb-2">
-                  {{ isAppOwner ? 'Redeployes all instances of your application. Hard redeploy removes persistant data storage.' : 'Redeployes instances of selected application running on all of your nodes. Hard redeploy removes persistant data storage.' }}
+                  {{ isAppOwner ? 'Redeployes all instances of your application.'
+                    + 'Hard redeploy removes persistant data storage. If app uses syncthing it can takes up to 30 to be up and running.' : 'Redeployes instances of selected application running on all of your nodes. Hard redeploy removes persistant data storage.' }}
                 </b-card-text>
                 <div class="text-center">
                   <b-button
@@ -3212,10 +3441,13 @@
 
           <b-col cols="12">
             <b-table
+              :key="tableKey"
               class="app-instances-table"
               striped
               hover
+              outlined
               responsive
+              :busy="isBusy"
               :per-page="instances.perPage"
               :current-page="instances.currentPage"
               :items="instances.data"
@@ -3224,24 +3456,31 @@
               :sort-desc.sync="instances.sortDesc"
               :sort-direction="instances.sortDirection"
               :filter="instances.filter"
-              :filter-included-fields="instances.filterOn"
               show-empty
               :empty-text="`No instances of ${appName}`"
             >
+              <template #table-busy>
+                <div class="text-center text-danger my-2">
+                  <b-spinner class="align-middle mr-1" />
+                  <strong>Loading geolocation...</strong>
+                </div>
+              </template>
               <template #cell(show_details)="row">
                 <a @click="row.toggleDetails">
                   <v-icon
                     v-if="!row.detailsShowing"
+                    class="ml-2"
                     name="chevron-down"
                   />
                   <v-icon
                     v-if="row.detailsShowing"
+                    class="ml-2"
                     name="chevron-up"
                   />
                 </a>
               </template>
               <template #row-details="row">
-                <b-card class="mx-2">
+                <b-card class="">
                   <list-entry
                     v-if="row.item.broadcastedAt"
                     title="Broadcast"
@@ -3259,18 +3498,18 @@
                   <b-button
                     size="sm"
                     class="mr-1"
-                    variant="danger"
+                    variant="outline-secondary"
                     @click="openApp(locationRow.item.name, locationRow.item.ip.split(':')[0], getProperPort())"
                   >
-                    Visit App
+                    App
                   </b-button>
                   <b-button
                     size="sm"
                     class="mr-0"
-                    variant="danger"
+                    variant="outline-primary"
                     @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
                   >
-                    Visit FluxNode
+                    FluxNode
                   </b-button>
                 </div>
               </template>
@@ -3285,493 +3524,1187 @@
               size="sm"
               class="my-0"
             />
-            <span class="table-total">Total: {{ instances.totalRows }}</span>
           </b-col>
         </b-row>
       </b-tab>
       <b-tab
-        title="Update Specifications"
+        title="Update/Renew"
         :disabled="!isAppOwner"
       >
         <div
           v-if="!fluxCommunication"
-          class="text-danger"
+          class="text-danger "
         >
           Warning: Connected Flux is not communicating properly with Flux network
         </div>
-        <h2 class="mb-2">
-          Update Application Specifications
-        </h2>
-
-        <div v-if="appUpdateSpecification.version >= 4">
-          <b-row class="match-height">
-            <b-col xs="6">
-              <b-card title="Details">
-                <b-form-group
-                  label-cols="2"
-                  label-cols-lg="1"
-                  label="Version"
-                  label-for="version"
-                >
-                  <b-form-input
-                    id="version"
-                    v-model="appUpdateSpecification.version"
-                    :placeholder="appUpdateSpecification.version.toString()"
-                    readonly
-                  />
-                </b-form-group>
-                <b-form-group
-                  label-cols="2"
-                  label-cols-lg="1"
-                  label="Name"
-                  label-for="name"
-                >
-                  <b-form-input
-                    id="name"
-                    v-model="appUpdateSpecification.name"
-                    placeholder="Application Name"
-                    readonly
-                  />
-                </b-form-group>
-                <b-form-group
-                  label-cols="2"
-                  label-cols-lg="1"
-                  label="Desc."
-                  label-for="desc"
-                >
-                  <b-form-textarea
-                    id="desc"
-                    v-model="appUpdateSpecification.description"
-                    placeholder="Description"
-                    rows="3"
-                  />
-                </b-form-group>
-                <b-form-group
-                  label-cols="2"
-                  label-cols-lg="1"
-                  label="Owner"
-                  label-for="owner"
-                >
-                  <b-form-input
-                    id="owner"
-                    v-model="appUpdateSpecification.owner"
-                    placeholder="ZelID of Application Owner"
-                  />
-                </b-form-group>
-                <div v-if="appUpdateSpecification.version >= 5 && !isPrivateApp">
-                  <div class="form-row form-group">
-                    <label class="col-1 col-form-label">
-                      Contacts
+        <div
+          style="
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            height: 45px;
+            padding: 12px;
+            line-height: 0px;
+          "
+        >
+          <h5>
+            <b-icon
+              class="mr-1"
+              icon="ui-checks-grid"
+            /> Update Application Specifications / Extend subscription
+          </h5>
+        </div>
+        <div class="form-row form-group">
+          <b-input-group class="mt-2">
+            <b-input-group-prepend>
+              <b-input-group-text>
+                <b-icon
+                  class="mr-1"
+                  icon="plus-square"
+                />
+                Update Specifications
+                <v-icon
+                  v-b-tooltip.hover.top="'Select if you want to change your application specifications'"
+                  name="info-circle"
+                  class="ml-1"
+                />
+              </b-input-group-text>
+            </b-input-group-prepend>
+            <b-input-group-append is-text>
+              <b-form-checkbox
+                id="updateSpecifications"
+                v-model="updateSpecifications"
+                switch
+                class="custom-control-primary"
+              />
+            </b-input-group-append>
+          </b-input-group>
+        </div>
+        <div v-if="updateSpecifications">
+          <div v-if="appUpdateSpecification.version >= 4">
+            <b-row class="match-height">
+              <b-col xs="6">
+                <b-card title="Details">
+                  <b-form-group
+                    label-cols="2"
+                    label-cols-lg="1"
+                    label="Version"
+                    label-for="version"
+                  >
+                    <b-form-input
+                      id="version"
+                      v-model="appUpdateSpecification.version"
+                      :placeholder="appUpdateSpecification.version.toString()"
+                      readonly
+                    />
+                  </b-form-group>
+                  <b-form-group
+                    label-cols="2"
+                    label-cols-lg="1"
+                    label="Name"
+                    label-for="name"
+                  >
+                    <b-form-input
+                      id="name"
+                      v-model="appUpdateSpecification.name"
+                      placeholder="Application Name"
+                      readonly
+                    />
+                  </b-form-group>
+                  <b-form-group
+                    label-cols="2"
+                    label-cols-lg="1"
+                    label="Desc."
+                    label-for="desc"
+                  >
+                    <b-form-textarea
+                      id="desc"
+                      v-model="appUpdateSpecification.description"
+                      placeholder="Description"
+                      rows="3"
+                    />
+                  </b-form-group>
+                  <b-form-group
+                    label-cols="2"
+                    label-cols-lg="1"
+                    label="Owner"
+                    label-for="owner"
+                  >
+                    <b-form-input
+                      id="owner"
+                      v-model="appUpdateSpecification.owner"
+                      placeholder="ZelID of Application Owner"
+                    />
+                  </b-form-group>
+                  <div v-if="appUpdateSpecification.version >= 5 && !isPrivateApp">
+                    <div class="form-row form-group">
+                      <label class="col-1 col-form-label">
+                        Contacts
+                        <v-icon
+                          v-b-tooltip.hover.top="'Array of strings of emails Contacts to get notifications ex. app about to expire, app spawns. Contacts are also PUBLIC information.'"
+                          name="info-circle"
+                          class="mr-1"
+                        />
+                      </label>
+                      <div class="col">
+                        <b-form-input
+                          id="contacs"
+                          v-model="appUpdateSpecification.contacts"
+                        />
+                      </div>
+                      <div class="col-0">
+                        <b-button
+                          id="upload-contacts"
+                          v-b-tooltip.hover.top="
+                            'Uploads Contacts to Flux Storage. Contacts will be replaced with a link to Flux Storage instead. This increases maximum allowed contacts while adding enhanced privacy - nobody except FluxOS Team maintaining notifications system has access to contacts.'
+                          "
+                          variant="outline-primary"
+                        >
+                          <v-icon name="cloud-upload-alt" />
+                        </b-button>
+                        <confirm-dialog
+                          target="upload-contacts"
+                          confirm-button="Upload Contacts"
+                          :width="600"
+                          @confirm="uploadContactsToFluxStorage()"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <div v-if="appUpdateSpecification.version >= 5 && !isPrivateApp">
+                    <h4>Allowed Geolocation</h4>
+                    <div
+                      v-for="n in numberOfGeolocations"
+                      :key="`${n}pos`"
+                    >
+                      <b-form-group
+                        label-cols="3"
+                        label-cols-lg="1"
+                        :label="`Continent - ${n}`"
+                        label-for="Continent"
+                      >
+                        <b-form-select
+                          id="Continent"
+                          v-model="allowedGeolocations[`selectedContinent${n}`]"
+                          :options="continentsOptions(false)"
+                          @change="adjustMaxInstancesPossible()"
+                        >
+                          <template #first>
+                            <b-form-select-option
+                              :value="undefined"
+                              disabled
+                            >
+                              -- Select to restrict Continent --
+                            </b-form-select-option>
+                          </template>
+                        </b-form-select>
+                      </b-form-group>
+                      <b-form-group
+                        v-if="allowedGeolocations[`selectedContinent${n}`] && allowedGeolocations[`selectedContinent${n}`] !== 'ALL'"
+                        label-cols="3"
+                        label-cols-lg="1"
+                        :label="`Country - ${n}`"
+                        label-for="Country"
+                      >
+                        <b-form-select
+                          id="country"
+                          v-model="allowedGeolocations[`selectedCountry${n}`]"
+                          :options="countriesOptions(allowedGeolocations[`selectedContinent${n}`], false)"
+                          @change="adjustMaxInstancesPossible()"
+                        >
+                          <template #first>
+                            <b-form-select-option
+                              :value="undefined"
+                              disabled
+                            >
+                              -- Select to restrict Country --
+                            </b-form-select-option>
+                          </template>
+                        </b-form-select>
+                      </b-form-group>
+                      <b-form-group
+                        v-if="allowedGeolocations[`selectedContinent${n}`] && allowedGeolocations[`selectedContinent${n}`] !== 'ALL' && allowedGeolocations[`selectedCountry${n}`] && allowedGeolocations[`selectedCountry${n}`] !== 'ALL'"
+                        label-cols="3"
+                        label-cols-lg="1"
+                        :label="`Region - ${n}`"
+                        label-for="Region"
+                      >
+                        <b-form-select
+                          id="Region"
+                          v-model="allowedGeolocations[`selectedRegion${n}`]"
+                          :options="regionsOptions(allowedGeolocations[`selectedContinent${n}`], allowedGeolocations[`selectedCountry${n}`], false)"
+                          @change="adjustMaxInstancesPossible()"
+                        >
+                          <template #first>
+                            <b-form-select-option
+                              :value="undefined"
+                              disabled
+                            >
+                              -- Select to restrict Region --
+                            </b-form-select-option>
+                          </template>
+                        </b-form-select>
+                      </b-form-group>
+                    </div>
+                    <div class="text-center">
+                      <b-button
+                        v-if="numberOfGeolocations > 1"
+                        v-b-tooltip.hover.bottom="'Remove Allowed Geolocation Restriction'"
+                        v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                        variant="outline-secondary"
+                        size="sm"
+                        class="m-1"
+                        @click="numberOfGeolocations = numberOfGeolocations - 1; adjustMaxInstancesPossible()"
+                      >
+                        <v-icon name="minus" />
+                      </b-button>
+                      <b-button
+                        v-if="numberOfGeolocations < 5"
+                        v-b-tooltip.hover.bottom="'Add Allowed Geolocation Restriction'"
+                        v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                        variant="outline-secondary"
+                        size="sm"
+                        class="m-1"
+                        @click="numberOfGeolocations = numberOfGeolocations + 1; adjustMaxInstancesPossible()"
+                      >
+                        <v-icon name="plus" />
+                      </b-button>
+                    </div>
+                  </div>
+                  <br><br>
+                  <div v-if="appUpdateSpecification.version >= 5">
+                    <h4>Forbidden Geolocation</h4>
+                    <div
+                      v-for="n in numberOfNegativeGeolocations"
+                      :key="`${n}posB`"
+                    >
+                      <b-form-group
+                        label-cols="3"
+                        label-cols-lg="1"
+                        :label="`Continent - ${n}`"
+                        label-for="Continent"
+                      >
+                        <b-form-select
+                          id="Continent"
+                          v-model="forbiddenGeolocations[`selectedContinent${n}`]"
+                          :options="continentsOptions(true)"
+                        >
+                          <template #first>
+                            <b-form-select-option
+                              :value="undefined"
+                              disabled
+                            >
+                              -- Select to ban Continent --
+                            </b-form-select-option>
+                          </template>
+                        </b-form-select>
+                      </b-form-group>
+                      <b-form-group
+                        v-if="forbiddenGeolocations[`selectedContinent${n}`] && forbiddenGeolocations[`selectedContinent${n}`] !== 'NONE'"
+                        label-cols="3"
+                        label-cols-lg="1"
+                        :label="`Country - ${n}`"
+                        label-for="Country"
+                      >
+                        <b-form-select
+                          id="country"
+                          v-model="forbiddenGeolocations[`selectedCountry${n}`]"
+                          :options="countriesOptions(forbiddenGeolocations[`selectedContinent${n}`], true)"
+                        >
+                          <template #first>
+                            <b-form-select-option
+                              :value="undefined"
+                              disabled
+                            >
+                              -- Select to ban Country --
+                            </b-form-select-option>
+                          </template>
+                        </b-form-select>
+                      </b-form-group>
+                      <b-form-group
+                        v-if="forbiddenGeolocations[`selectedContinent${n}`] && forbiddenGeolocations[`selectedContinent${n}`] !== 'NONE' && forbiddenGeolocations[`selectedCountry${n}`] && forbiddenGeolocations[`selectedCountry${n}`] !== 'ALL'"
+                        label-cols="3"
+                        label-cols-lg="1"
+                        :label="`Region - ${n}`"
+                        label-for="Region"
+                      >
+                        <b-form-select
+                          id="Region"
+                          v-model="forbiddenGeolocations[`selectedRegion${n}`]"
+                          :options="regionsOptions(forbiddenGeolocations[`selectedContinent${n}`], forbiddenGeolocations[`selectedCountry${n}`], true)"
+                        >
+                          <template #first>
+                            <b-form-select-option
+                              :value="undefined"
+                              disabled
+                            >
+                              -- Select to ban Region --
+                            </b-form-select-option>
+                          </template>
+                        </b-form-select>
+                      </b-form-group>
+                    </div>
+                    <div class="text-center">
+                      <b-button
+                        v-if="numberOfNegativeGeolocations > 1"
+                        v-b-tooltip.hover.bottom="'Remove Forbidden Geolocation Restriction'"
+                        v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                        variant="outline-secondary"
+                        size="sm"
+                        class="m-1"
+                        @click="numberOfNegativeGeolocations = numberOfNegativeGeolocations - 1"
+                      >
+                        <v-icon name="minus" />
+                      </b-button>
+                      <b-button
+                        v-if="numberOfNegativeGeolocations < 5"
+                        v-b-tooltip.hover.bottom="'Add Forbidden Geolocation Restriction'"
+                        v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                        variant="outline-secondary"
+                        size="sm"
+                        class="m-1"
+                        @click="numberOfNegativeGeolocations = numberOfNegativeGeolocations + 1"
+                      >
+                        <v-icon name="plus" />
+                      </b-button>
+                    </div>
+                  </div>
+                  <br>
+                  <b-form-group
+                    v-if="appUpdateSpecification.version >= 3"
+                    label-cols="2"
+                    label-cols-lg="1"
+                    label="Instances"
+                    label-for="instances"
+                  >
+                    <div class="mx-1">
+                      {{ appUpdateSpecification.instances }}
+                    </div>
+                    <b-form-input
+                      id="instances"
+                      v-model="appUpdateSpecification.instances"
+                      placeholder="Minimum number of application instances to be spawned"
+                      type="range"
+                      min="3"
+                      :max="maxInstances"
+                      step="1"
+                    />
+                  </b-form-group>
+                  <div
+                    v-if="appUpdateSpecification.version >= 7"
+                    class="form-row form-group"
+                  >
+                    <label class="col-form-label">
+                      Static IP
                       <v-icon
-                        v-b-tooltip.hover.top="'Array of strings of emails Contacts to get notifications ex. app about to expire, app spawns. Contacts are also PUBLIC information.'"
+                        v-b-tooltip.hover.top="'Select if your application strictly requires static IP address'"
                         name="info-circle"
                         class="mr-1"
                       />
                     </label>
                     <div class="col">
-                      <b-form-input
-                        id="contacs"
-                        v-model="appUpdateSpecification.contacts"
+                      <b-form-checkbox
+                        id="staticip"
+                        v-model="appUpdateSpecification.staticip"
+                        switch
+                        class="custom-control-primary inline"
                       />
                     </div>
-                    <div class="col-0">
+                  </div>
+                  <br>
+                  <div
+                    v-if="appUpdateSpecification.version >= 7"
+                    class="form-row form-group"
+                  >
+                    <label class="col-form-label">
+                      Enterprise Application
+                      <v-icon
+                        v-b-tooltip.hover.top="'Select if your application requires private image, secrets or if you want to target specific nodes on which application can run. Geolocation targetting is not possible in this case.'"
+                        name="info-circle"
+                        class="mr-1"
+                      />
+                    </label>
+                    <div class="col">
+                      <b-form-checkbox
+                        id="enterpriseapp"
+                        v-model="isPrivateApp"
+                        switch
+                        class="custom-control-primary inline"
+                      />
+                    </div>
+                  </div>
+                </b-card>
+              </b-col>
+            </b-row>
+            <b-card
+              v-for="(component, index) in appUpdateSpecification.compose"
+              :key="index"
+            >
+              <b-card-title>
+                Component {{ component.name }}
+              </b-card-title>
+              <b-row class="match-height">
+                <b-col
+                  xs="12"
+                  xl="6"
+                >
+                  <b-card>
+                    <b-card-title>
+                      General
+                    </b-card-title>
+                    <div class="form-row form-group">
+                      <label class="col-3 col-form-label">
+                        Name
+                        <v-icon
+                          v-b-tooltip.hover.top="'Name of Application Component'"
+                          name="info-circle"
+                          class="mr-1"
+                        />
+                      </label>
+                      <div class="col">
+                        <b-form-input
+                          :id="`repo-${component.name}_${appUpdateSpecification.name}`"
+                          v-model="component.name"
+                          placeholder="Component name"
+                          readonly
+                        />
+                      </div>
+                    </div>
+                    <div class="form-row form-group">
+                      <label class="col-3 col-form-label">
+                        Description
+                        <v-icon
+                          v-b-tooltip.hover.top="'Description of Application Component'"
+                          name="info-circle"
+                          class="mr-1"
+                        />
+                      </label>
+                      <div class="col">
+                        <b-form-input
+                          :id="`repo-${component.name}_${appUpdateSpecification.name}`"
+                          v-model="component.description"
+                          placeholder="Component description"
+                        />
+                      </div>
+                    </div>
+                    <div class="form-row form-group">
+                      <label class="col-3 col-form-label">
+                        Repository
+                        <v-icon
+                          v-b-tooltip.hover.top="'Docker image namespace/repository:tag for component'"
+                          name="info-circle"
+                          class="mr-1"
+                        />
+                      </label>
+                      <div class="col">
+                        <b-form-input
+                          :id="`repo-${component.name}_${appUpdateSpecification.name}`"
+                          v-model="component.repotag"
+                          placeholder="Docker image namespace/repository:tag"
+                        />
+                      </div>
+                    </div>
+                    <div
+                      v-if="appUpdateSpecification.version >= 7 && isPrivateApp"
+                      class="form-row form-group"
+                    >
+                      <label class="col-3 col-form-label">
+                        Repository Authentication
+                        <v-icon
+                          v-b-tooltip.hover.top="'Docker image authentication for private images in the format of username:apikey. This field will be encrypted and accessible to selected enterprise nodes only.'"
+                          name="info-circle"
+                          class="mr-1"
+                        />
+                      </label>
+                      <div class="col">
+                        <b-form-input
+                          :id="`repoauth-${component.name}_${appUpdateSpecification.name}`"
+                          v-model="component.repoauth"
+                          placeholder="Docker authentication username:apikey"
+                        />
+                      </div>
+                    </div>
+                    <br>
+                    <b-card-title>
+                      Connectivity
+                    </b-card-title>
+                    <div class="form-row form-group">
+                      <label class="col-3 col-form-label">
+                        Ports
+                        <v-icon
+                          v-b-tooltip.hover.top="'Array of Ports on which application will be available'"
+                          name="info-circle"
+                          class="mr-1"
+                        />
+                      </label>
+                      <div class="col">
+                        <b-form-input
+                          :id="`ports-${component.name}_${appUpdateSpecification.name}`"
+                          v-model="component.ports"
+                        />
+                      </div>
+                    </div>
+                    <div class="form-row form-group">
+                      <label class="col-3 col-form-label">
+                        Domains
+                        <v-icon
+                          v-b-tooltip.hover.top="'Array of strings of Domains managed by Flux Domain Manager (FDM). Length must correspond to available ports. Use empty strings for no domains'"
+                          name="info-circle"
+                          class="mr-1"
+                        />
+                      </label>
+                      <div class="col">
+                        <b-form-input
+                          :id="`domains-${component.name}_${appUpdateSpecification.name}`"
+                          v-model="component.domains"
+                        />
+                      </div>
+                    </div>
+                    <div class="form-row form-group">
+                      <label class="col-3 col-form-label">
+                        Cont. Ports
+                        <v-icon
+                          v-b-tooltip.hover.top="'Container Ports - Array of ports which your container has'"
+                          name="info-circle"
+                          class="mr-1"
+                        />
+                      </label>
+                      <div class="col">
+                        <b-form-input
+                          :id="`containerPorts-${component.name}_${appUpdateSpecification.name}`"
+                          v-model="component.containerPorts"
+                        />
+                      </div>
+                    </div>
+                  </b-card>
+                </b-col>
+                <b-col
+                  xs="12"
+                  xl="6"
+                >
+                  <b-card>
+                    <b-card-title>
+                      Environment
+                    </b-card-title>
+                    <div class="form-row form-group">
+                      <label class="col-3 col-form-label">
+                        Environment
+                        <v-icon
+                          v-b-tooltip.hover.top="'Array of strings of Environmental Parameters'"
+                          name="info-circle"
+                          class="mr-1"
+                        />
+                      </label>
+                      <div class="col">
+                        <b-form-input
+                          :id="`environmentParameters-${component.name}_${appUpdateSpecification.name}`"
+                          v-model="component.environmentParameters"
+                        />
+                      </div>
+                      <div class="col-0">
+                        <b-button
+                          id="upload-env"
+                          v-b-tooltip.hover.top="
+                            'Uploads Enviornment to Flux Storage. Environment parameters will be replaced with a link to Flux Storage instead. This increases maximum allowed size of Env. parameters while adding basic privacy - instead of parameters, link to Flux Storage will be visible.'
+                          "
+                          variant="outline-primary"
+                        >
+                          <v-icon name="cloud-upload-alt" />
+                        </b-button>
+                        <confirm-dialog
+                          target="upload-env"
+                          confirm-button="Upload Environment Parameters"
+                          :width="600"
+                          @confirm="uploadEnvToFluxStorage(index)"
+                        />
+                      </div>
+                    </div>
+                    <div class="form-row form-group">
+                      <label class="col-3 col-form-label">
+                        Commands
+                        <v-icon
+                          v-b-tooltip.hover.top="'Array of strings of Commands'"
+                          name="info-circle"
+                          class="mr-1"
+                        />
+                      </label>
+                      <div class="col">
+                        <b-form-input
+                          :id="`commands-${component.name}_${appUpdateSpecification.name}`"
+                          v-model="component.commands"
+                        />
+                      </div>
+                      <div class="col-0">
+                        <b-button
+                          id="upload-cmd"
+                          v-b-tooltip.hover.top="'Uploads Commands to Flux Storage. Commands will be replaced with a link to Flux Storage instead. This increases maximum allowed size of Commands while adding basic privacy - instead of commands, link to Flux Storage will be visible.'"
+                          variant="outline-primary"
+                        >
+                          <v-icon name="cloud-upload-alt" />
+                        </b-button>
+                        <confirm-dialog
+                          target="upload-cmd"
+                          confirm-button="Upload Commands"
+                          :width="600"
+                          @confirm="uploadCmdToFluxStorage(index)"
+                        />
+                      </div>
+                    </div>
+                    <div class="form-row form-group">
+                      <label class="col-3 col-form-label">
+                        Cont. Data
+                        <v-icon
+                          v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with r: for synced data between instances. Ex. r:/data. Prepend with g: for synced data and primary/standby solution. Ex. g:/data'"
+                          name="info-circle"
+                          class="mr-1"
+                        />
+                      </label>
+                      <div class="col">
+                        <b-form-input
+                          :id="`containerData-${component.name}_${appUpdateSpecification.name}`"
+                          v-model="component.containerData"
+                        />
+                      </div>
+                    </div>
+                    <div
+                      v-if="appUpdateSpecification.version >= 7 && isPrivateApp"
+                      class="form-row form-group"
+                    >
+                      <label class="col-3 col-form-label">
+                        Secrets
+                        <v-icon
+                          v-b-tooltip.hover.top="'Array of strings of Secret Environmental Parameters. This will be encrypted and accessible to selected Enterprise Nodes only'"
+                          name="info-circle"
+                          class="mr-1"
+                        />
+                      </label>
+                      <div class="col">
+                        <b-form-input
+                          :id="`secrets-${component.name}_${appUpdateSpecification.name}`"
+                          v-model="component.secrets"
+                          placeholder="[]"
+                        />
+                      </div>
+                    </div>
+                    <br>
+                    <b-card-title>
+                      Resources &nbsp;&nbsp;&nbsp;<h6 class="inline text-small">
+                        Tiered:
+                        <b-form-checkbox
+                          id="tiered"
+                          v-model="component.tiered"
+                          switch
+                          class="custom-control-primary inline"
+                        />
+                      </h6>
+                    </b-card-title>
+                    <b-form-group
+                      v-if="!component.tiered"
+                      label-cols="3"
+                      label-cols-lg="2"
+                      label="CPU"
+                      label-for="cpu"
+                    >
+                      <div class="mx-1">
+                        {{ component.cpu }}
+                      </div>
+                      <b-form-input
+                        :id="`cpu-${component.name}_${appUpdateSpecification.name}`"
+                        v-model="component.cpu"
+                        placeholder="CPU cores to use by default"
+                        type="range"
+                        min="0.1"
+                        max="15"
+                        step="0.1"
+                      />
+                    </b-form-group>
+                    <b-form-group
+                      v-if="!component.tiered"
+                      label-cols="3"
+                      label-cols-lg="2"
+                      label="RAM"
+                      label-for="ram"
+                    >
+                      <div class="mx-1">
+                        {{ component.ram }}
+                      </div>
+                      <b-form-input
+                        :id="`ram-${component.name}_${appUpdateSpecification.name}`"
+                        v-model="component.ram"
+                        placeholder="RAM in MB value to use by default"
+                        type="range"
+                        min="100"
+                        max="59000"
+                        step="100"
+                      />
+                    </b-form-group>
+                    <b-form-group
+                      v-if="!component.tiered"
+                      label-cols="3"
+                      label-cols-lg="2"
+                      label="SSD"
+                      label-for="ssd"
+                    >
+                      <div class="mx-1">
+                        {{ component.hdd }}
+                      </div>
+                      <b-form-input
+                        :id="`ssd-${component.name}_${appUpdateSpecification.name}`"
+                        v-model="component.hdd"
+                        placeholder="SSD in GB value to use by default"
+                        type="range"
+                        min="1"
+                        max="820"
+                        step="1"
+                      />
+                    </b-form-group>
+                  </b-card>
+                </b-col>
+              </b-row>
+              <b-row v-if="component.tiered">
+                <b-col
+                  xs="12"
+                  md="6"
+                  lg="4"
+                >
+                  <b-card title="Cumulus">
+                    <div>
+                      CPU: {{ component.cpubasic }}
+                    </div>
+                    <b-form-input
+                      v-model="component.cpubasic"
+                      type="range"
+                      min="0.1"
+                      max="3"
+                      step="0.1"
+                    />
+                    <div>
+                      RAM: {{ component.rambasic }}
+                    </div>
+                    <b-form-input
+                      v-model="component.rambasic"
+                      type="range"
+                      min="100"
+                      max="5000"
+                      step="100"
+                    />
+                    <div>
+                      SSD: {{ component.hddbasic }}
+                    </div>
+                    <b-form-input
+                      v-model="component.hddbasic"
+                      type="range"
+                      min="1"
+                      max="180"
+                      step="1"
+                    />
+                  </b-card>
+                </b-col>
+                <b-col
+                  xs="12"
+                  md="6"
+                  lg="4"
+                >
+                  <b-card title="Nimbus">
+                    <div>
+                      CPU: {{ component.cpusuper }}
+                    </div>
+                    <b-form-input
+                      v-model="component.cpusuper"
+                      type="range"
+                      min="0.1"
+                      max="7"
+                      step="0.1"
+                    />
+                    <div>
+                      RAM: {{ component.ramsuper }}
+                    </div>
+                    <b-form-input
+                      v-model="component.ramsuper"
+                      type="range"
+                      min="100"
+                      max="28000"
+                      step="100"
+                    />
+                    <div>
+                      SSD: {{ component.hddsuper }}
+                    </div>
+                    <b-form-input
+                      v-model="component.hddsuper"
+                      type="range"
+                      min="1"
+                      max="400"
+                      step="1"
+                    />
+                  </b-card>
+                </b-col>
+                <b-col
+                  xs="12"
+                  lg="4"
+                >
+                  <b-card title="Stratus">
+                    <div>
+                      CPU: {{ component.cpubamf }}
+                    </div>
+                    <b-form-input
+                      v-model="component.cpubamf"
+                      type="range"
+                      min="0.1"
+                      max="15"
+                      step="0.1"
+                    />
+                    <div>
+                      RAM: {{ component.rambamf }}
+                    </div>
+                    <b-form-input
+                      v-model="component.rambamf"
+                      type="range"
+                      min="100"
+                      max="59000"
+                      step="100"
+                    />
+                    <div>
+                      SSD: {{ component.hddbamf }}
+                    </div>
+                    <b-form-input
+                      v-model="component.hddbamf"
+                      type="range"
+                      min="1"
+                      max="820"
+                      step="1"
+                    />
+                  </b-card>
+                </b-col>
+              </b-row>
+            </b-card>
+            <b-card
+              v-if="appUpdateSpecification.version >= 7 && isPrivateApp"
+              title="Enterprise Nodes"
+            >
+              Only these selected enterprise nodes will be able to run your application and are used for encryption. Only these nodes are able to access your private image and secrets.<br>
+              Changing the node list after the message is computed and encrypted will result in a failure to run. Secrets and Repository Authentication would need to be adjusted again.<br>
+              The score determines how reputable a node and node operator are. The higher the score, the higher the reputation on the network.<br>
+              Secrets and Repository Authentication need to be set again if this node list changes.<br>
+              The more nodes can run your application, the more stable it is. On the other hand, more nodes will have access to your private data!<br>
+              <b-row>
+                <b-col
+                  md="4"
+                  sm="4"
+                  class="my-1"
+                >
+                  <b-form-group class="mb-0">
+                    <label class="d-inline-block text-left mr-50">Per page</label>
+                    <b-form-select
+                      id="perPageSelect"
+                      v-model="entNodesTable.perPage"
+                      size="sm"
+                      :options="entNodesTable.pageOptions"
+                      class="w-50"
+                    />
+                  </b-form-group>
+                </b-col>
+                <b-col
+                  md="8"
+                  class="my-1"
+                >
+                  <b-form-group
+                    label="Filter"
+                    label-cols-sm="1"
+                    label-align-sm="right"
+                    label-for="filterInput"
+                    class="mb-0"
+                  >
+                    <b-input-group size="sm">
+                      <b-form-input
+                        id="filterInput"
+                        v-model="entNodesTable.filter"
+                        type="search"
+                        placeholder="Type to Search"
+                      />
+                      <b-input-group-append>
+                        <b-button
+                          :disabled="!entNodesTable.filter"
+                          @click="entNodesTable.filter = ''"
+                        >
+                          Clear
+                        </b-button>
+                      </b-input-group-append>
+                    </b-input-group>
+                  </b-form-group>
+                </b-col>
+
+                <b-col cols="12">
+                  <b-table
+                    class="app-enterprise-nodes-table"
+                    striped
+                    hover
+                    responsive
+                    :per-page="entNodesTable.perPage"
+                    :current-page="entNodesTable.currentPage"
+                    :items="selectedEnterpriseNodes"
+                    :fields="entNodesTable.fields"
+                    :sort-by.sync="entNodesTable.sortBy"
+                    :sort-desc.sync="entNodesTable.sortDesc"
+                    :sort-direction="entNodesTable.sortDirection"
+                    :filter="entNodesTable.filter"
+                    :filter-included-fields="entNodesTable.filterOn"
+                    show-empty
+                    :empty-text="'No Enterprise Nodes selected'"
+                  >
+                    <template #cell(show_details)="row">
+                      <a @click="row.toggleDetails">
+                        <v-icon
+                          v-if="!row.detailsShowing"
+                          name="chevron-down"
+                        />
+                        <v-icon
+                          v-if="row.detailsShowing"
+                          name="chevron-up"
+                        />
+                      </a>
+                    </template>
+                    <template #row-details="row">
+                      <b-card class="">
+                        <list-entry
+                          v-if="row.item.ip"
+                          title="IP Address"
+                          :data="row.item.ip"
+                        />
+                        <list-entry
+                          title="Public Key"
+                          :data="row.item.pubkey"
+                        />
+                        <list-entry
+                          title="Node Address"
+                          :data="row.item.payment_address"
+                        />
+                        <list-entry
+                          title="Collateral"
+                          :data="`${row.item.txhash}:${row.item.outidx}`"
+                        />
+                        <list-entry
+                          title="Tier"
+                          :data="row.item.tier"
+                        />
+                        <list-entry
+                          title="Overall Score"
+                          :data="row.item.score.toString()"
+                        />
+                        <list-entry
+                          title="Collateral Score"
+                          :data="row.item.collateralPoints.toString()"
+                        />
+                        <list-entry
+                          title="Maturity Score"
+                          :data="row.item.maturityPoints.toString()"
+                        />
+                        <list-entry
+                          title="Public Key Score"
+                          :data="row.item.pubKeyPoints.toString()"
+                        />
+                        <list-entry
+                          title="Enterprise Apps Assigned"
+                          :data="row.item.enterpriseApps.toString()"
+                        />
+                        <div>
+                          <b-button
+                            size="sm"
+                            class="mr-0"
+                            variant="primary"
+                            @click="openNodeFluxOS(row.item.ip.split(':')[0], row.item.ip.split(':')[1] ? +row.item.ip.split(':')[1] - 1 : 16126)"
+                          >
+                            Visit FluxNode
+                          </b-button>
+                        </div>
+                      </b-card>
+                    </template>
+                    <template #cell(ip)="row">
+                      {{ row.item.ip }}
+                    </template>
+                    <template #cell(payment_address)="row">
+                      {{ row.item.payment_address.slice(0, 8) }}...{{ row.item.payment_address.slice(row.item.payment_address.length - 8, row.item.payment_address.length) }}
+                    </template>
+                    <template #cell(tier)="row">
+                      {{ row.item.tier }}
+                    </template>
+                    <template #cell(score)="row">
+                      {{ row.item.score }}
+                    </template>
+                    <template #cell(actions)="locationRow">
                       <b-button
-                        id="upload-contacts"
-                        v-b-tooltip.hover.top="
-                          'Uploads Contacts to Flux Storage. Contacts will be replaced with a link to Flux Storage instead. This increases maximum allowed contacts while adding enhanced privacy - nobody except FluxOS Team maintaining notifications system has access to contacts.'
-                        "
-                        variant="outline-primary"
+                        :id="`remove-${locationRow.item.ip}`"
+                        size="sm"
+                        class="mr-1 mb-1"
+                        variant="danger"
                       >
-                        <v-icon name="cloud-upload-alt" />
+                        Remove
                       </b-button>
                       <confirm-dialog
-                        target="upload-contacts"
-                        confirm-button="Upload Contacts"
-                        :width="600"
-                        @confirm="uploadContactsToFluxStorage()"
+                        :target="`remove-${locationRow.item.ip}`"
+                        confirm-button="Remove FluxNode"
+                        @confirm="removeFluxNode(locationRow.item.ip)"
                       />
-                    </div>
-                  </div>
-                </div>
-                <div v-if="appUpdateSpecification.version >= 5 && !isPrivateApp">
-                  <h4>Allowed Geolocation</h4>
-                  <div
-                    v-for="n in numberOfGeolocations"
-                    :key="`${n}pos`"
-                  >
-                    <b-form-group
-                      label-cols="3"
-                      label-cols-lg="1"
-                      :label="`Continent - ${n}`"
-                      label-for="Continent"
-                    >
-                      <b-form-select
-                        id="Continent"
-                        v-model="allowedGeolocations[`selectedContinent${n}`]"
-                        :options="continentsOptions(false)"
-                        @change="adjustMaxInstancesPossible()"
+                      <b-button
+                        size="sm"
+                        class="mr-1 mb-1"
+                        variant="primary"
+                        @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
                       >
-                        <template #first>
-                          <b-form-select-option
-                            :value="undefined"
-                            disabled
-                          >
-                            -- Select to restrict Continent --
-                          </b-form-select-option>
-                        </template>
-                      </b-form-select>
-                    </b-form-group>
-                    <b-form-group
-                      v-if="allowedGeolocations[`selectedContinent${n}`] && allowedGeolocations[`selectedContinent${n}`] !== 'ALL'"
-                      label-cols="3"
-                      label-cols-lg="1"
-                      :label="`Country - ${n}`"
-                      label-for="Country"
-                    >
-                      <b-form-select
-                        id="country"
-                        v-model="allowedGeolocations[`selectedCountry${n}`]"
-                        :options="countriesOptions(allowedGeolocations[`selectedContinent${n}`], false)"
-                        @change="adjustMaxInstancesPossible()"
-                      >
-                        <template #first>
-                          <b-form-select-option
-                            :value="undefined"
-                            disabled
-                          >
-                            -- Select to restrict Country --
-                          </b-form-select-option>
-                        </template>
-                      </b-form-select>
-                    </b-form-group>
-                    <b-form-group
-                      v-if="allowedGeolocations[`selectedContinent${n}`] && allowedGeolocations[`selectedContinent${n}`] !== 'ALL' && allowedGeolocations[`selectedCountry${n}`] && allowedGeolocations[`selectedCountry${n}`] !== 'ALL'"
-                      label-cols="3"
-                      label-cols-lg="1"
-                      :label="`Region - ${n}`"
-                      label-for="Region"
-                    >
-                      <b-form-select
-                        id="Region"
-                        v-model="allowedGeolocations[`selectedRegion${n}`]"
-                        :options="regionsOptions(allowedGeolocations[`selectedContinent${n}`], allowedGeolocations[`selectedCountry${n}`], false)"
-                        @change="adjustMaxInstancesPossible()"
-                      >
-                        <template #first>
-                          <b-form-select-option
-                            :value="undefined"
-                            disabled
-                          >
-                            -- Select to restrict Region --
-                          </b-form-select-option>
-                        </template>
-                      </b-form-select>
-                    </b-form-group>
-                  </div>
-                  <div class="text-center">
-                    <b-button
-                      v-if="numberOfGeolocations > 1"
-                      v-b-tooltip.hover.bottom="'Remove Allowed Geolocation Restriction'"
-                      v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                      variant="outline-secondary"
-                      size="sm"
-                      class="m-1"
-                      @click="numberOfGeolocations = numberOfGeolocations - 1; adjustMaxInstancesPossible()"
-                    >
-                      <v-icon name="minus" />
-                    </b-button>
-                    <b-button
-                      v-if="numberOfGeolocations < 5"
-                      v-b-tooltip.hover.bottom="'Add Allowed Geolocation Restriction'"
-                      v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                      variant="outline-secondary"
-                      size="sm"
-                      class="m-1"
-                      @click="numberOfGeolocations = numberOfGeolocations + 1; adjustMaxInstancesPossible()"
-                    >
-                      <v-icon name="plus" />
-                    </b-button>
-                  </div>
-                </div>
-                <br><br>
-                <div v-if="appUpdateSpecification.version >= 5">
-                  <h4>Forbidden Geolocation</h4>
-                  <div
-                    v-for="n in numberOfNegativeGeolocations"
-                    :key="`${n}posB`"
-                  >
-                    <b-form-group
-                      label-cols="3"
-                      label-cols-lg="1"
-                      :label="`Continent - ${n}`"
-                      label-for="Continent"
-                    >
-                      <b-form-select
-                        id="Continent"
-                        v-model="forbiddenGeolocations[`selectedContinent${n}`]"
-                        :options="continentsOptions(true)"
-                      >
-                        <template #first>
-                          <b-form-select-option
-                            :value="undefined"
-                            disabled
-                          >
-                            -- Select to ban Continent --
-                          </b-form-select-option>
-                        </template>
-                      </b-form-select>
-                    </b-form-group>
-                    <b-form-group
-                      v-if="forbiddenGeolocations[`selectedContinent${n}`] && forbiddenGeolocations[`selectedContinent${n}`] !== 'NONE'"
-                      label-cols="3"
-                      label-cols-lg="1"
-                      :label="`Country - ${n}`"
-                      label-for="Country"
-                    >
-                      <b-form-select
-                        id="country"
-                        v-model="forbiddenGeolocations[`selectedCountry${n}`]"
-                        :options="countriesOptions(forbiddenGeolocations[`selectedContinent${n}`], true)"
-                      >
-                        <template #first>
-                          <b-form-select-option
-                            :value="undefined"
-                            disabled
-                          >
-                            -- Select to ban Country --
-                          </b-form-select-option>
-                        </template>
-                      </b-form-select>
-                    </b-form-group>
-                    <b-form-group
-                      v-if="forbiddenGeolocations[`selectedContinent${n}`] && forbiddenGeolocations[`selectedContinent${n}`] !== 'NONE' && forbiddenGeolocations[`selectedCountry${n}`] && forbiddenGeolocations[`selectedCountry${n}`] !== 'ALL'"
-                      label-cols="3"
-                      label-cols-lg="1"
-                      :label="`Region - ${n}`"
-                      label-for="Region"
-                    >
-                      <b-form-select
-                        id="Region"
-                        v-model="forbiddenGeolocations[`selectedRegion${n}`]"
-                        :options="regionsOptions(forbiddenGeolocations[`selectedContinent${n}`], forbiddenGeolocations[`selectedCountry${n}`], true)"
-                      >
-                        <template #first>
-                          <b-form-select-option
-                            :value="undefined"
-                            disabled
-                          >
-                            -- Select to ban Region --
-                          </b-form-select-option>
-                        </template>
-                      </b-form-select>
-                    </b-form-group>
-                  </div>
-                  <div class="text-center">
-                    <b-button
-                      v-if="numberOfNegativeGeolocations > 1"
-                      v-b-tooltip.hover.bottom="'Remove Forbidden Geolocation Restriction'"
-                      v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                      variant="outline-secondary"
-                      size="sm"
-                      class="m-1"
-                      @click="numberOfNegativeGeolocations = numberOfNegativeGeolocations - 1"
-                    >
-                      <v-icon name="minus" />
-                    </b-button>
-                    <b-button
-                      v-if="numberOfNegativeGeolocations < 5"
-                      v-b-tooltip.hover.bottom="'Add Forbidden Geolocation Restriction'"
-                      v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                      variant="outline-secondary"
-                      size="sm"
-                      class="m-1"
-                      @click="numberOfNegativeGeolocations = numberOfNegativeGeolocations + 1"
-                    >
-                      <v-icon name="plus" />
-                    </b-button>
-                  </div>
-                </div>
-                <br>
-                <b-form-group
-                  v-if="appUpdateSpecification.version >= 3"
-                  label-cols="2"
-                  label-cols-lg="1"
-                  label="Instances"
-                  label-for="instances"
-                >
-                  <div class="mx-1">
-                    {{ appUpdateSpecification.instances }}
-                  </div>
-                  <b-form-input
-                    id="instances"
-                    v-model="appUpdateSpecification.instances"
-                    placeholder="Minimum number of application instances to be spawned"
-                    type="range"
-                    min="3"
-                    :max="maxInstances"
-                    step="1"
+                        Visit
+                      </b-button>
+                    </template>
+                  </b-table>
+                </b-col>
+                <b-col cols="12">
+                  <b-pagination
+                    v-model="entNodesTable.currentPage"
+                    :total-rows="selectedEnterpriseNodes.length"
+                    :per-page="entNodesTable.perPage"
+                    align="center"
+                    size="sm"
+                    class="my-0"
                   />
-                </b-form-group>
-                <br>
-                <b-form-group
-                  v-if="appUpdateSpecification.version >= 6"
-                  label-cols="2"
-                  label-cols-lg="1"
-                  label="Period"
-                  label-for="period"
+                  <span class="table-total">Total: {{ selectedEnterpriseNodes.length }}</span>
+                </b-col>
+              </b-row>
+              <br>
+              <br>
+              <div class="text-center">
+                <b-button
+                  v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                  variant="primary"
+                  aria-label="Auto Select Enterprise Nodes"
+                  class="mb-2 mr-2"
+                  @click="autoSelectNodes"
                 >
-                  <div class="mx-1">
-                    {{ getExpireLabel || (appUpdateSpecification.expire ? `${appUpdateSpecification.expire} blocks` : '1 month') }}
-                  </div>
-                  <b-form-input
-                    id="period"
-                    v-model="expirePosition"
-                    placeholder="How long an application will live on Flux network"
-                    type="range"
-                    :min="0"
-                    :max="5"
-                    :step="1"
-                  />
-                </b-form-group>
-                <br>
-                <div
-                  v-if="appUpdateSpecification.version >= 7"
-                  class="form-row form-group"
+                  Auto Select Enterprise Nodes
+                </b-button>
+                <b-button
+                  v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                  variant="primary"
+                  aria-label="Choose Enterprise Nodes"
+                  class="mb-2 mr-2"
+                  @click="chooseEnterpriseDialog = true"
                 >
-                  <label class="col-form-label">
-                    Static IP
-                    <v-icon
-                      v-b-tooltip.hover.top="'Select if your application strictly requires static IP address'"
-                      name="info-circle"
-                      class="mr-1"
-                    />
-                  </label>
-                  <div class="col">
-                    <b-form-checkbox
-                      id="staticip"
-                      v-model="appUpdateSpecification.staticip"
-                      switch
-                      class="custom-control-primary inline"
-                    />
-                  </div>
-                </div>
-                <br>
-                <div
-                  v-if="appUpdateSpecification.version >= 7"
-                  class="form-row form-group"
-                >
-                  <label class="col-form-label">
-                    Enterprise Application
-                    <v-icon
-                      v-b-tooltip.hover.top="'Select if your application requires private image, secrets or if you want to target specific nodes on which application can run. Geolocation targetting is not possible in this case.'"
-                      name="info-circle"
-                      class="mr-1"
-                    />
-                  </label>
-                  <div class="col">
-                    <b-form-checkbox
-                      id="enterpriseapp"
-                      v-model="isPrivateApp"
-                      switch
-                      class="custom-control-primary inline"
-                    />
-                  </div>
-                </div>
-              </b-card>
-            </b-col>
-          </b-row>
-          <b-card
-            v-for="(component, index) in appUpdateSpecification.compose"
-            :key="index"
-          >
-            <b-card-title>
-              Component {{ component.name }}
-            </b-card-title>
+                  Choose Enterprise Nodes
+                </b-button>
+              </div>
+            </b-card>
+          </div>
+          <div v-else>
             <b-row class="match-height">
               <b-col
                 xs="12"
                 xl="6"
               >
-                <b-card>
-                  <b-card-title>
-                    General
-                  </b-card-title>
-                  <div class="form-row form-group">
-                    <label class="col-3 col-form-label">
-                      Name
-                      <v-icon
-                        v-b-tooltip.hover.top="'Name of Application Component'"
-                        name="info-circle"
-                        class="mr-1"
-                      />
-                    </label>
-                    <div class="col">
-                      <b-form-input
-                        :id="`repo-${component.name}_${appUpdateSpecification.name}`"
-                        v-model="component.name"
-                        placeholder="Component name"
-                        readonly
-                      />
-                    </div>
-                  </div>
-                  <div class="form-row form-group">
-                    <label class="col-3 col-form-label">
-                      Description
-                      <v-icon
-                        v-b-tooltip.hover.top="'Description of Application Component'"
-                        name="info-circle"
-                        class="mr-1"
-                      />
-                    </label>
-                    <div class="col">
-                      <b-form-input
-                        :id="`repo-${component.name}_${appUpdateSpecification.name}`"
-                        v-model="component.description"
-                        placeholder="Component description"
-                      />
-                    </div>
-                  </div>
-                  <div class="form-row form-group">
-                    <label class="col-3 col-form-label">
-                      Repository
-                      <v-icon
-                        v-b-tooltip.hover.top="'Docker image namespace/repository:tag for component'"
-                        name="info-circle"
-                        class="mr-1"
-                      />
-                    </label>
-                    <div class="col">
-                      <b-form-input
-                        :id="`repo-${component.name}_${appUpdateSpecification.name}`"
-                        v-model="component.repotag"
-                        placeholder="Docker image namespace/repository:tag"
-                      />
-                    </div>
-                  </div>
-                  <div
-                    v-if="appUpdateSpecification.version >= 7 && isPrivateApp"
-                    class="form-row form-group"
+                <b-card title="Details">
+                  <b-form-group
+                    label-cols="2"
+                    label="Version"
+                    label-for="version"
                   >
-                    <label class="col-3 col-form-label">
-                      Repository Authentication
-                      <v-icon
-                        v-b-tooltip.hover.top="'Docker image authentication for private images in the format of username:apikey. This field will be encrypted and accessible to selected enterprise nodes only.'"
-                        name="info-circle"
-                        class="mr-1"
-                      />
-                    </label>
-                    <div class="col">
-                      <b-form-input
-                        :id="`repoauth-${component.name}_${appUpdateSpecification.name}`"
-                        v-model="component.repoauth"
-                        placeholder="Docker authentication username:apikey"
-                      />
-                    </div>
-                  </div>
+                    <b-form-input
+                      id="version"
+                      v-model="appUpdateSpecification.version"
+                      :placeholder="appUpdateSpecification.version.toString()"
+                      readonly
+                    />
+                  </b-form-group>
+                  <b-form-group
+                    label-cols="2"
+                    label="Name"
+                    label-for="name"
+                  >
+                    <b-form-input
+                      id="name"
+                      v-model="appUpdateSpecification.name"
+                      placeholder="App Name"
+                      readonly
+                    />
+                  </b-form-group>
+                  <b-form-group
+                    label-cols="2"
+                    label="Desc."
+                    label-for="desc"
+                  >
+                    <b-form-textarea
+                      id="desc"
+                      v-model="appUpdateSpecification.description"
+                      placeholder="Description"
+                      rows="3"
+                    />
+                  </b-form-group>
+                  <b-form-group
+                    label-cols="2"
+                    label="Repo"
+                    label-for="repo"
+                  >
+                    <b-form-input
+                      id="repo"
+                      v-model="appUpdateSpecification.repotag"
+                      placeholder="Docker image namespace/repository:tag"
+                      readonly
+                    />
+                  </b-form-group>
+                  <b-form-group
+                    label-cols="2"
+                    label="Owner"
+                    label-for="owner"
+                  >
+                    <b-form-input
+                      id="owner"
+                      v-model="appUpdateSpecification.owner"
+                      placeholder="ZelID of Application Owner"
+                    />
+                  </b-form-group>
                   <br>
-                  <b-card-title>
-                    Connectivity
-                  </b-card-title>
+                  <b-form-group
+                    v-if="appUpdateSpecification.version >= 3"
+                    label-cols="2"
+                    label-cols-lg="1"
+                    label="Instances"
+                    label-for="instances"
+                  >
+                    <div class="mx-1">
+                      {{ appUpdateSpecification.instances }}
+                    </div>
+                    <b-form-input
+                      id="instances"
+                      v-model="appUpdateSpecification.instances"
+                      placeholder="Minimum number of application instances to be spawned"
+                      type="range"
+                      min="3"
+                      :max="maxInstances"
+                      step="1"
+                    />
+                  </b-form-group>
+                  <br>
+                  <b-form-group
+                    v-if="appUpdateSpecification.version >= 6"
+                    label-cols="2"
+                    label-cols-lg="1"
+                    label="Period"
+                    label-for="period"
+                  >
+                    <div class="mx-1">
+                      {{ getExpireLabel || (appUpdateSpecification.expire ? `${appUpdateSpecification.expire} blocks` : '1 month') }}
+                    </div>
+                    <b-form-input
+                      id="period"
+                      v-model="expirePosition"
+                      placeholder="How long an application will live on Flux network"
+                      type="range"
+                      :min="0"
+                      :max="5"
+                      :step="1"
+                    />
+                  </b-form-group>
+                </b-card>
+              </b-col>
+              <b-col
+                xs="12"
+                xl="6"
+              >
+                <b-card title="Environment">
                   <div class="form-row form-group">
                     <label class="col-3 col-form-label">
                       Ports
@@ -3783,8 +4716,8 @@
                     </label>
                     <div class="col">
                       <b-form-input
-                        :id="`ports-${component.name}_${appUpdateSpecification.name}`"
-                        v-model="component.ports"
+                        id="ports"
+                        v-model="appUpdateSpecification.ports"
                       />
                     </div>
                   </div>
@@ -3799,37 +4732,11 @@
                     </label>
                     <div class="col">
                       <b-form-input
-                        :id="`domains-${component.name}_${appUpdateSpecification.name}`"
-                        v-model="component.domains"
+                        id="domains"
+                        v-model="appUpdateSpecification.domains"
                       />
                     </div>
                   </div>
-                  <div class="form-row form-group">
-                    <label class="col-3 col-form-label">
-                      Cont. Ports
-                      <v-icon
-                        v-b-tooltip.hover.top="'Container Ports - Array of ports which your container has'"
-                        name="info-circle"
-                        class="mr-1"
-                      />
-                    </label>
-                    <div class="col">
-                      <b-form-input
-                        :id="`containerPorts-${component.name}_${appUpdateSpecification.name}`"
-                        v-model="component.containerPorts"
-                      />
-                    </div>
-                  </div>
-                </b-card>
-              </b-col>
-              <b-col
-                xs="12"
-                xl="6"
-              >
-                <b-card>
-                  <b-card-title>
-                    Environment
-                  </b-card-title>
                   <div class="form-row form-group">
                     <label class="col-3 col-form-label">
                       Environment
@@ -3841,25 +4748,8 @@
                     </label>
                     <div class="col">
                       <b-form-input
-                        :id="`environmentParameters-${component.name}_${appUpdateSpecification.name}`"
-                        v-model="component.environmentParameters"
-                      />
-                    </div>
-                    <div class="col-0">
-                      <b-button
-                        id="upload-env"
-                        v-b-tooltip.hover.top="
-                          'Uploads Enviornment to Flux Storage. Environment parameters will be replaced with a link to Flux Storage instead. This increases maximum allowed size of Env. parameters while adding basic privacy - instead of parameters, link to Flux Storage will be visible.'
-                        "
-                        variant="outline-primary"
-                      >
-                        <v-icon name="cloud-upload-alt" />
-                      </b-button>
-                      <confirm-dialog
-                        target="upload-env"
-                        confirm-button="Upload Environment Parameters"
-                        :width="600"
-                        @confirm="uploadEnvToFluxStorage(index)"
+                        id="environmentParameters"
+                        v-model="appUpdateSpecification.enviromentParameters"
                       />
                     </div>
                   </div>
@@ -3874,23 +4764,24 @@
                     </label>
                     <div class="col">
                       <b-form-input
-                        :id="`commands-${component.name}_${appUpdateSpecification.name}`"
-                        v-model="component.commands"
+                        id="commands"
+                        v-model="appUpdateSpecification.commands"
                       />
                     </div>
-                    <div class="col-0">
-                      <b-button
-                        id="upload-cmd"
-                        v-b-tooltip.hover.top="'Uploads Commands to Flux Storage. Commands will be replaced with a link to Flux Storage instead. This increases maximum allowed size of Commands while adding basic privacy - instead of commands, link to Flux Storage will be visible.'"
-                        variant="outline-primary"
-                      >
-                        <v-icon name="cloud-upload-alt" />
-                      </b-button>
-                      <confirm-dialog
-                        target="upload-cmd"
-                        confirm-button="Upload Commands"
-                        :width="600"
-                        @confirm="uploadCmdToFluxStorage(index)"
+                  </div>
+                  <div class="form-row form-group">
+                    <label class="col-3 col-form-label">
+                      Cont. Ports
+                      <v-icon
+                        v-b-tooltip.hover.top="'Container Ports - Array of ports which your container has'"
+                        name="info-circle"
+                        class="mr-1"
+                      />
+                    </label>
+                    <div class="col">
+                      <b-form-input
+                        id="containerPorts"
+                        v-model="appUpdateSpecification.containerPorts"
                       />
                     </div>
                   </div>
@@ -3898,63 +4789,48 @@
                     <label class="col-3 col-form-label">
                       Cont. Data
                       <v-icon
-                        v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with r: for synced data between instances. Eg. r:/data'"
+                        v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with r: for synced data between instances. Ex. r:/data. Prepend with g: for synced data and primary/standby solution. Ex. g:/data'"
                         name="info-circle"
                         class="mr-1"
                       />
                     </label>
                     <div class="col">
                       <b-form-input
-                        :id="`containerData-${component.name}_${appUpdateSpecification.name}`"
-                        v-model="component.containerData"
+                        id="containerData"
+                        v-model="appUpdateSpecification.containerData"
                       />
                     </div>
                   </div>
-                  <div
-                    v-if="appUpdateSpecification.version >= 7 && isPrivateApp"
-                    class="form-row form-group"
-                  >
-                    <label class="col-3 col-form-label">
-                      Secrets
-                      <v-icon
-                        v-b-tooltip.hover.top="'Array of strings of Secret Environmental Parameters. This will be encrypted and accessible to selected Enterprise Nodes only'"
-                        name="info-circle"
-                        class="mr-1"
-                      />
-                    </label>
-                    <div class="col">
-                      <b-form-input
-                        :id="`secrets-${component.name}_${appUpdateSpecification.name}`"
-                        v-model="component.secrets"
-                        placeholder="[]"
-                      />
-                    </div>
-                  </div>
-                  <br>
+                </b-card>
+              </b-col>
+            </b-row>
+            <b-row class="match-height">
+              <b-col xs="12">
+                <b-card>
                   <b-card-title>
-                    Resources &nbsp;&nbsp;&nbsp;<h6 class="inline text-small">
+                    Resources &nbsp;&nbsp;&nbsp;<h6 class="inline etext-small">
                       Tiered:
                       <b-form-checkbox
                         id="tiered"
-                        v-model="component.tiered"
+                        v-model="appUpdateSpecification.tiered"
                         switch
                         class="custom-control-primary inline"
                       />
                     </h6>
                   </b-card-title>
                   <b-form-group
-                    v-if="!component.tiered"
-                    label-cols="3"
-                    label-cols-lg="2"
+                    v-if="!appUpdateSpecification.tiered"
+                    label-cols="2"
+                    label-cols-lg="1"
                     label="CPU"
                     label-for="cpu"
                   >
                     <div class="mx-1">
-                      {{ component.cpu }}
+                      {{ appUpdateSpecification.cpu }}
                     </div>
                     <b-form-input
-                      :id="`cpu-${component.name}_${appUpdateSpecification.name}`"
-                      v-model="component.cpu"
+                      id="cpu"
+                      v-model="appUpdateSpecification.cpu"
                       placeholder="CPU cores to use by default"
                       type="range"
                       min="0.1"
@@ -3963,18 +4839,18 @@
                     />
                   </b-form-group>
                   <b-form-group
-                    v-if="!component.tiered"
-                    label-cols="3"
-                    label-cols-lg="2"
+                    v-if="!appUpdateSpecification.tiered"
+                    label-cols="2"
+                    label-cols-lg="1"
                     label="RAM"
                     label-for="ram"
                   >
                     <div class="mx-1">
-                      {{ component.ram }}
+                      {{ appUpdateSpecification.ram }}
                     </div>
                     <b-form-input
-                      :id="`ram-${component.name}_${appUpdateSpecification.name}`"
-                      v-model="component.ram"
+                      id="ram"
+                      v-model="appUpdateSpecification.ram"
                       placeholder="RAM in MB value to use by default"
                       type="range"
                       min="100"
@@ -3983,18 +4859,18 @@
                     />
                   </b-form-group>
                   <b-form-group
-                    v-if="!component.tiered"
-                    label-cols="3"
-                    label-cols-lg="2"
+                    v-if="!appUpdateSpecification.tiered"
+                    label-cols="2"
+                    label-cols-lg="1"
                     label="SSD"
                     label-for="ssd"
                   >
                     <div class="mx-1">
-                      {{ component.hdd }}
+                      {{ appUpdateSpecification.hdd }}
                     </div>
                     <b-form-input
-                      :id="`ssd-${component.name}_${appUpdateSpecification.name}`"
-                      v-model="component.hdd"
+                      id="ssd"
+                      v-model="appUpdateSpecification.hdd"
                       placeholder="SSD in GB value to use by default"
                       type="range"
                       min="1"
@@ -4005,7 +4881,7 @@
                 </b-card>
               </b-col>
             </b-row>
-            <b-row v-if="component.tiered">
+            <b-row v-if="appUpdateSpecification.tiered">
               <b-col
                 xs="12"
                 md="6"
@@ -4013,30 +4889,30 @@
               >
                 <b-card title="Cumulus">
                   <div>
-                    CPU: {{ component.cpubasic }}
+                    CPU: {{ appUpdateSpecification.cpubasic }}
                   </div>
                   <b-form-input
-                    v-model="component.cpubasic"
+                    v-model="appUpdateSpecification.cpubasic"
                     type="range"
                     min="0.1"
                     max="3"
                     step="0.1"
                   />
                   <div>
-                    RAM: {{ component.rambasic }}
+                    RAM: {{ appUpdateSpecification.rambasic }}
                   </div>
                   <b-form-input
-                    v-model="component.rambasic"
+                    v-model="appUpdateSpecification.rambasic"
                     type="range"
                     min="100"
                     max="5000"
                     step="100"
                   />
                   <div>
-                    SSD: {{ component.hddbasic }}
+                    SSD: {{ appUpdateSpecification.hddbasic }}
                   </div>
                   <b-form-input
-                    v-model="component.hddbasic"
+                    v-model="appUpdateSpecification.hddbasic"
                     type="range"
                     min="1"
                     max="180"
@@ -4051,30 +4927,30 @@
               >
                 <b-card title="Nimbus">
                   <div>
-                    CPU: {{ component.cpusuper }}
+                    CPU: {{ appUpdateSpecification.cpusuper }}
                   </div>
                   <b-form-input
-                    v-model="component.cpusuper"
+                    v-model="appUpdateSpecification.cpusuper"
                     type="range"
                     min="0.1"
                     max="7"
                     step="0.1"
                   />
                   <div>
-                    RAM: {{ component.ramsuper }}
+                    RAM: {{ appUpdateSpecification.ramsuper }}
                   </div>
                   <b-form-input
-                    v-model="component.ramsuper"
+                    v-model="appUpdateSpecification.ramsuper"
                     type="range"
                     min="100"
                     max="28000"
                     step="100"
                   />
                   <div>
-                    SSD: {{ component.hddsuper }}
+                    SSD: {{ appUpdateSpecification.hddsuper }}
                   </div>
                   <b-form-input
-                    v-model="component.hddsuper"
+                    v-model="appUpdateSpecification.hddsuper"
                     type="range"
                     min="1"
                     max="400"
@@ -4088,30 +4964,30 @@
               >
                 <b-card title="Stratus">
                   <div>
-                    CPU: {{ component.cpubamf }}
+                    CPU: {{ appUpdateSpecification.cpubamf }}
                   </div>
                   <b-form-input
-                    v-model="component.cpubamf"
+                    v-model="appUpdateSpecification.cpubamf"
                     type="range"
                     min="0.1"
                     max="15"
                     step="0.1"
                   />
                   <div>
-                    RAM: {{ component.rambamf }}
+                    RAM: {{ appUpdateSpecification.rambamf }}
                   </div>
                   <b-form-input
-                    v-model="component.rambamf"
+                    v-model="appUpdateSpecification.rambamf"
                     type="range"
                     min="100"
                     max="59000"
                     step="100"
                   />
                   <div>
-                    SSD: {{ component.hddbamf }}
+                    SSD: {{ appUpdateSpecification.hddbamf }}
                   </div>
                   <b-form-input
-                    v-model="component.hddbamf"
+                    v-model="appUpdateSpecification.hddbamf"
                     type="range"
                     min="1"
                     max="820"
@@ -4120,629 +4996,79 @@
                 </b-card>
               </b-col>
             </b-row>
-          </b-card>
-          <b-card
-            v-if="appUpdateSpecification.version >= 7 && isPrivateApp"
-            title="Enterprise Nodes"
+          </div>
+        </div>
+        <div
+          v-if="appUpdateSpecification.version >= 6"
+          class="form-row form-group d-flex align-items-center"
+        >
+          <b-input-group>
+            <b-input-group-prepend>
+              <b-input-group-text>
+                <b-icon
+                  class="mr-1"
+                  icon="clock-history"
+                />
+                Extend Subscription
+                <v-icon
+                  v-b-tooltip.hover.top="'Select if you want to extend or change your subscription period'"
+                  name="info-circle"
+                  class="ml-1"
+                />&nbsp; &nbsp;
+              </b-input-group-text>
+            </b-input-group-prepend>
+            <b-input-group-append is-text>
+              <b-form-checkbox
+                id="extendSubscription"
+                v-model="extendSubscription"
+                switch
+                class="custom-control-primary"
+              />
+            </b-input-group-append>
+          </b-input-group>
+        </div>
+        <div
+          v-if="extendSubscription && appUpdateSpecification.version >= 6"
+          class="form-row form-group"
+        >
+          <label class="col-form-label">
+            Period
+            <v-icon
+              v-b-tooltip.hover.top="'Time your application will be subscribed for from today'"
+              name="info-circle"
+              class="mr-2"
+            />
+            <kbd class="bg-primary mr-1"><b>{{ getExpireLabel || (appUpdateSpecification.expire ? `${appUpdateSpecification.expire} blocks` : '1 month') }}</b></kbd>
+          </label>
+          <div
+            class="w-100"
+            style="flex: 1; padding: 10px;"
           >
-            Only these selected enterprise nodes will be able to run your application and are used for encryption. Only these nodes are able to access your private image and secrets.<br>
-            Changing the node list after the message is computed and encrypted will result in a failure to run. Secrets and Repository Authentication would need to be adjusted again.<br>
-            The score determines how reputable a node and node operator are. The higher the score, the higher the reputation on the network.<br>
-            Secrets and Repository Authentication need to be set again if this node list changes.<br>
-            The more nodes can run your application, the more stable it is. On the other hand, more nodes will have access to your private data!<br>
-            <b-row>
-              <b-col
-                md="4"
-                sm="4"
-                class="my-1"
-              >
-                <b-form-group class="mb-0">
-                  <label class="d-inline-block text-left mr-50">Per page</label>
-                  <b-form-select
-                    id="perPageSelect"
-                    v-model="entNodesTable.perPage"
-                    size="sm"
-                    :options="entNodesTable.pageOptions"
-                    class="w-50"
-                  />
-                </b-form-group>
-              </b-col>
-              <b-col
-                md="8"
-                class="my-1"
-              >
-                <b-form-group
-                  label="Filter"
-                  label-cols-sm="1"
-                  label-align-sm="right"
-                  label-for="filterInput"
-                  class="mb-0"
-                >
-                  <b-input-group size="sm">
-                    <b-form-input
-                      id="filterInput"
-                      v-model="entNodesTable.filter"
-                      type="search"
-                      placeholder="Type to Search"
-                    />
-                    <b-input-group-append>
-                      <b-button
-                        :disabled="!entNodesTable.filter"
-                        @click="entNodesTable.filter = ''"
-                      >
-                        Clear
-                      </b-button>
-                    </b-input-group-append>
-                  </b-input-group>
-                </b-form-group>
-              </b-col>
-
-              <b-col cols="12">
-                <b-table
-                  class="app-enterprise-nodes-table"
-                  striped
-                  hover
-                  responsive
-                  :per-page="entNodesTable.perPage"
-                  :current-page="entNodesTable.currentPage"
-                  :items="selectedEnterpriseNodes"
-                  :fields="entNodesTable.fields"
-                  :sort-by.sync="entNodesTable.sortBy"
-                  :sort-desc.sync="entNodesTable.sortDesc"
-                  :sort-direction="entNodesTable.sortDirection"
-                  :filter="entNodesTable.filter"
-                  :filter-included-fields="entNodesTable.filterOn"
-                  show-empty
-                  :empty-text="'No Enterprise Nodes selected'"
-                >
-                  <template #cell(show_details)="row">
-                    <a @click="row.toggleDetails">
-                      <v-icon
-                        v-if="!row.detailsShowing"
-                        name="chevron-down"
-                      />
-                      <v-icon
-                        v-if="row.detailsShowing"
-                        name="chevron-up"
-                      />
-                    </a>
-                  </template>
-                  <template #row-details="row">
-                    <b-card class="mx-2">
-                      <list-entry
-                        v-if="row.item.ip"
-                        title="IP Address"
-                        :data="row.item.ip"
-                      />
-                      <list-entry
-                        title="Public Key"
-                        :data="row.item.pubkey"
-                      />
-                      <list-entry
-                        title="Node Address"
-                        :data="row.item.payment_address"
-                      />
-                      <list-entry
-                        title="Collateral"
-                        :data="`${row.item.txhash}:${row.item.outidx}`"
-                      />
-                      <list-entry
-                        title="Tier"
-                        :data="row.item.tier"
-                      />
-                      <list-entry
-                        title="Overall Score"
-                        :data="row.item.score.toString()"
-                      />
-                      <list-entry
-                        title="Collateral Score"
-                        :data="row.item.collateralPoints.toString()"
-                      />
-                      <list-entry
-                        title="Maturity Score"
-                        :data="row.item.maturityPoints.toString()"
-                      />
-                      <list-entry
-                        title="Public Key Score"
-                        :data="row.item.pubKeyPoints.toString()"
-                      />
-                      <list-entry
-                        title="Enterprise Apps Assigned"
-                        :data="row.item.enterpriseApps.toString()"
-                      />
-                      <div>
-                        <b-button
-                          size="sm"
-                          class="mr-0"
-                          variant="primary"
-                          @click="openNodeFluxOS(row.item.ip.split(':')[0], row.item.ip.split(':')[1] ? +row.item.ip.split(':')[1] - 1 : 16126)"
-                        >
-                          Visit FluxNode
-                        </b-button>
-                      </div>
-                    </b-card>
-                  </template>
-                  <template #cell(ip)="row">
-                    {{ row.item.ip }}
-                  </template>
-                  <template #cell(payment_address)="row">
-                    {{ row.item.payment_address.slice(0, 8) }}...{{ row.item.payment_address.slice(row.item.payment_address.length - 8, row.item.payment_address.length) }}
-                  </template>
-                  <template #cell(tier)="row">
-                    {{ row.item.tier }}
-                  </template>
-                  <template #cell(score)="row">
-                    {{ row.item.score }}
-                  </template>
-                  <template #cell(actions)="locationRow">
-                    <b-button
-                      :id="`remove-${locationRow.item.ip}`"
-                      size="sm"
-                      class="mr-1 mb-1"
-                      variant="danger"
-                    >
-                      Remove
-                    </b-button>
-                    <confirm-dialog
-                      :target="`remove-${locationRow.item.ip}`"
-                      confirm-button="Remove FluxNode"
-                      @confirm="removeFluxNode(locationRow.item.ip)"
-                    />
-                    <b-button
-                      size="sm"
-                      class="mr-1 mb-1"
-                      variant="primary"
-                      @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
-                    >
-                      Visit
-                    </b-button>
-                  </template>
-                </b-table>
-              </b-col>
-              <b-col cols="12">
-                <b-pagination
-                  v-model="entNodesTable.currentPage"
-                  :total-rows="selectedEnterpriseNodes.length"
-                  :per-page="entNodesTable.perPage"
-                  align="center"
-                  size="sm"
-                  class="my-0"
-                />
-                <span class="table-total">Total: {{ selectedEnterpriseNodes.length }}</span>
-              </b-col>
-            </b-row>
-            <br>
-            <br>
-            <div class="text-center">
-              <b-button
-                v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                variant="primary"
-                aria-label="Auto Select Enterprise Nodes"
-                class="mb-2 mr-2"
-                @click="autoSelectNodes"
-              >
-                Auto Select Enterprise Nodes
-              </b-button>
-              <b-button
-                v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                variant="primary"
-                aria-label="Choose Enterprise Nodes"
-                class="mb-2 mr-2"
-                @click="chooseEnterpriseDialog = true"
-              >
-                Choose Enterprise Nodes
-              </b-button>
-            </div>
-          </b-card>
+            <input
+              id="period"
+              v-model="expirePosition"
+              type="range"
+              class="form-control-range"
+              style="width: 100%; outline: none;"
+              :min="0"
+              :max="5"
+              :step="1"
+            />
+          </div>
         </div>
-        <div v-else>
-          <b-row class="match-height">
-            <b-col
-              xs="12"
-              xl="6"
-            >
-              <b-card title="Details">
-                <b-form-group
-                  label-cols="2"
-                  label="Version"
-                  label-for="version"
-                >
-                  <b-form-input
-                    id="version"
-                    v-model="appUpdateSpecification.version"
-                    :placeholder="appUpdateSpecification.version.toString()"
-                    readonly
-                  />
-                </b-form-group>
-                <b-form-group
-                  label-cols="2"
-                  label="Name"
-                  label-for="name"
-                >
-                  <b-form-input
-                    id="name"
-                    v-model="appUpdateSpecification.name"
-                    placeholder="App Name"
-                    readonly
-                  />
-                </b-form-group>
-                <b-form-group
-                  label-cols="2"
-                  label="Desc."
-                  label-for="desc"
-                >
-                  <b-form-textarea
-                    id="desc"
-                    v-model="appUpdateSpecification.description"
-                    placeholder="Description"
-                    rows="3"
-                  />
-                </b-form-group>
-                <b-form-group
-                  label-cols="2"
-                  label="Repo"
-                  label-for="repo"
-                >
-                  <b-form-input
-                    id="repo"
-                    v-model="appUpdateSpecification.repotag"
-                    placeholder="Docker image namespace/repository:tag"
-                    readonly
-                  />
-                </b-form-group>
-                <b-form-group
-                  label-cols="2"
-                  label="Owner"
-                  label-for="owner"
-                >
-                  <b-form-input
-                    id="owner"
-                    v-model="appUpdateSpecification.owner"
-                    placeholder="ZelID of Application Owner"
-                  />
-                </b-form-group>
-                <br>
-                <b-form-group
-                  v-if="appUpdateSpecification.version >= 3"
-                  label-cols="2"
-                  label-cols-lg="1"
-                  label="Instances"
-                  label-for="instances"
-                >
-                  <div class="mx-1">
-                    {{ appUpdateSpecification.instances }}
-                  </div>
-                  <b-form-input
-                    id="instances"
-                    v-model="appUpdateSpecification.instances"
-                    placeholder="Minimum number of application instances to be spawned"
-                    type="range"
-                    min="3"
-                    :max="maxInstances"
-                    step="1"
-                  />
-                </b-form-group>
-                <br>
-                <b-form-group
-                  v-if="appUpdateSpecification.version >= 6"
-                  label-cols="2"
-                  label-cols-lg="1"
-                  label="Period"
-                  label-for="period"
-                >
-                  <div class="mx-1">
-                    {{ getExpireLabel || (appUpdateSpecification.expire ? `${appUpdateSpecification.expire} blocks` : '1 month') }}
-                  </div>
-                  <b-form-input
-                    id="period"
-                    v-model="expirePosition"
-                    placeholder="How long an application will live on Flux network"
-                    type="range"
-                    :min="0"
-                    :max="5"
-                    :step="1"
-                  />
-                </b-form-group>
-              </b-card>
-            </b-col>
-            <b-col
-              xs="12"
-              xl="6"
-            >
-              <b-card title="Environment">
-                <div class="form-row form-group">
-                  <label class="col-3 col-form-label">
-                    Ports
-                    <v-icon
-                      v-b-tooltip.hover.top="'Array of Ports on which application will be available'"
-                      name="info-circle"
-                      class="mr-1"
-                    />
-                  </label>
-                  <div class="col">
-                    <b-form-input
-                      id="ports"
-                      v-model="appUpdateSpecification.ports"
-                    />
-                  </div>
-                </div>
-                <div class="form-row form-group">
-                  <label class="col-3 col-form-label">
-                    Domains
-                    <v-icon
-                      v-b-tooltip.hover.top="'Array of strings of Domains managed by Flux Domain Manager (FDM). Length must correspond to available ports. Use empty strings for no domains'"
-                      name="info-circle"
-                      class="mr-1"
-                    />
-                  </label>
-                  <div class="col">
-                    <b-form-input
-                      id="domains"
-                      v-model="appUpdateSpecification.domains"
-                    />
-                  </div>
-                </div>
-                <div class="form-row form-group">
-                  <label class="col-3 col-form-label">
-                    Environment
-                    <v-icon
-                      v-b-tooltip.hover.top="'Array of strings of Environmental Parameters'"
-                      name="info-circle"
-                      class="mr-1"
-                    />
-                  </label>
-                  <div class="col">
-                    <b-form-input
-                      id="environmentParameters"
-                      v-model="appUpdateSpecification.enviromentParameters"
-                    />
-                  </div>
-                </div>
-                <div class="form-row form-group">
-                  <label class="col-3 col-form-label">
-                    Commands
-                    <v-icon
-                      v-b-tooltip.hover.top="'Array of strings of Commands'"
-                      name="info-circle"
-                      class="mr-1"
-                    />
-                  </label>
-                  <div class="col">
-                    <b-form-input
-                      id="commands"
-                      v-model="appUpdateSpecification.commands"
-                    />
-                  </div>
-                </div>
-                <div class="form-row form-group">
-                  <label class="col-3 col-form-label">
-                    Cont. Ports
-                    <v-icon
-                      v-b-tooltip.hover.top="'Container Ports - Array of ports which your container has'"
-                      name="info-circle"
-                      class="mr-1"
-                    />
-                  </label>
-                  <div class="col">
-                    <b-form-input
-                      id="containerPorts"
-                      v-model="appUpdateSpecification.containerPorts"
-                    />
-                  </div>
-                </div>
-                <div class="form-row form-group">
-                  <label class="col-3 col-form-label">
-                    Cont. Data
-                    <v-icon
-                      v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with r: for synced data between instances. Eg. r:/data'"
-                      name="info-circle"
-                      class="mr-1"
-                    />
-                  </label>
-                  <div class="col">
-                    <b-form-input
-                      id="containerData"
-                      v-model="appUpdateSpecification.containerData"
-                    />
-                  </div>
-                </div>
-              </b-card>
-            </b-col>
-          </b-row>
-          <b-row class="match-height">
-            <b-col xs="12">
-              <b-card>
-                <b-card-title>
-                  Resources &nbsp;&nbsp;&nbsp;<h6 class="inline etext-small">
-                    Tiered:
-                    <b-form-checkbox
-                      id="tiered"
-                      v-model="appUpdateSpecification.tiered"
-                      switch
-                      class="custom-control-primary inline"
-                    />
-                  </h6>
-                </b-card-title>
-                <b-form-group
-                  v-if="!appUpdateSpecification.tiered"
-                  label-cols="2"
-                  label-cols-lg="1"
-                  label="CPU"
-                  label-for="cpu"
-                >
-                  <div class="mx-1">
-                    {{ appUpdateSpecification.cpu }}
-                  </div>
-                  <b-form-input
-                    id="cpu"
-                    v-model="appUpdateSpecification.cpu"
-                    placeholder="CPU cores to use by default"
-                    type="range"
-                    min="0.1"
-                    max="15"
-                    step="0.1"
-                  />
-                </b-form-group>
-                <b-form-group
-                  v-if="!appUpdateSpecification.tiered"
-                  label-cols="2"
-                  label-cols-lg="1"
-                  label="RAM"
-                  label-for="ram"
-                >
-                  <div class="mx-1">
-                    {{ appUpdateSpecification.ram }}
-                  </div>
-                  <b-form-input
-                    id="ram"
-                    v-model="appUpdateSpecification.ram"
-                    placeholder="RAM in MB value to use by default"
-                    type="range"
-                    min="100"
-                    max="59000"
-                    step="100"
-                  />
-                </b-form-group>
-                <b-form-group
-                  v-if="!appUpdateSpecification.tiered"
-                  label-cols="2"
-                  label-cols-lg="1"
-                  label="SSD"
-                  label-for="ssd"
-                >
-                  <div class="mx-1">
-                    {{ appUpdateSpecification.hdd }}
-                  </div>
-                  <b-form-input
-                    id="ssd"
-                    v-model="appUpdateSpecification.hdd"
-                    placeholder="SSD in GB value to use by default"
-                    type="range"
-                    min="1"
-                    max="820"
-                    step="1"
-                  />
-                </b-form-group>
-              </b-card>
-            </b-col>
-          </b-row>
-          <b-row v-if="appUpdateSpecification.tiered">
-            <b-col
-              xs="12"
-              md="6"
-              lg="4"
-            >
-              <b-card title="Cumulus">
-                <div>
-                  CPU: {{ appUpdateSpecification.cpubasic }}
-                </div>
-                <b-form-input
-                  v-model="appUpdateSpecification.cpubasic"
-                  type="range"
-                  min="0.1"
-                  max="3"
-                  step="0.1"
-                />
-                <div>
-                  RAM: {{ appUpdateSpecification.rambasic }}
-                </div>
-                <b-form-input
-                  v-model="appUpdateSpecification.rambasic"
-                  type="range"
-                  min="100"
-                  max="5000"
-                  step="100"
-                />
-                <div>
-                  SSD: {{ appUpdateSpecification.hddbasic }}
-                </div>
-                <b-form-input
-                  v-model="appUpdateSpecification.hddbasic"
-                  type="range"
-                  min="1"
-                  max="180"
-                  step="1"
-                />
-              </b-card>
-            </b-col>
-            <b-col
-              xs="12"
-              md="6"
-              lg="4"
-            >
-              <b-card title="Nimbus">
-                <div>
-                  CPU: {{ appUpdateSpecification.cpusuper }}
-                </div>
-                <b-form-input
-                  v-model="appUpdateSpecification.cpusuper"
-                  type="range"
-                  min="0.1"
-                  max="7"
-                  step="0.1"
-                />
-                <div>
-                  RAM: {{ appUpdateSpecification.ramsuper }}
-                </div>
-                <b-form-input
-                  v-model="appUpdateSpecification.ramsuper"
-                  type="range"
-                  min="100"
-                  max="28000"
-                  step="100"
-                />
-                <div>
-                  SSD: {{ appUpdateSpecification.hddsuper }}
-                </div>
-                <b-form-input
-                  v-model="appUpdateSpecification.hddsuper"
-                  type="range"
-                  min="1"
-                  max="400"
-                  step="1"
-                />
-              </b-card>
-            </b-col>
-            <b-col
-              xs="12"
-              lg="4"
-            >
-              <b-card title="Stratus">
-                <div>
-                  CPU: {{ appUpdateSpecification.cpubamf }}
-                </div>
-                <b-form-input
-                  v-model="appUpdateSpecification.cpubamf"
-                  type="range"
-                  min="0.1"
-                  max="15"
-                  step="0.1"
-                />
-                <div>
-                  RAM: {{ appUpdateSpecification.rambamf }}
-                </div>
-                <b-form-input
-                  v-model="appUpdateSpecification.rambamf"
-                  type="range"
-                  min="100"
-                  max="59000"
-                  step="100"
-                />
-                <div>
-                  SSD: {{ appUpdateSpecification.hddbamf }}
-                </div>
-                <b-form-input
-                  v-model="appUpdateSpecification.hddbamf"
-                  type="range"
-                  min="1"
-                  max="820"
-                  step="1"
-                />
-              </b-card>
-            </b-col>
-          </b-row>
+        <div>
+          Currently your application is subscribed until <b>{{ new Date(appRunningTill.current).toLocaleString('en-GB', timeoptions.shortDate) }}</b>.
+          <span v-if="extendSubscription">
+            <br>
+            Your new adjusted subscription end on <b>{{ new Date(appRunningTill.new).toLocaleString('en-GB', timeoptions.shortDate) }}</b>.
+          </span>
+          <span v-if="appRunningTill.new < appRunningTill.current" style="color: red">
+            <br>
+            <b>WARNING: Your selected subscription period will decrease the current subscription time!</b>
+          </span>
         </div>
-        <div class="flex">
+        <br>
+        <div class="flex ">
           <b-form-checkbox
             id="tos"
             v-model="tosAgreed"
@@ -4754,16 +5080,17 @@
             target="_blank"
             rel="noopener noreferrer"
           >
-            Terms of Service
+            &nbsp;<b>Terms of Service</b>
           </a>
           <br><br>
         </div>
         <div>
           <b-button
             v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-            variant="success"
+            variant="outline-success"
             aria-label="Compute Update Message"
-            class="mb-2"
+            class="mb-2 w-100"
+            :disabled="tosAgreed === false"
             @click="checkFluxUpdateSpecificationsAndFormatMessage"
           >
             Compute Update Message
@@ -4776,12 +5103,22 @@
             label="Update Message"
             label-for="updatemessage"
           >
-            <b-form-textarea
-              id="updatemessage"
-              v-model="dataToSign"
-              rows="6"
-              readonly
-            />
+            <div class="text-wrap">
+              <b-form-textarea
+                id="updatemessage"
+                v-model="dataToSign"
+                rows="6"
+                readonly
+              />
+              <b-icon
+                ref="copyButtonRef"
+                v-b-tooltip="tooltipText"
+                class="clipboard icon"
+                scale="1.5"
+                icon="clipboard"
+                @click="copyMessageToSign"
+              />
+            </div>
           </b-form-group>
           <b-form-group
             label-cols="3"
@@ -4800,20 +5137,41 @@
               lg="8"
             >
               <b-card>
-                <h4>
-                  Note: Data has to be signed by the last application owner
-                </h4>
-                <b-card-text>
-                  Price: {{ appPricePerSpecs }} FLUX
+                <br>
+                <div class="text-center">
+                  <h4>
+                    <b-icon
+                      class="mr-1"
+                      scale="1.4"
+                      icon="chat-right"
+                    />
+                    Data has to be signed by the last application owner
+                  </h4>
+                </div>
+                <!-- <h4 class="text-center">
+                  <kbd class="alert-info no-wrap" style="border-radius: 15px; font-weight: 700 !important;"> <b-icon scale="1.2" icon="chat-right" />&nbsp;&nbsp;Data has to be signed by the last application owner&nbsp; </kbd>
+                </h4> -->
+                <b-card-text v-if="!freeUpdate">
+                  <br>
+                  <div class="text-center my-3">
+                    <h4>
+                      <b-icon
+                        class="mr-1"
+                        scale="1.4"
+                        icon="cash-coin"
+                      /><b>{{ appPricePerSpecsUSD }} USD + VAT</b>
+                    </h4>
+                  </div>
                 </b-card-text>
+                <br>
                 <b-button
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                  variant="success"
+                  variant="outline-success"
                   aria-label="Update Flux App"
-                  class="my-1"
+                  class="w-100"
                   @click="update"
                 >
-                  Update Flux App
+                  Update Application
                 </b-button>
               </b-card>
             </b-col>
@@ -4821,14 +5179,14 @@
               xs="6"
               lg="4"
             >
-              <b-card title="Sign with">
+              <b-card class="text-center" title="Sign with">
                 <div class="loginRow">
                   <a
                     :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue}`"
                     @click="initiateSignWSUpdate"
                   >
                     <img
-                      class="zelidLogin"
+                      class="walletIcon"
                       src="@/assets/images/zelID.svg"
                       alt="Zel ID"
                       height="100%"
@@ -4837,8 +5195,8 @@
                   </a>
                   <a @click="initSSP">
                     <img
-                      class="sspLogin"
-                      src="@/assets/images/ssp-logo-white.svg"
+                      class="walletIcon"
+                      :src="skin === 'dark' ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
                       alt="SSP"
                       height="100%"
                       width="100%"
@@ -4848,7 +5206,7 @@
                 <div class="loginRow">
                   <a @click="initWalletConnect">
                     <img
-                      class="walletconnectLogin"
+                      class="walletIcon"
                       src="@/assets/images/walletconnect.svg"
                       alt="WalletConnect"
                       height="100%"
@@ -4857,9 +5215,129 @@
                   </a>
                   <a @click="initMetamask">
                     <img
-                      class="metamaskLogin"
+                      class="walletIcon"
                       src="@/assets/images/metamask.svg"
                       alt="Metamask"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                </div>
+                <div class="loginRow">
+                  <b-button
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="primary"
+                    aria-label="Flux Single Sign On"
+                    class="my-1"
+                    style="width: 250px"
+                    @click="initSignFluxSSO"
+                  >
+                    Flux Single Sign On (SSO)
+                  </b-button>
+                </div>
+              </b-card>
+            </b-col>
+          </b-row>
+          <b-row
+            v-if="updateHash && !freeUpdate"
+            class="match-height"
+          >
+            <b-col
+              xs="6"
+              lg="8"
+            >
+              <b-card>
+                <b-card-text>
+                  <b>Everything is ready, your payment option links, both for fiat and flux, are valid for the next 30 minutes.</b>
+                </b-card-text>
+                <br>
+                The application will be subscribed until <b>{{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}</b>
+                <br>
+                To finish the application update/renew, pay your application with your prefered payment method or check below how to pay with Flux crypto currency.
+              </b-card>
+            </b-col>
+            <b-col
+              xs="6"
+              lg="4"
+            >
+              <b-card class="text-center" title="Pay with Stripe/PayPal">
+                <div class="loginRow">
+                  <a @click="initStripePay(updateHash, appUpdateSpecification.name, appPricePerSpecsUSD, appUpdateSpecification.description)">
+                    <img
+                      class="stripePay"
+                      src="@/assets/images/Stripe.svg"
+                      alt="Stripe"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                  <a @click="initPaypalPay(updateHash, appUpdateSpecification.name, appPricePerSpecsUSD, appUpdateSpecification.description)">
+                    <img
+                      class="paypalPay"
+                      src="@/assets/images/PayPal.png"
+                      alt="PayPal"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                </div>
+                <div v-if="checkoutLoading" className="loginRow">
+                  <b-spinner variant="primary" />
+                  <div class="text-center">
+                    Checkout Loading ...
+                  </div>
+                </div>
+                <div v-if="fiatCheckoutURL" className="loginRow">
+                  <a :href="fiatCheckoutURL" target="_blank" rel="noopener noreferrer">
+                    Click here for checkout if not redirected
+                  </a>
+                </div>
+              </b-card>
+            </b-col>
+          </b-row>
+          <b-row
+            v-if="updateHash && !applicationPriceFluxError && !freeUpdate"
+            class="match-height"
+          >
+            <b-col
+              xs="6"
+              lg="8"
+            >
+              <b-card>
+                <b-card-text>
+                  To pay in FLUX, please make a transaction of <b>{{ appPricePerSpecs }} FLUX</b> to address
+                  <b>'{{ deploymentAddress }}'</b>
+                  with the following message:
+                  <b>'{{ updateHash }}'</b>
+                </b-card-text>
+              </b-card>
+            </b-col>
+            <b-col
+              xs="6"
+              lg="4"
+            >
+              <b-card>
+                <h4 v-if="applicationPriceFluxDiscount > 0">
+                  <kbd class="d-flex justify-content-center bg-primary mb-2">Discount - {{ applicationPriceFluxDiscount }}%</kbd>
+                </h4>
+                <h4 class="text-center mb-2">
+                  Pay with Zelcore/SSP
+                </h4>
+                <div class="loginRow">
+                  <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${appPricePerSpecs}&message=${updateHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
+                    <img
+                      class="walletIcon"
+                      src="@/assets/images/zelID.svg"
+                      alt="Zel ID"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                  <a @click="initSSPpay">
+                    <img
+                      class="walletIcon"
+                      :src="skin === 'dark' ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
+                      alt="SSP"
                       height="100%"
                       width="100%"
                     >
@@ -4869,53 +5347,14 @@
             </b-col>
           </b-row>
           <b-row
-            v-if="updateHash"
+            v-if="updateHash && freeUpdate"
             class="match-height"
           >
-            <b-col
-              xs="6"
-              lg="8"
-            >
-              <b-card>
-                <b-card-text>
-                  To finish the application update, please make a transaction of {{ appPricePerSpecs }} FLUX to address
-                  '{{ deploymentAddress }}'
-                  with the following message:
-                  '{{ updateHash }}'
-                </b-card-text>
-                <br>
-                The transaction must be mined by {{ new Date(validTill).toLocaleString('en-GB', timeoptions.shortDate) }}
-                <br><br>
-                The application will be subscribed until {{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}
-              </b-card>
-            </b-col>
-            <b-col
-              xs="6"
-              lg="4"
-            >
-              <b-card title="Pay with Zelcore">
-                <div class="loginRow">
-                  <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${appPricePerSpecs}&message=${updateHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
-                    <img
-                      class="zelidLogin"
-                      src="@/assets/images/zelID.svg"
-                      alt="Zel ID"
-                      height="100%"
-                      width="100%"
-                    >
-                  </a>
-                  <a @click="initSSPpay">
-                    <img
-                      class="sspLogin"
-                      src="@/assets/images/ssp-logo-white.svg"
-                      alt="SSP"
-                      height="100%"
-                      width="100%"
-                    >
-                  </a>
-                </div>
-              </b-card>
-            </b-col>
+            <b-card>
+              <b-card-text>
+                Everything is ready, your application update should be effective automatically in less than 30 minutes.
+              </b-card-text>
+            </b-card>
           </b-row>
         </div>
       </b-tab>
@@ -5031,7 +5470,7 @@
               </a>
             </template>
             <template #row-details="row">
-              <b-card class="mx-2">
+              <b-card class="">
                 <list-entry
                   title="IP Address"
                   :data="row.item.ip"
@@ -5188,10 +5627,12 @@ import ToastificationContent from '@core/components/toastification/Toastificatio
 import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
 import ListEntry from '@/views/components/ListEntry.vue';
 import JsonViewer from 'vue-json-viewer';
+import FileUpload from '@/views/components/FileUpload.vue';
+import { useClipboard } from '@vueuse/core';
+import { getUser } from '@/libs/firebase';
 
 import AppsService from '@/services/AppsService';
 import DaemonService from '@/services/DaemonService';
-import BackupRestoreService from '@/services/BackupRestoreService';
 
 import SignClient from '@walletconnect/sign-client';
 import { MetaMaskSDK } from '@metamask/sdk';
@@ -5202,8 +5643,10 @@ import { WebLinksAddon } from 'xterm-addon-web-links';
 import { Unicode11Addon } from 'xterm-addon-unicode11';
 import { SerializeAddon } from 'xterm-addon-serialize';
 import io from 'socket.io-client';
+import useAppConfig from '@core/app-config/useAppConfig';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
+const paymentBridge = 'https://fiatpaymentsbridge.runonflux.io';
 
 const walletConnectOptions = {
   projectId,
@@ -5232,6 +5675,7 @@ const geolocations = require('../../libs/geolocation');
 
 export default {
   components: {
+    FileUpload,
     JsonViewer,
     BAlert,
     BTabs,
@@ -5294,6 +5738,62 @@ export default {
   },
   data() {
     return {
+      appInfoObject: [],
+      tooltipText: 'Copy to clipboard',
+      tableKey: 0,
+      isBusy: false,
+      inputPathValue: '',
+      fields: [
+        { key: 'name', label: 'Name', sortable: true },
+        // eslint-disable-next-line object-curly-newline
+        { key: 'size', label: 'Size', sortable: true, thStyle: { width: '10%' } },
+        // eslint-disable-next-line object-curly-newline
+        { key: 'modifiedAt', label: 'Last modification', sortable: true, thStyle: { width: '15%' } },
+        // { key: 'type', label: 'Type', sortable: true },
+        // eslint-disable-next-line object-curly-newline
+        { key: 'actions', label: 'Actions', sortable: false, thStyle: { width: '10%' } },
+      ],
+      timeoptions: {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      },
+      loadingFolder: false,
+      folderView: [],
+      currentFolder: '',
+      uploadFilesDialog: false,
+      filterFolder: '',
+      createDirectoryDialogVisible: false,
+      renameDialogVisible: false,
+      newName: '',
+      fileRenaming: '',
+      newDirName: '',
+      abortToken: {},
+      downloaded: '',
+      total: '',
+      timeStamp: {},
+      working: false,
+      storage: {
+        used: 0,
+        total: 2,
+        available: 2,
+      },
+      customColors: [
+        { color: '#6f7ad3', percentage: 20 },
+        { color: '#1989fa', percentage: 40 },
+        { color: '#5cb87a', percentage: 60 },
+        { color: '#e6a23c', percentage: 80 },
+        { color: '#f56c6c', percentage: 100 },
+      ],
+      uploadTotal: '',
+      uploadUploaded: '',
+      uploadTimeStart: '',
+      currentUploadTime: '',
+      uploadFiles: [],
+      fileProgressVolume: [],
+      windowWidth: window.innerWidth,
       showTopUpload: false,
       showTopRemote: false,
       alertMessage: '',
@@ -5418,6 +5918,7 @@ export default {
       terminal: null,
       selectedCmd: null,
       selectedApp: null,
+      selectedAppVolume: null,
       enableUser: false,
       userInputValue: '',
       customValue: '',
@@ -5441,7 +5942,6 @@ export default {
           ],
         },
       ],
-      timeoptions,
       output: '',
       fluxCommunication: false,
       commandExecuting: false,
@@ -5505,8 +6005,9 @@ export default {
           { key: 'ip', label: 'IP Address', sortable: true },
           { key: 'continent', label: 'Continent', sortable: true },
           { key: 'country', label: 'Country', sortable: true },
-          { key: 'region', label: 'Region', sortable: true },
-          { key: 'visit', label: 'Visit' },
+          // eslint-disable-next-line object-curly-newline
+          { key: 'region', label: 'Region', sortable: true, thStyle: { width: '20%' } },
+          { key: 'visit', label: 'Visit', thStyle: { width: '10%' } },
         ],
         perPage: 10,
         pageOptions: [10, 25, 50, 100],
@@ -5518,12 +6019,12 @@ export default {
         totalRows: 1,
         currentPage: 1,
       },
-      total: '',
-      downloaded: '',
       downloadedSize: '',
-      abortToken: {},
       deploymentAddress: '',
       appPricePerSpecs: 0,
+      appPricePerSpecsUSD: 0,
+      applicationPriceFluxDiscount: '',
+      applicationPriceFluxError: false,
       maxInstances: 100,
       minInstances: 3,
       globalZelidAuthorized: false,
@@ -5545,8 +6046,10 @@ export default {
       minExpire: 5000,
       maxExpire: 264000,
       extendSubscription: true,
+      updateSpecifications: false,
       daemonBlockCount: -1,
       expirePosition: 2,
+      minutesRemaining: 0,
       expireOptions: [
         {
           value: 5000,
@@ -5627,10 +6130,52 @@ export default {
       isPrivateApp: false,
       signClient: null,
       masterIP: '',
+      selectedIp: null,
       masterSlaveApp: false,
+      applicationManagementAndStatus: '',
+      fiatCheckoutURL: '',
+      checkoutLoading: false,
+      isMarketplaceApp: false,
+      ipAccess: false,
     };
   },
   computed: {
+    appRunningTill() {
+      const blockTime = 2 * 60 * 1000;
+      const expires = this.callBResponse.data.expire || 22000;
+      const blocksToExpire = this.callBResponse.data.height + expires - this.daemonBlockCount;
+      const currentExpire = Math.ceil(blocksToExpire / 1000) * 1000;
+      let newExpire = currentExpire;
+      if (this.extendSubscription) {
+        newExpire = this.expireOptions[this.expirePosition].value;
+      }
+
+      const now = this.timestamp || Date.now();
+
+      let currentExpireTime = Math.floor((currentExpire * blockTime + now) / 1000000) * 1000000;
+      const timeFoundA = this.expireOptions.find((option) => option.value === currentExpire);
+      if (timeFoundA) {
+        const expTime = Math.floor((now + timeFoundA.time) / 1000000) * 1000000;
+        currentExpireTime = expTime;
+      }
+
+      let newExpireTime = Math.floor((newExpire * blockTime + now) / 1000000) * 1000000;
+      const timeFoundB = this.expireOptions.find((option) => option.value === newExpire);
+      if (timeFoundB) {
+        const expTime = Math.floor((now + timeFoundB.time) / 1000000) * 1000000;
+        newExpireTime = expTime;
+      }
+
+      const runningTill = {
+        current: currentExpireTime,
+        new: newExpireTime,
+      };
+
+      return runningTill;
+    },
+    skin() {
+      return useAppConfig().skin.value;
+    },
     zelidHeader() {
       const zelidauth = localStorage.getItem('zelidauth');
       const headers = {
@@ -5644,13 +6189,22 @@ export default {
         return `${store.get('backendURL').split(':')[0]}:${store.get('backendURL').split(':')[1]}`;
       }
       const { hostname } = window.location;
-      return `http://${hostname}`;
+      return `${hostname}`;
     },
     filesToUpload() {
       return this.files.length > 0 && this.files.some((file) => !file.uploading && !file.uploaded && file.progress === 0);
     },
     computedFileProgress() {
       return this.fileProgress;
+    },
+    computedFileProgressVolume() {
+      return this.fileProgressVolume;
+    },
+    folderContentFilter() {
+      const filteredFolder = this.folderView.filter((data) => JSON.stringify(data.name).toLowerCase().includes(this.filterFolder.toLowerCase()));
+      const upButton = this.currentFolder ? { name: '..', symLink: true, isUpButton: true } : null;
+      const filteredResults = [upButton, ...filteredFolder.filter((data) => data.name !== '.gitkeep')].filter(Boolean);
+      return filteredResults;
     },
     downloadLabel() {
       // eslint-disable-next-line vue/no-side-effects-in-computed-properties
@@ -5776,7 +6330,7 @@ export default {
           const marketPlaceApp = this.marketPlaceApps.find((app) => this.appUpdateSpecification.name.toLowerCase().startsWith(app.name.toLowerCase()));
           if (marketPlaceApp) {
             if (marketPlaceApp.multiplier > 1) {
-              return marketPlaceApp.multiplier;
+              return marketPlaceApp.multiplier * this.generalMultiplier;
             }
           }
         }
@@ -5792,7 +6346,16 @@ export default {
       mybackend += protocol;
       mybackend += '//';
       const regex = /[A-Za-z]/g;
-      if (hostname.match(regex)) {
+      if (hostname.split('-')[4]) { // node specific domain
+        const splitted = hostname.split('-');
+        const names = splitted[4].split('.');
+        const adjP = +names[0] + 1;
+        names[0] = adjP.toString();
+        names[2] = 'api';
+        splitted[4] = '';
+        mybackend += splitted.join('-');
+        mybackend += names.join('.');
+      } else if (hostname.match(regex)) { // home.runonflux.io -> api.runonflux.io
         const names = hostname.split('.');
         names[0] = 'api';
         mybackend += names.join('.');
@@ -5828,16 +6391,16 @@ export default {
       if (this.appUpdateSpecification.expire) {
         const timeFound = this.expireOptions.find((option) => option.value === this.appUpdateSpecification.expire);
         if (timeFound) {
-          const expTime = this.timestamp + timeFound.time;
+          const expTime = Math.floor((this.timestamp + timeFound.time) / 1000000) * 1000000;
           return expTime;
         }
         const blocks = this.appUpdateSpecification.expire;
         const blockTime = 2 * 60 * 1000;
         const validTime = blocks * blockTime;
-        const expTime = this.timestamp + validTime;
+        const expTime = Math.floor((this.timestamp + validTime) / 1000000) * 1000000;
         return expTime;
       }
-      const expTime = this.timestamp + 30 * 24 * 60 * 60 * 1000; // 1 month
+      const expTime = Math.floor((this.timestamp + 30 * 24 * 60 * 60 * 1000) / 1000000) * 1000000; // 1 month
       return expTime;
     },
     isApplicationInstalledLocally() {
@@ -5849,38 +6412,6 @@ export default {
         return false;
       }
       return false;
-    },
-    applicationManagementAndStatus() {
-      console.log(this.getAllAppsResponse);
-      const foundAppInfo = this.getAllAppsResponse.data.find((app) => app.Names[0] === this.getAppDockerNameIdentifier()) || {};
-      const appInfo = {
-        name: this.appName,
-        state: foundAppInfo.State || 'Unknown state',
-        status: foundAppInfo.Status || 'Unknown status',
-      };
-      appInfo.state = appInfo.state.charAt(0).toUpperCase() + appInfo.state.slice(1);
-      appInfo.status = appInfo.status.charAt(0).toUpperCase() + appInfo.status.slice(1);
-      let niceString = `${appInfo.name} - ${appInfo.state} - ${appInfo.status}`;
-      if (this.appSpecification) {
-        if (this.appSpecification.version >= 4) {
-          niceString = `${this.appSpecification.name}:`;
-          // eslint-disable-next-line no-restricted-syntax
-          for (const component of this.appSpecification.compose) {
-            const foundAppInfoComponent = this.getAllAppsResponse.data.find((app) => app.Names[0] === this.getAppDockerNameIdentifier(`${component.name}_${this.appSpecification.name}`)) || {};
-            const appInfoComponent = {
-              name: component.name,
-              state: foundAppInfoComponent.State || 'Unknown state',
-              status: foundAppInfoComponent.Status || 'Unknown status',
-            };
-            appInfoComponent.state = appInfoComponent.state.charAt(0).toUpperCase() + appInfoComponent.state.slice(1);
-            appInfoComponent.status = appInfoComponent.status.charAt(0).toUpperCase() + appInfoComponent.status.slice(1);
-            const niceStringComponent = ` ${appInfoComponent.name} - ${appInfoComponent.state} - ${appInfoComponent.status},`;
-            niceString += niceStringComponent;
-          }
-          niceString = niceString.substring(0, niceString.length - 1);
-        }
-      }
-      return niceString;
     },
     constructAutomaticDomainsGlobal() {
       if (!this.callBResponse.data) {
@@ -5952,7 +6483,13 @@ export default {
       // eslint-disable-next-line vue/no-side-effects-in-computed-properties
       this.minutesRemaining = blocksToExpire * 2;
       const result = this.minutesToString;
-      return `${result[0]}, ${result[1]}, ${result[2]}`;
+      if (result.length > 2) {
+        return `${result[0]}, ${result[1]}, ${result[2]}`;
+      }
+      if (result.length > 1) {
+        return `${result[0]}, ${result[1]}`;
+      }
+      return `${result[0]}`;
     },
   },
   watch: {
@@ -5960,6 +6497,7 @@ export default {
       if (value) {
         if (this.appSpecification.version >= 4) {
           this.selectedApp = this.appSpecification.compose[0].name;
+          this.selectedAppVolume = this.appSpecification.compose[0].name;
         }
       }
     },
@@ -6016,6 +6554,17 @@ export default {
     },
   },
   mounted() {
+    const { hostname } = window.location;
+    const regex = /[A-Za-z]/g;
+    if (hostname.match(regex)) {
+      this.ipAccess = false;
+    } else {
+      this.ipAccess = true;
+    }
+    const self = this;
+    this.$nextTick(() => {
+      window.addEventListener('resize', self.onResize);
+    });
     this.initMMSDK();
     this.callBResponse.data = '';
     this.callBResponse.status = '';
@@ -6028,28 +6577,330 @@ export default {
     this.checkFluxCommunication();
     this.getAppOwner();
     this.getGlobalApplicationSpecifics();
-    this.appsGetListAllApps();
-    if (!global) {
-      this.getInstalledApplicationSpecifics();
-    }
     this.appsDeploymentInformation();
     this.getGeolocationData();
     this.getMarketPlace();
     this.getMultiplier();
     this.getEnterpriseNodes();
+    this.getDaemonBlockCount();
+  },
+  beforeDestroy() {
+    window.removeEventListener('resize', this.onResize);
   },
   methods: {
+    async refreshInfo() {
+      this.$refs.BackendRefresh.blur();
+      await this.getInstancesForDropDown();
+      this.selectedIpChanged();
+      this.getApplicationLocations().catch(() => {
+        this.isBusy = false;
+        this.showToast('danger', 'Error loading application locations');
+      });
+    },
+    copyMessageToSign() {
+      const { copy } = useClipboard({ source: this.dataToSign, legacy: true });
+      copy();
+      this.tooltipText = 'Copied!';
+      setTimeout(() => {
+        if (this.$refs.copyButtonRef) {
+          this.$refs.copyButtonRef.blur();
+          this.tooltipText = '';
+        }
+      }, 1000);
+      setTimeout(() => {
+        this.tooltipText = 'Copy to clipboard';
+      }, 1500);
+    },
+    getIconName(used, total) {
+      const percentage = (used / total) * 100;
+      let icon;
+      if (percentage <= 60) {
+        icon = 'battery-full';
+      } else if (percentage > 60 && percentage <= 80) {
+        icon = 'battery-half';
+      } else {
+        icon = 'battery';
+      }
+      return icon;
+    },
+    getIconColorStyle(used, total) {
+      const percentage = (used / total) * 100;
+      let color;
+      if (percentage <= 60) {
+        color = 'green';
+      } else if (percentage > 60 && percentage <= 80) {
+        color = 'yellow';
+      } else {
+        color = 'red';
+      }
+      return { color };
+    },
+    sortNameFolder(a, b) {
+      return (a.isDirectory ? `..${a.name}` : a.name).localeCompare(b.isDirectory ? `..${b.name}` : b.name);
+    },
+    sortTypeFolder(a, b) {
+      if (a.isDirectory && b.isFile) return -1;
+      if (a.isFile && b.isDirectory) return 1;
+      return 0;
+    },
+    sort(a, b, key, sortDesc) {
+      if (key === 'name') {
+        return this.sortNameFolder(a, b, sortDesc);
+      }
+      if (key === 'type') {
+        return this.sortTypeFolder(a, b, sortDesc);
+      }
+      if (key === 'modifiedAt') {
+        if (a.modifiedAt > b.modifiedAt) return -1;
+        if (a.modifiedAt < b.modifiedAt) return 1;
+        return 0;
+      }
+      if (key === 'size') {
+        if (a.size > b.size) return -1;
+        if (a.size < b.size) return 1;
+        return 0;
+      }
+      return 0;
+    },
+    async storageStats() {
+      try {
+        this.volumeInfo = await this.executeLocalCommand(`/backup/getvolumedataofcomponent/${this.appName}/${this.selectedAppVolume}/${'GB'}/${2}/${'used,size'}`);
+        this.volumePath = this.volumeInfo.data?.data;
+        if (this.volumeInfo.data.status === 'success') {
+          this.storage.total = this.volumeInfo.data.data.size;
+          this.storage.used = this.volumeInfo.data.data.used;
+        } else {
+          this.showToast('danger', this.volumeInfo.data.data.message || this.volumeInfo.data.data);
+        }
+      } catch (error) {
+        this.showToast('danger', error.message || error);
+      }
+    },
+    changeFolder(name) {
+      if (name === '..') {
+        const folderArrray = this.currentFolder.split('/');
+        folderArrray.pop();
+        this.currentFolder = folderArrray.join('/');
+      } else if (this.currentFolder === '') {
+        this.currentFolder = name;
+      } else {
+        this.currentFolder = `${this.currentFolder}/${name}`;
+      }
+      const segments = this.currentFolder.split('/').filter((segment) => segment !== '');
+      const transformedPath = segments.map((segment) => `  ${segment}  `).join('/');
+      this.inputPathValue = `/${transformedPath}`;
+      this.loadFolder(this.currentFolder);
+    },
+    async loadFolder(path, soft = false) {
+      try {
+        this.filterFolder = '';
+        if (!soft) {
+          this.folderView = [];
+        }
+        this.loadingFolder = true;
+        const response = await this.executeLocalCommand(`/apps/getfolderinfo/${this.appName}/${this.selectedAppVolume}/${encodeURIComponent(path)}`);
+        this.loadingFolder = false;
+        if (response.data.status === 'success') {
+          this.folderView = response.data.data;
+          console.log(this.folderView);
+        } else {
+          this.showToast('danger', response.data.data.message || response.data.data);
+        }
+      } catch (error) {
+        this.loadingFolder = false;
+        console.log(error.message);
+        this.showToast('danger', error.message || error);
+      }
+    },
+    async createFolder(path) {
+      try {
+        let folderPath = path;
+        if (this.currentFolder !== '') {
+          folderPath = `${this.currentFolder}/${path}`;
+        }
+        const response = await this.executeLocalCommand(`/apps/createfolder/${this.appName}/${this.selectedAppVolume}/${encodeURIComponent(folderPath)}`);
+        if (response.data.status === 'error') {
+          if (response.data.data.code === 'EEXIST') {
+            this.showToast('danger', `Folder ${path} already exists`);
+          } else {
+            this.showToast('danger', response.data.data.message || response.data.data);
+          }
+        } else {
+          this.loadFolder(this.currentFolder, true);
+          this.createDirectoryDialogVisible = false;
+        }
+      } catch (error) {
+        this.loadingFolder = false;
+        console.log(error.message);
+        this.showToast('danger', error.message || error);
+      }
+      this.newDirName = '';
+    },
+    cancelDownload(name) {
+      this.abortToken[name].cancel(`Download of ${name} cancelled`);
+      this.downloaded[name] = '';
+      this.total[name] = '';
+    },
+    async download(name, isFolder = false) {
+      try {
+        const self = this;
+        const folder = this.currentFolder;
+        const fileName = folder ? `${folder}/${name}` : name;
+        const axiosConfig = {
+          headers: this.zelidHeader,
+          responseType: 'blob',
+          onDownloadProgress(progressEvent) {
+            const { loaded, total } = progressEvent;
+            // const decodedUrl = decodeURIComponent(target.responseURL);
+            const currentFileProgress = (loaded / total) * 100;
+            console.log(progressEvent);
+            // const currentFileName = decodedUrl.split('/').pop();
+            if (isFolder) {
+              self.updateFileProgressVolume(`${name}.zip`, currentFileProgress);
+            } else {
+              self.updateFileProgressVolume(name, currentFileProgress);
+            }
+          },
+        };
+        let response;
+        if (isFolder) {
+          this.showToast('info', 'Directory download initiated. Please wait...');
+          response = await this.executeLocalCommand(`/apps/downloadfolder/${this.appName}/${this.selectedAppVolume}/${encodeURIComponent(fileName)}`, null, axiosConfig);
+        } else {
+          response = await this.executeLocalCommand(`/apps/downloadfile/${this.appName}/${this.selectedAppVolume}/${encodeURIComponent(fileName)}`, null, axiosConfig);
+        }
+        console.log(response);
+        if (response.data.status === 'error') {
+          this.showToast('danger', response.data.data.message || response.data.data);
+        } else {
+          const url = window.URL.createObjectURL(new Blob([response.data]));
+          const link = document.createElement('a');
+          link.href = url;
+          if (isFolder) {
+            link.setAttribute('download', `${name}.zip`);
+          } else {
+            link.setAttribute('download', name);
+          }
+
+          document.body.appendChild(link);
+          link.click();
+        }
+      } catch (error) {
+        console.log(error.message);
+        if (error.message) {
+          if (!error.message.startsWith('Download')) {
+            this.showToast('danger', error.message);
+          }
+        } else {
+          this.showToast('danger', error);
+        }
+      }
+    },
+    beautifyValue(valueInText) {
+      const str = valueInText.split('.');
+      if (str[0].length >= 4) {
+        str[0] = str[0].replace(/(\d)(?=(\d{3})+$)/g, '$1,');
+      }
+      return str.join('.');
+    },
+    refreshFolder() {
+      const segments = this.currentFolder.split('/').filter((segment) => segment !== '');
+      const transformedPath = segments.map((segment) => `  ${segment}  `).join('/');
+      this.inputPathValue = `/${transformedPath}`;
+      this.loadFolder(this.currentFolder, true);
+      this.storageStats();
+    },
+    refreshFolderSwitch() {
+      this.currentFolder = '';
+      const segments = this.currentFolder.split('/').filter((segment) => segment !== '');
+      const transformedPath = segments.map((segment) => `  ${segment}  `).join('/');
+      this.inputPathValue = `/${transformedPath}`;
+      this.loadFolder(this.currentFolder, true);
+      this.storageStats();
+    },
+    async deleteFile(name) {
+      try {
+        const folder = this.currentFolder;
+        const fileName = folder ? `${folder}/${name}` : name;
+        const response = await this.executeLocalCommand(`/apps/removeobject/${this.appName}/${this.selectedAppVolume}/${encodeURIComponent(fileName)}`);
+        if (response.data.status === 'error') {
+          this.showToast('danger', response.data.data.message || response.data.data);
+        } else {
+          this.refreshFolder();
+          this.showToast('success', `${name} deleted`);
+        }
+      } catch (error) {
+        this.showToast('danger', error.message || error);
+      }
+    },
+    rename(name) {
+      this.renameDialogVisible = true;
+      let folderPath = name;
+      if (this.currentFolder !== '') {
+        folderPath = `${this.currentFolder}/${name}`;
+      }
+      this.fileRenaming = folderPath;
+      this.newName = name;
+    },
+    async confirmRename() {
+      this.renameDialogVisible = false;
+      try {
+        const oldpath = this.fileRenaming;
+        const newname = this.newName;
+        const response = await this.executeLocalCommand(`/apps/renameobject/${this.appName}/${this.selectedAppVolume}/${encodeURIComponent(oldpath)}/${newname}`);
+        console.log(response);
+        if (response.data.status === 'error') {
+          this.showToast('danger', response.data.data.message || response.data.data);
+        } else {
+          if (oldpath.includes('/')) {
+            this.showToast('success', `${oldpath.split('/').pop()} renamed to ${newname}`);
+          } else {
+            this.showToast('success', `${oldpath} renamed to ${newname}`);
+          }
+          this.loadFolder(this.currentFolder, true);
+        }
+      } catch (error) {
+        this.showToast('danger', error.message || error);
+      }
+    },
+    upFolder() {
+      this.changeFolder('..');
+    },
+    onResize() {
+      this.windowWidth = window.innerWidth;
+    },
     handleRadioClick() {
       if (this.selectedRestoreOption === 'Upload File') {
         this.loadBackupList(this.appName, 'upload', 'files');
       }
       console.log('Radio button clicked. Selected option:', this.selectedOption);
     },
-    getUploadFolder(fullpath, saveAs) {
-      const port = this.config.apiPort;
-      const folder = encodeURIComponent(fullpath);
+    // eslint-disable-next-line consistent-return
+    getUploadFolder() {
+      if (this.selectedIp) {
+        const ip = this.selectedIp.split(':')[0];
+        const port = this.selectedIp.split(':')[1] || 16127;
+        if (this.currentFolder) {
+          const folder = encodeURIComponent(this.currentFolder);
+          if (this.ipAccess) {
+            return `http://${ip}:${port}/ioutils/fileupload/volume/${this.appName}/${this.selectedAppVolume}/${folder}`;
+          }
+          return `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/ioutils/fileupload/volume/${this.appName}/${this.selectedAppVolume}/${folder}`;
+        }
+        if (this.ipAccess) {
+          return `http://${ip}:${port}/ioutils/fileupload/volume/${this.appName}/${this.selectedAppVolume}`;
+        }
+        return `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/ioutils/fileupload/volume/${this.appName}/${this.selectedAppVolume}`;
+      }
+    },
+    getUploadFolderBackup(saveAs) {
+      const ip = this.selectedIp.split(':')[0];
+      const port = this.selectedIp.split(':')[1] || 16127;
       const filename = encodeURIComponent(saveAs);
-      return `${this.ipAddress}:${port}/ioutils/fileupload/${folder}/${filename}/${this.appName}`;
+      if (this.ipAccess) {
+        return `http://${ip}:${port}/ioutils/fileupload/backup/${this.appName}/${this.restoreRemoteFile}/null/${filename}`;
+      }
+      return `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/ioutils/fileupload/backup/${this.appName}/${this.restoreRemoteFile}/null/${filename}`;
     },
     addAndConvertFileSizes(sizes, targetUnit = 'auto', decimal = 2) {
       const multiplierMap = {
@@ -6089,7 +6940,7 @@ export default {
         });
         bestMatchUnit = bestMatchUnit || 'B';
         return formatResult(bestMatchResult, bestMatchUnit);
-      // eslint-disable-next-line no-else-return
+        // eslint-disable-next-line no-else-return
       } else {
         const result = getSizeWithMultiplier(totalSizeInBytes, targetUnit);
         return formatResult(result, targetUnit);
@@ -6114,11 +6965,10 @@ export default {
       this.addFiles(([...droppedFiles]));
     },
     async addFiles(filesToAdd) {
-      const zelidauth = localStorage.getItem('zelidauth');
       // eslint-disable-next-line no-restricted-syntax
       for (const f of filesToAdd) {
         // eslint-disable-next-line no-await-in-loop
-        this.volumeInfo = await BackupRestoreService.getVolumeDataOfComponent(zelidauth, this.appName, this.restoreRemoteFile, 'B', 0, 'mount,available,size');
+        this.volumeInfo = await this.executeLocalCommand(`/backup/getvolumedataofcomponent/${this.appName}/${this.restoreRemoteFile}/${'B'}/${0}/${'mount,available,size'}`);
         this.volumePath = this.volumeInfo.data?.data?.mount;
 
         const existingFile = this.files.findIndex(
@@ -6232,7 +7082,6 @@ export default {
           for (const componentName of this.files) {
             postRestoreData = this.updateJobStatus(postLayout, componentName.component, 'restore');
           }
-          const port = this.config.apiPort;
           const zelidauth = localStorage.getItem('zelidauth');
           const headers = {
             zelidauth,
@@ -6240,7 +7089,13 @@ export default {
             'Access-Control-Allow-Origin': '*',
             Connection: 'keep-alive',
           };
-          const response = await fetch(`${this.ipAddress}:${port}/apps/appendrestoretask`, {
+          const url = this.selectedIp.split(':')[0];
+          const urlPort = this.selectedIp.split(':')[1] || 16127;
+          let queryUrl = `https://${url.replace(/\./g, '-')}-${urlPort}.node.api.runonflux.io/apps/appendrestoretask`;
+          if (this.ipAccess) {
+            queryUrl = `http://${url}:${urlPort}/apps/appendrestoretask`;
+          }
+          const response = await fetch(queryUrl, {
             method: 'POST',
             body: JSON.stringify(postRestoreData),
             headers,
@@ -6273,7 +7128,8 @@ export default {
       });
     },
     /* eslint no-param-reassign: ["error", { "props": false }] */
-    upload(file) {
+    async upload(file) {
+      // await this.splitAndUploadChunks(file);
       return new Promise((resolve, reject) => {
         const self = this;
         if (typeof XMLHttpRequest === 'undefined') {
@@ -6282,7 +7138,7 @@ export default {
           return;
         }
         const xhr = new XMLHttpRequest();
-        const action = this.getUploadFolder(file.path, file.file_name);
+        const action = this.getUploadFolderBackup(file.file_name);
         if (xhr.upload) {
           xhr.upload.onprogress = function progress(e) {
             if (e.total > 0) {
@@ -6317,6 +7173,7 @@ export default {
             });
             self.showToast('danger', `An error occurred while uploading '${file.selected_file.name}' - Status code: ${xhr.status}`);
             reject(xhr.status);
+
             return;
           }
           file.uploaded = true;
@@ -6333,6 +7190,7 @@ export default {
             xhr.setRequestHeader(item, headers[item]);
           }
         }
+        xhr.setRequestHeader('Access-Control-Allow-Origin', '*');
         xhr.send(formData);
       });
     },
@@ -6404,8 +7262,6 @@ export default {
       this.tarProgress = 'Initializing backup jobs...';
       const zelidauth = localStorage.getItem('zelidauth');
       // eslint-disable-next-line no-unused-vars
-      const port = this.config.apiPort;
-      // eslint-disable-next-line no-unused-vars
       const headers = {
         zelidauth,
         'Content-Type': 'application/json',
@@ -6418,7 +7274,13 @@ export default {
       for (const componentName of componentNames) {
         postBackupData = this.updateJobStatus(postLayout, componentName, 'backup');
       }
-      const response = await fetch(`${this.ipAddress}:${port}/apps/appendbackuptask`, {
+      const url = this.selectedIp.split(':')[0];
+      const urlPort = this.selectedIp.split(':')[1] || 16127;
+      let queryUrl = `https://${url.replace(/\./g, '-')}-${urlPort}.node.api.runonflux.io/apps/appendbackuptask`;
+      if (this.ipAccess) {
+        queryUrl = `http://${url}:${urlPort}/apps/appendbackuptask`;
+      }
+      const response = await fetch(queryUrl, {
         method: 'POST',
         body: JSON.stringify(postBackupData),
         headers,
@@ -6521,8 +7383,6 @@ export default {
       this.downloadingFromUrl = true;
       this.restoreFromRemoteURLStatus = 'Initializing restore jobs...';
       // eslint-disable-next-line no-unused-vars
-      const port = this.config.apiPort;
-      // eslint-disable-next-line no-unused-vars
       const headers = {
         zelidauth,
         'Content-Type': 'application/json',
@@ -6535,7 +7395,13 @@ export default {
       for (const componentName of this.restoreRemoteUrlItems) {
         postBackupData = this.updateJobStatus(postLayout, componentName.component, 'restore', this.restoreRemoteUrlItems);
       }
-      const response = await fetch(`${this.ipAddress}:${port}/apps/appendrestoretask`, {
+      const url = this.selectedIp.split(':')[0];
+      const urlPort = this.selectedIp.split(':')[1] || 16127;
+      let queryUrl = `https://${url.replace(/\./g, '-')}-${urlPort}.node.api.runonflux.io/apps/appendrestoretask`;
+      if (this.ipAccess) {
+        queryUrl = `http://${url}:${urlPort}/apps/appendrestoretask`;
+      }
+      const response = await fetch(queryUrl, {
         method: 'POST',
         body: JSON.stringify(postBackupData),
         headers,
@@ -6569,13 +7435,12 @@ export default {
         return;
       }
       if (this.restoreRemoteUrl.trim() !== '' && this.restoreRemoteUrlComponent !== null) {
-        const zelidauth = localStorage.getItem('zelidauth');
-        this.remoteFileSizeResponse = await BackupRestoreService.getRemoteFileSize(zelidauth, encodeURIComponent(this.restoreRemoteUrl.trim()), 'B', 0, true, this.appName);
+        this.remoteFileSizeResponse = await this.executeLocalCommand(`/backup/getremotefilesize/${encodeURIComponent(this.restoreRemoteUrl.trim())}/${'B'}/${0}/${true}/${this.appName}`);
         if (this.remoteFileSizeResponse.data?.status !== 'success') {
           this.showToast('danger', this.remoteFileSizeResponse.data?.data.message || this.remoteFileSizeResponse.data?.massage);
           return;
         }
-        this.volumeInfoResponse = await BackupRestoreService.getVolumeDataOfComponent(zelidauth, appname, component, 'B', 0, 'size,available,mount');
+        this.volumeInfoResponse = await this.executeLocalCommand(`/backup/getvolumedataofcomponent/${appname}/${component}/${'B'}/${0}/${'size,available,mount'}`);
         if (this.volumeInfoResponse.data?.status !== 'success') {
           this.showToast('danger', this.volumeInfoResponse.data?.data.message || this.volumeInfoResponse.data?.data);
           return;
@@ -6612,22 +7477,20 @@ export default {
       if (elementIndex !== -1) {
         if (!item[elementIndex]?.selected_file && type === 'upload') {
           console.log(item[elementIndex].file);
-          const zelidauth = localStorage.getItem('zelidauth');
-          await BackupRestoreService.removeBackupFile(zelidauth, encodeURIComponent(item[elementIndex].file), this.appName);
+          await this.executeLocalCommand(`/backup/removebackupfile/${encodeURIComponent(item[elementIndex].file)}/${this.appName}`);
         }
       }
       item.splice(index, 1);
     },
     async loadBackupList(name = this.appName, type = 'local', itemsList = 'backupList') {
-      const zelidauth = localStorage.getItem('zelidauth');
       const backupListTmp = [];
       // eslint-disable-next-line no-restricted-syntax
       for (const componentItem of this.components) {
         // eslint-disable-next-line no-await-in-loop
-        this.volumeInfo = await BackupRestoreService.getVolumeDataOfComponent(zelidauth, name, componentItem, 'B', 0, 'mount');
+        this.volumeInfo = await this.executeLocalCommand(`/backup/getvolumedataofcomponent/${name}/${componentItem}/${'B'}/${0}/${'mount'}`);
         this.volumePath = this.volumeInfo.data?.data;
         // eslint-disable-next-line no-await-in-loop
-        this.backupFile = await BackupRestoreService.getBackupList(zelidauth, encodeURIComponent(`${this.volumePath.mount}/backup/${type}`), 'B', 0, true, name);
+        this.backupFile = await this.executeLocalCommand(`/backup/getlocalbackuplist/${encodeURIComponent(`${this.volumePath.mount}/backup/${type}`)}/${'B'}/${0}/${true}/${name}`);
         this.backupItem = this.backupFile.data?.data;
         if (Array.isArray(this.backupItem)) {
           this.BackupItem = {
@@ -6648,6 +7511,14 @@ export default {
     allDownloadsCompleted() {
       return this.computedFileProgress.every((item) => item.progress === 100);
     },
+    allDownloadsCompletedVolume() {
+      if (this.computedFileProgressVolume.every((item) => item.progress === 100)) {
+        setTimeout(() => {
+          this.fileProgressVolume = this.fileProgressVolume.filter((item) => item.progress !== 100.00);
+        }, 5000);
+      }
+      return this.computedFileProgressVolume.every((item) => item.progress === 100);
+    },
     updateFileProgress(currentFileName, currentFileProgress, loaded, total, name) {
       this.$nextTick(() => {
         const currentIndex = this.fileProgress.findIndex((entry) => entry.fileName === name);
@@ -6655,6 +7526,16 @@ export default {
           this.$set(this.fileProgress, currentIndex, { fileName: name, progress: currentFileProgress });
         } else {
           this.fileProgress.push({ fileName: name, progress: currentFileProgress });
+        }
+      });
+    },
+    updateFileProgressVolume(currentFileName, currentFileProgress) {
+      this.$nextTick(() => {
+        const currentIndex = this.fileProgressVolume.findIndex((entry) => entry.fileName === currentFileName);
+        if (currentIndex !== -1) {
+          this.$set(this.fileProgressVolume, currentIndex, { fileName: currentFileName, progress: currentFileProgress });
+        } else {
+          this.fileProgressVolume.push({ fileName: currentFileName, progress: currentFileProgress });
         }
       });
     },
@@ -6666,18 +7547,17 @@ export default {
       }
     },
     async deleteLocalBackup(name, restoreItem, filepath = 0) {
-      const zelidauth = localStorage.getItem('zelidauth');
       if (filepath === 0) {
         // eslint-disable-next-line no-restricted-syntax
         for (const fileData of restoreItem) {
           const filePath = fileData.file;
           // eslint-disable-next-line no-await-in-loop
-          await BackupRestoreService.removeBackupFile(zelidauth, encodeURIComponent(filePath), this.appName);
+          await this.executeLocalCommand(`/backup/removebackupfile/${encodeURIComponent(filePath)}/${this.appName}`);
         }
         this.backupList = [];
         this.backupToUpload = [];
       } else {
-        this.status = await BackupRestoreService.removeBackupFile(zelidauth, encodeURIComponent(filepath), this.appName);
+        this.status = await this.executeLocalCommand(`/backup/removebackupfile/${encodeURIComponent(filepath)}/${this.appName}`);
         const backupIndex = restoreItem.findIndex((item) => item.component === name);
         restoreItem.splice(backupIndex, 1);
       }
@@ -6710,7 +7590,7 @@ export default {
             const { file } = backup;
             const fileNameArray = file.split('/');
             const fileName = fileNameArray[fileNameArray.length - 1];
-            const response = await BackupRestoreService.justAPI().get(`/backup/downloadlocalfile/${encodeURIComponent(file)}/${self.appName}`, axiosConfig);
+            const response = await this.executeLocalCommand(`/backup/downloadlocalfile/${encodeURIComponent(file)}/${self.appName}`, null, axiosConfig);
             const blob = new Blob([response.data]);
             const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
@@ -6761,24 +7641,7 @@ export default {
           return;
         }
       }
-      const { protocol, hostname, port } = window.location;
-      let mybackend = '';
       let consoleInit = 0;
-      mybackend += protocol;
-      mybackend += '//';
-      const regex = /[A-Za-z]/g;
-      if (hostname.match(regex)) {
-        const names = hostname.split('.');
-        names[0] = 'api';
-        mybackend += names.join('.');
-      } else {
-        mybackend += hostname;
-        mybackend += ':';
-        mybackend += (+port + 1) || this.config.apiPort;
-      }
-
-      const backendURL = store.get('backendURL') || mybackend;
-
       if (this.selectedApp || this.appSpecification.version <= 3) {
         if (this.selectedCmd === null) {
           this.showToast('danger', 'No command selected.');
@@ -6812,8 +7675,14 @@ export default {
         },
       });
 
+      const url = this.selectedIp.split(':')[0];
+      const urlPort = this.selectedIp.split(':')[1] || 16127;
       const zelidauth = localStorage.getItem('zelidauth');
-      this.socket = io.connect(backendURL);
+      let queryUrl = `https://${url.replace(/\./g, '-')}-${urlPort}.node.api.runonflux.io`;
+      if (this.ipAccess) {
+        queryUrl = `http://${url}:${urlPort}`;
+      }
+      this.socket = io.connect(queryUrl);
 
       let userValue = '';
       if (this.enableUser) {
@@ -6942,6 +7811,7 @@ export default {
           }
         }
       } catch (error) {
+        this.generalMultiplier = 10;
         console.log(error);
       }
     },
@@ -6954,7 +7824,7 @@ export default {
         this.showToast('danger', response.data.data.message || response.data.data);
       }
     },
-    updateManagementTab(index) {
+    async updateManagementTab(index) {
       this.callResponse.data = '';
       this.callResponse.status = '';
       // do not reset global application specifics obtained
@@ -6965,9 +7835,18 @@ export default {
       if (index !== 11) {
         this.disconnectTerminal();
       }
-
+      if (!this.selectedIp) {
+        await this.getInstancesForDropDown();
+        await this.getInstalledApplicationSpecifics();
+        this.getApplicationLocations().catch(() => {
+          this.isBusy = false;
+          this.showToast('danger', 'Error loading application locations');
+        });
+      }
+      this.getApplicationManagementAndStatus();
       switch (index) {
         case 1:
+          // this.getInstancesForDropDown();
           this.getInstalledApplicationSpecifics();
           this.getGlobalApplicationSpecifics();
           break;
@@ -6994,24 +7873,20 @@ export default {
           this.applyFilter();
           this.loadBackupList();
           break;
-        case 13:
-          this.getGlobalApplicationSpecifics();
-          break;
-        case 14:
-          this.getZelidAuthority();
+        case 11:
+          if (!this.appSpecification?.compose || this.appSpecification?.compose?.length === 1) {
+            this.refreshFolder();
+          }
           break;
         case 15:
-          this.getApplicationLocations();
-          break;
-        case 16:
-          this.getGlobalApplicationSpecifics();
+          this.getZelidAuthority();
           break;
         default:
           break;
       }
     },
     async appsGetListAllApps() {
-      const response = await AppsService.listAllApps();
+      const response = await this.executeLocalCommand('/apps/listallapps');
       console.log(response);
       this.getAllAppsResponse.status = response.data.status;
       this.getAllAppsResponse.data = response.data.data;
@@ -7019,8 +7894,31 @@ export default {
     goBackToApps() {
       this.$emit('back');
     },
+    async initSignFluxSSO() {
+      try {
+        const message = this.dataToSign;
+        const firebaseUser = getUser();
+        if (!firebaseUser) {
+          this.showToast('warning', 'Not logged in as SSO. Login with SSO or use different signing method.');
+          return;
+        }
+        const token = firebaseUser.auth.currentUser.accessToken;
+        const headers = {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        };
+        const signSSO = await axios.post('https://service.fluxcore.ai/api/signMessage', { message }, { headers });
+        if (signSSO.data?.status !== 'success' && signSSO.data?.signature) {
+          this.showToast('warning', 'Failed to sign message, please try again.');
+          return;
+        }
+        this.signature = signSSO.data.signature;
+      } catch (error) {
+        this.showToast('warning', 'Failed to sign message, please try again.');
+      }
+    },
     async initiateSignWSUpdate() {
-      if (this.dataToSign.length > 180000) {
+      if (this.dataToSign.length > 1800) {
         const message = this.dataToSign;
         // upload to flux storage
         const data = {
@@ -7042,7 +7940,16 @@ export default {
       mybackend += protocol;
       mybackend += '//';
       const regex = /[A-Za-z]/g;
-      if (hostname.match(regex)) {
+      if (hostname.split('-')[4]) { // node specific domain
+        const splitted = hostname.split('-');
+        const names = splitted[4].split('.');
+        const adjP = +names[0] + 1;
+        names[0] = adjP.toString();
+        names[2] = 'api';
+        splitted[4] = '';
+        mybackend += splitted.join('-');
+        mybackend += names.join('.');
+      } else if (hostname.match(regex)) { // home.runonflux.io -> api.runonflux.io
         const names = hostname.split('.');
         names[0] = 'api';
         mybackend += names.join('.');
@@ -7091,18 +7998,20 @@ export default {
     },
 
     async getInstalledApplicationSpecifics() {
-      const response = await AppsService.getInstalledAppSpecifics(this.appName);
+      const response = await this.executeLocalCommand(`/apps/installedapps/${this.appName}`);
       console.log(response);
-      if (response.data.status === 'error' || !response.data.data[0]) {
-        this.showToast('danger', response.data.data.message || response.data.data);
-      } else {
-        this.callResponse.status = response.data.status;
-        this.callResponse.data = response.data.data[0];
-        this.appSpecification = response.data.data[0];
-        // /* eslint-disable no-restricted-syntax */
-        // if (this.apps.length === 1) {
-        // this.apps = this.appSpecification.compose.map((component) => component.name); // Update apps array
-        // }
+      if (response) {
+        if (response.data.status === 'error' || !response.data.data[0]) {
+          this.showToast('danger', response.data.data.message || response.data.data);
+        } else {
+          this.callResponse.status = response.data.status;
+          this.callResponse.data = response.data.data[0];
+          this.appSpecification = response.data.data[0];
+          // /* eslint-disable no-restricted-syntax */
+          // if (this.apps.length === 1) {
+          // this.apps = this.appSpecification.compose.map((component) => component.name); // Update apps array
+          // }
+        }
       }
     },
     getExpirePosition(value) {
@@ -7171,7 +8080,8 @@ export default {
             component.repoauth = this.ensureString(component.repoauth || '');
           });
           if (this.appUpdateSpecification.version >= 6) {
-            this.appUpdateSpecification.expire = this.ensureNumber(specs.expire || 22000);
+            const expireOption = this.expireOptions.find((opt) => opt.value >= (specs.expire || 22000));
+            this.appUpdateSpecification.expire = this.ensureNumber(expireOption.value);
             this.expirePosition = this.getExpirePosition(this.appUpdateSpecification.expire);
           }
           if (this.appUpdateSpecification.version >= 7) {
@@ -7249,6 +8159,15 @@ export default {
       }
     },
     convertExpire() {
+      if (!this.extendSubscription) {
+        const expires = this.callBResponse.data.expire || 22000;
+        const blocksToExpire = this.callBResponse.data.height + expires - this.daemonBlockCount;
+        if (blocksToExpire < 5000) {
+          throw new Error('Your application will expire in less than one week, you need to extend subscription to be able to update specifications');
+        } else {
+          return Math.ceil(blocksToExpire / 1000) * 1000;
+        }
+      }
       if (this.expireOptions[this.expirePosition]) {
         return this.expireOptions[this.expirePosition].value;
       }
@@ -7303,6 +8222,9 @@ export default {
           // time to encrypt
           // eslint-disable-next-line no-restricted-syntax
           for (const component of this.appUpdateSpecification.compose) {
+            component.environmentParameters = component.environmentParameters.replace('\\“', '\\"');
+            component.commands = component.commands.replace('\\“', '\\"');
+            component.domains = component.domains.replace('\\“', '\\"');
             if (component.secrets && !component.secrets.startsWith('-----BEGIN PGP MESSAGE')) {
               // need encryption
               // eslint-disable-next-line no-await-in-loop
@@ -7338,6 +8260,7 @@ export default {
           appSpecification.geolocation = this.generateGeolocations();
         }
         if (appSpecification.version >= 6) {
+          await this.getDaemonBlockCount();
           appSpecification.expire = this.convertExpire();
         }
         // call api for verification of app registration specifications that returns formatted specs
@@ -7346,13 +8269,33 @@ export default {
           throw new Error(responseAppSpecs.data.data.message || responseAppSpecs.data.data);
         }
         const appSpecFormatted = responseAppSpecs.data.data;
-        const response = await AppsService.appPrice(appSpecFormatted);
         this.appPricePerSpecs = 0;
+        this.appPricePerSpecsUSD = 0;
+        this.applicationPriceFluxDiscount = '';
+        this.applicationPriceFluxError = false;
+        this.freeUpdate = false;
+
+        const response = await AppsService.appPriceUSDandFlux(appSpecFormatted);
         if (response.data.status === 'error') {
           throw new Error(response.data.data.message || response.data.data);
         }
-        this.appPricePerSpecs = (Math.ceil(((+response.data.data * this.priceMultiplier) * 100))) / 100;
-        this.timestamp = new Date().getTime();
+        this.appPricePerSpecsUSD = +response.data.data.usd;
+        console.log(response.data.data);
+        if (!this.extendSubscription && this.appPricePerSpecsUSD <= 0.50) {
+          this.freeUpdate = true;
+        } else if (Number.isNaN(+response.data.data.fluxDiscount)) {
+          this.applicationPriceFluxError = true;
+          this.showToast('danger', 'Not possible to complete payment with Flux crypto currency');
+        } else {
+          this.appPricePerSpecs = +response.data.data.flux;
+          this.applicationPriceFluxDiscount = +response.data.data.fluxDiscount;
+        }
+
+        const marketPlaceApp = this.marketPlaceApps.find((app) => this.appUpdateSpecification.name.toLowerCase().startsWith(app.name.toLowerCase()));
+        if (marketPlaceApp) {
+          this.isMarketplaceApp = true;
+        }
+        this.timestamp = Date.now();
         this.dataForAppUpdate = appSpecFormatted;
         this.dataToSign = this.updatetype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp;
       } catch (error) {
@@ -7364,7 +8307,6 @@ export default {
 
     async appExecute(name = this.appSpecification.name) {
       try {
-        const zelidauth = localStorage.getItem('zelidauth');
         if (!this.appExec.cmd) {
           this.showToast('danger', 'No commands specified');
           return;
@@ -7373,7 +8315,12 @@ export default {
         const { cmd } = this.appExec;
         this.commandExecuting = true;
         console.log('here');
-        const response = await AppsService.getAppExec(zelidauth, name, splitargs(cmd), env);
+        const data = {
+          appname: name,
+          cmd: splitargs(cmd),
+          env: JSON.parse(env),
+        };
+        const response = await this.executeLocalCommand('/apps/appexec/', data);
         console.log(response);
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data);
@@ -7400,12 +8347,6 @@ export default {
         this.showToast('danger', error.message || error);
       }
     },
-
-    cancelDownload() {
-      this.abortToken.cancel('User download cancelled');
-      this.downloaded = '';
-      this.total = '';
-    },
     async downloadApplicationLog(appName) {
       const self = this;
       this.downloaded = '';
@@ -7420,6 +8361,12 @@ export default {
         onDownloadProgress(progressEvent) {
           self.downloaded = progressEvent.loaded;
           self.total = progressEvent.total;
+          if (self.downloaded === self.total) {
+            setTimeout(() => {
+              self.downloaded = '';
+              self.total = '';
+            }, 5000);
+          }
         },
         // cancelToken: self.abortToken.token,
       };
@@ -7455,7 +8402,6 @@ export default {
     },
 
     async getApplicationInspect() {
-      const zelidauth = localStorage.getItem('zelidauth');
       const callData = [];
       this.commandExecuting = true;
       if (this.appSpecification.version >= 4) {
@@ -7463,7 +8409,7 @@ export default {
         // eslint-disable-next-line no-restricted-syntax
         for (const component of this.appSpecification.compose) {
           // eslint-disable-next-line no-await-in-loop
-          const response = await AppsService.getAppInspect(zelidauth, `${component.name}_${this.appSpecification.name}`);
+          const response = await this.executeLocalCommand(`/apps/appinspect/${component.name}_${this.appSpecification.name}`);
           if (response.data.status === 'error') {
             this.showToast('danger', response.data.data.message || response.data.data);
           } else {
@@ -7475,7 +8421,7 @@ export default {
           }
         }
       } else {
-        const response = await AppsService.getAppInspect(zelidauth, this.appName);
+        const response = await this.executeLocalCommand(`/apps/appinspect/${this.appName}`);
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data);
         } else {
@@ -7492,7 +8438,6 @@ export default {
       this.callResponse.data = callData;
     },
     async getApplicationStats() {
-      const zelidauth = localStorage.getItem('zelidauth');
       const callData = [];
       this.commandExecuting = true;
       if (this.appSpecification.version >= 4) {
@@ -7500,7 +8445,7 @@ export default {
         // eslint-disable-next-line no-restricted-syntax
         for (const component of this.appSpecification.compose) {
           // eslint-disable-next-line no-await-in-loop
-          const response = await AppsService.getAppStats(zelidauth, `${component.name}_${this.appSpecification.name}`);
+          const response = await this.executeLocalCommand(`/apps/appstats/${component.name}_${this.appSpecification.name}`);
           if (response.data.status === 'error') {
             this.showToast('danger', response.data.data.message || response.data.data);
           } else {
@@ -7512,7 +8457,7 @@ export default {
           }
         }
       } else {
-        const response = await AppsService.getAppStats(zelidauth, this.appName);
+        const response = await this.executeLocalCommand(`/apps/appstats/${this.appName}`);
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data);
         } else {
@@ -7529,14 +8474,13 @@ export default {
       this.callResponse.data = callData;
     },
     async getApplicationMonitoring() {
-      const zelidauth = localStorage.getItem('zelidauth');
       const callData = [];
       if (this.appSpecification.version >= 4) {
         // compose
         // eslint-disable-next-line no-restricted-syntax
         for (const component of this.appSpecification.compose) {
           // eslint-disable-next-line no-await-in-loop
-          const response = await AppsService.getAppMonitoring(zelidauth, `${component.name}_${this.appSpecification.name}`);
+          const response = await this.executeLocalCommand(`/apps/appmonitor/${component.name}_${this.appSpecification.name}`);
           if (response.data.status === 'error') {
             this.showToast('danger', response.data.data.message || response.data.data);
           } else {
@@ -7548,7 +8492,7 @@ export default {
           }
         }
       } else {
-        const response = await AppsService.getAppMonitoring(zelidauth, this.appName);
+        const response = await this.executeLocalCommand(`/apps/appmonitor/${this.appName}`);
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data);
         } else {
@@ -7604,8 +8548,12 @@ export default {
     async stopMonitoring(appName, deleteData = false) {
       this.output = '';
       this.showToast('warning', `Stopping Monitoring of ${appName}`);
-      const zelidauth = localStorage.getItem('zelidauth');
-      const response = await AppsService.stopAppMonitoring(zelidauth, appName, deleteData);
+      let response;
+      if (deleteData) {
+        response = await this.executeLocalCommand(`/apps/stopmonitoring/${appName}/true`);
+      } else {
+        response = await this.executeLocalCommand(`/apps/stopmonitoring/${appName}`);
+      }
       if (response.data.status === 'success') {
         this.showToast('success', response.data.data.message || response.data.data);
       } else {
@@ -7616,8 +8564,7 @@ export default {
     async startMonitoring(appName) {
       this.output = '';
       this.showToast('warning', `Starting Monitoring of ${appName}`);
-      const zelidauth = localStorage.getItem('zelidauth');
-      const response = await AppsService.startAppMonitoring(zelidauth, appName);
+      const response = await this.executeLocalCommand(`/apps/startmonitoring/${appName}`);
       if (response.data.status === 'success') {
         this.showToast('success', response.data.data.message || response.data.data);
       } else {
@@ -7626,7 +8573,6 @@ export default {
       console.log(response);
     },
     async getApplicationChanges() {
-      const zelidauth = localStorage.getItem('zelidauth');
       const callData = [];
       this.commandExecuting = true;
       if (this.appSpecification.version >= 4) {
@@ -7634,7 +8580,7 @@ export default {
         // eslint-disable-next-line no-restricted-syntax
         for (const component of this.appSpecification.compose) {
           // eslint-disable-next-line no-await-in-loop
-          const response = await AppsService.getAppChanges(zelidauth, `${component.name}_${this.appSpecification.name}`);
+          const response = await this.executeLocalCommand(`/apps/appchanges/${component.name}_${this.appSpecification.name}`);
           if (response.data.status === 'error') {
             this.showToast('danger', response.data.data.message || response.data.data);
           } else {
@@ -7646,7 +8592,7 @@ export default {
           }
         }
       } else {
-        const response = await AppsService.getAppChanges(zelidauth, this.appName);
+        const response = await this.executeLocalCommand(`/apps/appchanges/${this.appName}`);
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data);
         } else {
@@ -7663,7 +8609,6 @@ export default {
       this.callResponse.data = callData;
     },
     async getApplicationProcesses() {
-      const zelidauth = localStorage.getItem('zelidauth');
       const callData = [];
       this.commandExecuting = true;
       if (this.appSpecification.version >= 4) {
@@ -7671,7 +8616,7 @@ export default {
         // eslint-disable-next-line no-restricted-syntax
         for (const component of this.appSpecification.compose) {
           // eslint-disable-next-line no-await-in-loop
-          const response = await AppsService.getAppTop(zelidauth, `${component.name}_${this.appSpecification.name}`);
+          const response = await this.executeLocalCommand(`/apps/apptop/${component.name}_${this.appSpecification.name}`);
           if (response.data.status === 'error') {
             this.showToast('danger', response.data.data.message || response.data.data);
           } else {
@@ -7683,7 +8628,7 @@ export default {
           }
         }
       } else {
-        const response = await AppsService.getAppTop(zelidauth, this.appName);
+        const response = await this.executeLocalCommand(`/apps/apptop/${this.appName}`);
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data);
         } else {
@@ -7700,14 +8645,13 @@ export default {
       this.callResponse.data = callData;
     },
     async getApplicationLogs() {
-      const zelidauth = localStorage.getItem('zelidauth');
       const callData = [];
       if (this.appSpecification.version >= 4) {
         // compose
         // eslint-disable-next-line no-restricted-syntax
         for (const component of this.appSpecification.compose) {
           // eslint-disable-next-line no-await-in-loop
-          const response = await AppsService.getAppLogsTail(zelidauth, `${component.name}_${this.appSpecification.name}`);
+          const response = await this.executeLocalCommand(`/apps/applog/${component.name}_${this.appSpecification.name}/100`);
           if (response.data.status === 'error') {
             this.showToast('danger', response.data.data.message || response.data.data);
           } else {
@@ -7719,7 +8663,7 @@ export default {
           }
         }
       } else {
-        const response = await AppsService.getAppLogsTail(zelidauth, this.appName);
+        const response = await this.executeLocalCommand(`/apps/applog/${this.appName}/100`);
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data);
         } else {
@@ -7734,38 +8678,16 @@ export default {
       this.callResponse.status = 'success';
       this.callResponse.data = callData;
     },
-    async getApplicationLocations() {
+    async getInstancesForDropDown() {
       const response = await AppsService.getAppLocation(this.appName);
+      this.selectedIp = null;
       console.log(response);
       if (response.data.status === 'error') {
         this.showToast('danger', response.data.data.message || response.data.data);
       } else {
+        this.masterIP = null;
+        this.instances.data = [];
         this.instances.data = response.data.data;
-        // eslint-disable-next-line no-restricted-syntax
-        for (const node of this.instances.data) {
-          const ip = node.ip.split(':')[0];
-          const port = node.ip.split(':')[1] || 16127;
-          const url = `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/flux/geolocation`;
-          let errorFluxOs = false;
-          // eslint-disable-next-line no-await-in-loop
-          const fluxGeo = await axios.get(url).catch((error) => {
-            errorFluxOs = true;
-            console.log(`Error geting geolocation from ${ip}:${port} : ${error}`);
-            node.continent = 'N/A';
-            node.country = 'N/A';
-            node.region = 'N/A';
-          });
-          if (!errorFluxOs && fluxGeo.data.status === 'success' && fluxGeo.data.data.continent) {
-            node.continent = fluxGeo.data.data.continent;
-            node.country = fluxGeo.data.data.country;
-            node.region = fluxGeo.data.data.regionName;
-          } else {
-            node.continent = 'N/A';
-            node.country = 'N/A';
-            node.region = 'N/A';
-          }
-        }
-        this.instances.totalRows = this.instances.data.length;
         if (this.masterSlaveApp) {
           const url = `https://${this.appName}.app.runonflux.io/fluxstatistics?scope=${this.appName};json;norefresh`;
           let errorFdm = false;
@@ -7783,11 +8705,86 @@ export default {
             const ipElement = fdmData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
             if (ipElement) {
               this.masterIP = ipElement.value.value.split(':')[0];
+              if (!this.selectedIp) {
+                if (ipElement.value.value.split(':')[1] === '16127') {
+                  this.selectedIp = ipElement.value.value.split(':')[0];
+                } else {
+                  this.selectedIp = ipElement.value.value;
+                }
+              }
               return;
             }
           }
+          if (!this.selectedIp) {
+            this.selectedIp = this.instances.data[0].ip;
+          }
           this.masterIP = 'Defining New Primary In Progress';
+        } else if (!this.selectedIp) {
+          this.selectedIp = this.instances.data[0].ip;
         }
+        console.log(this.ipAccess);
+        if (this.ipAccess) {
+          const withoutProtocol = this.ipAddress.replace('http://', '');
+          const desiredIP = this.config.apiPort === 16127 ? withoutProtocol : `${withoutProtocol}:${this.config.apiPort}`;
+          const matchingInstances = this.instances.data.filter((instance) => instance.ip === desiredIP);
+          if (matchingInstances.length > 0) {
+            this.selectedIp = desiredIP;
+          }
+        } else {
+          const regex = /https:\/\/(\d+-\d+-\d+-\d+)-(\d+)/;
+          const match = this.ipAddress.match(regex);
+          if (match) {
+            const ip = match[1].replace(/-/g, '.');
+            const desiredIP = this.config.apiPort === 16127 ? ip : `${ip}:${this.config.apiPort}`;
+            const matchingInstances = this.instances.data.filter((instance) => instance.ip === desiredIP);
+            if (matchingInstances.length > 0) {
+              this.selectedIp = desiredIP;
+            }
+          }
+        }
+        this.instances.totalRows = this.instances.data.length;
+      }
+    },
+    async getApplicationLocations() {
+      this.isBusy = true;
+      const response = await AppsService.getAppLocation(this.appName);
+      console.log(response);
+      if (response.data.status === 'error') {
+        this.showToast('danger', response.data.data.message || response.data.data);
+      } else {
+        this.masterIP = null;
+        this.instances.data = [];
+        this.instances.data = response.data.data;
+        // eslint-disable-next-line no-restricted-syntax
+        for (const node of this.instances.data) {
+          const ip = node.ip.split(':')[0];
+          const port = node.ip.split(':')[1] || 16127;
+          let url = `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/flux/geolocation`;
+          if (this.ipAccess) {
+            url = `http://${ip}:${port}/flux/geolocation`;
+          }
+          let errorFluxOs = false;
+          // eslint-disable-next-line no-await-in-loop
+          const fluxGeo = await axios.get(url).catch((error) => {
+            errorFluxOs = true;
+            console.log(`Error geting geolocation from ${ip}:${port} : ${error}`);
+            node.continent = 'N/A';
+            node.country = 'N/A';
+            node.region = 'N/A';
+          });
+          if (!errorFluxOs && fluxGeo.data?.status === 'success' && fluxGeo.data.data?.continent) {
+            node.continent = fluxGeo.data.data.continent;
+            node.country = fluxGeo.data.data.country;
+            node.region = fluxGeo.data.data.regionName;
+          } else {
+            node.continent = 'N/A';
+            node.country = 'N/A';
+            node.region = 'N/A';
+          }
+        }
+        this.instances.totalRows = this.instances.data.length;
+        this.tableKey += 1;
+        this.isBusy = false;
       }
     },
     async getAppOwner() {
@@ -7802,8 +8799,7 @@ export default {
     async stopApp(app) {
       this.output = '';
       this.showToast('warning', `Stopping ${app}`);
-      const zelidauth = localStorage.getItem('zelidauth');
-      const response = await AppsService.stopApp(zelidauth, app);
+      const response = await this.executeLocalCommand(`/apps/appstop/${app}`);
       if (response.data.status === 'success') {
         this.showToast('success', response.data.data.message || response.data.data);
       } else {
@@ -7815,8 +8811,7 @@ export default {
     async startApp(app) {
       this.output = '';
       this.showToast('warning', `Starting ${app}`);
-      const zelidauth = localStorage.getItem('zelidauth');
-      const response = await AppsService.startApp(zelidauth, app);
+      const response = await this.executeLocalCommand(`/apps/appstart/${app}`);
       if (response.data.status === 'success') {
         this.showToast('success', response.data.data.message || response.data.data);
       } else {
@@ -7828,8 +8823,7 @@ export default {
     async restartApp(app) {
       this.output = '';
       this.showToast('warning', `Restarting ${app}`);
-      const zelidauth = localStorage.getItem('zelidauth');
-      const response = await AppsService.restartApp(zelidauth, app);
+      const response = await this.executeLocalCommand(`/apps/apprestart/${app}`);
       if (response.data.status === 'success') {
         this.showToast('success', response.data.data.message || response.data.data);
       } else {
@@ -7841,8 +8835,7 @@ export default {
     async pauseApp(app) {
       this.output = '';
       this.showToast('warning', `Pausing ${app}`);
-      const zelidauth = localStorage.getItem('zelidauth');
-      const response = await AppsService.pauseApp(zelidauth, app);
+      const response = await this.executeLocalCommand(`/apps/apppause/${app}`);
       if (response.data.status === 'success') {
         this.showToast('success', response.data.data.message || response.data.data);
       } else {
@@ -7854,8 +8847,7 @@ export default {
     async unpauseApp(app) {
       this.output = '';
       this.showToast('warning', `Unpausing ${app}`);
-      const zelidauth = localStorage.getItem('zelidauth');
-      const response = await AppsService.unpauseApp(zelidauth, app);
+      const response = await this.executeLocalCommand(`/apps/appunpause/${app}`);
       if (response.data.status === 'success') {
         this.showToast('success', response.data.data.message || response.data.data);
       } else {
@@ -7884,7 +8876,7 @@ export default {
           self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
         },
       };
-      const response = await AppsService.justAPI().get(`/apps/redeploy/${app}/${force}`, axiosConfig);
+      const response = await this.executeLocalCommand(`/apps/redeploy/${app}/${force}`, null, axiosConfig);
       if (response.data.status === 'error') {
         this.showToast('danger', response.data.data.message || response.data.data);
       } else {
@@ -7912,7 +8904,7 @@ export default {
           self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
         },
       };
-      const response = await AppsService.justAPI().get(`/apps/appremove/${app}`, axiosConfig);
+      const response = await this.executeLocalCommand(`/apps/appremove/${app}`, null, axiosConfig);
       if (response.data.status === 'error') {
         this.showToast('danger', response.data.data.message || response.data.data);
       } else {
@@ -7933,7 +8925,7 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth');
       this.globalZelidAuthorized = false;
       const auth = qs.parse(zelidauth);
-      const timestamp = new Date().getTime();
+      const timestamp = Date.now();
       const maxHours = 1.5 * 60 * 60 * 1000;
       const mesTime = auth.loginPhrase.substring(0, 13);
       if (+mesTime < (timestamp - maxHours)) {
@@ -7946,6 +8938,40 @@ export default {
       return new Promise((resolve) => {
         setTimeout(resolve, ms);
       });
+    },
+    async executeLocalCommand(command, postObject, axiosConfigAux) {
+      try {
+        const zelidauth = localStorage.getItem('zelidauth');
+        let axiosConfig = axiosConfigAux;
+        if (!axiosConfig) {
+          axiosConfig = {
+            headers: {
+              zelidauth,
+            },
+          };
+        }
+        this.getZelidAuthority();
+        if (!this.globalZelidAuthorized) {
+          throw new Error('Session expired. Please log into FluxOS again');
+        }
+
+        const url = this.selectedIp.split(':')[0];
+        const urlPort = this.selectedIp.split(':')[1] || 16127;
+        let response = null;
+        let queryUrl = `https://${url.replace(/\./g, '-')}-${urlPort}.node.api.runonflux.io${command}`;
+        if (this.ipAccess) {
+          queryUrl = `http://${url}:${urlPort}${command}`;
+        }
+        if (postObject) {
+          response = await axios.post(queryUrl, postObject, axiosConfig);
+        } else {
+          response = await axios.get(queryUrl, axiosConfig);
+        }
+        return response;
+      } catch (error) {
+        this.showToast('danger', error.message || error);
+        return null;
+      }
     },
     async executeCommand(app, command, warningText, parameter) {
       try {
@@ -8181,7 +9207,10 @@ export default {
         if (entry.data.networks.eth0) {
           net = `${(entry.data.networks.eth0.rx_bytes / 1e9).toFixed(2)} / ${(entry.data.networks.eth0.tx_bytes / 1e9).toFixed(2)} GB`;
         }
-        const block = `${(entry.data.blkio_stats.io_service_bytes_recursive.find((x) => x.op.toLowerCase() === 'read').value / 1e9).toFixed(2)} / ${(entry.data.blkio_stats.io_service_bytes_recursive.find((x) => x.op.toLowerCase() === 'write').value / 1e9).toFixed(2)} GB`;
+        let block = '0.00 / 0.00 GB';
+        if (Array.isArray(entry.data.blkio_stats.io_service_bytes_recursive) && entry.data.blkio_stats.io_service_bytes_recursive.length !== 0) {
+          block = `${(entry.data.blkio_stats.io_service_bytes_recursive.find((x) => x.op.toLowerCase() === 'read').value / 1e9).toFixed(2)} / ${(entry.data.blkio_stats.io_service_bytes_recursive.find((x) => x.op.toLowerCase() === 'write').value / 1e9).toFixed(2)} GB`;
+        }
         let disk = '0 / 0 GB';
         if (entry.data.disk_stats) {
           disk = `${(entry.data.disk_stats.used / 1e9).toFixed(2)} / ${(specifications.hdd).toFixed(2)} GB, ${((entry.data.disk_stats.used / (specifications.hdd * 1e9)) * 100).toFixed(2)}%`;
@@ -8307,7 +9336,7 @@ export default {
         });
 
         // fetch locations from stats
-        const response = await axios.get('https://stats.runonflux.io/fluxinfo?projection=geolocation');
+        const response = await axios.get('https://stats.runonflux.io/fluxinfo?projection=geo');
         if (response.data.status === 'success') {
           const geoData = response.data.data;
           if (geoData.length > 5000) { // all went well
@@ -8683,6 +9712,12 @@ export default {
         console.log(error);
       }
     },
+    async getDaemonBlockCount() {
+      const response = await DaemonService.getBlockCount();
+      if (response.data.status === 'success') {
+        this.daemonBlockCount = response.data.data;
+      }
+    },
     async fetchEnterpriseKey(nodeip) { // we must have at least +5 nodes or up to 10% of spare keys
       try {
         const node = nodeip.split(':')[0];
@@ -8690,7 +9725,11 @@ export default {
         // const agent = new https.Agent({
         //   rejectUnauthorized: false,
         // });
-        const response = await axios.get(`https://${node.replace(/\./g, '-')}-${port}.node.api.runonflux.io/flux/pgp`); // ip with port
+        let queryUrl = `https://${node.replace(/\./g, '-')}-${port}.node.api.runonflux.io/flux/pgp`;
+        if (this.ipAccess) {
+          queryUrl = `http://${node}:${port}/flux/pgp`;
+        }
+        const response = await axios.get(queryUrl); // ip with port
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data);
         } else {
@@ -8829,11 +9868,151 @@ export default {
         this.showToast('danger', error.message);
       }
     },
+    async initStripePay(hash, name, price, description) {
+      try {
+        this.fiatCheckoutURL = '';
+        this.checkoutLoading = true;
+        const zelidauth = localStorage.getItem('zelidauth');
+        const auth = qs.parse(zelidauth);
+        const data = {
+          zelid: auth.zelid,
+          signature: auth.signature,
+          loginPhrase: auth.loginPhrase,
+          details: {
+            name,
+            description,
+            hash,
+            price,
+            productName: name,
+            success_url: 'https://home.runonflux.io/successcheckout',
+            cancel_url: 'https://home.runonflux.io',
+            kpi: {
+              origin: 'FluxOS',
+              marketplace: this.isMarketplaceApp,
+              registration: false,
+            },
+          },
+        };
+        const checkoutURL = await axios.post(`${paymentBridge}/api/v1/stripe/checkout/create`, data);
+        if (checkoutURL.data.status === 'error') {
+          this.showToast('error', 'Failed to create stripe checkout');
+          this.checkoutLoading = false;
+          return;
+        }
+        this.fiatCheckoutURL = checkoutURL.data.data;
+        this.checkoutLoading = false;
+        this.openSite(checkoutURL.data.data);
+      } catch (error) {
+        this.showToast('error', 'Failed to create stripe checkout');
+        this.checkoutLoading = false;
+      }
+    },
+    async initPaypalPay(hash, name, price, description) {
+      try {
+        this.fiatCheckoutURL = '';
+        this.checkoutLoading = true;
+        const zelidauth = localStorage.getItem('zelidauth');
+        const auth = qs.parse(zelidauth);
+        const data = {
+          zelid: auth.zelid,
+          signature: auth.signature,
+          loginPhrase: auth.loginPhrase,
+          details: {
+            name,
+            description,
+            hash,
+            price,
+            productName: name,
+            return_url: 'home.runonflux.io/successcheckout',
+            cancel_url: 'home.runonflux.io',
+            kpi: {
+              origin: 'FluxOS',
+              marketplace: this.isMarketplaceApp,
+              registration: false,
+            },
+          },
+        };
+        const checkoutURL = await axios.post(`${paymentBridge}/api/v1/paypal/checkout/create`, data);
+        if (checkoutURL.data.status === 'error') {
+          this.showToast('error', 'Failed to create PayPal checkout');
+          this.checkoutLoading = false;
+          return;
+        }
+        this.fiatCheckoutURL = checkoutURL.data.data;
+        this.checkoutLoading = false;
+        this.openSite(checkoutURL.data.data);
+      } catch (error) {
+        this.showToast('error', 'Failed to create PayPal checkout');
+        this.checkoutLoading = false;
+      }
+    },
+    async getApplicationManagementAndStatus() {
+      if (this.selectedIp) {
+        await this.appsGetListAllApps();
+        console.log(this.getAllAppsResponse);
+        const foundAppInfo = this.getAllAppsResponse.data.find((app) => app.Names[0] === this.getAppDockerNameIdentifier()) || {};
+        const appInfo = {
+          name: this.appName,
+          state: foundAppInfo.State || 'Unknown state',
+          status: foundAppInfo.Status || 'Unknown status',
+        };
+        this.appInfoObject.push(appInfo);
+        appInfo.state = appInfo.state.charAt(0).toUpperCase() + appInfo.state.slice(1);
+        appInfo.status = appInfo.status.charAt(0).toUpperCase() + appInfo.status.slice(1);
+        let niceString = `${appInfo.name} - ${appInfo.state} - ${appInfo.status}`;
+        if (this.appSpecification) {
+          if (this.appSpecification.version >= 4) {
+            niceString = `${this.appSpecification.name}:`;
+            // eslint-disable-next-line no-restricted-syntax
+            for (const component of this.appSpecification.compose) {
+              const foundAppInfoComponent = this.getAllAppsResponse.data.find((app) => app.Names[0] === this.getAppDockerNameIdentifier(`${component.name}_${this.appSpecification.name}`)) || {};
+              const appInfoComponent = {
+                name: component.name,
+                state: foundAppInfoComponent.State || 'Unknown state',
+                status: foundAppInfoComponent.Status || 'Unknown status',
+              };
+              this.appInfoObject.push(appInfoComponent);
+              appInfoComponent.state = appInfoComponent.state.charAt(0).toUpperCase() + appInfoComponent.state.slice(1);
+              appInfoComponent.status = appInfoComponent.status.charAt(0).toUpperCase() + appInfoComponent.status.slice(1);
+              const niceStringComponent = ` ${appInfoComponent.name} - ${appInfoComponent.state} - ${appInfoComponent.status},`;
+              niceString += niceStringComponent;
+            }
+            niceString = niceString.substring(0, niceString.length - 1);
+            niceString += ` - ${this.selectedIp}`;
+          }
+        }
+        this.applicationManagementAndStatus = niceString;
+      }
+    },
+    selectedIpChanged() {
+      this.getApplicationManagementAndStatus();
+      this.getInstalledApplicationSpecifics();
+    },
   },
 };
 </script>
 
 <style>
+#updatemessage {
+  padding-right: 25px !important;
+}
+.text-wrap {
+  position: relative;
+  padding: 0em;
+}
+.clipboard.icon {
+  position: absolute;
+  top: 0.4em;
+  right: 2em;
+  margin-top: 4px;
+  margin-left: 4px;
+  width: 12px;
+  height: 12px;
+  border: solid 1px #333333;
+  border-top: none;
+  border-radius: 1px;
+  cursor: pointer;
+}
 .no-wrap {
   white-space: nowrap !important;
 }
@@ -8880,40 +10059,39 @@ export default {
   align-items: center;
   margin-bottom: 10px;
 }
-.zelidLogin {
-  margin-left: 5px;
+.walletIcon {
   height: 90px;
+  width: 90px;
   padding: 10px;
 }
-.zelidLogin img {
+.walletIcon img {
   -webkit-app-region: no-drag;
   transition: 0.1s;
 }
-
-.walletconnectLogin {
-  height: 100px;
-  padding: 10px;
-}
-.walletconnectLogin img {
-  -webkit-app-region: no-drag;
-  transition: 0.1s;
-}
-
-.metamaskLogin {
-  height: 80px;
-  padding: 10px;
-}
-.metamaskLogin img {
-  -webkit-app-region: no-drag;
-  transition: 0.1s;
-}
-
-.sspLogin {
+.fluxSSO {
   height: 90px;
   padding: 10px;
   margin-left: 5px;
 }
-.sspLogin img {
+.fluxSSO img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
+.stripePay {
+  margin-left: 5px;
+  height: 90px;
+  padding: 10px;
+}
+.stripePay img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
+.paypalPay {
+  margin-left: 5px;
+  height: 90px;
+  padding: 10px;
+}
+.paypalPay img {
   -webkit-app-region: no-drag;
   transition: 0.1s;
 }
@@ -8983,5 +10161,8 @@ a:hover img {
   color: #42b983 !important;
   word-break: break-word;
   white-space: normal;
+}
+.card-body {
+  padding: 1rem;
 }
 </style>

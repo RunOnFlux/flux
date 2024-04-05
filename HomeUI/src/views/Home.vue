@@ -1,66 +1,94 @@
 <template>
   <div>
-    <b-card title="FluxOS - Node Details">
+    <b-card title="Welcome to Flux - The biggest decentralized computational network">
       <list-entry
-        title="Flux owner ZelID"
-        :data="userconfig.zelid"
+        title="Dashboard"
+        :data="dashboard"
       />
       <list-entry
-        title="Status"
+        title="Applications"
+        :data="applications"
+      />
+      <list-entry
+        title="XDAO"
+        :data="xdao"
+      />
+      <list-entry
+        title="Administration"
+        :data="administration"
+      />
+      <list-entry
+        title="Node Status"
         :data="getNodeStatusResponse.nodeStatus"
         :variant="getNodeStatusResponse.class"
-      />
-      <list-entry
-        title="Static Ip ISP/Org"
-        :data="staticIp ? 'Yes' : 'No'"
-      />
-      <list-entry
-        v-if="getInfoResponse.message !== ''"
-        title="Daemon Version"
-        :data="getInfoResponse.message.version.toString()"
-      />
-      <list-entry
-        v-if="getInfoResponse.message !== ''"
-        title="Protocol Version"
-        :data="getInfoResponse.message.protocolversion.toString()"
-      />
-      <list-entry
-        v-if="getInfoResponse.message !== ''"
-        title="Current Blockchain Height"
-        :data="getInfoResponse.message.blocks.toString()"
-      />
-      <list-entry
-        v-if="getInfoResponse.status.length > 0 && getInfoResponse.message.errors !== ''"
-        title="Error"
-        :data="getInfoResponse.message.errors"
-        variant="danger"
       />
     </b-card>
 
     <b-card v-if="privilege === 'none'">
-      <b-card-title>Log In</b-card-title>
+      <b-card-title>Automated Login</b-card-title>
       <dl class="row">
-        <dd class="col-sm-4">
-          <b-card-text class="text-center">
-            Please log in using
+        <dd class="col-sm-6">
+          <b-card-text class="text-center loginText">
+            Flux Single Sign On (SSO) Login
+          </b-card-text>
+          <div class="ssoLogin">
+            <div id="ssoLoading">
+              <b-spinner variant="primary" />
+              <div>
+                Loading Sign In Options
+              </div>
+            </div>
+            <div
+              id="ssoLoggedIn"
+              style="display: none"
+            >
+              <b-spinner variant="primary" />
+              <div>
+                Finishing Login Process
+              </div>
+            </div>
+            <div id="ssoVerify" style="display: none">
+              <b-button class="mb-2" variant="primary" type="submit" @click="cancelVerification">
+                Cancel Verification
+              </b-button>
+              <div>
+                <b-spinner variant="primary" />
+                <div>
+                  Finishing Verification Process
+                </div>
+                <div>
+                  <i>Please check email for verification link.</i>
+                </div>
+              </div>
+            </div>
+            <div id="firebaseui-auth-container" />
+          </div>
+        </dd>
+        <dd class="col-sm-6">
+          <b-card-text class="text-center loginText">
+            Decentralized Login
           </b-card-text>
           <div class="loginRow">
             <a
               :href="`zel:?action=sign&message=${loginPhrase}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue}`"
+              title="Login with Zelcore"
               @click="initiateLoginWS"
             >
               <img
-                class="zelidLogin"
+                class="walletIcon"
                 src="@/assets/images/zelID.svg"
                 alt="Zel ID"
                 height="100%"
                 width="100%"
               >
             </a>
-            <a @click="initSSP">
+            <a
+              title="Login with SSP"
+              @click="initSSP"
+            >
               <img
-                class="sspLogin"
-                src="@/assets/images/ssp-logo-white.svg"
+                class="walletIcon"
+                :src="skin === 'dark' ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
                 alt="SSP"
                 height="100%"
                 width="100%"
@@ -68,18 +96,24 @@
             </a>
           </div>
           <div class="loginRow">
-            <a @click="initWalletConnect">
+            <a
+              title="Login with WalletConnect"
+              @click="initWalletConnect"
+            >
               <img
-                class="walletconnectLogin"
+                class="walletIcon"
                 src="@/assets/images/walletconnect.svg"
                 alt="WalletConnect"
                 height="100%"
                 width="100%"
               >
             </a>
-            <a @click="initMetamask">
+            <a
+              title="Login with Metamask"
+              @click="initMetamask"
+            >
               <img
-                class="metamaskLogin"
+                class="walletIcon"
                 src="@/assets/images/metamask.svg"
                 alt="Metamask"
                 height="100%"
@@ -88,9 +122,15 @@
             </a>
           </div>
         </dd>
-        <dd class="col-sm-8">
+      </dl>
+    </b-card>
+
+    <b-card v-if="privilege === 'none'">
+      <b-card-title>Manual Login</b-card-title>
+      <dl class="row">
+        <dd class="col-sm-12">
           <b-card-text class="text-center">
-            or sign the following message with any ZelID / SSP Wallet ID / Bitcoin / Ethereum address
+            Sign the following message with any ZelID / SSP Wallet ID / Bitcoin / Ethereum address
           </b-card-text>
           <br><br>
           <b-form
@@ -137,17 +177,17 @@
                   />
                 </b-form-group>
               </b-col>
-
-              <!-- submit and reset -->
-              <b-col offset-md="5">
-                <b-button
-                  type="submit"
-                  variant="primary"
-                  class="mr-1"
-                  @click="login"
-                >
-                  Login
-                </b-button>
+              <b-col cols="12">
+                <b-form-group label-cols-md="3">
+                  <b-button
+                    type="submit"
+                    variant="primary"
+                    class="w-100"
+                    @click="login"
+                  >
+                    Login
+                  </b-button>
+                </b-form-group>
               </b-col>
             </b-row>
           </b-form>
@@ -166,12 +206,16 @@ import SignClient from '@walletconnect/sign-client';
 import { WalletConnectModal } from '@walletconnect/modal';
 import { MetaMaskSDK } from '@metamask/sdk';
 
+import firebase from 'firebase/compat/app';
+import * as firebaseui from 'firebaseui';
+import { getUser } from '@/libs/firebase';
+import 'firebaseui/dist/firebaseui.css';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import ListEntry from '@/views/components/ListEntry.vue';
-
-import DaemonService from '@/services/DaemonService';
+import useAppConfig from '@core/app-config/useAppConfig';
 import IDService from '@/services/IDService';
-import FluxService from '../services/FluxService';
+import DaemonService from '@/services/DaemonService';
+import axios from 'axios';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
 
@@ -212,17 +256,13 @@ export default {
   },
   data() {
     return {
-      getInfoResponse: {
-        status: '',
-        message: '',
-      },
-      getNodeStatusResponse: {
-        class: 'text-success',
-        status: '',
-        data: '',
-        nodeStatus: 'Checking status...',
-      },
+      dashboard: 'Check Flux network information, resources available or a map with server locations.',
+      xdao: 'See the list of changes proposed to Flux network, create new ones and vote.',
+      applications: 'Buy on marketplace, register your own app, manage your active apps.',
+      administration: 'Tools for the infrastructure administrators, node operators.',
       websocket: null,
+      ui: null,
+      ssoVerification: false,
       errorMessage: '',
       loginPhrase: '',
       loginForm: {
@@ -230,8 +270,13 @@ export default {
         signature: '',
         loginPhrase: '',
       },
-      staticIp: false,
       signClient: null,
+      getNodeStatusResponse: {
+        class: 'text-success',
+        status: '',
+        data: '',
+        nodeStatus: 'Checking status...',
+      },
     };
   },
   computed: {
@@ -240,6 +285,9 @@ export default {
       'config',
       'privilege',
     ]),
+    skin() {
+      return useAppConfig().skin.value;
+    },
     callbackValue() {
       const backendURL = this.backendURL();
       const url = `${backendURL}/id/verifylogin`;
@@ -247,14 +295,167 @@ export default {
     },
   },
   mounted() {
-    this.daemonGetInfo();
     this.daemonWelcomeGetFluxNodeStatus();
     this.getZelIdLoginPhrase();
-    this.getOwnerZelid();
-    this.getStaticIpInfo();
     this.initMMSDK();
+    const uiConfig = {
+      callbacks: {
+      // Called when the user has been successfully signed in.
+        signInSuccessWithAuthResult: this.handleSignInSuccessWithAuthResult,
+        uiShown() {
+          document.getElementById('ssoLoading').style.display = 'none';
+        },
+      },
+      popupMode: true,
+      signInFlow: 'popup',
+      signInOptions: [
+        {
+          provider: firebase.auth.EmailAuthProvider.PROVIDER_ID,
+          buttonColor: '#2B61D1',
+          requireDisplayName: true,
+        },
+        {
+          provider: firebase.auth.GoogleAuthProvider.PROVIDER_ID,
+          customParameters: {
+            prompt: 'select_account',
+          },
+        },
+        'apple.com',
+        // firebase.auth.GithubAuthProvider.PROVIDER_ID,
+      ],
+      tosUrl: 'https://cdn.runonflux.io/Flux_Terms_of_Service.pdf',
+      privacyPolicyUrl: 'https://runonflux.io/privacyPolicy',
+    };
+    // Initialize the FirebaseUI Widget using Firebase.
+    if (this.privilege === 'none') {
+      if (firebaseui.auth.AuthUI.getInstance()) {
+        this.ui = firebaseui.auth.AuthUI.getInstance();
+        this.ui.start('#firebaseui-auth-container', uiConfig);
+      } else {
+        this.ui = new firebaseui.auth.AuthUI(firebase.auth());
+        this.ui.start('#firebaseui-auth-container', uiConfig);
+      }
+    }
   },
   methods: {
+    handleSignInSuccessWithAuthResult(authResult) {
+      if (authResult.user) {
+        this.handleSignedInUser(authResult.user);
+      }
+      return false;
+    },
+    async handleSignedInUser(user) {
+      try {
+        if (user.emailVerified) {
+          document.getElementById('ssoLoggedIn').style.display = 'block';
+          const token = user.auth.currentUser.accessToken;
+          const message = this.loginPhrase;
+          const headers = {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          };
+          const fluxLogin = await axios.post('https://service.fluxcore.ai/api/signInOrUp', { message }, { headers });
+          if (fluxLogin.data?.status !== 'success') {
+            throw new Error('Login Failed, please try again.');
+          }
+          const authLogin = {
+            zelid: fluxLogin.data.public_address,
+            signature: fluxLogin.data.signature,
+            loginPhrase: this.loginPhrase,
+          };
+          IDService.verifyLogin(authLogin)
+            .then((response) => {
+              console.log(response);
+              if (response.data.status === 'success') {
+                // user is  now signed. Store their values
+                const zelidauth = {
+                  zelid: fluxLogin.data.public_address,
+                  signature: fluxLogin.data.signature,
+                  loginPhrase: this.loginPhrase,
+                };
+                this.$store.commit('flux/setPrivilege', response.data.data.privilage);
+                this.$store.commit('flux/setZelid', zelidauth.zelid);
+                localStorage.setItem('zelidauth', qs.stringify(zelidauth));
+                this.showToast('success', response.data.data.message);
+              } else {
+                this.showToast(this.getVariant(response.data.status), response.data.data.message || response.data.data);
+                this.resetLoginUI();
+              }
+            })
+            .catch((e) => {
+              console.log(e);
+              this.resetLoginUI();
+            });
+        } else {
+          user.sendEmailVerification()
+            .then(() => {
+              this.showToast('info', 'please verify email');
+            })
+            .catch(() => {
+              this.showToast('warning', 'failed to send new verification email');
+            })
+            .finally(async () => {
+              document.getElementById('ssoVerify').style.display = 'block';
+              this.ssoVerification = true;
+              await this.checkVerification();
+            });
+        }
+      } catch (error) {
+        this.resetLoginUI();
+        this.showToast('warning', 'Login Failed, please try again.');
+      }
+    },
+    async checkVerification() {
+      try {
+        let user = getUser();
+        if (user && this.ssoVerification) {
+          await user.reload();
+          user = getUser();
+          if (user.emailVerified) {
+            this.showToast('info', 'email verified');
+            document.getElementById('ssoVerify').style.display = 'none';
+            this.handleSignedInUser(user);
+            this.ssoVerification = false;
+          } else {
+            setTimeout(() => {
+              this.checkVerification();
+            }, 5000);
+          }
+        } else {
+          this.resetLoginUI();
+        }
+      } catch (error) {
+        this.showToast('warning', 'email verification failed');
+        this.resetLoginUI();
+      }
+    },
+    cancelVerification() {
+      this.resetLoginUI();
+    },
+    resetLoginUI() {
+      document.getElementById('ssoVerify').style.display = 'none';
+      document.getElementById('ssoLoggedIn').style.display = 'none';
+      this.ui.reset();
+      this.ui.start('#firebaseui-auth-container');
+      this.ssoVerification = false;
+    },
+    async daemonWelcomeGetFluxNodeStatus() {
+      const response = await DaemonService.getFluxNodeStatus();
+      this.getNodeStatusResponse.status = response.data.status;
+      this.getNodeStatusResponse.data = response.data.data;
+      if (this.getNodeStatusResponse.data) {
+        if (this.getNodeStatusResponse.data.status === 'CONFIRMED' || this.getNodeStatusResponse.data.location === 'CONFIRMED') {
+          this.getNodeStatusResponse.nodeStatus = 'Connected to the network';
+          this.getNodeStatusResponse.class = 'success';
+        } else if (this.getNodeStatusResponse.data.status === 'STARTED' || this.getNodeStatusResponse.data.location === 'STARTED') {
+          this.getNodeStatusResponse.nodeStatus = 'Connecting to the network. Flux is running with limited capabilities.';
+          this.getNodeStatusResponse.class = 'warning';
+        } else {
+          this.getNodeStatusResponse.nodeStatus = 'Not connected to the network. Flux is running with limited capabilities.';
+          this.getNodeStatusResponse.class = 'danger';
+        }
+      }
+    },
     async initMMSDK() {
       try {
         await MMSDK.init();
@@ -269,7 +470,16 @@ export default {
       mybackend += protocol;
       mybackend += '//';
       const regex = /[A-Za-z]/g;
-      if (hostname.match(regex)) {
+      if (hostname.split('-')[4]) { // node specific domain
+        const splitted = hostname.split('-');
+        const names = splitted[4].split('.');
+        const adjP = +names[0] + 1;
+        names[0] = adjP.toString();
+        names[2] = 'api';
+        splitted[4] = '';
+        mybackend += splitted.join('-');
+        mybackend += names.join('.');
+      } else if (hostname.match(regex)) { // home.runonflux.io -> api.runonflux.io
         const names = hostname.split('.');
         names[0] = 'api';
         mybackend += names.join('.');
@@ -286,42 +496,6 @@ export default {
         mybackend += this.config.apiPort;
       }
       return store.get('backendURL') || mybackend;
-    },
-    async getOwnerZelid() {
-      const response = await FluxService.getZelid();
-      const obtainedZelid = response.data.data;
-      if (response.data.status === 'success' && typeof obtainedZelid === 'string') {
-        this.$store.commit('flux/setUserZelid', obtainedZelid);
-      }
-    },
-    async getStaticIpInfo() {
-      const response = await FluxService.getStaticIpInfo();
-      console.log(response);
-      if (response.data.status === 'success') {
-        this.staticIp = response.data.data;
-      }
-    },
-    async daemonGetInfo() {
-      const response = await DaemonService.getInfo();
-      this.getInfoResponse.status = response.data.status;
-      this.getInfoResponse.message = response.data.data;
-    },
-    async daemonWelcomeGetFluxNodeStatus() {
-      const response = await DaemonService.getFluxNodeStatus();
-      this.getNodeStatusResponse.status = response.data.status;
-      this.getNodeStatusResponse.data = response.data.data;
-      if (this.getNodeStatusResponse.data) {
-        if (this.getNodeStatusResponse.data.status === 'CONFIRMED' || this.getNodeStatusResponse.data.location === 'CONFIRMED') {
-          this.getNodeStatusResponse.nodeStatus = 'Flux is working correctly';
-          this.getNodeStatusResponse.class = 'success';
-        } else if (this.getNodeStatusResponse.data.status === 'STARTED' || this.getNodeStatusResponse.data.location === 'STARTED') {
-          this.getNodeStatusResponse.nodeStatus = 'Flux has just been started. Flux is running with limited capabilities.';
-          this.getNodeStatusResponse.class = 'warning';
-        } else {
-          this.getNodeStatusResponse.nodeStatus = 'Flux is not confirmed. Flux is running with limited capabilities.';
-          this.getNodeStatusResponse.class = 'danger';
-        }
-      }
     },
     initiateLoginWS() {
       const self = this;
@@ -615,51 +789,36 @@ export default {
 </script>
 
 <style>
+.loginText {
+  color: #2b61d1;
+  font-size: 16px;
+  font-weight: 500;
+}
 .loginRow {
   display: flex;
   flex-direction: row;
   justify-content: space-around;
+  margin-top: 10px;
+  padding-top: 10px;
+}
+.ssoLogin {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
   align-items: center;
   margin-bottom: 10px;
+  margin-top: 30px;
+  text-align: center;
 }
-.zelidLogin {
-  margin-left: 5px;
+.walletIcon {
   height: 90px;
+  width: 90px;
   padding: 10px;
 }
-.zelidLogin img {
+.walletIcon img {
   -webkit-app-region: no-drag;
   transition: 0.1s;
 }
-
-.walletconnectLogin {
-  height: 100px;
-  padding: 10px;
-}
-.walletconnectLogin img {
-  -webkit-app-region: no-drag;
-  transition: 0.1s;
-}
-
-.metamaskLogin {
-  height: 80px;
-  padding: 10px;
-}
-.metamaskLogin img {
-  -webkit-app-region: no-drag;
-  transition: 0.1s;
-}
-
-.sspLogin {
-  height: 90px;
-  padding: 10px;
-  margin-left: 5px;
-}
-.sspLogin img {
-  -webkit-app-region: no-drag;
-  transition: 0.1s;
-}
-
 a img {
   transition: all 0.05s ease-in-out;
 }
@@ -667,5 +826,19 @@ a img {
 a:hover img {
   filter: opacity(70%);
   transform: scale(1.1);
+}
+
+/* Custom styles for FirebaseUI widget */
+.firebaseui-button {
+  margin-left: 10px;
+  border-radius: 3px;
+}
+
+.mdl-textfield.is-focused .mdl-textfield__label:after {
+  bottom: 15px !important;
+}
+
+.firebaseui-title {
+  color: black !important;
 }
 </style>

@@ -141,7 +141,7 @@ async function fluxShareDatabaseShareFile(file) {
     if (result) {
       return result;
     }
-    const string = file + new Date().getTime().toString() + Math.floor((Math.random() * 999999999999999)).toString();
+    const string = file + Date.now().toString() + Math.floor((Math.random() * 999999999999999)).toString();
 
     const fileDetail = {
       name: file,
@@ -803,7 +803,7 @@ async function fluxShareUpload(req, res) {
       folder += '/';
     }
     const dirpath = path.join(__dirname, '../../../');
-    const uploadDir = `${dirpath}ZelApps/ZelShare${folder}`;
+    const uploadDir = `${dirpath}ZelApps/ZelShare/${folder}`;
     const options = {
       multiples: true,
       uploadDir,

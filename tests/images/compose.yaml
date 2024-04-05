@@ -1,0 +1,63 @@
+services:
+  socat:
+    container_name: socat
+    image: alpine/socat
+    command: tcp-listen:2375,fork,reuseaddr unix-connect:/var/run/docker.sock
+    user: root
+    volumes:
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+    networks:
+      - fluxos_test
+    labels:
+      com.runonflux.container_type: "fluxos_test"
+  mongo:
+    container_name: mongo
+    image: "mongodb/mongodb-community-server:latest"
+    init: true
+    networks:
+      - fluxos_test
+    labels:
+      com.runonflux.container_type: "fluxos_test"
+    # healthcheck:
+    #   test: ["CMD", "mongosh", "--eval", "db.runCommand('ping').ok", "--quiet"]
+    #   interval: 3s
+    #   timeout: 5s
+  fluxwebsite:
+    container_name: fluxwebsite
+    image: "runonflux/website"
+    init: true
+    networks:
+      - fluxos_test
+    labels:
+      com.runonflux.container_type: "fluxos_test"
+  tester:
+    build: .
+    image: runonflux/testerimage:latest
+    container_name: tester
+    init: true
+    depends_on: [mongo, socat, fluxwebsite]
+      # mongo:
+      #   condition: service_healthy
+      # socat:
+      #   condition: service_started
+      # fluxwebsite:
+      #   condition: service_started
+    environment:
+      DOCKER_HOST: socat:2375
+    # not quite sure about this yet, but think it's necessary for iptables (probably should be mocked)
+    cap_add:
+      - net_admin
+    volumes:
+      - ../../:/home/fluxtesting/flux
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - fluxos_test
+    labels:
+      com.runonflux.container_type: "fluxos_test"
+    profiles: [auto]
+
+networks:
+  fluxos_test:
+    name: fluxos_test

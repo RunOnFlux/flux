@@ -7,6 +7,9 @@ export default [
       pageTitle: 'Node Status',
       breadcrumb: [
         {
+          text: 'Administration',
+        },
+        {
           text: 'Daemon',
         },
         {
@@ -26,6 +29,9 @@ export default [
     meta: {
       pageTitle: 'List FluxNodes',
       breadcrumb: [
+        {
+          text: 'Administration',
+        },
         {
           text: 'Daemon',
         },
@@ -47,6 +53,9 @@ export default [
       pageTitle: 'View Deterministic FluxNodes',
       breadcrumb: [
         {
+          text: 'Administration',
+        },
+        {
           text: 'Daemon',
         },
         {
@@ -66,6 +75,9 @@ export default [
     meta: {
       pageTitle: 'Get FluxNode Count',
       breadcrumb: [
+        {
+          text: 'Administration',
+        },
         {
           text: 'Daemon',
         },
@@ -87,6 +99,9 @@ export default [
       pageTitle: 'Get Start List',
       breadcrumb: [
         {
+          text: 'Administration',
+        },
+        {
           text: 'Daemon',
         },
         {
@@ -107,6 +122,9 @@ export default [
       pageTitle: 'Get DOS List',
       breadcrumb: [
         {
+          text: 'Administration',
+        },
+        {
           text: 'Daemon',
         },
         {
@@ -126,6 +144,9 @@ export default [
     meta: {
       pageTitle: 'Current Winner',
       breadcrumb: [
+        {
+          text: 'Administration',
+        },
         {
           text: 'Daemon',
         },

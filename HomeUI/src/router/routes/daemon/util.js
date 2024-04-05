@@ -7,6 +7,9 @@ export default [
       pageTitle: 'Validate Address',
       breadcrumb: [
         {
+          text: 'Administration',
+        },
+        {
           text: 'Daemon',
         },
         {

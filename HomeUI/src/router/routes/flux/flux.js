@@ -7,6 +7,9 @@ export default [
       pageTitle: 'Node Status',
       breadcrumb: [
         {
+          text: 'Administration',
+        },
+        {
           text: 'Flux',
         },
         {
@@ -24,6 +27,9 @@ export default [
       pageTitle: 'Flux Network',
       breadcrumb: [
         {
+          text: 'Administration',
+        },
+        {
           text: 'Flux',
         },
         {
@@ -40,6 +46,9 @@ export default [
     meta: {
       pageTitle: 'Debug',
       breadcrumb: [
+        {
+          text: 'Administration',
+        },
         {
           text: 'Flux',
         },

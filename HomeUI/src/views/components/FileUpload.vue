@@ -4,54 +4,55 @@
     :style="cssProps"
   >
     <b-row>
-      <b-col xs="8">
-        <div
-          v-cloak
-          id="dropTarget"
-          class="flux-share-upload-drop text-center"
-          @drop.prevent="addFile"
-          @dragover.prevent
-          @click="selectFiles"
-        >
-          <v-icon name="cloud-upload-alt" />
-          <p>Drop files here or <em>click to upload</em></p>
-          <p class="upload-footer">
-            (File size is limited to 5GB)
-          </p>
-        </div>
-        <input
-          id="file-selector"
-          ref="fileselector"
-          class="flux-share-upload-input"
-          type="file"
-          multiple
-          @change="handleFiles"
-        >
-      </b-col>
+      <div
+        v-cloak
+        id="dropTarget"
+        class="flux-share-upload-drop text-center"
+        @drop.prevent="addFile"
+        @dragover.prevent
+        @click="selectFiles"
+      >
+        <v-icon name="cloud-upload-alt" />
+        <p>Drop files here or <em>click to upload</em></p>
+        <p class="upload-footer">
+          (File size is limited to 5GB)
+        </p>
+      </div>
+      <input
+        id="file-selector"
+        ref="fileselector"
+        class="flux-share-upload-input"
+        type="file"
+        multiple
+        @change="handleFiles"
+      >
+
       <b-col
-        xs="4"
+
         class="upload-column"
       >
         <div
           v-for="file in files"
           :key="file.file.name"
-          class="upload-item mb-1"
+          class="upload-item"
+          style="margin-bottom: 3px;"
         >
-          {{ file.file.name }}
-          <b-button
+          {{ file.file.name }}  ({{ addAndConvertFileSizes(file.file.size) }})
+          <span
+            class="delete text-white"
+            aria-hidden="true"
+          ><v-icon
             v-if="!file.uploading"
-            class="delete"
-            variant="outline-primary"
-            size="sm"
-            aria-label="Close"
+            name="trash-alt"
             :disabled="file.uploading"
+            :style="{ color: determineColor(file.file.name) }"
+            @mouseenter="handleHover(file.file.name, true)"
+            @mouseleave="handleHover(file.file.name, false)"
+            @focusin="handleHover(file.file.name, true)"
+            @focusout="handleHover(file.file.name, false)"
             @click="removeFile(file)"
-          >
-            <span
-              class="d-inline-block text-white"
-              aria-hidden="true"
-            ><v-icon name="trash-alt" /></span>
-          </b-button>
+          />
+          </span>
           <b-progress
             :value="file.progress"
             max="100"
@@ -114,6 +115,8 @@ export default {
   },
   data() {
     return {
+      isHovered: false,
+      hoverStates: {},
       files: [],
       primaryColor: $themeColors.primary,
       secondaryColor: $themeColors.secondary,
@@ -131,6 +134,56 @@ export default {
     },
   },
   methods: {
+    addAndConvertFileSizes(sizes, targetUnit = 'auto', decimal = 2) {
+      const multiplierMap = {
+        B: 1,
+        KB: 1024,
+        MB: 1024 * 1024,
+        GB: 1024 * 1024 * 1024,
+      };
+      const getSizeWithMultiplier = (size, multiplier) => size / multiplierMap[multiplier.toUpperCase()];
+      const formatResult = (result, unit) => {
+        const formattedResult = unit === 'B' ? result.toFixed(0) : result.toFixed(decimal);
+        return `${formattedResult} ${unit}`;
+      };
+      let totalSizeInBytes;
+      if (Array.isArray(sizes) && sizes.length > 0) {
+        totalSizeInBytes = +sizes.reduce((total, fileInfo) => total + (fileInfo.file_size || 0), 0);
+      } else if (typeof +sizes === 'number') {
+        totalSizeInBytes = +sizes;
+      } else {
+        console.error('Invalid sizes parameter');
+        return 'N/A';
+      }
+      // eslint-disable-next-line no-restricted-globals
+      if (isNaN(totalSizeInBytes)) {
+        console.error('Total size is not a valid number');
+        return 'N/A';
+      }
+      if (targetUnit === 'auto') {
+        let bestMatchUnit;
+        let bestMatchResult = totalSizeInBytes;
+        Object.keys(multiplierMap).forEach((unit) => {
+          const result = getSizeWithMultiplier(totalSizeInBytes, unit);
+          if (result >= 1 && (bestMatchResult === undefined || result < bestMatchResult)) {
+            bestMatchResult = result;
+            bestMatchUnit = unit;
+          }
+        });
+        bestMatchUnit = bestMatchUnit || 'B';
+        return formatResult(bestMatchResult, bestMatchUnit);
+      // eslint-disable-next-line no-else-return
+      } else {
+        const result = getSizeWithMultiplier(totalSizeInBytes, targetUnit);
+        return formatResult(result, targetUnit);
+      }
+    },
+    handleHover(fileName, isHovered) {
+      this.$set(this.hoverStates, fileName, isHovered);
+    },
+    determineColor(fileName) {
+      return this.hoverStates[fileName] ? 'red' : 'white';
+    },
     selectFiles() {
       console.log('select files');
       this.$refs.fileselector.click();
@@ -203,6 +256,7 @@ export default {
       xhr.onerror = function error(e) {
         console.log(e);
         self.showToast('danger', `An error occurred while uploading '${file.file.name}' - ${e}`);
+        self.removeFile(file);
       };
 
       xhr.onload = function onload() {
@@ -210,6 +264,7 @@ export default {
           console.log('error');
           console.log(xhr.status);
           self.showToast('danger', `An error occurred while uploading '${file.file.name}' - Status code: ${xhr.status}`);
+          self.removeFile(file);
           return;
         }
 
@@ -251,7 +306,7 @@ export default {
 <style scoped>
 .flux-share-upload-drop {
   height: 250px;
-  width: 400px;
+  width: 300px;
   border-style: dotted;
   border-color: var(--secondary-color);
   cursor: pointer;
@@ -280,12 +335,8 @@ export default {
   overflow: hidden;
   white-space: nowrap;
   position: relative;
-  height: 40px;
+  height: 30px;
   padding: 0 0 0 3px;
-}
-.upload-item:hover {
-  border-style: none none none double;
-  border-color: var(--primary-color);
 }
 .upload-item p {
   text-overflow: ellipsis;
