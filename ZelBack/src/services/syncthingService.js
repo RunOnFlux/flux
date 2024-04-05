@@ -36,91 +36,10 @@ const parser = new XMLParser(parserOptions);
 const goodSyncthingChars = /^[a-zA-Z0-9-_]+$/;
 
 /**
- * Syncthing controller (move timeout into FluxController) also add running property
+ * Syncthing controller
  */
 const asyncLock = new AsyncLock();
 const stc = new FluxController();
-
-/**
- * A simple 15 minute cache for the axios instance.
- */
-const axiosCache = {
-  syncthingApiKey: null,
-  axiosInstance: null,
-  lastUpdate: 0,
-
-  async instance() {
-    return this.axiosInstance && this.lastUpdate + (15 * 60 * 1000) > Date.now() ? this.axiosInstance : this.createInstance();
-  },
-  /**
-   *
-   * @returns {Promise<void>}
-   */
-  async createInstance() {
-    this.syncthingApiKey = await getSyncthingApiKey();
-
-    if (!this.syncthingApiKey) return null;
-
-    this.axiosInstance = axios.create({
-      baseURL: syncthingURL,
-      timeout: 5000,
-      headers: {
-        'X-API-Key': this.syncthingApiKey,
-      },
-      signal: stc.signal,
-    });
-
-    this.lastUpdate = Date.now();
-    return this.axiosInstance;
-  },
-
-  /**
-   * @return {void}
-   */
-  reset() {
-    this.axiosInstance = null;
-    this.syncthingApiKey = null;
-    this.lastUpdate = 0;
-  }
-};
-
-/**
- * @returns {object} The axios Cache
- */
-function getAxiosCache() {
-  return axiosCache;
-}
-
-/**
- *
- * @returns {FluxController} The syncthing Controller
- */
-function syncthingController() {
-  return stc;
-}
-
-/**
- * To get syncthing config xml file
- * @returns {string} config gile (XML).
- */
-async function getConfigFileDepreciated() {
-  try {
-    const homedir = os.homedir();
-    // fs may fail to read that as of eaccess
-    // change permissions of the file first so we can read it and get api key properly
-    const execDIRown = 'sudo chown $USER:$USER $HOME/.config'; // adjust .config folder for ownership of running user
-    await cmdAsync(execDIRown).catch((error) => log.error(error));
-    const execDIRownSyncthing = 'sudo chown $USER:$USER $HOME/.config/syncthing'; // adjust .config/syncthing folder for ownership of running user
-    await cmdAsync(execDIRownSyncthing).catch((error) => log.error(error));
-    const execPERM = `sudo chmod 644 ${homedir}/.config/syncthing/config.xml`;
-    await cmdAsync(execPERM);
-    const result = await fs.readFile(`${homedir}/.config/syncthing/config.xml`, 'utf8');
-    return result;
-  } catch (error) {
-    log.error(error);
-    return null;
-  }
-}
 
 /**
  * To get syncthing config xml file
@@ -191,6 +110,87 @@ async function getSyncthingApiKey() {
 }
 
 /**
+ * A simple 15 minute cache for the axios instance.
+ */
+const axiosCache = {
+  syncthingApiKey: null,
+  axiosInstance: null,
+  lastUpdate: 0,
+
+  async instance() {
+    return this.axiosInstance && this.lastUpdate + (15 * 60 * 1000) > Date.now() ? this.axiosInstance : this.createInstance();
+  },
+  /**
+   *
+   * @returns {Promise<void>}
+   */
+  async createInstance() {
+    this.syncthingApiKey = await getSyncthingApiKey();
+
+    if (!this.syncthingApiKey) return null;
+
+    this.axiosInstance = axios.create({
+      baseURL: syncthingURL,
+      timeout: 5000,
+      headers: {
+        'X-API-Key': this.syncthingApiKey,
+      },
+      signal: stc.signal,
+    });
+
+    this.lastUpdate = Date.now();
+    return this.axiosInstance;
+  },
+
+  /**
+   * @return {void}
+   */
+  reset() {
+    this.axiosInstance = null;
+    this.syncthingApiKey = null;
+    this.lastUpdate = 0;
+  },
+};
+
+/**
+ * @returns {object} The axios Cache
+ */
+function getAxiosCache() {
+  return axiosCache;
+}
+
+/**
+ *
+ * @returns {FluxController} The syncthing Controller
+ */
+function syncthingController() {
+  return stc;
+}
+
+/**
+ * To get syncthing config xml file
+ * @returns {string} config gile (XML).
+ */
+async function getConfigFileDepreciated() {
+  try {
+    const homedir = os.homedir();
+    // fs may fail to read that as of eaccess
+    // change permissions of the file first so we can read it and get api key properly
+    const execDIRown = 'sudo chown $USER:$USER $HOME/.config'; // adjust .config folder for ownership of running user
+    await cmdAsync(execDIRown).catch((error) => log.error(error));
+    const execDIRownSyncthing = 'sudo chown $USER:$USER $HOME/.config/syncthing'; // adjust .config/syncthing folder for ownership of running user
+    await cmdAsync(execDIRownSyncthing).catch((error) => log.error(error));
+    const execPERM = `sudo chmod 644 ${homedir}/.config/syncthing/config.xml`;
+    await cmdAsync(execPERM);
+    const result = await fs.readFile(`${homedir}/.config/syncthing/config.xml`, 'utf8');
+    return result;
+  } catch (error) {
+    log.error(error);
+    return null;
+  }
+}
+
+/**
  * To perform http request
  * @param {string} method Method.
  * @param {string} urlpath URL to be called.
@@ -198,13 +198,13 @@ async function getSyncthingApiKey() {
  * @returns {object} Message.
  */
 // eslint-disable-next-line default-param-last
-async function performRequest(method = 'get', urlpath = '', data, timeout = 5000) {
+async function performRequest(method = 'get', urlpath = '', data) {
   // now we cache the axios instance for 15 minutes. Means we don't have to create a new instance
   // on every call. It also means that if the syncthing api key changes, it will refetch it
   // after 15 minutes
   const instance = await axiosCache.instance();
   if (!instance) {
-    return messageHelper.createErrorMessage("Unable to read syncthing apikey");
+    return messageHelper.createErrorMessage('Unable to read syncthing apikey');
   }
 
   try {
@@ -213,7 +213,6 @@ async function performRequest(method = 'get', urlpath = '', data, timeout = 5000
     const successResponse = messageHelper.createDataMessage(response.data);
     return successResponse;
   } catch (error) {
-    log.error(error.message);
     const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
     return errorResponse;
   }
@@ -2233,14 +2232,13 @@ async function getDeviceId() {
 
   syncthingStatusOk = false;
 
-  const { stdout } = await serviceHelper.runCommand('ps', {
-    params: ['-fC', 'syncthing'],
-    logError: false,
-  });
+  // const { stdout } = await serviceHelper.runCommand('ps', {
+  //   params: ['-fC', 'syncthing'],
+  //   logError: false,
+  // });
 
-  const msg = 'Syncthing is either not running or misconfigured';
-  // ToDo: tidy these up
-  log.error(msg);
+  // ToDo: tidy this up
+  log.error('Syncthing is either not running or misconfigured');
   // log.error(stdout);
   // log.error(meta);
   // log.error(healthy);
@@ -2293,8 +2291,8 @@ async function installSyncthingIdempotently() {
 
   log.info('Installing Syncthing...');
   const helpersPath = path.join(os.homedir(), 'helpers');
-  // Git will store the executable bit, so I change all the scripts to executable,
-  // now they can just be called by themselves
+  // Git will store the executable bit, so have updated the scripts to be executable,
+  // now they can just be called by themselves.
   const installScript = path.join(helpersPath, 'installSyncthing.sh');
 
   const { error } = await serviceHelper.runCommand(installScript);
@@ -2313,10 +2311,13 @@ async function installSyncthingIdempotently() {
 async function adjustSyncthing() {
   if (stc.aborted) return;
 
+  log.info('Adjusting syncthing.');
+
   try {
     const currentConfigOptions = await getConfigOptions();
     const currentDefaultsFolderOptions = await getConfigDefaultsFolder();
-    const apiPort = userconfig.initial.apiport || config.server.apiport;
+    // use env so can run this module as standalone for testing
+    const apiPort = process.env.FLUX_APIPORT || userconfig?.initial.apiport || config.server?.apiport;
     const myPort = +apiPort + 2; // end with 9 eg 16139
     // adjust configuration
     const newConfig = {
@@ -2478,7 +2479,7 @@ async function runSyncthingSentinel() {
 
   try {
     if (!installed || !await getDeviceId()) {
-      log.error('Syncthing may not be running correctly... checking.');
+      log.error('Unable to get syncthing deviceId. Reconfiguring syncthing.');
       await stopSyncthing();
       await installSyncthingIdempotently();
       await configureDirectories();
@@ -2503,8 +2504,8 @@ async function runSyncthingSentinel() {
 
       childProcess.spawn(
         `sudo nohup syncthing --logfile ${logFile} --logflags=3 --log-max-old-files=2 --log-max-size=26214400 --allow-newer-config --no-browser --home ${syncthingHome} >/dev/null 2>&1 </dev/null &`,
-        { shell: true }
-      );
+        { shell: true },
+      ).unref();
 
       // childProcess.spawn(
       //   'sudo',
@@ -2566,6 +2567,8 @@ async function startSyncthingSentinel() {
 function setSyncthingRunningState(value) {
   syncthingStatusOk = value;
 }
+
+if (require.main === module) startSyncthingSentinel();
 
 module.exports = {
   startSyncthingSentinel,
