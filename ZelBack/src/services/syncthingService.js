@@ -129,6 +129,8 @@ const axiosCache = {
 
     if (!this.syncthingApiKey) return null;
 
+    log.info('Creating a new Axios instance for the Flux Syncthing Service');
+
     this.axiosInstance = axios.create({
       baseURL: syncthingURL,
       timeout: 5000,
@@ -2462,11 +2464,11 @@ async function stopSyncthing() {
  * @returns {Promise<void>}
  */
 async function stopSyncthingSentinel() {
-  log.info("Stopping syncthing sentinel");
+  log.info('Stopping syncthing sentinel');
   await stc.abort();
   // so axios gets a new sigal
   axiosCache.reset();
-  log.info("Syncthing sentinel stopped");
+  log.info('Syncthing sentinel stopped');
 }
 
 /**
