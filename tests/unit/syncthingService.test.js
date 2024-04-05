@@ -1,8 +1,8 @@
 // NodeJS Stubbed
-const fs = require('fs/promises');
-const os = require('os');
-const path = require('path');
-const childProcess = require('child_process');
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
+const childProcess = require('node:child_process');
 
 // 3rd Party Stubbed
 const axios = require('axios');
@@ -22,7 +22,7 @@ const runExecStub = sinon.stub();
 const utilFake = { promisify: () => runExecStub };
 
 // Module under test
-const syncthingService = proxyquire('../../ZelBack/src/services/syncthingService', { 'util': utilFake });
+const syncthingService = proxyquire('../../ZelBack/src/services/syncthingService', { 'node:util': utilFake });
 
 describe('syncthingService tests', () => {
   describe('getConfigFileDepreciated tests', () => {

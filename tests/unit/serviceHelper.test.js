@@ -23,7 +23,7 @@ const utilFake = { promisify: () => runCmdStub };
 
 const serviceHelper = proxyquire(
   '../../ZelBack/src/services/serviceHelper',
-  { '../../../config/userconfig': adminConfig, 'util': utilFake },
+  { '../../../config/userconfig': adminConfig, 'node:util': utilFake },
 );
 
 describe('serviceHelper tests', () => {
