@@ -2290,7 +2290,7 @@ async function installSyncthingIdempotently() {
   }
 
   log.info('Installing Syncthing...');
-  const helpersPath = path.join(os.homedir(), 'helpers');
+  const helpersPath = path.join(process.cwd(), 'helpers');
   // Git will store the executable bit, so have updated the scripts to be executable,
   // now they can just be called by themselves.
   const installScript = path.join(helpersPath, 'installSyncthing.sh');
@@ -2459,10 +2459,14 @@ async function stopSyncthing() {
 
 /**
  * Calls for syncthing servie to stop, and waits for it to happen.
- * @returns {void}
+ * @returns {Promise<void>}
  */
 async function stopSyncthingSentinel() {
+  log.info("Stopping syncthing sentinel");
   await stc.abort();
+  // so axios gets a new sigal
+  axiosCache.reset();
+  log.info("Syncthing sentinel stopped");
 }
 
 /**
@@ -2568,7 +2572,17 @@ function setSyncthingRunningState(value) {
   syncthingStatusOk = value;
 }
 
-if (require.main === module) startSyncthingSentinel();
+// similar to python's if __name__ == "__main__", allows module
+// to be run as standalone, useful for testing
+if (require.main === module) {
+  startSyncthingSentinel();
+
+  process.stdin.on('data', async (data) => {
+    const cmd = data.toString().trim();
+    if (cmd === 'start') startSyncthingSentinel();
+    if (cmd === 'stop') await stopSyncthingSentinel();
+  });
+}
 
 module.exports = {
   startSyncthingSentinel,

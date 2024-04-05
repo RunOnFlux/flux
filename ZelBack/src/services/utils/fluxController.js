@@ -86,7 +86,7 @@ class FluxController {
 
     if (this.aborted) return;
 
-    this.loopTimeout = setTimeout(() => this.loop(runner), ms);
+    this.#loopTimeout = setTimeout(() => this.loop(runner), ms);
   }
 
   /**

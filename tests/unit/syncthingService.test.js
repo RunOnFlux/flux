@@ -492,6 +492,7 @@ describe('syncthingService tests', () => {
       runCmdStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
       spawnStub = sinon.stub(childProcess, 'spawn').returns({ unref: unrefStub });
       sinon.stub(os, 'homedir').returns('/home/testuser');
+      sinon.stub(process, 'cwd').returns('/home/testuser/flux');
       // for getSynchingApiKey
       sinon.stub(fs, 'readFile').resolves().resolves(syncthingFixtures.configFile);
 
@@ -625,7 +626,7 @@ describe('syncthingService tests', () => {
       await promise;
 
       sinon.assert.calledWithExactly(infoSpy, 'Installing Syncthing...');
-      sinon.assert.calledWithExactly(runCmdStub, '/home/testuser/helpers/installSyncthing.sh');
+      sinon.assert.calledWithExactly(runCmdStub, '/home/testuser/flux/helpers/installSyncthing.sh');
       sinon.assert.calledWithExactly(infoSpy, 'Syncthing installed');
     });
 
