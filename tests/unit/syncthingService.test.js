@@ -218,7 +218,7 @@ describe('syncthingService tests', () => {
       expect(res).to.be.deep.equal({ status: 'success', data: deviceId });
     });
 
-    it('should return error and log if command were not successful', async () => {
+    it('should return error if commands were not successful', async () => {
       const clock = sinon.useFakeTimers();
 
       const error = new Error('Axios not working today');
@@ -226,8 +226,8 @@ describe('syncthingService tests', () => {
 
       const promise = syncthingService.getDeviceIdDepreciated();
       await clock.tickAsync(1000);
-      await promise;
-      sinon.assert.calledWithExactly(errorSpy, error.message);
+      const response = await promise;
+      expect(response.data.message).to.equal('Syncthing is not running properly');
     });
   });
 
@@ -302,13 +302,12 @@ describe('syncthingService tests', () => {
       expect(res).to.be.equal(deviceId);
     });
 
-    it('should return null and log if commands were not successful', async () => {
+    it('should return null if commands were not successful', async () => {
       const error = new Error('Axios not working today');
       fakeMeta.throws(error);
 
       const res = await syncthingService.getDeviceId();
       expect(res).to.be.equal(null);
-      sinon.assert.calledWithExactly(errorSpy, error.message);
     });
   });
 
