@@ -433,5 +433,6 @@
    "alpine",
    "dambox",
    "starhopper",
-   "destomobile"
+   "destomobile",
+   "ghcr.io/bidversezw/bidverse"
 ]
