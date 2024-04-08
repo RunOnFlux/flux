@@ -713,7 +713,7 @@ function getMarketplaceURL(req, res) {
  */
 async function daemonDebug(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (!authorized) {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
@@ -733,7 +733,7 @@ async function daemonDebug(req, res) {
  */
 async function benchmarkDebug(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (!authorized) {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
@@ -840,7 +840,7 @@ async function fluxLog(res, filelog) {
 async function fluxErrorLog(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-    if (!authorized) {
+    if (authorized !== true) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
       return;
@@ -860,7 +860,7 @@ async function fluxErrorLog(req, res) {
 async function fluxWarnLog(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-    if (!authorized) {
+    if (authorized !== true) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
       return;
@@ -880,7 +880,7 @@ async function fluxWarnLog(req, res) {
 async function fluxInfoLog(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-    if (!authorized) {
+    if (authorized !== true) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
       return;
@@ -900,7 +900,7 @@ async function fluxInfoLog(req, res) {
 async function fluxDebugLog(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-    if (!authorized) {
+    if (authorized !== true) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
       return;
@@ -1342,7 +1342,7 @@ async function adjustRouterIP(req, res) {
 async function adjustBlockedPorts(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
 
-  if (!authorized) {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     res.json(errMessage);
     return;
@@ -1446,7 +1446,7 @@ async function adjustAPIPort(req, res) {
 async function adjustBlockedRepositories(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
 
-  if (!authorized) {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     res.json(errMessage);
     return;
