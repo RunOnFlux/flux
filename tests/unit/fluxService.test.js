@@ -1,9 +1,15 @@
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
+
 const chai = require('chai');
-const sinon = require('sinon');
 const chaiAsPromised = require('chai-as-promised');
-const path = require('path');
+chai.use(chaiAsPromised);
+const { expect } = chai;
+
+const sinon = require('sinon');
 const proxyquire = require('proxyquire');
-const fs = require('fs');
+
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const explorerService = require('../../ZelBack/src/services/explorerService');
@@ -17,18 +23,12 @@ const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonServ
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const syncthingService = require('../../ZelBack/src/services/syncthingService');
 const packageJson = require('../../package.json');
-
-const fsPromises = fs.promises;
-
 const adminConfig = require('../../config/userconfig');
 
 const fluxService = proxyquire(
   '../../ZelBack/src/services/fluxService',
   { '../../../config/userconfig': adminConfig },
 );
-
-chai.use(chaiAsPromised);
-const { expect } = chai;
 
 const generateResponse = () => {
   const res = { test: 'testing' };
@@ -112,7 +112,7 @@ describe('fluxService tests', () => {
       sinon.assert.calledWithMatch(runCmdStub, 'npm', { cwd: nodedpath, params: ['run', 'updateflux'] });
     });
 
-    it('should return error if cmd exec throws error ', async () => {
+    it('should return error if cmd exec throws error', async () => {
       verifyPrivilegeStub.returns(true);
       runCmdStub.resolves({
         error: {
@@ -1358,7 +1358,7 @@ describe('fluxService tests', () => {
       });
     });
 
-    it('should return error if cmd exec throws error ', async () => {
+    it('should return error if cmd exec throws error', async () => {
       verifyPrivilegeStub.returns(true);
       runCmdStub.resolves({
         error: {
@@ -1367,7 +1367,7 @@ describe('fluxService tests', () => {
           name: 'testing error',
         },
       });
-      const nodedpath = path.join(__dirname, '../../../../../.flux/debug.log'); // need more ../
+      const nodedpath = path.join(os.homedir(), '.flux', 'debug.log');
       const expectedResponse = {
         data: {
           code: 403,
@@ -2272,7 +2272,7 @@ describe('fluxService tests', () => {
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      fsPromisesSpy = sinon.stub(fsPromises, 'writeFile');
+      fsPromisesSpy = sinon.stub(fs, 'writeFile');
     });
 
     afterEach(() => {
@@ -2431,7 +2431,7 @@ describe('fluxService tests', () => {
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      fsPromisesSpy = sinon.stub(fsPromises, 'writeFile');
+      fsPromisesSpy = sinon.stub(fs, 'writeFile');
     });
 
     afterEach(() => {
@@ -2500,7 +2500,7 @@ describe('fluxService tests', () => {
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      fsPromisesSpy = sinon.stub(fsPromises, 'writeFile');
+      fsPromisesSpy = sinon.stub(fs, 'writeFile');
     });
 
     afterEach(() => {
@@ -2590,7 +2590,7 @@ describe('fluxService tests', () => {
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      fsPromisesSpy = sinon.stub(fsPromises, 'writeFile');
+      fsPromisesSpy = sinon.stub(fs, 'writeFile');
     });
 
     afterEach(() => {
@@ -2685,7 +2685,7 @@ describe('fluxService tests', () => {
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      fsPromisesSpy = sinon.stub(fsPromises, 'writeFile');
+      fsPromisesSpy = sinon.stub(fs, 'writeFile');
     });
 
     afterEach(() => {
@@ -2780,7 +2780,7 @@ describe('fluxService tests', () => {
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      fsPromisesSpy = sinon.stub(fsPromises, 'writeFile');
+      fsPromisesSpy = sinon.stub(fs, 'writeFile');
     });
 
     afterEach(() => {
