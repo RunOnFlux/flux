@@ -1,3 +1,4 @@
+/* global userconfig */
 const path = require('node:path');
 const fs = require('node:fs/promises');
 
@@ -947,7 +948,6 @@ async function tailFluxLog(req, res, logfile) {
  * @param {object} res Response.
  */
 async function tailFluxErrorLog(req, res) {
-
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized === true) {

@@ -119,7 +119,7 @@ describe('fluxService tests', () => {
           message: 'This is an error',
           code: 403,
           name: 'testing error',
-        }
+        },
       });
       const nodedpath = path.join(__dirname, '../../');
 
@@ -202,7 +202,7 @@ describe('fluxService tests', () => {
           message: 'This is an error',
           code: 403,
           name: 'testing error',
-        }
+        },
       });
       const nodedpath = path.join(__dirname, '../../');
 
@@ -284,7 +284,7 @@ describe('fluxService tests', () => {
           message: 'This is an error',
           code: 403,
           name: 'testing error',
-        }
+        },
       });
       const nodedpath = path.join(__dirname, '../../');
 
@@ -366,7 +366,7 @@ describe('fluxService tests', () => {
           message: 'This is an error',
           code: 403,
           name: 'testing error',
-        }
+        },
       });
       const nodedpath = path.join(__dirname, '../../');
 
@@ -448,7 +448,7 @@ describe('fluxService tests', () => {
           message: 'This is an error',
           code: 403,
           name: 'testing error',
-        }
+        },
       });
       const nodedpath = path.join(__dirname, '../../');
 
@@ -530,7 +530,7 @@ describe('fluxService tests', () => {
           message: 'This is an error',
           code: 403,
           name: 'testing error',
-        }
+        },
       });
       const nodedpath = path.join(__dirname, '../../helpers');
 
@@ -612,7 +612,7 @@ describe('fluxService tests', () => {
           message: 'This is an error',
           code: 403,
           name: 'testing error',
-        }
+        },
       });
       const nodedpath = path.join(__dirname, '../../helpers');
 
@@ -693,7 +693,7 @@ describe('fluxService tests', () => {
           message: 'This is an error',
           code: 403,
           name: 'testing error',
-        }
+        },
       });
 
       const expectedResponse = {
@@ -774,7 +774,7 @@ describe('fluxService tests', () => {
           message: 'This is an error',
           code: 403,
           name: 'testing error',
-        }
+        },
       });
       const nodedpath = path.join(__dirname, '../../helpers');
 
@@ -855,7 +855,7 @@ describe('fluxService tests', () => {
           message: 'This is an error',
           code: 403,
           name: 'testing error',
-        }
+        },
       });
 
       const expectedResponse = {
@@ -936,7 +936,7 @@ describe('fluxService tests', () => {
           message: 'This is an error',
           code: 403,
           name: 'testing error',
-        }
+        },
       });
       const nodedpath = path.join(__dirname, '../../helpers');
 
@@ -1018,7 +1018,7 @@ describe('fluxService tests', () => {
           message: 'This is an error',
           code: 403,
           name: 'testing error',
-        }
+        },
       });
       const nodedpath = path.join(__dirname, '../../helpers');
 
@@ -1365,7 +1365,7 @@ describe('fluxService tests', () => {
           message: 'This is an error',
           code: 403,
           name: 'testing error',
-        }
+        },
       });
       const nodedpath = path.join(__dirname, '../../../../../.flux/debug.log'); // need more ../
       const expectedResponse = {
@@ -1391,7 +1391,6 @@ describe('fluxService tests', () => {
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
       runCmdStub = sinon.stub(serviceHelper, 'runCommand');
-
     });
 
     afterEach(() => {
@@ -1436,7 +1435,7 @@ describe('fluxService tests', () => {
           message: 'This is an error',
           code: 403,
           name: 'testing error',
-        }
+        },
       });
       const nodedpath = path.join(__dirname, '../../../.zelbenchmark/debug.log'); // .fluxbenchmark
       const expectedResponse = {
@@ -1590,7 +1589,6 @@ describe('fluxService tests', () => {
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
       runCmdStub = sinon.stub(serviceHelper, 'runCommand');
-
     });
 
     afterEach(() => {
@@ -1635,7 +1633,7 @@ describe('fluxService tests', () => {
           message: 'This is an error',
           code: 403,
           name: 'testing error',
-        }
+        },
       });
       const nodePath = path.join(__dirname, '../../../flux/test.log');
       const expectedResponse = {
@@ -1663,7 +1661,6 @@ describe('fluxService tests', () => {
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
       runCmdStub = sinon.stub(serviceHelper, 'runCommand');
-
     });
 
     afterEach(() => {
@@ -1711,7 +1708,6 @@ describe('fluxService tests', () => {
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
       runCmdStub = sinon.stub(serviceHelper, 'runCommand');
-
     });
 
     afterEach(() => {
@@ -1759,7 +1755,6 @@ describe('fluxService tests', () => {
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
       runCmdStub = sinon.stub(serviceHelper, 'runCommand');
-
     });
 
     afterEach(() => {
@@ -1807,7 +1802,6 @@ describe('fluxService tests', () => {
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
       runCmdStub = sinon.stub(serviceHelper, 'runCommand');
-
     });
 
     afterEach(() => {
