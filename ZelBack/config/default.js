@@ -205,7 +205,7 @@ module.exports = {
     },
     blocksLasting: 22000, // by default registered app will live for 22000 of blocks 44000 minutes ~= 1 month
     minBlocksAllowance: 5000, // app can be registered for a minimum of this blocks ~ 1 week
-    newMinBlocksAllowance: 100, // app can be registered for a minimum of this blocks ~ 3.3 hours - to allow users to cancel application subscription
+    newMinBlocksAllowance: 100, // app can be registered for a minimum of this blocks ~ 3 hours - to allow users to cancel application subscription
     newMinBlocksAllowanceBlock: 1630040, // block where we will start looking at new min blocks allowance. block expected on 26th of April 2024
     maxBlocksAllowance: 264000, // app can be registered up for a maximum of this blocks ~ 1 year
     blocksAllowanceInterval: 1000, // ap differences can be in 1000s - more than 1 day
