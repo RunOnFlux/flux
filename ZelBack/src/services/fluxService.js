@@ -978,7 +978,7 @@ async function getFluxInfo(req, res) {
     }
     info.daemon.info = daemonInfoRes.data;
     if (info.daemon.info.blocks >= config.syncthingVersionCheckStart) {
-      const versionMinOK = fluxNetworkHelper.minVersionSatisfy(info.flux.syncthingVersion.replace(/[^\d.]/g, ''), '1.27.4');
+      const versionMinOK = fluxNetworkHelper.minVersionSatisfy(info.flux.syncthingVersion.replace(/[^\d.]/g, ''), '1.27.5');
       if (!versionMinOK) throw new Error('Syncthing version bellow minimum version allowed 1.27.4, update your machine.');
     }
     const daemonNodeStatusRes = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
