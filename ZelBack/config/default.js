@@ -75,8 +75,8 @@ module.exports = {
     porttestnet: 26125,
     rpcporttestnet: 26124,
   },
-  minimumFluxBenchAllowedVersion: '3.9.0',
-  minimumFluxOSAllowedVersion: '4.20.0',
+  minimumFluxBenchAllowedVersion: '4.0.0',
+  minimumFluxOSAllowedVersion: '5.0.0',
   fluxTeamZelId: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
   deterministicNodesStart: 558000,
   syncthingVersionCheckStart: 1630040, // block where we will start looking at a min. syncthing version installed. block expected on 26th of April 2024
