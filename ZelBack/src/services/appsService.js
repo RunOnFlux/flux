@@ -5526,8 +5526,12 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
   }
 
   if (appSpecifications.version >= 6) {
-    if (appSpecifications.expire < config.fluxapps.minBlocksAllowance) {
-      throw new Error(`Minimum expiration of application is ${config.fluxapps.minBlocksAllowance} blocks ~ 1 week`);
+    if (height < config.fluxapps.newMinBlocksAllowanceBlock) {
+      if (appSpecifications.expire < config.fluxapps.minBlocksAllowance) {
+        throw new Error(`Minimum expiration of application is ${config.fluxapps.minBlocksAllowance} blocks ~ 1 week`);
+      }
+    } else if (appSpecifications.expire < config.fluxapps.newMinBlocksAllowance) {
+      throw new Error(`Minimum expiration of application is ${config.fluxapps.minBlocksAllowance} blocks ~ 3 hours`);
     }
     if (appSpecifications.expire > config.fluxapps.maxBlocksAllowance) {
       throw new Error(`Maximum expiration of application is ${config.fluxapps.maxBlocksAllowance} blocks ~ 1 year`);
@@ -7221,9 +7225,6 @@ function specificationFormatter(appSpecification) {
     }
     if (Number.isInteger(expire) !== true) {
       throw new Error('Invalid instances specified');
-    }
-    if (expire < config.fluxapps.minBlocksAllowance) {
-      throw new Error(`Minimum expiration of application is ${config.fluxapps.minBlocksAllowance} blocks ~ 1 week`);
     }
     if (expire > config.fluxapps.maxBlocksAllowance) {
       throw new Error(`Maximum expiration of application is ${config.fluxapps.maxBlocksAllowance} blocks ~ 1 year`);

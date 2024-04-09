@@ -8175,6 +8175,9 @@ export default {
     },
     async checkFluxUpdateSpecificationsAndFormatMessage() {
       try {
+        if (this.appRunningTill.new < this.appRunningTill.current) {
+          throw new Error('New subscription period cannot be lower than the current one.');
+        }
         if (!this.tosAgreed) {
           throw new Error('Please agree to Terms of Service');
         }
