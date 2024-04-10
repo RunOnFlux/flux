@@ -286,8 +286,9 @@ async function downloadFileFromUrl(url, localpath, component, rename = false, re
       filepath = `${localpath}/${fileName}`;
     }
     const response = await axios.get(url, {
-      responseType: 'stream', // Specify stream response type
-      maxRedirects: 5, // Set maximum allowed redirects (optional)
+      responseType: 'stream',
+      maxRedirects: 5,
+      timeout: 7000,
     });
     const dirPath = path.dirname(filepath);
     // Create directory if it doesn't exist
