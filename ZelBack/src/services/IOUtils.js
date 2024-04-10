@@ -279,7 +279,7 @@ async function checkFileExists(filePath) {
  */
 async function downloadFileFromUrl(url, localpath, component, rename = false, retries = 0) {
   try {
-    let filepath = `${localpath}/backup_${component}.tar.gz`;
+    let filepath = `${localpath}/backup_${component.toLowerCase()}.tar.gz`;
     if (!rename) {
       const fileNameArray = url.split('/');
       const fileName = fileNameArray[fileNameArray.length - 1];
