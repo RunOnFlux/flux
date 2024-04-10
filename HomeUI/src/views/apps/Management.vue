@@ -5262,7 +5262,7 @@
             >
               <b-card class="text-center" title="Pay with Stripe/PayPal">
                 <div class="loginRow">
-                  <a @click="initStripePay(updateHash, appUpdateSpecification.name, appPricePerSpecsUSD, appUpdateSpecification.description)">
+                  <a v-if="stripeEnabled" @click="initStripePay(updateHash, appUpdateSpecification.name, appPricePerSpecsUSD, appUpdateSpecification.description)">
                     <img
                       class="stripePay"
                       src="@/assets/images/Stripe.svg"
@@ -5271,7 +5271,7 @@
                       width="100%"
                     >
                   </a>
-                  <a @click="initPaypalPay(updateHash, appUpdateSpecification.name, appPricePerSpecsUSD, appUpdateSpecification.description)">
+                  <a v-if="paypalEnabled" @click="initPaypalPay(updateHash, appUpdateSpecification.name, appPricePerSpecsUSD, appUpdateSpecification.description)">
                     <img
                       class="paypalPay"
                       src="@/assets/images/PayPal.png"
@@ -5280,6 +5280,7 @@
                       width="100%"
                     >
                   </a>
+                  <span v-if="!paypalEnabled && !stripeEnabled">Fiat Gateways Unavailable.</span>
                 </div>
                 <div v-if="checkoutLoading" className="loginRow">
                   <b-spinner variant="primary" />
@@ -5630,6 +5631,7 @@ import JsonViewer from 'vue-json-viewer';
 import FileUpload from '@/views/components/FileUpload.vue';
 import { useClipboard } from '@vueuse/core';
 import { getUser } from '@/libs/firebase';
+import getPaymentGateways, { paymentBridge } from '@/libs/fiatGateways';
 
 import AppsService from '@/services/AppsService';
 import DaemonService from '@/services/DaemonService';
@@ -5646,7 +5648,6 @@ import io from 'socket.io-client';
 import useAppConfig from '@core/app-config/useAppConfig';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
-const paymentBridge = 'https://fiatpaymentsbridge.runonflux.io';
 
 const walletConnectOptions = {
   projectId,
@@ -6134,6 +6135,8 @@ export default {
       masterSlaveApp: false,
       applicationManagementAndStatus: '',
       fiatCheckoutURL: '',
+      stripeEnabled: true,
+      paypalEnabled: true,
       checkoutLoading: false,
       isMarketplaceApp: false,
       ipAccess: false,
@@ -8148,6 +8151,11 @@ export default {
         this.showToast('success', response.data.data.message || response.data.data);
       } else {
         this.showToast('danger', response.data.data.message || response.data.data);
+      }
+      const fiatGateways = await getPaymentGateways();
+      if (fiatGateways) {
+        this.stripeEnabled = fiatGateways.stripe;
+        this.paypalEnabled = fiatGateways.paypal;
       }
     },
     async checkFluxCommunication() {
