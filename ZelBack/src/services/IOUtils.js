@@ -1,8 +1,5 @@
 const df = require('node-df');
 const fs = require('fs').promises;
-const fs2 = require('fs');
-const http = require('http');
-const https = require('https');
 const util = require('util');
 const log = require('../lib/log');
 const axios = require('axios');
@@ -273,7 +270,7 @@ async function checkFileExists(filePath) {
 /**
  * Downloads a file from a remote URL and saves it locally.
  *
- * @param {string} remoteUrl - The URL of the file to download.
+ * @param {string} url - The URL of the file to download.
  * @param {string} localpath - The local path to save the downloaded file.
  * @param {string} component - The component name for identification.
  * @param {boolean} rename - Flag indicating whether to rename the downloaded file.
@@ -299,7 +296,7 @@ async function downloadFileFromUrl(url, localpath, component, rename = false) {
       writer.on('error', reject);
     });
   } catch (err) {
-    console.error('Error downloading file:', err);
+    log.error('Error downloading file:', err);
     return false;
   }
 }
