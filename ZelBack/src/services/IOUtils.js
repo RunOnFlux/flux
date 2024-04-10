@@ -297,12 +297,13 @@ async function downloadFileFromUrl(remoteUrl, localpath, component, rename = fal
         path: url.pathname + url.search,
       };
       // eslint-disable-next-line consistent-return
-      get(options, (response) => {
+      get(options, async (response) => {
         // Check if the server responded with a redirect
         if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
           response.headers.location = new URL(response.headers.location, url).href;
           // Start a new download using the redirected URL
-          return downloadFileFromUrl(remoteUrl, localpath, component, rename);
+          // eslint-disable-next-line no-return-await
+          return await downloadFileFromUrl(remoteUrl, localpath, component, rename);
         }
         response.pipe(file);
 
