@@ -589,7 +589,7 @@
                 class="text-center wizard-card"
               >
                 <div class="loginRow">
-                  <a @click="initStripePay">
+                  <a v-if="stripeEnabled" @click="initStripePay">
                     <img
                       class="stripePay"
                       src="@/assets/images/Stripe.svg"
@@ -598,7 +598,7 @@
                       width="100%"
                     >
                   </a>
-                  <a @click="initPaypalPay">
+                  <a v-if="paypalEnabled" @click="initPaypalPay">
                     <img
                       class="paypalPay"
                       src="@/assets/images/PayPal.png"
@@ -607,6 +607,7 @@
                       width="100%"
                     >
                   </a>
+                  <span v-if="!paypalEnabled && !stripeEnabled">Fiat Gateways Unavailable.</span>
                 </div>
                 <div v-if="checkoutLoading" className="loginRow">
                   <b-spinner variant="primary" />
@@ -724,6 +725,7 @@ import { MetaMaskSDK } from '@metamask/sdk';
 import useAppConfig from '@core/app-config/useAppConfig';
 import { useClipboard } from '@vueuse/core';
 import { getUser } from '@/libs/firebase';
+import getPaymentGateways, { paymentBridge } from '@/libs/fiatGateways';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
 
@@ -855,13 +857,14 @@ export default {
     const applicationPriceFluxError = ref(false);
     const applicationPriceFluxDiscount = ref('');
     const registrationHash = ref(null);
+    const stripeEnabled = ref(true);
+    const paypalEnabled = ref(true);
     const websocket = ref(null);
     const selectedEnterpriseNodes = ref([]);
     const enterprisePublicKeys = ref([]);
     const selectedGeolocation = ref(null);
     const contact = ref(null);
     const appRegistrationSpecification = ref(null);
-    const paymentBridge = 'https://fiatpaymentsbridge.runonflux.io';
     const tooltipText = ref('Copy to clipboard');
     const copyButtonRef = ref(null);
 
@@ -2014,6 +2017,11 @@ export default {
       } else {
         showToast('danger', response.data.data.message || response.data.data);
       }
+      const fiatGateways = await getPaymentGateways();
+      if (fiatGateways) {
+        stripeEnabled.value = fiatGateways.stripe;
+        paypalEnabled.value = fiatGateways.paypal;
+      }
     };
 
     const componentSelected = (component) => {
@@ -2071,6 +2079,8 @@ export default {
       checkoutLoading,
       registrationHash,
       deploymentAddress,
+      stripeEnabled,
+      paypalEnabled,
 
       validTill,
       subscribedTill,
