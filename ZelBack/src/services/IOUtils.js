@@ -277,7 +277,7 @@ async function checkFileExists(filePath) {
  * @param {boolean} rename - Flag indicating whether to rename the downloaded file.
  * @returns {boolean} - True if the file is downloaded and saved successfully, false on failure.
  */
-async function downloadFileFromUrl(url, localpath, component, rename = false) {
+async function downloadFileFromUrl(url, localpath, component, rename = false, retries = 0) {
   try {
     let filepath = `${localpath}/backup_${component}.tar.gz`;
     if (!rename) {
@@ -297,9 +297,7 @@ async function downloadFileFromUrl(url, localpath, component, rename = false) {
 
     return new Promise((resolve, reject) => {
       writer.on('finish', () => {
-        setTimeout(() => {
-          resolve(true);
-        }, 3000);
+        resolve(true);
       });
       writer.on('error', (err) => {
         log.error(`Error writing file: ${err.message}`);
@@ -307,6 +305,13 @@ async function downloadFileFromUrl(url, localpath, component, rename = false) {
       });
     });
   } catch (err) {
+    if (retries < 3) {
+      // eslint-disable-next-line no-param-reassign
+      retries += 1;
+      log.error(`Error downloading file, retrying download:${retries}`);
+      // eslint-disable-next-line no-return-await
+      return await downloadFileFromUrl(url, localpath, component, rename, retries);
+    }
     log.error('Error downloading file:', err.message);
     return false;
   }
