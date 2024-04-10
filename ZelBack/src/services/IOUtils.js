@@ -1,5 +1,6 @@
 const df = require('node-df');
 const fs = require('fs').promises;
+const fs2 = require('fs');
 const util = require('util');
 const log = require('../lib/log');
 const axios = require('axios');
@@ -289,7 +290,10 @@ async function downloadFileFromUrl(url, localpath, component, rename = false) {
       maxRedirects: 5, // Set maximum allowed redirects (optional)
     });
     log.info(filepath);
-    const writer = fs.createWriteStream(filepath);
+    const dirPath = path.dirname(filepath);
+    // Create directory if it doesn't exist
+    await fs.mkdir(dirPath, { recursive: true });
+    const writer = fs2.createWriteStream(filepath);
     response.data.pipe(writer);
 
     return new Promise((resolve, reject) => {
