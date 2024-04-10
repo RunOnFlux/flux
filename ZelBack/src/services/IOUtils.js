@@ -294,7 +294,10 @@ async function downloadFileFromUrl(url, localpath, component, rename = false) {
 
     return new Promise((resolve, reject) => {
       writer.on('finish', () => resolve(true));
-      writer.on('error', reject);
+      writer.on('error', (err) => {
+        log.error(`Error writing file: ${err.message}`);
+        reject();
+      });
     });
   } catch (err) {
     log.error('Error downloading file:', err);
