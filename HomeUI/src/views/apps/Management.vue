@@ -2213,8 +2213,20 @@
                         </b-tr>
                       </template>
                     </b-table>
+                    <b-alert
+                      v-model="showTopFluxDrive"
+                      class="mt-1 rounded-0 d-flex align-items-center justify-content-center"
+                      style="z-index: 1000;"
+                      :variant="alertVariant"
+                      solid="true"
+                      dismissible
+                    >
+                      <h5 class="mt-1 mb-1">
+                        {{ alertMessage }}
+                      </h5>
+                    </b-alert>
                     <b-button
-                      v-if="newComponents?.length > 0"
+                      v-if="newComponents?.length > 0 && !restoringFromFluxDrive"
                       class="mt-2"
                       block
                       variant="outline-primary"
@@ -2226,6 +2238,25 @@
                         class="mr-1"
                       />Restore
                     </b-button>
+                    <div
+                      v-if="restoringFromFluxDrive === true"
+                      class="mb-2 mt-2 w-100"
+                      style="
+                        margin: 0 auto;
+                        padding: 12px;
+                        border: 1px solid #eaeaea;
+                        border-radius: 8px;
+                        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                        text-align: center;
+                      "
+                    >
+                      <h5 style="font-size: 16px; margin-bottom: 5px;">
+                        <span v-if="restoringFromFluxDrive === true">
+                          <b-spinner small /> {{ restoreFromFluxDriveStatus }}
+                          <!-- <b-spinner small /> Backing up {{ tarProgress[0] }}... -->
+                        </span>
+                      </h5>
+                    </div>
                   </div>
                 </div>
 
@@ -5719,12 +5750,15 @@ export default {
       windowWidth: window.innerWidth,
       showTopUpload: false,
       showTopRemote: false,
+      showTopFluxDrive: false,
       alertMessage: '',
       alertVariant: '',
       restoreFromUpload: false,
       restoreFromUploadStatus: '',
       restoreFromRemoteURLStatus: '',
+      restoreFromFluxDriveStatus: '',
       downloadingFromUrl: false,
+      restoringFromFluxDrive: false,
       files: [],
       backupProgress: false,
       uploadProgress: false,
@@ -6964,6 +6998,7 @@ export default {
         restore_upload: 'restoreFromUploadStatus',
         restore_remote: 'restoreFromRemoteURLStatus',
         backup: 'tarProgress',
+        restore_fluxdrive: 'restoreFromFluxDriveStatus',
       };
       // eslint-disable-next-line no-restricted-syntax
       for (const chunk of chunks) {
@@ -6983,6 +7018,13 @@ export default {
             } else if (type === 'restore_remote' && chunk.includes('Finalizing')) {
               setTimeout(() => {
                 this.changeAlert('success', 'Restore completed successfully', 'showTopRemote', true);
+                this.restoreRemoteUrlItems = [];
+              }, 5000);
+            } else if (type === 'restore_fluxdrive' && chunk.includes('Error:')) {
+              this.changeAlert('danger', chunk, 'showTopFluxDrive', true);
+            } else if (type === 'restore_fluxdrive' && chunk.includes('Finalizing')) {
+              setTimeout(() => {
+                this.changeAlert('success', 'Restore completed successfully', 'showTopFluxDrive', true);
                 this.restoreRemoteUrlItems = [];
               }, 5000);
             }
@@ -7697,19 +7739,63 @@ export default {
       }
     },
     async restoreFromFluxDrive(newComponents) {
-      // console.log(this.appName);
-      // console.log(newComponents);
-      this.restoreRemoteUrlItems = [];
+      const restoreItems = [];
       // eslint-disable-next-line no-restricted-syntax
       for (const item of newComponents) {
-        console.log(item.component);
-        this.restoreRemoteUrlComponent = item.component;
-        this.restoreRemoteUrl = item.file_url;
         // eslint-disable-next-line no-await-in-loop
-        await this.addRemoteUrlItem(this.appName, { component: item.component, file_size: item.file_size, url: item.file_url }, true);
+        restoreItems.push({ component: item.component, file_size: item.file_size, url: item.file_url });
       }
-      console.log(this.restoreRemoteUrlItems);
-      // await this.restoreFromRemoteFile();
+      const zelidauth = localStorage.getItem('zelidauth');
+      this.showTopFluxDrive = false;
+      this.restoringFromFluxDrive = true;
+      this.restoreFromFluxDriveStatus = 'Initializing restore jobs...';
+      // eslint-disable-next-line no-unused-vars
+      const headers = {
+        zelidauth,
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        Connection: 'keep-alive',
+      };
+      const postLayout = this.buildPostBody(this.appSpecification, 'restore', 'remote');
+      let postBackupData;
+      // eslint-disable-next-line no-restricted-syntax
+      for (const componentName of restoreItems) {
+        postBackupData = this.updateJobStatus(postLayout, componentName.component, 'restore', restoreItems);
+      }
+      const url = this.selectedIp.split(':')[0];
+      const urlPort = this.selectedIp.split(':')[1] || 16127;
+      let queryUrl = `https://${url.replace(/\./g, '-')}-${urlPort}.node.api.runonflux.io/apps/appendrestoretask`;
+      if (this.ipAccess) {
+        queryUrl = `http://${url}:${urlPort}/apps/appendrestoretask`;
+      }
+      const response = await fetch(queryUrl, {
+        method: 'POST',
+        body: JSON.stringify(postBackupData),
+        headers,
+      });
+      const self = this;
+      const reader = response.body.getReader();
+      // eslint-disable-next-line no-unused-vars
+      await new Promise((streamResolve, streamReject) => {
+        function push() {
+          reader.read().then(async ({ done, value }) => {
+            if (done) {
+              streamResolve(); // Resolve the stream promise when the response stream is complete
+              return;
+            }
+            // Process each chunk of data separately
+            const chunkText = new TextDecoder('utf-8').decode(value);
+            const chunks = chunkText.split('\n');
+            // eslint-disable-next-line no-restricted-globals
+            await self.processChunks(chunks, 'restore_fluxdrive');
+            // Check for new data immediately after processing each chunk
+            push();
+          });
+        }
+        push();
+      });
+      this.restoringFromFluxDrive = false;
+      this.restoreFromFluxDriveStatus = '';
     },
     async getFluxDriveBackupList() {
       try {

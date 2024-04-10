@@ -1,5 +1,8 @@
 const df = require('node-df');
 const fs = require('fs').promises;
+const fs2 = require('fs');
+const http = require('http');
+const https = require('https');
 const util = require('util');
 const log = require('../lib/log');
 const axios = require('axios');
@@ -270,28 +273,48 @@ async function checkFileExists(filePath) {
 /**
  * Downloads a file from a remote URL and saves it locally.
  *
- * @param {string} url - The URL of the file to download.
+ * @param {string} remoteUrl - The URL of the file to download.
  * @param {string} localpath - The local path to save the downloaded file.
  * @param {string} component - The component name for identification.
  * @param {boolean} rename - Flag indicating whether to rename the downloaded file.
  * @returns {boolean} - True if the file is downloaded and saved successfully, false on failure.
  */
-async function downloadFileFromUrl(url, localpath, component, rename = false) {
-  try {
-    const response = await axios.get(url, { responseType: 'arraybuffer' });
-    const fileData = Buffer.from(response.data, 'binary');
-    if (rename === true) {
-      await fs.writeFile(`${localpath}/backup_${component}.tar.gz`, fileData);
-    } else {
+async function downloadFileFromUrl(remoteUrl, localpath, component, rename = false) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(`${remoteUrl}`);
+    let filepath = `${localpath}/backup_${component}.tar.gz`;
+    if (!rename) {
       const fileNameArray = url.split('/');
       const fileName = fileNameArray[fileNameArray.length - 1];
-      await fs.writeFile(`${localpath}/${fileName}`, fileData);
+      filepath = `${localpath}/${fileName}`;
     }
-    return true;
-  } catch (err) {
-    log.error(err);
-    return false;
-  }
+    const file = fs2.createWriteStream(filepath);
+    const get = url.protocol.startsWith('https:') ? https.get : http.get;
+    const options = {
+      hostname: url.hostname,
+      port: url.port,
+      path: url.pathname + url.search,
+    };
+    // eslint-disable-next-line consistent-return
+    get(options, (response) => {
+      // Check if the server responded with a redirect
+      if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+        response.headers.location = new URL(response.headers.location, url).href;
+        // Start a new download using the redirected URL
+        return downloadFileFromUrl(remoteUrl, localpath, component, rename);
+      }
+      response.pipe(file);
+
+      file.on('finish', () => {
+        file.close(resolve(true));
+      });
+
+      file.on('error', (error) => {
+        fs2.unlink(filepath);
+        reject(error.message);
+      });
+    });
+  });
 }
 
 /**
