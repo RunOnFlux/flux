@@ -1148,6 +1148,20 @@ export default {
         const { name } = appRegistrationSpecification.value;
         const price = appPricePerDeploymentUSD.value;
         const { description } = appRegistrationSpecification.value;
+        let clientIP = null;
+        let clientIPResponse = await axios.get('https://api.ipify.org?format=json').catch(() => {
+          console.log('Error geting clientIp from api.ipify.org from');
+        });
+        if (clientIPResponse && clientIPResponse.data && clientIPResponse.data.ip) {
+          clientIP = clientIPResponse.data.ip;
+        } else {
+          clientIPResponse = await axios.get('https://ipinfo.io').catch(() => {
+            console.log('Error geting clientIp from ipinfo.io from');
+          });
+          if (clientIPResponse && clientIPResponse.data && clientIPResponse.data.ip) {
+            clientIP = clientIPResponse.data.ip;
+          }
+        }
         const zelidauth = localStorage.getItem('zelidauth');
         const auth = qs.parse(zelidauth);
         const data = {
@@ -1155,6 +1169,7 @@ export default {
           signature: auth.signature,
           loginPhrase: auth.loginPhrase,
           details: {
+            clientIP,
             name,
             description,
             hash,
