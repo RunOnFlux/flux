@@ -1,12 +1,15 @@
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
+
 const chai = require('chai');
-const sinon = require('sinon');
 const chaiAsPromised = require('chai-as-promised');
-const path = require('path');
-const nodecmd = require('node-cmd');
+chai.use(chaiAsPromised);
+const { expect } = chai;
+
+const sinon = require('sinon');
 const proxyquire = require('proxyquire');
-const fs = require('fs');
-const os = require('os');
-const util = require('util');
+
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const explorerService = require('../../ZelBack/src/services/explorerService');
@@ -20,18 +23,12 @@ const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonServ
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const syncthingService = require('../../ZelBack/src/services/syncthingService');
 const packageJson = require('../../package.json');
-
-const fsPromises = fs.promises;
-
 const adminConfig = require('../../config/userconfig');
 
 const fluxService = proxyquire(
   '../../ZelBack/src/services/fluxService',
   { '../../../config/userconfig': adminConfig },
 );
-
-chai.use(chaiAsPromised);
-const { expect } = chai;
 
 const generateResponse = () => {
   const res = { test: 'testing' };
@@ -64,11 +61,11 @@ describe('fluxService tests', () => {
 
   describe('updateFlux tests', () => {
     let verifyPrivilegeStub;
-    let nodeCmdStub;
+    let runCmdStub;
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      nodeCmdStub = sinon.stub(nodecmd, 'get');
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand');
     });
 
     afterEach(() => {
@@ -95,7 +92,7 @@ describe('fluxService tests', () => {
 
     it('should return success message if cmd exec does not return error', async () => {
       verifyPrivilegeStub.returns(true);
-      nodeCmdStub.yields(null);
+      runCmdStub.resolves({ error: null });
       const nodedpath = path.join(__dirname, '../../');
 
       const expectedResponse = {
@@ -112,15 +109,17 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithMatch(nodeCmdStub, `cd ${nodedpath} && npm run updateflux`);
+      sinon.assert.calledWithMatch(runCmdStub, 'npm', { cwd: nodedpath, params: ['run', 'updateflux'] });
     });
 
-    it('should return error if cmd exec throws error ', async () => {
+    it('should return error if cmd exec throws error', async () => {
       verifyPrivilegeStub.returns(true);
-      nodeCmdStub.yields({
-        message: 'This is an error',
-        code: 403,
-        name: 'testing error',
+      runCmdStub.resolves({
+        error: {
+          message: 'This is an error',
+          code: 403,
+          name: 'testing error',
+        },
       });
       const nodedpath = path.join(__dirname, '../../');
 
@@ -138,17 +137,17 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithMatch(nodeCmdStub, `cd ${nodedpath} && npm run updateflux`);
+      sinon.assert.calledWithExactly(runCmdStub, 'npm', { cwd: nodedpath, params: ['run', 'updateflux'] });
     });
   });
 
   describe('softUpdateFlux tests', () => {
     let verifyPrivilegeStub;
-    let nodeCmdStub;
+    let runCmdStub;
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      nodeCmdStub = sinon.stub(nodecmd, 'get');
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand');
     });
 
     afterEach(() => {
@@ -176,13 +175,13 @@ describe('fluxService tests', () => {
 
     it('should return success message if cmd exec does not return error', async () => {
       verifyPrivilegeStub.returns(true);
-      nodeCmdStub.yields(null);
+      runCmdStub.resolves({ error: null });
       const nodedpath = path.join(__dirname, '../../');
 
       const expectedResponse = {
         data: {
           code: undefined,
-          message: 'Flux successfully updated using soft method',
+          message: 'Flux successfully soft updated',
           name: undefined,
         },
         status: 'success',
@@ -193,22 +192,24 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithMatch(nodeCmdStub, `cd ${nodedpath} && npm run softupdate`);
+      sinon.assert.calledWithExactly(runCmdStub, 'npm', { cwd: nodedpath, params: ['run', 'softupdate'] });
     });
 
     it('should return error if cmd exec throws error ', async () => {
       verifyPrivilegeStub.returns(true);
-      nodeCmdStub.yields({
-        message: 'This is an error',
-        code: 403,
-        name: 'testing error',
+      runCmdStub.resolves({
+        error: {
+          message: 'This is an error',
+          code: 403,
+          name: 'testing error',
+        },
       });
       const nodedpath = path.join(__dirname, '../../');
 
       const expectedResponse = {
         data: {
           code: 403,
-          message: 'Error softly updating Flux: This is an error',
+          message: 'Error soft updating Flux: This is an error',
           name: 'testing error',
         },
         status: 'error',
@@ -219,17 +220,17 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithMatch(nodeCmdStub, `cd ${nodedpath} && npm run softupdate`);
+      sinon.assert.calledWithExactly(runCmdStub, 'npm', { cwd: nodedpath, params: ['run', 'softupdate'] });
     });
   });
 
   describe('softUpdateFluxInstall tests', () => {
     let verifyPrivilegeStub;
-    let nodeCmdStub;
+    let runCmdStub;
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      nodeCmdStub = sinon.stub(nodecmd, 'get');
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand');
     });
 
     afterEach(() => {
@@ -256,13 +257,13 @@ describe('fluxService tests', () => {
 
     it('should return success message if cmd exec does not return error', async () => {
       verifyPrivilegeStub.returns(true);
-      nodeCmdStub.yields(null);
+      runCmdStub.resolves({ error: null });
       const nodedpath = path.join(__dirname, '../../');
 
       const expectedResponse = {
         data: {
           code: undefined,
-          message: 'Flux successfully updated softly with installation',
+          message: 'Flux successfully soft updated with installation',
           name: undefined,
         },
         status: 'success',
@@ -273,22 +274,24 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithMatch(nodeCmdStub, `cd ${nodedpath} && npm run softupdateinstall`);
+      sinon.assert.calledWithExactly(runCmdStub, 'npm', { cwd: nodedpath, params: ['run', 'softupdateinstall'] });
     });
 
     it('should return error if cmd exec throws error ', async () => {
       verifyPrivilegeStub.returns(true);
-      nodeCmdStub.yields({
-        message: 'This is an error',
-        code: 403,
-        name: 'testing error',
+      runCmdStub.resolves({
+        error: {
+          message: 'This is an error',
+          code: 403,
+          name: 'testing error',
+        },
       });
       const nodedpath = path.join(__dirname, '../../');
 
       const expectedResponse = {
         data: {
           code: 403,
-          message: 'Error softly updating Flux with installation: This is an error',
+          message: 'Error soft updating Flux with installation: This is an error',
           name: 'testing error',
         },
         status: 'error',
@@ -299,17 +302,17 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithMatch(nodeCmdStub, `cd ${nodedpath} && npm run softupdateinstall`);
+      sinon.assert.calledWithExactly(runCmdStub, 'npm', { cwd: nodedpath, params: ['run', 'softupdateinstall'] });
     });
   });
 
   describe('hardUpdateFlux tests', () => {
     let verifyPrivilegeStub;
-    let nodeCmdStub;
+    let runCmdStub;
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      nodeCmdStub = sinon.stub(nodecmd, 'get');
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand');
     });
 
     afterEach(() => {
@@ -336,13 +339,13 @@ describe('fluxService tests', () => {
 
     it('should return success message if cmd exec does not return error', async () => {
       verifyPrivilegeStub.returns(true);
-      nodeCmdStub.yields(null);
+      runCmdStub.resolves({ error: null });
       const nodedpath = path.join(__dirname, '../../');
 
       const expectedResponse = {
         data: {
           code: undefined,
-          message: 'Flux successfully updating',
+          message: 'Flux successfully hard updated',
           name: undefined,
         },
         status: 'success',
@@ -353,22 +356,24 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithMatch(nodeCmdStub, `cd ${nodedpath} && npm run hardupdateflux`);
+      sinon.assert.calledWithExactly(runCmdStub, 'npm', { cwd: nodedpath, params: ['run', 'hardupdateflux'] });
     });
 
     it('should return error if cmd exec throws error ', async () => {
       verifyPrivilegeStub.returns(true);
-      nodeCmdStub.yields({
-        message: 'This is an error',
-        code: 403,
-        name: 'testing error',
+      runCmdStub.resolves({
+        error: {
+          message: 'This is an error',
+          code: 403,
+          name: 'testing error',
+        },
       });
       const nodedpath = path.join(__dirname, '../../');
 
       const expectedResponse = {
         data: {
           code: 403,
-          message: 'Error hardupdating Flux: This is an error',
+          message: 'Error hard updating Flux: This is an error',
           name: 'testing error',
         },
         status: 'error',
@@ -379,17 +384,17 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithMatch(nodeCmdStub, `cd ${nodedpath} && npm run hardupdateflux`);
+      sinon.assert.calledWithExactly(runCmdStub, 'npm', { cwd: nodedpath, params: ['run', 'hardupdateflux'] });
     });
   });
 
   describe('rebuildHome tests', () => {
     let verifyPrivilegeStub;
-    let nodeCmdStub;
+    let runCmdStub;
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      nodeCmdStub = sinon.stub(nodecmd, 'get');
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand');
     });
 
     afterEach(() => {
@@ -416,13 +421,13 @@ describe('fluxService tests', () => {
 
     it('should return success message if cmd exec does not return error', async () => {
       verifyPrivilegeStub.returns(true);
-      nodeCmdStub.yields(null);
+      runCmdStub.resolves({ error: null });
       const nodedpath = path.join(__dirname, '../../');
 
       const expectedResponse = {
         data: {
           code: undefined,
-          message: 'Flux successfully rebuilt',
+          message: 'Flux UI successfully rebuilt',
           name: undefined,
         },
         status: 'success',
@@ -433,22 +438,24 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithMatch(nodeCmdStub, `cd ${nodedpath} && npm run homebuild`);
+      sinon.assert.calledWithExactly(runCmdStub, 'npm', { cwd: nodedpath, params: ['run', 'homebuild'] });
     });
 
     it('should return error if cmd exec throws error ', async () => {
       verifyPrivilegeStub.returns(true);
-      nodeCmdStub.yields({
-        message: 'This is an error',
-        code: 403,
-        name: 'testing error',
+      runCmdStub.resolves({
+        error: {
+          message: 'This is an error',
+          code: 403,
+          name: 'testing error',
+        },
       });
       const nodedpath = path.join(__dirname, '../../');
 
       const expectedResponse = {
         data: {
           code: 403,
-          message: 'Error rebuilding Flux: This is an error',
+          message: 'Error rebuilding Flux UI: This is an error',
           name: 'testing error',
         },
         status: 'error',
@@ -459,17 +466,17 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithMatch(nodeCmdStub, `cd ${nodedpath} && npm run homebuild`);
+      sinon.assert.calledWithExactly(runCmdStub, 'npm', { cwd: nodedpath, params: ['run', 'homebuild'] });
     });
   });
 
   describe('updateDaemon tests', () => {
     let verifyPrivilegeStub;
-    let nodeCmdStub;
+    let runCmdStub;
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      nodeCmdStub = sinon.stub(nodecmd, 'get');
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand');
     });
 
     afterEach(() => {
@@ -496,7 +503,7 @@ describe('fluxService tests', () => {
 
     it('should return success message if cmd exec does not return error', async () => {
       verifyPrivilegeStub.returns(true);
-      nodeCmdStub.yields(null);
+      runCmdStub.resolves({ error: null });
       const nodedpath = path.join(__dirname, '../../helpers');
 
       const expectedResponse = {
@@ -513,15 +520,17 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithMatch(nodeCmdStub, `cd ${nodedpath} && bash updateDaemon.sh`);
+      sinon.assert.calledWithExactly(runCmdStub, `${nodedpath}/updateDaemon.sh`, { cwd: nodedpath });
     });
 
     it('should return error if cmd exec throws error ', async () => {
       verifyPrivilegeStub.returns(true);
-      nodeCmdStub.yields({
-        message: 'This is an error',
-        code: 403,
-        name: 'testing error',
+      runCmdStub.resolves({
+        error: {
+          message: 'This is an error',
+          code: 403,
+          name: 'testing error',
+        },
       });
       const nodedpath = path.join(__dirname, '../../helpers');
 
@@ -539,17 +548,17 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithMatch(nodeCmdStub, `cd ${nodedpath} && bash updateDaemon.sh`);
+      sinon.assert.calledWithExactly(runCmdStub, `${nodedpath}/updateDaemon.sh`, { cwd: nodedpath });
     });
   });
 
   describe('updateBenchmark tests', () => {
     let verifyPrivilegeStub;
-    let nodeCmdStub;
+    let runCmdStub;
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      nodeCmdStub = sinon.stub(nodecmd, 'get');
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand');
     });
 
     afterEach(() => {
@@ -576,7 +585,7 @@ describe('fluxService tests', () => {
 
     it('should return success message if cmd exec does not return error', async () => {
       verifyPrivilegeStub.returns(true);
-      nodeCmdStub.yields(null);
+      runCmdStub.resolves({ error: null });
       const nodedpath = path.join(__dirname, '../../helpers');
 
       const expectedResponse = {
@@ -593,15 +602,17 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithMatch(nodeCmdStub, `cd ${nodedpath} && bash updateBenchmark.sh`);
+      sinon.assert.calledWithExactly(runCmdStub, `${nodedpath}/updateBenchmark.sh`, { cwd: nodedpath });
     });
 
     it('should return error if cmd exec throws error ', async () => {
       verifyPrivilegeStub.returns(true);
-      nodeCmdStub.yields({
-        message: 'This is an error',
-        code: 403,
-        name: 'testing error',
+      runCmdStub.resolves({
+        error: {
+          message: 'This is an error',
+          code: 403,
+          name: 'testing error',
+        },
       });
       const nodedpath = path.join(__dirname, '../../helpers');
 
@@ -619,17 +630,17 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithMatch(nodeCmdStub, `cd ${nodedpath} && bash updateBenchmark.sh`);
+      sinon.assert.calledWithExactly(runCmdStub, `${nodedpath}/updateBenchmark.sh`, { cwd: nodedpath });
     });
   });
 
   describe('startBenchmark tests', () => {
     let verifyPrivilegeStub;
-    let nodeCmdStub;
+    let runCmdStub;
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      nodeCmdStub = sinon.stub(nodecmd, 'get');
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand');
     });
 
     afterEach(() => {
@@ -656,7 +667,7 @@ describe('fluxService tests', () => {
 
     it('should return success message if cmd exec does not return error', async () => {
       verifyPrivilegeStub.returns(true);
-      nodeCmdStub.yields(null);
+      runCmdStub.resolves({ error: null });
 
       const expectedResponse = {
         data: {
@@ -672,15 +683,17 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithMatch(nodeCmdStub, 'fluxbenchd -daemon');
+      sinon.assert.calledWithExactly(runCmdStub, 'fluxbenchd', { params: ['-daemon'] });
     });
 
     it('should return error if cmd exec throws error ', async () => {
       verifyPrivilegeStub.returns(true);
-      nodeCmdStub.yields({
-        message: 'This is an error',
-        code: 403,
-        name: 'testing error',
+      runCmdStub.resolves({
+        error: {
+          message: 'This is an error',
+          code: 403,
+          name: 'testing error',
+        },
       });
 
       const expectedResponse = {
@@ -697,17 +710,17 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithMatch(nodeCmdStub, 'fluxbenchd -daemon');
+      sinon.assert.calledWithExactly(runCmdStub, 'fluxbenchd', { params: ['-daemon'] });
     });
   });
 
   describe('restartBenchmark tests', () => {
     let verifyPrivilegeStub;
-    let nodeCmdStub;
+    let runCmdStub;
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      nodeCmdStub = sinon.stub(nodecmd, 'get');
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand');
     });
 
     afterEach(() => {
@@ -734,7 +747,7 @@ describe('fluxService tests', () => {
 
     it('should return success message if cmd exec does not return error', async () => {
       verifyPrivilegeStub.returns(true);
-      nodeCmdStub.yields(null);
+      runCmdStub.resolves({ error: null });
       const nodedpath = path.join(__dirname, '../../helpers');
 
       const expectedResponse = {
@@ -751,15 +764,17 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithMatch(nodeCmdStub, `cd ${nodedpath} && bash restartBenchmark.sh`);
+      sinon.assert.calledWithExactly(runCmdStub, `${nodedpath}/restartBenchmark.sh`, { cwd: nodedpath });
     });
 
     it('should return error if cmd exec throws error ', async () => {
       verifyPrivilegeStub.returns(true);
-      nodeCmdStub.yields({
-        message: 'This is an error',
-        code: 403,
-        name: 'testing error',
+      runCmdStub.resolves({
+        error: {
+          message: 'This is an error',
+          code: 403,
+          name: 'testing error',
+        },
       });
       const nodedpath = path.join(__dirname, '../../helpers');
 
@@ -777,17 +792,17 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithMatch(nodeCmdStub, `cd ${nodedpath} && bash restartBenchmark.sh`);
+      sinon.assert.calledWithExactly(runCmdStub, `${nodedpath}/restartBenchmark.sh`, { cwd: nodedpath });
     });
   });
 
   describe('startDaemon tests', () => {
     let verifyPrivilegeStub;
-    let nodeCmdStub;
+    let runCmdStub;
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      nodeCmdStub = sinon.stub(nodecmd, 'get');
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand');
     });
 
     afterEach(() => {
@@ -814,7 +829,7 @@ describe('fluxService tests', () => {
 
     it('should return success message if cmd exec does not return error', async () => {
       verifyPrivilegeStub.returns(true);
-      nodeCmdStub.yields(null);
+      runCmdStub.resolves({ error: null });
 
       const expectedResponse = {
         data: {
@@ -830,15 +845,17 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithMatch(nodeCmdStub, 'fluxd');
+      sinon.assert.calledWithExactly(runCmdStub, 'fluxd');
     });
 
     it('should return error if cmd exec throws error ', async () => {
       verifyPrivilegeStub.returns(true);
-      nodeCmdStub.yields({
-        message: 'This is an error',
-        code: 403,
-        name: 'testing error',
+      runCmdStub.resolves({
+        error: {
+          message: 'This is an error',
+          code: 403,
+          name: 'testing error',
+        },
       });
 
       const expectedResponse = {
@@ -855,17 +872,17 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithMatch(nodeCmdStub, 'fluxd');
+      sinon.assert.calledWithExactly(runCmdStub, 'fluxd');
     });
   });
 
   describe('restartDaemon tests', () => {
     let verifyPrivilegeStub;
-    let nodeCmdStub;
+    let runCmdStub;
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      nodeCmdStub = sinon.stub(nodecmd, 'get');
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand');
     });
 
     afterEach(() => {
@@ -892,7 +909,7 @@ describe('fluxService tests', () => {
 
     it('should return success message if cmd exec does not return error', async () => {
       verifyPrivilegeStub.returns(true);
-      nodeCmdStub.yields(null);
+      runCmdStub.resolves({ error: null });
       const nodedpath = path.join(__dirname, '../../helpers');
 
       const expectedResponse = {
@@ -909,15 +926,17 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithMatch(nodeCmdStub, `cd ${nodedpath} && bash restartDaemon.sh`);
+      sinon.assert.calledWithExactly(runCmdStub, `${nodedpath}/restartDaemon.sh`, { cwd: nodedpath });
     });
 
     it('should return error if cmd exec throws error ', async () => {
       verifyPrivilegeStub.returns(true);
-      nodeCmdStub.yields({
-        message: 'This is an error',
-        code: 403,
-        name: 'testing error',
+      runCmdStub.resolves({
+        error: {
+          message: 'This is an error',
+          code: 403,
+          name: 'testing error',
+        },
       });
       const nodedpath = path.join(__dirname, '../../helpers');
 
@@ -935,17 +954,17 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithMatch(nodeCmdStub, `cd ${nodedpath} && bash restartDaemon.sh`);
+      sinon.assert.calledWithExactly(runCmdStub, `${nodedpath}/restartDaemon.sh`, { cwd: nodedpath });
     });
   });
 
   describe('reindexDaemon tests', () => {
     let verifyPrivilegeStub;
-    let nodeCmdStub;
+    let runCmdStub;
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      nodeCmdStub = sinon.stub(nodecmd, 'get');
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand');
     });
 
     afterEach(() => {
@@ -972,7 +991,7 @@ describe('fluxService tests', () => {
 
     it('should return success message if cmd exec does not return error', async () => {
       verifyPrivilegeStub.returns(true);
-      nodeCmdStub.yields(null);
+      runCmdStub.resolves({ error: null });
       const nodedpath = path.join(__dirname, '../../helpers');
 
       const expectedResponse = {
@@ -989,15 +1008,17 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithMatch(nodeCmdStub, `cd ${nodedpath} && bash reindexDaemon.sh`);
+      sinon.assert.calledWithExactly(runCmdStub, `${nodedpath}/reindexDaemon.sh`, { cwd: nodedpath });
     });
 
     it('should return error if cmd exec throws error ', async () => {
       verifyPrivilegeStub.returns(true);
-      nodeCmdStub.yields({
-        message: 'This is an error',
-        code: 403,
-        name: 'testing error',
+      runCmdStub.resolves({
+        error: {
+          message: 'This is an error',
+          code: 403,
+          name: 'testing error',
+        },
       });
       const nodedpath = path.join(__dirname, '../../helpers');
 
@@ -1015,7 +1036,7 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithMatch(nodeCmdStub, `cd ${nodedpath} && bash reindexDaemon.sh`);
+      sinon.assert.calledWithExactly(runCmdStub, `${nodedpath}/reindexDaemon.sh`, { cwd: nodedpath });
     });
   });
 
@@ -1295,11 +1316,11 @@ describe('fluxService tests', () => {
 
   describe('tailDaemonDebug tests', () => {
     let verifyPrivilegeStub;
-    let nodeCmdStub;
+    let runCmdStub;
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      nodeCmdStub = sinon.stub(nodecmd, 'get');
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand');
     });
 
     afterEach(() => {
@@ -1326,25 +1347,25 @@ describe('fluxService tests', () => {
     it('should return debug log file if the user is an admin', async () => {
       verifyPrivilegeStub.returns(true);
       const res = generateResponse();
-      nodeCmdStub.yields(null, {
-        message: 'success message',
-      });
+      runCmdStub.resolves({ error: null, stdout: 'success message' });
 
       await fluxService.tailDaemonDebug(undefined, res);
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
-        data: { code: undefined, name: undefined, message: { message: 'success message' } },
+        data: { code: undefined, name: undefined, message: 'success message' },
       });
     });
 
-    it('should return error if cmd exec throws error ', async () => {
+    it('should return error if cmd exec throws error', async () => {
       verifyPrivilegeStub.returns(true);
-      nodeCmdStub.yields({
-        message: 'This is an error',
-        code: 403,
-        name: 'testing error',
+      runCmdStub.resolves({
+        error: {
+          message: 'This is an error',
+          code: 403,
+          name: 'testing error',
+        },
       });
       const nodedpath = path.join(os.homedir(), '.flux', 'debug.log');
       const expectedResponse = {
@@ -1359,17 +1380,17 @@ describe('fluxService tests', () => {
       await fluxService.tailDaemonDebug(undefined, res);
       await serviceHelper.delay(200);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithMatch(nodeCmdStub, `tail -n 100 ${nodedpath}`);
+      sinon.assert.calledWithMatch(runCmdStub, 'tail', { params: ['-n', '100', nodedpath] });
     });
   });
 
   describe('tailBenchmarkDebug tests', () => {
     let verifyPrivilegeStub;
-    let nodeCmdStub;
+    let runCmdStub;
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      nodeCmdStub = sinon.stub(nodecmd, 'get');
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand');
     });
 
     afterEach(() => {
@@ -1396,23 +1417,25 @@ describe('fluxService tests', () => {
     it('should return debug log file if the user is an admin', async () => {
       verifyPrivilegeStub.returns(true);
       const res = generateResponse();
-      nodeCmdStub.yields(null, 'debug.log');
+      runCmdStub.resolves({ error: null, stdout: 'some logs' });
 
       await fluxService.tailBenchmarkDebug(undefined, res);
       await serviceHelper.delay(200);
 
       sinon.assert.calledWithMatch(res.json, {
         status: 'success',
-        data: { code: undefined, name: undefined, message: 'debug.log' },
+        data: { code: undefined, name: undefined, message: 'some logs' },
       });
     });
 
     it('should return error if cmd exec throws error ', async () => {
       verifyPrivilegeStub.returns(true);
-      nodeCmdStub.yields({
-        message: 'This is an error',
-        code: 403,
-        name: 'testing error',
+      runCmdStub.resolves({
+        error: {
+          message: 'This is an error',
+          code: 403,
+          name: 'testing error',
+        },
       });
       const nodedpath = path.join(__dirname, '../../../.zelbenchmark/debug.log'); // .fluxbenchmark
       const expectedResponse = {
@@ -1429,7 +1452,7 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithMatch(nodeCmdStub, `tail -n 100 ${nodedpath}`);
+      sinon.assert.calledWithMatch(runCmdStub, 'tail', { params: ['-n', '100', nodedpath] });
     });
   });
 
@@ -1561,11 +1584,11 @@ describe('fluxService tests', () => {
 
   describe('tailFluxLog tests', () => {
     let verifyPrivilegeStub;
-    let nodeCmdStub;
+    let runCmdStub;
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      nodeCmdStub = sinon.stub(nodecmd, 'get');
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand');
     });
 
     afterEach(() => {
@@ -1592,31 +1615,31 @@ describe('fluxService tests', () => {
     it('should return debug log file if the user is an admin', async () => {
       verifyPrivilegeStub.returns(true);
       const res = generateResponse();
-      nodeCmdStub.yields(null, {
-        message: 'success message',
-      });
+      runCmdStub.resolves({ error: null, stdout: 'success message' });
 
       await fluxService.tailFluxLog(undefined, res);
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
-        data: { code: undefined, name: undefined, message: { message: 'success message' } },
+        data: { code: undefined, name: undefined, message: 'success message' },
       });
     });
 
     it('should return error if cmd exec throws error ', async () => {
       verifyPrivilegeStub.returns(true);
-      nodeCmdStub.yields({
-        message: 'This is an error',
-        code: 403,
-        name: 'testing error',
+      runCmdStub.resolves({
+        error: {
+          message: 'This is an error',
+          code: 403,
+          name: 'testing error',
+        },
       });
-      const nodedpath = path.join(__dirname, '../../../flux/test.log');
+      const nodePath = path.join(__dirname, '../../../flux/test.log');
       const expectedResponse = {
         data: {
           code: 403,
-          message: 'Error obtaining Flux test file: This is an error',
+          message: 'Error obtaining Flux log file: This is an error',
           name: 'testing error',
         },
         status: 'error',
@@ -1627,24 +1650,24 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithMatch(nodeCmdStub, `tail -n 100 ${nodedpath}`);
+      sinon.assert.calledWithMatch(runCmdStub, 'tail', { params: ['-n', '100', nodePath] });
     });
   });
 
   describe('tailFluxErrorLog tests', () => {
     let verifyPrivilegeStub;
-    let nodeCmdStub;
+    let runCmdStub;
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      nodeCmdStub = sinon.stub(nodecmd, 'get');
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand');
     });
 
     afterEach(() => {
       sinon.restore();
     });
 
-    it('should return error when unauthorized ', async () => {
+    it('should return error when unauthorized', async () => {
       const res = generateResponse();
       verifyPrivilegeStub.returns(false);
       const expectedResponse = {
@@ -1663,9 +1686,7 @@ describe('fluxService tests', () => {
     it('should return file download', async () => {
       const res = generateResponse();
       verifyPrivilegeStub.returns(true);
-      nodeCmdStub.yields(null, {
-        message: 'success message',
-      });
+      runCmdStub.resolves({ error: null, stdout: 'success message' });
 
       await fluxService.tailFluxErrorLog(undefined, res);
 
@@ -1674,7 +1695,7 @@ describe('fluxService tests', () => {
         data: {
           code: undefined,
           name: undefined,
-          message: { message: 'success message' },
+          message: 'success message',
         },
       });
     });
@@ -1682,11 +1703,11 @@ describe('fluxService tests', () => {
 
   describe('tailFluxWarnLog tests', () => {
     let verifyPrivilegeStub;
-    let nodeCmdStub;
+    let runCmdStub;
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      nodeCmdStub = sinon.stub(nodecmd, 'get');
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand');
     });
 
     afterEach(() => {
@@ -1712,9 +1733,7 @@ describe('fluxService tests', () => {
     it('should return file download', async () => {
       const res = generateResponse();
       verifyPrivilegeStub.returns(true);
-      nodeCmdStub.yields(null, {
-        message: 'success message',
-      });
+      runCmdStub.resolves({ error: null, stdout: 'success message' });
 
       await fluxService.tailFluxWarnLog(undefined, res);
 
@@ -1723,7 +1742,7 @@ describe('fluxService tests', () => {
         data: {
           code: undefined,
           name: undefined,
-          message: { message: 'success message' },
+          message: 'success message',
         },
       });
     });
@@ -1731,11 +1750,11 @@ describe('fluxService tests', () => {
 
   describe('tailFluxInfoLog tests', () => {
     let verifyPrivilegeStub;
-    let nodeCmdStub;
+    let runCmdStub;
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      nodeCmdStub = sinon.stub(nodecmd, 'get');
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand');
     });
 
     afterEach(() => {
@@ -1761,9 +1780,7 @@ describe('fluxService tests', () => {
     it('should return file download', async () => {
       const res = generateResponse();
       verifyPrivilegeStub.returns(true);
-      nodeCmdStub.yields(null, {
-        message: 'success message',
-      });
+      runCmdStub.resolves({ error: null, stdout: 'success message' });
 
       await fluxService.tailFluxInfoLog(undefined, res);
 
@@ -1772,7 +1789,7 @@ describe('fluxService tests', () => {
         data: {
           code: undefined,
           name: undefined,
-          message: { message: 'success message' },
+          message: 'success message',
         },
       });
     });
@@ -1780,11 +1797,11 @@ describe('fluxService tests', () => {
 
   describe('tailFluxDebugLog tests', () => {
     let verifyPrivilegeStub;
-    let nodeCmdStub;
+    let runCmdStub;
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      nodeCmdStub = sinon.stub(nodecmd, 'get');
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand');
     });
 
     afterEach(() => {
@@ -1810,9 +1827,7 @@ describe('fluxService tests', () => {
     it('should return file download', async () => {
       const res = generateResponse();
       verifyPrivilegeStub.returns(true);
-      nodeCmdStub.yields(null, {
-        message: 'success message',
-      });
+      runCmdStub.resolves({ error: null, stdout: 'success message' });
 
       await fluxService.tailFluxDebugLog(undefined, res);
 
@@ -1821,7 +1836,7 @@ describe('fluxService tests', () => {
         data: {
           code: undefined,
           name: undefined,
-          message: { message: 'success message' },
+          message: 'success message',
         },
       });
     });
@@ -2257,7 +2272,7 @@ describe('fluxService tests', () => {
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      fsPromisesSpy = sinon.stub(fsPromises, 'writeFile');
+      fsPromisesSpy = sinon.stub(fs, 'writeFile');
     });
 
     afterEach(() => {
@@ -2416,7 +2431,7 @@ describe('fluxService tests', () => {
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      fsPromisesSpy = sinon.stub(fsPromises, 'writeFile');
+      fsPromisesSpy = sinon.stub(fs, 'writeFile');
     });
 
     afterEach(() => {
@@ -2485,7 +2500,7 @@ describe('fluxService tests', () => {
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      fsPromisesSpy = sinon.stub(fsPromises, 'writeFile');
+      fsPromisesSpy = sinon.stub(fs, 'writeFile');
     });
 
     afterEach(() => {
@@ -2575,7 +2590,7 @@ describe('fluxService tests', () => {
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      fsPromisesSpy = sinon.stub(fsPromises, 'writeFile');
+      fsPromisesSpy = sinon.stub(fs, 'writeFile');
     });
 
     afterEach(() => {
@@ -2599,15 +2614,15 @@ describe('fluxService tests', () => {
     });
 
     it('should return error if blockedPorts is not an array', async () => {
+      const postData = { blockedPorts: '12' };
       const mockRes = {
         json: sinon.fake(),
         status: sinon.stub().returnsThis(),
       };
       const mockReq = {
-        on: sinon.stub(),
+        body: postData,
         method: 'POST',
       };
-      const postData = JSON.stringify({ blockedPorts: '12' });
       const expectedResponse = {
         status: 'error',
         data: {
@@ -2618,22 +2633,20 @@ describe('fluxService tests', () => {
       };
 
       verifyPrivilegeStub.returns(true);
-      mockReq.on.withArgs('data').yields(postData);
-      mockReq.on.withArgs('end').yields();
       await fluxService.adjustBlockedPorts(mockReq, mockRes);
       sinon.assert.calledOnceWithExactly(mockRes.json, expectedResponse);
     });
 
     it('should return a message when blockedPorts is proper and is adjusted ', async () => {
+      const postData = { blockedPorts: [12, 32] };
       const mockRes = {
         json: sinon.fake(),
         status: sinon.stub().returnsThis(),
       };
       const mockReq = {
-        on: sinon.stub(),
+        body: postData,
         method: 'POST',
       };
-      const postData = JSON.stringify({ blockedPorts: [12, 32] });
       const expectedResponse = {
         status: 'success',
         data: {
@@ -2660,8 +2673,6 @@ describe('fluxService tests', () => {
       const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
 
       verifyPrivilegeStub.returns(true);
-      mockReq.on.withArgs('data').yields(postData);
-      mockReq.on.withArgs('end').yields();
       await fluxService.adjustBlockedPorts(mockReq, mockRes);
       sinon.assert.calledOnceWithExactly(mockRes.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(fsPromisesSpy, fluxDirPath, expectedData);
@@ -2674,7 +2685,7 @@ describe('fluxService tests', () => {
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      fsPromisesSpy = sinon.stub(fsPromises, 'writeFile');
+      fsPromisesSpy = sinon.stub(fs, 'writeFile');
     });
 
     afterEach(() => {
@@ -2698,15 +2709,15 @@ describe('fluxService tests', () => {
     });
 
     it('should return error if blockedRepositories is not an array', async () => {
+      const postData = { blockedRepositories: 'lol/test' };
       const mockRes = {
         json: sinon.fake(),
         status: sinon.stub().returnsThis(),
       };
       const mockReq = {
-        on: sinon.stub(),
+        body: postData,
         method: 'POST',
       };
-      const postData = JSON.stringify({ blockedRepositories: 'lol/test' });
       const expectedResponse = {
         status: 'error',
         data: {
@@ -2717,22 +2728,20 @@ describe('fluxService tests', () => {
       };
 
       verifyPrivilegeStub.returns(true);
-      mockReq.on.withArgs('data').yields(postData);
-      mockReq.on.withArgs('end').yields();
       await fluxService.adjustBlockedRepositories(mockReq, mockRes);
       sinon.assert.calledOnceWithExactly(mockRes.json, expectedResponse);
     });
 
-    it('should return a message when blockedRepositories is proper and is adjusted ', async () => {
+    it('should return a message when blockedRepositories is proper and is adjusted', async () => {
+      const postData = { blockedRepositories: ['blabla/test', 'ban/this'] };
       const mockRes = {
         json: sinon.fake(),
         status: sinon.stub().returnsThis(),
       };
       const mockReq = {
-        on: sinon.stub(),
+        body: postData,
         method: 'POST',
       };
-      const postData = JSON.stringify({ blockedRepositories: ['blabla/test', 'ban/this'] });
       const expectedResponse = {
         status: 'success',
         data: {
@@ -2759,8 +2768,6 @@ describe('fluxService tests', () => {
       const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
 
       verifyPrivilegeStub.returns(true);
-      mockReq.on.withArgs('data').yields(postData);
-      mockReq.on.withArgs('end').yields();
       await fluxService.adjustBlockedRepositories(mockReq, mockRes);
       sinon.assert.calledOnceWithExactly(mockRes.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(fsPromisesSpy, fluxDirPath, expectedData);
@@ -2773,7 +2780,7 @@ describe('fluxService tests', () => {
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      fsPromisesSpy = sinon.stub(fsPromises, 'writeFile');
+      fsPromisesSpy = sinon.stub(fs, 'writeFile');
     });
 
     afterEach(() => {
@@ -3052,25 +3059,24 @@ describe('fluxService tests', () => {
   });
 
   describe('installFluxWatchTower tests', () => {
-    let utilStub;
-    let funcStub;
+    let runCmdStub;
 
     beforeEach(() => {
-      utilStub = sinon.stub(util, 'promisify');
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand');
     });
 
     afterEach(() => {
       sinon.restore();
     });
 
-    it('should return true if firewall is active', async () => {
-      funcStub = sinon.fake(() => 'Status: active');
-      utilStub.returns(funcStub);
+    it('should install flux watchtower', async () => {
       const nodedpath = path.join(__dirname, '../../../flux/helpers');
+
+      runCmdStub.resolves({ error: null, stdout: 'Installed' });
 
       await fluxService.installFluxWatchTower();
 
-      sinon.assert.calledOnceWithExactly(funcStub, `cd ${nodedpath} && bash fluxwatchtower.sh`);
+      sinon.assert.calledWithExactly(runCmdStub, `${nodedpath}/fluxwatchtower.sh`, { cwd: nodedpath });
     });
   });
 });
