@@ -289,7 +289,6 @@ async function downloadFileFromUrl(url, localpath, component, rename = false) {
       responseType: 'stream', // Specify stream response type
       maxRedirects: 5, // Set maximum allowed redirects (optional)
     });
-    log.info(filepath);
     const dirPath = path.dirname(filepath);
     // Create directory if it doesn't exist
     await fs.mkdir(dirPath, { recursive: true });
@@ -297,7 +296,11 @@ async function downloadFileFromUrl(url, localpath, component, rename = false) {
     response.data.pipe(writer);
 
     return new Promise((resolve, reject) => {
-      writer.on('finish', () => resolve(true));
+      writer.on('finish', () => {
+        setTimeout(() => {
+          resolve(true);
+        }, 3000);
+      });
       writer.on('error', (err) => {
         log.error(`Error writing file: ${err.message}`);
         reject();
