@@ -288,6 +288,7 @@ async function downloadFileFromUrl(url, localpath, component, rename = false) {
       responseType: 'stream', // Specify stream response type
       maxRedirects: 5, // Set maximum allowed redirects (optional)
     });
+    log.info(filepath);
     const writer = fs.createWriteStream(filepath);
     response.data.pipe(writer);
 

@@ -12354,8 +12354,6 @@ async function appendRestoreTask(req, res) {
             if (downloadStatus !== true) {
               throw new Error(`Error: Failed to download ${restoreItem.url}...`);
             }
-            // eslint-disable-next-line no-await-in-loop
-            await sendChunk(res, `${JSON.stringify(downloadStatus)}...\n`);
           }
         }
       }
