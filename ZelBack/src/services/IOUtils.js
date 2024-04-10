@@ -281,39 +281,45 @@ async function checkFileExists(filePath) {
  */
 async function downloadFileFromUrl(remoteUrl, localpath, component, rename = false) {
   return new Promise((resolve, reject) => {
-    const url = new URL(`${remoteUrl}`);
-    let filepath = `${localpath}/backup_${component}.tar.gz`;
-    if (!rename) {
-      const fileNameArray = url.split('/');
-      const fileName = fileNameArray[fileNameArray.length - 1];
-      filepath = `${localpath}/${fileName}`;
-    }
-    const file = fs2.createWriteStream(filepath);
-    const get = url.protocol.startsWith('https:') ? https.get : http.get;
-    const options = {
-      hostname: url.hostname,
-      port: url.port,
-      path: url.pathname + url.search,
-    };
-    // eslint-disable-next-line consistent-return
-    get(options, (response) => {
-      // Check if the server responded with a redirect
-      if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
-        response.headers.location = new URL(response.headers.location, url).href;
-        // Start a new download using the redirected URL
-        return downloadFileFromUrl(remoteUrl, localpath, component, rename);
+    try {
+      const url = new URL(`${remoteUrl}`);
+      let filepath = `${localpath}/backup_${component}.tar.gz`;
+      if (!rename) {
+        const fileNameArray = url.split('/');
+        const fileName = fileNameArray[fileNameArray.length - 1];
+        filepath = `${localpath}/${fileName}`;
       }
-      response.pipe(file);
+      const file = fs2.createWriteStream(filepath);
+      const get = url.protocol.startsWith('https:') ? https.get : http.get;
+      const options = {
+        hostname: url.hostname,
+        port: url.port,
+        path: url.pathname + url.search,
+      };
+      // eslint-disable-next-line consistent-return
+      get(options, (response) => {
+        // Check if the server responded with a redirect
+        if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+          response.headers.location = new URL(response.headers.location, url).href;
+          // Start a new download using the redirected URL
+          return downloadFileFromUrl(remoteUrl, localpath, component, rename);
+        }
+        response.pipe(file);
 
-      file.on('finish', () => {
-        file.close(resolve(true));
-      });
+        file.on('finish', () => {
+          file.close(resolve(true));
+        });
 
-      file.on('error', (error) => {
-        fs2.unlink(filepath);
-        reject(error.message);
+        file.on('error', (error) => {
+          console.log(error);
+          fs2.unlink(filepath);
+          reject(error.message);
+        });
       });
-    });
+    } catch (error) {
+      console.log(error);
+      reject(error.message);
+    }
   });
 }
 
