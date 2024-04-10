@@ -281,18 +281,25 @@ async function checkFileExists(filePath) {
  */
 async function downloadFileFromUrl(url, localpath, component, rename = false) {
   try {
-    const response = await axios.get(url);
-    const fileData = Buffer.from(response.data, 'binary');
-    if (rename === true) {
-      await fs.writeFile(`${localpath}/backup_${component}.tar.gz`, fileData);
-    } else {
+    let filepath = `${localpath}/backup_${component}.tar.gz`;
+    if (!rename) {
       const fileNameArray = url.split('/');
       const fileName = fileNameArray[fileNameArray.length - 1];
-      await fs.writeFile(`${localpath}/${fileName}`, fileData);
+      filepath = `${localpath}/${fileName}`;
     }
-    return true;
+    const response = await axios.get(url, {
+      responseType: 'stream', // Specify stream response type
+      maxRedirects: 5, // Set maximum allowed redirects (optional)
+    });
+    const writer = fs.createWriteStream(filepath);
+    response.data.pipe(writer);
+
+    return new Promise((resolve, reject) => {
+      writer.on('finish', () => resolve(true));
+      writer.on('error', reject);
+    });
   } catch (err) {
-    console.log(err);
+    console.error('Error downloading file:', err);
     return false;
   }
 }
