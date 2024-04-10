@@ -2039,8 +2039,8 @@
                         />
                       </b-input-group>
                     </div>
-
                     <b-table
+                      :key="tableBackup"
                       :items="checkpoints"
                       :fields="backupTableFields"
                       stacked="md"
@@ -2105,6 +2105,7 @@
 
                       <template #row-details="row">
                         <b-table
+                          :key="tableBackup"
                           stacked="md"
                           show-empty
                           bordered
@@ -2117,8 +2118,8 @@
                           )"
                           :fields="componentsTable1"
                         >
-                          <template #cell(file_size)="row">
-                            {{ addAndConvertFileSizes(row.item.file_size) }}
+                          <template #cell(file_size)="nestedRow">
+                            {{ addAndConvertFileSizes(nestedRow.item.file_size) }}
                           </template>
                           <template #cell(actions)="nestedRow">
                             <b-button
@@ -5661,6 +5662,7 @@ export default {
     return {
       appInfoObject: [],
       tooltipText: 'Copy to clipboard',
+      tableBackup: 0,
       tableKey: 0,
       isBusy: false,
       inputPathValue: '',
@@ -7719,7 +7721,7 @@ export default {
         };
         const response = await axios.get(`http://mws.fluxdrive.runonflux.io:2052/getbackuplist?appname=${this.appName}`, axiosConfig);
         console.log(JSON.stringify(response.data.checkpoints));
-
+        this.tableBackup += 1;
         const uniqueComponents = response.data.checkpoints.reduce((acc, { components }) => {
           components.forEach((component) => acc.add(component.component));
           return acc;
@@ -7730,6 +7732,7 @@ export default {
           restoreComponentsTmp.push({ value: item, text: item });
         }
         this.restoreComponents = restoreComponentsTmp;
+        this.applyFilter();
         if (response.data && response.data.status === 'success') this.checkpoints = response.data.checkpoints;
       } catch (error) {
         console.error('Error receiving FluxDrive backup list', error);
