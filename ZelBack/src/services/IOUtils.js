@@ -300,7 +300,7 @@ async function downloadFileFromUrl(url, localpath, component, rename = false) {
       });
     });
   } catch (err) {
-    log.error('Error downloading file:', err);
+    log.error('Error downloading file:', err.message);
     return false;
   }
 }
