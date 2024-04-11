@@ -43,7 +43,6 @@ const IOUtils = require('./IOUtils');
 const log = require('../lib/log');
 const { PassThrough } = require('stream');
 const { invalidMessages } = require('./invalidMessages');
-const { truncate } = require('fs');
 
 const fluxDirPath = path.join(__dirname, '../../../');
 const appsFolder = `${fluxDirPath}ZelApps/`;
