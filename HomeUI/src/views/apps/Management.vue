@@ -7372,7 +7372,7 @@ export default {
             appname: this.appName,
             timestamp,
           };
-          const response = await axios.post('http://mws.fluxdrive.runonflux.io:2052/removeCheckpoint', data, axiosConfig);
+          const response = await axios.post('https://mws.fluxdrive.runonflux.io/removeCheckpoint', data, axiosConfig);
           console.error(response.data);
           if (response && response.data && response.data.status === 'success') {
             const backupIndex = restoreItem.findIndex((item) => item.timestamp === timestamp);
@@ -7478,7 +7478,7 @@ export default {
       for (const task of this.fluxDriveUploadTask) {
         try {
           // eslint-disable-next-line no-restricted-syntax, no-await-in-loop
-          const response = await axios.get(`http://mws.fluxdrive.runonflux.io:2052/gettaskstatus?taskId=${task.taskId}`, axiosConfig);
+          const response = await axios.get(`https://mws.fluxdrive.runonflux.io/gettaskstatus?taskId=${task.taskId}`, axiosConfig);
           if (response && response.data && response.data.status === 'success') {
             task.status = response.data.data.status.state;
             if (task.status === 'downloading') {
@@ -7554,7 +7554,7 @@ export default {
               // eslint-disable-next-line camelcase
               filesize: file_size,
             };
-            const response = await axios.post('http://mws.fluxdrive.runonflux.io:2052/registerbackupfile', data, axiosConfig);
+            const response = await axios.post('https://mws.fluxdrive.runonflux.io/registerbackupfile', data, axiosConfig);
             if (response && response.data && response.data.status === 'success') {
               this.fluxDriveUploadTask.push({
                 // eslint-disable-next-line camelcase
@@ -7658,7 +7658,7 @@ export default {
             zelidauth,
           },
         };
-        const response = await axios.get(`http://mws.fluxdrive.runonflux.io:2052/getbackuplist?appname=${this.appName}`, axiosConfig);
+        const response = await axios.get(`https://mws.fluxdrive.runonflux.io/getbackuplist?appname=${this.appName}`, axiosConfig);
         if (response.data && response.data.status === 'success') {
           console.log(JSON.stringify(response.data.checkpoints));
           this.tableBackup += 1;
