@@ -1617,11 +1617,10 @@
                     <template #cell(actions)="row">
                       <div class="d-flex justify-content-center align-items-center">
                         <b-button
+                          :id="`delete-local-backup-${row.item.component}_${backupList[row.index].create}`"
                           v-b-tooltip.hover.top="'Remove file'"
                           variant="outline-danger"
                           class="d-flex justify-content-center align-items-center mr-1 custom-button"
-                          @click="
-                            deleteLocalBackup(row.item.component, backupList, backupList[row.index].file)"
                         >
                           <b-icon
                             class="d-flex justify-content-center align-items-center"
@@ -1629,6 +1628,11 @@
                             icon="trash"
                           />
                         </b-button>
+                        <confirm-dialog
+                          :target="`delete-local-backup-${row.item.component}_${backupList[row.index].create}`"
+                          confirm-button="Remove File"
+                          @confirm="deleteLocalBackup(row.item.component, backupList, backupList[row.index].file)"
+                        />
                         <b-button
                           v-b-tooltip.hover.top="'Download file'"
                           variant="outline-primary"
