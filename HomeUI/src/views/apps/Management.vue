@@ -6361,7 +6361,7 @@ export default {
   },
   created() {
     this.fluxDriveUploadTask = [];
-    this.fluxDriveEndPoint = 'https://mws.fluxdrive.runonflux.io/';
+    this.fluxDriveEndPoint = 'https://mws.fluxdrive.runonflux.io';
   },
   mounted() {
     const { hostname } = window.location;
