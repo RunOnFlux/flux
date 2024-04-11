@@ -7657,23 +7657,25 @@ export default {
           },
         };
         const response = await axios.get(`http://mws.fluxdrive.runonflux.io:2052/getbackuplist?appname=${this.appName}`, axiosConfig);
-        console.log(JSON.stringify(response.data.checkpoints));
-        this.tableBackup += 1;
-        const uniqueComponents = response.data.checkpoints.reduce((acc, { components }) => {
-          components.forEach((component) => acc.add(component.component));
-          return acc;
-        }, new Set());
-        const restoreComponentsTmp = [{ value: '', text: 'all' }];
-        // eslint-disable-next-line no-restricted-syntax
-        for (const item of uniqueComponents) {
-          restoreComponentsTmp.push({ value: item, text: item });
-        }
-        this.restoreComponents = restoreComponentsTmp;
-        this.applyFilter();
-        if (response.data && response.data.status === 'success') this.checkpoints = response.data.checkpoints;
+        if (response.data && response.data.status === 'success') {
+          console.log(JSON.stringify(response.data.checkpoints));
+          this.tableBackup += 1;
+          const uniqueComponents = response.data.checkpoints.reduce((acc, { components }) => {
+            components.forEach((component) => acc.add(component.component));
+            return acc;
+          }, new Set());
+          const restoreComponentsTmp = [{ value: '', text: 'all' }];
+          // eslint-disable-next-line no-restricted-syntax
+          for (const item of uniqueComponents) {
+            restoreComponentsTmp.push({ value: item, text: item });
+          }
+          this.restoreComponents = restoreComponentsTmp;
+          this.applyFilter();
+          this.checkpoints = response.data.checkpoints;
+        } else if (response.data && response.data.status === 'error') this.showToast('danger', response.data.data.message);
       } catch (error) {
         console.error('Error receiving FluxDrive backup list', error);
-        this.showToast('Error receiving FluxDrive backup list');
+        this.showToast('danger', 'Error receiving FluxDrive backup list');
       }
     },
     async initMMSDK() {
