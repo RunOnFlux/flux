@@ -6361,6 +6361,7 @@ export default {
   },
   created() {
     this.fluxDriveUploadTask = [];
+    this.fluxDriveEndPoint = 'http://localhost:80';
   },
   mounted() {
     const { hostname } = window.location;
@@ -7376,7 +7377,7 @@ export default {
             appname: this.appName,
             timestamp,
           };
-          const response = await axios.post('https://mws.fluxdrive.runonflux.io/removeCheckpoint', data, axiosConfig);
+          const response = await axios.post(`${this.fluxDriveEndPoint}/removeCheckpoint`, data, axiosConfig);
           console.error(response.data);
           if (response && response.data && response.data.status === 'success') {
             const backupIndex = restoreItem.findIndex((item) => item.timestamp === timestamp);
@@ -7482,7 +7483,7 @@ export default {
       for (const task of this.fluxDriveUploadTask) {
         try {
           // eslint-disable-next-line no-restricted-syntax, no-await-in-loop
-          const response = await axios.get(`https://mws.fluxdrive.runonflux.io/gettaskstatus?taskId=${task.taskId}`, axiosConfig);
+          const response = await axios.get(`${this.fluxDriveEndPoint}/gettaskstatus?taskId=${task.taskId}`, axiosConfig);
           if (response && response.data && response.data.status === 'success') {
             task.status = response.data.data.status.state;
             if (task.status === 'downloading') {
@@ -7519,6 +7520,7 @@ export default {
       } else {
         this.uploadProgress = false;
         this.showUploadProgressBar = false;
+        this.fileProgress = [];
       }
     },
     async uploadToFluxDrive() {
@@ -7558,7 +7560,7 @@ export default {
               // eslint-disable-next-line camelcase
               filesize: file_size,
             };
-            const response = await axios.post('https://mws.fluxdrive.runonflux.io/registerbackupfile', data, axiosConfig);
+            const response = await axios.post(`${this.fluxDriveEndPoint}/registerbackupfile`, data, axiosConfig);
             if (response && response.data && response.data.status === 'success') {
               this.fluxDriveUploadTask.push({
                 // eslint-disable-next-line camelcase
@@ -7662,7 +7664,7 @@ export default {
             zelidauth,
           },
         };
-        const response = await axios.get(`https://mws.fluxdrive.runonflux.io/getbackuplist?appname=${this.appName}`, axiosConfig);
+        const response = await axios.get(`${this.fluxDriveEndPoint}/getbackuplist?appname=${this.appName}`, axiosConfig);
         if (response.data && response.data.status === 'success') {
           console.log(JSON.stringify(response.data.checkpoints));
           this.tableBackup += 1;
