@@ -1725,26 +1725,25 @@
                       buttons
                     />
                     <div v-if="selectedStorageMethod === 'flux'">
-                      <b-card
+                      <div
                         v-if="sigInPrivilage === true"
-                        class="mb-2 justify-content-center align-items-center"
+                        class="mb-2"
                       >
-                        <b-card-text>
-                          <b-button
-                            :disabled="uploadProgress === true"
-                            variant="outline-primary"
-                            style="white-space: nowrap;"
-                            @click="uploadToFluxDrive(backupList)"
-                          >
-                            <b-icon
-                              scale="0.9"
-                              icon="cloud-arrow-up"
-                              class="mr-1"
-                            />
-                            Upload Selected Files To FluxDrive
-                          </b-button>
-                        </b-card-text>
-                      </b-card>
+                        <b-button
+                          :disabled="uploadProgress === true"
+                          class="mt-2"
+                          block
+                          variant="outline-primary"
+                          @click="uploadToFluxDrive()"
+                        >
+                          <b-icon
+                            scale="1.2"
+                            icon="cloud-arrow-up"
+                            class="mr-1"
+                          />
+                          Upload Selected Files To FluxDrive
+                        </b-button>
+                      </div>
                       <b-button
                         v-if="sigInPrivilage === false"
                         variant="outline-primary"
@@ -7132,6 +7131,9 @@ export default {
         return {
           component: selectedComponentName,
           file: selectedFile ? selectedFile.file : null,
+          file_size: selectedFile ? selectedFile.file_size : null,
+          file_name: selectedFile ? selectedFile.file_name : null,
+          create: selectedFile ? selectedFile.create : null,
         };
       }).filter((item) => item.file !== null);
     },
@@ -7515,7 +7517,7 @@ export default {
         this.showUploadProgressBar = false;
       }
     },
-    async uploadToFluxDrive(backupList) {
+    async uploadToFluxDrive() {
       try {
         this.uploadProgress = true;
         const zelidauth = localStorage.getItem('zelidauth');
@@ -7526,8 +7528,7 @@ export default {
           },
         };
         let prevoiusTimestamp = 0;
-        // eslint-disable-next-line no-restricted-syntax
-        const uploadPromises = backupList.map(async (backup) => {
+        const uploadPromises = this.backupToUpload.map(async (backup) => {
           try {
             const { file } = backup;
             const { component } = backup;
@@ -7564,6 +7565,7 @@ export default {
               this.showToast('danger', response.data.data.message);
               return false;
             }
+
             return true;
           } catch (error) {
             console.error('Error registering file:', error);
