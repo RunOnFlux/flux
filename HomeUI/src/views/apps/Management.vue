@@ -1921,10 +1921,11 @@
                       <template #cell(actions)="row">
                         <div class="d-flex justify-content-center align-items-center">
                           <b-button
+                            :id="`remove-checkpoint-${row.item.timestamp}`"
+                            v-b-tooltip.hover.top="'Remove Checkpoint'"
                             variant="outline-danger"
                             class="d-flex justify-content-center align-items-center mr-1"
                             style="width: 15px; height: 25px"
-                            @click="deleteRestoreBackup(row.item.component, checkpoints, row.item.timestamp)"
                           >
                             <b-icon
                               class="d-flex justify-content-center align-items-center"
@@ -1932,7 +1933,13 @@
                               icon="trash"
                             />
                           </b-button>
+                          <confirm-dialog
+                            :target="`remove-checkpoint-${row.item.timestamp}`"
+                            confirm-button="Remove Checkpoint"
+                            @confirm="deleteRestoreBackup(row.item.component, checkpoints, row.item.timestamp)"
+                          />
                           <b-button
+                            v-b-tooltip.hover.top="'Add all to Restore List'"
                             variant="outline-primary"
                             class="d-flex justify-content-center align-items-center"
                             style="width: 15px; height: 25px"
@@ -1973,6 +1980,7 @@
                           </template>
                           <template #cell(actions)="nestedRow">
                             <b-button
+                              v-b-tooltip.hover.top="'Add to Restore List'"
                               class="d-flex justify-content-center align-items-center"
                               style="
                           margin: auto;
@@ -5657,38 +5665,7 @@ export default {
       selectedBackupComponents: [],
       items: [],
       items1: [],
-      checkpoints: [
-        {
-          timestamp: 1712604600000,
-          components: [
-            {
-              component: 'mysql',
-              file_url: 'https://jetpack2_38080.app.runonflux.io/ipfs/QmQ4awxXNixSu2aSBF9faWp8LUqYqi51K7upxXcGHpvpi8',
-              file_size: 4508515,
-            },
-            {
-              component: 'operator',
-              file_url: 'https://jetpack2_38080.app.runonflux.io/ipfs/QmZXuz628eT7bqyN2UboYPqACiF4pemomrghhHGfKfS49e',
-              file_size: 105,
-            },
-          ],
-        },
-        {
-          timestamp: 1712605564070,
-          components: [
-            {
-              component: 'mysql',
-              file_url: 'https://jetpack2_38080.app.runonflux.io/ipfs/QmQ4awxXNixSu2aSBF9faWp8LUqYqi51K7upxXcGHpvpi8',
-              file_size: 4508515,
-            },
-            {
-              component: 'operator',
-              file_url: 'https://jetpack2_38080.app.runonflux.io/ipfs/QmZXuz628eT7bqyN2UboYPqACiF4pemomrghhHGfKfS49e',
-              file_size: 105,
-            },
-          ],
-        },
-      ],
+      checkpoints: [],
       sigInPrivilage: true,
       backupList: [],
       backupToUpload: [],
@@ -7379,12 +7356,36 @@ export default {
         }
       });
     },
-    deleteRestoreBackup(name, restoreItem, timestamp = 0) {
-      const backupIndex = restoreItem.findIndex((item) => item.timestamp === timestamp);
-      restoreItem.splice(backupIndex, 1);
+    async deleteRestoreBackup(name, restoreItem, timestamp = 0) {
       if (timestamp !== 0) {
         this.newComponents = this.newComponents.filter((item) => item.timestamp !== timestamp);
+        try {
+          const zelidauth = localStorage.getItem('zelidauth');
+          const axiosConfig = {
+            headers: {
+              zelidauth,
+            },
+          };
+          const data = {
+            appname: this.appName,
+            timestamp,
+          };
+          const response = await axios.post('http://mws.fluxdrive.runonflux.io:2052/removeCheckpoint', data, axiosConfig);
+          console.error(response.data);
+          if (response && response.data && response.data.status === 'success') {
+            const backupIndex = restoreItem.findIndex((item) => item.timestamp === timestamp);
+            restoreItem.splice(backupIndex, 1);
+            this.showToast('success', 'Checkpoint backup removed successfully.');
+            return true;
+          }
+          this.showToast('danger', response.data.data.message);
+          return false;
+        } catch (error) {
+          console.error('Error removing checkpoint', error);
+          this.showToast('Error removing checkpoint');
+        }
       }
+      return false;
     },
     async deleteLocalBackup(name, restoreItem, filepath = 0) {
       if (filepath === 0) {
