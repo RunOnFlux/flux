@@ -1814,6 +1814,44 @@
                         </div>
                       </div>
                     </b-card-text>
+
+                    <b-card-text v-if="showFluxDriveProgressBar">
+                      <div class="mt-1">
+                        <div
+                          v-if="fileProgressFD.length > 0"
+                          class="mb-2 mt-2 w-100"
+                          style="
+                                margin: 0 auto;
+                                padding: 12px;
+                                border: 1px solid #eaeaea;
+                                border-radius: 8px;
+                                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                                text-align: center;
+
+                              "
+                        >
+                          <h5 style="font-size: 16px; margin-bottom: 5px;">
+                            <span>
+                              <b-spinner small /> {{ fluxDriveUploadStatus }}
+                            </span>
+                          </h5>
+                          <b-progress
+                            v-for="(item, index) in computedFileProgressFD"
+                            v-if="item.progress > 0"
+                            :key="index"
+                            class="mt-1"
+                            style="height: 16px;"
+                            :max="100"
+                          >
+                            <b-progress-bar
+                              :value="item.progress"
+                              :label="`${item.fileName} - ${item.progress.toFixed(2)}%`"
+                              style="font-size: 14px;"
+                            />
+                          </b-progress>
+                        </div>
+                      </div>
+                    </b-card-text>
                   </div>
                 </div>
               </b-tab>
@@ -5625,6 +5663,9 @@ export default {
       uploadProgress: false,
       tarProgress: '',
       fileProgress: [],
+      fileProgressFD: [],
+      fluxDriveUploadStatus: '',
+      showFluxDriveProgressBar: false,
       showProgressBar: false,
       showUploadProgressBar: false,
       uploadStatus: '',
@@ -6002,6 +6043,9 @@ export default {
     },
     computedFileProgress() {
       return this.fileProgress;
+    },
+    computedFileProgressFD() {
+      return this.fileProgressFD;
     },
     computedFileProgressVolume() {
       return this.fileProgressVolume;
@@ -7353,6 +7397,16 @@ export default {
         }
       });
     },
+    updateFileProgressFD(currentFileName, currentFileProgress, loaded, total, name) {
+      this.$nextTick(() => {
+        const currentIndex = this.fileProgressFD.findIndex((entry) => entry.fileName === name);
+        if (currentIndex !== -1) {
+          this.$set(this.fileProgressFD, currentIndex, { fileName: name, progress: currentFileProgress });
+        } else {
+          this.fileProgressFD.push({ fileName: name, progress: currentFileProgress });
+        }
+      });
+    },
     updateFileProgressVolume(currentFileName, currentFileProgress) {
       this.$nextTick(() => {
         const currentIndex = this.fileProgressVolume.findIndex((entry) => entry.fileName === currentFileName);
@@ -7493,8 +7547,9 @@ export default {
             } else {
               task.progress = response.data.data.status.progress;
             }
-            this.updateFileProgress(task.filename, task.progress, 0, 0, task.component);
-            this.uploadStatus = response.data.data.status.message;
+            task.message = response.data.data.status.message;
+            this.updateFileProgressFD(task.filename, task.progress, 0, 0, task.component);
+            this.fluxDriveUploadStatus = response.data.data.status.message;
           }
         } catch (error) {
           console.log('error fetching upload status');
@@ -7507,7 +7562,7 @@ export default {
           this.fluxDriveUploadTask.splice(i - removedCount, 1);
           removedCount += 1;
         } else if (this.fluxDriveUploadTask[i].status === 'failed') {
-          this.showToast('danger', `failed to upload ${this.fluxDriveUploadTask[i].filename} to FluxDrive, please try again.`);
+          this.showToast('danger', `failed to upload ${this.fluxDriveUploadTask[i].filename} to FluxDrive, ${this.fluxDriveUploadTask[i].message}`);
           console.error(this.fluxDriveUploadTask[i].message);
           this.fluxDriveUploadTask.splice(i - removedCount, 1);
           removedCount += 1;
@@ -7519,8 +7574,9 @@ export default {
         }, 2000);
       } else {
         this.uploadProgress = false;
-        this.showUploadProgressBar = false;
-        this.fileProgress = [];
+        this.showFluxDriveProgressBar = false;
+        this.fluxDriveUploadStatus = '';
+        this.fileProgressFD = [];
       }
     },
     async uploadToFluxDrive() {
@@ -7584,7 +7640,7 @@ export default {
         // Check if all downloads were successful
         if (uploadResults.every((result) => result)) {
           console.log('All uploads registered successfully');
-          this.showUploadProgressBar = true;
+          this.showFluxDriveProgressBar = true;
         } else {
           console.error('Some uploads failed. Check the console for details.');
         }
