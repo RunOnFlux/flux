@@ -7533,6 +7533,8 @@ export default {
           zelidauth,
         },
       };
+      const fluxDriveUploadTaskTpm = [];
+      let errorInStatusCheck = false;
       // eslint-disable-next-line no-restricted-syntax
       for (const task of this.fluxDriveUploadTask) {
         try {
@@ -7550,25 +7552,21 @@ export default {
             task.message = response.data.data.status.message;
             this.updateFileProgressFD(task.filename, task.progress, 0, 0, task.component);
             this.fluxDriveUploadStatus = response.data.data.status.message;
+            if (task.status === 'finished') {
+              this.showToast('success', `${task.component} backup uploaded to FluxDrive successfully.`);
+            } else if (task.status === 'failed') {
+              this.showToast('danger', `failed to upload ${task.component} backup to FluxDrive.${this.fluxDriveUploadStatus}`);
+            } else {
+              fluxDriveUploadTaskTpm.push(task);
+            }
           }
         } catch (error) {
+          errorInStatusCheck = true;
           console.log('error fetching upload status');
         }
       }
-      let removedCount = 0;
-      for (let i = this.fluxDriveUploadTask.length - 1; i >= 0; i -= 1) {
-        if (this.fluxDriveUploadTask[i].status === 'finished') {
-          this.showToast('success', `${this.fluxDriveUploadTask[i].filename} uploaded to FluxDrive successfully.`);
-          this.fluxDriveUploadTask.splice(i - removedCount, 1);
-          removedCount += 1;
-        } else if (this.fluxDriveUploadTask[i].status === 'failed') {
-          this.showToast('danger', `failed to upload ${this.fluxDriveUploadTask[i].filename} to FluxDrive, ${this.fluxDriveUploadTask[i].message}`);
-          console.error(this.fluxDriveUploadTask[i].message);
-          this.fluxDriveUploadTask.splice(i - removedCount, 1);
-          removedCount += 1;
-        }
-      }
-      if (this.fluxDriveUploadTask.length) {
+      if (!errorInStatusCheck) this.fluxDriveUploadTask = fluxDriveUploadTaskTpm;
+      if (this.fluxDriveUploadTask.length > 0) {
         setTimeout(() => {
           this.checkFluxDriveUploadProgress();
         }, 2000);
