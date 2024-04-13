@@ -7533,7 +7533,7 @@ export default {
           zelidauth,
         },
       };
-      const fluxDriveUploadTaskTpm = [];
+      const fluxDriveUploadTaskTmp = [];
       let errorInStatusCheck = false;
       // eslint-disable-next-line no-restricted-syntax
       for (const task of this.fluxDriveUploadTask) {
@@ -7557,7 +7557,7 @@ export default {
             } else if (task.status === 'failed') {
               this.showToast('danger', `failed to upload ${task.component} backup to FluxDrive.${this.fluxDriveUploadStatus}`);
             } else {
-              fluxDriveUploadTaskTpm.push(task);
+              fluxDriveUploadTaskTmp.push(task);
             }
           }
         } catch (error) {
@@ -7565,7 +7565,7 @@ export default {
           console.log('error fetching upload status');
         }
       }
-      if (!errorInStatusCheck) this.fluxDriveUploadTask = fluxDriveUploadTaskTpm;
+      if (!errorInStatusCheck) this.fluxDriveUploadTask = fluxDriveUploadTaskTmp;
       if (this.fluxDriveUploadTask.length > 0) {
         setTimeout(() => {
           this.checkFluxDriveUploadProgress();
