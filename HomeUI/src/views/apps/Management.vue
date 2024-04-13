@@ -7559,6 +7559,8 @@ export default {
             } else {
               fluxDriveUploadTaskTmp.push(task);
             }
+          } else {
+            errorInStatusCheck = true;
           }
         } catch (error) {
           errorInStatusCheck = true;
