@@ -1,4 +1,6 @@
 [
+   "splunk/splunk:latest",
+   "splunk/splunk",
    "runonflux",
    "thetrunk",
    "littlestache",
