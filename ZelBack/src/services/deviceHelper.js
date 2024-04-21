@@ -5,21 +5,21 @@ const serviceHelper = require('./serviceHelper');
  * @param {string} directory The mount source
  * @returns {Promise<string>} The mount target
  */
-async function getDfDevice(directory) {
-  const { stdout } = await serviceHelper.runCommand('df', {
-    params: ['--output=source,target', directory],
-  });
+// async function getDfDevice(directory) {
+//   const { stdout } = await serviceHelper.runCommand('df', {
+//     params: ['--output=source,target', directory],
+//   });
 
-  const lines = stdout.trim().split('\n');
-  for (let i = 1; i < lines.length; i += 1) {
-    const columns = lines[i].split(/\s+/);
-    if (columns[0] !== '') {
-      return columns[0];
-    }
-  }
+//   const lines = stdout.trim().split('\n');
+//   for (let i = 1; i < lines.length; i += 1) {
+//     const columns = lines[i].split(/\s+/);
+//     if (columns[0] !== '') {
+//       return columns[0];
+//     }
+//   }
 
-  return '';
-}
+//   return '';
+// }
 
 /**
  * Determines if mount target has a filesystem quota
@@ -27,7 +27,7 @@ async function getDfDevice(directory) {
  * @returns {Promise<Boolean>} If the device has a quota
  */
 async function hasQuotaOptionForMountTarget(target) {
-  // this should really just be reading and parsing /proc/self/mountinfo
+  // this could just be reading and parsing /proc/self/mountinfo
   // then we don't need to use child process
 
   // As per `man mount`... use findmnt instead of mount:
@@ -59,7 +59,7 @@ async function hasQuotaOptionForMountTarget(target) {
 
 // For testing. Run: node <this file> /var/lib/docker (or another xfs target wth pquota)
 if (require.main === module) {
-  hasQuotaOptionForMountTarget(process.argv[2]).then(res => console.log("Has quota:", res));
+  hasQuotaOptionForMountTarget(process.argv[2]).then((res) => console.log('Has quota:', res));
 }
 
 module.exports = {

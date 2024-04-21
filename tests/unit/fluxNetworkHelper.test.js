@@ -21,7 +21,6 @@ const verificationHelper = require('../../ZelBack/src/services/verificationHelpe
 // for minimumFluxOSVersion
 const config = require('config');
 
-
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('../../ZelBack/src/services/utils/establishedConnections');
