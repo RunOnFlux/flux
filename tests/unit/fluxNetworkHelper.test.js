@@ -301,7 +301,7 @@ describe('fluxNetworkHelper tests', () => {
     };
 
     afterEach(() => {
-      serviceHelper.axiosGet.restore();
+      sinon.restore();
     });
 
     it('Should return true if node is running flux, port taken from config', async () => {
