@@ -1,5 +1,4 @@
 [
-   "splunk/splunk:latest",
    "runonflux",
    "thetrunk",
    "littlestache",
@@ -439,5 +438,6 @@
    "ghcr.io/bidversezw/bidverse",
    "zzjulien",
    "mbround18/valheim:latest",
-   "avasdao"
+   "avasdao",
+   "splunk"
 ]
