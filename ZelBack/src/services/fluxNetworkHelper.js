@@ -782,7 +782,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   if (daemonInfoRes.status === 'error') {
     syncthingVersionAllowed = false;
   } else {
-    let { blocks } = daemonInfoRes.data;
+    const { blocks } = daemonInfoRes.data;
     if (blocks >= config.syncthingVersionCheckStart) {
       syncthingVersionAllowed = await checkSyncthingVersionAllowed();
     }
