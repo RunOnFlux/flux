@@ -20,6 +20,7 @@ const daemonServiceWalletRpcs = require('./daemonService/daemonServiceWalletRpcs
 const benchmarkService = require('./benchmarkService');
 const verificationHelper = require('./verificationHelper');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
+const syncthingService = require('./syncthingService');
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('./utils/establishedConnections');
@@ -28,6 +29,7 @@ let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
 
 let storedFluxBenchAllowed = null;
+let storedSyncthingVersion = null;
 
 // default cache
 const LRUoptions = {
@@ -579,6 +581,26 @@ function getIncomingConnectionsInfo(req, res) {
  *
  * @param {number} value
  */
+function getStoredSyncthingVersion() {
+  return storedSyncthingVersion;
+}
+
+/**
+ * Getter for storedFluxBenchAllowed.
+ * Main goal for this is testing availability.
+ *
+ * @param {number} value
+ */
+function setStoredSyncthingVersion(value) {
+  storedSyncthingVersion = value;
+}
+
+/**
+ * Setter for storedFluxBenchAllowed.
+ * Main goal for this is testing availability.
+ *
+ * @param {number} value
+ */
 function setStoredFluxBenchAllowed(value) {
   storedFluxBenchAllowed = value;
 }
@@ -626,6 +648,42 @@ async function checkFluxbenchVersionAllowed() {
     log.error(`Error on checkFluxBenchVersion: ${err.message}`);
     dosState += 2;
     setDosMessage('Fluxbench Version Error. Error obtaining Flux Version.');
+    return false;
+  }
+}
+
+/**
+ * To check if Syncthing version meets minimum version requirements.
+ * @returns {Promise<boolean>} True if version is verified as allowed. Otherwise false.
+ */
+async function checkSyncthingVersionAllowed() {
+  if (storedSyncthingVersion) {
+    const versionOK = minVersionSatisfy(storedSyncthingVersion, config.minimumSyncthingAllowedVersion);
+    if (versionOK) return versionOK;
+  }
+  try {
+    const syncthingResponse = await syncthingService.systemVersion();
+    if (syncthingResponse.status === 'success') {
+      log.info(syncthingResponse);
+      const syncthingVersion = syncthingResponse.data.version;
+      const versionOK = minVersionSatisfy(syncthingVersion, config.minimumSyncthingAllowedVersion);
+      setStoredSyncthingVersion(syncthingVersion);
+      if (versionOK) return true;
+
+      dosState += 11;
+      setDosMessage(`Syncthing Version Error. Current lower version allowed is v${config.minimumSyncthingAllowedVersion} found v${syncthingVersion}`);
+      log.error(dosMessage);
+      return false;
+    }
+    dosState += 2;
+    setDosMessage('Syncthing Version Error. Error obtaining Syncthing Version.');
+    log.error(dosMessage);
+    return false;
+  } catch (err) {
+    log.error(err);
+    log.error(`Error on checkSyncthingVersionAllowed: ${err.message}`);
+    dosState += 2;
+    setDosMessage('Syncthing Version Error. Error obtaining Syncthing Version.');
     return false;
   }
 }
@@ -717,6 +775,21 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   if (!fluxBenchVersionAllowed) {
     return false;
   }
+
+  // tidy this up after syncthing check height reached
+  let syncthingVersionAllowed = true;
+  const daemonInfoRes = await daemonServiceControlRpcs.getInfo();
+  if (daemonInfoRes.status === 'error') {
+    syncthingVersionAllowed = false;
+  } else {
+    let { blocks } = daemonInfoRes.data;
+    if (blocks >= config.syncthingVersionCheckStart) {
+      syncthingVersionAllowed = await checkSyncthingVersionAllowed();
+    }
+  }
+
+  if (!syncthingVersionAllowed) return false;
+
   let askingIP = await getRandomConnection();
   if (typeof askingIP !== 'string' || typeof myFluxIP !== 'string' || myFluxIP === askingIP) {
     return false;
@@ -1620,6 +1693,7 @@ module.exports = {
   closeConnection,
   closeIncomingConnection,
   checkFluxbenchVersionAllowed,
+  checkSyncthingVersionAllowed,
   checkMyFluxAvailability,
   adjustExternalIP,
   allowPort,
@@ -1628,6 +1702,8 @@ module.exports = {
   // Exports for testing purposes
   setStoredFluxBenchAllowed,
   getStoredFluxBenchAllowed,
+  setStoredSyncthingVersion,
+  getStoredSyncthingVersion,
   setMyFluxIp,
   getDosMessage,
   setDosMessage,
