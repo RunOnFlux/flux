@@ -1941,6 +1941,7 @@
                       empty-text="No records available. Please export your backup to FluxDrive."
                       :sort-by.sync="sortbackupTableKey"
                       :sort-desc.sync="sortbackupTableDesc"
+                      :tbody-tr-class="rowClassFluxDriveBackups"
                       @filtered="onFilteredBackup"
                     >
                       <template #thead-top>
@@ -5726,9 +5727,9 @@ export default {
       nestedTableFilter: '',
       backupTableFields: [
         { key: 'timestamp', label: 'Name', thStyle: { width: '65%' } },
-        { key: 'time', label: 'Time', thStyle: { width: '25%' } },
+        { key: 'time', label: 'Time' },
         {
-          key: 'actions', label: 'Actions', thStyle: { width: '5%' }, class: 'text-center',
+          key: 'actions', label: 'Actions', thStyle: { width: '118px' }, class: 'text-center',
         },
       ],
       restoreComponents: [
@@ -5753,9 +5754,9 @@ export default {
       ],
       componentsTable() {
         return [
-          { key: 'component', label: 'Component Name', thStyle: { width: '30%' } },
+          { key: 'component', label: 'Component Name', thStyle: { width: '20%' } },
           { key: 'file_url', label: 'URL', thStyle: { width: '55%' } },
-          { key: 'file_size', label: 'Size', thStyle: { width: '10%' } },
+          { key: 'file_size', label: 'Size', thStyle: { width: '20%' } },
           {
             key: 'actions', label: 'Actions', thStyle: { width: '5%' }, class: 'text-center',
           },
@@ -6097,13 +6098,13 @@ export default {
     },
     componentsTable1() {
       return [
-        { key: 'component', label: 'Component Name', thStyle: { width: '30%' } },
-        { key: 'file_url', label: 'URL', thStyle: { width: '55%' } },
-        { key: 'file_size', label: 'Size', thStyle: { width: '10%' } },
+        { key: 'component', label: 'Component Name' },
+        { key: 'file_url', label: 'URL' },
+        { key: 'file_size', label: 'Size' },
         {
           key: 'actions',
           label: 'Actions',
-          thStyle: { width: '5%' },
+          thStyle: { width: '117px' },
           class: 'text-center',
         },
       ];
@@ -7416,6 +7417,10 @@ export default {
           this.fileProgressVolume.push({ fileName: currentFileName, progress: currentFileProgress });
         }
       });
+    },
+    rowClassFluxDriveBackups(item, type) {
+      if (!item || type !== 'row') return 'table-no-padding';
+      return '';
     },
     async deleteRestoreBackup(name, restoreItem, timestamp = 0) {
       if (timestamp !== 0) {
@@ -10282,5 +10287,8 @@ a:hover img {
 }
 .card-body {
   padding: 1rem;
+}
+.table-no-padding > td {
+  padding: 0 !important;
 }
 </style>
