@@ -83,11 +83,11 @@ class TokenBucket {
 
 /**
  * Check if semantic version is bigger or equal to minimum version
- * @param {string} version Version to check
+ * @param {string} targetVersion Version to check
  * @param {string} minimumVersion minimum version that version must meet
  * @returns {boolean} True if version is equal or higher to minimum version otherwise false.
  */
-function minVersionSatisfy(version, minimumVersion) {
+function minVersionSatisfy(targetVersion, minimumVersion) {
   // remove any leading character that is not a digit i.e. v1.2.6 -> 1.2.6
   const version = targetVersion.replace(/[^\d.]/g, '')
 
