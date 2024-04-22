@@ -88,6 +88,9 @@ class TokenBucket {
  * @returns {boolean} True if version is equal or higher to minimum version otherwise false.
  */
 function minVersionSatisfy(version, minimumVersion) {
+  // remove any leading character that is not a digit i.e. v1.2.6 -> 1.2.6
+  const version = targetVersion.replace(/[^\d.]/g, '')
+
   const splittedVersion = version.split('.');
   const major = Number(splittedVersion[0]);
   const minor = Number(splittedVersion[1]);
@@ -658,6 +661,7 @@ async function checkFluxbenchVersionAllowed() {
  */
 async function checkSyncthingVersionAllowed() {
   if (storedSyncthingVersion) {
+    // config version may have changed
     const versionOK = minVersionSatisfy(storedSyncthingVersion, config.minimumSyncthingAllowedVersion);
     if (versionOK) return versionOK;
   }
