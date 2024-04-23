@@ -1,3 +1,4 @@
+
 /* global userconfig */
 /* eslint-disable no-underscore-dangle */
 const config = require('config');
@@ -13,16 +14,13 @@ const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
-const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRpcs');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
 const daemonServiceBenchmarkRpcs = require('./daemonService/daemonServiceBenchmarkRpcs');
 const daemonServiceWalletRpcs = require('./daemonService/daemonServiceWalletRpcs');
 const benchmarkService = require('./benchmarkService');
-const systemService = require('./systemService');
 const verificationHelper = require('./verificationHelper');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
-const syncthingService = require('./syncthingService');
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('./utils/establishedConnections');
@@ -31,7 +29,6 @@ let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
 
 let storedFluxBenchAllowed = null;
-let storedSyncthingVersion = null;
 
 // default cache
 const LRUoptions = {
@@ -85,14 +82,11 @@ class TokenBucket {
 
 /**
  * Check if semantic version is bigger or equal to minimum version
- * @param {string} targetVersion Version to check
+ * @param {string} version Version to check
  * @param {string} minimumVersion minimum version that version must meet
  * @returns {boolean} True if version is equal or higher to minimum version otherwise false.
  */
-function minVersionSatisfy(targetVersion, minimumVersion) {
-  // remove any leading character that is not a digit i.e. v1.2.6 -> 1.2.6
-  const version = targetVersion.replace(/[^\d.]/g, '');
-
+function minVersionSatisfy(version, minimumVersion) {
   const splittedVersion = version.split('.');
   const major = Number(splittedVersion[0]);
   const minor = Number(splittedVersion[1]);
@@ -586,26 +580,6 @@ function getIncomingConnectionsInfo(req, res) {
  *
  * @param {number} value
  */
-function getStoredSyncthingVersion() {
-  return storedSyncthingVersion;
-}
-
-/**
- * Getter for storedFluxBenchAllowed.
- * Main goal for this is testing availability.
- *
- * @param {number} value
- */
-function setStoredSyncthingVersion(value) {
-  storedSyncthingVersion = value;
-}
-
-/**
- * Setter for storedFluxBenchAllowed.
- * Main goal for this is testing availability.
- *
- * @param {number} value
- */
 function setStoredFluxBenchAllowed(value) {
   storedFluxBenchAllowed = value;
 }
@@ -653,34 +627,6 @@ async function checkFluxbenchVersionAllowed() {
     log.error(`Error on checkFluxBenchVersion: ${err.message}`);
     dosState += 2;
     setDosMessage('Fluxbench Version Error. Error obtaining Flux Version.');
-    return false;
-  }
-}
-
-/**
- * To check if Syncthing version meets minimum version requirements.
- * @returns {Promise<boolean>} True if version is verified as allowed. Otherwise false.
- */
-async function checkSyncthingVersionAllowed() {
-  if (storedSyncthingVersion) {
-    // config version may have changed
-    const versionOK = minVersionSatisfy(storedSyncthingVersion, config.minimumSyncthingAllowedVersion);
-    if (versionOK) return versionOK;
-  }
-  try {
-    const syncthingResponse = await syncthingService.systemVersion();
-
-    // if response isn't success, syncthing isn't running. Try install it anyway
-    if (syncthingResponse.status !== 'success') return false;
-
-    const syncthingVersion = syncthingResponse.data.version;
-    const versionOK = minVersionSatisfy(syncthingVersion, config.minimumSyncthingAllowedVersion);
-    setStoredSyncthingVersion(syncthingVersion);
-    return versionOK
-
-  } catch (err) {
-    log.error(err);
-    log.error(`Error on checkSyncthingVersionAllowed: ${err.message}`);
     return false;
   }
 }
@@ -772,20 +718,6 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   if (!fluxBenchVersionAllowed) {
     return false;
   }
-
-  // tidy this up after syncthing check height reached
-  let syncthingVersionAllowed = true;
-  const daemonInfoRes = await daemonServiceControlRpcs.getInfo();
-  if (daemonInfoRes.status === 'error') {
-    syncthingVersionAllowed = false;
-  } else {
-    const { blocks } = daemonInfoRes.data;
-    if (blocks >= config.syncthingVersionCheckStart) {
-      syncthingVersionAllowed = await checkSyncthingVersionAllowed();
-      if (!syncthingVersionAllowed) systemService.upgradeSyncthing();
-    }
-  }
-
   let askingIP = await getRandomConnection();
   if (typeof askingIP !== 'string' || typeof myFluxIP !== 'string' || myFluxIP === askingIP) {
     return false;
@@ -1689,7 +1621,6 @@ module.exports = {
   closeConnection,
   closeIncomingConnection,
   checkFluxbenchVersionAllowed,
-  checkSyncthingVersionAllowed,
   checkMyFluxAvailability,
   adjustExternalIP,
   allowPort,
@@ -1698,8 +1629,6 @@ module.exports = {
   // Exports for testing purposes
   setStoredFluxBenchAllowed,
   getStoredFluxBenchAllowed,
-  setStoredSyncthingVersion,
-  getStoredSyncthingVersion,
   setMyFluxIp,
   getDosMessage,
   setDosMessage,
