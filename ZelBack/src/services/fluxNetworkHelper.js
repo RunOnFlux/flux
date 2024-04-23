@@ -13,6 +13,7 @@ const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
+const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRpcs');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
 const daemonServiceBenchmarkRpcs = require('./daemonService/daemonServiceBenchmarkRpcs');
@@ -89,7 +90,7 @@ class TokenBucket {
  */
 function minVersionSatisfy(targetVersion, minimumVersion) {
   // remove any leading character that is not a digit i.e. v1.2.6 -> 1.2.6
-  const version = targetVersion.replace(/[^\d.]/g, '')
+  const version = targetVersion.replace(/[^\d.]/g, '');
 
   const splittedVersion = version.split('.');
   const major = Number(splittedVersion[0]);
