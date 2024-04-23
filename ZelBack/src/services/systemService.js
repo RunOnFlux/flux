@@ -58,11 +58,11 @@ async function updateAptCache() {
 
 /**
  * Gets an installed packages version
- * @param package the target package to check
+ * @param systemPackage the target package to check
  * @returns {Promise<string>}
  */
-async function getPackageVersion(package) {
-  const { stdout, error } = await serviceHelper.runCommand('dpkg-query', { runAsRoot: true, logError: false, params: ["--showformat='${Version}'", '--show', package] });
+async function getPackageVersion(systemPackage) {
+  const { stdout, error } = await serviceHelper.runCommand('dpkg-query', { runAsRoot: true, logError: false, params: ["--showformat='${Version}'", '--show', systemPackage] });
 
   if (error) return '';
 
