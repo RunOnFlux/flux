@@ -8,19 +8,14 @@ const serviceHelper = require('./serviceHelper');
 /**
  * The running interval to check when syncthing was updated
  */
-let timer = null;
-
-/**
- * The last time syncthing was attepted to be installed
- */
-let lastUpgradeAttempt = 0;
+let syncthingTimer = null;
 
 /**
  * For testing
  */
 function resetTimer() {
-  clearInterval(timer);
-  timer = null;
+  clearInterval(syncthingTimer);
+  syncthingTimer = null;
 }
 
 /**
@@ -63,6 +58,7 @@ async function updateAptCache() {
 
 /**
  * Gets an installed packages version
+ * @param package the target package to check
  * @returns {Promise<string>}
  */
 async function getPackageVersion(package) {
@@ -79,11 +75,6 @@ async function getPackageVersion(package) {
  * @returns {Promise<Boolean>} If there was an error
  */
 async function upgradePackage(package) {
-  const now = Date.now();
-  const oneHour = 3600 * 1000;
-
-  if (lastUpgradeAttempt + oneHour > now) return;
-
   const updateError = await updateAptCache();
   if (updateError) return true;
 
@@ -136,7 +127,7 @@ async function ensurePackageVersion(package, version) {
     return;
   }
 
-  const versionOk = minVersionSatisfy(currentVersion, config.minimumSyncthingAllowedVersion)
+  const versionOk = minVersionSatisfy(currentVersion, version)
 
   if (versionOk) return;
 
@@ -153,13 +144,13 @@ async function ensurePackageVersion(package, version) {
  * @returns {Promise<void>}
  */
 async function monitorSyncthingPackage() {
-  if (timer) return;
+  if (syncthingTimer) return;
 
   const oneDay = 86400 * 1000;
 
-  await ensurePackageVersion('syncthing');
+  await ensurePackageVersion('syncthing', config.minimumSyncthingAllowedVersion);
 
-  timer = setInterval(() => {
+  syncthingTimer = setInterval(() => {
     ensurePackageVersion('syncthing');
   }, oneDay);
 };
