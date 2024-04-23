@@ -80,11 +80,11 @@ async function getPackageVersion(systemPackage) {
  * @param {string} package The package to update
  * @returns {Promise<Boolean>} If there was an error
  */
-async function upgradePackage(package) {
+async function upgradePackage(systemPackage) {
   const updateError = await updateAptCache();
   if (updateError) return true;
 
-  const { error } = await serviceHelper.runCommand('apt-get', { runAsRoot: true, params: ['install', package] });
+  const { error } = await serviceHelper.runCommand('apt-get', { runAsRoot: true, params: ['install', systemPackage] });
   return Boolean(error);
 }
 
