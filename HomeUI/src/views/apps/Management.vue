@@ -1996,7 +1996,7 @@
                         </div>
                       </template>
                       <template #cell(timestamp)="row">
-                        <kbd>backup_{{ row.item.timestamp }}</kbd>
+                        <kbd class="alert-info no-wrap"><b-icon scale="1.2" icon="hdd" />&nbsp;&nbsp;backup_{{ row.item.timestamp }}</kbd>
                       </template>
                       <template #cell(time)="row">
                         {{ formatDateTime(row.item.timestamp) }}
