@@ -74,10 +74,11 @@ async function getPackageVersion(package) {
 }
 
 /**
- * Updates the apt cache and installs latest version of syncthing
+ * Updates the apt cache and installs latest version of package
+ * @param {string} package The package to update
  * @returns {Promise<Boolean>} If there was an error
  */
-async function upgradeSyncthing() {
+async function upgradePackage(package) {
   const now = Date.now();
   const oneHour = 3600 * 1000;
 
@@ -86,7 +87,7 @@ async function upgradeSyncthing() {
   const updateError = await updateAptCache();
   if (updateError) return true;
 
-  const { error } = await serviceHelper.runCommand('apt-get', { runAsRoot: true, params: ['install', 'syncthing'] });
+  const { error } = await serviceHelper.runCommand('apt-get', { runAsRoot: true, params: ['install', package] });
   return Boolean(error);
 }
 
@@ -127,9 +128,27 @@ function minVersionSatisfy(targetVersion, minimumVersion) {
   return true;
 }
 
+async function ensurePackageVersion(package, version) {
+  const currentVersion = getPackageVersion(package);
+
+  if (!currentVersion) {
+    await upgradePackage();
+    return;
+  }
+
+  const versionOk = minVersionSatisfy(currentVersion, config.minimumSyncthingAllowedVersion)
+
+  if (versionOk) return;
+
+  const upgradeError = await upgradePackage(package);
+  if (!upgradeError) {
+    log.info(`${package} is on the latest version`);
+  }
+}
+
 /**
  * Checks daily if syncthing is updated (and updates apt cache)
- * If it hasn't been updated in the last 30 days, will install
+ * If it's not at least minimum version - it will be updated
  * latest version
  * @returns {Promise<void>}
  */
@@ -138,26 +157,11 @@ async function monitorSyncthingPackage() {
 
   const oneDay = 86400 * 1000;
 
-  const checkPackage = async () => {
-    const currentVersion = getPackageVersion('syncthing');
+  await ensurePackageVersion('syncthing');
 
-    if (!currentVersion) {
-      await upgradeSyncthing();
-      return;
-    }
-
-    const versionOk = minVersionSatisfy(currentVersion, config.minimumSyncthingAllowedVersion)
-
-    if (versionOk) return;
-
-    const upgradeError = await upgradeSyncthing();
-    if (!upgradeError) {
-      log.info('Syncthing is on the latest version');
-    }
-  }
-
-  await checkPackage();
-  timer = setInterval(checkPackage, oneDay);
+  timer = setInterval(() => {
+    ensurePackageVersion('syncthing');
+  }, oneDay);
 };
 
 /**
@@ -165,11 +169,6 @@ async function monitorSyncthingPackage() {
  */
 async function monitorSystem() {
   await monitorSyncthingPackage();
-}
-
-if (require.main === module) {
-  // upgradeSyncthing().then((res) => console.log('Error:', res));
-  getPackageVersion('blah').then(res => { console.log("Version:", res) });
 }
 
 module.exports = {
@@ -180,5 +179,6 @@ module.exports = {
   cacheUpdateTime,
   resetTimer,
   updateAptCache,
-  upgradeSyncthing,
+  upgradePackage,
+  ensurePackageVersion,
 };
