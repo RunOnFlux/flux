@@ -1858,6 +1858,7 @@
               <b-tab
                 title="Restore"
                 style="margin: 0; padding-top: 0px;"
+                @click="handleRadioClick"
               >
                 <div
                   class="mb-2"
