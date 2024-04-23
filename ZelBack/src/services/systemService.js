@@ -124,7 +124,10 @@ async function monitorSyncthingPackage() {
   if (syncthingTimer) return;
 
   let syncthingVersion = config.minimumSyncthingAllowedVersion;
-  let response = await axios.get('https://stats.runonflux.io/getmodulesminimumversions').catch((error) => log.error(error));
+  const axiosConfig = {
+    timeout: 10000,
+  };
+  let response = await axios.get('https://stats.runonflux.io/getmodulesminimumversions', axiosConfig).catch((error) => log.error(error));
   if (response && response.data && response.data.status === 'success') {
     syncthingVersion = response.data.data.syncthing || config.minimumSyncthingAllowedVersion;
   }
@@ -133,7 +136,7 @@ async function monitorSyncthingPackage() {
 
   syncthingTimer = setInterval(async () => {
     syncthingVersion = config.minimumSyncthingAllowedVersion;
-    response = await axios.get('https://stats.runonflux.io/getmodulesminimumversions').catch((error) => log.error(error));
+    response = await axios.get('https://stats.runonflux.io/getmodulesminimumversions', axiosConfig).catch((error) => log.error(error));
     if (response && response.data && response.data.status === 'success') {
       syncthingVersion = response.data.data.syncthing || config.minimumSyncthingAllowedVersion;
     }
