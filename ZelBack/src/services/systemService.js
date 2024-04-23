@@ -1,5 +1,6 @@
 const fs = require('node:fs/promises');
 
+const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 
 /**
@@ -38,7 +39,7 @@ async function updateAptCache() {
 
   if (lastUpdate + oneDay < Date.now()) {
     const { error } = await serviceHelper.runCommand('apt-get', { runAsRoot: true, params: ['update'] });
-
+    if (!error) log.info('Apt Cache updated');
     return Boolean(error);
   }
 
@@ -73,7 +74,10 @@ async function monitorSyncthingPackage() {
     const now = Date.now();
     if (lastUpdate + 30 * oneDay < now) {
       const upgradeError = await upgradeSyncthing();
-      if (!upgradeError) lastUpdate = now;
+      if (!upgradeError) {
+        lastUpdate = now;
+        log.info('Syncthing is on the latest version');
+      }
     }
   }, oneDay);
 }
