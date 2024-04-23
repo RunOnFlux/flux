@@ -138,7 +138,7 @@ describe('system Services tests', () => {
       // 2 days ago
       statStub.resolves({ mtimeMs: now - oneDay * 2 });
 
-      const error = await systemService.upgradeSyncthing();
+      const error = await systemService.upgradePackage('syncthing');
 
       expect(error).to.equal(true);
       // if there was no error, this would be called twice
@@ -158,7 +158,7 @@ describe('system Services tests', () => {
       // 2 days ago
       statStub.resolves({ mtimeMs: now - oneDay * 2 });
 
-      const error = await systemService.upgradeSyncthing();
+      const error = await systemService.upgradePackage('syncthing');
 
       expect(error).to.equal(false);
       sinon.assert.calledWithExactly(runCmdStub, 'apt-get', { runAsRoot: true, params: ['install', 'syncthing'] });
@@ -181,10 +181,23 @@ describe('system Services tests', () => {
       sinon.restore();
     });
 
-    it('should call upgradeSyncthing immediately', async () => {
+    it('should call upgradeSyncthing immediately if on lower version', async () => {
       const now = 1713858779721;
 
-      runCmdStub.resolves({ error: null });
+      runCmdStub.resolves({ error: null, stdout: 'v1.27.3' });
+
+      // don't update
+      statStub.resolves({ mtimeMs: now });
+
+      sinon.useFakeTimers({
+        now,
+      });
+    })
+
+    it('should not call upgradeSyncthing if on correct version', async () => {
+      const now = 1713858779721;
+
+      runCmdStub.resolves({ error: null, stdout: 'v1.27.6' });
 
       // don't update
       statStub.resolves({ mtimeMs: now });
@@ -194,14 +207,14 @@ describe('system Services tests', () => {
       });
 
       await systemService.monitorSyncthingPackage();
-      sinon.assert.calledOnceWithExactly(logSpy, 'Syncthing is on the latest version');
+      sinon.assert.notCalled(logSpy);
     });
 
     it('should call upgradeSyncthing every month', async () => {
       const now = 1713858779721;
       const oneDay = 86400 * 1000;
 
-      runCmdStub.resolves({ error: null });
+      runCmdStub.resolves({ error: null, stdout: '1.27.3' });
 
       // don't update
       statStub.resolves({ mtimeMs: now });
@@ -211,13 +224,13 @@ describe('system Services tests', () => {
       });
 
       await systemService.monitorSyncthingPackage();
-      sinon.assert.calledOnceWithExactly(logSpy, 'Syncthing is on the latest version');
+      sinon.assert.calledOnceWithExactly(logSpy, 'syncthing is on the latest version');
 
       // go forward 30 days
       await clock.tickAsync(30 * oneDay + oneDay);
 
       const filteredCalls = logSpy.getCalls().filter(
-        (call) => call.args[0] === 'Syncthing is on the latest version',
+        (call) => call.args[0] === 'syncthing is on the latest version',
       );
 
       expect(filteredCalls.length).to.equal(2);
