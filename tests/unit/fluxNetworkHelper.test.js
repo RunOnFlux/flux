@@ -16,6 +16,7 @@ const daemonServiceWalletRpcs = require('../../ZelBack/src/services/daemonServic
 const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
+const syncthingService = require('../../ZelBack/src/services/syncthingService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 
 const {
@@ -1112,6 +1113,116 @@ describe('fluxNetworkHelper tests', () => {
 
       expect(isFluxbenchVersionAllowed).to.equal(false);
       expect(fluxNetworkHelper.getStoredFluxBenchAllowed()).to.equal(null);
+    });
+  });
+
+  describe('checkSyncthingVersionAllowed tests', () => {
+    // Minimum version is: 1.27.6
+    let syncthingVersionStub;
+
+    beforeEach(() => {
+      syncthingVersionStub = sinon.stub(syncthingService, 'systemVersion');
+      fluxNetworkHelper.setStoredSyncthingVersion(null);
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return true if syncthing version is higher than minimal and stored in cache', async () => {
+      fluxNetworkHelper.setStoredSyncthingVersion('66.5.0');
+
+      const isSyncthingVersionAllowed = await fluxNetworkHelper.checkSyncthingVersionAllowed();
+
+      sinon.assert.notCalled(syncthingVersionStub);
+      expect(isSyncthingVersionAllowed).to.equal(true);
+    });
+
+    it('should return true if syncthing version is equal to minimal and stored in cache', async () => {
+      fluxNetworkHelper.setStoredSyncthingVersion('1.27.6');
+
+      const isSyncthingVersionAllowed = await fluxNetworkHelper.checkSyncthingVersionAllowed();
+
+      sinon.assert.notCalled(syncthingVersionStub);
+      expect(isSyncthingVersionAllowed).to.equal(true);
+    });
+
+    it('should return false if bench version is lower than minimal and is stored in cache', async () => {
+      fluxNetworkHelper.setStoredSyncthingVersion('1.2.3');
+
+      const isSyncthingVersionAllowed = await fluxNetworkHelper.checkSyncthingVersionAllowed();
+
+      sinon.assert.calledOnce(syncthingVersionStub);
+      expect(isSyncthingVersionAllowed).to.equal(false);
+    });
+
+    it('should return true if the version is higher than minimal and is not set in cache', async () => {
+      const versionResponse = {
+        status: 'success',
+        data: {
+          version: '66.5.4',
+        },
+      };
+      syncthingVersionStub.resolves(versionResponse);
+
+      const isSyncthingVersionAllowed = await fluxNetworkHelper.checkSyncthingVersionAllowed();
+
+      expect(isSyncthingVersionAllowed).to.equal(true);
+      expect(fluxNetworkHelper.getStoredSyncthingVersion()).to.equal('66.5.4');
+    });
+
+    it('should return true if the version is equal to minimal and is not set in cache', async () => {
+      const syncthingVersionResponse = {
+        status: 'success',
+        data: {
+          version: '1.27.6',
+        },
+      };
+      syncthingVersionStub.returns(syncthingVersionResponse);
+
+      const isSyncthingVersionAllowed = await fluxNetworkHelper.checkSyncthingVersionAllowed();
+
+      expect(isSyncthingVersionAllowed).to.equal(true);
+      expect(fluxNetworkHelper.getStoredSyncthingVersion()).to.equal('1.27.6');
+    });
+
+    it('should return false if the version is lower than minimal and is not set in cache', async () => {
+      const syncthingVersionResponse = {
+        status: 'success',
+        data: {
+          version: '1.2.0',
+        },
+      };
+      syncthingVersionStub.returns(syncthingVersionResponse);
+
+      const isSyncthingVersionAllowed = await fluxNetworkHelper.checkSyncthingVersionAllowed();
+
+      expect(isSyncthingVersionAllowed).to.equal(false);
+      expect(fluxNetworkHelper.getStoredSyncthingVersion()).to.equal('1.2.0');
+    });
+
+    it('should return false if the version is unattainable from benchmarkInfo', async () => {
+      const syncthingVersionResponse = {
+        status: 'error',
+        data: {
+          test: 'test',
+        },
+      };
+      syncthingVersionStub.returns(syncthingVersionResponse);
+
+      const isSyncthingVersionAllowed = await fluxNetworkHelper.checkSyncthingVersionAllowed();
+
+      expect(isSyncthingVersionAllowed).to.equal(false);
+      expect(fluxNetworkHelper.getStoredSyncthingVersion()).to.equal(null);
+    });
+
+    it('should return false if benchmarkInfo throws error', async () => {
+      syncthingVersionStub.throws();
+
+      const isSyncthingVersionAllowed = await fluxNetworkHelper.checkSyncthingVersionAllowed();
+
+      expect(isSyncthingVersionAllowed).to.equal(false);
+      expect(fluxNetworkHelper.getStoredSyncthingVersion()).to.equal(null);
     });
   });
 
