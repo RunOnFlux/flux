@@ -9,6 +9,14 @@ const serviceHelper = require('./serviceHelper');
 let timer = null;
 
 /**
+ * For testing
+ */
+function resetTimer() {
+  clearInterval(timer);
+  timer = null;
+}
+
+/**
  *  Gets the last time the cache was updated. This is a JS port
  * of how Ansible (python) does it, except this falls back to 0
  * if neither file found
@@ -52,7 +60,7 @@ async function updateAptCache() {
  */
 async function upgradeSyncthing() {
   const updateError = await updateAptCache();
-  if (updateError) return false;
+  if (updateError) return true;
 
   const { error } = await serviceHelper.runCommand('apt-get', { runAsRoot: true, params: ['install', 'syncthing'] });
   return Boolean(error);
@@ -70,7 +78,7 @@ async function monitorSyncthingPackage() {
   const oneDay = 86400 * 1000;
   let lastUpdate = 0;
 
-  timer = setInterval(async () => {
+  const runUpdate = async () => {
     const now = Date.now();
     if (lastUpdate + 30 * oneDay < now) {
       const upgradeError = await upgradeSyncthing();
@@ -79,7 +87,10 @@ async function monitorSyncthingPackage() {
         log.info('Syncthing is on the latest version');
       }
     }
-  }, oneDay);
+  };
+
+  if (!lastUpdate) await runUpdate();
+  timer = setInterval(runUpdate, oneDay);
 }
 
 if (require.main === module) {
@@ -88,4 +99,9 @@ if (require.main === module) {
 
 module.exports = {
   monitorSyncthingPackage,
+  // testing exports
+  cacheUpdateTime,
+  resetTimer,
+  updateAptCache,
+  upgradeSyncthing,
 };
