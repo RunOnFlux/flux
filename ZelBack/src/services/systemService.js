@@ -66,7 +66,13 @@ async function getPackageVersion(package) {
 
   if (error) return '';
 
-  return stdout.replace(/'/g, '');
+  const parsed = serviceHelper.parseVersion(stdout.replace(/'/g, ''))
+
+  if (parsed) {
+    return parsed.version;
+  }
+
+  return '';
 }
 
 /**
@@ -83,42 +89,11 @@ async function upgradePackage(package) {
 }
 
 /**
- * Check if semantic version is bigger or equal to minimum version
- * @param {string} targetVersion Version to check
- * @param {string} minimumVersion minimum version that version must meet
- * @returns {boolean} True if version is equal or higher to minimum version otherwise false.
+ *  Makes sure the package version is above the minimum version provided
+ * @param {string} package The package version to check
+ * @param {string} version The minimum acceptable version
+ * @returns {Promise<void>}
  */
-function minVersionSatisfy(targetVersion, minimumVersion) {
-  // remove any leading character that is not a digit i.e. v1.2.6 -> 1.2.6
-  const version = targetVersion.replace(/[^\d.]/g, '');
-
-  const splittedVersion = version.split('.');
-  const major = Number(splittedVersion[0]);
-  const minor = Number(splittedVersion[1]);
-  const patch = Number(splittedVersion[2]);
-
-  const splittedVersionMinimum = minimumVersion.split('.');
-  const majorMinimum = Number(splittedVersionMinimum[0]);
-  const minorMinimum = Number(splittedVersionMinimum[1]);
-  const patchMinimum = Number(splittedVersionMinimum[2]);
-  if (major < majorMinimum) {
-    return false;
-  }
-  if (major > majorMinimum) {
-    return true;
-  }
-  if (minor < minorMinimum) {
-    return false;
-  }
-  if (minor > minorMinimum) {
-    return true;
-  }
-  if (patch < patchMinimum) {
-    return false;
-  }
-  return true;
-}
-
 async function ensurePackageVersion(package, version) {
   const currentVersion = getPackageVersion(package);
 
@@ -127,7 +102,7 @@ async function ensurePackageVersion(package, version) {
     return;
   }
 
-  const versionOk = minVersionSatisfy(currentVersion, version)
+  const versionOk = serviceHelper.minVersionSatisfy(currentVersion, version)
 
   if (versionOk) return;
 

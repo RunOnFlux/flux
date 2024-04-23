@@ -243,52 +243,6 @@ describe('fluxNetworkHelper tests', () => {
     });
   });
 
-  describe('minVersionSatisfy tests', () => {
-    const minimalVersion = '3.4.12';
-
-    it('should return true if major version is higher than minimalVersion', async () => {
-      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('4.0.0', minimalVersion);
-
-      expect(versionAllowed).to.equal(true);
-    });
-
-    it('should return true if minor version is higher than minimalVersion', async () => {
-      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('3.6.0', minimalVersion);
-
-      expect(versionAllowed).to.equal(true);
-    });
-
-    it('should return true if patch version is higher than minimalVersion', async () => {
-      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('3.4.13', minimalVersion);
-
-      expect(versionAllowed).to.equal(true);
-    });
-
-    it('should return true if patch version is equal to minimalVersion', async () => {
-      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('3.4.12', minimalVersion);
-
-      expect(versionAllowed).to.equal(true);
-    });
-
-    it('should return false if patch version is below to minimalVersion', async () => {
-      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('3.4.11', minimalVersion);
-
-      expect(versionAllowed).to.equal(false);
-    });
-
-    it('should return false if minor version is below to minimalVersion', async () => {
-      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('3.3.11', minimalVersion);
-
-      expect(versionAllowed).to.equal(false);
-    });
-
-    it('should return false if major version is below to minimalVersion', async () => {
-      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('2.3.11', minimalVersion);
-
-      expect(versionAllowed).to.equal(false);
-    });
-  });
-
   describe('isFluxAvailable tests', () => {
     let stub;
     const ip = '127.0.0.1';
@@ -329,7 +283,7 @@ describe('fluxNetworkHelper tests', () => {
       const mockResponse = {
         data: {
           status: 'success',
-          data: '4.20.2',
+          data: '5.0.0',
         },
       };
       Object.setPrototypeOf(mockResponse.data, { // axios on home expects string
