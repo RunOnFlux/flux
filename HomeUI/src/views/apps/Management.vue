@@ -1965,7 +1965,7 @@
                         <div class="d-flex justify-content-center align-items-center">
                           <b-button
                             :id="`remove-checkpoint-${row.item.timestamp}`"
-                            v-b-tooltip.hover.top="'Remove Checkpoint'"
+                            v-b-tooltip.hover.top="'Remove Backup(s)'"
                             variant="outline-danger"
                             class="d-flex justify-content-center align-items-center mr-1"
                             style="width: 15px; height: 25px"
@@ -1978,7 +1978,7 @@
                           </b-button>
                           <confirm-dialog
                             :target="`remove-checkpoint-${row.item.timestamp}`"
-                            confirm-button="Remove Checkpoint"
+                            confirm-button="Remove Backup(s)"
                             @confirm="deleteRestoreBackup(row.item.component, checkpoints, row.item.timestamp)"
                           />
                           <b-button
@@ -2053,8 +2053,8 @@
                       stacked="md"
                       show-empty
                       bordered
-                      hover
                       small
+                      class="mt-1"
                     >
                       <template #thead-top>
                         <b-tr>
@@ -2080,6 +2080,7 @@
                       <template #cell(actions)="row">
                         <div class="d-flex justify-content-center align-items-center">
                           <b-button
+                            v-b-tooltip.hover.top="'Remove restore job'"
                             variant="outline-danger"
                             class="d-flex justify-content-center align-items-center"
                             style="width: 95px; height: 25px"
