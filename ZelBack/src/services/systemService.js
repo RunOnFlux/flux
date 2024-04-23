@@ -1,4 +1,5 @@
 const fs = require('node:fs/promises');
+const axios = require('axios');
 
 const config = require('config');
 
@@ -62,11 +63,12 @@ async function updateAptCache() {
  * @returns {Promise<string>}
  */
 async function getPackageVersion(systemPackage) {
+  // eslint-disable-next-line no-template-curly-in-string
   const { stdout, error } = await serviceHelper.runCommand('dpkg-query', { runAsRoot: true, logError: false, params: ["--showformat='${Version}'", '--show', systemPackage] });
 
   if (error) return '';
 
-  const parsed = serviceHelper.parseVersion(stdout.replace(/'/g, ''))
+  const parsed = serviceHelper.parseVersion(stdout.replace(/'/g, ''));
 
   if (parsed) {
     return parsed.version;
@@ -102,7 +104,7 @@ async function ensurePackageVersion(systemPackage, version) {
     return;
   }
 
-  const versionOk = serviceHelper.minVersionSatisfy(currentVersion, version)
+  const versionOk = serviceHelper.minVersionSatisfy(currentVersion, version);
 
   if (versionOk) return;
 
@@ -121,23 +123,23 @@ async function ensurePackageVersion(systemPackage, version) {
 async function monitorSyncthingPackage() {
   if (syncthingTimer) return;
 
-  let minimumSyncthingAllowedVersion = config.minimumSyncthingAllowedVersion;
-  const response = await axios.get('https://stats.runonflux.io/getmodulesminimumversions', axiosConfig).catch((error) => log.error(error));
+  let syncthinvVersion = config.minimumSyncthingAllowedVersion;
+  let response = await axios.get('https://stats.runonflux.io/getmodulesminimumversions').catch((error) => log.error(error));
   if (response && response.data && response.data.status === 'success') {
-    minimumSyncthingAllowedVersion = response.data.data.syncthing || config.minimumSyncthingAllowedVersion;
+    syncthinvVersion = response.data.data.syncthing || config.minimumSyncthingAllowedVersion;
   }
 
-  await ensurePackageVersion('syncthing', minimumSyncthingAllowedVersion);
+  await ensurePackageVersion('syncthing', syncthinvVersion);
 
   syncthingTimer = setInterval(async () => {
-    let minimumSyncthingAllowedVersion = config.minimumSyncthingAllowedVersion;
-    const response = await axios.get('https://stats.runonflux.io/getmodulesminimumversions', axiosConfig).catch((error) => log.error(error));
+    syncthinvVersion = config.minimumSyncthingAllowedVersion;
+    response = await axios.get('https://stats.runonflux.io/getmodulesminimumversions').catch((error) => log.error(error));
     if (response && response.data && response.data.status === 'success') {
-      minimumSyncthingAllowedVersion = response.data.data.syncthing || config.minimumSyncthingAllowedVersion;
+      syncthinvVersion = response.data.data.syncthing || config.minimumSyncthingAllowedVersion;
     }
-    ensurePackageVersion('syncthing', minimumSyncthingAllowedVersion);
+    ensurePackageVersion('syncthing', syncthinvVersion);
   }, 1000 * 60 * 60 * 24); // 24 hours
-};
+}
 
 /**
  * @returns {Promise<void>}
