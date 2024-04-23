@@ -146,13 +146,22 @@ async function ensurePackageVersion(package, version) {
 async function monitorSyncthingPackage() {
   if (syncthingTimer) return;
 
-  const oneDay = 86400 * 1000;
+  let minimumSyncthingAllowedVersion = config.minimumSyncthingAllowedVersion;
+  const response = await axios.get('https://stats.runonflux.io/getmodulesminimumversions', axiosConfig).catch((error) => log.error(error));
+  if (response && response.data && response.data.status === 'success') {
+    minimumSyncthingAllowedVersion = response.data.data.syncthing || config.minimumSyncthingAllowedVersion;
+  }
 
-  await ensurePackageVersion('syncthing', config.minimumSyncthingAllowedVersion);
+  await ensurePackageVersion('syncthing', minimumSyncthingAllowedVersion);
 
-  syncthingTimer = setInterval(() => {
-    ensurePackageVersion('syncthing');
-  }, oneDay);
+  syncthingTimer = setInterval(async () => {
+    let minimumSyncthingAllowedVersion = config.minimumSyncthingAllowedVersion;
+    const response = await axios.get('https://stats.runonflux.io/getmodulesminimumversions', axiosConfig).catch((error) => log.error(error));
+    if (response && response.data && response.data.status === 'success') {
+      minimumSyncthingAllowedVersion = response.data.data.syncthing || config.minimumSyncthingAllowedVersion;
+    }
+    ensurePackageVersion('syncthing', minimumSyncthingAllowedVersion);
+  }, 1000 * 60 * 60 * 24); // 24 hours
 };
 
 /**
