@@ -98,7 +98,7 @@ async function ensurePackageVersion(systemPackage, version) {
   const currentVersion = getPackageVersion(systemPackage);
 
   if (!currentVersion) {
-    await upgradePackage();
+    await upgradePackage(systemPackage);
     return;
   }
 
