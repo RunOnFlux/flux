@@ -92,7 +92,7 @@ async function startFluxFunctions() {
     log.info('Syncthing service started');
     await pgpService.generateIdentity();
     log.info('PGP service initiated');
-    await systemService.monitorSyncthingPackage();
+    await systemService.monitorSystem();
     log.info('System service initiated');
 
     setTimeout(() => {

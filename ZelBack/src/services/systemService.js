@@ -1,5 +1,7 @@
 const fs = require('node:fs/promises');
 
+const config = require('config');
+
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 
@@ -7,6 +9,11 @@ const serviceHelper = require('./serviceHelper');
  * The running interval to check when syncthing was updated
  */
 let timer = null;
+
+/**
+ * The last time syncthing was attepted to be installed
+ */
+let lastUpgradeAttempt = 0;
 
 /**
  * For testing
@@ -55,15 +62,69 @@ async function updateAptCache() {
 }
 
 /**
+ * Gets an installed packages version
+ * @returns {Promise<string>}
+ */
+async function getPackageVersion(package) {
+  const { stdout, error } = await serviceHelper.runCommand('dpkg-query', { runAsRoot: true, logError: false, params: ["--showformat='${Version}'", '--show', package] });
+
+  if (error) return '';
+
+  return stdout.replace(/'/g, '');
+}
+
+/**
  * Updates the apt cache and installs latest version of syncthing
  * @returns {Promise<Boolean>} If there was an error
  */
 async function upgradeSyncthing() {
+  const now = Date.now();
+  const oneHour = 3600 * 1000;
+
+  if (lastUpgradeAttempt + oneHour > now) return;
+
   const updateError = await updateAptCache();
   if (updateError) return true;
 
   const { error } = await serviceHelper.runCommand('apt-get', { runAsRoot: true, params: ['install', 'syncthing'] });
   return Boolean(error);
+}
+
+/**
+ * Check if semantic version is bigger or equal to minimum version
+ * @param {string} targetVersion Version to check
+ * @param {string} minimumVersion minimum version that version must meet
+ * @returns {boolean} True if version is equal or higher to minimum version otherwise false.
+ */
+function minVersionSatisfy(targetVersion, minimumVersion) {
+  // remove any leading character that is not a digit i.e. v1.2.6 -> 1.2.6
+  const version = targetVersion.replace(/[^\d.]/g, '');
+
+  const splittedVersion = version.split('.');
+  const major = Number(splittedVersion[0]);
+  const minor = Number(splittedVersion[1]);
+  const patch = Number(splittedVersion[2]);
+
+  const splittedVersionMinimum = minimumVersion.split('.');
+  const majorMinimum = Number(splittedVersionMinimum[0]);
+  const minorMinimum = Number(splittedVersionMinimum[1]);
+  const patchMinimum = Number(splittedVersionMinimum[2]);
+  if (major < majorMinimum) {
+    return false;
+  }
+  if (major > majorMinimum) {
+    return true;
+  }
+  if (minor < minorMinimum) {
+    return false;
+  }
+  if (minor > minorMinimum) {
+    return true;
+  }
+  if (patch < patchMinimum) {
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -76,29 +137,45 @@ async function monitorSyncthingPackage() {
   if (timer) return;
 
   const oneDay = 86400 * 1000;
-  let lastUpdate = 0;
 
-  const runUpdate = async () => {
-    const now = Date.now();
-    if (lastUpdate + 30 * oneDay < now) {
-      const upgradeError = await upgradeSyncthing();
-      if (!upgradeError) {
-        lastUpdate = now;
-        log.info('Syncthing is on the latest version');
-      }
+  const checkPackage = async () => {
+    const currentVersion = getPackageVersion('syncthing');
+
+    if (!currentVersion) {
+      await upgradeSyncthing();
+      return;
     }
-  };
 
-  if (!lastUpdate) await runUpdate();
-  timer = setInterval(runUpdate, oneDay);
+    const versionOk = minVersionSatisfy(currentVersion, config.minimumSyncthingAllowedVersion)
+
+    if (versionOk) return;
+
+    const upgradeError = await upgradeSyncthing();
+    if (!upgradeError) {
+      log.info('Syncthing is on the latest version');
+    }
+  }
+
+  await checkPackage();
+  timer = setInterval(checkPackage, oneDay);
+};
+
+/**
+ * @returns {Promise<void>}
+ */
+async function monitorSystem() {
+  await monitorSyncthingPackage();
 }
 
 if (require.main === module) {
-  upgradeSyncthing().then((res) => console.log('Error:', res));
+  // upgradeSyncthing().then((res) => console.log('Error:', res));
+  getPackageVersion('blah').then(res => { console.log("Version:", res) });
 }
 
 module.exports = {
+  getPackageVersion,
   monitorSyncthingPackage,
+  monitorSystem,
   // testing exports
   cacheUpdateTime,
   resetTimer,

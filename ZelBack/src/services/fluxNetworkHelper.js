@@ -19,6 +19,7 @@ const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnode
 const daemonServiceBenchmarkRpcs = require('./daemonService/daemonServiceBenchmarkRpcs');
 const daemonServiceWalletRpcs = require('./daemonService/daemonServiceWalletRpcs');
 const benchmarkService = require('./benchmarkService');
+const systemService = require('./systemService');
 const verificationHelper = require('./verificationHelper');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const syncthingService = require('./syncthingService');
@@ -668,27 +669,18 @@ async function checkSyncthingVersionAllowed() {
   }
   try {
     const syncthingResponse = await syncthingService.systemVersion();
-    if (syncthingResponse.status === 'success') {
-      log.info(syncthingResponse);
-      const syncthingVersion = syncthingResponse.data.version;
-      const versionOK = minVersionSatisfy(syncthingVersion, config.minimumSyncthingAllowedVersion);
-      setStoredSyncthingVersion(syncthingVersion);
-      if (versionOK) return true;
 
-      dosState += 11;
-      setDosMessage(`Syncthing Version Error. Current lower version allowed is v${config.minimumSyncthingAllowedVersion} found v${syncthingVersion}`);
-      log.error(dosMessage);
-      return false;
-    }
-    dosState += 2;
-    setDosMessage('Syncthing Version Error. Error obtaining Syncthing Version.');
-    log.error(dosMessage);
-    return false;
+    // if response isn't success, syncthing isn't running. Try install it anyway
+    if (syncthingResponse.status !== 'success') return false;
+
+    const syncthingVersion = syncthingResponse.data.version;
+    const versionOK = minVersionSatisfy(syncthingVersion, config.minimumSyncthingAllowedVersion);
+    setStoredSyncthingVersion(syncthingVersion);
+    return versionOK
+
   } catch (err) {
     log.error(err);
     log.error(`Error on checkSyncthingVersionAllowed: ${err.message}`);
-    dosState += 2;
-    setDosMessage('Syncthing Version Error. Error obtaining Syncthing Version.');
     return false;
   }
 }
@@ -790,10 +782,9 @@ async function checkMyFluxAvailability(retryNumber = 0) {
     const { blocks } = daemonInfoRes.data;
     if (blocks >= config.syncthingVersionCheckStart) {
       syncthingVersionAllowed = await checkSyncthingVersionAllowed();
+      if (!syncthingVersionAllowed) systemService.upgradeSyncthing();
     }
   }
-
-  if (!syncthingVersionAllowed) return false;
 
   let askingIP = await getRandomConnection();
   if (typeof askingIP !== 'string' || typeof myFluxIP !== 'string' || myFluxIP === askingIP) {
