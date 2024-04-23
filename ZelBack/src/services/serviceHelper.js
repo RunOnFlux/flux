@@ -324,13 +324,19 @@ async function runCommand(userCmd, options = {}) {
  * @returns {{version, major, minor, patch} | null} The parsed version
  */
 function parseVersion(rawVersion) {
-  const semver = /^[^\d]?(?<version>(?<major>0|[1-9][0-9]*)\.(?<minor>0|[1-9][0-9]*)\.(?<patch>0|[1-9][0-9]*))(-(0|[1-9A-Za-z-][0-9A-Za-z-]*)(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$/
+  const semver = /^[^\d]?(?<version>(?<major>0|[1-9][0-9]*)\.(?<minor>0|[1-9][0-9]*)\.(?<patch>0|[1-9][0-9]*))(-(0|[1-9A-Za-z-][0-9A-Za-z-]*)(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$/;
 
-  const match = semver.exec(rawVersion)
+  const match = semver.exec(rawVersion);
 
   if (match) {
-    const { groups: { version, major, minor, patch } } = match
-    return { version, major, minor, patch }
+    const {
+      groups: {
+        version, major, minor, patch,
+      },
+    } = match;
+    return {
+      version, major, minor, patch,
+    };
   }
 }
 

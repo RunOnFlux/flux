@@ -90,12 +90,12 @@ async function upgradePackage(package) {
 
 /**
  *  Makes sure the package version is above the minimum version provided
- * @param {string} package The package version to check
+ * @param {string} systemPackage The package version to check
  * @param {string} version The minimum acceptable version
  * @returns {Promise<void>}
  */
-async function ensurePackageVersion(package, version) {
-  const currentVersion = getPackageVersion(package);
+async function ensurePackageVersion(systemPackage, version) {
+  const currentVersion = getPackageVersion(systemPackage);
 
   if (!currentVersion) {
     await upgradePackage();
@@ -106,9 +106,9 @@ async function ensurePackageVersion(package, version) {
 
   if (versionOk) return;
 
-  const upgradeError = await upgradePackage(package);
+  const upgradeError = await upgradePackage(systemPackage);
   if (!upgradeError) {
-    log.info(`${package} is on the latest version`);
+    log.info(`${systemPackage} is on the latest version`);
   }
 }
 
