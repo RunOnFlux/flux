@@ -1659,7 +1659,7 @@
             title="Pay with Stripe/PayPal"
           >
             <div class="loginRow">
-              <a @click="initStripePay(registrationHash, appRegistrationSpecification.name, applicationPriceUSD, appRegistrationSpecification.description)">
+              <a v-if="stripeEnabled" @click="initStripePay(registrationHash, appRegistrationSpecification.name, applicationPriceUSD, appRegistrationSpecification.description)">
                 <img
                   class="stripePay"
                   src="@/assets/images/Stripe.svg"
@@ -1668,7 +1668,7 @@
                   width="100%"
                 >
               </a>
-              <a @click="initPaypalPay(registrationHash, appRegistrationSpecification.name, applicationPriceUSD, appRegistrationSpecification.description)">
+              <a v-if="paypalEnabled" @click="initPaypalPay(registrationHash, appRegistrationSpecification.name, applicationPriceUSD, appRegistrationSpecification.description)">
                 <img
                   class="paypalPay"
                   src="@/assets/images/PayPal.png"
@@ -1677,6 +1677,7 @@
                   width="100%"
                 >
               </a>
+              <span v-if="!paypalEnabled && !stripeEnabled">Fiat Gateways Unavailable.</span>
             </div>
             <div
               v-if="checkoutLoading"
@@ -2063,10 +2064,9 @@ import { MetaMaskSDK } from '@metamask/sdk';
 import useAppConfig from '@core/app-config/useAppConfig';
 import { useClipboard } from '@vueuse/core';
 import { getUser } from '@/libs/firebase';
+import getPaymentGateways, { paymentBridge } from '@/libs/fiatGateways';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
-
-const paymentBridge = 'https://fiatpaymentsbridge.runonflux.io';
 
 const walletConnectOptions = {
   projectId,
@@ -2458,6 +2458,8 @@ export default {
       fiatCheckoutURL: '',
       checkoutLoading: false,
       ipAccess: false,
+      stripeEnabled: true,
+      paypalEnabled: true,
     };
   },
   computed: {
@@ -3019,6 +3021,11 @@ export default {
         this.showToast('success', response.data.data.message || response.data.data);
       } else {
         this.showToast('danger', response.data.data.message || response.data.data);
+      }
+      const fiatGateways = await getPaymentGateways();
+      if (fiatGateways) {
+        this.stripeEnabled = fiatGateways.stripe;
+        this.paypalEnabled = fiatGateways.paypal;
       }
     },
 
@@ -3713,9 +3720,24 @@ export default {
       try {
         this.fiatCheckoutURL = '';
         this.checkoutLoading = true;
+        let clientIP = null;
+        let clientIPResponse = await axios.get('https://api.ipify.org?format=json').catch(() => {
+          console.log('Error geting clientIp from api.ipify.org from');
+        });
+        if (clientIPResponse && clientIPResponse.data && clientIPResponse.data.ip) {
+          clientIP = clientIPResponse.data.ip;
+        } else {
+          clientIPResponse = await axios.get('https://ipinfo.io').catch(() => {
+            console.log('Error geting clientIp from ipinfo.io from');
+          });
+          if (clientIPResponse && clientIPResponse.data && clientIPResponse.data.ip) {
+            clientIP = clientIPResponse.data.ip;
+          }
+        }
         const zelidauth = localStorage.getItem('zelidauth');
         const auth = qs.parse(zelidauth);
         const data = {
+          clientIP,
           zelid: auth.zelid,
           signature: auth.signature,
           loginPhrase: auth.loginPhrase,

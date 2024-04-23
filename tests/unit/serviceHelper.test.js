@@ -556,4 +556,50 @@ describe('serviceHelper tests', () => {
       sinon.assert.notCalled(errorSpy);
     });
   });
+
+  describe('minVersionSatisfy tests', () => {
+    const minimalVersion = '3.4.12';
+
+    it('should return true if major version is higher than minimalVersion', async () => {
+      const versionAllowed = await serviceHelper.minVersionSatisfy('4.0.0', minimalVersion);
+
+      expect(versionAllowed).to.equal(true);
+    });
+
+    it('should return true if minor version is higher than minimalVersion', async () => {
+      const versionAllowed = await serviceHelper.minVersionSatisfy('3.6.0', minimalVersion);
+
+      expect(versionAllowed).to.equal(true);
+    });
+
+    it('should return true if patch version is higher than minimalVersion', async () => {
+      const versionAllowed = await serviceHelper.minVersionSatisfy('3.4.13', minimalVersion);
+
+      expect(versionAllowed).to.equal(true);
+    });
+
+    it('should return true if patch version is equal to minimalVersion', async () => {
+      const versionAllowed = await serviceHelper.minVersionSatisfy('3.4.12', minimalVersion);
+
+      expect(versionAllowed).to.equal(true);
+    });
+
+    it('should return false if patch version is below to minimalVersion', async () => {
+      const versionAllowed = await serviceHelper.minVersionSatisfy('3.4.11', minimalVersion);
+
+      expect(versionAllowed).to.equal(false);
+    });
+
+    it('should return false if minor version is below to minimalVersion', async () => {
+      const versionAllowed = await serviceHelper.minVersionSatisfy('3.3.11', minimalVersion);
+
+      expect(versionAllowed).to.equal(false);
+    });
+
+    it('should return false if major version is below to minimalVersion', async () => {
+      const versionAllowed = await serviceHelper.minVersionSatisfy('2.3.11', minimalVersion);
+
+      expect(versionAllowed).to.equal(false);
+    });
+  });
 });
