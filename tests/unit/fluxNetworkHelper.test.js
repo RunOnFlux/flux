@@ -18,9 +18,6 @@ const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunica
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 
-// for minimumFluxOSVersion
-const config = require('config');
-
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('../../ZelBack/src/services/utils/establishedConnections');
@@ -308,7 +305,7 @@ describe('fluxNetworkHelper tests', () => {
       const mockResponse = {
         data: {
           status: 'success',
-          data: config.minimumFluxOSAllowedVersion,
+          data: '5.0.0',
         },
       };
       Object.setPrototypeOf(mockResponse.data, { // axios on home expects string
@@ -332,7 +329,7 @@ describe('fluxNetworkHelper tests', () => {
       const mockResponse = {
         data: {
           status: 'success',
-          data: config.minimumFluxOSAllowedVersion,
+          data: '5.0.0',
         },
       };
       Object.setPrototypeOf(mockResponse.data, { // axios on home expects string
