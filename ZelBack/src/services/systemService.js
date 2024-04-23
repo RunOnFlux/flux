@@ -97,13 +97,15 @@ async function upgradePackage(systemPackage) {
  * @returns {Promise<void>}
  */
 async function ensurePackageVersion(systemPackage, version) {
+  log.info(`Checking package ${systemPackage} is updated to version ${version}`);
   const currentVersion = await getPackageVersion(systemPackage);
 
   if (!currentVersion) {
+    log.info(`Package ${systemPackage} not found on system`);
     await upgradePackage(systemPackage);
     return;
   }
-
+  log.info(`Package ${systemPackage} version ${currentVersion} found`);
   const versionOk = serviceHelper.minVersionSatisfy(currentVersion, version);
 
   if (versionOk) return;
