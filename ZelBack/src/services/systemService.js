@@ -45,7 +45,7 @@ async function cacheUpdateTime() {
  * @returns {Promise<Boolean>} If there was an error
  */
 async function updateAptCache() {
-  const oneDay = 86400;
+  const oneDay = 86400 * 1000;
   const lastUpdate = await cacheUpdateTime();
 
   if (lastUpdate + oneDay < Date.now()) {
