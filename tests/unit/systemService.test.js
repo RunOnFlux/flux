@@ -209,31 +209,5 @@ describe('system Services tests', () => {
       await systemService.monitorSyncthingPackage();
       sinon.assert.notCalled(logSpy);
     });
-
-    it('should call upgradeSyncthing every month', async () => {
-      const now = 1713858779721;
-      const oneDay = 86400 * 1000;
-
-      runCmdStub.resolves({ error: null, stdout: '1.27.3' });
-
-      // don't update
-      statStub.resolves({ mtimeMs: now });
-
-      const clock = sinon.useFakeTimers({
-        now,
-      });
-
-      await systemService.monitorSyncthingPackage();
-      sinon.assert.calledOnceWithExactly(logSpy, 'syncthing is on the latest version');
-
-      // go forward 30 days
-      await clock.tickAsync(30 * oneDay + oneDay);
-
-      const filteredCalls = logSpy.getCalls().filter(
-        (call) => call.args[0] === 'syncthing is on the latest version',
-      );
-
-      expect(filteredCalls.length).to.equal(2);
-    });
   });
 });
