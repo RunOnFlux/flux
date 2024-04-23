@@ -318,7 +318,7 @@ async function runCommand(userCmd, options = {}) {
 }
 
 /**
- *
+ * Parses a raw version string from dpkg-query into an object
  * @param {string} rawVersion version string from dpkg-query. Eg:
  * 0.36.1-4ubuntu0.1 (ufw)
  * @returns {{version, major, minor, patch} | null} The parsed version
@@ -338,6 +338,7 @@ function parseVersion(rawVersion) {
       version, major, minor, patch,
     };
   }
+  return null;
 }
 
 /**
