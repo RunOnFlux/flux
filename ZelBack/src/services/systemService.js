@@ -123,21 +123,21 @@ async function ensurePackageVersion(systemPackage, version) {
 async function monitorSyncthingPackage() {
   if (syncthingTimer) return;
 
-  let syncthinvVersion = config.minimumSyncthingAllowedVersion;
+  let syncthingVersion = config.minimumSyncthingAllowedVersion;
   let response = await axios.get('https://stats.runonflux.io/getmodulesminimumversions').catch((error) => log.error(error));
   if (response && response.data && response.data.status === 'success') {
-    syncthinvVersion = response.data.data.syncthing || config.minimumSyncthingAllowedVersion;
+    syncthingVersion = response.data.data.syncthing || config.minimumSyncthingAllowedVersion;
   }
 
-  await ensurePackageVersion('syncthing', syncthinvVersion);
+  await ensurePackageVersion('syncthing', syncthingVersion);
 
   syncthingTimer = setInterval(async () => {
-    syncthinvVersion = config.minimumSyncthingAllowedVersion;
+    syncthingVersion = config.minimumSyncthingAllowedVersion;
     response = await axios.get('https://stats.runonflux.io/getmodulesminimumversions').catch((error) => log.error(error));
     if (response && response.data && response.data.status === 'success') {
-      syncthinvVersion = response.data.data.syncthing || config.minimumSyncthingAllowedVersion;
+      syncthingVersion = response.data.data.syncthing || config.minimumSyncthingAllowedVersion;
     }
-    ensurePackageVersion('syncthing', syncthinvVersion);
+    ensurePackageVersion('syncthing', syncthingVersion);
   }, 1000 * 60 * 60 * 24); // 24 hours
 }
 
