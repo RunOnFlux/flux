@@ -97,22 +97,26 @@ async function upgradePackage(systemPackage) {
  * @returns {Promise<void>}
  */
 async function ensurePackageVersion(systemPackage, version) {
-  log.info(`Checking package ${systemPackage} is updated to version ${version}`);
-  const currentVersion = await getPackageVersion(systemPackage);
+  try {
+    log.info(`Checking package ${systemPackage} is updated to version ${version}`);
+    const currentVersion = await getPackageVersion(systemPackage);
 
-  if (!currentVersion) {
-    log.info(`Package ${systemPackage} not found on system`);
-    await upgradePackage(systemPackage);
-    return;
-  }
-  log.info(`Package ${systemPackage} version ${currentVersion} found`);
-  const versionOk = serviceHelper.minVersionSatisfy(currentVersion, version);
+    if (!currentVersion) {
+      log.info(`Package ${systemPackage} not found on system`);
+      await upgradePackage(systemPackage);
+      return;
+    }
+    log.info(`Package ${systemPackage} version ${currentVersion} found`);
+    const versionOk = serviceHelper.minVersionSatisfy(currentVersion, version);
 
-  if (versionOk) return;
+    if (versionOk) return;
 
-  const upgradeError = await upgradePackage(systemPackage);
-  if (!upgradeError) {
-    log.info(`${systemPackage} is on the latest version`);
+    const upgradeError = await upgradePackage(systemPackage);
+    if (!upgradeError) {
+      log.info(`${systemPackage} is on the latest version`);
+    }
+  } catch (error) {
+    log.error(error);
   }
 }
 
@@ -123,34 +127,42 @@ async function ensurePackageVersion(systemPackage, version) {
  * @returns {Promise<void>}
  */
 async function monitorSyncthingPackage() {
-  if (syncthingTimer) return;
+  try {
+    if (syncthingTimer) return;
 
-  let syncthingVersion = config.minimumSyncthingAllowedVersion;
-  const axiosConfig = {
-    timeout: 10000,
-  };
-  let response = await axios.get('https://stats.runonflux.io/getmodulesminimumversions', axiosConfig).catch((error) => log.error(error));
-  if (response && response.data && response.data.status === 'success') {
-    syncthingVersion = response.data.data.syncthing || config.minimumSyncthingAllowedVersion;
-  }
-
-  await ensurePackageVersion('syncthing', syncthingVersion);
-
-  syncthingTimer = setInterval(async () => {
-    syncthingVersion = config.minimumSyncthingAllowedVersion;
-    response = await axios.get('https://stats.runonflux.io/getmodulesminimumversions', axiosConfig).catch((error) => log.error(error));
+    let syncthingVersion = config.minimumSyncthingAllowedVersion;
+    const axiosConfig = {
+      timeout: 10000,
+    };
+    let response = await axios.get('https://stats.runonflux.io/getmodulesminimumversions', axiosConfig).catch((error) => log.error(error));
     if (response && response.data && response.data.status === 'success') {
       syncthingVersion = response.data.data.syncthing || config.minimumSyncthingAllowedVersion;
     }
-    ensurePackageVersion('syncthing', syncthingVersion);
-  }, 1000 * 60 * 60 * 24); // 24 hours
+
+    await ensurePackageVersion('syncthing', syncthingVersion);
+
+    syncthingTimer = setInterval(async () => {
+      syncthingVersion = config.minimumSyncthingAllowedVersion;
+      response = await axios.get('https://stats.runonflux.io/getmodulesminimumversions', axiosConfig).catch((error) => log.error(error));
+      if (response && response.data && response.data.status === 'success') {
+        syncthingVersion = response.data.data.syncthing || config.minimumSyncthingAllowedVersion;
+      }
+      ensurePackageVersion('syncthing', syncthingVersion);
+    }, 1000 * 60 * 60 * 24); // 24 hours
+  } catch (error) {
+    log.error(error);
+  }
 }
 
 /**
  * @returns {Promise<void>}
  */
 async function monitorSystem() {
-  await monitorSyncthingPackage();
+  try {
+    await monitorSyncthingPackage();
+  } catch (error) {
+    log.error(error);
+  }
 }
 
 module.exports = {
