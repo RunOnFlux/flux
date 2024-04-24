@@ -5,11 +5,44 @@ const config = require('config');
 
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
+const fifoQueue = require('./utils/fifoQueue');
 
 /**
  * The running interval to check when syncthing was updated
  */
 let syncthingTimer = null;
+
+/**
+ * A FIFO queue used to store and run apt commands
+ * @type {fifoQueue.FifoQueue}
+ */
+const aptQueue = new fifoQueue.FifoQueue()
+
+/**
+ *
+ * @param {string} command
+ * @param {Array<string>} userParams
+ * @param {number} timeout
+ */
+async function aptRunner(options = {}) {
+  const command = options.command;
+  const userParams = [command, ...options.params];
+  const timeout = options.timeout || 180;
+
+  // using -o DPkg::Lock::Timeout=180, apt-get will wait for 3 minutes for a lock
+
+  // I have only tested this on ubuntu 20.04
+  // https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1053726
+  // However, I think it only affects apt-get update, not install.
+  const params = ['-o', `DPkg::Lock::Timeout=${timeout}`, ...userParams];
+  const { error } = await serviceHelper.runCommand('apt-get', { runAsRoot: true, params });
+
+  // this is so this command can be retried by the worker runner
+  if (error) throw error;
+
+  log.info(`Command: apt-get ${userParams.join(' ')} ran successfully`)
+  return { error: null }
+}
 
 /**
  * For testing
@@ -40,16 +73,51 @@ async function cacheUpdateTime() {
 }
 
 /**
+ * @param {string} command The command to run
+ * @param {Array<string>} params The params to pass to command
+ * @param {{params?: Array, timeout?: number, retries?: number, wait?: Boolean}} options
+ *
+ * timeout: how many seconds to wait (60 default)
+ * retries: how many times to retry (3 default)
+ * wait: should the queue item be awaited
+ *
+ * @returns {Promise<void>}
+ */
+async function queueAptGetCommand(command, options = {}) {
+  const params = options.params || [];
+
+  if (!Array.isArray(params) || !params.every((p) => typeof p === 'string')) {
+    log.error('Malformed apt params. Must be an Array of strings... not running.')
+    return;
+  }
+
+  const wait = options.wait || false;
+  const commandOptions = { command, params, timeout: options.timeout }
+  const workerOptions = { retries: options.retries }
+
+  return aptQueue.push(wait, { command, params, commandOptions, workerOptions })
+}
+
+/**
  * Updates the apt cache, will only update if it hasn't
- * been updated within 24 hours
+ * been updated within 24 hours.
  * @returns {Promise<Boolean>} If there was an error
  */
 async function updateAptCache() {
+  // for testing, if you want to reset the lastUpdate time, you can run:
+  //  sudo touch -d '2007-01-31 8:46:26' /var/lib/apt/periodic/update-success-stamp
   const oneDay = 86400 * 1000;
   const lastUpdate = await cacheUpdateTime();
 
   if (lastUpdate + oneDay < Date.now()) {
-    const { error } = await serviceHelper.runCommand('apt-get', { runAsRoot: true, params: ['update'] });
+    // update uses the /var/lib/apt/lists dir for a lock.
+    // This isn't affected by the DPkg::Lock::Timeout option. It only
+    // seems to care about the install /var/lib/dpkg/lock-frontend lock.
+    //
+    // We can still get a race condition if another entity on the system
+    // updates the cache before us. In that instance, the command throws,
+    // since this is just a cache update, we assume it was fine and don't retry.
+    const { error } = await queueAptGetCommand('update', { wait: true, retries: 0 })
     if (!error) log.info('Apt Cache updated');
     return Boolean(error);
   }
@@ -58,7 +126,7 @@ async function updateAptCache() {
 }
 
 /**
- * Gets an installed packages version
+ * Gets an installed packages version. This doesn't use the apt lock
  * @param systemPackage the target package to check
  * @returns {Promise<string>}
  */
@@ -83,10 +151,10 @@ async function getPackageVersion(systemPackage) {
  * @returns {Promise<Boolean>} If there was an error
  */
 async function upgradePackage(systemPackage) {
-  const updateError = await updateAptCache();
-  if (updateError) return true;
+  // we don't care about any errors here.
+  await updateAptCache();
 
-  const { error } = await serviceHelper.runCommand('apt-get', { runAsRoot: true, params: ['install', systemPackage] });
+  const { error } = await queueAptGetCommand('install', { wait: true, params: [systemPackage] })
   return Boolean(error);
 }
 
@@ -159,16 +227,28 @@ async function monitorSyncthingPackage() {
  */
 async function monitorSystem() {
   try {
+    aptQueue.addWorker(aptRunner);
     await monitorSyncthingPackage();
   } catch (error) {
     log.error(error);
   }
 }
 
+if (require.main === module) {
+  aptQueue.addWorker(aptRunner);
+  // updateAptCache().then(res => {
+  //   console.log("Cache update error:", res)
+  // })
+  upgradePackage('syncthing').then(res => {
+    console.log("Package upgrade error:", res)
+  })
+}
+
 module.exports = {
   getPackageVersion,
   monitorSyncthingPackage,
   monitorSystem,
+  queueAptGetCommand,
   // testing exports
   cacheUpdateTime,
   resetTimer,
