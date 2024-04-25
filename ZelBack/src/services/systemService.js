@@ -105,7 +105,7 @@ async function queueAptGetCommand(command, options = {}) {
   const commandOptions = { command, params, timeout: options.timeout }
   const workerOptions = { retries: options.retries }
 
-  return aptQueue.push(wait, { commandOptions, workerOptions })
+  return aptQueue.push({ commandOptions, workerOptions }, wait)
 }
 
 /**

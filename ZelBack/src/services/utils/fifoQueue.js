@@ -10,7 +10,7 @@ class FifoQueue extends EventEmitter {
   /**
    * The main queue
    */
-  list = [];
+  #list = [];
   /**
    * If the queue is being processed
    */
@@ -21,6 +21,11 @@ class FifoQueue extends EventEmitter {
   halted = false;
 
   /**
+   * An awaitable for the queue to clear
+   */
+  empty = Promise.resolve();
+
+  /**
    *
    * @param {{worker?: () => Promise<void>, retries?: number, retryDelay?: number, maxSize?: number}} options
    */
@@ -28,7 +33,7 @@ class FifoQueue extends EventEmitter {
     super();
 
     this.worker = options.worker || null;
-    this.retries = options.retries ?? 1;
+    this.retries = options.retries ?? 5;
     this.retryDelay = options.retryDelay ?? 10 * 1000; // 10s
     this.maxSize = options.maxSize ?? 10; // 0 infinite
   }
@@ -38,15 +43,22 @@ class FifoQueue extends EventEmitter {
    * @returns {Boolean}
    */
   get workAvailable() {
-    return Boolean(this.list.length);
+    return Boolean(this.#list.length);
   }
 
   get length() {
-    return this.list.length
+    return this.#list.length
   }
 
   get queueFull() {
-    return Boolean(this.maxSize && this.list.length >= this.maxSize);
+    return Boolean(this.maxSize && this.#list.length >= this.maxSize);
+  }
+
+  /**
+   * The items as passed in by the user.
+   */
+  get list() {
+    return this.#list.map(x => x[0]);
   }
 
   /**
@@ -76,19 +88,19 @@ class FifoQueue extends EventEmitter {
   }
 
   /**
-   * @param {Boolean} wait If we should wait for the work to be finished
    * @param {Object} payload The properties to pass to the worker
+   * @param {Boolean} wait If we should wait for the work to be finished
    * @return {Promise<Any>}
    */
-  async push(wait, payload) {
+  async push(payload, wait = false) {
     return new Promise((resolve) => {
       // oldest items get torched if the queue is full.
       // Maybe it would be better to reject. Or configurable?
-      if (this.queueFull) this.list.shift();
+      if (this.queueFull) this.#list.shift();
 
-      this.list.push([payload, resolve]);
+      this.#list.push([payload, resolve]);
 
-      if (this.worker) this.work();
+      if (this.worker && !this.working) this.work();
       if (!wait) resolve({ error: null });
     })
   }
@@ -98,7 +110,7 @@ class FifoQueue extends EventEmitter {
    * @returns {Any}
    */
   shift() {
-    return this.list.length ? this.list.shift() : null;
+    return this.#list.length ? this.#list.shift() : null;
   }
 
   /**
@@ -106,7 +118,7 @@ class FifoQueue extends EventEmitter {
    * @returns {Any}
    */
   pop() {
-    return this.list.length ? this.list.pop() : null;
+    return this.#list.length ? this.#list.pop() : null;
   }
 
   /**
@@ -115,7 +127,7 @@ class FifoQueue extends EventEmitter {
    * @returns {Any}
    */
   at(index) {
-    return this.list.length > index ? this.list[index] : null;
+    return this.#list.length > index ? this.#list[index] : null;
   }
 
   /**
@@ -125,7 +137,12 @@ class FifoQueue extends EventEmitter {
   async runWorker(props) {
     const [options, resolve] = props;
 
-    const { workerOptions, commandOptions } = options;
+    let { workerOptions, commandOptions } = options;
+
+    // If the commandOptions object wasn't passed in, we just pass the
+    // entire options to the command
+    if (!commandOptions) commandOptions = options;
+    if (!workerOptions) workerOptions = {};
 
     // nullish coalescing to allow for zero
     let retriesRemaining = workerOptions.retries ?? this.retries;
@@ -146,35 +163,43 @@ class FifoQueue extends EventEmitter {
           resolve({ error });
           this.emit('failed', { options, error });
           this.halted = true;
-          return;
         }
-        // we have emitted a failure event, if we get halted externally,
+        // Can get halted externally too.
         // we put this task back at the start of the queue and bail.
         if (this.halted) {
-          this.list.unshift(props);
+          this.#list.unshift(props);
           break;
         }
+
         // wait default 10 seconds between retries
         await new Promise(r => setTimeout(r, retryDelay));
       }
     }
   }
 
+  /**
+   * Loops through any work until the queue is halted or there is
+   * no more work. Also sets an empty awaitable, so you can wait for
+   * the work to finish.
+   * @returns {Promise<void>}
+   */
   async work() {
     if (this.working) return;
     this.working = true;
+    this.empty = new Promise(async (resolve) => {
+      try {
+        while (this.workAvailable && !this.halted) {
+          const props = this.shift();
 
-    try {
-      while (this.workAvailable && !this.halted) {
-        const props = this.shift();
+          if (!Object.keys(props).length) return;
 
-        if (!Object.keys(props).length) return;
-
-        await this.runWorker(props)
+          await this.runWorker(props)
+        }
+      } finally {
+        this.working = false;
+        resolve();
       }
-    } finally {
-      this.working = false;
-    }
+    });
   }
 }
 
