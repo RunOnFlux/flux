@@ -10818,6 +10818,7 @@ async function syncthingApps() {
               paused: false,
               type: 'sendreceive',
               rescanIntervalS: 900,
+              maxConflicts: 0,
             };
             const syncFolder = allFoldersResp.data.find((x) => x.id === id);
             if (containerDataFlags.includes('r') || containerDataFlags.includes('g')) {
@@ -10928,7 +10929,7 @@ async function syncthingApps() {
             foldersConfiguration.push(syncthingFolder);
             if (!syncFolder) {
               newFoldersConfiguration.push(syncthingFolder);
-            } else if (syncFolder && (syncFolder.paused || syncFolder.type !== syncthingFolder.type || JSON.stringify(syncFolder.devices) !== JSON.stringify(syncthingFolder.devices))) {
+            } else if (syncFolder && (syncFolder.maxConflicts !== 0 || syncFolder.paused || syncFolder.type !== syncthingFolder.type || JSON.stringify(syncFolder.devices) !== JSON.stringify(syncthingFolder.devices))) {
               newFoldersConfiguration.push(syncthingFolder);
             }
           }
@@ -11012,6 +11013,7 @@ async function syncthingApps() {
                 paused: false,
                 type: 'sendreceive',
                 rescanIntervalS: 900,
+                maxConflicts: 0,
               };
               const syncFolder = allFoldersResp.data.find((x) => x.id === id);
               if (containerDataFlags.includes('r') || containerDataFlags.includes('g')) {
@@ -11125,7 +11127,7 @@ async function syncthingApps() {
               foldersConfiguration.push(syncthingFolder);
               if (!syncFolder) {
                 newFoldersConfiguration.push(syncthingFolder);
-              } else if (syncFolder && (syncFolder.paused || syncFolder.type !== syncthingFolder.type || JSON.stringify(syncFolder.devices) !== JSON.stringify(syncthingFolder.devices))) {
+              } else if (syncFolder && (syncFolder.maxConflicts !== 0 || syncFolder.paused || syncFolder.type !== syncthingFolder.type || JSON.stringify(syncFolder.devices) !== JSON.stringify(syncthingFolder.devices))) {
                 newFoldersConfiguration.push(syncthingFolder);
               }
             }
